@@ -256,9 +256,9 @@ ISC 与 MIT 的条件均只有一条：在所有副本中保留版权声明与�
 | `System.Memory` | 4.6.3 | MIT | 传递依赖 |
 | `System.Text.Encoding.CodePages` | 9.0.5 | MIT | 传递依赖（PacketDotNet） |
 | `System.Runtime.CompilerServices.Unsafe` | 6.0.0 | MIT | 传递依赖 |
-| `xunit` | 2.9.2 | Apache-2.0 | 仅测试 |
+| `xunit` | 2.9.3 | Apache-2.0 | 仅测试 |
 | `xunit.runner.visualstudio` | 2.8.2 | Apache-2.0 | 仅测试 |
-| `Microsoft.NET.Test.Sdk` | 17.11.1 | MIT | 仅测试 |
+| `Microsoft.NET.Test.Sdk` | 18.10.1 | MIT | 仅测试 |
 | `JsonSchema.Net` | 7.3.4 | MIT | 仅测试（集成测试直接依赖） |
 | `Json.More.Net` | 2.1.1 | MIT | 仅测试（`JsonSchema.Net` 的传递依赖） |
 | `JsonPointer.Net` | 5.3.1 | MIT | 仅测试（`JsonSchema.Net` 的传递依赖） |
