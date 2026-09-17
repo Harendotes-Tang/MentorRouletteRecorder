@@ -15,7 +15,7 @@
       Machina.FFXIV is GPL-3.0; it is the reason this project is GPL-3.0-or-later.
       See docs/third-party-licenses.md.
     -->
-    <PackageReference Include="Machina.FFXIV" Version="2.4.7.7" />
+    <PackageReference Include="Machina.FFXIV" Version="2.4.7.8" />
     <PackageReference Include="SharpPcap" Version="6.3.1" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.11" />
   </ItemGroup>
