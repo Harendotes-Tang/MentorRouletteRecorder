@@ -18,7 +18,7 @@
       every live event the Collector writes against contracts/ipc-v1.schema.json,
       so an undeclared field fails the build instead of reaching a client.
     -->
-    <PackageReference Include="JsonSchema.Net" Version="7.3.4" />
+    <PackageReference Include="JsonSchema.Net" Version="9.4.0" />
   </ItemGroup>
 
   <ItemGroup>
