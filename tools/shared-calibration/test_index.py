@@ -21,13 +21,16 @@ def sha(value) -> str:
 
 
 def entry(code_sha, submitters=1, published="2026-09-15T08:00:00Z", region="CN", build=BUILD, revoked=False,
-          match_source="ANNOUNCEMENT", commit=None) -> dict:
-    return {
+          match_source="ANNOUNCEMENT", commit=None, conflicting=None) -> dict:
+    item = {
         "region": region, "game_build": build, "code_sha256": code_sha, "match_source": match_source,
         "submitters": submitters, "first_published_at": published,
         "path": region.lower() + "/" + build + "/" + code_sha[:12] + ".mrc", "commit": commit or "c" * 40,
         "revoked": revoked,
     }
+    if conflicting is not None:
+        item["conflicting"] = conflicting
+    return item
 
 
 def index_bytes(*entries) -> bytes:
@@ -87,6 +90,9 @@ class ReaderTests(unittest.TestCase):
         ("commit", "INVALID:commit", '"main"'),
         ("revoked", "MISSING:revoked", None),
         ("revoked", "INVALID:revoked", '"false"'),
+        ("conflicting", "INVALID:conflicting", '"true"'),
+        ("conflicting", "INVALID:conflicting", "1"),
+        ("conflicting", "INVALID:conflicting", "null"),
     )
 
     def test_a_malformed_entry_is_skipped_with_a_reason_and_the_rest_is_still_read(self):
@@ -181,6 +187,22 @@ class ReaderTests(unittest.TestCase):
             entry(sha("b"), submitters=4), entry(sha("b"), submitters=2)))
         chosen = repo_index.select(read.entries, "CN", BUILD)
         self.assertEqual([(sha("b"), 4)], [(item["code_sha256"], item["submitters"]) for item in chosen])
+
+    def test_the_conflicting_flag_is_optional_and_read_as_written(self):
+        read = repo_index.read_index(index_bytes(
+            entry(sha("a")), entry(sha("b"), conflicting=True), entry(sha("c"), conflicting=False)))
+        self.assertEqual((), read.skipped)
+        self.assertEqual([None, True, False], [item.get("conflicting") for item in read.entries])
+        self.assertEqual([False, True, False], [repo_index.is_conflicting(item) for item in read.entries])
+
+    def test_a_conflicting_entry_is_picked_after_every_entry_that_is_not(self):
+        read = repo_index.read_index(index_bytes(
+            entry(sha("a"), submitters=9, conflicting=True),
+            entry(sha("b"), submitters=8, published="2026-09-02T00:00:00Z", conflicting=True),
+            entry(sha("c"), submitters=1, published="2026-09-03T00:00:00Z"),
+            entry(sha("d"), submitters=1, published="2026-09-02T00:00:00Z", conflicting=False)))
+        self.assertEqual([sha("d"), sha("c"), sha("a"), sha("b")],
+                         [item["code_sha256"] for item in repo_index.select(read.entries, "CN", BUILD)])
 
     def test_stamps_are_what_the_client_parses(self):
         self.assertIsNotNone(repo_index.parse_stamp("2026-09-15T08:00:00.1234567Z"))
@@ -348,6 +370,89 @@ class SubmissionTests(unittest.TestCase):
         self.assertEqual((code_sha,), repo_index.revoked_codes(once.entries, "CN", BUILD))
         with self.assertRaises(KeyError):
             repo_index.revoke(state, sha("e"))
+
+
+class ConflictTests(unittest.TestCase):
+    """update_conflicts (plan section 18.6): two codes that disagree about the same thing are both flagged."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix="mr-conflicts-")
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.state = repo_index.empty_index()
+
+    def publish(self, number, source="ANNOUNCEMENT", region="CN", build=BUILD) -> str:
+        """Publishes code ``number`` and writes its file where the index says it lives."""
+        outcome = _submit(self.state, number=number, account=1000 + number, source=source, region=region, build=build,
+                          when=NOW + dt.timedelta(minutes=number))
+        self.assertEqual(repo_index.PUBLISHED, outcome.status)
+        self.state = outcome.index
+        self.write(outcome.new_code_path, _code(number, source, region, build))
+        return outcome.code_sha256
+
+    def write(self, relative, text) -> None:
+        target = self.root / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="ascii")
+
+    def flags(self, region="CN", build=BUILD, log=None) -> dict:
+        self.state = repo_index.update_conflicts(self.state, self.root, region, build, log=log)
+        return {item["code_sha256"]: item.get("conflicting") for item in self.state.entries}
+
+    def test_two_different_codes_of_one_template_and_match_source_flag_each_other(self):
+        first, second = self.publish(1), self.publish(2)
+        self.assertEqual({first: True, second: True}, self.flags())
+        files = repo_index.dump(self.state)
+        self.assertIn(b'"revoked":false,"conflicting":true', files[repo_index.INDEX_FILE])
+        self.assertEqual(self.state, repo_index.parse(files[repo_index.INDEX_FILE], files[repo_index.LEDGER_FILE]))
+        self.assertEqual((), repo_index.read_index(files[repo_index.INDEX_FILE]).skipped)
+
+    def test_a_code_alone_and_a_code_of_another_match_source_are_not_flagged(self):
+        alone = self.publish(1)
+        self.assertEqual({alone: None}, self.flags())
+        other = self.publish(2, source="MARKER_OFFSET")
+        self.assertEqual({alone: None, other: None}, self.flags())
+        third = self.publish(3)
+        self.assertEqual({alone: True, other: None, third: True}, self.flags())
+
+    def test_another_submitter_of_the_same_code_is_no_conflict(self):
+        only = self.publish(1)
+        added = _submit(self.state, number=1, account=77, when=NOW + dt.timedelta(hours=1))
+        self.assertEqual(repo_index.ADDED, added.status)
+        self.state = added.index
+        self.assertEqual({only: None}, self.flags())
+
+    def test_a_revoked_code_neither_counts_nor_keeps_a_flag(self):
+        first, second = self.publish(1), self.publish(2)
+        self.assertEqual({first: True, second: True}, self.flags())
+        self.state = repo_index.revoke(self.state, first)
+        self.assertEqual({first: None, second: None}, self.flags())
+        self.assertTrue(self.state.entries[0]["revoked"])
+
+    def test_recomputing_twice_changes_nothing(self):
+        self.publish(1), self.publish(2), self.publish(3, source="REPLY_STATE")
+        once, written = self.flags(), repo_index.dump(self.state)
+        self.assertEqual(once, self.flags())
+        self.assertEqual(written, repo_index.dump(self.state))
+        self.assertEqual({True, None}, set(once.values()))
+
+    def test_a_code_file_that_cannot_be_read_is_skipped_and_named_while_the_rest_still_counts(self):
+        first, second, third = self.publish(1), self.publish(2), self.publish(3)
+        (self.root / repo_index.code_path("CN", BUILD, third)).unlink()
+        notes = []
+        self.assertEqual({first: True, second: True, third: None}, self.flags(log=notes.append))
+        self.assertEqual(1, len(notes))
+        self.assertIn(third[:12], notes[0])
+        self.write(repo_index.code_path("CN", BUILD, first), "not a code at all")
+        self.write(repo_index.code_path("CN", BUILD, second), _code(9))
+        self.assertEqual({first: None, second: None, third: None}, self.flags())
+
+    def test_only_the_named_region_and_build_are_recomputed(self):
+        first, second = self.publish(1), self.publish(2)
+        third, fourth = self.publish(3, region="GLOBAL"), self.publish(4, region="GLOBAL")
+        self.assertEqual({first: True, second: True, third: None, fourth: None}, self.flags())
+        self.assertEqual({first: True, second: True, third: True, fourth: True}, self.flags(region="GLOBAL"))
+        self.assertEqual([third, fourth], [item["code_sha256"] for item in repo_index.select(self.state.entries, "GLOBAL", BUILD)])
 
 
 class RepositoryFileTests(unittest.TestCase):

@@ -106,6 +106,7 @@ public static class CalibrationWire
             ["last_refusal"] = RefusalToken(shared.LastRefusal),
             ["rejected_candidates"] = shared.Candidates.Count(item => item.Status == SharedCandidateStatus.Rejected),
             ["user_rejected"] = shared.UserRejected,
+            ["audit_pending"] = shared.AuditPending,
         };
     }
 
@@ -145,8 +146,11 @@ public static class CalibrationWire
             ["verdict"] = EnumWire<SharedVerdict>.Format(criterion.Verdict),
             ["reason"] = criterion.Reason,
             ["contradicting_sessions"] = criterion.ContradictingSessions,
+            ["gate"] = EnumWire<SharedGate>.Format(criterion.Gate),
         }).ToArray()),
         ["staging_overflowed"] = candidate.StagingOverflowed,
+        ["provenance"] = candidate.Provenance is { } provenance ? EnumWire<SharedCandidateProvenance>.Format(provenance) : null,
+        ["audit_pending"] = candidate.AuditPending,
     };
 
     private static JsonObject Evidence(CalibrationEvidenceSummary evidence, string? carriedSource) => new()

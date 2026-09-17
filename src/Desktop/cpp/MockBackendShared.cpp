@@ -37,25 +37,37 @@ QJsonObject criterion(const char *message, const char *verdict, const char *reas
             {QStringLiteral("contradicting_sessions"), contradicted ? 2 : 0}};
 }
 
+/// One $defs/SharedCalibrationCandidate. \a provenance is null for the fixtures that
+/// predate the graded gates (plans/shared-calibration.md §18.3), so the desktop's
+/// "not reported" path - what a Collector before 1.1.0 produces - stays covered too.
 QJsonObject candidate(const char *source, const char *status, const char *verdict,
-                      const char *matchSource)
+                      const char *matchSource, const char *provenance = nullptr,
+                      bool auditPending = false)
 {
     const bool passed = qstrcmp(verdict, "PASS") == 0;
     const bool waiting = qstrcmp(verdict, "WAIT") == 0;
+    // A PUBLISHED code binds on the login burst alone, so its match criterion is
+    // still being audited while it records rather than holding the bind back.
     const QJsonArray criteria{
-        criterion("ZONE_INITIALIZATION", waiting ? "WAIT" : "PASS",
-                  waiting ? "还没有见到登录时的换区。" : "登录时的换区与它声明的一致。"),
-        criterion("CONTENT_FINDER_POP", verdict,
-                  passed    ? "排本之后按声明的形状收到了匹配报文。"
-                  : waiting ? "还没有排过本。"
-                            : "两次抓包健康的会话里排本后都进了副本，却都没有出现它声明的匹配报文。")};
-    return {{QStringLiteral("sha12"), QStringLiteral("67ef1bb97e65")},
-            {QStringLiteral("source"), QLatin1String(source)},
-            {QStringLiteral("match_source"), QLatin1String(matchSource)},
-            {QStringLiteral("status"), QLatin1String(status)},
-            {QStringLiteral("verdict"), QLatin1String(verdict)},
-            {QStringLiteral("criteria"), criteria},
-            {QStringLiteral("staging_overflowed"), false}};
+        criterion("ZONE_INITIALIZATION", waiting && !auditPending ? "WAIT" : "PASS",
+                  waiting && !auditPending ? "还没有见到登录时的换区。" : "登录时的换区与它声明的一致。"),
+        criterion("CONTENT_FINDER_POP", auditPending ? "WAIT" : verdict,
+                  auditPending ? "还在核对排本之后的匹配报文。"
+                  : passed     ? "排本之后按声明的形状收到了匹配报文。"
+                  : waiting    ? "还没有排过本。"
+                               : "两次抓包健康的会话里排本后都进了副本，却都没有出现它声明的匹配报文。")};
+    QJsonObject row{{QStringLiteral("sha12"), QStringLiteral("67ef1bb97e65")},
+                    {QStringLiteral("source"), QLatin1String(source)},
+                    {QStringLiteral("match_source"), QLatin1String(matchSource)},
+                    {QStringLiteral("status"), QLatin1String(status)},
+                    {QStringLiteral("verdict"), QLatin1String(verdict)},
+                    {QStringLiteral("criteria"), criteria},
+                    {QStringLiteral("staging_overflowed"), false}};
+    if (provenance) {
+        row.insert(QStringLiteral("provenance"), QLatin1String(provenance));
+        row.insert(QStringLiteral("audit_pending"), auditPending);
+    }
+    return row;
 }
 
 QJsonArray attempts(std::initializer_list<std::pair<const char *, const char *>> tried)
@@ -71,10 +83,13 @@ QJsonArray attempts(std::initializer_list<std::pair<const char *, const char *>>
 QString phaseFor(const QString &state)
 {
     if (state == QLatin1String("fetching")) return QStringLiteral("FETCHING");
-    if (state == QLatin1String("verifying") || state == QLatin1String("manual"))
+    if (state == QLatin1String("verifying") || state == QLatin1String("manual")
+        || state == QLatin1String("imported-published")
+        || state == QLatin1String("imported-unpublished"))
         return QStringLiteral("VERIFYING");
     if (state == QLatin1String("consent")) return QStringLiteral("AWAITING_CONSENT");
-    if (state == QLatin1String("verified")) return QStringLiteral("VERIFIED");
+    if (state == QLatin1String("verified") || state == QLatin1String("verified-auditing"))
+        return QStringLiteral("VERIFIED");
     if (state == QLatin1String("rejected") || state == QLatin1String("user-rejected"))
         return QStringLiteral("REJECTED");
     if (state == QLatin1String("unavailable")) return QStringLiteral("UNAVAILABLE");
@@ -91,6 +106,16 @@ QJsonArray candidatesFor(const QString &state)
         return {candidate("DOWNLOADED", "AWAITING_CONSENT", "PASS", "QUEUE_REQUEST")};
     if (state == QLatin1String("verified"))
         return {candidate("DOWNLOADED", "IN_USE", "PASS", "REPLY_STATE")};
+    if (state == QLatin1String("verified-auditing")) {
+        // §18.4: bound at the login burst, recording, with the match still audited.
+        return {candidate("DOWNLOADED", "IN_USE", "PASS", "REPLY_STATE", "PUBLISHED", true)};
+    }
+    // §18.5: a pasted code the last index read lists is judged like a downloaded one;
+    // one no index knows waits for the match and the duty entry as well.
+    if (state == QLatin1String("imported-published"))
+        return {candidate("MANUAL", "VERIFYING", "WAIT", "REPLY_STATE", "PUBLISHED")};
+    if (state == QLatin1String("imported-unpublished"))
+        return {candidate("MANUAL", "VERIFYING", "WAIT", "REPLY_STATE", "IMPORTED")};
     if (state == QLatin1String("rejected"))
         return {candidate("DOWNLOADED", "REJECTED", "CONTRADICTED", "ANNOUNCEMENT")};
     return {};
@@ -100,9 +125,12 @@ QJsonValue lastFetchFor(const QString &state)
 {
     if (state == QLatin1String("unavailable")) return QStringLiteral("INDEX_UNAVAILABLE");
     if (state == QLatin1String("none-for-build")) return QStringLiteral("NONE_FOR_BUILD");
+    // imported-unpublished is the one state with no index behind it: nothing was ever
+    // downloaded for this build, which is exactly why the pasted code counts as IMPORTED.
     static const QStringList fetched{QStringLiteral("verifying"), QStringLiteral("consent"),
-                                     QStringLiteral("verified"), QStringLiteral("rejected"),
-                                     QStringLiteral("user-rejected")};
+                                     QStringLiteral("verified"), QStringLiteral("verified-auditing"),
+                                     QStringLiteral("rejected"), QStringLiteral("user-rejected"),
+                                     QStringLiteral("imported-published")};
     return fetched.contains(state) ? QJsonValue(QStringLiteral("OK")) : QJsonValue(QJsonValue::Null);
 }
 
@@ -140,10 +168,17 @@ void MockBackend::setSharedCalibrationFixture(const QString &state)
     }
 }
 
+bool MockBackend::sharedProfileBound() const
+{
+    return m_sharedState == QLatin1String("verified")
+        || m_sharedState == QLatin1String("verified-auditing");
+}
+
 QJsonObject MockBackend::sharedCalibrationStatus() const
 {
     const QString state = m_sharedState;
-    const bool verified = state == QLatin1String("verified");
+    const bool verified = sharedProfileBound();
+    const bool auditing = state == QLatin1String("verified-auditing");
     const QJsonValue lastFetch = lastFetchFor(state);
     const QJsonArray tried = state == QLatin1String("unavailable")
         ? attempts({{"GITHUB_RAW", "TIMEOUT"}, {"CDN_PRIMARY", "DNS_OR_CONNECT"},
@@ -162,7 +197,8 @@ QJsonObject MockBackend::sharedCalibrationStatus() const
              state == QLatin1String("rejected") ? QJsonValue(QStringLiteral("CONTRADICTED"))
                                                 : QJsonValue(QJsonValue::Null)},
             {QStringLiteral("rejected_candidates"), state == QLatin1String("rejected") ? 1 : 0},
-            {QStringLiteral("user_rejected"), state == QLatin1String("user-rejected")}};
+            {QStringLiteral("user_rejected"), state == QLatin1String("user-rejected")},
+            {QStringLiteral("audit_pending"), auditing}};
 }
 
 bool MockBackend::isSharedCalibrationMessage(const QString &messageType)
@@ -202,7 +238,7 @@ QJsonObject MockBackend::shareCodePayload(QString *errorCode, QString *errorMess
 {
     // Like the Collector: whatever the profile in force is decides, not whether
     // calibration happens to be running.
-    const bool shared = m_sharedState == QLatin1String("verified");
+    const bool shared = sharedProfileBound();
     if (localProfileBound() && !shared) {
         QUrlQuery query;
         query.addQueryItem(QStringLiteral("template"), QStringLiteral("share-calibration.yml"));
@@ -255,7 +291,7 @@ QJsonObject MockBackend::importCodePayload(const QJsonObject &payload, QString *
 QString MockBackend::checkSharedOutcome()
 {
     if (m_calibrationState != QLatin1String("observing")
-        || m_sharedState == QLatin1String("user-rejected") || m_sharedState == QLatin1String("verified"))
+        || m_sharedState == QLatin1String("user-rejected") || sharedProfileBound())
         return QStringLiteral("NOT_NEEDED");
     if (!captureSettings().value(QStringLiteral("shared_calibration_enabled")).toBool(true))
         return QStringLiteral("DISABLED");
@@ -272,7 +308,7 @@ QJsonObject MockBackend::rejectSharedPayload()
         return {{QStringLiteral("withdrawn_profile_id"), QJsonValue::Null},
                 {QStringLiteral("dropped_candidates"), 0}};
     }
-    const bool withdrawn = m_sharedState == QLatin1String("verified");
+    const bool withdrawn = sharedProfileBound();
     const int dropped = candidatesFor(m_sharedState).size() > 0 && !withdrawn
                             && m_sharedState != QLatin1String("rejected") ? 1 : 0;
     m_sharedState = QStringLiteral("user-rejected");

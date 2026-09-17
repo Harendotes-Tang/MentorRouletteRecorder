@@ -81,7 +81,8 @@ internal sealed partial class SharedCalibrationSession
     private void CommitWritten(BindTicket ticket, string profileId, Func<Capture.GameProcessDetection, ProfileSelection> select)
     {
         var candidate = ticket.Candidate;
-        var result = _host.CommitSharedBind(new SharedBindRequest(profileId, select, candidate.Stage));
+        var auditPending = candidate.Verification?.AuditPending == true;
+        var result = _host.CommitSharedBind(new SharedBindRequest(profileId, select, candidate.Stage, auditPending));
         if (result.Outcome is SharedBindOutcome.NotSelected or SharedBindOutcome.SessionChanged)
         {
             // Delete nothing and leave calibration armed; the candidate may try again next session.
@@ -98,19 +99,25 @@ internal sealed partial class SharedCalibrationSession
         ForgetBound();
         _bound = new BoundProfile(ticket.Key.Region, ticket.Key.GameBuild, profileId)
         {
+            ProfileSha256 = _host.SharedSelection().Profile is { } written && string.Equals(written.ProfileId, profileId, StringComparison.Ordinal)
+                ? written.ProfileSha256
+                : null,
             Sha = candidate.Sha,
             Declared = candidate.Prepared.Declared,
             Source = candidate.Source,
+            Provenance = candidate.Provenance,
             MatchSource = candidate.Prepared.Payload.MatchSource,
             BoundAtUtc = result.Outcome == SharedBindOutcome.Bound ? _clock.UtcNow : null,
             Verification = candidate.Verification,
+            RanComplete = result.RanComplete,
             Proven = result.Proven,
         };
 
-        // Unless the drained staging already finished a duty, it stays registered with the
-        // observer and keeps being verified until it records one.
+        // Unless the drained staging already finished a duty with nothing left to audit, it stays registered
+        // with the observer and keeps being verified until it records one and the audit settles.
         if (result.Proven)
         {
+            RecordSettled(_bound);
             _host.UnregisterSharedCandidate(candidate.Sha);
         }
 
@@ -153,6 +160,13 @@ internal sealed partial class SharedCalibrationSession
         }
 
         _host.UnbindSharedProfile(bound.ProfileId);
+        if (contradicted)
+        {
+            // What it recorded before the traffic caught it out is suspect (plan §18.4). Not for the player's own
+            // refusal: those records were made by a code nothing contradicted.
+            _host.FlagSharedRecords(bound.ProfileId, bound.BoundAtUtc, reason);
+        }
+
         Schedule(() =>
         {
             Withdraw(bound);
@@ -184,11 +198,21 @@ internal sealed partial class SharedCalibrationSession
 
     // ------------------------------------------------------------------ bookkeeping
 
-    private string? Register(Prepared prepared, SharedCandidateSource source)
+    private string? Register(Prepared prepared, SharedCandidateSource source, SharedCandidateProvenance provenance)
     {
-        if (string.Equals(_bound?.Sha, prepared.Sha, StringComparison.Ordinal) ||
-            _candidates.Any(candidate => candidate.Sha == prepared.Sha))
+        if (string.Equals(_bound?.Sha, prepared.Sha, StringComparison.Ordinal))
         {
+            return null;
+        }
+
+        if (_candidates.FirstOrDefault(candidate => candidate.Sha == prepared.Sha) is { } known)
+        {
+            // One code, one candidate. A download of a code the player had pasted proves it published (plan §18.5).
+            if (provenance == SharedCandidateProvenance.Published)
+            {
+                known.Provenance = SharedCandidateProvenance.Published;
+            }
+
             return null;
         }
 
@@ -208,7 +232,7 @@ internal sealed partial class SharedCalibrationSession
         }
 
         _host.RegisterSharedCandidate(prepared.Declared);
-        var candidate = new Candidate(prepared, source);
+        var candidate = new Candidate(prepared, source, provenance);
         if (_host.SharedContext()?.StagingSessionId is { } session)
         {
             candidate.Stage = new SharedCandidateStage(session, prepared.StagingProfile);
@@ -254,9 +278,14 @@ internal sealed partial class SharedCalibrationSession
             return;
         }
 
+        // A recorded duty alone is not proof across a restart (plan §18.4): unless this very document was recorded
+        // as settled, the profile is adopted as watched, its code recovered and the audit resumed by Evaluate.
+        var ranComplete = _host.HasFinishedSharedRun(selected.ProfileId);
         _bound = new BoundProfile(selected.Region, selected.GameBuild, selected.ProfileId)
         {
-            Proven = _host.HasFinishedSharedRun(selected.ProfileId),
+            ProfileSha256 = selected.ProfileSha256,
+            RanComplete = ranComplete,
+            Proven = ranComplete && IsSettled(selected),
         };
         if (!_withdrawn.Contains(selected.ProfileId) && IsUserRejected(selected.Region, selected.GameBuild))
         {

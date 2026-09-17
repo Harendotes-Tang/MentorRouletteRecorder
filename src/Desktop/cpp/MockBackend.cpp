@@ -791,7 +791,7 @@ QJsonObject MockBackend::captureStatus() const
     if (!calibration.isEmpty()) {
         // A verified shared profile records while calibration stays armed beside
         // it, so it is bound without being DONE.
-        const bool sharedBound = m_sharedState == QLatin1String("verified");
+        const bool sharedBound = sharedProfileBound();
         const bool bound = sharedBound || localProfileBound();
         status.insert(QStringLiteral("calibration"), calibration);
         status.insert(QStringLiteral("game_build"), QStringLiteral("2026.09.01.0000.0000"));

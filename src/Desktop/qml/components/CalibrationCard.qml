@@ -27,6 +27,9 @@ Card {
     readonly property var shared: card.controller ? card.controller.shared : null
     readonly property bool sharedInUse: !!card.shared && card.shared.inUse
     readonly property bool sharedRecording: card.sharedInUse && !card.provisional
+    // 已按登录时的核实开始记录，排本与进本仍在核对（plan §18.4）：标题不得说成"本机已核实"，
+    // 说明由共享校准一节的灰字给出。旧采集服务不报这一项，按"未报告"处理。
+    readonly property bool sharedAuditPending: !!card.shared && card.shared.auditPending
     // 抓包无输出时不再派发副本指示：此时打本也不会被记录，原因由本页另一张卡片说明。
     // blocked 与 silent 均表示当前无法记录，MIDSTREAM（接入已有连接）走 blocked 分支，
     // 故两者都要判断。
@@ -81,7 +84,9 @@ Card {
 
     function headline() {
         if (card.sharedRecording)
-            return qsTr("已使用其他玩家分享的校准（本机已核实），正在自动记录。")
+            return card.sharedAuditPending
+                ? qsTr("已使用其他玩家分享的校准（登录时已在本机核实），正在自动记录。")
+                : qsTr("已使用其他玩家分享的校准（本机已核实），正在自动记录。")
         if (card.ready)
             return qsTr("校准完成，核对 %1 件事就能开始自动记录。").arg(card.controller.confirmCount)
         if (card.blocked)

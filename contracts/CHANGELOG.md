@@ -1,5 +1,21 @@
 # IPC 契约变更记录 / IPC contract changelog
 
+## 2026-09-17 — 共享校准：核实门槛按来源分级（附加）
+
+docs/plans/shared-calibration.md §18。全部为附加式变更：新字段在 schema 中都是可选的，旧桌面端收到的应答照常通过校验，
+旧采集服务不发这些字段，桌面端按"未报告"处理。**不新增消息类型**，`$defs/MessageType` 仍为 48 个业务消息 + `Event` + `Error`。
+
+- **`$defs/SharedCandidateProvenance`**（新枚举）：`PUBLISHED`（本机最近一次读到的索引列出了这份码——下载来的，或粘贴导入后在索引里找到的；
+  登录簇核实通过即绑定，排本与进本在记录中继续核对）与 `IMPORTED`（粘贴导入、任何索引都不认识；排本与进本都核实通过才记录）。
+- **`SharedCalibrationCandidate`** 新增可选 `provenance`（可为 null：从磁盘恢复、码未能还原的档案）与 `audit_pending`
+  （已绑定或可绑定，但仍有绑定后核对的判据在等待）。
+- **`SharedCalibrationCriterion`** 新增可选 `gate`（`REQUIRED` / `AUDIT` / `OPTIONAL`）：该判据是绑定前必过、绑定后核对，还是可选（职业报文）。
+- **`SharedCalibrationStatus`** 新增可选 `audit_pending`：正在使用的共享档案仍有绑定后核对的判据在等待。
+- **`ImportCalibrationCode` 应答**新增可选 `provenance`（`APPLIED` 时为 `PUBLISHED` 或 `IMPORTED`，其他情况为 null）；
+  `reason` 新增取值 `REVOKED`（本机最近一次读到的索引已撤回这份码，`NOT_APPLICABLE`）。
+- 行为变化（不在字段上）：共享档案被撤下（对不上或被撤回）时，它自绑定起生成的记录以系统修订标记 `pending_review`，
+  桌面端会收到对应的 `RunUpdated` 与统计失效事件；玩家自己选择「不用共享的」不标记。
+
 ## 2026-09-17 — 更新检查：`CollectorStatus.update`、`update_check_enabled`（附加）
 
 只提示、不下载的更新检查（docs/privacy-boundary.md §8.4）。全部为附加式变更：新字段在 schema 中都是可选的，

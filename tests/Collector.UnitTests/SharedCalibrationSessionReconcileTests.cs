@@ -108,6 +108,12 @@ public sealed class SharedCalibrationSessionReconcileTests : IDisposable
         void ISharedCalibrationHost.UnbindSharedProfile(string profileId) =>
             throw new InvalidOperationException("nothing is withdrawn in this test");
 
+        int ISharedCalibrationHost.FlagSharedRecords(string profileId, DateTimeOffset? sinceUtc, string reason) =>
+            throw new InvalidOperationException("nothing is withdrawn in this test");
+
+        void ISharedCalibrationHost.SharedRetentionFinished(string profileId, bool matchFromQueue) =>
+            throw new InvalidOperationException("nothing is proven in this test");
+
         void ISharedCalibrationHost.ReselectAfterSharedChange(Func<GameProcessDetection, ProfileSelection> select) =>
             throw new InvalidOperationException("nothing is withdrawn in this test");
 

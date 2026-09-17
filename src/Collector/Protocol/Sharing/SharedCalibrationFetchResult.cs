@@ -114,7 +114,8 @@ public sealed record SharedCalibrationCandidate(
     ShareCodePayload Payload,
     int Submitters,
     DateTimeOffset FirstPublishedAtUtc,
-    string Commit);
+    string Commit,
+    bool Conflicting = false);
 
 /// <summary>Everything one fetch for a region and build produced, for the pipeline and for diagnostics.</summary>
 /// <param name="Status">How it ended.</param>

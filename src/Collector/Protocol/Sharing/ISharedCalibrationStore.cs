@@ -77,6 +77,45 @@ public interface ISharedCalibrationStore
     /// <param name="region">Region of the running client.</param>
     /// <param name="gameBuild">Build of the running client.</param>
     bool ClearRejections(Region region, string gameBuild);
+
+    /// <summary>
+    /// What the last index this machine read for the build said about a code (plan §18.5): listed, listed
+    /// and revoked, or never seen. Reads the bookkeeping only; nothing is sent to answer it.
+    /// </summary>
+    /// <param name="region">Region of the running client.</param>
+    /// <param name="gameBuild">Build of the running client.</param>
+    /// <param name="codeSha256">The code.</param>
+    SharedPublication Publication(Region region, string gameBuild, string codeSha256);
+
+    /// <summary>
+    /// Remembers that the shared profile with this document hash finished its watch (plan §18.4): a complete
+    /// duty recorded and every audited criterion passed. Read back after a restart, so a profile that only
+    /// recorded a duty while its audit was still waiting is watched again instead of trusted. True when written.
+    /// </summary>
+    /// <param name="region">Region of the running client.</param>
+    /// <param name="gameBuild">Build of the running client.</param>
+    /// <param name="profileSha256">Canonical hash of the written profile document.</param>
+    /// <param name="nowUtc">When.</param>
+    bool RecordSettled(Region region, string gameBuild, string profileSha256, DateTimeOffset nowUtc);
+
+    /// <summary>True when <see cref="RecordSettled"/> was called for exactly this profile document.</summary>
+    /// <param name="region">Region of the running client.</param>
+    /// <param name="gameBuild">Build of the running client.</param>
+    /// <param name="profileSha256">Canonical hash of the profile document in use.</param>
+    bool IsSettled(Region region, string gameBuild, string profileSha256);
+}
+
+/// <summary>What the index last read says about a code.</summary>
+public enum SharedPublication
+{
+    /// <summary>No index this machine has read lists it - or none was ever read.</summary>
+    Unknown,
+
+    /// <summary>An index listed it, whether or not its file could be obtained.</summary>
+    Published,
+
+    /// <summary>The last readable index marks it revoked.</summary>
+    Revoked,
 }
 
 /// <summary>What recording a fetch did.</summary>
@@ -94,8 +133,9 @@ public sealed record SharedStoreWriteResult(bool Recorded, int CodesWritten, IRe
 /// <param name="Payload">What it says.</param>
 /// <param name="Submitters">Submitters according to the index it was fetched from; 0 when unknown.</param>
 /// <param name="FirstPublishedAtUtc">First publication according to that index, when known.</param>
+/// <param name="Conflicting">That index marked it as one of several differing codes for the same thing; offered last.</param>
 public sealed record SharedStoredCandidate(
-    string CodeSha256, string Code, ShareCodePayload Payload, int Submitters, DateTimeOffset? FirstPublishedAtUtc);
+    string CodeSha256, string Code, ShareCodePayload Payload, int Submitters, DateTimeOffset? FirstPublishedAtUtc, bool Conflicting = false);
 
 /// <summary>The last fetch attempt for one region, build and template.</summary>
 /// <param name="TemplateSha256">Template in force.</param>
@@ -155,4 +195,13 @@ internal sealed class InertSharedCalibrationStore : ISharedCalibrationStore
 
     /// <inheritdoc />
     public bool ClearRejections(Region region, string gameBuild) => false;
+
+    /// <inheritdoc />
+    public SharedPublication Publication(Region region, string gameBuild, string codeSha256) => SharedPublication.Unknown;
+
+    /// <inheritdoc />
+    public bool RecordSettled(Region region, string gameBuild, string profileSha256, DateTimeOffset nowUtc) => false;
+
+    /// <inheritdoc />
+    public bool IsSettled(Region region, string gameBuild, string profileSha256) => false;
 }

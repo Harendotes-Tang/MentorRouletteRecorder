@@ -80,8 +80,92 @@ public sealed class SharedCandidateVerifierTests : IDisposable
         }
     }
 
-    private static SharedVerification Verify(CalibrationObserver observer, DeclaredCandidate candidate) =>
-        SharedCandidateVerifier.Verify(observer.Snapshot(), Template, candidate);
+    /// <summary>Judged by the strict gate unless a test says otherwise: an imported code must have every criterion pass.</summary>
+    private static SharedVerification Verify(
+        CalibrationObserver observer, DeclaredCandidate candidate, SharedCandidateProvenance provenance = SharedCandidateProvenance.Imported) =>
+        SharedCandidateVerifier.Verify(observer.Snapshot(), Template, candidate, provenance);
+
+    /// <summary>The login burst and nothing after it: no queue, no match, no duty.</summary>
+    private static IEnumerable<DecodedMessage> LoginOnly(IEnumerable<DecodedMessage> traffic) =>
+        traffic.Where(message => message.Mono < TimeSpan.FromMilliseconds(10_000));
+
+    private static SharedGate GateOf(SharedVerification verification, string message) =>
+        Assert.Single(verification.Criteria, criterion => criterion.Message == message).Gate;
+
+    // ------------------------------------------------------------------ gates by provenance (plan §18.3)
+
+    [Theory]
+    [InlineData(CalibrationTrafficCases.ReplyState)]
+    [InlineData(CalibrationTrafficCases.Announcement)]
+    [InlineData(CalibrationTrafficCases.QueueRequest)]
+    public void APublishedCodePassesOnTheLoginBurstAloneWhileAnImportedOneWaitsForTheMatch(string name)
+    {
+        var candidate = Candidate(CodeFromEveningA(name));
+        var observer = Watching(candidate);
+
+        Play(observer, "evening-b1", 24, LoginOnly(CalibrationTrafficCases.Traffic(name)));
+        var published = Verify(observer, candidate, SharedCandidateProvenance.Published);
+        var imported = Verify(observer, candidate, SharedCandidateProvenance.Imported);
+
+        Assert.Equal(SharedVerdict.Pass, published.Verdict);
+        Assert.True(published.AuditPending);
+        Assert.Equal(SharedVerdict.Pass, Assert.Single(published.Criteria, criterion => criterion.Message == CalibratedShape.ZoneName).Verdict);
+        Assert.Equal(SharedVerdict.Wait, Assert.Single(published.Criteria, criterion => criterion.Message == CalibratedShape.PopName).Verdict);
+
+        Assert.Equal(SharedVerdict.Wait, imported.Verdict);
+        Assert.False(imported.AuditPending);
+
+        // The rest of the evening settles the audit; the imported code passes only now.
+        Play(observer, "evening-b2", 48, CalibrationTrafficCases.Traffic(name));
+        Assert.False(Verify(observer, candidate, SharedCandidateProvenance.Published).AuditPending);
+        Assert.Equal(SharedVerdict.Pass, Verify(observer, candidate, SharedCandidateProvenance.Imported).Verdict);
+    }
+
+    [Fact]
+    public void AZoneOnlyCodeWaitsForASecondZoneChangeWhateverItsProvenance()
+    {
+        var candidate = Candidate(CodeFromEveningA(CalibrationTrafficCases.ReplyStateMinimal));
+        var observer = Watching(candidate);
+
+        Play(observer, "evening-b1", 24, LoginOnly(CalibrationTrafficCases.Traffic(CalibrationTrafficCases.ReplyStateMinimal)));
+
+        Assert.Equal(SharedVerdict.Wait, Verify(observer, candidate, SharedCandidateProvenance.Published).Verdict);
+        Assert.Equal(SharedVerdict.Wait, Verify(observer, candidate, SharedCandidateProvenance.Imported).Verdict);
+    }
+
+    [Fact]
+    public void TheGatesFollowTheProvenanceAndTheJobIsAlwaysOptional()
+    {
+        var candidate = Candidate(CodeFromEveningA(CalibrationTrafficCases.ReplyState));
+        var observer = Watching(candidate);
+
+        var published = Verify(observer, candidate, SharedCandidateProvenance.Published);
+        var imported = Verify(observer, candidate, SharedCandidateProvenance.Imported);
+
+        Assert.Equal(SharedGate.Required, GateOf(published, CalibratedShape.ZoneName));
+        Assert.Equal(SharedGate.Audit, GateOf(published, CalibratedShape.PopName));
+        Assert.Equal(SharedGate.Audit, GateOf(published, CalibratedShape.TerritoryName));
+        Assert.Equal(SharedGate.Optional, GateOf(published, CalibratedShape.JobName));
+        Assert.Equal(SharedGate.Required, GateOf(imported, CalibratedShape.ZoneName));
+        Assert.Equal(SharedGate.Required, GateOf(imported, CalibratedShape.PopName));
+        Assert.Equal(SharedGate.Required, GateOf(imported, CalibratedShape.TerritoryName));
+        Assert.Equal(SharedGate.Optional, GateOf(imported, CalibratedShape.JobName));
+    }
+
+    [Theory]
+    [MemberData(nameof(WrongOpcodes))]
+    public void AWrongOpcodeContradictsAPublishedCodeTooWhateverTheGate(string name, string which)
+    {
+        var candidate = Candidate(Wrong(CodeFromEveningA(name), which));
+        var observer = Watching(candidate);
+
+        Play(observer, "evening-b1", 24, CalibrationTrafficCases.Traffic(name));
+        Play(observer, "evening-b2", 48, CalibrationTrafficCases.Traffic(name));
+
+        var result = Verify(observer, candidate, SharedCandidateProvenance.Published);
+        Assert.Equal(SharedVerdict.Contradicted, result.Verdict);
+        Assert.Equal(CriterionFor(which), Assert.Single(result.Criteria, criterion => criterion.Verdict == SharedVerdict.Contradicted).Message);
+    }
 
     public static TheoryData<string> Cases()
     {
@@ -200,7 +284,7 @@ public sealed class SharedCandidateVerifierTests : IDisposable
 
         var overflowed = observer.Snapshot() with { OverflowCount = 1 };
 
-        Assert.Equal(SharedVerdict.Wait, SharedCandidateVerifier.Verify(overflowed, Template, candidate).Verdict);
+        Assert.Equal(SharedVerdict.Wait, SharedCandidateVerifier.Verify(overflowed, Template, candidate, SharedCandidateProvenance.Imported).Verdict);
     }
 
     /// <summary>

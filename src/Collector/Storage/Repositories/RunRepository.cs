@@ -233,10 +233,47 @@ public sealed class RunRepository
     }
 
     /// <summary>
+    /// Runs recorded automatically under <paramref name="protocolProfileId"/> at or after
+    /// <paramref name="sinceUtc"/> (every one when null) that are not deleted and not already pending review:
+    /// what a withdrawn shared profile leaves behind (plan §18.4). Runs created by hand carry no profile and
+    /// never match.
+    /// </summary>
+    /// <param name="protocolProfileId">Profile id written on the runs.</param>
+    /// <param name="sinceUtc">Earliest creation time to include, or null for all.</param>
+    /// <param name="transaction">Enclosing transaction.</param>
+    public IReadOnlyList<MentorRun> FindRecordedUnder(string protocolProfileId, DateTimeOffset? sinceUtc, SqliteTransaction transaction)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(protocolProfileId);
+        ArgumentNullException.ThrowIfNull(transaction);
+
+        using var command = _database.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText =
+            $"SELECT {Columns} FROM mentor_runs " +
+            "WHERE protocol_profile_id = $profile AND soft_deleted = 0 AND pending_review = 0 " +
+            "AND ($since IS NULL OR created_at_utc >= $since) " +
+            "ORDER BY created_at_utc ASC;";
+        command.Parameters.AddWithValue("$profile", protocolProfileId);
+        command.Parameters.AddWithValue("$since", sinceUtc is { } since ? UtcTimestamp.ToText(since) : DBNull.Value);
+
+        var runs = new List<MentorRun>();
+        using (var reader = command.ExecuteReader())
+        {
+            while (reader.Read())
+            {
+                runs.Add(Read(reader));
+            }
+        }
+
+        AttachAll(runs, transaction);
+        return runs;
+    }
+
+    /// <summary>
     /// True when some run recorded under <paramref name="protocolProfileId"/> entered a duty and ended
-    /// with its exit observed - not interrupted, disconnected or cancelled before entry. Shared
-    /// calibration keeps verifying a shared profile until this holds; reading it from the table
-    /// lets that survive a restart.
+    /// with its exit observed - not interrupted, disconnected or cancelled before entry. One half of
+    /// what ends the watch on a shared profile (the other is that nothing is left to audit, plan §18.4);
+    /// reading it from the table lets that survive a restart.
     /// </summary>
     /// <param name="protocolProfileId">Profile id written on the runs.</param>
     public bool AnyEnteredAndExited(string protocolProfileId)

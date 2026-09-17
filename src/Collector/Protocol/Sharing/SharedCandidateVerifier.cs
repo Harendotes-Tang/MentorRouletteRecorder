@@ -17,18 +17,37 @@ public enum SharedVerdict
     Contradicted,
 }
 
+/// <summary>What a criterion's verdict decides (plan §18.3).</summary>
+public enum SharedGate
+{
+    /// <summary>Must pass before the candidate binds.</summary>
+    Required,
+
+    /// <summary>Judged after binding: a contradiction still withdraws the profile, waiting only keeps the watch on.</summary>
+    Audit,
+
+    /// <summary>Never holds anything back; a contradiction still rejects. The job message.</summary>
+    Optional,
+}
+
 /// <summary>The verdict on one declared message.</summary>
 /// <param name="Message">Semantic name of the message judged.</param>
 /// <param name="Verdict">Pass, wait or contradicted.</param>
 /// <param name="Reason">Plain-language reason, Chinese, no opcodes.</param>
 /// <param name="ContradictingSessions">Healthy sessions that contradicted it, even when fewer than needed.</param>
-public sealed record SharedCriterion(string Message, SharedVerdict Verdict, string Reason, int ContradictingSessions = 0);
+/// <param name="Gate">Whether the verdict gates binding, is audited after it, or is optional.</param>
+public sealed record SharedCriterion(
+    string Message, SharedVerdict Verdict, string Reason, int ContradictingSessions = 0, SharedGate Gate = SharedGate.Required);
 
 /// <summary>The verdict on a candidate as a whole, with the criterion behind it.</summary>
 /// <param name="CandidateId">Identity of the candidate (its <c>code_sha256</c>).</param>
-/// <param name="Verdict">Contradicted when any criterion is, pass when every criterion but the optional job is, wait otherwise.</param>
+/// <param name="Verdict">Contradicted when any criterion is, pass when every required criterion is, wait otherwise.</param>
 /// <param name="Criteria">One entry per declared message: pop, zone marker, then territory and job when declared.</param>
-public sealed record SharedVerification(string CandidateId, SharedVerdict Verdict, IReadOnlyList<SharedCriterion> Criteria);
+public sealed record SharedVerification(string CandidateId, SharedVerdict Verdict, IReadOnlyList<SharedCriterion> Criteria)
+{
+    /// <summary>True while an audited criterion is still waiting: the profile may record, and the watch stays on.</summary>
+    public bool AuditPending => Criteria.Any(criterion => criterion.Gate == SharedGate.Audit && criterion.Verdict == SharedVerdict.Wait);
+}
 
 /// <summary>
 /// Judges a shared calibration against this machine's own traffic.
@@ -38,9 +57,16 @@ public sealed record SharedVerification(string CandidateId, SharedVerdict Verdic
 /// by at least <see cref="SessionsToContradict"/> capture sessions that were healthy
 /// (<see cref="CaptureSessionHealth.IsHealthy"/>), while no observation table overflowed, and only in
 /// what arrived after the candidate was registered with the observer. Carried evidence belongs to no
-/// live session and has no health, so it can never contradict anything. The cost of that asymmetry
-/// is a player waiting one or two logins longer on a bad code; a bad code never records anything,
-/// because nothing is bound before a pass.
+/// live session and has no health, so it can never contradict anything.
+///
+/// Which criteria must pass before binding depends on where the code came from (plan §18.3). The
+/// zone marker is always required: opcodes are reshuffled by every patch, so a code for another
+/// build fails it at the first login. For a <see cref="SharedCandidateProvenance.Published"/> code that
+/// is all: the pop and the duty entry are <see cref="SharedGate.Audit"/>ed while the profile records,
+/// and a contradiction there withdraws it and flags what it recorded. For an
+/// <see cref="SharedCandidateProvenance.Imported"/> code - pasted, and unknown to the index - they stay
+/// required, so a code somebody edited by hand in a chat group records nothing until the match itself
+/// has been seen to behave. The job is optional either way.
 ///
 /// The criteria, one per declared message:
 /// <list type="bullet">
@@ -104,40 +130,39 @@ public static class SharedCandidateVerifier
     /// <param name="snapshot">Observer snapshot, with session health and the candidate's counts.</param>
     /// <param name="template">Template the candidate was built through.</param>
     /// <param name="candidate">Candidate to judge.</param>
-    public static SharedVerification Verify(CalibrationSnapshot snapshot, CalibrationTemplate template, DeclaredCandidate candidate)
+    /// <param name="provenance">Where the code came from; decides which criteria gate binding (plan §18.3).</param>
+    public static SharedVerification Verify(
+        CalibrationSnapshot snapshot, CalibrationTemplate template, DeclaredCandidate candidate, SharedCandidateProvenance provenance)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         ArgumentNullException.ThrowIfNull(template);
         ArgumentNullException.ThrowIfNull(candidate);
         var evidence = new Evidence(snapshot, template, candidate);
+        var afterBinding = provenance == SharedCandidateProvenance.Published ? SharedGate.Audit : SharedGate.Required;
         var criteria = new List<SharedCriterion>
         {
-            candidate.Pop.Direction == PacketDirection.ClientToServer ? QueuePop(evidence) : ServerPop(evidence),
+            (candidate.Pop.Direction == PacketDirection.ClientToServer ? QueuePop(evidence) : ServerPop(evidence)) with { Gate = afterBinding },
             candidate.Territory is null ? ZoneAlone(evidence) : ZoneWithTerritory(evidence),
         };
         if (candidate.Territory is not null)
         {
-            criteria.Add(TerritoryEntry(evidence));
+            criteria.Add(TerritoryEntry(evidence) with { Gate = afterBinding });
         }
 
         if (candidate.Job is not null)
         {
-            criteria.Add(Job(evidence));
+            // Optional for a profile, exactly as for local calibration: without it records carry an unknown job.
+            criteria.Add(Job(evidence) with { Gate = SharedGate.Optional });
         }
 
-        // The job message is optional for a profile, exactly as it is for local calibration: without it records
-        // carry an unknown job. Waiting on it must not keep a code that otherwise passed from binding; a
-        // contradiction still rejects the code.
+        // Any contradiction rejects the code, whatever the gate. Only the required criteria hold binding back.
         var verdict = criteria.Any(criterion => criterion.Verdict == SharedVerdict.Contradicted)
             ? SharedVerdict.Contradicted
-            : criteria.Where(criterion => !IsOptional(criterion)).All(criterion => criterion.Verdict == SharedVerdict.Pass)
+            : criteria.Where(criterion => criterion.Gate == SharedGate.Required).All(criterion => criterion.Verdict == SharedVerdict.Pass)
                 ? SharedVerdict.Pass
                 : SharedVerdict.Wait;
         return new SharedVerification(candidate.CandidateId, verdict, criteria);
     }
-
-    private static bool IsOptional(SharedCriterion criterion) =>
-        string.Equals(criterion.Message, CalibratedShape.JobName, StringComparison.Ordinal);
 
     private static SharedCriterion Judge(
         string message, bool pass, int contradicting, string passReason, string waitReason, string contradictedReason) =>

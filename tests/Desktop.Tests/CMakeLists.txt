@@ -485,13 +485,19 @@ set(MR_SHARED_TEXT_fetching "正在获取其他玩家的共享校准")
 set(MR_SHARED_TEXT_verifying "找到共享校准")
 set(MR_SHARED_TEXT_consent "同意，开始记录")
 set(MR_SHARED_TEXT_verified "已使用其他玩家分享的校准")
+# 核实门槛按来源分级（plans/shared-calibration.md §18）：登录时核实通过即记录，
+# 排本与进本在记录中继续核对；未发布的导入码仍要全部判据通过才启用。
+set(MR_SHARED_TEXT_verified-auditing "排本和进本还在核对中")
+set(MR_SHARED_TEXT_imported-published "找到共享校准，登录时自动核实")
+set(MR_SHARED_TEXT_imported-unpublished "已导入校准码，登录并排一次本")
 set(MR_SHARED_TEXT_rejected "共享校准与本机流量对不上")
 set(MR_SHARED_TEXT_unavailable "没取到共享校准")
 set(MR_SHARED_TEXT_user-rejected "已按你的选择改为本机校准")
 set(MR_SHARED_TEXT_none-for-build "还没有人分享这个版本的校准")
 set(MR_SHARED_TEXT_share "分享给其他玩家")
 set(MR_SHARED_QML_TESTS)
-foreach(MR_SHARED_STATE fetching verifying consent verified rejected unavailable user-rejected none-for-build share)
+foreach(MR_SHARED_STATE fetching verifying consent verified verified-auditing imported-published
+                        imported-unpublished rejected unavailable user-rejected none-for-build share)
     add_test(NAME MentorRecorderQmlSharedCalibration_${MR_SHARED_STATE}
         COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
             --backend mock --mock-shared ${MR_SHARED_STATE}

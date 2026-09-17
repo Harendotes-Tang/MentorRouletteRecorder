@@ -12,7 +12,9 @@ namespace MentorRecorder.Collector.Protocol.Sharing;
 /// <param name="Submitters">Distinct submitters.</param>
 /// <param name="FirstPublishedAtUtc">First publication.</param>
 /// <param name="Commit">Commit it was downloaded at.</param>
-internal sealed record SharedCodeHints(string CodeSha256, int Submitters, DateTimeOffset? FirstPublishedAtUtc, string? Commit);
+/// <param name="Conflicting">The index marked it as one of several differing codes for the same thing (plan §18.6); picked last.</param>
+internal sealed record SharedCodeHints(
+    string CodeSha256, int Submitters, DateTimeOffset? FirstPublishedAtUtc, string? Commit, bool Conflicting = false);
 
 /// <summary>Capture sessions whose traffic contradicted a code under one template.</summary>
 /// <param name="TemplateSha256">Template in force.</param>
@@ -44,8 +46,12 @@ internal sealed record SharedCalibrationState(
     IReadOnlyList<SharedCodeHints> Codes,
     IReadOnlyList<string> Revoked,
     IReadOnlyList<SharedRejection> Rejections,
-    DateTimeOffset? UserRejectedAtUtc = null)
+    DateTimeOffset? UserRejectedAtUtc = null,
+    string? SettledProfileSha256 = null)
 {
+    /// <summary>The shared profile document whose watch ended (plan §18.4); written as the optional <c>settled_profile_sha256</c>.</summary>
+    internal SharedCalibrationState WithSettled(string profileSha256) => this with { SettledProfileSha256 = profileSha256 };
+
     internal const int SchemaVersion = 1;
     internal const int MaxFetches = 8;
     internal const int MaxCodes = 256;
@@ -140,7 +146,8 @@ internal sealed record SharedCalibrationState(
                 Empty.WithRevoked(Items(root, "revoked").Select(StringOf).OfType<string>()).Revoked,
                 Items(root, "rejections").Select(ReadRejection).OfType<SharedRejection>()
                     .DistinctBy(rejection => (rejection.TemplateSha256, rejection.CodeSha256)).Take(MaxRejections).ToArray(),
-                ReadStamp(root, "user_rejected_at"));
+                ReadStamp(root, "user_rejected_at"),
+                StringOf(root, "settled_profile_sha256") is { } settled && SharedCalibrationIndex.IsSha256(settled) ? settled : null);
         }
         catch (Exception ex) when (ex is JsonException or InvalidOperationException or FormatException)
         {
@@ -205,7 +212,9 @@ internal sealed record SharedCalibrationState(
             sha,
             Int(item, "submitters") is int count and >= 0 ? count : 0,
             ReadStamp(item, "first_published_at"),
-            SharedCalibrationIndex.IsCommit(commit) ? commit : null);
+            SharedCalibrationIndex.IsCommit(commit) ? commit : null,
+            item.ValueKind == JsonValueKind.Object && item.TryGetProperty("conflicting", out var conflicting) &&
+            conflicting.ValueKind == JsonValueKind.True);
     }
 
     private static SharedRejection? ReadRejection(JsonElement item)
@@ -280,6 +289,11 @@ internal sealed record SharedCalibrationState(
             node["user_rejected_at"] = Stamp(refused);
         }
 
+        if (SettledProfileSha256 is { } settled)
+        {
+            node["settled_profile_sha256"] = settled;
+        }
+
         return node.ToJsonString(WriteOptions);
     }
 
@@ -341,6 +355,11 @@ internal sealed record SharedCalibrationState(
         if (hints.Commit is { } commit)
         {
             node["commit"] = commit;
+        }
+
+        if (hints.Conflicting)
+        {
+            node["conflicting"] = true;
         }
 
         return node;

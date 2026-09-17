@@ -1,9 +1,14 @@
 using MentorRecorder.Collector.Capture;
 using MentorRecorder.Collector.Domain;
+using MentorRecorder.Collector.Domain.Events;
+using MentorRecorder.Collector.Domain.Mutations;
 using MentorRecorder.Collector.Domain.StateMachine;
+using MentorRecorder.Collector.Domain.Time;
+using MentorRecorder.Collector.Ipc;
 using MentorRecorder.Collector.Protocol.Calibration;
 using MentorRecorder.Collector.Protocol.Profiles;
 using MentorRecorder.Collector.Protocol.Sharing;
+using MentorRecorder.Collector.Storage.Mutations;
 using MentorRecorder.Collector.Storage.Repositories;
 
 namespace MentorRecorder.Collector.Protocol.Pipeline;
@@ -259,14 +264,117 @@ public sealed partial class LiveProtocolPipeline
             outcome = SharedBindOutcome.Bound;
         }
 
-        var proven = HasFinishedRun(profile.ProfileId);
+        // A duty the drained staging finished proves the profile only when nothing was left to audit (plan §18.4);
+        // otherwise the session keeps watching and settles the watch once the audit passes.
+        var ranComplete = HasFinishedRun(profile.ProfileId);
+        var proven = ranComplete && !request.AuditPending;
         if (proven)
         {
             FinishSharedRetention(profile.ProfileId, profile.MatchFromQueue);
         }
 
-        return new SharedBindResult(outcome, outcome == SharedBindOutcome.Bound ? "BOUND" : "FROM_NEXT_SESSION", proven);
+        return new SharedBindResult(outcome, outcome == SharedBindOutcome.Bound ? "BOUND" : "FROM_NEXT_SESSION", proven, ranComplete);
     }
+
+    /// <summary>
+    /// Plan §18.4: a withdrawn profile's records are marked pending review through a system revision, the way
+    /// crash recovery marks an unfinished run. The trail stays append-only, a run a human already resolved keeps
+    /// that decision (<see cref="ManualRunFieldProtection"/>), and a run already pending is left alone. The
+    /// profile id is shared by every code of the build, so <paramref name="sinceUtc"/> limits the marking to
+    /// what this binding recorded; a profile adopted from disk has no bound time and marks everything under
+    /// the id.
+    /// </summary>
+    int ISharedCalibrationHost.FlagSharedRecords(string profileId, DateTimeOffset? sinceUtc, string reason)
+    {
+        var now = UtcTimestamp.Truncate(_clock.UtcNow);
+        var flagged = new List<MentorRun>();
+        IReadOnlyList<MentorRun> candidates;
+        try
+        {
+            candidates = _database.RunInTransaction(tx => _runs.FindRecordedUnder(profileId, sinceUtc, tx));
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        {
+            // The withdrawal itself must go through; the records stay findable by profile id (plan §13).
+            return 0;
+        }
+
+        // One run per transaction: a manual correction landing on one run at this very moment (a revision
+        // conflict) must not keep the others from being marked.
+        var revisions = new RunRevisionRepository(_database);
+        var protection = new ManualRunFieldProtection(_database);
+        foreach (var candidate in candidates)
+        {
+            try
+            {
+                var marked = _database.RunInTransaction(tx =>
+                {
+                    var run = _runs.GetInternal(candidate.RunId, tx);
+                    if (run is null || run.PendingReview || run.SoftDeleted)
+                    {
+                        return null;
+                    }
+
+                    var repaired = protection.Merge(run, run with { PendingReview = true, UpdatedAtUtc = now }, tx) with
+                    {
+                        Revision = run.Revision + 1,
+                    };
+                    if (!repaired.PendingReview)
+                    {
+                        return null;
+                    }
+
+                    _runs.Update(repaired, run.Revision, tx);
+                    revisions.Append(
+                        new RunRevision
+                        {
+                            RevisionId = Guid.NewGuid().ToString("D"),
+                            RunId = repaired.RunId,
+                            Revision = repaired.Revision,
+                            ChangedAtUtc = now,
+                            ChangeKind = ChangeKind.Correct,
+                            Actor = RevisionActor.System,
+                            Reason = SharedWithdrawalReason(reason),
+                            RequestId = null,
+                            Changes = RunMutationRules.Diff(run, repaired),
+                        },
+                        tx);
+                    return repaired;
+                });
+                if (marked is not null)
+                {
+                    flagged.Add(marked);
+                }
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+            {
+                // This one stays unmarked but findable by profile id; the rest are still tried.
+            }
+        }
+
+        foreach (var run in flagged)
+        {
+            _liveEvents.PublishRun(LiveEventKind.RunUpdated, run);
+        }
+
+        if (flagged.Count > 0)
+        {
+            _liveEvents.PublishStatsInvalidated($"其他玩家分享的校准已撤下，它生成的 {flagged.Count} 条记录已标记待复核。");
+        }
+
+        return flagged.Count;
+    }
+
+    /// <summary>The reason on the system revision, in the player's words; the token stays in diagnostics.</summary>
+    private static string SharedWithdrawalReason(string reason) => CalibrationWire.RefusalToken(reason) switch
+    {
+        "REVOKED" => "这条记录由其他玩家分享的校准生成，该校准已在公开仓库里被撤回，记录标记待复核。",
+        _ => "这条记录由其他玩家分享的校准生成，该校准随后在本机流量里对不上而被撤下，记录标记待复核。",
+    };
+
+    /// <inheritdoc />
+    void ISharedCalibrationHost.SharedRetentionFinished(string profileId, bool matchFromQueue) =>
+        FinishSharedRetention(profileId, matchFromQueue);
 
     /// <summary>
     /// A withdrawn shared profile stops recording now, not at the end of the session: a run in flight is

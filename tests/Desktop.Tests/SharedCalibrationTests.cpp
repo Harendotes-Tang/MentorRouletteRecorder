@@ -39,37 +39,51 @@ namespace {
 constexpr auto kVectorCode =
     "MRC1.XY_LasMwEEX_ZdbG6G3LuxKyKyG02ZRShCSPExXbMrIdaEP-vWoKpeksZjH3wZkLHO2Axq2hb6EBRpgqiS4JLUme24IC3qMzcfKxRWgEZUwWMNjFn8wc1-TzEZ62-8cX83x4OGyzf4oTNBf4jWgqRQEz9uiXmMzZ9ivO0Lzyt2sBCY8hjrljs8vRBYeptwuaKcUu9GjCN5cfyx-0uiTyr2s-WSZVdvBOeYrEaVu1zAuUXU00tcxxL1qJqqtITTWz3AkvW4XVP_1WmlLIfB93v2bwMzS0gM844p3Cr18";
 
-QJsonObject candidate(const QString &source, const QString &status = QStringLiteral("VERIFYING"))
+///  provenance empty leaves the field out, as a Collector before 1.1.0 does.
+QJsonObject candidate(const QString &source, const QString &status = QStringLiteral("VERIFYING"),
+                      const QString &provenance = QString(), bool auditPending = false)
 {
-    return {{QStringLiteral("sha12"), QStringLiteral("67ef1bb97e65")},
-            {QStringLiteral("source"), source},
-            {QStringLiteral("match_source"), QStringLiteral("REPLY_STATE")},
-            {QStringLiteral("status"), status},
-            {QStringLiteral("verdict"), QStringLiteral("WAIT")},
-            {QStringLiteral("criteria"), QJsonArray{QJsonObject{
-                 {QStringLiteral("message"), QStringLiteral("ZONE_INITIALIZATION")},
-                 {QStringLiteral("verdict"), QStringLiteral("WAIT")},
-                 {QStringLiteral("reason"), QString::fromUtf8("还没有见到登录时的换区。")},
-                 {QStringLiteral("contradicting_sessions"), 0}}}},
-            {QStringLiteral("staging_overflowed"), false}};
+    QJsonObject row{{QStringLiteral("sha12"), QStringLiteral("67ef1bb97e65")},
+                    {QStringLiteral("source"), source},
+                    {QStringLiteral("match_source"), QStringLiteral("REPLY_STATE")},
+                    {QStringLiteral("status"), status},
+                    {QStringLiteral("verdict"), QStringLiteral("WAIT")},
+                    {QStringLiteral("criteria"), QJsonArray{QJsonObject{
+                         {QStringLiteral("message"), QStringLiteral("ZONE_INITIALIZATION")},
+                         {QStringLiteral("verdict"), QStringLiteral("WAIT")},
+                         {QStringLiteral("reason"), QString::fromUtf8("还没有见到登录时的换区。")},
+                         {QStringLiteral("contradicting_sessions"), 0}}}},
+                    {QStringLiteral("staging_overflowed"), false}};
+    if (!provenance.isEmpty()) {
+        row.insert(QStringLiteral("provenance"), provenance);
+        row.insert(QStringLiteral("audit_pending"), auditPending);
+    }
+    return row;
 }
 
 QJsonObject sharedStatus(const QString &phase, bool userRejected = false,
-                         const QString &lastFetch = QString(), const QJsonArray &candidates = {})
+                         const QString &lastFetch = QString(), const QJsonArray &candidates = {},
+                         bool auditPending = false)
 {
-    return {{QStringLiteral("phase"), phase},
-            {QStringLiteral("candidates"), candidates},
-            {QStringLiteral("last_fetch_status"),
-             lastFetch.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonValue(lastFetch)},
-            {QStringLiteral("last_index_attempts"), QJsonArray{QJsonObject{
-                 {QStringLiteral("source"), QStringLiteral("GITHUB_RAW")},
-                 {QStringLiteral("outcome"), QStringLiteral("TIMEOUT")}}}},
-            {QStringLiteral("profile_id"), QJsonValue::Null},
-            {QStringLiteral("bound_at_utc"), QJsonValue::Null},
-            // Diagnostics only: nothing a player reads may ever repeat it.
-            {QStringLiteral("last_refusal"), QStringLiteral("WRITE_FAILED")},
-            {QStringLiteral("rejected_candidates"), 0},
-            {QStringLiteral("user_rejected"), userRejected}};
+    QJsonObject status{
+        {QStringLiteral("phase"), phase},
+        {QStringLiteral("candidates"), candidates},
+        {QStringLiteral("last_fetch_status"),
+         lastFetch.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonValue(lastFetch)},
+        {QStringLiteral("last_index_attempts"), QJsonArray{QJsonObject{
+             {QStringLiteral("source"), QStringLiteral("GITHUB_RAW")},
+             {QStringLiteral("outcome"), QStringLiteral("TIMEOUT")}}}},
+        {QStringLiteral("profile_id"), QJsonValue::Null},
+        {QStringLiteral("bound_at_utc"), QJsonValue::Null},
+        // Diagnostics only: nothing a player reads may ever repeat it.
+        {QStringLiteral("last_refusal"), QStringLiteral("WRITE_FAILED")},
+        {QStringLiteral("rejected_candidates"), 0},
+        {QStringLiteral("user_rejected"), userRejected}};
+    // Optional since 1.1.0: left out entirely unless asked for, so the "not reported"
+    // path an older Collector produces is what every other row exercises.
+    if (auditPending)
+        status.insert(QStringLiteral("audit_pending"), true);
+    return status;
 }
 
 QVariantMap captureWith(const QString &calibrationState, const QJsonObject &shared,
@@ -100,7 +114,8 @@ void verifyPlayerCopy(const QString &text, bool mayBeEmpty = false)
         QStringLiteral("GITHUB_RAW"), QStringLiteral("TIMEOUT"), QStringLiteral("FETCHING"),
         QStringLiteral("VERIFYING"), QStringLiteral("AWAITING_CONSENT"), QStringLiteral("VERIFIED"),
         QStringLiteral("REJECTED"), QStringLiteral("UNAVAILABLE"), QStringLiteral("NONE_FOR_BUILD"),
-        QStringLiteral("ERR_"), QStringLiteral("MRC1")};
+        QStringLiteral("ERR_"), QStringLiteral("MRC1"), QStringLiteral("PUBLISHED"),
+        QStringLiteral("IMPORTED"), QStringLiteral("audit_pending")};
     for (const QString &word : words) {
         QVERIFY2(!text.contains(word, Qt::CaseInsensitive),
                  qPrintable(QStringLiteral("player copy leaks \"%1\": %2").arg(word, text)));
@@ -293,6 +308,115 @@ private Q_SLOTS:
             sharedStatus(QStringLiteral("VERIFYING"), false, QStringLiteral("OK"),
                          {candidate(QStringLiteral("MANUAL")), candidate(QStringLiteral("DOWNLOADED"))})));
         QVERIFY(controller.headline().contains(QString::fromUtf8("找到共享校准")));
+    }
+
+    // -- 18.3 / 18.4: gates graded by where the code came from ---------------
+
+    void theVerifyingSentenceFollowsTheProvenance_data()
+    {
+        QTest::addColumn<QJsonArray>("candidates");
+        QTest::addColumn<QString>("provenance");
+        QTest::addColumn<QString>("headline");
+
+        const QString published = QString::fromUtf8("找到共享校准，登录时自动核实，通过就开始记录。");
+        const QString imported = QString::fromUtf8("已导入校准码，登录并排一次本、核实通过后启用。");
+        // A pasted code the last index read lists is judged like a downloaded one (18.5),
+        // so "已导入" is not what decides the sentence any more - the provenance is.
+        QTest::newRow("downloaded-published")
+            << QJsonArray{candidate(QStringLiteral("DOWNLOADED"), QStringLiteral("VERIFYING"),
+                                    QStringLiteral("PUBLISHED"))}
+            << "published" << published;
+        QTest::newRow("imported-and-listed")
+            << QJsonArray{candidate(QStringLiteral("MANUAL"), QStringLiteral("VERIFYING"),
+                                    QStringLiteral("PUBLISHED"))}
+            << "published" << published;
+        QTest::newRow("imported-unpublished")
+            << QJsonArray{candidate(QStringLiteral("MANUAL"), QStringLiteral("VERIFYING"),
+                                    QStringLiteral("IMPORTED"))}
+            << "imported" << imported;
+        QTest::newRow("one-published-among-them")
+            << QJsonArray{candidate(QStringLiteral("MANUAL"), QStringLiteral("VERIFYING"),
+                                    QStringLiteral("IMPORTED")),
+                          candidate(QStringLiteral("DOWNLOADED"), QStringLiteral("VERIFYING"),
+                                    QStringLiteral("PUBLISHED"))}
+            << "published" << published;
+        // A rejected candidate decides nothing any more, so the one still in the running does.
+        QTest::newRow("rejected-published-is-ignored")
+            << QJsonArray{candidate(QStringLiteral("DOWNLOADED"), QStringLiteral("REJECTED"),
+                                    QStringLiteral("PUBLISHED")),
+                          candidate(QStringLiteral("MANUAL"), QStringLiteral("VERIFYING"),
+                                    QStringLiteral("IMPORTED"))}
+            << "imported" << imported;
+        // An older Collector reports no provenance: neither promise can be made, and the
+        // wording from before the split stands unchanged.
+        QTest::newRow("not-reported-downloaded")
+            << QJsonArray{candidate(QStringLiteral("DOWNLOADED"))} << QString()
+            << QString::fromUtf8("找到共享校准，登录或排本时自动核实。");
+        QTest::newRow("not-reported-manual")
+            << QJsonArray{candidate(QStringLiteral("MANUAL"))} << QString()
+            << QString::fromUtf8("已导入校准码，登录或排本时自动核实。");
+        // One candidate without a provenance is not "all imported" either.
+        QTest::newRow("half-reported")
+            << QJsonArray{candidate(QStringLiteral("MANUAL"), QStringLiteral("VERIFYING"),
+                                    QStringLiteral("IMPORTED")),
+                          candidate(QStringLiteral("MANUAL"))}
+            << QString()
+            << QString::fromUtf8("已导入校准码，登录或排本时自动核实。");
+    }
+
+    void theVerifyingSentenceFollowsTheProvenance()
+    {
+        QFETCH(QJsonArray, candidates);
+        QFETCH(QString, provenance);
+        QFETCH(QString, headline);
+
+        mr::SharedCalibrationController c;
+        c.refreshFromCaptureStatus(captureWith(
+            QStringLiteral("OBSERVING"),
+            sharedStatus(QStringLiteral("VERIFYING"), false, QStringLiteral("OK"), candidates)));
+        QCOMPARE(c.view(), QStringLiteral("verifying"));
+        QCOMPARE(c.candidateProvenance(), provenance);
+        QVERIFY(!c.auditPending());
+        QCOMPARE(c.headline(), headline);
+        verifyPlayerCopy(c.headline());
+        verifyPlayerCopy(c.detail(), true);
+    }
+
+    void aRecordingProfileUnderAuditSaysSoInGrey()
+    {
+        mr::SharedCalibrationController c;
+        const QJsonArray audited{candidate(QStringLiteral("DOWNLOADED"), QStringLiteral("IN_USE"),
+                                           QStringLiteral("PUBLISHED"), true)};
+        c.refreshFromCaptureStatus(captureWith(
+            QStringLiteral("OBSERVING"),
+            sharedStatus(QStringLiteral("VERIFIED"), false, QStringLiteral("OK"), audited, true),
+            QStringLiteral("SHARED_CALIBRATION")));
+
+        QCOMPARE(c.view(), QStringLiteral("verified"));
+        QVERIFY(c.inUse());
+        QVERIFY(c.auditPending());
+        // It records because the login burst matched; it must not claim more than that.
+        QCOMPARE(c.headline(),
+                 QString::fromUtf8("已使用其他玩家分享的校准（登录时已在本机核实）。"));
+        QCOMPARE(c.detail(),
+                 QString::fromUtf8("排本和进本还在核对中，照常游戏即可；万一对不上，会自动改回本机校准，这期间生成的记录会标记待复核。"));
+        verifyPlayerCopy(c.headline());
+        verifyPlayerCopy(c.detail());
+        // The audit changes nothing a player can do about it.
+        QVERIFY(c.canReject() && !c.canImport() && !c.canCheck() && !c.canShare());
+
+        // Once every audited criterion has passed - or on a Collector that never reports
+        // the field - the plain sentence returns.
+        c.refreshFromCaptureStatus(captureWith(
+            QStringLiteral("OBSERVING"),
+            sharedStatus(QStringLiteral("VERIFIED"), false, QStringLiteral("OK"),
+                         {candidate(QStringLiteral("DOWNLOADED"), QStringLiteral("IN_USE"),
+                                    QStringLiteral("PUBLISHED"))}),
+            QStringLiteral("SHARED_CALIBRATION")));
+        QVERIFY(!c.auditPending());
+        QCOMPARE(c.headline(),
+                 QString::fromUtf8("已使用其他玩家分享的校准（本机已核实）。"));
+        QVERIFY(c.detail().contains(QString::fromUtf8("这台电脑的流量里核实过")));
     }
 
     void actionsFollowTheCalibrationState()
@@ -500,13 +624,28 @@ private Q_SLOTS:
         QTest::addColumn<QString>("outcome");
         QTest::addColumn<QString>("message");
         QTest::addColumn<bool>("applied");
+        QTest::addColumn<QString>("reason");
+        QTest::addColumn<QString>("provenance");
         QTest::newRow("applied") << "APPLIED"
-            << QString::fromUtf8("校准码已导入，登录或排本时会在本机流量里自动核实。") << true;
+            << QString::fromUtf8("校准码已导入，登录或排本时会在本机流量里自动核实。") << true << "" << "";
         QTest::newRow("not-applicable") << "NOT_APPLICABLE"
             << QString::fromUtf8("这份校准码适用于客户端版本 2026.09.02.0000.0000，当前客户端版本是 2026.09.01.0000.0000，不能通用。")
-            << false;
+            << false << "OTHER_BUILD" << "";
         QTest::newRow("malformed") << "MALFORMED"
-            << QString::fromUtf8("这不是一份能识别的校准码：内容为空。") << false;
+            << QString::fromUtf8("这不是一份能识别的校准码：内容为空。") << false
+            << "E_SHARE_CODE_EMPTY" << "";
+        // §18.5: the Collector's own sentence is the one that distinguishes a code the
+        // index lists from one it does not, and a revoked one from a malformed one. The
+        // desktop adds nothing to it and drops nothing from it.
+        QTest::newRow("applied-published") << "APPLIED"
+            << QString::fromUtf8("校准码已导入：它与公开仓库里 3 人提交的校准一致，下次登录核实通过就开始记录。")
+            << true << "" << "PUBLISHED";
+        QTest::newRow("applied-unpublished") << "APPLIED"
+            << QString::fromUtf8("校准码已导入：它没有在公开仓库里发布过，要登录并排一次本、核实通过后才启用。")
+            << true << "" << "IMPORTED";
+        QTest::newRow("revoked") << "NOT_APPLICABLE"
+            << QString::fromUtf8("这份校准码已被撤回，不能再用。")
+            << false << "REVOKED" << "";
     }
 
     void importShowsTheCollectorsMessageAsIs()
@@ -514,12 +653,16 @@ private Q_SLOTS:
         QFETCH(QString, outcome);
         QFETCH(QString, message);
         QFETCH(bool, applied);
+        QFETCH(QString, reason);
+        QFETCH(QString, provenance);
         SharedBackend backend;
         backend.importResult = {{QStringLiteral("outcome"), outcome},
-                                {QStringLiteral("reason"), applied ? QJsonValue(QJsonValue::Null)
-                                                                   : QJsonValue(QStringLiteral("OTHER_BUILD"))},
+                                {QStringLiteral("reason"), reason.isEmpty() ? QJsonValue(QJsonValue::Null)
+                                                                            : QJsonValue(reason)},
                                 {QStringLiteral("message"), message},
                                 {QStringLiteral("code_sha256"), QJsonValue::Null}};
+        if (!provenance.isEmpty())
+            backend.importResult.insert(QStringLiteral("provenance"), provenance);
         mr::SharedCalibrationController c;
         c.setBackend(&backend);
         QSignalSpy finished(&c, &mr::SharedCalibrationController::importFinished);
@@ -534,6 +677,25 @@ private Q_SLOTS:
         QCOMPARE(finished.first().at(1).toString(), message);
         QCOMPARE(notices.count(), applied ? 1 : 0);
         QCOMPARE(rereads.count(), applied ? 1 : 0);
+        if (applied)
+            QCOMPARE(lastNotice(notices), message);
+    }
+
+    void onlyAnEmptyImportMessageFallsBackToOurOwnSentence()
+    {
+        SharedBackend backend;
+        backend.importResult = {{QStringLiteral("outcome"), QStringLiteral("APPLIED")},
+                                {QStringLiteral("reason"), QJsonValue::Null},
+                                {QStringLiteral("message"), QString()},
+                                {QStringLiteral("code_sha256"), QJsonValue::Null}};
+        mr::SharedCalibrationController c;
+        c.setBackend(&backend);
+        QSignalSpy finished(&c, &mr::SharedCalibrationController::importFinished);
+        c.importCode(QLatin1String(kVectorCode));
+        QCOMPARE(finished.count(), 1);
+        QVERIFY(finished.first().at(0).toBool());
+        QVERIFY(!finished.first().at(1).toString().isEmpty());
+        verifyPlayerCopy(finished.first().at(1).toString());
     }
 
     void anEmptyImportIsNeverSent()
@@ -714,7 +876,9 @@ private Q_SLOTS:
         QTest::addColumn<QString>("view");
         for (const auto &[fixture, view] : std::initializer_list<std::pair<const char *, const char *>>{
                  {"fetching", "fetching"}, {"verifying", "verifying"}, {"consent", "consent"},
-                 {"verified", "verified"}, {"rejected", "rejected"}, {"unavailable", "unavailable"},
+                 {"verified", "verified"}, {"verified-auditing", "verified"},
+                 {"imported-published", "verifying"}, {"imported-unpublished", "verifying"},
+                 {"rejected", "rejected"}, {"unavailable", "unavailable"},
                  {"user-rejected", "user_rejected"}, {"none-for-build", "none_for_build"}, {"share", "none"}}) {
             QTest::newRow(fixture) << QString::fromLatin1(fixture) << QString::fromLatin1(view);
         }
@@ -730,7 +894,53 @@ private Q_SLOTS:
         QTRY_VERIFY(app.calibration()->shared()->available());
         QCOMPARE(app.calibration()->shared()->view(), view);
         QCOMPARE(app.calibration()->shared()->canShare(), fixture == QLatin1String("share"));
-        QCOMPARE(app.calibration()->shared()->inUse(), fixture == QLatin1String("verified"));
+        QCOMPARE(app.calibration()->shared()->inUse(),
+                 fixture.startsWith(QStringLiteral("verified")));
+        verifyPlayerCopy(app.calibration()->shared()->headline(), fixture == QLatin1String("share"));
+        verifyPlayerCopy(app.calibration()->shared()->detail(), true);
+    }
+
+    void theThreeGradedMockStatesProjectTheirOwnSentences_data()
+    {
+        QTest::addColumn<QString>("fixture");
+        QTest::addColumn<QString>("provenance");
+        QTest::addColumn<bool>("auditPending");
+        QTest::addColumn<QString>("headline");
+        QTest::addColumn<QString>("detail");
+
+        QTest::newRow("verified-auditing")
+            << "verified-auditing" << "published" << true
+            << QString::fromUtf8("已使用其他玩家分享的校准（登录时已在本机核实）。")
+            << QString::fromUtf8("排本和进本还在核对中");
+        QTest::newRow("imported-published")
+            << "imported-published" << "published" << false
+            << QString::fromUtf8("找到共享校准，登录时自动核实，通过就开始记录。")
+            << QString::fromUtf8("核实通过才会开始记录");
+        QTest::newRow("imported-unpublished")
+            << "imported-unpublished" << "imported" << false
+            << QString::fromUtf8("已导入校准码，登录并排一次本、核实通过后启用。")
+            << QString::fromUtf8("核实通过才会开始记录");
+    }
+
+    void theThreeGradedMockStatesProjectTheirOwnSentences()
+    {
+        QFETCH(QString, fixture);
+        QFETCH(QString, provenance);
+        QFETCH(bool, auditPending);
+        QFETCH(QString, headline);
+        QFETCH(QString, detail);
+
+        mr::MockBackend backend;
+        backend.setSharedCalibrationFixture(fixture);
+        mr::AppController app(&backend, nullptr);
+        auto *shared = app.calibration()->shared();
+        QTRY_VERIFY(shared->available());
+        QTRY_COMPARE(shared->candidateProvenance(), provenance);
+        QCOMPARE(shared->auditPending(), auditPending);
+        QCOMPARE(shared->headline(), headline);
+        QVERIFY2(shared->detail().contains(detail), qPrintable(shared->detail()));
+        verifyPlayerCopy(shared->headline());
+        verifyPlayerCopy(shared->detail());
     }
 
     void theMockSharesALocalCalibrationAndRefusesASharedOne()

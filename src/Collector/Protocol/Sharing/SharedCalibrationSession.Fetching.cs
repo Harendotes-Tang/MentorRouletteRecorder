@@ -140,12 +140,42 @@ internal sealed partial class SharedCalibrationSession
         {
             foreach (var candidate in prepared)
             {
-                Register(candidate, SharedCandidateSource.Downloaded);
+                Register(candidate, SharedCandidateSource.Downloaded, SharedCandidateProvenance.Published);
             }
+        }
+
+        if (result is { IndexWasRead: true })
+        {
+            PromotePublishedImports(ticket.Key);
         }
 
         Evaluate();
         _host.SharedCalibrationChanged();
+    }
+
+    /// <summary>
+    /// An index just read may list a code the player pasted earlier and the previous index did not know (the CDN
+    /// mirrors lag by hours, §3.3): it is published after all, and is judged by the published gate from now on (plan §18.5).
+    /// </summary>
+    private void PromotePublishedImports(SharedKey key)
+    {
+        bool Published(string sha) =>
+            Attempt(() => _services.SharedCalibrations.Publication(key.Region, key.GameBuild, sha)) == SharedPublication.Published;
+
+        foreach (var candidate in _candidates.Where(item => item.Provenance == SharedCandidateProvenance.Imported))
+        {
+            if (Published(candidate.Sha))
+            {
+                candidate.Provenance = SharedCandidateProvenance.Published;
+            }
+        }
+
+        // The profile in use too, so the card and the report keep saying where it stands. An imported code bound
+        // with every criterion already passed, so this changes nothing about its watch.
+        if (_bound is { Provenance: SharedCandidateProvenance.Imported, Sha: { } bound } && Published(bound))
+        {
+            _bound.Provenance = SharedCandidateProvenance.Published;
+        }
     }
 
     /// <summary>Keeps what a claimed download says and drops what its index revokes. True when that withdrew the profile in use.</summary>
@@ -234,10 +264,11 @@ internal sealed partial class SharedCalibrationSession
     // ------------------------------------------------------------------ import
 
     /// <summary>
-    /// A code the player pasted (plan §5.1): decoded and checked against this client and template with
-    /// no network and whatever the setting says; one that fits is verified exactly like a downloaded
-    /// one. Refused while the player's 不用共享的 stands for the build. Takes the gate itself and rebuilds the
-    /// profile outside it.
+    /// A code the player pasted (plan §5.1, §18.5): decoded and checked against this client and template
+    /// with no network and whatever the setting says. One the last index this machine read lists is verified
+    /// like a downloaded one; one no index knows must have every criterion pass before it records; one the
+    /// index revoked is refused. Refused too while the player's 不用共享的 stands for the build. Takes the gate
+    /// itself and rebuilds the profile outside it.
     /// </summary>
     public SharedImportResult Import(string? code)
     {
@@ -266,6 +297,15 @@ internal sealed partial class SharedCalibrationSession
             return new SharedImportResult(SharedImportOutcome.Malformed, "UNBUILDABLE", "这份校准码无法在本机的随包模板上生成协议档案。", sha);
         }
 
+        // Read off the gate: the store has its own lock, and the index it holds was read by an earlier download -
+        // nothing is sent to answer this.
+        var publication = Attempt(() => _services.SharedCalibrations.Publication(context.Key.Region, context.Key.GameBuild, sha));
+        if (publication == SharedPublication.Revoked)
+        {
+            return new SharedImportResult(SharedImportOutcome.NotApplicable, "REVOKED", RefusalMessage("REVOKED"), sha);
+        }
+
+        var provenance = publication == SharedPublication.Published ? SharedCandidateProvenance.Published : SharedCandidateProvenance.Imported;
         lock (_gate)
         {
             if (_stopped || _host.SharedContext()?.Key != context.Key)
@@ -273,16 +313,20 @@ internal sealed partial class SharedCalibrationSession
                 return new SharedImportResult(SharedImportOutcome.NotApplicable, "CHANGED", "导入期间游戏版本或校准状态发生了变化，请重新导入。", sha);
             }
 
-            if (Register(prepared, SharedCandidateSource.Manual) is { } refusal)
+            if (Register(prepared, SharedCandidateSource.Manual, provenance) is { } refusal)
             {
                 return new SharedImportResult(SharedImportOutcome.NotApplicable, refusal, RefusalMessage(refusal), sha);
             }
 
             Evaluate();
             _host.SharedCalibrationChanged();
-            return new SharedImportResult(SharedImportOutcome.Applied, null, "校准码已导入，登录或排本时会在本机流量里自动核实。", sha);
+            return new SharedImportResult(SharedImportOutcome.Applied, null, ImportedMessage(provenance), sha, provenance);
         }
     }
+
+    private static string ImportedMessage(SharedCandidateProvenance provenance) => provenance == SharedCandidateProvenance.Published
+        ? "校准码已导入。它与公开仓库里其他玩家提交的一致，登录时在本机流量里核实通过就会启用。"
+        : "校准码已导入。它没有在公开仓库发布过，所以要在本机登录并排一次本、核实通过后才会启用；在那之前不会生成记录。";
 
     private SharedImportResult? Inapplicable(ShareCodePayload payload, string sha, SharedContext? context, bool userRejected)
     {
@@ -321,6 +365,7 @@ internal sealed partial class SharedCalibrationSession
     private static string RefusalMessage(string refusal) => refusal switch
     {
         "REJECTED" => "这份校准码已经在本机流量里对不上，不再使用；在校准卡片上点「重新观察」可以清除这个判定。",
+        "REVOKED" => "这份校准码已经在公开仓库里被撤回，不能再使用；请向分享者要一份新的，或等待其他玩家的分享。",
         UserRejectedReason => "你已经选择这个游戏版本不用其他玩家的共享校准；在校准卡片上点「重新观察」后才能导入校准码。",
         _ => "正在核实的校准码已经太多，请等当前的核实有结果后再导入。",
     };

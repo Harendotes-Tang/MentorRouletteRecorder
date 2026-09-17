@@ -24,6 +24,29 @@ bool allManual(const QVariantList &candidates)
     return true;
 }
 
+/// Which gate set the candidates still in the running are judged by, as one word
+/// (plans/shared-calibration.md §18.3). Rejected candidates are left out: they no
+/// longer decide anything the player is told. Empty means no candidate reported a
+/// provenance - a Collector before 1.1.0, or a profile restored from disk whose code
+/// was not recovered - and then the wording from before this field stands unchanged.
+QString provenanceOf(const QVariantList &candidates)
+{
+    int considered = 0;
+    int imported = 0;
+    for (const auto &value : candidates) {
+        const QVariantMap candidate = value.toMap();
+        if (candidate.value(QStringLiteral("status")).toString() == QLatin1String("REJECTED"))
+            continue;
+        ++considered;
+        const QString provenance = candidate.value(QStringLiteral("provenance")).toString();
+        if (provenance == QLatin1String("PUBLISHED"))
+            return QStringLiteral("published");
+        if (provenance == QLatin1String("IMPORTED"))
+            ++imported;
+    }
+    return considered > 0 && imported == considered ? QStringLiteral("imported") : QString();
+}
+
 QString outcomeOf(const QVariantMap &payload)
 {
     return payload.value(QStringLiteral("outcome")).toString();
@@ -69,7 +92,10 @@ void SharedCalibrationController::refreshFromCaptureStatus(const QVariantMap &ca
     Inputs next;
     next.available = raw.isValid() && !raw.isNull() && !shared.isEmpty();
     next.userRejected = shared.value(QStringLiteral("user_rejected")).toBool();
-    next.manualOnly = allManual(shared.value(QStringLiteral("candidates")).toList());
+    const QVariantList candidates = shared.value(QStringLiteral("candidates")).toList();
+    next.manualOnly = allManual(candidates);
+    next.provenance = provenanceOf(candidates);
+    next.auditPending = shared.value(QStringLiteral("audit_pending")).toBool();
     next.phase = shared.value(QStringLiteral("phase")).toString();
     next.lastFetchStatus = shared.value(QStringLiteral("last_fetch_status")).toString();
     const QString state = calibration.value(QStringLiteral("state")).toString();
@@ -127,13 +153,26 @@ QString SharedCalibrationController::headline() const
     const QString current = view();
     if (current == QLatin1String("fetching"))
         return tr("正在获取其他玩家的共享校准，本机校准照常进行。");
-    if (current == QLatin1String("verifying"))
+    if (current == QLatin1String("verifying")) {
+        // §18.3: a code an index lists binds at the login burst, so it is a matter of
+        // logging in; a pasted code no index knows waits for one queue and one duty as
+        // well. Without a provenance (an older Collector) neither promise can be made,
+        // and the sentence from before the split stands.
+        if (m_inputs.provenance == QLatin1String("imported"))
+            return tr("已导入校准码，登录并排一次本、核实通过后启用。");
+        if (m_inputs.provenance == QLatin1String("published"))
+            return tr("找到共享校准，登录时自动核实，通过就开始记录。");
         return m_inputs.manualOnly ? tr("已导入校准码，登录或排本时自动核实。")
                                    : tr("找到共享校准，登录或排本时自动核实。");
+    }
     if (current == QLatin1String("consent"))
         return tr("共享校准核实通过了，还需要你同意一次才能开始记录。");
-    if (current == QLatin1String("verified"))
-        return tr("已使用其他玩家分享的校准（本机已核实）。");
+    if (current == QLatin1String("verified")) {
+        // §18.4: it records because the login burst matched; saying "本机已核实" while the
+        // match and the duty entry are still being audited would promise more than that.
+        return m_inputs.auditPending ? tr("已使用其他玩家分享的校准（登录时已在本机核实）。")
+                                     : tr("已使用其他玩家分享的校准（本机已核实）。");
+    }
     if (current == QLatin1String("rejected"))
         return tr("共享校准与本机流量对不上，已改为本机校准。");
     if (current == QLatin1String("unavailable"))
@@ -152,8 +191,13 @@ QString SharedCalibrationController::detail() const
     const QString current = view();
     if (current == QLatin1String("verifying"))
         return tr("核实通过才会开始记录，期间照常游戏即可；对不上就继续本机校准，已经攒下的进度不受影响。");
-    if (current == QLatin1String("verified"))
-        return tr("这份校准在这台电脑的流量里核实过，和随软件附带的档案一样用于记录。");
+    if (current == QLatin1String("verified")) {
+        // Grey, not orange: nothing is wrong, and the player has nothing to do about it.
+        return m_inputs.auditPending
+            ? tr("排本和进本还在核对中，照常游戏即可；万一对不上，会自动改回本机校准，"
+                 "这期间生成的记录会标记待复核。")
+            : tr("这份校准在这台电脑的流量里核实过，和随软件附带的档案一样用于记录。");
+    }
     if (current == QLatin1String("rejected"))
         return tr("本机校准一直在进行，进度没有丢，照常游戏即可。");
     if (current == QLatin1String("unavailable"))

@@ -132,10 +132,23 @@ internal sealed partial class SharedCalibrationSession
             return false;
         }
 
+        // Across a restart a recorded duty alone does not prove the profile (plan §18.4): the watch ended only if
+        // this very document was recorded as settled, which is what the store answers.
         var proven = _bound is { } bound && string.Equals(bound.ProfileId, profile.ProfileId, StringComparison.Ordinal)
             ? bound.Proven
-            : _host.HasFinishedSharedRun(profile.ProfileId);
+            : _host.HasFinishedSharedRun(profile.ProfileId) && IsSettled(profile);
         return !proven;
+    }
+
+    private bool IsSettled(ProtocolProfile profile) =>
+        Attempt(() => _services.SharedCalibrations.IsSettled(profile.Region, profile.GameBuild, profile.ProfileSha256));
+
+    private void RecordSettled(BoundProfile bound)
+    {
+        if (bound.ProfileSha256 is { } sha)
+        {
+            Attempt(() => _services.SharedCalibrations.RecordSettled(bound.Region, bound.GameBuild, sha, _clock.UtcNow));
+        }
     }
 
     /// <summary>The setting changed. Off cancels a download and drops downloaded candidates; a profile in use stays.</summary>
@@ -256,7 +269,11 @@ internal sealed partial class SharedCalibrationSession
         }
     }
 
-    /// <summary>A run finished. True when it was the first complete duty of the shared profile in use.</summary>
+    /// <summary>
+    /// A run finished. True when it was the first complete duty of the shared profile in use and nothing is
+    /// left to audit, so the watch ends now; a published code whose match is still being audited stays
+    /// watched, and <see cref="SettleIfProven"/> ends the watch from the audit's side.
+    /// </summary>
     public bool OnRunFinished(MentorRun run)
     {
         if (_bound is not { Proven: false } bound || !string.Equals(run.ProtocolProfileId, bound.ProfileId, StringComparison.Ordinal) ||
@@ -266,7 +283,14 @@ internal sealed partial class SharedCalibrationSession
             return false;
         }
 
+        bound.RanComplete = true;
+        if (bound.Verification is { AuditPending: true })
+        {
+            return false;
+        }
+
         bound.Proven = true;
+        RecordSettled(bound);
         if (bound.Declared is { } declared)
         {
             _host.UnregisterSharedCandidate(declared.CandidateId);
@@ -325,15 +349,39 @@ internal sealed partial class SharedCalibrationSession
             return false;
         }
 
-        retained.Verification = SharedCandidateVerifier.Verify(snapshot, context.Template, inUse);
+        retained.Verification = SharedCandidateVerifier.Verify(snapshot, context.Template, inUse, retained.Provenance);
         if (!RecordContradictions(context, snapshot, inUse, retained.Verification) &&
             retained.Verification.Verdict != SharedVerdict.Contradicted)
         {
+            SettleIfProven(retained);
             return false;
         }
 
         Supersede("CONTRADICTED");
         return true;
+    }
+
+    /// <summary>
+    /// The watch on the profile in use ends once it has recorded a complete duty and no audited criterion is
+    /// still waiting (plan §18.4). The run finishing may come first (a published code whose match has not
+    /// yet been seen to behave) or the audit may (a duty entered but not yet exited); this is the second half
+    /// of either order.
+    /// </summary>
+    private void SettleIfProven(BoundProfile bound)
+    {
+        if (bound.Proven || !bound.RanComplete || bound.Verification is { AuditPending: true })
+        {
+            return;
+        }
+
+        bound.Proven = true;
+        RecordSettled(bound);
+        if (bound.Declared is { } declared)
+        {
+            _host.UnregisterSharedCandidate(declared.CandidateId);
+        }
+
+        _host.SharedRetentionFinished(bound.ProfileId, bound.MatchSource == CalibrationMatchSource.QueueRequest);
     }
 
     /// <summary>Verifies every candidate; the first that may bind now, one reading the match before one inferring it.</summary>
@@ -367,7 +415,7 @@ internal sealed partial class SharedCalibrationSession
     /// </summary>
     private bool VerifyCandidate(SharedContext context, CalibrationSnapshot snapshot, Candidate candidate)
     {
-        var verification = SharedCandidateVerifier.Verify(snapshot, context.Template, candidate.Prepared.Declared);
+        var verification = SharedCandidateVerifier.Verify(snapshot, context.Template, candidate.Prepared.Declared, candidate.Provenance);
         candidate.Verification = verification;
         if (RecordContradictions(context, snapshot, candidate.Prepared.Declared, verification) ||
             verification.Verdict == SharedVerdict.Contradicted)
@@ -439,12 +487,14 @@ internal sealed partial class SharedCalibrationSession
                 continue;
             }
 
-            // The verifier counts sessions, not which ones; judging each healthy session alone names them.
+            // The verifier counts sessions, not which ones; judging each healthy session alone names them. The
+            // gate does not enter into a contradiction, so either provenance gives the same count.
             var alone = snapshot with
             {
                 SessionHealth = new Dictionary<string, CaptureSessionHealth>(StringComparer.Ordinal) { [health.CaptureSessionId] = health },
             };
-            if (!SharedCandidateVerifier.Verify(alone, context.Template, declared).Criteria.Any(criterion => criterion.ContradictingSessions > 0))
+            if (!SharedCandidateVerifier.Verify(alone, context.Template, declared, SharedCandidateProvenance.Imported).Criteria
+                    .Any(criterion => criterion.ContradictingSessions > 0))
             {
                 continue;
             }
@@ -508,6 +558,7 @@ internal sealed partial class SharedCalibrationSession
             Phase(), summaries, _lastFetchStatus, _lastAttempts, _bound?.ProfileId, _bound?.BoundAtUtc, _lastRefusal)
         {
             UserRejected = UserRejectedNow(),
+            AuditPending = _bound is { Proven: false, Verification.AuditPending: true },
             LastSentAtUtc = _lastSentAtUtc,
             LastSentStatus = _lastSentStatus,
         };
@@ -515,8 +566,9 @@ internal sealed partial class SharedCalibrationSession
 
     /// <summary>A short string that changes whenever the snapshot does in a way the card shows.</summary>
     public string Signature() => string.Join(",",
-        Phase(), _lastFetchStatus, _bound?.ProfileId, _bound?.Proven, _rejectedSummaries.Count, UserRejectedNow(),
-        string.Join(";", _candidates.Select(candidate => candidate.Sha[..12] + ":" + candidate.Status + ":" + candidate.Verification?.Verdict)));
+        Phase(), _lastFetchStatus, _bound?.ProfileId, _bound?.Proven, _bound?.Verification?.AuditPending, _rejectedSummaries.Count, UserRejectedNow(),
+        string.Join(";", _candidates.Select(candidate =>
+            candidate.Sha[..12] + ":" + candidate.Provenance + ":" + candidate.Status + ":" + candidate.Verification?.Verdict)));
 
     private SharedCalibrationPhase Phase() =>
         _bound is not null ? SharedCalibrationPhase.Verified
@@ -531,14 +583,22 @@ internal sealed partial class SharedCalibrationSession
         candidate.Sha[..12], candidate.Source, candidate.Prepared.Payload.MatchSource, candidate.Status,
         candidate.Verification?.Verdict ?? SharedVerdict.Wait,
         candidate.Verification?.Criteria ?? Array.Empty<SharedCriterion>(),
-        candidate.Stage?.Overflowed == true);
+        candidate.Stage?.Overflowed == true)
+    {
+        Provenance = candidate.Provenance,
+        AuditPending = candidate.Verification?.AuditPending == true,
+    };
 
     private static SharedCandidateSummary Summary(BoundProfile bound) => new(
         bound.Sha![..12], bound.Source, bound.MatchSource,
         bound.Proven ? SharedCandidateStatus.Proven : SharedCandidateStatus.InUse,
         bound.Verification?.Verdict ?? SharedVerdict.Pass,
         bound.Verification?.Criteria ?? Array.Empty<SharedCriterion>(),
-        false);
+        false)
+    {
+        Provenance = bound.Provenance,
+        AuditPending = !bound.Proven && bound.Verification?.AuditPending == true,
+    };
 
     private sealed record Prepared(string Sha, ShareCodePayload Payload, DeclaredCandidate Declared, ProtocolProfile StagingProfile);
 
@@ -565,15 +625,19 @@ internal sealed partial class SharedCalibrationSession
 
     private sealed class Candidate
     {
-        public Candidate(Prepared prepared, SharedCandidateSource source)
+        public Candidate(Prepared prepared, SharedCandidateSource source, SharedCandidateProvenance provenance)
         {
             Prepared = prepared;
             Source = source;
+            Provenance = provenance;
         }
 
         public Prepared Prepared { get; }
 
         public SharedCandidateSource Source { get; }
+
+        /// <summary>Published or imported; an imported code is promoted once an index this machine reads lists it.</summary>
+        public SharedCandidateProvenance Provenance { get; set; }
 
         public string Sha => Prepared.Sha;
 
@@ -602,17 +666,29 @@ internal sealed partial class SharedCalibrationSession
 
         public string ProfileId { get; }
 
+        /// <summary>Canonical hash of the profile document in use; what the store's settled mark is keyed by.</summary>
+        public string? ProfileSha256 { get; init; }
+
         public string? Sha { get; set; }
 
         public DeclaredCandidate? Declared { get; set; }
 
         public SharedCandidateSource? Source { get; init; }
 
+        /// <summary>
+        /// Gate set the watch judges by. A profile adopted from disk is watched as published: what it records is
+        /// already recording, and an imported code that bound had every criterion pass before it did.
+        /// </summary>
+        public SharedCandidateProvenance Provenance { get; set; } = SharedCandidateProvenance.Published;
+
         public CalibrationMatchSource? MatchSource { get; set; }
 
         public DateTimeOffset? BoundAtUtc { get; init; }
 
         public SharedVerification? Verification { get; set; }
+
+        /// <summary>A complete duty was recorded under it; with no audit pending that makes it proven.</summary>
+        public bool RanComplete { get; set; }
 
         public bool Proven { get; set; }
     }

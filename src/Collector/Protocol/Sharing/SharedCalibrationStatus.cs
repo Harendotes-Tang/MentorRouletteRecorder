@@ -37,6 +37,26 @@ public enum SharedCandidateSource
     Manual,
 }
 
+/// <summary>
+/// What stands behind a candidate, which decides how much local traffic must vouch for it before it
+/// records (plan §18.3). Distinct from <see cref="SharedCandidateSource"/>: a pasted code that the
+/// public repository's index lists is published all the same.
+/// </summary>
+public enum SharedCandidateProvenance
+{
+    /// <summary>
+    /// Listed by the public repository's index: downloaded, or pasted and found in the last index this
+    /// machine read. The login burst suffices to bind; the match and the duty entry are audited afterwards.
+    /// </summary>
+    Published,
+
+    /// <summary>
+    /// Pasted and not in any index this machine has read. Nothing is recorded until the match and the
+    /// duty entry have both been seen to behave.
+    /// </summary>
+    Imported,
+}
+
 /// <summary>Where one candidate stands.</summary>
 public enum SharedCandidateStatus
 {
@@ -77,7 +97,14 @@ public sealed record SharedCandidateSummary(
     SharedCandidateStatus Status,
     SharedVerdict Verdict,
     IReadOnlyList<SharedCriterion> Criteria,
-    bool StagingOverflowed);
+    bool StagingOverflowed)
+{
+    /// <summary>Which gate set it is judged by (plan §18.3); null for a profile adopted from disk whose code was not recovered.</summary>
+    public SharedCandidateProvenance? Provenance { get; init; }
+
+    /// <summary>True while it records (or may bind) with an audited criterion still waiting.</summary>
+    public bool AuditPending { get; init; }
+}
 
 /// <summary>The <c>shared</c> part of calibration status (<c>$defs/SharedCalibrationStatus</c>) and of the diagnostics report.</summary>
 /// <param name="Phase">Where shared calibration stands.</param>
@@ -105,6 +132,12 @@ public sealed record SharedCalibrationSnapshot(
     /// bound for it until 重新观察. <see cref="Phase"/> then reads <see cref="SharedCalibrationPhase.Rejected"/>.
     /// </summary>
     public bool UserRejected { get; init; }
+
+    /// <summary>
+    /// True while the profile in use records with an audited criterion still waiting (plan §18.4): a published
+    /// code bound at login whose match or duty entry has not yet been seen to behave.
+    /// </summary>
+    public bool AuditPending { get; init; }
 
     /// <summary>When this process last actually sent a shared-calibration request, for any build; null when it never did.</summary>
     public DateTimeOffset? LastSentAtUtc { get; init; }
@@ -143,7 +176,12 @@ public enum SharedImportOutcome
 /// </param>
 /// <param name="Message">What to tell the player, in Chinese, without opcodes.</param>
 /// <param name="CodeSha256">Identity of the code, when it decoded.</param>
-public sealed record SharedImportResult(SharedImportOutcome Outcome, string? Reason, string Message, string? CodeSha256 = null);
+/// <param name="Provenance">
+/// When applied: published (the last index this machine read lists the code) or imported (unknown to any index,
+/// so every criterion must pass before it records). Null otherwise.
+/// </param>
+public sealed record SharedImportResult(
+    SharedImportOutcome Outcome, string? Reason, string Message, string? CodeSha256 = null, SharedCandidateProvenance? Provenance = null);
 
 /// <summary>What 立即检查 did.</summary>
 public enum SharedCheckOutcome

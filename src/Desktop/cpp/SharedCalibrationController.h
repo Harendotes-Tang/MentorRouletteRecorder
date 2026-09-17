@@ -43,6 +43,15 @@ class SharedCalibrationController final : public QObject
     Q_PROPERTY(QString detail READ detail NOTIFY changed)
     /// The profile in force was rebuilt from another player's share code.
     Q_PROPERTY(bool inUse READ inUse NOTIFY changed)
+    /// The shared profile in force records, but the match and the duty entry are
+    /// still being audited (plans/shared-calibration.md §18.4). An older Collector
+    /// never reports it, and then it stays false: "not reported", not "no audit".
+    Q_PROPERTY(bool auditPending READ auditPending NOTIFY changed)
+    /// Which gate set the candidates are judged by, in one word: "published" when
+    /// at least one candidate that is not rejected came from an index this machine
+    /// read, "imported" when every one of them was pasted and no index knows it,
+    /// and empty when a Collector before 1.1.0 reports no provenance at all.
+    Q_PROPERTY(QString candidateProvenance READ candidateProvenance NOTIFY changed)
     Q_PROPERTY(bool userRejected READ userRejected NOTIFY changed)
     /// Which of the card's buttons make sense right now.
     Q_PROPERTY(bool canCheck READ canCheck NOTIFY changed)
@@ -73,6 +82,8 @@ public:
     QString headline() const;
     QString detail() const;
     bool inUse() const;
+    bool auditPending() const { return m_inputs.auditPending; }
+    QString candidateProvenance() const { return m_inputs.provenance; }
     bool userRejected() const { return m_inputs.userRejected; }
     bool canCheck() const;
     bool canImport() const;
@@ -119,6 +130,9 @@ private:
         bool available = false;
         bool userRejected = false;
         bool manualOnly = false;
+        bool auditPending = false;
+        /// "published", "imported" or empty when no candidate reports a provenance.
+        QString provenance;
         QString phase;
         QString lastFetchStatus;
         QString calibrationState = QStringLiteral("IDLE");

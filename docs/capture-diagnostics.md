@@ -684,6 +684,8 @@ opcode 与负载字节。
 | `candidates[]` | 每份校准码一行，包含 `sha12`（码身份的前 12 位，可与公开仓库中的文件名对照）、`source`（`DOWNLOADED` 为下载，`MANUAL` 为手动导入）、`match_source`、`status`、`verdict`。正在使用的共享档案排在第一位 |
 | `candidates[].criteria[]` | 每条声明报文对应一项判定，包含 `message`（语义名，非 opcode）、`verdict`（`PASS` / `WAIT` / `CONTRADICTED`）、`reason`（中文原因）、`contradicting_sessions`（已有多少个**健康**抓包会话与之矛盾，达到两个才判定为拒绝）。长期为 `WAIT` 且原因为未观察到登录时的换区，通常说明本软件在游戏登录之后才开始抓包（§5.5），而非校准码存在问题 |
 | `candidates[].staging_overflowed` | 暂存事件超过上限，该校准码在本会话内无法绑定，需在下一个抓包会话重试 |
+| `candidates[].provenance` | 1.1.0 起。`PUBLISHED` 表示本机最近一次读到的索引列出了这份码（下载来的，或导入后在索引里找到的），登录时换区判据通过即绑定，排本与进本判据在记录中继续核对；`IMPORTED` 表示导入后任何索引都不认识，三条判据全部通过才绑定。`IMPORTED` 的码长期停在 `VERIFYING`，通常是还没排过本，不是码有问题 |
+| `candidates[].audit_pending` / `audit_pending` | 1.1.0 起。正在使用（或可绑定）的共享档案仍有绑定后核对的判据在等待。为 true 时校准保持布防，记录照常生成；两个健康会话判矛盾会撤下档案并把它自绑定起生成的记录标记待复核 |
 | `profile_id` / `bound_at_utc` | 正在使用的共享档案，以及它在抓包会话内开始记录的时刻 |
 | `last_refusal` | 上一次绑定或撤下失败的原因令牌：`NOT_SELECTED`（写出后目录未选中它）、`STAGING_NOT_FOR_THIS_SESSION`、`WRITE_FAILED`、`BUILD_*`、`STALE`（写出期间状态发生变化）、`CONTRADICTED`、`REVOKED`、`REJECTED`、`USER_REJECTED`、`INTERNAL`。令牌之外的细节（异常类型、路径）只保留在本机，不写入报告 |
 | `rejected_candidates` | 因矛盾或撤销而被拒绝的校准码数量。矛盾记录跨重启保留，执行「重新观察」时清空 |

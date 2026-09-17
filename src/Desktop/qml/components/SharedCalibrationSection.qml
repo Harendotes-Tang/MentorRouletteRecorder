@@ -13,6 +13,8 @@ ColumnLayout {
 
     readonly property var shared: App.calibration ? App.calibration.shared : null
     readonly property string view: section.shared ? section.shared.view : "none"
+    // 已绑定并在记录，但排本与进本仍在核对（plan §18.4）。
+    readonly property bool auditPending: !!section.shared && section.shared.auditPending
     // 卡片标题已说明「已使用其他玩家分享的校准」时，此处不再重复小标题与标题。
     property bool headlineShownByCard: false
     readonly property bool offersSomething: !!section.shared
@@ -56,8 +58,9 @@ ColumnLayout {
     Text {
         objectName: "sharedCalibrationDetail"
         Layout.fillWidth: true
-        // 共享档案记录时，卡片上方已原样显示采集服务的说明，此处不再重复。
-        visible: text.length > 0 && !section.headlineShownByCard
+        // 共享档案记录时，卡片上方已原样显示采集服务的说明，此处不再重复；
+        // 但排本与进本仍在核对时，这一句灰字是唯一说明该状态的地方，须照常显示。
+        visible: text.length > 0 && (!section.headlineShownByCard || section.auditPending)
         text: section.shared ? section.shared.detail : ""
         textFormat: Text.PlainText
         color: Theme.textSecondary

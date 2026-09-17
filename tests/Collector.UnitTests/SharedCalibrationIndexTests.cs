@@ -303,4 +303,35 @@ public sealed class SharedCalibrationIndexTests
         Assert.Equal(4, only.Submitters);
         Assert.Equal(new[] { Sha('a') }, SharedCalibrationIndex.Revoked(read.Entries, Region.Cn, Build));
     }
+
+    /// <summary>Plan §18.6: codes the repository marked as contradicting each other are picked last, whatever their submitters.</summary>
+    [Fact]
+    public void ConflictingEntriesAreOptionalReadAsFalseWhenAbsentAndPickedLast()
+    {
+        var conflicting = Entry(Sha('c'), submitters: 9);
+        conflicting["conflicting"] = true;
+        var cleared = Entry(Sha('d'), submitters: 3);
+        cleared["conflicting"] = false;
+        var read = SharedCalibrationIndex.Read(Index(conflicting, cleared, Entry(Sha('e'), submitters: 1)));
+
+        Assert.Empty(read.Skipped);
+        Assert.True(Assert.Single(read.Entries, entry => entry.CodeSha256 == Sha('c')).Conflicting);
+        Assert.False(Assert.Single(read.Entries, entry => entry.CodeSha256 == Sha('d')).Conflicting);
+        Assert.False(Assert.Single(read.Entries, entry => entry.CodeSha256 == Sha('e')).Conflicting);
+        Assert.Equal(
+            new[] { Sha('d'), Sha('e'), Sha('c') },
+            SharedCalibrationIndex.Select(read.Entries, Region.Cn, Build).Select(entry => entry.CodeSha256).ToArray());
+    }
+
+    [Fact]
+    public void AConflictingFlagThatIsNotABooleanSkipsTheEntry()
+    {
+        var entry = Entry(Sha('c'));
+        entry["conflicting"] = "yes";
+
+        var read = SharedCalibrationIndex.Read(Index(entry));
+
+        Assert.Empty(read.Entries);
+        Assert.Equal("INVALID:conflicting", Assert.Single(read.Skipped).Reason);
+    }
 }

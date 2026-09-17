@@ -7,8 +7,9 @@ this module writes is exactly what the released client reads (proven by the C# r
 ``tests/Fixtures/shared-calibration/index-sample.json``, which this module generated).
 
 Index (downloaded by every client): ``{"schema_version": 1, "entries": [...]}``, at most
-``MAX_ENTRIES`` entries and ``MAX_INDEX_BYTES`` bytes, each entry exactly the nine fields the client
-requires. The index names no account.
+``MAX_ENTRIES`` entries and ``MAX_INDEX_BYTES`` bytes, each entry the nine fields the client requires
+plus, when it applies, the optional ``conflicting`` flag of ``update_conflicts``. The index names no
+account.
 
 Ledger (``submissions.json``, never downloaded by the client): one row per account per code, so the
 Action can enforce "one code per GitHub account per region and build" and count distinct submitters.
@@ -52,6 +53,10 @@ LEDGER_FILE = "submissions.json"
 FIELDS = (
     "region", "game_build", "code_sha256", "match_source", "submitters", "first_published_at", "path", "commit", "revoked",
 )
+# Optional entry fields, written after FIELDS and only when an entry carries them: an index written
+# before the field existed stays byte for byte what it was, and a client that predates it ignores it.
+OPTIONAL_FIELDS = ("conflicting",)
+CONFLICTING = "conflicting"
 LEDGER_FIELDS = ("region", "game_build", "account", "code_sha256", "submitted_at", "issue")
 
 PUBLISHED = "published"
@@ -252,17 +257,30 @@ def read_entry(item: Any) -> tuple[dict | None, str | None]:
         return None, "INVALID:commit"
     if type(item["revoked"]) is not bool:
         return None, "INVALID:revoked"
-    return {name: item[name] for name in FIELDS}, None
+    # Optional (plan section 18.6): an index written before the field existed reads as "no conflict".
+    if CONFLICTING in item and type(item[CONFLICTING]) is not bool:
+        return None, "INVALID:conflicting"
+    entry = {name: item[name] for name in FIELDS}
+    if CONFLICTING in item:
+        entry[CONFLICTING] = item[CONFLICTING]
+    return entry, None
+
+
+def is_conflicting(entry: Mapping) -> bool:
+    """SharedIndexEntry.Conflicting: absent or false means no conflict."""
+    return bool(entry.get(CONFLICTING))
+
+
+def pick_key(entry: Mapping) -> tuple:
+    """The client's pick order: conflicting last, then more submitters, then published earlier, then hash."""
+    return (is_conflicting(entry), -entry["submitters"], parse_stamp(entry["first_published_at"]), entry["code_sha256"])
 
 
 def select(entries: Iterable[Mapping], region: str, build: str) -> tuple:
-    """SharedCalibrationIndex.Select: what a client downloads for its region and build, in order."""
+    """SharedCalibrationIndex.Select: what a client downloads for its region and build, in ``pick_key`` order."""
     for_build = [entry for entry in entries if entry["region"] == region and entry["game_build"] == build]
     revoked = {entry["code_sha256"] for entry in for_build if entry["revoked"]}
-    ordered = sorted(
-        (entry for entry in for_build if entry["code_sha256"] not in revoked),
-        key=lambda entry: (-entry["submitters"], parse_stamp(entry["first_published_at"]), entry["code_sha256"]),
-    )
+    ordered = sorted((entry for entry in for_build if entry["code_sha256"] not in revoked), key=pick_key)
     chosen, seen = [], set()
     for entry in ordered:
         if entry["code_sha256"] not in seen:
@@ -296,7 +314,14 @@ def sort_entries(entries: Iterable[Mapping]) -> tuple:
 
 def serialize_index(entries: Iterable[Mapping]) -> bytes:
     """The one byte form of an index: compact, one entry per line, fields in the client's order."""
-    return _serialize("entries", [{name: entry[name] for name in FIELDS} for entry in sort_entries(entries)])
+    return _serialize("entries", [_entry_fields(entry) for entry in sort_entries(entries)])
+
+
+def _entry_fields(entry: Mapping) -> dict:
+    """The entry as one index line: the client's nine fields in order, then any optional field it carries."""
+    written = {name: entry[name] for name in FIELDS}
+    written.update((name, entry[name]) for name in OPTIONAL_FIELDS if name in entry)
+    return written
 
 
 def serialize_ledger(submissions: Iterable[Mapping]) -> bytes:
@@ -492,6 +517,59 @@ def _cap_refusal(index: Index) -> str | None:
     except IndexFull as full:
         return str(full)
     return None
+
+
+def code_descriptor(root: Path, entry: Mapping) -> tuple | None:
+    """``(template_sha256, match_source)`` read from the entry's own code file, or None when it cannot be.
+
+    "Cannot be" covers a missing or unreadable file, bytes that are not this entry's code, and a code
+    that no longer decodes: such an entry takes part in no conflict group rather than stopping the run.
+    """
+    try:
+        text = (Path(root) / entry["path"]).read_bytes().decode("utf-8", "replace")
+    except OSError:
+        return None
+    decoded = sharecode.decode(text)
+    if not decoded.valid or decoded.code_sha256 != entry["code_sha256"]:
+        return None
+    return decoded.payload["template_sha256"], decoded.payload["match_source"]
+
+
+def update_conflicts(index: Index, root: Path, region: str, build: str, *, log: Any = None) -> Index:
+    """Recomputes ``conflicting`` for one (region, build) from the code files under ``root`` (plan section 18.6).
+
+    Two published, non-revoked codes of the same template and the same ``match_source`` that are not the
+    same code disagree about the same thing, so at least one of them is wrong: every member of such a
+    group is flagged, and every other entry of that (region, build) has the flag cleared. Revoked entries
+    neither count nor are flagged. An entry whose code file ``code_descriptor`` cannot read is skipped and,
+    when ``log`` is given, named to it. Pure apart from reading the code files, and idempotent: the flags
+    depend only on what the entries and their files say, never on the flags already there.
+    """
+    groups: dict = {}
+    for entry in index.entries:
+        if (entry["region"], entry["game_build"]) != (region, build) or entry["revoked"]:
+            continue
+        descriptor = code_descriptor(root, entry)
+        if descriptor is None:
+            if log is not None:
+                log("no readable code file for %s at %s" % (entry["code_sha256"][:12], entry["path"]))
+            continue
+        groups.setdefault(descriptor, set()).add(entry["code_sha256"])
+    conflicting = {sha for codes in groups.values() if len(codes) > 1 for sha in codes}
+    return replace(index, entries=tuple(
+        _set_conflicting(entry, entry["code_sha256"] in conflicting)
+        if (entry["region"], entry["game_build"]) == (region, build) else entry
+        for entry in index.entries
+    ))
+
+
+def _set_conflicting(entry: Mapping, flag: bool) -> Mapping:
+    """The entry with the flag set, or without the field at all when there is no conflict."""
+    if flag:
+        return dict(entry, conflicting=True)
+    if CONFLICTING in entry:
+        return {name: value for name, value in entry.items() if name != CONFLICTING}
+    return entry
 
 
 def revoke(index: Index, code_sha256: str) -> Index:

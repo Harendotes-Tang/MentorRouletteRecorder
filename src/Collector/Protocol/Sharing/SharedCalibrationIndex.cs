@@ -18,6 +18,10 @@ namespace MentorRecorder.Collector.Protocol.Sharing;
 /// <param name="Path">Repository path of the code file; always <see cref="SharedCalibrationIndex.CodePath"/>.</param>
 /// <param name="Commit">Commit that added the file; codes are downloaded by it, so no cache serves other content.</param>
 /// <param name="Revoked">True when the maintainer withdrew the code.</param>
+/// <param name="Conflicting">
+/// True when another published code of the same build, template and match source differs from this one
+/// (plan §18.6): at least one of them is wrong, so both are picked last. Optional in the index; absent reads as false.
+/// </param>
 public sealed record SharedIndexEntry(
     Region Region,
     string GameBuild,
@@ -27,7 +31,8 @@ public sealed record SharedIndexEntry(
     DateTimeOffset FirstPublishedAtUtc,
     string Path,
     string Commit,
-    bool Revoked);
+    bool Revoked,
+    bool Conflicting = false);
 
 /// <summary>An index entry that was not used, and why.</summary>
 /// <param name="Position">Zero-based position in <c>entries</c>.</param>
@@ -227,7 +232,8 @@ public static class SharedCalibrationIndex
         var revoked = forBuild.Where(entry => entry.Revoked).Select(entry => entry.CodeSha256).ToHashSet(StringComparer.Ordinal);
         return forBuild
             .Where(entry => !revoked.Contains(entry.CodeSha256))
-            .OrderByDescending(entry => entry.Submitters)
+            .OrderBy(entry => entry.Conflicting)
+            .ThenByDescending(entry => entry.Submitters)
             .ThenBy(entry => entry.FirstPublishedAtUtc)
             .ThenBy(entry => entry.CodeSha256, StringComparer.Ordinal)
             .DistinctBy(entry => entry.CodeSha256, StringComparer.Ordinal)
@@ -328,7 +334,19 @@ public static class SharedCalibrationIndex
             return "INVALID:revoked";
         }
 
-        entry = new SharedIndexEntry(region, build, sha, source, count, published, path, commit, revoked.GetBoolean());
+        // Optional (plan §18.6): an index written before the field existed reads as "no conflict".
+        var conflicting = false;
+        if (item.TryGetProperty("conflicting", out var conflict))
+        {
+            if (conflict.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+            {
+                return "INVALID:conflicting";
+            }
+
+            conflicting = conflict.GetBoolean();
+        }
+
+        entry = new SharedIndexEntry(region, build, sha, source, count, published, path, commit, revoked.GetBoolean(), conflicting);
         return null;
     }
 

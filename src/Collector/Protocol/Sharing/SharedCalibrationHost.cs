@@ -46,16 +46,19 @@ internal enum SharedBindOutcome
 /// <param name="Reason">Short token for diagnostics.</param>
 /// <param name="Proven">
 /// True when the run table already holds a complete entry and exit under the profile - a duty the
-/// drained staging finished - so the watch after binding is already over.
+/// drained staging finished - and no audited criterion was still waiting, so the watch after binding
+/// is already over (plan §18.4).
 /// </param>
-internal sealed record SharedBindResult(SharedBindOutcome Outcome, string Reason, bool Proven = false);
+/// <param name="RanComplete">True when the run table holds a complete entry and exit under the profile, audit or not.</param>
+internal sealed record SharedBindResult(SharedBindOutcome Outcome, string Reason, bool Proven = false, bool RanComplete = false);
 
 /// <summary>A written shared profile to commit.</summary>
 /// <param name="ProfileId">Id of the profile just written.</param>
 /// <param name="Select">Selector reloaded from disk after the write.</param>
 /// <param name="Stage">The candidate's staging for the running session, if any.</param>
+/// <param name="AuditPending">True when the candidate passed with an audited criterion still waiting: a recorded duty alone cannot prove it.</param>
 internal sealed record SharedBindRequest(
-    string ProfileId, Func<GameProcessDetection, ProfileSelection> Select, SharedCandidateStage? Stage);
+    string ProfileId, Func<GameProcessDetection, ProfileSelection> Select, SharedCandidateStage? Stage, bool AuditPending = false);
 
 /// <summary>
 /// The narrow part of <c>LiveProtocolPipeline</c> that shared calibration needs. Every member is
@@ -89,6 +92,26 @@ internal interface ISharedCalibrationHost
 
     /// <summary>Stops recording with a withdrawn shared profile at once and stops calling it selected.</summary>
     void UnbindSharedProfile(string profileId);
+
+    /// <summary>
+    /// A withdrawn profile's records are suspect (plan §18.4): every run recorded under it since
+    /// <paramref name="sinceUtc"/> (all of them when null) is marked pending review with a system revision
+    /// saying why. Human decisions on a run are kept.
+    /// </summary>
+    /// <param name="profileId">The withdrawn profile.</param>
+    /// <param name="sinceUtc">When it was bound in this process; null for a profile adopted from disk.</param>
+    /// <param name="reason">Why it was withdrawn, for the revision.</param>
+    /// <returns>Runs marked.</returns>
+    int FlagSharedRecords(string profileId, DateTimeOffset? sinceUtc, string reason);
+
+    /// <summary>
+    /// The watch on the profile in use ended from the audit's side (plan §18.4): a complete duty was already
+    /// recorded, and the last audited criterion has now passed. Calibration finishes as it does when the duty
+    /// completes with nothing left to audit.
+    /// </summary>
+    /// <param name="profileId">The proven profile.</param>
+    /// <param name="matchFromQueue">True when it infers the match, which keeps calibration looking underneath it.</param>
+    void SharedRetentionFinished(string profileId, bool matchFromQueue);
 
     /// <summary>Adopts a selector reloaded after a shared profile was removed, and re-arms calibration.</summary>
     void ReselectAfterSharedChange(Func<GameProcessDetection, ProfileSelection> select);

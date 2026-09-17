@@ -28,7 +28,11 @@ public sealed class SharedCalibrationWireTests : IDisposable
             new SharedCandidateSummary(
                 "0123456789ab", SharedCandidateSource.Downloaded, CalibrationMatchSource.ReplyState, SharedCandidateStatus.Verifying,
                 SharedVerdict.Wait, new[] { new SharedCriterion(CalibratedShape.ZoneName, SharedVerdict.Wait, "还没见到登录时的换区。", 1) },
-                false),
+                false)
+            {
+                Provenance = SharedCandidateProvenance.Published,
+                AuditPending = true,
+            },
             new SharedCandidateSummary(
                 "ba9876543210", SharedCandidateSource.Manual, null, SharedCandidateStatus.Rejected, SharedVerdict.Contradicted,
                 Array.Empty<SharedCriterion>(), true),
@@ -77,6 +81,7 @@ public sealed class SharedCalibrationWireTests : IDisposable
         var criterion = first["criteria"]![0]!;
         Assert.Equal("ZONE_INITIALIZATION", criterion["message"]!.GetValue<string>());
         Assert.Equal(1, criterion["contradicting_sessions"]!.GetValue<int>());
+        Assert.Equal("REQUIRED", criterion["gate"]!.GetValue<string>());
         var second = node["candidates"]![1]!;
         Assert.Equal("MANUAL", second["source"]!.GetValue<string>());
         Assert.Null(second["match_source"]);
@@ -90,6 +95,12 @@ public sealed class SharedCalibrationWireTests : IDisposable
         Assert.Equal("NOT_SELECTED", node["last_refusal"]!.GetValue<string>());
         Assert.Equal(1, node["rejected_candidates"]!.GetValue<int>());
         Assert.False(node["user_rejected"]!.GetValue<bool>());
+        // Plan §18: the gate set and the audit, per candidate and for the profile in use.
+        Assert.Equal("PUBLISHED", first["provenance"]!.GetValue<string>());
+        Assert.True(first["audit_pending"]!.GetValue<bool>());
+        Assert.Null(second["provenance"]);
+        Assert.False(second["audit_pending"]!.GetValue<bool>());
+        Assert.False(node["audit_pending"]!.GetValue<bool>());
 
         var text = node.ToJsonString();
         Assert.DoesNotContain("AppData", text, StringComparison.Ordinal);

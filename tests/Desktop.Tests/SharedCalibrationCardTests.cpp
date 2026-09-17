@@ -81,7 +81,8 @@ void verifyPlayerCopy(const QStringList &texts)
         QStringLiteral("0x"), QStringLiteral("67ef1bb97e65"), QStringLiteral("REPLY_STATE"),
         QStringLiteral("QUEUE_REQUEST"), QStringLiteral("CONTRADICTED"), QStringLiteral("GITHUB_RAW"),
         QStringLiteral("INDEX_UNAVAILABLE"), QStringLiteral("AWAITING_CONSENT"), QStringLiteral("VERIFIED"),
-        QStringLiteral("ERR_"), QStringLiteral("MRC1"), QStringLiteral(".shared")};
+        QStringLiteral("ERR_"), QStringLiteral("MRC1"), QStringLiteral(".shared"),
+        QStringLiteral("PUBLISHED"), QStringLiteral("IMPORTED"), QStringLiteral("audit_pending")};
     for (const QString &text : texts) {
         for (const QString &word : words) {
             QVERIFY2(!text.contains(word, Qt::CaseInsensitive),
@@ -298,6 +299,22 @@ private Q_SLOTS:
             << QStringList{QStringLiteral("sharedRejectButton"), QStringLiteral("sharedAcceptButton")};
         QTest::newRow("verified") << "verified" << "verified" << QStringLiteral("calibrationHeadline")
             << u("已使用其他玩家分享的校准（本机已核实）") << QStringList{QStringLiteral("sharedRejectButton")};
+        // Gates graded by provenance (plans/shared-calibration.md 18.3): a code an index
+        // lists is a matter of logging in, a pasted code no index knows waits for one queue
+        // and one duty as well. Both are VERIFYING, and the buttons are the same.
+        QTest::newRow("imported-published") << "imported-published" << "verifying" << headline
+            << u("找到共享校准，登录时自动核实，通过就开始记录。")
+            << QStringList{QStringLiteral("sharedImportButton"), QStringLiteral("sharedRejectButton")};
+        QTest::newRow("imported-unpublished") << "imported-unpublished" << "verifying" << headline
+            << u("已导入校准码，登录并排一次本、核实通过后启用。")
+            << QStringList{QStringLiteral("sharedImportButton"), QStringLiteral("sharedRejectButton")};
+        // Recording after the login burst, with the match and the duty entry still audited
+        // (18.4): the card's own headline says which of the two it is, and the grey line
+        // below it is the only place the audit is explained.
+        QTest::newRow("verified-auditing") << "verified-auditing" << "verified"
+            << QStringLiteral("calibrationHeadline")
+            << u("已使用其他玩家分享的校准（登录时已在本机核实），正在自动记录。")
+            << QStringList{QStringLiteral("sharedRejectButton")};
         QTest::newRow("rejected") << "rejected" << "rejected" << headline << u("共享校准与本机流量对不上")
             << QStringList{QStringLiteral("sharedCheckButton"), QStringLiteral("sharedImportButton")};
         QTest::newRow("unavailable") << "unavailable" << "unavailable" << headline << u("没取到共享校准（网络不通）")
@@ -350,6 +367,52 @@ private Q_SLOTS:
         QVERIFY(!scene.item(QStringLiteral("calibrationProgress_pop_seen"))->isVisible());
         QVERIFY(!scene.item(QStringLiteral("calibrationDiscardButton"))->isVisible());
         QVERIFY(!scene.item(QStringLiteral("sharedCalibrationHeadline"))->isVisible());
+    }
+
+    void anAuditedSharedProfileExplainsTheAuditInGrey()
+    {
+        // plan 18.4: it records because the login burst matched, while the match and the
+        // duty entry are still being checked. The card must not claim "本机已核实" outright,
+        // and the one line that explains the audit has to be on screen even though the
+        // card - not the shared section - carries the headline.
+        CardScene scene;
+        QVERIFY(scene.open(QStringLiteral("verified-auditing"), 760));
+        QTRY_VERIFY(scene.shared()->inUse());
+        QTRY_VERIFY(scene.shared()->auditPending());
+
+        auto *headline = scene.item(QStringLiteral("calibrationHeadline"));
+        QTRY_VERIFY(headline->property("text").toString().contains(
+            QString::fromUtf8("（登录时已在本机核实）")));
+        QVERIFY(!headline->property("text").toString().contains(
+            QString::fromUtf8("（本机已核实）")));
+        QVERIFY(!scene.item(QStringLiteral("sharedCalibrationHeadline"))->isVisible());
+
+        auto *detail = scene.item(QStringLiteral("sharedCalibrationDetail"));
+        QTRY_VERIFY(detail->isVisible());
+        const QString text = detail->property("text").toString();
+        QVERIFY2(text.contains(QString::fromUtf8("排本和进本还在核对中")), qPrintable(text));
+        QVERIFY2(text.contains(QString::fromUtf8("标记待复核")), qPrintable(text));
+        // The audit takes nothing away from the recording state the plain VERIFIED shows.
+        QVERIFY(!scene.item(QStringLiteral("calibrationProgress_pop_seen"))->isVisible());
+        QVERIFY(!scene.item(QStringLiteral("calibrationDiscardButton"))->isVisible());
+        QVERIFY(scene.item(QStringLiteral("sharedRejectButton"))->isVisible());
+
+        QStringList texts;
+        collectVisibleText(scene.card, texts);
+        verifyPlayerCopy(texts);
+    }
+
+    void aVerifiedSharedProfileWithoutAnAuditKeepsThePlainSentence()
+    {
+        // A Collector before 1.1.0 never reports audit_pending, and the wording from
+        // before the graded gates is what it gets.
+        CardScene scene;
+        QVERIFY(scene.open(QStringLiteral("verified"), 760));
+        QTRY_VERIFY(scene.shared()->inUse());
+        QVERIFY(!scene.shared()->auditPending());
+        QTRY_VERIFY(scene.item(QStringLiteral("calibrationHeadline"))->property("text").toString()
+                        .contains(QString::fromUtf8("（本机已核实）")));
+        QVERIFY(!scene.item(QStringLiteral("sharedCalibrationDetail"))->isVisible());
     }
 
     void aProvisionalSharedProfileKeepsTheProvisionalWording()

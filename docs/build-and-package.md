@@ -168,8 +168,10 @@ build\src\Desktop\MentorRecorder.Desktop.exe --screenshot out.png --page 5 --the
 `--mock-first-run`、`--mock-open-detail`、`--mock-open-edit`、
 `--mock-open-reflection`（对第一条记录打开导随心得对话框）、
 `--mock-calibration observing|ready|blocked|done`（本机校准卡片）、
-`--mock-shared fetching|verifying|consent|verified|rejected|unavailable|user-rejected|none-for-build|share`
-（校准卡片的共享校准一节；未提供 `--mock-calibration` 时自动补一个观察中或已完成的本机校准，且不执行任何下载）。
+`--mock-shared fetching|verifying|consent|verified|verified-auditing|imported-published|imported-unpublished|rejected|unavailable|user-rejected|none-for-build|share`
+（校准卡片的共享校准一节；未提供 `--mock-calibration` 时自动补一个观察中或已完成的本机校准，且不执行任何下载。
+`verified-auditing` 为登录时已核实、排本与进本仍在核对；`imported-published` 与 `imported-unpublished`
+为导入后命中／未命中公开仓库索引的校准码）。
 两种后端都可用：`--open-detail`、`--open-edit`、`--show-disclosure`、
 `--mock-open-create`（打开「新增遗漏记录」向导）、`--mock-wizard-step 1|2|3`（向导停留的步骤序号）、
 `--mock-detail-tab info|events|revs|refl`（详情浮层默认页签，会一并打开浮层）、

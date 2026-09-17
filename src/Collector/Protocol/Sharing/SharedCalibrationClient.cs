@@ -328,7 +328,7 @@ public sealed class SharedCalibrationClient
         }
 
         return (new SharedCalibrationCandidate(
-            entry.CodeSha256, text.Trim(), payload, entry.Submitters, entry.FirstPublishedAtUtc, entry.Commit), null);
+            entry.CodeSha256, text.Trim(), payload, entry.Submitters, entry.FirstPublishedAtUtc, entry.Commit, entry.Conflicting), null);
     }
 
     private async Task<(SharedSourceAttempt Attempt, ReadOnlyMemory<byte> Body)> GetAsync(

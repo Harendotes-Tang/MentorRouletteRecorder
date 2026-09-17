@@ -5,13 +5,14 @@ Run by tools/publish_issue.sh and tools/sweep_issues.sh, which .github/workflows
 
   check          decide one submission against the repository; for a new code, write its code file
   update-index   decide the same submission again and write index.json and submissions.json, pinning a
-                 new code to the commit that added its file (--commit)
+                 new code to the commit that added its file (--commit), and recomputing the conflict
+                 flags of that region and build (plan section 18.6)
   push-failed    turn the last result into a maintainer error once the workflow gave up pushing
   field          print one validated field of the last result, for the shell
   event-field    print the issue number or the submitter's login from an event file, validated
   pending        list open submissions nobody has answered yet, from `gh api --paginate` output
   wrap-event     wrap a REST issue object as an event file
-  revoke         maintainer: mark a code revoked in index.json
+  revoke         maintainer: mark a code revoked in index.json, recomputing the conflict flags
 
 Untrusted input - the issue title, the body, the submitter's login - is read only from the event file
 named on the command line, never from arguments or the environment. Every decision writes result.json
@@ -384,6 +385,27 @@ def _now(text: str | None) -> dt.datetime:
     return moment
 
 
+def _note(text: str) -> None:
+    """A maintainer-facing note on stderr. Never stdout: that carries one line of ASCII JSON and nothing else."""
+    print("publish.py: " + text, file=sys.stderr)
+
+
+def _with_conflicts(repo: Path, state: repo_index.Index, region: str, build: str) -> repo_index.Index:
+    """``state`` with the section-18.6 conflict flags recomputed from the code files in the checkout.
+
+    The flags cost bytes the submission was not measured against, so an index that would pass the
+    client's byte cap with them is written without them: the flags only reorder candidates, while a
+    refused index would take every published code of every build down with it.
+    """
+    marked = repo_index.update_conflicts(state, repo, region, build, log=_note)
+    try:
+        repo_index.check_caps(marked)
+    except repo_index.IndexFull as full:
+        _note("the conflict flags would not fit the index (%s); writing it without them" % full)
+        return state
+    return marked
+
+
 def _emit(out: str, result: Result) -> None:
     directory = Path(out)
     directory.mkdir(parents=True, exist_ok=True)
@@ -433,7 +455,7 @@ def command_update_index(args: argparse.Namespace) -> int:
     if result.status == PUBLISHED and _code_file_holds(repo, outcome.new_code_path, outcome.code_sha256) is not True:
         _emit(args.out, replace(result, status=ERROR, reason=CODE_FILE_MISSING))
         return 3
-    repo_index.write_files(repo, outcome.index)
+    repo_index.write_files(repo, _with_conflicts(repo, outcome.index, result.region, result.game_build))
     _emit(args.out, result)
     return 0
 
@@ -547,7 +569,8 @@ def command_revoke(args: argparse.Namespace) -> int:
         updated = repo_index.revoke(state, args.code_sha256)
     except KeyError as error:
         raise UsageError("index.json does not list that code") from error
-    repo_index.write_files(repo, updated)
+    revoked = next(entry for entry in updated.entries if entry["code_sha256"] == args.code_sha256)
+    repo_index.write_files(repo, _with_conflicts(repo, updated, revoked["region"], revoked["game_build"]))
     print(json.dumps({"revoked": args.code_sha256}))
     return 0
 

@@ -100,6 +100,7 @@ public static class SharedCalibrationHandlers
             ["reason"] = result.Reason,
             ["message"] = result.Message,
             ["code_sha256"] = result.CodeSha256,
+            ["provenance"] = result.Provenance is { } provenance ? EnumWire<SharedCandidateProvenance>.Format(provenance) : null,
         };
     }
 

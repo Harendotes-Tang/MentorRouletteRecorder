@@ -405,9 +405,12 @@ QtTest `MentorRecorderCapturePage`（`tests/Desktop.Tests/CapturePageTests.cpp`�
 | 情况 | 卡片上的话 | 按钮 |
 |---|---|---|
 | `FETCHING` | 正在获取其他玩家的共享校准，本机校准照常进行。 | 导入校准码 |
-| `VERIFYING` | 找到共享校准，登录或排本时自动核实。（候选全是手动导入的：已导入校准码，……） | 导入校准码、不用共享的，我自己校准 |
+| `VERIFYING`，候选中有 `provenance = PUBLISHED` 的 | 找到共享校准，登录时自动核实，通过就开始记录。 | 导入校准码、不用共享的，我自己校准 |
+| `VERIFYING`，未被拒绝的候选全为 `provenance = IMPORTED` | 已导入校准码，登录并排一次本、核实通过后启用。 | 导入校准码、不用共享的，我自己校准 |
+| `VERIFYING`，候选未报告 `provenance`（1.1.0 之前的采集服务） | 找到共享校准，登录或排本时自动核实。（候选全是手动导入的：已导入校准码，……） | 导入校准码、不用共享的，我自己校准 |
 | `AWAITING_CONSENT` | 共享校准核实通过了，还需要你同意一次才能开始记录。橙框内说明代价 | 同意，开始记录、不用共享的，我自己校准 |
 | `VERIFIED`，或 `profile_origin = SHARED_CALIBRATION` | 已使用其他玩家分享的校准（本机已核实）。 | 不用共享的，我自己校准 |
+| 同上，且 `audit_pending = true` | 已使用其他玩家分享的校准（登录时已在本机核实）。另加一行灰字：排本和进本还在核对中，照常游戏即可；万一对不上，会自动改回本机校准，这期间生成的记录会标记待复核。 | 不用共享的，我自己校准 |
 | `REJECTED` | 共享校准与本机流量对不上，已改为本机校准。 | 立即检查、导入校准码 |
 | `UNAVAILABLE` | 没取到共享校准（网络不通），继续本机校准。 | 立即检查、导入校准码 |
 | `NONE` 且 `last_fetch_status = NONE_FOR_BUILD` | 还没有人分享这个版本的校准，继续本机校准。 | 立即检查、导入校准码 |
@@ -434,6 +437,14 @@ QtTest `MentorRecorderCapturePage`（`tests/Desktop.Tests/CapturePageTests.cpp`�
   标题为「已使用其他玩家分享的校准（本机已核实），正在自动记录。」，
   隐藏进度行与「清空进度并重新观察」，采集服务的说明句改用灰色。
   侧栏「协议」显示 **共享校准**，横幅使用普通的「自动监听中」。
+* **绑定后仍在核对（`audit_pending = true`）**：核实门槛按来源分级之后
+  （plans/shared-calibration.md §18），仓库来源的校准在登录簇核实通过即开始记录，
+  排本与进本改为绑定后审计。此时卡片标题改为
+  「已使用其他玩家分享的校准（登录时已在本机核实），正在自动记录。」，
+  不再说「本机已核实」；共享校准一节的灰字说明照常显示（这是唯一说明该状态的地方），
+  内容为「排本和进本还在核对中，照常游戏即可；万一对不上，会自动改回本机校准，这期间生成的记录会标记待复核。」。
+  按钮、进度行与侧栏与上一条相同，审计期间不弹任何对话框。
+  旧采集服务不报 `audit_pending`，桌面端按"未报告"处理，措辞与上一条一致。
 * **同意提示**：代价说明与本机临时档案的说明共用 `CalibrationController.queueInferenceText`。
   `AWAITING_CONSENT` 期间横幅改为
   「找到了其他玩家分享的校准，同意一次就能开始自动记录：请到捕获诊断页的校准卡片上查看。」，
@@ -441,6 +452,9 @@ QtTest `MentorRecorderCapturePage`（`tests/Desktop.Tests/CapturePageTests.cpp`�
 * **导入校准码对话框**（`sharedImportDialog`）包含一个文本框与「导入」按钮。
   `ImportCalibrationCode` 返回的 `message` 原样显示在文本框下方；返回 `APPLIED` 时对话框关闭，
   同一句话进入 toast。文本为空时不发送请求。
+  采集服务的这句话本身区分"命中公开仓库索引"与"未发布"（对应应答中的 `provenance`），
+  以及 `reason = REVOKED` 的"已被撤回"，桌面端不改写、不追加；
+  只有 `message` 为空时才退回桌面端自己的兜底句。
 * **不用共享的确认框**（`sharedRejectDialog`）说明将撤下哪些内容、此后该游戏版本不再获取或导入共享校准，
   以及如何撤销该选择；确认后发送 `RejectSharedCalibration`。
 * **分享**：`GetCalibrationShareCode` 成功后先将 `code` 复制到剪贴板。
@@ -452,8 +466,11 @@ QtTest `MentorRecorderCapturePage`（`tests/Desktop.Tests/CapturePageTests.cpp`�
 * 每个请求的结果都以一条 toast 呈现。改变共享状态的请求之后，
   `AppController::rereadCaptureStatus()` 读取一次 `GetCaptureStatus`，与 `calibration_changed` 事件走同一条路径。
 * 桌面端自身不联网（`NET-006` 禁止使用 `QNetworkAccessManager`），网页一律交由系统浏览器打开。
-* Mock：`--mock-shared fetching|verifying|consent|verified|rejected|unavailable|user-rejected|none-for-build|share`，
+* Mock：`--mock-shared fetching|verifying|consent|verified|verified-auditing|imported-published|imported-unpublished|rejected|unavailable|user-rejected|none-for-build|share`，
   截图目标为 `MentorRecorderQmlSharedCalibration_<state>`。
+  其中 `verified-auditing`、`imported-published`、`imported-unpublished` 三个状态对应核实门槛按来源分级：
+  分别为登录时已核实、排本与进本仍在核对；导入后命中索引；导入后任何索引都不认识。
+  其余状态不带 `provenance` 与 `audit_pending`，用于覆盖旧采集服务的"未报告"分支。
   重启之后的分享入口使用 `--mock-calibration idle --mock-shared share`，
   截图目标为 `MentorRecorderQmlSharedCalibration_share_after_restart`。
   QtTest 包括 `MentorRecorderSharedCalibration`（控制器、接线与 Mock）与
@@ -1161,7 +1178,8 @@ build/src/Desktop/MentorRecorder.Desktop.exe --screenshot <png> --page N
     [--mock-open-reflection] # 对第一条记录打开导随心得对话框
     [--mock-calibration observing|ready|blocked|done|idle]  # 本机校准卡片（§4.4.1）
                              # idle = 校准早已完成、重启之后的常态，卡片不出现
-    [--mock-shared fetching|verifying|consent|verified|rejected|unavailable|user-rejected|none-for-build|share]
+    [--mock-shared fetching|verifying|consent|verified|verified-auditing|imported-published|
+                   imported-unpublished|rejected|unavailable|user-rejected|none-for-build|share]
                              # 校准卡片的共享校准一节（§4.4.2）
     [--mock-speech azure|openai|unconfigured|fail]
                              # 在线语音（§4.5 播报）：azure / openai 已配置，unconfigured 什么都没选，

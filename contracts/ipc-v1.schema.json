@@ -1040,6 +1040,11 @@
       "description": "IN_USE: its profile records and is still watched until one complete entry and exit; PROVEN: it recorded one. CANNOT_BIND_THIS_SESSION: it passed but its staging overflowed or the write was refused; it tries again next capture session."
     },
     "SharedVerdict": { "type": "string", "enum": ["PASS", "WAIT", "CONTRADICTED"] },
+    "SharedCandidateProvenance": {
+      "type": "string",
+      "enum": ["PUBLISHED", "IMPORTED"],
+      "description": "Which gate set a candidate is judged by (plans/shared-calibration.md §18.3). PUBLISHED: the last index this machine read lists the code (downloaded, or pasted and found there); the login burst suffices to bind, and the match and the duty entry are audited while it records. IMPORTED: pasted and unknown to every index read so far; nothing is recorded until the match and the duty entry have both been seen to behave."
+    },
     "SharedFetchStatus": { "type": "string", "enum": ["OK", "DISABLED", "CANCELLED", "INDEX_UNAVAILABLE", "NONE_FOR_BUILD", "CODES_UNAVAILABLE"] },
     "SharedCalibrationSource": { "type": "string", "enum": ["GITHUB_RAW", "CDN_PRIMARY", "CDN_FALLBACK"], "description": "Source names, never addresses." },
     "SharedFetchOutcome": {
@@ -1055,7 +1060,8 @@
         "message": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{0,63}$", "description": "Semantic name of the message judged, e.g. ZONE_INITIALIZATION. Never an opcode." },
         "verdict": { "$ref": "#/$defs/SharedVerdict" },
         "reason": { "type": "string", "maxLength": 400, "description": "Plain-language reason, zh-Hans, no opcodes." },
-        "contradicting_sessions": { "type": "integer", "minimum": 0, "description": "Healthy capture sessions that contradicted it so far; two reject the code." }
+        "contradicting_sessions": { "type": "integer", "minimum": 0, "description": "Healthy capture sessions that contradicted it so far; two reject the code." },
+        "gate": { "type": "string", "enum": ["REQUIRED", "AUDIT", "OPTIONAL"], "description": "Plan §18.3. REQUIRED: must pass before the candidate binds. AUDIT: judged after binding while the profile records; a contradiction still withdraws it. OPTIONAL: never holds anything back (the job message). Optional: a Collector before 1.1.0 does not send it." }
       }
     },
     "SharedCalibrationCandidate": {
@@ -1069,7 +1075,9 @@
         "status": { "$ref": "#/$defs/SharedCandidateStatus" },
         "verdict": { "$ref": "#/$defs/SharedVerdict" },
         "criteria": { "type": "array", "maxItems": 8, "items": { "$ref": "#/$defs/SharedCalibrationCriterion" } },
-        "staging_overflowed": { "type": "boolean" }
+        "staging_overflowed": { "type": "boolean" },
+        "provenance": { "oneOf": [{ "$ref": "#/$defs/SharedCandidateProvenance" }, { "type": "null" }], "description": "Null for a profile adopted from disk whose code was not recovered. Optional: a Collector before 1.1.0 does not send it." },
+        "audit_pending": { "type": "boolean", "description": "True while an audited criterion - the match or the duty entry of a PUBLISHED code - is still waiting. Optional: a Collector before 1.1.0 does not send it." }
       }
     },
     "SharedCalibrationStatus": {
@@ -1099,7 +1107,8 @@
         "bound_at_utc": { "$ref": "#/$defs/NullableUtcTimestamp", "description": "When it began recording inside a running capture session." },
         "last_refusal": { "type": ["string", "null"], "pattern": "^[A-Z0-9_]{1,64}$", "description": "Why the last bind or withdrawal did not go through, as a short token (NOT_SELECTED, WRITE_FAILED, CONTRADICTED, REVOKED, REJECTED, USER_REJECTED, STALE...). Diagnostics only." },
         "rejected_candidates": { "type": "integer", "minimum": 0, "description": "Candidates with status REJECTED." },
-        "user_rejected": { "type": "boolean", "description": "True while the player's 不用共享的，我自己校准 stands for this build: nothing shared is fetched, imported or bound until DiscardCalibration (重新观察)." }
+        "user_rejected": { "type": "boolean", "description": "True while the player's 不用共享的，我自己校准 stands for this build: nothing shared is fetched, imported or bound until DiscardCalibration (重新观察)." },
+        "audit_pending": { "type": "boolean", "description": "True while the profile in use records with an audited criterion still waiting (§18.4): a PUBLISHED code bound at login whose match or duty entry has not yet been seen to behave. Optional: a Collector before 1.1.0 does not send it." }
       }
     },
     "ImportCalibrationCodeRequest": {
@@ -1480,9 +1489,10 @@
         "required": ["outcome", "reason", "message", "code_sha256"],
         "properties": {
           "outcome": { "type": "string", "enum": ["APPLIED", "NOT_APPLICABLE", "MALFORMED"] },
-          "reason": { "type": ["string", "null"], "pattern": "^[A-Z][A-Z0-9_]{0,63}$", "description": "Null when applied. MALFORMED: an E_SHARE_CODE_* rejection or UNBUILDABLE. NOT_APPLICABLE: NOT_CALIBRATING, OTHER_REGION, OTHER_BUILD, OTHER_TEMPLATE, USER_REJECTED, REJECTED, TOO_MANY_CANDIDATES or CHANGED." },
+          "reason": { "type": ["string", "null"], "pattern": "^[A-Z][A-Z0-9_]{0,63}$", "description": "Null when applied. MALFORMED: an E_SHARE_CODE_* rejection or UNBUILDABLE. NOT_APPLICABLE: NOT_CALIBRATING, OTHER_REGION, OTHER_BUILD, OTHER_TEMPLATE, USER_REJECTED, REJECTED, REVOKED (the last index this machine read revoked the code), TOO_MANY_CANDIDATES or CHANGED." },
           "message": { "type": "string", "maxLength": 1000, "description": "What to tell the player, zh-Hans, no hex." },
-          "code_sha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$", "description": "Identity of the code; null when it did not decode." }
+          "code_sha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$", "description": "Identity of the code; null when it did not decode." },
+          "provenance": { "oneOf": [{ "$ref": "#/$defs/SharedCandidateProvenance" }, { "type": "null" }], "description": "When APPLIED: PUBLISHED when the last index this machine read lists the code, IMPORTED otherwise. Null when not applied. Optional: a Collector before 1.1.0 does not send it." }
         }
       },
       "AcceptSharedQueueInference": {

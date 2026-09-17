@@ -16,7 +16,7 @@
 |---|---|---|
 | `sharecode.py` | `MRC1.` 校准码的解码、编码、规范化、`code_sha256` 与载荷规则；逐条移植 `ShareCode.cs` | 是 |
 | `rebuild.py` | 按随包模板结构重建校准码并拒绝无效内容；文件开头列明已移植的 C# 规则与留给客户端本机核实的部分 | 是 |
-| `index.py` | `index.json`（客户端读取格式的精确移植）与 `submissions.json` 台账；`add_submission`、`revoke` | 是 |
+| `index.py` | `index.json`（客户端读取格式的精确移植）与 `submissions.json` 台账；`add_submission`、`revoke`、`update_conflicts` | 是 |
 | `issue.py` | 读 Issue 表单正文；标题只用来发现不一致；回显内容的转义 | 是 |
 | `publish.py` | Action 的命令行：`check`、`update-index`、`push-failed`、`field`、`event-field`、`pending`、`wrap-event`、`revoke` | 是 |
 | `publish_issue.sh` | 处理一个 Issue：查状态 → 查账号 → 校验、提交、推送（推送被拒时从新的 main 重新开始）→ 回复、打标签、关闭 | 是 |
@@ -33,6 +33,8 @@
   UTF-16 计长、截断或带尾部数据的 DEFLATE 流、BOM、JSON 嵌套深度 8、`TryGetInt64` 的整数判定。
   规范化 JSON 复制自 `tools/protocol-profile-validator/validate.py`，以使公开仓库能够独立运行；测试比对两份输出一致。
 - **索引**：`index.read_index` / `select` / `revoked_codes` 移植 `SharedCalibrationIndex`，`test_index.py` 复用 C# 测试的输入。
+  可选字段 `conflicting`（§18.6）两端一致：读到非布尔值都记 `INVALID:conflicting`，挑选顺序都把带标记的条目排到末尾；
+  `index.update_conflicts` 只在 `update-index` 与 `revoke` 写文件前重算，字段缺省即「无冲突」，旧索引因此逐字节不变。
   `generate_index_sample.py` 只通过 `index.add_submission` 生成样本索引与校准码文件，
   `SharedCalibrationPublicRepoSampleTests.cs` 用已发布的 `SharedCalibrationIndex` 与 `SharedCalibrationClient` 读取它，
   要求挑选顺序与 Python 完全一致；`test_index_sample.py` 保证夹具即生成器的输出，不得手工修改。重新生成：

@@ -520,7 +520,8 @@ int main(int argc, char *argv[])
         QStringLiteral("state"));
     QCommandLineOption sharedOption(
         QStringLiteral("mock-shared"),
-        QStringLiteral("Synthetic 共享校准 state: fetching, verifying, consent, verified, rejected, "
+        QStringLiteral("Synthetic 共享校准 state: fetching, verifying, consent, verified, "
+                       "verified-auditing, imported-published, imported-unpublished, rejected, "
                        "unavailable, user-rejected, none-for-build or share. Arms a matching "
                        "--mock-calibration state when none is given; nothing is downloaded."),
         QStringLiteral("state"));
@@ -785,6 +786,8 @@ int main(int argc, char *argv[])
     }
     if (parser.isSet(sharedOption) && !QStringList{QStringLiteral("fetching"),
             QStringLiteral("verifying"), QStringLiteral("consent"), QStringLiteral("verified"),
+            QStringLiteral("verified-auditing"), QStringLiteral("imported-published"),
+            QStringLiteral("imported-unpublished"),
             QStringLiteral("rejected"), QStringLiteral("unavailable"), QStringLiteral("user-rejected"),
             QStringLiteral("none-for-build"), QStringLiteral("share")}.contains(parser.value(sharedOption))) {
         std::fputs("invalid --mock-shared value\n", stderr);

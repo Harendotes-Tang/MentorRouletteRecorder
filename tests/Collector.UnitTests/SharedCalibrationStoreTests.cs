@@ -423,5 +423,88 @@ public sealed class SharedCalibrationStoreTests : IDisposable
         Assert.False(inert.RecordContradiction(Region.Cn, Build, Template, Template, "session-a", T0).Persisted);
         Assert.False(inert.IsRejected(Region.Cn, Build, Template, Template));
         Assert.False(inert.ClearRejections(Region.Cn, Build));
+        Assert.Equal(SharedPublication.Unknown, inert.Publication(Region.Cn, Build, Template));
+    }
+
+    // ------------------------------------------------------------------------ publication (plan §18.5)
+
+    [Fact]
+    public void PublicationReadsTheLastIndexOnlyAndNeverTheNetwork()
+    {
+        var stored = Candidate(0xF001);
+        var discarded = Candidate(0xF002);
+        var revoked = Candidate(0xF003);
+        var unknown = Candidate(0xF004);
+        Assert.Equal(SharedPublication.Unknown, _store.Publication(Region.Cn, Build, stored.CodeSha256));
+
+        var result = Fetched(SharedFetchStatus.Ok, stored) with
+        {
+            Discards = new[]
+            {
+                new SharedCodeDiscard(discarded.CodeSha256, "TIMEOUT",
+                    new[] { new SharedSourceAttempt(SharedCalibrationSource.GithubRaw, SharedFetchOutcome.Timeout) }),
+            },
+            RevokedCodeSha256s = new[] { revoked.CodeSha256 },
+        };
+        _store.RecordFetch(Region.Cn, Build, Template, result, T0);
+
+        Assert.Equal(SharedPublication.Published, _store.Publication(Region.Cn, Build, stored.CodeSha256));
+        // Listed by the index though its file never arrived: published all the same.
+        Assert.Equal(SharedPublication.Published, _store.Publication(Region.Cn, Build, discarded.CodeSha256));
+        Assert.Equal(SharedPublication.Revoked, _store.Publication(Region.Cn, Build, revoked.CodeSha256));
+        Assert.Equal(SharedPublication.Unknown, _store.Publication(Region.Cn, Build, unknown.CodeSha256));
+        // Another build's bookkeeping says nothing about this one.
+        Assert.Equal(SharedPublication.Unknown, _store.Publication(Region.Cn, OtherBuild, stored.CodeSha256));
+        Assert.Throws<ArgumentException>(() => _store.Publication(Region.Cn, Build, "not-a-sha"));
+    }
+
+    /// <summary>Plan §18.6: the index's conflict mark survives in the state file and puts a stored code last.</summary>
+    [Fact]
+    public void AConflictingCodeIsOfferedLastHoweverManySubmitters()
+    {
+        var conflicting = Candidate(0xF001, submitters: 9) with { Conflicting = true };
+        var lone = Candidate(0xF002, submitters: 1);
+        _store.RecordFetch(Region.Cn, Build, Template, Fetched(SharedFetchStatus.Ok, conflicting, lone), T0);
+
+        var offered = _store.LoadCandidates(Region.Cn, Build, Template);
+
+        Assert.Equal(new[] { lone.CodeSha256, conflicting.CodeSha256 }, offered.Select(candidate => candidate.CodeSha256).ToArray());
+        Assert.True(offered[1].Conflicting);
+        Assert.False(offered[0].Conflicting);
+        Assert.Contains("\"conflicting\": true", File.ReadAllText(StateFile), StringComparison.Ordinal);
+    }
+
+    /// <summary>Plan §18.4: the settled mark names one profile document and survives the other bookkeeping.</summary>
+    [Fact]
+    public void SettledIsKeyedByTheProfileDocumentAndSurvivesOtherWrites()
+    {
+        var document = new string('a', 64);
+        var other = new string('b', 64);
+        Assert.False(_store.IsSettled(Region.Cn, Build, document));
+
+        Assert.True(_store.RecordSettled(Region.Cn, Build, document, T0));
+
+        Assert.True(_store.IsSettled(Region.Cn, Build, document));
+        Assert.False(_store.IsSettled(Region.Cn, Build, other));
+        Assert.False(_store.IsSettled(Region.Cn, OtherBuild, document));
+        _store.RecordFetch(Region.Cn, Build, Template, Fetched(SharedFetchStatus.Ok, Candidate(0xF001)), T0.AddHours(1));
+        _store.ClearRejections(Region.Cn, Build);
+        Assert.True(_store.IsSettled(Region.Cn, Build, document));
+        // A newly written document replaces the mark; the old one is no longer settled.
+        Assert.True(_store.RecordSettled(Region.Cn, Build, other, T0.AddHours(2)));
+        Assert.False(_store.IsSettled(Region.Cn, Build, document));
+        Assert.True(_store.IsSettled(Region.Cn, Build, other));
+        Assert.Throws<ArgumentException>(() => _store.IsSettled(Region.Cn, Build, "not-a-sha"));
+    }
+
+    [Fact]
+    public void AFetchThatReachedNoSourceChangesNoPublication()
+    {
+        var code = Candidate(0xF001);
+        _store.RecordFetch(Region.Cn, Build, Template, Fetched(SharedFetchStatus.Ok, code), T0);
+
+        _store.RecordFetch(Region.Cn, Build, Template, Fetched(SharedFetchStatus.IndexUnavailable), T0.AddHours(1));
+
+        Assert.Equal(SharedPublication.Published, _store.Publication(Region.Cn, Build, code.CodeSha256));
     }
 }

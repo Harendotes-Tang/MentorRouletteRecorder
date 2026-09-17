@@ -319,6 +319,37 @@ class HelperCommandTests(PublishTestCase):
         with contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(2, self.call("revoke", "--repo", self.repo, "--code-sha256", "e" * 64)[0])
 
+    def test_two_published_codes_that_disagree_are_both_flagged_and_a_revoke_clears_the_flags(self):
+        """plan section 18.6: same build, same template, same match source, different opcodes."""
+        self.assertEqual("published", self.publish_as(4242, "Octo-Cat")["status"])
+        self.assertEqual({self.sha: None}, self.flags())
+
+        other, other_sha = self.another_code("ANNOUNCEMENT", 3)
+        self.assertEqual("published", self.publish_as(5151, "Other-One", number=8, code=other)["status"])
+        self.assertEqual({self.sha: True, other_sha: True}, self.flags())
+        self.assertEqual((), repo_index.read_index((self.repo / "index.json").read_bytes()).skipped)
+
+        # Another match source answers another question, so it is no conflict with either.
+        third, third_sha = self.another_code("MARKER_OFFSET", 4)
+        self.assertEqual("published", self.publish_as(6161, "Third-One", number=9, code=third)["status"])
+        self.assertEqual({self.sha: True, other_sha: True, third_sha: None}, self.flags())
+
+        self.assertEqual(0, self.call("revoke", "--repo", self.repo, "--code-sha256", self.sha)[0])
+        self.assertEqual({self.sha: None, other_sha: None, third_sha: None}, self.flags())
+
+    def test_another_account_submitting_the_same_code_is_no_conflict(self):
+        self.publish_as(4242, "Octo-Cat")
+        self.assertEqual("added", self.publish_as(5151, "Other-One", number=8)["status"])
+        self.assertEqual({self.sha: None}, self.flags())
+
+    def flags(self) -> dict:
+        return {item["code_sha256"]: item.get("conflicting") for item in repo_index.load(self.repo).entries}
+
+    @staticmethod
+    def another_code(source, number) -> tuple:
+        payload = testsupport.payload(source, number)
+        return sharecode.encode(payload), sharecode.code_sha256(payload)
+
     def test_issue_text_can_only_arrive_through_the_event_file(self):
         with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
             publish.main(["check", "--repo", "r", "--event", "e", "--account", "a", "--out", "o", "--body", self.code])

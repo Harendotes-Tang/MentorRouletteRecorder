@@ -129,7 +129,7 @@ public sealed class SharedCalibrationStore : ISharedCalibrationStore
                 }
 
                 hints.Add(new SharedCodeHints(
-                    candidate.CodeSha256, candidate.Submitters, candidate.FirstPublishedAtUtc, candidate.Commit));
+                    candidate.CodeSha256, candidate.Submitters, candidate.FirstPublishedAtUtc, candidate.Commit, candidate.Conflicting));
             }
 
             var (state, writable) = ReadState(directory);
@@ -176,11 +176,13 @@ public sealed class SharedCalibrationStore : ISharedCalibrationStore
                 }
 
                 var hints = state.HintsFor(code.Sha);
-                found.Add(new SharedStoredCandidate(code.Sha, code.Text, code.Payload, hints?.Submitters ?? 0, hints?.FirstPublishedAtUtc));
+                found.Add(new SharedStoredCandidate(
+                    code.Sha, code.Text, code.Payload, hints?.Submitters ?? 0, hints?.FirstPublishedAtUtc, hints?.Conflicting == true));
             }
 
             return found
-                .OrderByDescending(candidate => candidate.Submitters)
+                .OrderBy(candidate => candidate.Conflicting)
+                .ThenByDescending(candidate => candidate.Submitters)
                 .ThenBy(candidate => candidate.FirstPublishedAtUtc ?? DateTimeOffset.MaxValue)
                 .ThenBy(candidate => candidate.CodeSha256, StringComparer.Ordinal)
                 .Take(SharedCalibrationIndex.MaxCandidates)
@@ -284,6 +286,53 @@ public sealed class SharedCalibrationStore : ISharedCalibrationStore
 
             return (state.Rejections.Count == 0 && state.UserRejectedAtUtc is null) ||
                    WriteAtomically(StatePath(directory), state.WithoutRejections().Serialize(region, gameBuild));
+        }
+    }
+
+    /// <inheritdoc />
+    public bool RecordSettled(Region region, string gameBuild, string profileSha256, DateTimeOffset nowUtc)
+    {
+        var directory = DirectoryFor(Root, region, gameBuild);
+        RequireSha256(profileSha256, nameof(profileSha256));
+        lock (Gate)
+        {
+            var (state, writable) = ReadState(directory);
+            return writable &&
+                   (string.Equals(state.SettledProfileSha256, profileSha256, StringComparison.Ordinal) ||
+                    WriteAtomically(StatePath(directory), state.WithSettled(profileSha256).Serialize(region, gameBuild)));
+        }
+    }
+
+    /// <inheritdoc />
+    public bool IsSettled(Region region, string gameBuild, string profileSha256)
+    {
+        var directory = DirectoryFor(Root, region, gameBuild);
+        RequireSha256(profileSha256, nameof(profileSha256));
+        lock (Gate)
+        {
+            return string.Equals(ReadState(directory).State.SettledProfileSha256, profileSha256, StringComparison.Ordinal);
+        }
+    }
+
+    /// <inheritdoc />
+    public SharedPublication Publication(Region region, string gameBuild, string codeSha256)
+    {
+        var directory = DirectoryFor(Root, region, gameBuild);
+        RequireSha256(codeSha256, nameof(codeSha256));
+        lock (Gate)
+        {
+            var (state, _) = ReadState(directory);
+            if (state.Revoked.Contains(codeSha256, StringComparer.Ordinal))
+            {
+                return SharedPublication.Revoked;
+            }
+
+            // Hints are kept for every code whose file was written; a listed code whose download failed is on
+            // the fetch record as a discard. Either way an index named it.
+            var listed = state.HintsFor(codeSha256) is not null ||
+                         state.Fetches.Any(fetch => fetch.Discards.Any(discard =>
+                             string.Equals(discard.CodeSha256, codeSha256, StringComparison.Ordinal)));
+            return listed ? SharedPublication.Published : SharedPublication.Unknown;
         }
     }
 

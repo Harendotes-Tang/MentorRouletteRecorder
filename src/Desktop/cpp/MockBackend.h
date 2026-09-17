@@ -176,6 +176,9 @@ private:
     // -- 共享校准 (MockBackendShared.cpp) ------------------------------------
     /// $defs/SharedCalibrationStatus for the shared fixture.
     QJsonObject sharedCalibrationStatus() const;
+    /// Another player's profile is in force, whether or not the match and the
+    /// duty entry are still being audited beside it (verified, verified-auditing).
+    bool sharedProfileBound() const;
     static bool isSharedCalibrationMessage(const QString &messageType);
     /// The five shared-calibration requests against the fixture.
     QJsonObject applySharedCalibration(const QString &messageType, const QJsonObject &payload,
