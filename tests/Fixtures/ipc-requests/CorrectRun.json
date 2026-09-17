@@ -1,0 +1,15 @@
+{
+    "message_type": "CorrectRun",
+    "payload": {
+        "changes": {
+            "ended_at_utc": "2026-09-04T12:20:00.000Z",
+            "note": "队友截图确认",
+            "result": "LEFT_OR_ABANDONED"
+        },
+        "expected_revision": 3,
+        "reason": "结果误判",
+        "run_id": "9f1d3f2a-6b47-4a01-9a52-8c0d7f1e4b33"
+    },
+    "protocol_version": 1,
+    "request_id": "11111111-2222-4333-8444-555555555555"
+}

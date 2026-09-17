@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "region": "CN",
+  "language": "zh-Hans",
+  "provenance": "SYNTHETIC-SAMPLE — real content_id mapping to be generated in Phase 3",
+  "source": "本文件不是真实数据。它只是 DutyCatalog 加载器的格式样例，用于让加载器、统计与导出在 Phase 1 有东西可以读。其中的 content_id / territory_id 全部是人为编造的合成值，与游戏内的任何真实 id 无关，也不构成任何证据。真实映射表将在 Phase 3 按 docs/privacy-boundary.md 第 7 节的要求，从公开可得且许可证兼容的来源自行整理后生成。",
+  "updated_at_utc": "2026-09-04T00:00:00.000Z",
+  "duties": [
+    {
+      "content_id": 900001,
+      "territory_id": 800001,
+      "localized_name": "样例迷宫挑战 A",
+      "duty_category": "迷宫挑战",
+      "expansion": "SAMPLE",
+      "level": 15,
+      "enabled": true,
+      "sample": true,
+      "provenance": "SYNTHETIC-SAMPLE — real content_id mapping to be generated in Phase 3"
+    },
+    {
+      "content_id": 900002,
+      "territory_id": 800002,
+      "localized_name": "样例迷宫挑战 B",
+      "duty_category": "迷宫挑战",
+      "expansion": "SAMPLE",
+      "level": 24,
+      "enabled": true,
+      "sample": true,
+      "provenance": "SYNTHETIC-SAMPLE — real content_id mapping to be generated in Phase 3"
+    },
+    {
+      "content_id": 900003,
+      "territory_id": 800003,
+      "localized_name": "样例讨伐战 A",
+      "duty_category": "讨伐战",
+      "expansion": "SAMPLE",
+      "level": 30,
+      "enabled": true,
+      "sample": true,
+      "provenance": "SYNTHETIC-SAMPLE — real content_id mapping to be generated in Phase 3"
+    },
+    {
+      "content_id": 900004,
+      "territory_id": 800004,
+      "localized_name": "样例大型任务 A",
+      "duty_category": "大型任务",
+      "expansion": "SAMPLE",
+      "level": 50,
+      "enabled": true,
+      "sample": true,
+      "provenance": "SYNTHETIC-SAMPLE — real content_id mapping to be generated in Phase 3"
+    },
+    {
+      "content_id": 900005,
+      "territory_id": 800005,
+      "localized_name": "样例迷宫挑战 C（已停用）",
+      "duty_category": "迷宫挑战",
+      "expansion": "SAMPLE",
+      "level": 60,
+      "enabled": false,
+      "sample": true,
+      "provenance": "SYNTHETIC-SAMPLE — real content_id mapping to be generated in Phase 3"
+    }
+  ]
+}

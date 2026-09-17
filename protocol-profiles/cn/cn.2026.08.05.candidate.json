@@ -1,0 +1,316 @@
+{
+  "schema_version": 1,
+  "profile_id": "cn.2026.08.05.candidate",
+  "region": "CN",
+  "game_build": "2026.08.05.0000.0000",
+  "generated_at": "2026-09-05T12:00:00.000Z",
+  "mentor_roulette_id": null,
+  "compatibility_status": "CANDIDATE",
+  "messages": [],
+  "hypotheses": [
+    {
+      "name": "QUEUE_REGISTRATION",
+      "direction": "CLIENT_TO_SERVER",
+      "opcode": 955,
+      "expected_length": 128,
+      "note": "三次用户核对为“对”的登记（2026-09-05 t=234100；2026-09-06 15:10:04Z 练级迷宫；16:15:16Z 拾级迷宫）。128 字节中偏移 114 的值为 9、9、1，曾疑为 ContentRoulette 编号；练级为 1、拾级为 2，假设不成立。2026-09-07 本机十种随机“勾选→申请→取消”的会话里此报文一次都没出现（客户端方向 0 错误），而 09-06 每次申请都出现；触发条件未知。其余字节大半在三次之间相同（3200 系列 u16 与若干小整数），疑似副本查找器设置块。",
+      "group": "queue",
+      "label": "排本登记"
+    },
+    {
+      "name": "QUEUE_REGISTRATION_PRECURSOR",
+      "direction": "CLIENT_TO_SERVER",
+      "opcode": 260,
+      "expected_length": 8,
+      "note": "8 字节请求，S2C 0x020b 在数百毫秒内回同一个值（0x24、0x64、0x66）；2026-09-06 15:06:15Z 单独出现过一次，与登记没有固定关系。",
+      "group": "queue",
+      "label": "请求报文（与排本无关）"
+    },
+    {
+      "name": "QUEUE_ACK_B0",
+      "direction": "SERVER_TO_CLIENT",
+      "opcode": 176,
+      "expected_length": 8,
+      "note": "2026-09-06 会话 1.5 小时内出现 258 次，负载为小整数（0x0b–0x10），与登记时间无固定关系；不是登记应答。",
+      "group": "queue",
+      "label": "周期性服务器报文（原以为是登记应答）"
+    },
+    {
+      "name": "QUEUE_ACK_20B",
+      "direction": "SERVER_TO_CLIENT",
+      "opcode": 523,
+      "expected_length": 8,
+      "note": "回显 QUEUE_REGISTRATION_PRECURSOR 的 8 字节值；与排本无关。",
+      "group": "queue",
+      "label": "请求回执（0x0104 的回复）"
+    },
+    {
+      "name": "FINDER_ACTION",
+      "direction": "CLIENT_TO_SERVER",
+      "opcode": 843,
+      "expected_length": 24,
+      "note": "C2S 24 字节。2026-09-07 本机会话：按列表顺序申请顶级、满级、拾级、练级、讨伐、主线、行会令、大型，8 条负载第 0 字节依次为 5、8、2、1、6、3、4、17，与国服 ContentRoulette 编号完全一致，第 16 字节恒为 1。每条之后约 50 ms 与 180 ms 各有一条 FINDER_STATE_NOTIFICATION 回带同一编号。2026-09-05 取消排队时、2026-09-06 凌晨确认进入时也出现过（当时未存负载）；2026-09-06 晚间两次申请与确认进入均未出现。指导者任务（9）尚无样本。",
+      "group": "queue",
+      "label": "副本查找器操作（第 0 字节 = 随机任务编号）"
+    },
+    {
+      "name": "FINDER_STATE_NOTIFICATION",
+      "direction": "SERVER_TO_CLIENT",
+      "opcode": 803,
+      "expected_length": 40,
+      "note": "S2C 40 字节。第 16 字节 = 随机任务编号：2026-09-07 十六条回执回带申请的编号（5、8、2、1、6、3、4、17）；2026-09-06 晚间弹窗读出 1（练级迷宫场次）与 2（拾级迷宫场次），离开副本 44 秒后的一条也是 2。字节 9：弹窗时 3，离开后 1，2026-09-07 回执第二条为 7（顶级、满级、练级、大型）或 5（其余），与列表“缺少职能”图标分组一致。u16@10：09-06 为 86 / 22，09-07 恒为 6。用户 2026-09-07 确认游戏界面会显示每个随机缺少的职能、开始排本后显示平均等待时间，与这两个字段的行为一致；数值尚未与界面逐条比对。字节 2：回执第一条 0、第二条 1。",
+      "group": "finder",
+      "label": "副本查找器状态更新"
+    },
+    {
+      "name": "ZONE_LOAD_C2S_0178",
+      "direction": "CLIENT_TO_SERVER",
+      "opcode": 376,
+      "expected_length": 72,
+      "note": "登录进区与传送均出现的区域加载报文簇成员；只能生成候选区域锚点，不能证明进出副本。",
+      "group": "zone_load",
+      "label": "进本／换区 请求 0178"
+    },
+    {
+      "name": "ZONE_LOAD_C2S_008F",
+      "direction": "CLIENT_TO_SERVER",
+      "opcode": 143,
+      "expected_length": 8,
+      "note": "登录进区与传送均出现的区域加载报文簇成员；只能生成候选区域锚点，不能证明进出副本。",
+      "group": "zone_load",
+      "label": "进本／换区 请求 008f"
+    },
+    {
+      "name": "ZONE_LOAD_C2S_00E8",
+      "direction": "CLIENT_TO_SERVER",
+      "opcode": 232,
+      "expected_length": 8,
+      "note": "登录进区与传送均出现的区域加载报文簇成员；只能生成候选区域锚点，不能证明进出副本。",
+      "group": "zone_load",
+      "label": "进本／换区 请求 00e8"
+    },
+    {
+      "name": "ZONE_LOAD_C2S_024D",
+      "direction": "CLIENT_TO_SERVER",
+      "opcode": 589,
+      "expected_length": 8,
+      "note": "登录进区与传送均出现的区域加载报文簇成员；只能生成候选区域锚点，不能证明进出副本。",
+      "group": "zone_load",
+      "label": "进本／换区 请求 024d"
+    },
+    {
+      "name": "ZONE_LOAD_C2S_0187",
+      "direction": "CLIENT_TO_SERVER",
+      "opcode": 391,
+      "expected_length": 8,
+      "note": "登录进区与传送均出现的区域加载报文簇成员；只能生成候选区域锚点，不能证明进出副本。",
+      "group": "zone_load",
+      "label": "进本／换区 请求 0187"
+    },
+    {
+      "name": "ZONE_LOAD_C2S_0281",
+      "direction": "CLIENT_TO_SERVER",
+      "opcode": 641,
+      "expected_length": 8,
+      "note": "登录进区与传送均出现的区域加载报文簇成员；只能生成候选区域锚点，不能证明进出副本。",
+      "group": "zone_load",
+      "label": "进本／换区 请求 0281"
+    },
+    {
+      "name": "ZONE_LOAD_C2S_01A2",
+      "direction": "CLIENT_TO_SERVER",
+      "opcode": 418,
+      "expected_length": 24,
+      "note": "登录进区与传送均出现的区域加载报文簇成员；只能生成候选区域锚点，不能证明进出副本。",
+      "group": "zone_load",
+      "label": "进本／换区 请求 01a2"
+    },
+    {
+      "name": "ZONE_LOAD_S2C_01B8",
+      "direction": "SERVER_TO_CLIENT",
+      "opcode": 440,
+      "expected_length": 3672,
+      "note": "登录进区与传送均出现的区域加载报文簇成员；只能生成候选区域锚点，不能证明进出副本。",
+      "group": "zone_load",
+      "label": "进本／换区 加载 01b8"
+    },
+    {
+      "name": "ZONE_LOAD_S2C_0077",
+      "direction": "SERVER_TO_CLIENT",
+      "opcode": 119,
+      "expected_length": 640,
+      "note": "登录进区与传送均出现的区域加载报文簇成员；只能生成候选区域锚点，不能证明进出副本。",
+      "group": "zone_load",
+      "label": "进本／换区 加载 0077"
+    },
+    {
+      "name": "ZONE_LOAD_S2C_0347",
+      "direction": "SERVER_TO_CLIENT",
+      "opcode": 839,
+      "expected_length": 808,
+      "note": "登录进区与传送均出现的区域加载报文簇成员；只能生成候选区域锚点，不能证明进出副本。",
+      "group": "zone_load",
+      "label": "进本／换区 加载 0347"
+    },
+    {
+      "name": "ZONE_LOAD_S2C_014A",
+      "direction": "SERVER_TO_CLIENT",
+      "opcode": 330,
+      "expected_length": 456,
+      "note": "登录进区与传送均出现的区域加载报文簇成员；只能生成候选区域锚点，不能证明进出副本。",
+      "group": "zone_load",
+      "label": "进本／换区 加载 014a"
+    },
+    {
+      "name": "ZONE_LOAD_S2C_0325",
+      "direction": "SERVER_TO_CLIENT",
+      "opcode": 805,
+      "expected_length": 144,
+      "note": "登录进区与传送均出现的区域加载报文簇成员；只能生成候选区域锚点，不能证明进出副本。",
+      "group": "zone_load",
+      "label": "进本／换区 加载 0325"
+    },
+    {
+      "name": "ZONE_LOAD_S2C_031D",
+      "direction": "SERVER_TO_CLIENT",
+      "opcode": 797,
+      "expected_length": 448,
+      "note": "登录进区与传送均出现的区域加载报文簇成员；只能生成候选区域锚点，不能证明进出副本。",
+      "group": "zone_load",
+      "label": "进本／换区 加载 031d"
+    },
+    {
+      "name": "ZONE_LOAD_S2C_0153",
+      "direction": "SERVER_TO_CLIENT",
+      "opcode": 339,
+      "expected_length": 360,
+      "note": "登录进区与传送均出现的区域加载报文簇成员；只能生成候选区域锚点，不能证明进出副本。",
+      "group": "zone_load",
+      "label": "进本／换区 加载 0153"
+    },
+    {
+      "name": "ZONE_LOAD_S2C_0214",
+      "direction": "SERVER_TO_CLIENT",
+      "opcode": 532,
+      "expected_length": 424,
+      "note": "登录进区与传送均出现的区域加载报文簇成员；只能生成候选区域锚点，不能证明进出副本。",
+      "group": "zone_load",
+      "label": "进本／换区 加载 0214"
+    },
+    {
+      "name": "ZONE_LOAD_S2C_0149",
+      "direction": "SERVER_TO_CLIENT",
+      "opcode": 329,
+      "expected_length": 104,
+      "note": "登录进区与传送均出现的区域加载报文簇成员；只能生成候选区域锚点，不能证明进出副本。",
+      "group": "zone_load",
+      "label": "进本／换区 加载 0149"
+    },
+    {
+      "name": "ZONE_LOAD_S2C_025A",
+      "direction": "SERVER_TO_CLIENT",
+      "opcode": 602,
+      "expected_length": 104,
+      "note": "登录进区与传送均出现的区域加载报文簇成员；只能生成候选区域锚点，不能证明进出副本。",
+      "group": "zone_load",
+      "label": "进本／换区 加载 025a"
+    },
+    {
+      "name": "ZONE_LOAD_S2C_02FC",
+      "direction": "SERVER_TO_CLIENT",
+      "opcode": 764,
+      "expected_length": 104,
+      "note": "登录进区与传送均出现的区域加载报文簇成员；只能生成候选区域锚点，不能证明进出副本。",
+      "group": "zone_load",
+      "label": "进本／换区 加载 02fc"
+    },
+    {
+      "name": "INIT_ZONE_S2C_028D",
+      "direction": "SERVER_TO_CLIENT",
+      "opcode": 653,
+      "expected_length": 136,
+      "note": "社区国服 7.55a opcode 表（karashiiro/FFXIVOpcodes）称之为 InitZone；本机 2026-09-05 冷启动 trace 里登录换区簇中恰好出现一次（seq 671，早于 0x014a 约 47 毫秒）。按 Sapphire 的 FFXIVIpcInitZone 结构，第 2-3 字节（u16 小端）为 TerritoryType，用来查副本名。保存负载是为了用真实副本核对这个偏移。",
+      "group": "identity",
+      "label": "区域初始化（含区域编号）"
+    },
+    {
+      "name": "CLASS_INFO_S2C_0350",
+      "direction": "SERVER_TO_CLIENT",
+      "opcode": 848,
+      "expected_length": 16,
+      "note": "社区国服 7.55a opcode 表称之为 UpdateClassInfo；本机冷启动 trace 里登录簇中出现两次，长度 16 与 Sapphire 的 FFXIVIpcPlayerStatusUpdate（职业 u8@0、等级 u16@2、经验 u32@8、休息经验 u32@12）完全一致。切换职业、升级时也会发送。保存负载是为了核对第 0 字节的职业编号。",
+      "group": "identity",
+      "label": "职业信息更新"
+    }
+  ],
+  "fixtures": [
+    {
+      "path": "../oodle-signatures/evidence/cn.2026.08.05.oodle-verification.trace.jsonl",
+      "sha256": "7d74758061481862a943d659e52a8d29942cfa53a6c4a6b871364e91a82a370f"
+    }
+  ],
+  "provenance": {
+    "summary": "依据本地 trace 与用户时间线确认。全部 opcode 仅为 CANDIDATE，无字段偏移、无已验证的指导者任务 ID。Oodle 签名 VERIFIED 不代表任何事件 opcode VERIFIED。",
+    "capture_fixture": "../oodle-signatures/evidence/cn.2026.08.05.oodle-verification.trace.jsonl",
+    "capture_fixture_sha256": "7d74758061481862a943d659e52a8d29942cfa53a6c4a6b871364e91a82a370f",
+    "evidence": [
+      {
+        "field": "hypotheses",
+        "method": "OBSERVED_LOCAL_TRAFFIC",
+        "recorded_at_utc": "2026-09-05T11:22:51.215Z",
+        "note": "任务书第 1 节列出的全部排队候选与 18 个区域簇成员，来自指定 trace；区域簇登录与传送均出现，不等同于副本边界。"
+      },
+      {
+        "field": "hypotheses.QUEUE_REGISTRATION",
+        "method": "USER_CONFIRMED",
+        "recorded_at_utc": "2026-09-05T11:26:45.315Z",
+        "t_ms": 234100,
+        "note": "用户确认排队登记。"
+      },
+      {
+        "field": "hypotheses.FINDER_ACTION",
+        "method": "USER_CONFIRMED",
+        "recorded_at_utc": "2026-09-05T11:27:27.715Z",
+        "t_ms": 276500,
+        "note": "用户确认取消排队（当时命名为 QUEUE_CANCELLATION）。"
+      },
+      {
+        "field": "hypotheses.FINDER_ACTION",
+        "method": "USER_CONFIRMED",
+        "recorded_at_utc": "2026-09-06T03:30:00.000Z",
+        "note": "2026-09-06 导随会话（逆转要害沙斯塔夏溶洞）：01:51:56 登记，01:52:02 同一报文，01:52:03 FINDER_STATE_NOTIFICATION ×2，01:52:27 进本簇，02:01:47 离开簇，与 ACT 一致。用户确认 01:52:02 是点了确认进入而非取消，故 QUEUE_CANCELLATION 改名 FINDER_ACTION，FINDER_STATE_NOTIFICATION 改为“操作后的状态更新”。"
+      },
+      {
+        "field": "hypotheses.ZONE_LOAD",
+        "method": "USER_CONFIRMED",
+        "recorded_at_utc": "2026-09-06T03:30:00.000Z",
+        "note": "同一会话：登录、进本、离开三个簇都在同一连接上（进本不新建连接）；连接上的第一个簇是登录本身。"
+      },
+      {
+        "field": "hypotheses.QUEUE_REGISTRATION",
+        "method": "USER_CONFIRMED",
+        "recorded_at_utc": "2026-09-07T01:00:00.000Z",
+        "note": "2026-09-06 导出（会话 7fa74e00）：15:10:04Z 练级迷宫登记、16:15:16Z 拾级迷宫登记（用户确认斯卡拉遗迹为 70 级封顶本，由拾级排到）均核对为“对”。用户多次说明当晚没有排指导者任务，此前误记为导随，已更正。偏移 114 = 9 / 1 与编号 1 / 2 不符，不是随机任务编号。"
+      },
+      {
+        "field": "hypotheses.ZONE_LOAD",
+        "method": "USER_CONFIRMED",
+        "recorded_at_utc": "2026-09-07T01:00:00.000Z",
+        "note": "同一导出：15:44:32Z 进本、16:13:49Z 离开（练级迷宫，29 分钟）、16:15:44Z 进本（拾级迷宫，用户备注沉没神殿斯卡拉遗迹）、16:29:14Z 离开，四个簇均核对为“对”。C2S 0x01a2 也是移动报文（3 分钟内 9503 次），簇成员不再逐条入账。"
+      },
+      {
+        "field": "hypotheses.FINDER_ACTION",
+        "method": "USER_CONFIRMED",
+        "recorded_at_utc": "2026-09-07T04:00:00.000Z",
+        "note": "2026-09-07 本机导出 candidate-evidence-20260907-034302（会话 67ad7664）：用户按列表顺序勾选并申请后取消，8 条 0x034b 第 0 字节 = 5、8、2、1、6、3、4、17；团队任务未申请，指导者本轮未排。全程无 0x03bb。"
+      },
+      {
+        "field": "hypotheses.FINDER_STATE_NOTIFICATION",
+        "method": "OBSERVED_LOCAL_TRAFFIC",
+        "recorded_at_utc": "2026-09-07T04:00:00.000Z",
+        "note": "同一导出：每条 0x034b 后两条 0x0323 第 16 字节回带同一编号。结合 09-06 弹窗（1 / 2）判断第 16 字节为随机任务编号；指导者任务（9）待一次真实导随验证。"
+      }
+    ]
+  },
+  "profile_sha256": "bd0d1fda0eafd71eadd53e8d9fa237a2c703af0ee673f7825ea321e60625d115"
+}

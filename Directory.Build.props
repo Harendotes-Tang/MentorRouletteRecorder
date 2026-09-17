@@ -1,0 +1,67 @@
+<Project>
+
+  <!--
+    Shared MSBuild properties for every C# project in this repository.
+    Rationale for each setting is documented in docs/build-and-package.md.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">win-x64</RuntimeIdentifier>
+    <Platforms>x64</Platforms>
+
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <WarningLevel>7</WarningLevel>
+    <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
+
+    <!-- Chinese (Simplified) is the default UI language; culture data must be available. -->
+    <InvariantGlobalization>false</InvariantGlobalization>
+
+    <!-- Deterministic, reproducible output. -->
+    <Deterministic>true</Deterministic>
+    <ProduceReferenceAssembly>false</ProduceReferenceAssembly>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+
+    <!--
+      Debug information must not carry the maintainer's absolute source paths. Symbols are
+      kept, because file and line numbers are what make a crash report actionable, so the
+      paths are removed instead:
+
+        PathMap   rewrites the repository root to /_/ in every source path the compiler
+                  records - in the PDB and in the pdb path stamped into the PE.
+        embedded  puts the (now path-free) PDB inside the assembly, so there is no separate
+                  .pdb file to leak, to forget, or to ship out of sync with its binary.
+
+      scripts/package.ps1 -Verify scans the whole artifact for the repository root as ASCII
+      and as UTF-16 and fails if it finds it; Assert-NoForbiddenPayload rejects loose *.pdb.
+
+      Release only: a Debug build keeps its side-by-side pdb with real paths so an IDE can
+      still find the sources on the machine that built it.
+    -->
+    <PathMap Condition="'$(Configuration)' == 'Release'">$(MSBuildThisFileDirectory)=/_/</PathMap>
+    <DebugType Condition="'$(Configuration)' == 'Release'">embedded</DebugType>
+
+    <!-- Project-wide identity. -->
+    <Company>MentorRecorder</Company>
+    <Product>FF14 导随记录器 / FF14 Mentor Roulette Recorder</Product>
+    <Version>0.9.1</Version>
+    <AssemblyVersion>0.9.1.0</AssemblyVersion>
+    <FileVersion>0.9.1.0</FileVersion>
+    <NeutralLanguage>zh-Hans</NeutralLanguage>
+
+    <!-- Licensing: the project is GPL-3.0-or-later (see LICENSE / THIRD_PARTY_NOTICES.md). -->
+    <PackageLicenseExpression>GPL-3.0-or-later</PackageLicenseExpression>
+    <IsPackable>false</IsPackable>
+
+    <!--
+      MSB3246 is emitted because the Machina.FFXIV package places a native
+      (non-managed) DLL in lib/netstandard2.0/. It is not a reference assembly
+      and Directory.Build.targets strips it from the output, so the warning is
+      downgraded to a message instead of failing the build.
+    -->
+    <MSBuildWarningsAsMessages>$(MSBuildWarningsAsMessages);MSB3246</MSBuildWarningsAsMessages>
+  </PropertyGroup>
+
+</Project>

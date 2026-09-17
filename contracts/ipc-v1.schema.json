@@ -1,0 +1,1596 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mentorrecorder.local/contracts/ipc-v1.schema.json",
+  "title": "MentorRecorder Named Pipe IPC, protocol version 1",
+  "description": "Wire contract between MentorRecorder.Desktop.exe (client) and MentorRecorder.Collector.exe (server). Transport: Windows Named Pipe 'MentorRecorder.<UserSidHash>.v1', ACL restricted to the current user. Framing: 4-byte little-endian unsigned payload length, followed by that many bytes of UTF-8 JSON conforming to $defs/Envelope. Maximum frame size is 4194304 bytes (4 MiB), matching FrameCodec.MaxFrameBytes in the Collector and kMaxFrameBytes in src/Desktop/cpp/IpcFraming.h. There is no HTTP, TCP, WebSocket or gRPC surface.",
+
+  "anyOf": [
+    { "$ref": "#/$defs/RequestEnvelope" },
+    { "$ref": "#/$defs/ResponseEnvelope" },
+    { "$ref": "#/$defs/EventEnvelope" },
+    { "$ref": "#/$defs/ErrorEnvelope" }
+  ],
+
+  "$defs": {
+
+    "//": "======================= primitives =======================",
+
+    "Uuid": { "type": "string", "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$" },
+    "UtcTimestamp": {
+      "type": "string",
+      "description": "UTC ISO-8601 with milliseconds, always suffixed with 'Z', e.g. 2026-09-04T11:22:33.456Z.",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+    },
+    "NullableUtcTimestamp": { "oneOf": [{ "$ref": "#/$defs/UtcTimestamp" }, { "type": "null" }] },
+    "DurationMs": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Elapsed milliseconds measured with a monotonic clock, never by subtracting wall-clock timestamps."
+    },
+    "ProtocolVersion": { "type": "integer", "const": 1 },
+
+    "MessageType": {
+      "type": "string",
+      "enum": [
+        "GetVersion", "GetStatus", "GetCaptureStatus", "ListCaptureAdapters", "StartCapture",
+        "StopCapture", "GetProtocolProfileStatus", "GetCurrentRun", "QueryRuns", "GetDashboardStats",
+        "GetDungeonStats", "GetJobStats", "GetResultStats", "CreateManualRun", "CorrectRun",
+        "SoftDeleteRun", "RestoreRun", "GetRunRevisions", "UpdateAchievementBaseline", "ExportCsv",
+        "ExportJson", "BackupDatabase", "SubscribeLiveEvents", "ExportDiagnosticsReport",
+        "SetRunReflection", "GetReflectionSummary",
+        "StartCaptureValidation", "GetCaptureValidationStatus", "AddCaptureValidationMarker", "StopCaptureValidation",
+        "UndoRevision", "GetRunEvents", "GetCaptureSettings", "UpdateCaptureSettings",
+        "QueryCandidateObservations", "ReviewCandidateObservation", "ExportCandidateEvidence",
+        "ConfirmCalibration", "DiscardCalibration",
+        "GetCalibrationShareCode", "CheckSharedCalibration", "ImportCalibrationCode", "AcceptSharedQueueInference",
+        "RejectSharedCalibration",
+        "GetSpeechSettings", "UpdateSpeechSettings", "SynthesizeSpeech", "CheckDatabaseIntegrity",
+        "Event", "Error"
+      ]
+    },
+
+    "RunResult": {
+      "type": "string",
+      "enum": [
+        "COMPLETED", "LEFT_OR_ABANDONED", "CANCELLED_BEFORE_ENTRY", "DISCONNECTED", "INTERRUPTED",
+        "UNKNOWN"
+      ]
+    },
+    "RunSource": { "type": "string", "enum": ["AUTO_NETWORK", "MANUAL", "IMPORT"] },
+    "RunState": {
+      "type": "string",
+      "enum": [
+        "IDLE", "MENTOR_MATCHED", "ENTERED_DUTY", "COMPLETED", "CANCELLED_BEFORE_ENTRY",
+        "LEFT_OR_ABANDONED", "DISCONNECTED", "INTERRUPTED", "UNKNOWN_FINAL_STATE",
+        "INTERRUPTED_PENDING_REVIEW"
+      ]
+    },
+    "DetectionConfidence": { "type": "string", "enum": ["HIGH", "MEDIUM", "LOW", "NONE"] },
+    "ReflectionMood": {
+      "type": "string",
+      "enum": ["good", "ok", "bad"],
+      "description": "How the run felt to the mentor. Lower case because it is a value the user picks in the UI, not a captured domain enum. UI labels: good = 顺利, ok = 一般, bad = 糟心."
+    },
+    "Region": { "type": "string", "enum": ["CN", "GLOBAL", "UNKNOWN"] },
+    "Role": { "type": "string", "enum": ["TANK", "HEALER", "DPS", "UNKNOWN"] },
+    "CaptureState": { "type": "string", "enum": ["STOPPED", "STARTING", "RUNNING", "DEGRADED", "FAILED"] },
+    "ProfileStatus": {
+      "type": "string",
+      "enum": ["NONE", "UNVERIFIED", "VERIFIED", "UNSUPPORTED_BUILD"],
+      "description": "UNSUPPORTED_BUILD is the fail-closed outcome: the client build is unknown, so no packet is interpreted and no run is recorded."
+    },
+
+    "//envelopes": "======================= envelopes =======================",
+
+    "RequestEnvelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol_version", "request_id", "message_type", "payload"],
+      "properties": {
+        "protocol_version": { "$ref": "#/$defs/ProtocolVersion" },
+        "request_id": {
+          "$ref": "#/$defs/Uuid",
+          "description": "Client-generated. Mutating requests are idempotent by request_id: replaying the same id returns the original result without applying the change twice."
+        },
+        "message_type": { "$ref": "#/$defs/MessageType" },
+        "payload": { "type": "object" }
+      },
+      "allOf": [
+        { "$ref": "#/$defs/RequestPayloadBinding" }
+      ]
+    },
+
+    "ResponseEnvelope": {
+      "type": "object",
+      "description": "Every answer the Collector writes. 'ok' says which shape 'payload' has: the response payload of $defs/Responses when true, a copy of 'error' when false. 'error' is present exactly when ok is false; it is duplicated into 'payload' so that a client reading either branch sees the same object.",
+      "additionalProperties": false,
+      "required": ["protocol_version", "request_id", "message_type", "ok", "payload"],
+      "properties": {
+        "protocol_version": { "$ref": "#/$defs/ProtocolVersion" },
+        "request_id": { "$ref": "#/$defs/Uuid" },
+        "message_type": { "$ref": "#/$defs/MessageType" },
+        "ok": { "type": "boolean" },
+        "error": { "$ref": "#/$defs/ErrorPayload" },
+        "payload": { "type": "object" }
+      },
+      "if": { "properties": { "ok": { "const": false } }, "required": ["ok"] },
+      "then": { "required": ["error"] }
+    },
+
+    "EventEnvelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol_version", "request_id", "message_type", "ok", "payload"],
+      "properties": {
+        "protocol_version": { "$ref": "#/$defs/ProtocolVersion" },
+        "request_id": {
+          "$ref": "#/$defs/Uuid",
+          "description": "The request_id of the SubscribeLiveEvents request this event belongs to."
+        },
+        "message_type": { "const": "Event" },
+        "ok": { "type": "boolean", "const": true },
+        "payload": { "$ref": "#/$defs/LiveEvent" }
+      }
+    },
+
+    "ErrorEnvelope": {
+      "type": "object",
+      "description": "The failure envelope used when the request type could not be determined. It is a ResponseEnvelope with message_type 'Error'; 'error' and 'payload' carry the same object.",
+      "additionalProperties": false,
+      "required": ["protocol_version", "request_id", "message_type", "ok", "error", "payload"],
+      "properties": {
+        "protocol_version": { "$ref": "#/$defs/ProtocolVersion" },
+        "request_id": { "$ref": "#/$defs/Uuid" },
+        "message_type": { "const": "Error" },
+        "ok": { "type": "boolean", "const": false },
+        "error": { "$ref": "#/$defs/ErrorPayload" },
+        "payload": { "$ref": "#/$defs/ErrorPayload" }
+      }
+    },
+
+    "ErrorPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message"],
+      "properties": {
+        "code": {
+          "type": "string",
+          "description": "See contracts/error-codes.md. The enum there is normative.",
+          "enum": [
+            "ERR_PROTOCOL_VERSION", "ERR_BAD_REQUEST", "ERR_NOT_FOUND", "ERR_CANDIDATE_OBSERVATION_NOT_FOUND", "ERR_REASON_REQUIRED",
+            "ERR_TIME_ORDER", "ERR_NEGATIVE_DURATION", "ERR_NO_CHANGES", "ERR_REVISION_CONFLICT",
+            "ERR_ALREADY_DELETED", "ERR_NOT_DELETED", "ERR_UNDO_NOT_ALLOWED", "ERR_IDEMPOTENCY_CONFLICT",
+            "ERR_NPCAP_MISSING", "ERR_FFXIV_NOT_RUNNING",
+            "ERR_CAPTURE_ALREADY_RUNNING", "ERR_CAPTURE_NOT_RUNNING", "ERR_PROFILE_UNSUPPORTED",
+            "ERR_DB_BUSY", "ERR_DB_INTEGRITY", "ERR_EXPORT_FAILED",
+            "ERR_ALREADY_RUNNING", "ERR_INTERNAL",
+            "ERR_CALIBRATION_NOT_READY", "ERR_CALIBRATION_REJECTED", "ERR_SHARE_CODE_UNAVAILABLE",
+            "ERR_SPEECH_DISABLED", "ERR_SPEECH_NOT_CONFIGURED", "ERR_SPEECH_AUTH", "ERR_SPEECH_QUOTA",
+            "ERR_SPEECH_NETWORK", "ERR_SPEECH_TIMEOUT", "ERR_SPEECH_FORMAT"
+          ]
+        },
+        "message": { "type": "string", "description": "Human-readable, zh-Hans by default." },
+        "details": { "type": "object", "description": "Structured, non-sensitive context. Never contains raw packet payloads." },
+        "field": { "type": ["string", "null"], "description": "Offending field path for ERR_BAD_REQUEST." },
+        "retryable": { "type": "boolean", "default": false }
+      }
+    },
+
+    "//domain": "======================= domain objects =======================",
+
+    "Run": {
+      "type": "object",
+      "description": "One mentor roulette attempt. Mirrors the mentor_runs table; see docs/data-model.md.",
+      "additionalProperties": false,
+      "required": [
+        "run_id", "revision", "result", "source",
+        "contributes_to_goal", "manually_created", "manually_corrected",
+        "soft_deleted", "pending_review", "created_at_utc", "updated_at_utc"
+      ],
+      "properties": {
+        "run_id": { "$ref": "#/$defs/Uuid" },
+        "revision": { "type": "integer", "minimum": 1 },
+        "capture_session_id": { "oneOf": [{ "$ref": "#/$defs/Uuid" }, { "type": "null" }] },
+        "region": { "$ref": "#/$defs/Region" },
+        "game_build": { "type": ["string", "null"] },
+        "protocol_profile_id": { "type": ["string", "null"] },
+        "mentor_roulette_id": { "type": ["integer", "null"], "minimum": 0 },
+        "content_id": { "type": ["integer", "null"], "minimum": 0 },
+        "territory_id": { "type": ["integer", "null"], "minimum": 0 },
+        "duty_name": { "type": ["string", "null"] },
+        "duty_category": { "type": ["string", "null"] },
+        "job_id": { "type": ["integer", "null"], "minimum": 0 },
+        "job_name": { "type": ["string", "null"], "description": "Localized job name; '未知' when job_id is unknown." },
+        "role": { "$ref": "#/$defs/Role" },
+        "matched_at_utc": { "$ref": "#/$defs/NullableUtcTimestamp" },
+        "entered_at_utc": { "$ref": "#/$defs/NullableUtcTimestamp" },
+        "ended_at_utc": { "$ref": "#/$defs/NullableUtcTimestamp" },
+        "duration_ms": { "oneOf": [{ "$ref": "#/$defs/DurationMs" }, { "type": "null" }] },
+        "result": { "$ref": "#/$defs/RunResult" },
+        "detection_confidence": { "$ref": "#/$defs/DetectionConfidence" },
+        "source": { "$ref": "#/$defs/RunSource" },
+        "contributes_to_goal": { "type": "boolean" },
+        "manually_created": { "type": "boolean" },
+        "manually_corrected": { "type": "boolean" },
+        "soft_deleted": { "type": "boolean" },
+        "pending_review": {
+          "type": "boolean",
+          "description": "True for a run that crash recovery closed as INTERRUPTED and that the user has not confirmed yet. Counted by DashboardStats.unfinished_pending_review."
+        },
+        "note": { "type": ["string", "null"], "maxLength": 1000, "description": "Free-text note (schema v2 column). Correctable; see docs/manual-correction.md section 7." },
+        "reflection": {
+          "oneOf": [{ "$ref": "#/$defs/RunReflection" }, { "type": "null" }],
+          "description": "导随心得, the user's own diary entry for this run (schema v3 table run_reflections). Present on every serialised Run and null when the run has none."
+        },
+        "created_at_utc": { "$ref": "#/$defs/UtcTimestamp" },
+        "updated_at_utc": { "$ref": "#/$defs/UtcTimestamp" }
+      }
+    },
+
+    "RunReflection": {
+      "type": "object",
+      "description": "One 导随心得 entry. It is written by the user, never derived from captured traffic, and it never bumps Run.revision or appends to run_revisions.",
+      "additionalProperties": false,
+      "required": ["mood", "text", "created_at_utc", "updated_at_utc"],
+      "properties": {
+        "mood": { "$ref": "#/$defs/ReflectionMood" },
+        "text": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "created_at_utc": { "$ref": "#/$defs/UtcTimestamp" },
+        "updated_at_utc": { "$ref": "#/$defs/UtcTimestamp" }
+      }
+    },
+
+    "ReflectionEntry": {
+      "type": "object",
+      "description": "A reflection together with the run it belongs to.",
+      "additionalProperties": false,
+      "required": ["run", "reflection"],
+      "properties": {
+        "run": { "$ref": "#/$defs/Run" },
+        "reflection": { "$ref": "#/$defs/RunReflection" }
+      }
+    },
+
+    "RunRevision": {
+      "type": "object",
+      "description": "One append-only audit record. Revisions are never updated or deleted.",
+      "additionalProperties": false,
+      "required": ["revision_id", "run_id", "revision", "changed_at_utc", "change_kind", "changes"],
+      "properties": {
+        "revision_id": { "$ref": "#/$defs/Uuid" },
+        "run_id": { "$ref": "#/$defs/Uuid" },
+        "revision": { "type": "integer", "minimum": 1 },
+        "changed_at_utc": { "$ref": "#/$defs/UtcTimestamp" },
+        "change_kind": {
+          "type": "string",
+          "enum": ["CREATE_AUTO", "CREATE_MANUAL", "CORRECT", "SOFT_DELETE", "RESTORE", "IMPORT"]
+        },
+        "reason": { "type": ["string", "null"], "description": "Required for CORRECT, SOFT_DELETE and RESTORE (ERR_REASON_REQUIRED otherwise)." },
+        "actor": { "type": "string", "enum": ["USER", "SYSTEM"] },
+        "changes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["field", "old_value", "new_value"],
+            "properties": {
+              "field": { "type": "string" },
+              "old_value": {},
+              "new_value": {}
+            }
+          }
+        }
+      }
+    },
+
+    "MutationResult": {
+      "type": "object",
+      "description": "Common tail of every mutating response.",
+      "additionalProperties": false,
+      "required": ["run_id", "revision", "audit_event_id"],
+      "properties": {
+        "run_id": { "$ref": "#/$defs/Uuid" },
+        "revision": { "type": "integer", "minimum": 1 },
+        "audit_event_id": { "$ref": "#/$defs/Uuid" },
+        "idempotent_replay": {
+          "type": "boolean",
+          "default": false,
+          "description": "true when this response replays a previously applied request with the same request_id."
+        },
+        "run": { "$ref": "#/$defs/Run" }
+      }
+    },
+
+    "//paging": "======================= paging and filtering =======================",
+
+    "PageInfo": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["page", "page_size", "total"],
+      "properties": {
+        "page": { "type": "integer", "minimum": 1 },
+        "page_size": { "type": "integer", "minimum": 1, "maximum": 200 },
+        "total": { "type": "integer", "minimum": 0, "description": "Total matching rows, not total pages." }
+      }
+    },
+
+    "RunFilter": {
+      "type": "object", "additionalProperties": false,
+      "description": "All fields optional; omitted fields do not constrain the query. Array fields are OR within the field and AND across fields.",
+      "properties": {
+        "from_utc": { "$ref": "#/$defs/NullableUtcTimestamp" },
+        "to_utc": { "$ref": "#/$defs/NullableUtcTimestamp" },
+        "date_field": {
+          "type": "string",
+          "enum": ["matched_at_utc", "entered_at_utc", "ended_at_utc"],
+          "default": "entered_at_utc",
+          "description": "Which timestamp the date range applies to."
+        },
+        "content_id": { "type": "array", "items": { "type": "integer", "minimum": 0 }, "maxItems": 500 },
+        "duty_category": { "type": "array", "items": { "type": "string" }, "maxItems": 100 },
+        "job_id": { "type": "array", "items": { "type": "integer", "minimum": 0 }, "maxItems": 100 },
+        "result": { "type": "array", "items": { "$ref": "#/$defs/RunResult" }, "maxItems": 6 },
+        "source": { "type": "array", "items": { "$ref": "#/$defs/RunSource" }, "maxItems": 3 },
+        "corrected_only": { "type": "boolean", "default": false },
+        "include_deleted": { "type": "boolean", "default": false, "description": "Soft-deleted runs are excluded unless this is true. They never count towards statistics regardless." },
+        "with_reflection": { "type": "boolean", "default": false, "description": "Only runs that have a reflection." },
+        "pending_review": { "type": "boolean", "description": "true keeps only runs still flagged for review, false keeps only runs that are not. Omitted means no constraint; there is deliberately no default, because 'not asked for' and 'asked for false' are different queries." },
+        "text": { "type": "string", "maxLength": 200, "description": "Case-insensitive substring match over duty_name and job_name." }
+      }
+    },
+
+    "RunSort": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "field": {
+          "type": "string",
+          "enum": ["matched_at_utc", "entered_at_utc", "ended_at_utc", "duration_ms", "duty_name"],
+          "default": "entered_at_utc"
+        },
+        "direction": { "type": "string", "enum": ["asc", "desc"], "default": "desc" }
+      }
+    },
+
+    "//stats": "======================= statistics =======================",
+
+    "DashboardStats": {
+      "type": "object",
+      "description": "Definitions are normative in docs/statistics-definitions.md.",
+      "additionalProperties": false,
+      "required": [
+        "attempt_count", "completed_count", "baseline_completed_count",
+        "achievement_progress", "goal_count", "remaining",
+        "completion_rate", "leave_rate", "avg_duration_ms", "result_breakdown"
+      ],
+      "properties": {
+        "attempt_count": { "type": "integer", "minimum": 0 },
+        "completed_count": { "type": "integer", "minimum": 0 },
+        "baseline_completed_count": { "type": "integer", "minimum": 0 },
+        "achievement_progress": { "type": "integer", "minimum": 0 },
+        "goal_count": { "type": "integer", "minimum": 0 },
+        "remaining": { "type": "integer", "minimum": 0 },
+        "completion_rate": { "type": ["number", "null"], "minimum": 0, "maximum": 1, "description": "null when attempt_count is 0." },
+        "leave_rate": { "type": ["number", "null"], "minimum": 0, "maximum": 1, "description": "LEFT_OR_ABANDONED only. Never merged with DISCONNECTED / INTERRUPTED / UNKNOWN." },
+        "avg_duration_ms": { "type": ["number", "null"], "minimum": 0, "description": "COMPLETED runs with valid times and duration_ms >= 0 only; null when there is no such run." },
+        "result_breakdown": { "$ref": "#/$defs/ResultStats" },
+        "unfinished_pending_review": { "type": "integer", "minimum": 0 },
+        "trend": { "$ref": "#/$defs/TrendSeries" }
+      }
+    },
+
+    "TrendSeries": {
+      "type": "object",
+      "description": "Completion trend, aggregated by the Collector. Buckets are defined on matched_at_utc in UTC and are gap-free: an empty period is present with completed_count 0. See docs/statistics-definitions.md section 12.1.",
+      "additionalProperties": false,
+      "required": ["granularity", "buckets"],
+      "properties": {
+        "granularity": { "$ref": "#/$defs/TrendGranularity" },
+        "buckets": {
+          "type": "array",
+          "maxItems": 30,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["start_utc", "completed_count"],
+            "properties": {
+              "start_utc": { "$ref": "#/$defs/UtcTimestamp", "description": "Inclusive start of the bucket, always midnight UTC. The client labels it in local time and never re-buckets." },
+              "completed_count": { "type": "integer", "minimum": 0 }
+            }
+          }
+        }
+      }
+    },
+
+    "TrendGranularity": {
+      "type": "string",
+      "enum": ["day", "week", "month"],
+      "default": "day",
+      "description": "day = the last 30 days, week = the last 12 ISO weeks (Monday 00:00 UTC), month = the last 6 calendar months."
+    },
+
+    "ResultStats": {
+      "type": "object",
+      "description": "One bucket per result value; buckets are never merged.",
+      "additionalProperties": false,
+      "required": ["attempt_count", "buckets"],
+      "properties": {
+        "attempt_count": { "type": "integer", "minimum": 0 },
+        "buckets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["result", "count", "share"],
+            "properties": {
+              "result": { "$ref": "#/$defs/RunResult" },
+              "count": { "type": "integer", "minimum": 0 },
+              "share": { "type": ["number", "null"], "minimum": 0, "maximum": 1 }
+            }
+          }
+        }
+      }
+    },
+
+    "DungeonStatsRow": {
+      "type": "object",
+      "description": "Aggregated by content_id. Rows whose content_id is null are grouped into a single '未知副本' row with content_id null.",
+      "additionalProperties": false,
+      "required": ["content_id", "duty_name", "attempt_count", "completed_count"],
+      "properties": {
+        "content_id": { "type": ["integer", "null"], "minimum": 0 },
+        "duty_name": { "type": "string" },
+        "duty_category": { "type": ["string", "null"] },
+        "attempt_count": { "type": "integer", "minimum": 0 },
+        "completed_count": { "type": "integer", "minimum": 0 },
+        "completion_rate": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+        "avg_duration_ms": { "type": ["number", "null"], "minimum": 0 },
+        "last_seen_utc": { "$ref": "#/$defs/NullableUtcTimestamp", "description": "MAX(matched_at_utc) over the rows of this group. null when no run in the group carries a match time." }
+      }
+    },
+
+    "JobStatsRow": {
+      "type": "object",
+      "description": "Aggregated by job_id. job_id null is its own category named '未知'; it is never folded into another job.",
+      "additionalProperties": false,
+      "required": ["job_id", "job_name", "attempt_count", "completed_count"],
+      "properties": {
+        "job_id": { "type": ["integer", "null"], "minimum": 0 },
+        "job_name": { "type": "string" },
+        "role": { "$ref": "#/$defs/Role" },
+        "attempt_count": { "type": "integer", "minimum": 0 },
+        "completed_count": { "type": "integer", "minimum": 0 },
+        "completion_rate": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+        "avg_duration_ms": { "type": ["number", "null"], "minimum": 0 }
+      }
+    },
+
+    "//capture": "======================= capture and diagnostics =======================",
+
+    "CaptureAdapter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["adapter_id", "description", "is_loopback", "is_up"],
+      "properties": {
+        "adapter_id": { "type": "string", "description": "Npcap device name. Treated as an opaque identifier." },
+        "description": { "type": "string" },
+        "friendly_name": { "type": ["string", "null"] },
+        "ipv4_addresses": { "type": "array", "items": { "type": "string" } },
+        "is_loopback": { "type": "boolean" },
+        "is_up": { "type": "boolean" },
+        "recommended": { "type": "boolean", "default": false },
+        "preference_stale": { "type": "boolean", "default": false, "description": "True for the adapter the user chose earlier when it no longer carries the game's traffic and another adapter does (the 加速器/VPN case). That other adapter is the recommended one; this flag lets the UI say why the selection moved." }
+      }
+    },
+
+    "CaptureStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Capture state and the pipeline counters of docs/capture-diagnostics.md section 5. Every counter is optional: a client must treat an absent field as 'not measured' and render an em dash, never a 0 it did not receive.",
+      "required": ["state", "npcap_installed", "ffxiv_running", "profile_status"],
+      "properties": {
+        "candidate_validation_enabled": { "type": "boolean" },
+        "candidate_profile_id": { "type": ["string", "null"] },
+        "candidate_observation_count": { "type": "integer", "minimum": 0, "maximum": 20000 },
+        "candidate_hypotheses": { "type": "array", "maxItems": 128, "items": { "$ref": "#/$defs/CandidateHypothesis" }, "description": "Hypotheses declared by the candidate profile matching the running client, so the Desktop can label the research whitelist by purpose. Empty when no candidate profile matches. Display data only: it never affects matching, eligibility or evidence." },
+        "profile_origin": { "type": ["string", "null"], "enum": ["SHIPPED", "LOCAL_CALIBRATION", "SHARED_CALIBRATION", null], "description": "Where the profile in force came from: shipped with this build, written on this machine by self-calibration, or rebuilt from another player's share code that passed verification against this machine's own traffic. Null when no profile is in force. The Desktop labels LOCAL_CALIBRATION as 本机校准 and SHARED_CALIBRATION as 共享校准; a client that knows only the first two must treat any other value as 'not shipped', never as missing." },
+        "calibration_bound_at_utc": { "oneOf": [{ "$ref": "#/$defs/UtcTimestamp" }, { "type": "null" }], "description": "When a confirmed local profile was bound inside the running capture session; the parser counters start from zero at that moment. Null when no hot-bind happened this session." },
+        "calibration": { "$ref": "#/$defs/CalibrationStatus" },
+        "state": { "$ref": "#/$defs/CaptureState" },
+        "capture_session_id": { "oneOf": [{ "$ref": "#/$defs/Uuid" }, { "type": "null" }] },
+        "npcap_installed": { "type": "boolean" },
+        "npcap_version": { "type": ["string", "null"] },
+        "ffxiv_running": { "type": "boolean" },
+        "ffxiv_process_id": { "type": ["integer", "null"], "minimum": 0 },
+        "game_build": { "type": ["string", "null"] },
+        "region": { "$ref": "#/$defs/Region" },
+        "profile_status": { "$ref": "#/$defs/ProfileStatus" },
+        "adapter_id": { "type": ["string", "null"] },
+        "started_at_utc": { "$ref": "#/$defs/NullableUtcTimestamp" },
+        "packets_observed": { "type": "integer", "minimum": 0 },
+        "packets_dropped": { "type": "integer", "minimum": 0 },
+        "queue_depth": { "type": "integer", "minimum": 0 },
+        "queue_capacity": { "type": "integer", "minimum": 0 },
+        "last_error_code": { "type": ["string", "null"] },
+        "monitor_type": {
+          "type": "string",
+          "const": "WinPCap",
+          "description": "Always the Npcap/WinPCap path. RawSocket fallback and the injected hook are never used."
+        },
+        "injected_hook_enabled": {
+          "type": "boolean",
+          "const": false,
+          "description": "Constant false. Reported so the UI and the user can verify the boundary at runtime."
+        },
+
+        "connection_count": { "type": "integer", "minimum": 0, "description": "Distinct game connections observed this session, deduplicated by connection key, capped at 64." },
+        "messages_decoded": { "type": "integer", "minimum": 0, "description": "Messages whose framing was read successfully." },
+        "decode_errors": { "type": "integer", "minimum": 0, "description": "Messages whose framing could not be read. Counted, never thrown." },
+        "parse_ok_count": { "type": "integer", "minimum": 0, "description": "Messages the parser turned into a semantic event." },
+        "parse_fail_count": { "type": "integer", "minimum": 0, "description": "Messages of a declared profile message the parser refused (length, offset, constraint, unsupported profile, internal). Undeclared opcodes are ignored_count, not failures." },
+        "duplicate_count": { "type": "integer", "minimum": 0, "description": "Messages counted as duplicates of one already seen." },
+        "ignored_count": { "type": "integer", "minimum": 0, "description": "Messages no profile message claims. Ordinary client traffic the record does not need: counted, but neither a refusal (parse_fail_count) nor an error, and never listed in recent_parser_errors." },
+        "message_rate_per_second": { "type": "number", "minimum": 0, "description": "Smoothed message rate (EMA, alpha 0.3, minimum sampling interval 250 ms)." },
+        "uptime_ms": { "$ref": "#/$defs/DurationMs", "description": "How long the current capture has been running; process uptime when nothing is running." },
+        "last_valid_event_at_utc": { "$ref": "#/$defs/NullableUtcTimestamp", "description": "When the parser last produced a semantic event." },
+        "last_valid_event_kind": {
+          "type": ["string", "null"],
+          "enum": ["CONTENT_FINDER_POP", "ZONE_INITIALIZATION", "ZONE_TERRITORY", "DUTY_RESULT", "PLAYER_JOB", "ZONE_LEFT", "INSTANCE_LEFT", "MATCH_CANCELLED", null],
+          "description": "Semantic event type of the event last_valid_event_at_utc describes, set at the same moment; null when there is none. The Desktop shows it in words (DUTY_RESULT = 副本结算). Absent from Collectors before 0.8: a client must treat an absent field as 'not reported', and a token it does not know as 'some event'."
+        },
+        "recent_parser_errors": {
+          "type": "array",
+          "maxItems": 20,
+          "description": "Tail of the parser's bounded refusal ring, oldest first. Diagnostics only: an opcode number, a direction and a short sentence, never a payload byte (docs/privacy-boundary.md section 5).",
+          "items": { "$ref": "#/$defs/ParserErrorEntry" }
+        },
+
+        "raw_packets_observed": { "type": "integer", "minimum": 0, "description": "IPv4/TCP frames the selected adapter delivered, before stream reassembly. packets_observed counts only messages that survived reassembly and framing, so it reads 0 both when nothing arrives and when everything arrives and is discarded; this counter separates the two." },
+        "preexisting_connections": { "type": ["integer", "null"], "minimum": 0, "description": "TCP connections the game already held when this capture started, or null when the table could not be read or nothing is running. Above zero means Oodle state for those connections is unrecoverable and a fresh login is needed." },
+        "silent_reason": {
+          "type": "string",
+          "enum": ["NONE", "MIDSTREAM", "NO_PACKETS_ON_ADAPTER", "NO_STREAM_OWNERSHIP"],
+          "default": "NONE",
+          "description": "Why a running capture is producing nothing. NONE: healthy, or too early to say (nothing is judged in the first 60 seconds unless the evidence is conclusive). MIDSTREAM: capture attached after the client had already connected, so that connection can never be decompressed. NO_PACKETS_ON_ADAPTER: no game traffic at all on the selected card. NO_STREAM_OWNERSHIP: traffic arrives but no connection is confirmed as the game's. hint carries the matching sentence for the user."
+        },
+        "ingress": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "What the ingress path discarded, by reason. Diagnostics only: counters, never a packet, an address or a port.",
+          "properties": {
+            "dropped_no_stream": { "type": "integer", "minimum": 0, "description": "Frames whose connection had no tracked stream, or whose direction was abandoned after an unfillable gap." },
+            "dropped_no_syn": { "type": "integer", "minimum": 0, "description": "Frames dropped because their direction never showed its own SYN: the classic signature of attaching mid-connection." },
+            "expired_streams": { "type": "integer", "minimum": 0, "description": "Streams released after waiting too long for the OS to confirm ownership." },
+            "unconfirmed_tuples": { "type": "integer", "minimum": 0, "description": "Distinct connections the OS TCP table never confirmed as the game's." },
+            "stream_resets": { "type": "integer", "minimum": 0, "description": "Directions abandoned after a packet gap could not be filled within the tolerance." },
+            "adapter_dropped": { "type": "integer", "minimum": 0, "description": "Packets Npcap reported as lost at the driver or the interface. Small values degrade the capture; sustained loss faults it." },
+            "handshakes": { "type": "integer", "minimum": 0, "description": "Connections opened because their TCP handshake was observed, whichever program they belong to. Zero over a long session means no handshake reached this card at all." },
+            "game_connections": { "type": "integer", "minimum": 0, "description": "Distinct connections the OS attributed to the game since capture started. Above preexisting_connections it means the client reconnected while this capture was running, so a capture that still decodes nothing lost the handshake rather than started too late." },
+            "game_connections_now": { "type": "integer", "minimum": 0, "description": "Connections the OS attributes to the game in the most recent reading." }
+          }
+        },
+
+        "midstream_suspected": {
+          "type": "boolean",
+          "description": "True when this capture almost certainly attached to a TCP connection the game had already opened, so the Oodle stream state is incomplete and every frame is rejected. Set when the capture started with pre-existing game connections and at least 20 frames have been rejected with none decoded; cleared as soon as any frame decodes. Absent means 'not measured', never false."
+        },
+        "hint": {
+          "type": ["string", "null"],
+          "description": "One actionable zh-Hans sentence for the user about the current capture state, or null when there is nothing to say. Never contains a path, an address or a packet byte."
+        },
+        "oodle_signature_source": {
+          "type": ["string", "null"],
+          "enum": ["builtin", "profile", "pattern-fallback", null],
+          "description": "Where the Oodle signature set in force came from: Machina's built-in table, or an exact-executable signature profile. null when no capture is running."
+        },
+        "oodle_profile_id": {
+          "type": ["string", "null"],
+          "description": "Identifier of the Oodle signature profile in force; null when the built-in table is used."
+        },
+        "oodle_profile_status": {
+          "type": ["string", "null"],
+          "enum": ["CANDIDATE", "VERIFIED", null],
+          "description": "Status declared by the Oodle signature profile in force; null when the built-in table is used. CANDIDATE profiles are only ever used by an explicit forensic/validation run."
+        }
+      }
+    },
+
+    "ParserErrorEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["at_utc", "code", "opcode", "direction", "message"],
+      "properties": {
+        "at_utc": { "$ref": "#/$defs/NullableUtcTimestamp" },
+        "code": {
+          "type": "string",
+          "description": "Refusal token written by the parser; the same value stored in parser_errors.kind.",
+          "enum": [
+            "E_UNKNOWN_OPCODE", "E_LEN_MISMATCH", "E_OFFSET_OOB", "E_FIELD_CONSTRAINT",
+            "E_PROFILE_UNSUPPORTED", "E_INTERNAL"
+          ]
+        },
+        "opcode": { "type": "string", "pattern": "^0x[0-9A-F]{4}$", "description": "Opcode of the offending message, as a fixed-width hex string." },
+        "direction": { "type": "string", "enum": ["S2C", "C2S", "NONE"] },
+        "message": { "type": "string", "maxLength": 500, "description": "Short, non-sensitive explanation. Never contains payload bytes." }
+      }
+    },
+
+    "CollectorStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["collector_version", "protocol_version", "database_ready", "uptime_ms"],
+      "properties": {
+        "collector_version": { "type": "string" },
+        "protocol_version": { "$ref": "#/$defs/ProtocolVersion" },
+        "schema_version": { "type": ["integer", "null"], "minimum": 0 },
+        "database_ready": { "type": "boolean" },
+        "database_path": { "type": ["string", "null"] },
+        "uptime_ms": { "$ref": "#/$defs/DurationMs" },
+        "capture": { "$ref": "#/$defs/CaptureStatus" },
+        "warnings": { "type": "array", "items": { "type": "string" } },
+
+        "game": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "Game process facts: running, process_id, region, game_build, instance_count, install_path_readable. One of the four extras GetStatus adds for the first-run and diagnostics pages (src/Collector/Capture/CaptureWire.StatusExtras); the inner shape is owned by the capture layer and is deliberately left open here."
+        },
+        "npcap": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "Npcap facts: status, installed, version, winpcap_compatible, admin_only, process_elevated, install_hint."
+        },
+        "oodle_mode": {
+          "type": "string",
+          "description": "Which Oodle path is in use. Disclosed rather than implied: the default mode loads a copy of the game executable into the Collector process (DEC-OODLE-01)."
+        },
+        "reads_game_executable": {
+          "type": "boolean",
+          "description": "True when the current Oodle mode reads the game executable. Reported so the user can verify the boundary at runtime."
+        }
+      }
+    },
+
+    "ProtocolProfileStatus": {
+      "type": "object",
+      "description": "Fail-closed: when status is UNSUPPORTED_BUILD or NONE the Collector interprets nothing and records nothing.",
+      "additionalProperties": false,
+      "required": ["status", "profile_id", "region"],
+      "properties": {
+        "status": { "$ref": "#/$defs/ProfileStatus" },
+        "profile_id": { "type": ["string", "null"] },
+        "region": { "$ref": "#/$defs/Region" },
+        "game_build": { "type": ["string", "null"] },
+        "verified_at_utc": { "$ref": "#/$defs/NullableUtcTimestamp" },
+        "evidence_note": { "type": ["string", "null"], "description": "How the profile was verified. A profile without evidence is never marked VERIFIED." },
+        "message": { "type": ["string", "null"] }
+      }
+    },
+
+    "LiveEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["event_id", "event_type", "kind", "emitted_at_utc", "sequence"],
+      "properties": {
+        "event_id": { "$ref": "#/$defs/Uuid" },
+        "event_type": {
+          "type": "string",
+          "enum": [
+            "StateChanged", "RunStarted", "RunUpdated", "RunFinished", "CaptureStatusChanged",
+            "ProfileStatusChanged", "DiagnosticsMessage", "Heartbeat", "CandidateObserved", "CalibrationChanged"
+          ]
+        },
+        "kind": {
+          "type": "string",
+          "description": "The semantic kind this build emits. Finer grained than event_type: 'stats_invalidated' has no bucket of its own in event_type and is reported as DiagnosticsMessage. See LiveEventBus.KindToken and docs/architecture.md section 3.2.",
+          "enum": [
+            "run_state_changed", "run_created", "run_updated", "run_finished", "stats_invalidated",
+            "collector_status", "heartbeat", "candidate_observed", "calibration_changed"
+          ]
+        },
+        "emitted_at_utc": { "$ref": "#/$defs/UtcTimestamp" },
+        "sequence": { "type": "integer", "minimum": 0, "description": "Monotonic per subscription; a gap means the client should re-query." },
+        "name": { "type": "string" },
+        "group": { "type": ["string", "null"] },
+        "t_ms": { "$ref": "#/$defs/DurationMs" },
+        "observation_id": { "$ref": "#/$defs/Uuid" },
+        "capture_session_id": { "$ref": "#/$defs/Uuid" },
+        "state": { "$ref": "#/$defs/RunState" },
+        "match_from_queue": { "type": "boolean", "description": "run_state_changed: whether the bound state machine uses the client's queue request as the match. Only explicit false confirms a server match for voice announcements; absent means unknown." },
+        "run": { "$ref": "#/$defs/Run" },
+        "capture": { "$ref": "#/$defs/CaptureStatus" },
+        "profile": { "$ref": "#/$defs/ProtocolProfileStatus" },
+        "severity": { "type": "string", "enum": ["INFO", "WARN", "ERROR"] },
+        "message": { "type": ["string", "null"] },
+        "calibration_state": { "$ref": "#/$defs/CalibrationState", "description": "calibration_changed only: the new state. The timeline itself is never pushed; the Desktop re-reads GetCaptureStatus." },
+        "ready": { "type": "boolean", "description": "calibration_changed only: true exactly when calibration_state is READY." }
+      }
+    },
+
+    "//binding": "======================= per-message payload binding =======================",
+
+    "RequestPayloadBinding": {
+      "description": "Binds message_type to its request payload schema. Response payload schemas are listed in $defs/Responses.",
+      "allOf": [
+        { "if": { "properties": { "message_type": { "const": "QueryCandidateObservations" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/QueryCandidateObservationsRequest" } } } },
+        { "if": { "properties": { "message_type": { "const": "ReviewCandidateObservation" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/ReviewCandidateObservationRequest" } } } },
+        { "if": { "properties": { "message_type": { "const": "ExportCandidateEvidence" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/ExportCandidateEvidenceRequest" } } } },
+        { "if": { "properties": { "message_type": { "const": "ConfirmCalibration" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/ConfirmCalibrationRequest" } } } },
+        { "if": { "properties": { "message_type": { "const": "DiscardCalibration" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/EmptyPayload" } } } },
+        { "if": { "properties": { "message_type": { "enum": ["GetCalibrationShareCode", "CheckSharedCalibration", "AcceptSharedQueueInference", "RejectSharedCalibration"] } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/EmptyPayload" } } } },
+        { "if": { "properties": { "message_type": { "const": "ImportCalibrationCode" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/ImportCalibrationCodeRequest" } } } },
+        { "if": { "properties": { "message_type": { "const": "StartCaptureValidation" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/StartCaptureValidationRequest" } } } },
+        { "if": { "properties": { "message_type": { "enum": ["GetCaptureValidationStatus", "StopCaptureValidation"] } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/EmptyPayload" } } } },
+        { "if": { "properties": { "message_type": { "const": "AddCaptureValidationMarker" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/AddCaptureValidationMarkerRequest" } } } },
+        { "if": { "properties": { "message_type": { "const": "GetVersion" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/EmptyPayload" } } } },
+        { "if": { "properties": { "message_type": { "const": "GetStatus" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/EmptyPayload" } } } },
+        { "if": { "properties": { "message_type": { "const": "GetCaptureStatus" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/EmptyPayload" } } } },
+        { "if": { "properties": { "message_type": { "const": "ListCaptureAdapters" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/EmptyPayload" } } } },
+        { "if": { "properties": { "message_type": { "const": "StartCapture" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/StartCaptureRequest" } } } },
+        { "if": { "properties": { "message_type": { "const": "StopCapture" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/EmptyPayload" } } } },
+        { "if": { "properties": { "message_type": { "const": "GetProtocolProfileStatus" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/EmptyPayload" } } } },
+        { "if": { "properties": { "message_type": { "const": "GetCurrentRun" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/EmptyPayload" } } } },
+        { "if": { "properties": { "message_type": { "const": "QueryRuns" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/QueryRunsRequest" } } } },
+        { "if": { "properties": { "message_type": { "const": "GetDashboardStats" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/StatsRequest" } } } },
+        { "if": { "properties": { "message_type": { "const": "GetDungeonStats" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/PagedStatsRequest" } } } },
+        { "if": { "properties": { "message_type": { "const": "GetJobStats" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/PagedStatsRequest" } } } },
+        { "if": { "properties": { "message_type": { "const": "GetResultStats" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/StatsRequest" } } } },
+        { "if": { "properties": { "message_type": { "const": "CreateManualRun" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/CreateManualRunRequest" } } } },
+        { "if": { "properties": { "message_type": { "const": "CorrectRun" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/CorrectRunRequest" } } } },
+        { "if": { "properties": { "message_type": { "const": "SoftDeleteRun" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/RunReasonRequest" } } } },
+        { "if": { "properties": { "message_type": { "const": "RestoreRun" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/RunReasonRequest" } } } },
+        { "if": { "properties": { "message_type": { "const": "GetRunRevisions" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/GetRunRevisionsRequest" } } } },
+        { "if": { "properties": { "message_type": { "const": "UpdateAchievementBaseline" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/UpdateAchievementBaselineRequest" } } } },
+        { "if": { "properties": { "message_type": { "const": "ExportCsv" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/ExportRequest" } } } },
+        { "if": { "properties": { "message_type": { "const": "ExportJson" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/ExportRequest" } } } },
+        { "if": { "properties": { "message_type": { "const": "BackupDatabase" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/BackupDatabaseRequest" } } } },
+        { "if": { "properties": { "message_type": { "const": "SubscribeLiveEvents" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/SubscribeLiveEventsRequest" } } } },
+        { "if": { "properties": { "message_type": { "const": "ExportDiagnosticsReport" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/ExportDiagnosticsReportRequest" } } } },
+        { "if": { "properties": { "message_type": { "const": "SetRunReflection" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/SetRunReflectionRequest" } } } },
+        { "if": { "properties": { "message_type": { "const": "GetReflectionSummary" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/GetReflectionSummaryRequest" } } } },
+        { "if": { "properties": { "message_type": { "const": "UndoRevision" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/RunReasonRequest" } } } },
+        { "if": { "properties": { "message_type": { "const": "GetRunEvents" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/GetRunEventsRequest" } } } },
+        { "if": { "properties": { "message_type": { "const": "GetCaptureSettings" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/EmptyPayload" } } } },
+        { "if": { "properties": { "message_type": { "const": "UpdateCaptureSettings" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/UpdateCaptureSettingsRequest" } } } },
+        { "if": { "properties": { "message_type": { "enum": ["GetSpeechSettings", "CheckDatabaseIntegrity"] } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/EmptyPayload" } } } },
+        { "if": { "properties": { "message_type": { "const": "UpdateSpeechSettings" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/UpdateSpeechSettingsRequest" } } } },
+        { "if": { "properties": { "message_type": { "const": "SynthesizeSpeech" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/SynthesizeSpeechRequest" } } } }
+      ]
+    },
+
+    "EmptyPayload": { "type": "object", "additionalProperties": false, "maxProperties": 0 },
+
+    "CandidateReviewVerdict": {"enum":["CORRECT","WRONG","UNSURE"]},
+    "CandidateHypothesis": {"type":"object","additionalProperties":false,"required":["profile_id","name","label","opcode","direction","group","expected_length","research_eligible"],"properties":{"profile_id":{"type":"string"},"name":{"type":"string"},"label":{"type":"string"},"opcode":{"type":"string","pattern":"^0x[0-9a-f]{4}$"},"direction":{"enum":["C2S","S2C"]},"group":{"type":["string","null"]},"expected_length":{"oneOf":[{"type":"integer","minimum":0,"maximum":65535},{"type":"null"}]},"research_eligible":{"type":"boolean"}}},
+    "CandidateObservation": {"type":"object","additionalProperties":false,"required":["observation_id","capture_session_id","profile_id","hypothesis_name","group_name","direction","opcode","payload_length","payload_hash12","connection_tag","observed_at_utc","t_ms","first_observed_at_utc","last_observed_at_utc","first_t_ms","last_t_ms","occurrences","review_verdict","review_note","reviewed_at_utc"],"properties":{"occurrences":{"type":"integer","minimum":1,"maximum":1000000,"description":"How many messages this row stands for. 1 for ordinary observations; QUEUE_WINDOW_SAMPLE rows fold every message of one (direction, opcode, length) seen between a queue registration and the next zone load into one metadata row."},"observation_id":{"$ref":"#/$defs/Uuid"},"capture_session_id":{"$ref":"#/$defs/Uuid"},"profile_id":{"type":"string"},"hypothesis_name":{"type":"string"},"group_name":{"type":["string","null"]},"direction":{"enum":["C2S","S2C","NONE"]},"opcode":{"oneOf":[{"type":"integer","minimum":0,"maximum":65535},{"type":"null"}]},"payload_length":{"oneOf":[{"type":"integer","minimum":0},{"type":"null"}]},"payload_hash12":{"oneOf":[{"type":"string","pattern":"^[0-9a-f]{12}$"},{"type":"null"}]},"connection_tag":{"type":"string","pattern":"^[0-9a-f]{12}$"},"observed_at_utc":{"$ref":"#/$defs/UtcTimestamp"},"t_ms":{"$ref":"#/$defs/DurationMs"},"first_observed_at_utc":{"$ref":"#/$defs/NullableUtcTimestamp"},"last_observed_at_utc":{"$ref":"#/$defs/NullableUtcTimestamp"},"first_t_ms":{"oneOf":[{"type":"integer","minimum":0},{"type":"null"}]},"last_t_ms":{"oneOf":[{"type":"integer","minimum":0},{"type":"null"}]},"review_verdict":{"oneOf":[{"$ref":"#/$defs/CandidateReviewVerdict"},{"type":"null"}]},"review_note":{"type":["string","null"],"maxLength":2000},"reviewed_at_utc":{"$ref":"#/$defs/NullableUtcTimestamp"}}},
+    "QueryCandidateObservationsRequest": {"type":"object","additionalProperties":false,"properties":{"session_id":{"oneOf":[{"$ref":"#/$defs/Uuid"},{"type":"null"}]},"from_utc":{"$ref":"#/$defs/NullableUtcTimestamp"},"to_utc":{"$ref":"#/$defs/NullableUtcTimestamp"},"page":{"type":"integer","minimum":1,"maximum":1000000},"page_size":{"type":"integer","minimum":1,"maximum":200}}},
+    "ReviewCandidateObservationRequest": {"type":"object","additionalProperties":false,"required":["observation_id","verdict"],"properties":{"observation_id":{"$ref":"#/$defs/Uuid"},"verdict":{"$ref":"#/$defs/CandidateReviewVerdict"},"note":{"type":["string","null"],"maxLength":2000}}},
+    "ExportCandidateEvidenceRequest": {"type":"object","additionalProperties":false,"properties":{"target_path":{"type":["string","null"],"minLength":1,"maxLength":32767}}},
+    "CandidateQueryResult": {"type":"object","additionalProperties":false,"required":["items","page_info"],"properties":{"items":{"type":"array","maxItems":200,"items":{"$ref":"#/$defs/CandidateObservation"}},"page_info":{"$ref":"#/$defs/PageInfo"}}},
+    "CandidateReviewResult": {"type":"object","additionalProperties":false,"required":["observation_id","review_verdict","reviewed_at_utc"],"properties":{"observation_id":{"$ref":"#/$defs/Uuid"},"review_verdict":{"$ref":"#/$defs/CandidateReviewVerdict"},"reviewed_at_utc":{"$ref":"#/$defs/UtcTimestamp"}}},
+    "CandidateExportResult": {"type":"object","additionalProperties":false,"required":["target_path","sha256_path","sha256","observation_count","review_count","byte_count","completed_at_utc"],"properties":{"target_path":{"type":"string"},"sha256_path":{"type":"string"},"sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"},"observation_count":{"type":"integer","minimum":0,"maximum":20000},"review_count":{"type":"integer","minimum":0},"byte_count":{"type":"integer","minimum":0},"completed_at_utc":{"$ref":"#/$defs/UtcTimestamp"}}},
+
+    "StartCaptureValidationRequest": {
+      "type": "object", "additionalProperties": false,
+      "properties": { "adapter_id": { "type": ["string", "null"], "minLength": 1, "maxLength": 400, "pattern": "\\S" } }
+    },
+    "AddCaptureValidationMarkerRequest": {
+      "type": "object", "additionalProperties": false, "required": ["marker"],
+      "properties": { "marker": { "enum": ["queued", "pop", "entered", "victory", "left"] } }
+    },
+    "CaptureValidationStatus": {
+      "type": "object", "additionalProperties": false,
+      "required": ["state", "active", "reason", "message", "session_id", "started_at_utc", "ended_at_utc", "message_count", "marker_count", "decode_error_count", "queue_dropped", "truncated", "trace_path", "sha256_path", "sha256", "error_code"],
+      "properties": {
+        "state": { "enum": ["IDLE", "WAITING", "RECORDING", "STOPPING", "COMPLETED", "FAILED"] },
+        "active": { "type": "boolean" },
+        "reason": { "enum": ["IDLE", "WAITING_GAME", "WAITING_IDENTITY", "WAITING_ADAPTER", "WAITING_RESTART", "WAITING_CONNECTION_CHECK", "RECORDING", "STOPPING", "COMPLETED", "CANCELLED", "FAILED"] },
+        "message": { "type": "string" },
+        "session_id": { "type": ["string", "null"] },
+        "started_at_utc": { "$ref": "#/$defs/NullableUtcTimestamp" },
+        "ended_at_utc": { "$ref": "#/$defs/NullableUtcTimestamp" },
+        "message_count": { "type": ["integer", "null"], "minimum": 0 },
+        "marker_count": { "type": ["integer", "null"], "minimum": 0 },
+        "decode_error_count": { "type": ["integer", "null"], "minimum": 0 },
+        "queue_dropped": { "type": ["integer", "null"], "minimum": 0 },
+        "truncated": { "type": "boolean" },
+        "trace_path": { "type": ["string", "null"] },
+        "sha256_path": { "type": ["string", "null"] },
+        "sha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+        "error_code": { "type": ["string", "null"] }
+      },
+      "if": { "properties": { "state": { "enum": ["WAITING", "RECORDING", "STOPPING"] } } },
+      "then": { "properties": { "active": { "const": true } } },
+      "else": { "properties": { "active": { "const": false } } }
+    },
+    "StartCaptureRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "adapter_id": { "type": ["string", "null"], "description": "null selects the adapter the Collector recommends." },
+        "process_id": { "type": ["integer", "null"], "minimum": 0 }
+      }
+    },
+
+    "QueryRunsRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "filter": { "$ref": "#/$defs/RunFilter" },
+        "sort": { "$ref": "#/$defs/RunSort" },
+        "page": { "type": "integer", "minimum": 1, "default": 1 },
+        "page_size": { "type": "integer", "minimum": 1, "maximum": 200, "default": 50 }
+      }
+    },
+
+    "StatsRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "filter": { "$ref": "#/$defs/RunFilter" },
+        "trend_granularity": { "$ref": "#/$defs/TrendGranularity" }
+      }
+    },
+
+    "PagedStatsRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "filter": { "$ref": "#/$defs/RunFilter" },
+        "page": { "type": "integer", "minimum": 1, "default": 1 },
+        "page_size": { "type": "integer", "minimum": 1, "maximum": 200, "default": 50 },
+        "sort": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "field": { "type": "string", "enum": ["attempt_count", "completed_count", "completion_rate", "avg_duration_ms", "name"], "default": "attempt_count" },
+            "direction": { "type": "string", "enum": ["asc", "desc"], "default": "desc" }
+          }
+        }
+      }
+    },
+
+    "CreateManualRunRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["result", "reason"],
+      "description": "Creates a run with source MANUAL and manually_created true. entered_at_utc <= ended_at_utc must hold (ERR_TIME_ORDER); duration_ms must be >= 0 (ERR_NEGATIVE_DURATION). Omitted duration_ms is derived from entry/end times; explicit null retains unknown duration and is excluded from average duration statistics.",
+      "properties": {
+        "content_id": { "type": ["integer", "null"], "minimum": 0 },
+        "duty_name": { "type": ["string", "null"], "maxLength": 200 },
+        "duty_category": { "type": ["string", "null"], "maxLength": 100 },
+        "job_id": { "type": ["integer", "null"], "minimum": 0 },
+        "matched_at_utc": { "$ref": "#/$defs/NullableUtcTimestamp" },
+        "entered_at_utc": { "$ref": "#/$defs/NullableUtcTimestamp" },
+        "ended_at_utc": { "$ref": "#/$defs/NullableUtcTimestamp" },
+        "duration_ms": { "oneOf": [{ "$ref": "#/$defs/DurationMs" }, { "type": "null" }] },
+        "result": { "$ref": "#/$defs/RunResult" },
+        "contributes_to_goal": { "type": "boolean", "default": true },
+        "note": { "type": ["string", "null"], "maxLength": 1000 },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 500 }
+      }
+    },
+
+    "CorrectRunRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["run_id", "expected_revision", "reason", "changes"],
+      "description": "expected_revision must equal the run's current revision or ERR_REVISION_CONFLICT is returned. An empty or no-op 'changes' object yields ERR_NO_CHANGES.",
+      "properties": {
+        "run_id": { "$ref": "#/$defs/Uuid" },
+        "expected_revision": { "type": "integer", "minimum": 1 },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "changes": {
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "properties": {
+            "content_id": { "type": ["integer", "null"], "minimum": 0 },
+            "duty_name": { "type": ["string", "null"], "maxLength": 200 },
+            "duty_category": { "type": ["string", "null"], "maxLength": 100 },
+            "job_id": { "type": ["integer", "null"], "minimum": 0 },
+            "matched_at_utc": { "$ref": "#/$defs/NullableUtcTimestamp" },
+            "entered_at_utc": { "$ref": "#/$defs/NullableUtcTimestamp" },
+            "ended_at_utc": { "$ref": "#/$defs/NullableUtcTimestamp" },
+            "duration_ms": { "oneOf": [{ "$ref": "#/$defs/DurationMs" }, { "type": "null" }] },
+            "result": { "$ref": "#/$defs/RunResult" },
+            "contributes_to_goal": { "type": "boolean" },
+            "note": { "type": ["string", "null"], "maxLength": 1000 },
+            "pending_review": {
+              "type": "boolean",
+              "const": false,
+              "description": "Acknowledges a 待复核 record. Only false is accepted; sending it alone is a valid correction (the acknowledgement itself is the change) and is refused with ERR_NO_CHANGES when the run is not pending review."
+            }
+          }
+        }
+      }
+    },
+
+    "RunReasonRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["run_id", "expected_revision", "reason"],
+      "properties": {
+        "run_id": { "$ref": "#/$defs/Uuid" },
+        "expected_revision": { "type": "integer", "minimum": 1 },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 500 }
+      }
+    },
+
+    "GetRunRevisionsRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["run_id"],
+      "properties": {
+        "run_id": { "$ref": "#/$defs/Uuid" },
+        "page": { "type": "integer", "minimum": 1, "default": 1 },
+        "page_size": { "type": "integer", "minimum": 1, "maximum": 200, "default": 50 }
+      }
+    },
+
+    "UpdateAchievementBaselineRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["baseline_completed_count", "baseline_effective_at", "reason"],
+      "properties": {
+        "goal_count": { "type": "integer", "minimum": 1, "default": 2000 },
+        "baseline_completed_count": { "type": "integer", "minimum": 0 },
+        "baseline_effective_at": { "$ref": "#/$defs/UtcTimestamp" },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 500 }
+      }
+    },
+
+    "ExportRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target_path"],
+      "properties": {
+        "target_path": { "type": "string", "minLength": 1, "description": "Absolute local path chosen by the user. The Collector never uploads anywhere." },
+        "filter": { "$ref": "#/$defs/RunFilter" },
+        "include_revisions": { "type": "boolean", "default": false },
+        "overwrite": { "type": "boolean", "default": false }
+      }
+    },
+
+    "BackupDatabaseRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "target_path": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "description": "Absolute local path. Omitted, null or an existing directory selects the managed backups folder next to the database and the generated name mentor_<yyyyMMdd_HHmmss>.db."
+        },
+        "overwrite": { "type": "boolean", "default": false }
+      }
+    },
+
+    "CalibrationState": { "type": "string", "enum": ["IDLE", "WAITING", "OBSERVING", "READY", "BLOCKED", "DONE"], "description": "Self-calibration of a client build with no profile. IDLE: not calibrating. WAITING: the build has no profile and a template is at hand, but no capture session is running yet (or the evidence was just discarded outside a session). OBSERVING: capture runs as a counting sink while evidence is collected. READY: every message was identified and every self-check passed; the user is asked to confirm the timeline. BLOCKED: the evidence contradicts the template; more play will not help. DONE: a local profile was written." },
+    "CalibrationProgress": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["finder_request_seen", "pop_seen", "zone_clusters", "duty_entry_seen", "duty_exit_seen"],
+      "properties": {
+        "finder_request_seen": { "type": "boolean" },
+        "pop_seen": { "type": "boolean" },
+        "zone_clusters": { "type": "integer", "minimum": 0 },
+        "duty_entry_seen": { "type": "boolean" },
+        "duty_exit_seen": { "type": "boolean" },
+        "pop_shape_seen": { "type": "boolean", "description": "A server message with the pop's direction and the template's exact length arrived at all, whatever it carried. This is unconfirmed diagnostic evidence: the capture page waits for duty-entry support before claiming a match. Absent from collectors older than 0.3.4." },
+        "duty_zone_seen": { "type": "boolean", "description": "A zone-load burst named a territory the duty table recognises, whether or not it corroborates a match. duty_entry_seen is the stricter claim and stays false until a burst supports the pop; this one says only that the player was seen entering a duty. Absent from collectors older than 0.3.5." },
+        "job_seen": { "type": "boolean", "description": "The job message was identified on this build, so records will carry the player's job. It is optional for a profile: calibration can finish without it, and until it is true every record is written with an unknown job that the result dialog lets the player fill in. Absent from collectors older than 0.7.11." }
+      }
+    },
+    "CalibrationEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["event_id", "kind", "at_utc", "t_ms", "label", "requires_confirmation"],
+      "description": "One line of the timeline the user confirms. Plain language only: no opcode, no offset, no path.",
+      "properties": {
+        "event_id": { "type": "string", "maxLength": 128 },
+        "kind": { "type": "string", "enum": ["login", "finder_request", "pop", "duty_enter", "duty_exit", "zone"] },
+        "at_utc": { "$ref": "#/$defs/UtcTimestamp" },
+        "t_ms": { "$ref": "#/$defs/DurationMs" },
+        "label": { "type": "string", "maxLength": 200 },
+        "roulette_id": { "type": ["integer", "null"], "minimum": 0 },
+        "territory_id": { "type": ["integer", "null"], "minimum": 0 },
+        "duty_name": { "type": ["string", "null"], "maxLength": 200 },
+        "requires_confirmation": { "type": "boolean" }
+      }
+    },
+    "CalibrationStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "blockers", "events"],
+      "properties": {
+        "state": { "$ref": "#/$defs/CalibrationState" },
+        "game_build": { "type": ["string", "null"] },
+        "template_profile_id": { "type": ["string", "null"] },
+        "local_profile_id": { "type": ["string", "null"] },
+        "bound_at_utc": { "oneOf": [{ "$ref": "#/$defs/UtcTimestamp" }, { "type": "null" }] },
+        "blockers": { "type": "array", "maxItems": 16, "items": { "type": "string", "maxLength": 400 } },
+        "progress": { "oneOf": [{ "$ref": "#/$defs/CalibrationProgress" }, { "type": "null" }] },
+        "events": { "type": "array", "maxItems": 256, "items": { "$ref": "#/$defs/CalibrationEvent" } },
+        "shared": { "$ref": "#/$defs/SharedCalibrationStatus", "description": "Shared calibration for the running client. Optional: a Collector from before shared calibration does not send it, and a Desktop that does not know it ignores it." }
+      }
+    },
+    "SharedCalibrationPhase": {
+      "type": "string",
+      "enum": ["NONE", "FETCHING", "UNAVAILABLE", "VERIFYING", "AWAITING_CONSENT", "VERIFIED", "REJECTED"],
+      "description": "NONE: nothing to show (not calibrating, setting off, nobody shared this build). FETCHING: a download has run for a noticeable moment. UNAVAILABLE: the last download reached no source or obtained no code; local calibration carries on. VERIFYING: shared calibrations are being checked against this machine's own traffic. AWAITING_CONSENT: a queue-inferred one passed and waits for AcceptSharedQueueInference. VERIFIED: one passed and its profile is in use (or recorded its first complete duty). REJECTED: every candidate was contradicted or revoked, the one in use was withdrawn, or user_rejected is true - check user_rejected first."
+    },
+    "SharedCandidateStatus": {
+      "type": "string",
+      "enum": ["VERIFYING", "AWAITING_CONSENT", "CANNOT_BIND_THIS_SESSION", "WRITING", "IN_USE", "PROVEN", "REJECTED"],
+      "description": "IN_USE: its profile records and is still watched until one complete entry and exit; PROVEN: it recorded one. CANNOT_BIND_THIS_SESSION: it passed but its staging overflowed or the write was refused; it tries again next capture session."
+    },
+    "SharedVerdict": { "type": "string", "enum": ["PASS", "WAIT", "CONTRADICTED"] },
+    "SharedFetchStatus": { "type": "string", "enum": ["OK", "DISABLED", "CANCELLED", "INDEX_UNAVAILABLE", "NONE_FOR_BUILD", "CODES_UNAVAILABLE"] },
+    "SharedCalibrationSource": { "type": "string", "enum": ["GITHUB_RAW", "CDN_PRIMARY", "CDN_FALLBACK"], "description": "Source names, never addresses." },
+    "SharedFetchOutcome": {
+      "type": "string",
+      "enum": ["OK", "TIMEOUT", "HTTP_STATUS", "REDIRECT_REFUSED", "HOST_REFUSED", "TOO_LARGE", "MALFORMED", "DNS_OR_CONNECT", "TLS_FAILED", "READ_FAILED", "TRANSPORT_FAILED", "CANCELLED"]
+    },
+    "CalibrationMatchSource": { "type": "string", "enum": ["REPLY_STATE", "ANNOUNCEMENT", "MARKER_OFFSET", "QUEUE_REQUEST"], "description": "How a calibration names the match; QUEUE_REQUEST infers it from the player's own queue request." },
+    "SharedCalibrationCriterion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["message", "verdict", "reason", "contradicting_sessions"],
+      "properties": {
+        "message": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{0,63}$", "description": "Semantic name of the message judged, e.g. ZONE_INITIALIZATION. Never an opcode." },
+        "verdict": { "$ref": "#/$defs/SharedVerdict" },
+        "reason": { "type": "string", "maxLength": 400, "description": "Plain-language reason, zh-Hans, no opcodes." },
+        "contradicting_sessions": { "type": "integer", "minimum": 0, "description": "Healthy capture sessions that contradicted it so far; two reject the code." }
+      }
+    },
+    "SharedCalibrationCandidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sha12", "source", "match_source", "status", "verdict", "criteria", "staging_overflowed"],
+      "properties": {
+        "sha12": { "type": "string", "pattern": "^[0-9a-f]{12}$", "description": "First twelve hex digits of the code's identity. The code itself never appears here." },
+        "source": { "type": ["string", "null"], "enum": ["DOWNLOADED", "MANUAL", null], "description": "Null for a profile adopted from disk whose origin was not recorded." },
+        "match_source": { "oneOf": [{ "$ref": "#/$defs/CalibrationMatchSource" }, { "type": "null" }] },
+        "status": { "$ref": "#/$defs/SharedCandidateStatus" },
+        "verdict": { "$ref": "#/$defs/SharedVerdict" },
+        "criteria": { "type": "array", "maxItems": 8, "items": { "$ref": "#/$defs/SharedCalibrationCriterion" } },
+        "staging_overflowed": { "type": "boolean" }
+      }
+    },
+    "SharedCalibrationStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["phase", "candidates", "last_fetch_status", "last_index_attempts", "profile_id", "bound_at_utc", "last_refusal", "rejected_candidates", "user_rejected"],
+      "description": "Where shared calibration stands. The same object appears in the sanitized diagnostics report. No URL, host, IP, code text, opcode or payload bytes.",
+      "properties": {
+        "phase": { "$ref": "#/$defs/SharedCalibrationPhase" },
+        "candidates": { "type": "array", "maxItems": 32, "items": { "$ref": "#/$defs/SharedCalibrationCandidate" }, "description": "The shared profile in use first, then candidates being verified, then rejected ones." },
+        "last_fetch_status": { "oneOf": [{ "$ref": "#/$defs/SharedFetchStatus" }, { "type": "null" }], "description": "How the last download claimed for this build ended." },
+        "last_index_attempts": {
+          "type": "array",
+          "maxItems": 8,
+          "description": "Per-source outcome of that download's index request, in the order tried.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["source", "outcome"],
+            "properties": {
+              "source": { "$ref": "#/$defs/SharedCalibrationSource" },
+              "outcome": { "$ref": "#/$defs/SharedFetchOutcome" }
+            }
+          }
+        },
+        "profile_id": { "type": ["string", "null"], "description": "Shared profile in use, e.g. cn.2026.09.01.0000.0000.shared." },
+        "bound_at_utc": { "$ref": "#/$defs/NullableUtcTimestamp", "description": "When it began recording inside a running capture session." },
+        "last_refusal": { "type": ["string", "null"], "pattern": "^[A-Z0-9_]{1,64}$", "description": "Why the last bind or withdrawal did not go through, as a short token (NOT_SELECTED, WRITE_FAILED, CONTRADICTED, REVOKED, REJECTED, USER_REJECTED, STALE...). Diagnostics only." },
+        "rejected_candidates": { "type": "integer", "minimum": 0, "description": "Candidates with status REJECTED." },
+        "user_rejected": { "type": "boolean", "description": "True while the player's 不用共享的，我自己校准 stands for this build: nothing shared is fetched, imported or bound until DiscardCalibration (重新观察)." }
+      }
+    },
+    "ImportCalibrationCodeRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code"],
+      "description": "A share code the player pasted (导入校准码). Decoded and checked without any network and whatever shared_calibration_enabled says; one that fits is verified against local traffic exactly like a downloaded one.",
+      "properties": {
+        "code": { "type": "string", "maxLength": 65536, "description": "Pasted text; surrounding whitespace is ignored. Over 4096 characters after trimming answers MALFORMED without being decoded." }
+      }
+    },
+    "ConfirmCalibrationRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["verdicts"],
+      "description": "The user's verdict on every timeline event that requires confirmation. All CORRECT writes the local profile and, when a capture session is running as a counting sink, binds it in that session. Any WRONG voids the draft (ERR_CALIBRATION_REJECTED) and the rejected candidates are excluded for the rest of the session. RELABEL is neither: it says the software identified the right message and printed the wrong name for it, so the event counts as CORRECT and roulette_name is remembered for that roulette id on this machine. Nothing here is a request to parse anything: the profile is re-loaded from disk like any other.",
+      "properties": {
+        "verdicts": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 256,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["event_id", "verdict"],
+            "properties": {
+              "event_id": { "type": "string", "maxLength": 128 },
+              "verdict": { "type": "string", "enum": ["CORRECT", "WRONG", "RELABEL"] },
+              "roulette_name": { "type": "string", "minLength": 1, "maxLength": 64, "description": "RELABEL only, and only on an event that carries a roulette id: what the player says that roulette is really called. Stored against the id the software read, display-only, and it outranks the shipped name table from then on." }
+            }
+          }
+        }
+      }
+    },
+    "ExportDiagnosticsReportRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Writes the sanitized diagnostics report of docs/capture-diagnostics.md section 9. Nothing is uploaded anywhere; the report is a local file the user chooses to attach to an issue.",
+      "properties": {
+        "target_path": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "description": "Absolute local path, or an existing directory. Omitted or null selects <db dir>/diagnostics/diag_<yyyyMMdd_HHmm>.json. A network share, a device path, or a link that resolves onto one is refused with ERR_EXPORT_FAILED."
+        },
+        "overwrite": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether a file the exporter did not name may be replaced. False (the default) refuses an existing destination with ERR_EXPORT_FAILED, so a mistyped or mis-picked path cannot destroy a document. The exporter's own generated name, diag_<yyyyMMdd_HHmm>.json, is replaced either way: a report is a fresh observation, and two reports in the same minute resolve to the same name."
+        }
+      }
+    },
+
+    "SetRunReflectionRequest": {
+      "type": "object",
+      "description": "Writes, replaces or clears the 导随心得 of one run. No reason and no expected_revision: a reflection is the user's own diary entry, not a correction of a captured fact, so it neither bumps Run.revision nor appends to run_revisions. A soft-deleted run may still receive one. Idempotent by request_id.",
+      "additionalProperties": false,
+      "required": ["run_id", "mood", "text"],
+      "properties": {
+        "run_id": { "$ref": "#/$defs/Uuid" },
+        "mood": { "$ref": "#/$defs/ReflectionMood" },
+        "text": {
+          "type": "string",
+          "maxLength": 2000,
+          "description": "Trimmed by the Collector. Empty after trimming deletes the reflection."
+        }
+      }
+    },
+
+    "GetReflectionSummaryRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "recent_limit": { "type": "integer", "minimum": 0, "maximum": 20, "default": 3 }
+      }
+    },
+
+    "SubscribeLiveEventsRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "event_types": { "type": "array", "items": { "type": "string" }, "description": "Empty or omitted means all event types. Values are $defs/LiveEvent.event_type tokens; an unrecognised token filters everything out rather than being ignored. Heartbeat frames are always delivered, because their whole purpose is to prove the subscription is alive." },
+        "heartbeat_interval_ms": { "type": "integer", "minimum": 1000, "maximum": 60000, "default": 5000, "description": "How often the Collector sends a Heartbeat event on an otherwise idle subscription. Echoed back in the acknowledgement." }
+      }
+    },
+
+    "GetRunEventsRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["run_id"],
+      "properties": {
+        "run_id": { "$ref": "#/$defs/Uuid" }
+      }
+    },
+
+    "UpdateCaptureSettingsRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Partial update of the capture settings. Only the fields present are written; the response always carries the complete settings afterwards.",
+      "properties": {
+        "candidate_validation_enabled": { "type": "boolean", "default": false },
+        "auto_calibration_enabled": { "type": "boolean", "default": true },
+        "shared_calibration_enabled": { "type": "boolean", "default": true },
+        "research_payload_opcodes": { "type": "array", "default": [], "maxItems": 32, "uniqueItems": true, "items": { "type": "string", "pattern": "^0[xX][0-9a-fA-F]{4}$" }, "description": "Explicit small non-obfuscated candidate whitelist. Requires candidate validation before adding entries; [] disables further payload storage." },
+        "follow_game": { "type": "boolean" },
+        "autostart": { "type": "boolean" },
+        "adapter_id": { "type": ["string", "null"], "maxLength": 400, "description": "null clears the remembered adapter and returns to automatic selection." },
+        "log_retention_days": { "type": "integer", "minimum": 1, "maximum": 90 },
+        "allow_without_profile": { "type": "boolean" },
+        "region_override": { "type": ["string", "null"], "enum": ["CN", "GLOBAL", null], "description": "Forces the service region when it cannot be derived from the install path. null returns to path-based detection." }
+      }
+    },
+
+    "CaptureSettings": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The capture settings the Collector owns, persisted in application_settings. Every one of these has an effect; none is a dead switch.",
+      "required": ["follow_game", "autostart", "adapter_id", "log_retention_days", "allow_without_profile"],
+      "properties": {
+        "candidate_validation_enabled": { "type": "boolean", "description": "Explicit candidate metadata observation only; never enables formal parsing or recording." },
+        "auto_calibration_enabled": { "type": "boolean", "description": "Whether a client build with no profile is calibrated automatically from the shipped template. Default true. Off means fail-closed silence on every patch day." },
+        "shared_calibration_enabled": { "type": "boolean", "description": "Whether a build with no usable profile fetches other players' shared calibrations (docs/privacy-boundary.md §8.2). Default true. Off cancels a download in flight and drops downloaded candidates; a shared profile already verified stays, and ImportCalibrationCode is not affected. Absent from Collectors before shared calibration." },
+        "research_payload_opcodes": { "type": "array", "maxItems": 32, "uniqueItems": true, "items": { "type": "string", "pattern": "^0x[0-9a-f]{4}$" } },
+        "follow_game": { "type": "boolean", "description": "Start capture automatically as soon as the game process appears." },
+        "autostart": { "type": "boolean", "description": "Legacy name of follow_game, still honoured as a fallback when follow_game was never written." },
+        "adapter_id": { "type": ["string", "null"], "description": "Remembered adapter; null means automatic selection." },
+        "log_retention_days": { "type": "integer", "minimum": 1, "maximum": 90, "description": "Days of diagnostic log history the Collector keeps. Drives RotatingFileLogger retention directly." },
+        "allow_without_profile": { "type": "boolean", "description": "Allows capture to run while the protocol profile is not VERIFIED. Counters only: nothing is parsed and no run is ever recorded." },
+        "region_override": { "type": ["string", "null"], "enum": ["CN", "GLOBAL", null], "description": "Forced service region, or null when the region is derived from the install path." }
+      }
+    },
+
+    "SpeechProvider": {
+      "type": "string",
+      "enum": ["none", "azure", "openai_compatible"],
+      "description": "Online speech service (docs/privacy-boundary.md §8.3). none: nothing is ever sent, the default. azure: Microsoft Azure Speech at the region-specific Azure speech host (the exact address is in docs/privacy-boundary.md §8.3). openai_compatible: POST <openai_base_url>/audio/speech. Lower case because it is a value the user picks, not a captured domain enum."
+    },
+
+    "SpeechVoiceOption": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "label"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 128, "description": "Voice name sent to the service." },
+        "label": { "type": "string", "minLength": 1, "maxLength": 64, "description": "zh-Hans label for the settings page." }
+      }
+    },
+
+    "UpdateSpeechSettingsRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Partial update of the online speech settings. Omitted fields stay as they are; for the four string fields null or \"\" clears the value. Everything is validated before anything is written (ERR_BAD_REQUEST names the field). A key is bound to the target it was entered for (the Azure host, or the whole normalised base URL): changing provider, azure_region or openai_base_url without a new api_key deletes the stored key, so a key is never sent anywhere but where it was entered for.",
+      "properties": {
+        "provider": { "$ref": "#/$defs/SpeechProvider" },
+        "azure_region": { "type": ["string", "null"], "maxLength": 64, "description": "Trimmed and lower-cased, then it must match ^[a-z0-9]{2,32}$, e.g. eastasia." },
+        "openai_base_url": { "type": ["string", "null"], "maxLength": 2048, "description": "Absolute https:// address (http:// only for 127.0.0.1, [::1] and localhost), no user name or password, no query, no fragment; trailing slashes are removed. /audio/speech is appended when speaking." },
+        "openai_model": { "type": ["string", "null"], "maxLength": 128, "description": "Must match ^[A-Za-z0-9._:/-]{1,128}$ after trimming, e.g. gpt-4o-mini-tts." },
+        "voice": { "type": ["string", "null"], "maxLength": 128, "description": "Voice of the service in force: any name matching ^[A-Za-z0-9._:/-]{1,128}$; with provider azure it must match ^[A-Za-z0-9-]{3,64}$ (e.g. zh-CN-XiaoxiaoNeural). The curated lists come back in SpeechSettings; other names are accepted." },
+        "api_key": { "type": "string", "maxLength": 512, "writeOnly": true, "description": "Write-only. Omitted: the stored key stays. \"\": the stored key is deleted. Anything else: 1-512 visible ASCII characters after trimming, encrypted with DPAPI (current user) into speech-key.bin for the target this update leads to; refused when the update leads to no target. It never appears in any response, log or report." }
+      }
+    },
+
+    "SpeechSettings": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The online speech settings the Collector keeps. There is no key here and never will be: has_key says whether one is stored for the current target.",
+      "required": ["provider", "azure_region", "openai_base_url", "openai_model", "voice", "has_key", "configured", "target_host", "azure_voices", "openai_voices"],
+      "properties": {
+        "provider": { "$ref": "#/$defs/SpeechProvider" },
+        "azure_region": { "type": ["string", "null"], "pattern": "^[a-z0-9]{2,32}$" },
+        "openai_base_url": { "type": ["string", "null"], "maxLength": 2048, "description": "Normalised, without a trailing slash." },
+        "openai_model": { "type": ["string", "null"], "maxLength": 128 },
+        "voice": { "type": ["string", "null"], "maxLength": 128 },
+        "has_key": { "type": "boolean", "description": "A key is stored, decrypts on this Windows account, and was entered for the current target." },
+        "configured": { "type": "boolean", "description": "provider is not none, every field it needs is valid, and has_key. SynthesizeSpeech can send a request (unless MR_DISABLE_ONLINE_SPEECH is set)." },
+        "target_host": { "type": ["string", "null"], "maxLength": 255, "description": "Host name a sentence is sent to under these settings, for 播报文字会发送到 <主机>; null when provider is none or the region/base URL is missing." },
+        "azure_voices": { "type": "array", "maxItems": 32, "items": { "$ref": "#/$defs/SpeechVoiceOption" }, "description": "Curated zh-CN neural voices (checked against Microsoft's voice list on 2026-09-16)." },
+        "openai_voices": { "type": "array", "maxItems": 32, "items": { "$ref": "#/$defs/SpeechVoiceOption" }, "description": "The voices the OpenAI speech API offers; other compatible services may name theirs differently." }
+      }
+    },
+
+    "SynthesizeSpeechRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text"],
+      "description": "Speak one sentence with the online service in force. Answered asynchronously on the same connection: other requests keep being answered while this one waits. One request is in flight at a time and at most three wait behind it; a fifth concurrent sentence fails at once with ERR_SPEECH_TIMEOUT and details.reason QUEUE_FULL, and a sentence that waits longer than one request's budget (8 s) fails with ERR_SPEECH_TIMEOUT and details.reason QUEUE_WAIT - the Desktop then speaks it with the local voice. A client should allow at least 20 s before giving up on the answer.",
+      "properties": {
+        "text": { "type": "string", "minLength": 1, "maxLength": 200, "description": "The rendered announcement. Tabs and line breaks become spaces and surrounding space is trimmed; it must then be 1-200 characters with no other control character. This text, the voice and the rate are all that is sent." },
+        "rate_percent": { "type": "integer", "minimum": 50, "maximum": 200, "default": 100, "description": "Speaking rate in percent of normal. Azure: prosody rate (100 = +0%, 150 = +50%). OpenAI-compatible: speed = rate_percent / 100, held to 0.25-4.0." },
+        "test": { "type": "boolean", "default": false, "description": "The settings page's 测试 button: skips the cache read so a request is really sent; the answer is still cached." }
+      }
+    },
+
+    "RunEventEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "One row of the per-run event trail, reduced for display. Never carries a payload byte: opcode, direction and a 12-hex payload digest prefix are the whole of what the observation itself contributes (docs/privacy-boundary.md section 5).",
+      "required": ["event_id", "event_type", "observed_at_utc", "parser_status"],
+      "properties": {
+        "event_id": { "$ref": "#/$defs/Uuid" },
+        "event_type": { "type": "string", "maxLength": 64, "description": "Semantic event type, for example CONTENT_FINDER_POP." },
+        "observed_at_utc": { "$ref": "#/$defs/UtcTimestamp" },
+        "direction": { "type": ["string", "null"], "enum": ["S2C", "C2S", null] },
+        "opcode": { "type": ["string", "null"], "pattern": "^0x[0-9A-F]{4}$", "description": "Opcode of the observed message as a fixed-width hex string, or null when the event has no opcode (a Collector-generated lifecycle event)." },
+        "payload_hash": { "type": ["string", "null"], "pattern": "^[0-9a-f]{12}$", "description": "First 12 hex characters of the SHA-256 of the message body. A comparison handle, never a reconstruction." },
+        "parser_status": {
+          "type": "string",
+          "enum": ["PARSED", "SYNTHETIC", "UNKNOWN"],
+          "description": "PARSED: produced by the profile parser from a declared opcode. SYNTHETIC: generated by the Collector itself (crash recovery, capture lifecycle, queue gap). UNKNOWN: the row carries no observation identity."
+        },
+        "protocol_profile_id": { "type": ["string", "null"], "description": "Profile the owning run was recorded under; null for a manually created run." },
+        "parsed": { "type": ["object", "null"], "description": "The id-shaped fields the parser extracted, exactly as stored in run_events.detail_json. Never bytes, names or text." }
+      }
+    },
+
+    "//responses": "======================= response payloads =======================",
+
+    "Responses": {
+      "QueryCandidateObservations": { "$ref": "#/$defs/CandidateQueryResult" },
+      "ReviewCandidateObservation": { "$ref": "#/$defs/CandidateReviewResult" },
+      "ExportCandidateEvidence": { "$ref": "#/$defs/CandidateExportResult" },
+      "description": "Response payload schema per message_type. Referenced by tests and by the Desktop client generator.",
+      "GetVersion": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["collector_version", "protocol_version"],
+        "properties": {
+          "collector_version": { "type": "string" },
+          "protocol_version": { "$ref": "#/$defs/ProtocolVersion" },
+          "build_id": { "type": ["string", "null"] }
+        }
+      },
+      "GetStatus": { "$ref": "#/$defs/CollectorStatus" }, "GetCaptureStatus": { "$ref": "#/$defs/CaptureStatus" },
+      "ListCaptureAdapters": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["npcap_installed", "adapters"],
+        "properties": {
+          "npcap_installed": { "type": "boolean" },
+          "npcap_version": { "type": ["string", "null"] },
+          "install_hint": { "type": ["string", "null"], "description": "Shown when Npcap is missing. Npcap is never bundled or downloaded by this software." },
+          "adapters": { "type": "array", "items": { "$ref": "#/$defs/CaptureAdapter" } }
+        }
+      },
+      "StartCapture": { "$ref": "#/$defs/CaptureStatus" }, "StopCapture": { "$ref": "#/$defs/CaptureStatus" },
+      "StartCaptureValidation": { "$ref": "#/$defs/CaptureValidationStatus" },
+      "GetCaptureValidationStatus": { "$ref": "#/$defs/CaptureValidationStatus" },
+      "AddCaptureValidationMarker": { "$ref": "#/$defs/CaptureValidationStatus" },
+      "StopCaptureValidation": { "$ref": "#/$defs/CaptureValidationStatus" },
+      "GetProtocolProfileStatus": { "$ref": "#/$defs/ProtocolProfileStatus" },
+      "GetCurrentRun": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["state"],
+        "properties": {
+          "state": { "$ref": "#/$defs/RunState" },
+          "run": { "oneOf": [{ "$ref": "#/$defs/Run" }, { "type": "null" }] },
+          "elapsed_ms": { "oneOf": [{ "$ref": "#/$defs/DurationMs" }, { "type": "null" }] }
+        }
+      },
+      "QueryRuns": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["items", "page_info"],
+        "properties": {
+          "items": { "type": "array", "items": { "$ref": "#/$defs/Run" } },
+          "page_info": { "$ref": "#/$defs/PageInfo" }
+        }
+      },
+      "GetDashboardStats": { "$ref": "#/$defs/DashboardStats" },
+      "GetDungeonStats": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["items", "page_info", "distinct_count"],
+        "properties": {
+          "items": { "type": "array", "items": { "$ref": "#/$defs/DungeonStatsRow" } },
+          "page_info": { "$ref": "#/$defs/PageInfo" },
+          "distinct_count": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Number of distinct duties matching the filter, before paging. Equal to page_info.total; stated separately because '共 N 个副本' is a fact about the data set, not about the page, and a client must never count the rows it happens to hold."
+          }
+        }
+      },
+      "GetJobStats": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["items", "page_info"],
+        "properties": {
+          "items": { "type": "array", "items": { "$ref": "#/$defs/JobStatsRow" } },
+          "page_info": { "$ref": "#/$defs/PageInfo" }
+        }
+      },
+      "GetResultStats": { "$ref": "#/$defs/ResultStats" },
+      "CreateManualRun": { "$ref": "#/$defs/MutationResult" }, "CorrectRun": { "$ref": "#/$defs/MutationResult" },
+      "SoftDeleteRun": { "$ref": "#/$defs/MutationResult" }, "RestoreRun": { "$ref": "#/$defs/MutationResult" },
+      "GetRunRevisions": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["items", "page_info"],
+        "properties": {
+          "items": { "type": "array", "items": { "$ref": "#/$defs/RunRevision" } },
+          "page_info": { "$ref": "#/$defs/PageInfo" }
+        }
+      },
+      "UpdateAchievementBaseline": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["goal_count", "baseline_completed_count", "baseline_effective_at", "updated_at_utc", "audit_event_id"],
+        "properties": {
+          "goal_count": { "type": "integer", "minimum": 1 },
+          "baseline_completed_count": { "type": "integer", "minimum": 0 },
+          "baseline_effective_at": { "$ref": "#/$defs/UtcTimestamp" },
+          "updated_at_utc": { "$ref": "#/$defs/UtcTimestamp" },
+          "audit_event_id": { "$ref": "#/$defs/Uuid" },
+          "idempotent_replay": { "type": "boolean", "default": false }
+        }
+      },
+      "ExportCsv": { "$ref": "#/$defs/ExportResult" }, "ExportJson": { "$ref": "#/$defs/ExportResult" },
+      "BackupDatabase": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["target_path", "byte_count", "completed_at_utc"],
+        "properties": {
+          "target_path": { "type": "string" },
+          "byte_count": { "type": "integer", "minimum": 0 },
+          "completed_at_utc": { "$ref": "#/$defs/UtcTimestamp" },
+          "integrity_check_passed": { "type": "boolean" },
+          "pruned_count": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "How many older automatically named backups the retention policy removed (BackupService.RetainedBackups = 14)."
+          }
+        }
+      },
+      "ConfirmCalibration": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["profile_id", "profile_path", "bound_in_session"],
+        "properties": {
+          "profile_id": { "type": "string" },
+          "profile_path": { "type": "string" },
+          "bound_in_session": { "type": "boolean" }
+        }
+      },
+      "DiscardCalibration": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["state"],
+        "properties": {
+          "state": { "$ref": "#/$defs/CalibrationState" }
+        }
+      },
+      "GetCalibrationShareCode": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "code_sha256", "issue_url", "code_in_url"],
+        "description": "The share code of the local calibration in force, taken from the profile file this machine wrote. Refused with ERR_SHARE_CODE_UNAVAILABLE (details.reason NO_PROFILE, NOT_LOCAL, SHARED or NOT_SHAREABLE) when there is none.",
+        "properties": {
+          "code": { "type": "string", "pattern": "^MRC1\\.", "maxLength": 4096 },
+          "code_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "issue_url": { "type": "string", "pattern": "^https://github\\.com/", "maxLength": 7500, "description": "The public repository's share-calibration issue form, prefilled with the title and, when code_in_url, the code. The Desktop opens it in the system browser; the Collector never requests it." },
+          "code_in_url": { "type": "boolean", "description": "False when the code was left out to keep the address under 7500 characters; the Desktop then only copies the code." }
+        }
+      },
+      "CheckSharedCalibration": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["outcome"],
+        "properties": {
+          "outcome": { "type": "string", "enum": ["STARTED", "ALREADY_FETCHING", "DISABLED", "NOT_NEEDED"], "description": "DISABLED: the setting is off or this build has no download wired. NOT_NEEDED: not calibrating, a profile already records, or the player refused shared calibration for the build - nothing is sent." }
+        }
+      },
+      "ImportCalibrationCode": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["outcome", "reason", "message", "code_sha256"],
+        "properties": {
+          "outcome": { "type": "string", "enum": ["APPLIED", "NOT_APPLICABLE", "MALFORMED"] },
+          "reason": { "type": ["string", "null"], "pattern": "^[A-Z][A-Z0-9_]{0,63}$", "description": "Null when applied. MALFORMED: an E_SHARE_CODE_* rejection or UNBUILDABLE. NOT_APPLICABLE: NOT_CALIBRATING, OTHER_REGION, OTHER_BUILD, OTHER_TEMPLATE, USER_REJECTED, REJECTED, TOO_MANY_CANDIDATES or CHANGED." },
+          "message": { "type": "string", "maxLength": 1000, "description": "What to tell the player, zh-Hans, no hex." },
+          "code_sha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$", "description": "Identity of the code; null when it did not decode." }
+        }
+      },
+      "AcceptSharedQueueInference": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["outcome"],
+        "properties": {
+          "outcome": { "type": "string", "enum": ["ACCEPTED", "NOTHING_TO_ACCEPT"] }
+        }
+      },
+      "RejectSharedCalibration": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["withdrawn_profile_id", "dropped_candidates"],
+        "description": "不用共享的，我自己校准. The withdrawal and the re-arm complete in the background; calibration_changed announces them.",
+        "properties": {
+          "withdrawn_profile_id": { "type": ["string", "null"], "description": "The shared profile that was in force and is being withdrawn." },
+          "dropped_candidates": { "type": "integer", "minimum": 0 }
+        }
+      },
+      "ExportDiagnosticsReport": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["target_path", "byte_count", "completed_at_utc"],
+        "properties": {
+          "target_path": { "type": "string" },
+          "byte_count": { "type": "integer", "minimum": 0 },
+          "completed_at_utc": { "$ref": "#/$defs/UtcTimestamp" }
+        }
+      },
+      "SetRunReflection": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["run_id", "reflection"],
+        "properties": {
+          "run_id": { "$ref": "#/$defs/Uuid" },
+          "reflection": {
+            "oneOf": [{ "$ref": "#/$defs/RunReflection" }, { "type": "null" }],
+            "description": "The stored reflection, or null when the request cleared it."
+          },
+          "run": { "$ref": "#/$defs/Run" }
+        }
+      },
+      "GetReflectionSummary": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["reflection_count", "pending_completed_count", "recent", "next_pending"],
+        "properties": {
+          "reflection_count": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Reflections on non-deleted runs."
+          },
+          "pending_completed_count": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Non-deleted runs with result COMPLETED and no reflection."
+          },
+          "recent": {
+            "type": "array",
+            "items": { "$ref": "#/$defs/ReflectionEntry" },
+            "description": "Ordered by reflection.updated_at_utc descending; soft-deleted runs are excluded."
+          },
+          "next_pending": {
+            "oneOf": [{ "$ref": "#/$defs/Run" }, { "type": "null" }],
+            "description": "Most recent (by matched_at_utc desc) COMPLETED non-deleted run without a reflection; the 补录心得 target."
+          }
+        }
+      },
+      "SubscribeLiveEvents": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["subscription_id"],
+        "properties": {
+          "subscription_id": { "$ref": "#/$defs/Uuid" },
+          "heartbeat_interval_ms": { "type": "integer", "minimum": 1000, "maximum": 60000 }
+        }
+      },
+      "UndoRevision": { "$ref": "#/$defs/MutationResult" },
+      "GetRunEvents": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["run_id", "events"],
+        "properties": {
+          "run_id": { "$ref": "#/$defs/Uuid" },
+          "events": { "type": "array", "items": { "$ref": "#/$defs/RunEventEntry" } }
+        }
+      },
+      "GetCaptureSettings": { "$ref": "#/$defs/CaptureSettings" },
+      "UpdateCaptureSettings": { "$ref": "#/$defs/CaptureSettings" },
+      "GetSpeechSettings": { "$ref": "#/$defs/SpeechSettings" },
+      "UpdateSpeechSettings": { "$ref": "#/$defs/SpeechSettings" },
+      "SynthesizeSpeech": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["audio_path", "from_cache", "provider"],
+        "description": "Refused with ERR_SPEECH_DISABLED (MR_DISABLE_ONLINE_SPEECH set; checked first, before the cache), ERR_SPEECH_NOT_CONFIGURED, ERR_SPEECH_AUTH (401/403), ERR_SPEECH_QUOTA (429), ERR_SPEECH_NETWORK (other status, refused redirect, connection failure), ERR_SPEECH_TIMEOUT (8 s budget, or details.reason QUEUE_FULL / QUEUE_WAIT) or ERR_SPEECH_FORMAT (not audio/* or application/octet-stream, over 5 MB, or not RIFF/WAVE 16-bit PCM). details carries at most http_status and an upper-case reason token; the service's response text is never passed on.",
+        "properties": {
+          "audio_path": { "type": "string", "minLength": 1, "description": "Absolute path of <data dir>\\tts-cache\\<64 hex>.wav: canonical RIFF/WAVE, 16-bit PCM, 44-byte header. The Desktop plays only files in that folder." },
+          "from_cache": { "type": "boolean", "description": "True when no request was sent." },
+          "provider": { "type": "string", "enum": ["azure", "openai_compatible"] }
+        }
+      },
+      "CheckDatabaseIntegrity": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["passed", "detail", "checked_at_utc"],
+        "description": "Read-only PRAGMA integrity_check of the open database, run under the Collector's database gate; nothing is repaired or written. A file too damaged for the check to run is passed = false with SQLite's sentence; a lock held elsewhere is ERR_DB_BUSY (retryable).",
+        "properties": {
+          "passed": { "type": "boolean" },
+          "detail": { "type": "string", "minLength": 1, "maxLength": 200, "description": "\"ok\", or the first problem line, run through the log sanitizer." },
+          "checked_at_utc": { "$ref": "#/$defs/UtcTimestamp" }
+        }
+      }
+    },
+
+    "ExportResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target_path", "row_count", "byte_count", "completed_at_utc"],
+      "properties": {
+        "target_path": { "type": "string" },
+        "row_count": { "type": "integer", "minimum": 0 },
+        "byte_count": { "type": "integer", "minimum": 0 },
+        "completed_at_utc": { "$ref": "#/$defs/UtcTimestamp" }
+      }
+    }
+  }
+}

@@ -1,0 +1,13 @@
+{
+    "message_type": "UpdateSpeechSettings",
+    "payload": {
+        "api_key": "test-key-0000",
+        "azure_region": "eastasia",
+        "openai_base_url": "https://api.example.com/v1",
+        "openai_model": "gpt-4o-mini-tts",
+        "provider": "openai_compatible",
+        "voice": "alloy"
+    },
+    "protocol_version": 1,
+    "request_id": "11111111-2222-4333-8444-666666666702"
+}

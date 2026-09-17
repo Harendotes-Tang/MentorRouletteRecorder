@@ -1,0 +1,8 @@
+{
+    "message_type": "ExportCandidateEvidence",
+    "payload": {
+        "target_path": null
+    },
+    "protocol_version": 1,
+    "request_id": "11111111-2222-4333-8444-555555555555"
+}

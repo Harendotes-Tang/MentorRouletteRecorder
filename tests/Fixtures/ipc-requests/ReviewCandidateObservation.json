@@ -1,0 +1,10 @@
+{
+    "message_type": "ReviewCandidateObservation",
+    "payload": {
+        "observation_id": "22222222-2222-4222-8222-222222222222",
+        "verdict": "CORRECT",
+        "note": "与实际弹窗一致"
+    },
+    "protocol_version": 1,
+    "request_id": "11111111-2222-4333-8444-555555555555"
+}

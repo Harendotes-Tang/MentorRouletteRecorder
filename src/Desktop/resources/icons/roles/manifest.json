@@ -1,0 +1,205 @@
+{
+  "source": "XIVAPI v2 (https://v2.xivapi.com) — 素材版权归 SQUARE ENIX 所有",
+  "fetched_at": "2026-09-04T06:46:01.351291+00:00",
+  "endpoint": "https://v2.xivapi.com/api/asset?path=ui/icon/062000/{icon_id:06d}_hr1.tex&format=png",
+  "generator": "scratchpad research task for FF14 导随记录器 — role icon fetch",
+  "icon_block": {
+    "range_probed": [
+      "062560-062605",
+      "062881-062885",
+      "062981-062985"
+    ],
+    "found": "062570-062576 (ROLE BASE 空底板) + 062580-062589 (ROLE FRAMED 带字形) + 062591 (全透明占位)",
+    "missing_404": [
+      62560,
+      62561,
+      62562,
+      62563,
+      62564,
+      62565,
+      62566,
+      62567,
+      62568,
+      62569,
+      62577,
+      62578,
+      62579,
+      62590,
+      62592,
+      62593,
+      62594,
+      62595,
+      62596,
+      62597,
+      62598,
+      62599,
+      62881,
+      62882,
+      62883,
+      62884,
+      62885,
+      62981,
+      62982,
+      62983,
+      62984,
+      62985
+    ],
+    "notes": [
+      "062570 与 062580 是纯文字占位图（写着 ROLE BASE / ROLE FRAMED），用于分块标记，确认 062570-062591 整块就是职能（role）图标。",
+      "062571 蓝 / 062572 绿 / 062573 红 / 062574 深灰 / 062575 橄榄 / 062576 蓝绿红三色 —— 均为无字形的空底板。",
+      "带字形的职能图标只有 062581-062589 一套（彩色 + 金框），不存在无边框的纯字形变体；062881/062981 等范围均为 404。",
+      "因此本次没有生成 roles_framed/ 目录：唯一存在的一套就是彩框版，已直接放在 roles/。",
+      "062590 的 _hr1 与非 _hr1 变体均为 404；062591 返回 200 但整张图 alpha<=3（空白占位）。"
+    ]
+  },
+  "role_taxonomy_evidence": {
+    "addon_rows": {
+      "1080": "DoW/DoM",
+      "1081": "DoH/DoL",
+      "1082": "Tank",
+      "1083": "Healer",
+      "1084": "Melee DPS",
+      "1085": "Physical Ranged DPS",
+      "1086": "Magical Ranged DPS",
+      "1619": "Tank",
+      "1620": "Healer",
+      "1621": "Melee",
+      "1622": "Physical Ranged",
+      "1623": "Magical Ranged"
+    },
+    "reasoning": "062581-062589 共 9 张，底板配色为 蓝×1 / 绿×3 / 红×5，恰好对应 FF14 的层级化职能分类：坦克；治疗(+纯疗/盾疗)；DPS(+近战、远程(+物理、魔法))。"
+  },
+  "entries": [
+    {
+      "key": "tank",
+      "role_zh": "坦克",
+      "icon_id": 62581,
+      "path": "roles/tank.png",
+      "source_path": "ui/icon/062000/062581_hr1.tex",
+      "width": 64,
+      "height": 64,
+      "mode": "RGBA",
+      "bytes": 7067,
+      "sha256": "05501da1423a6bd3c9ac1384527f45a9e5b20642823275be0b8f88def84231c3",
+      "glyph": "蓝底 + 盾牌"
+    },
+    {
+      "key": "healer",
+      "role_zh": "治疗",
+      "icon_id": 62582,
+      "path": "roles/healer.png",
+      "source_path": "ui/icon/062000/062582_hr1.tex",
+      "width": 64,
+      "height": 64,
+      "mode": "RGBA",
+      "bytes": 6936,
+      "sha256": "2dce08a4b74937c33d5ab3d62dfe1507ecfa89b838eb74da1d97e44f94586c66",
+      "glyph": "绿底 + 十字"
+    },
+    {
+      "key": "melee",
+      "role_zh": "近战",
+      "icon_id": 62584,
+      "path": "roles/melee.png",
+      "source_path": "ui/icon/062000/062584_hr1.tex",
+      "width": 64,
+      "height": 64,
+      "mode": "RGBA",
+      "bytes": 6266,
+      "sha256": "e5e65f339d493463b0f6bae0c5ab2bf5cb13b0ff24e7357441291aafe94c0c1b",
+      "glyph": "红底 + 拳头（近身格斗）"
+    },
+    {
+      "key": "ranged",
+      "role_zh": "远程物理",
+      "icon_id": 62586,
+      "path": "roles/ranged.png",
+      "source_path": "ui/icon/062000/062586_hr1.tex",
+      "width": 64,
+      "height": 64,
+      "mode": "RGBA",
+      "bytes": 5694,
+      "sha256": "92ae0b9673c0d7cdc1afd296a978d785068b512d810ad5eff16e5e03e3425df6",
+      "glyph": "红底 + 箭矢"
+    },
+    {
+      "key": "magic",
+      "role_zh": "魔法",
+      "icon_id": 62587,
+      "path": "roles/magic.png",
+      "source_path": "ui/icon/062000/062587_hr1.tex",
+      "width": 64,
+      "height": 64,
+      "mode": "RGBA",
+      "bytes": 6481,
+      "sha256": "6799fd608f355397d766f8a878765efc57356f63b119ba106f76bd0dca1e246e",
+      "glyph": "红底 + 闪电（法术）"
+    },
+    {
+      "key": "allrounder",
+      "role_zh": "未知",
+      "icon_id": "062576 (plate) + silhouette glyph",
+      "path": "roles/allrounder.png",
+      "source_path": "https://ffxiv.gamerescape.com/w/images/f/fc/All-Rounder_Icon_1.png (RGB) with alpha mask from xivapi ui/icon/062000/062576_hr1.tex",
+      "width": 64,
+      "height": 64,
+      "mode": "RGBA",
+      "bytes": 5805,
+      "sha256": "add6256201c3167d39457eb237cd0ea0bfd5b77a9e92210500680788f64db18d",
+      "glyph": "tricolor tank/healer/dps plate with adventurer silhouette (in-game All-Rounder / any-role icon)",
+      "note": "xivapi 062576 is the bare plate; the silhouette is composited by the game UI. Kept as allrounder_plate_062576.png."
+    }
+  ],
+  "other_icons_in_block_not_exported": [
+    {
+      "icon_id": 62583,
+      "glyph": "红底 + 剑",
+      "identification": "DPS 总称（泛指）",
+      "confidence": "high",
+      "file": "probe/roles/062583.png"
+    },
+    {
+      "icon_id": 62585,
+      "glyph": "红底 + 箭矢与闪电组合",
+      "identification": "远程 DPS 总称（物理+魔法的合成字形）",
+      "confidence": "high",
+      "file": "probe/roles/062585.png"
+    },
+    {
+      "icon_id": 62588,
+      "glyph": "绿底 + 四个圆点",
+      "identification": "推测为「纯回复治疗 / Pure Healer」",
+      "confidence": "low",
+      "file": "probe/roles/062588.png"
+    },
+    {
+      "icon_id": 62589,
+      "glyph": "绿底 + 三个六边形",
+      "identification": "推测为「盾辅治疗 / Barrier Healer」（六边形=护盾）",
+      "confidence": "low",
+      "file": "probe/roles/062589.png"
+    },
+    {
+      "icon_id": 62574,
+      "glyph": "深灰空底板",
+      "identification": "未使用/未知职能底板 —— allrounder 的备选方案",
+      "confidence": "medium",
+      "file": "probe/roles/062574.png"
+    },
+    {
+      "icon_id": 62575,
+      "glyph": "橄榄绿空底板",
+      "identification": "未使用（可能为 DoH/DoL 预留）",
+      "confidence": "low",
+      "file": "probe/roles/062575.png"
+    }
+  ],
+  "http_requests_used": 62,
+  "license": "See LICENSE-NOTE.md. All icons are © SQUARE ENIX CO., LTD. FINAL FANTASY XIV Materials Usage License — non-commercial only.",
+  "PUBLIC_DISTRIBUTION_READY": false,
+  "allrounder_decision": {
+    "decided_by": "orchestrator",
+    "date": "2026-09-04",
+    "reason": "user pointed to Gamer Escape Dictionary of Icons; its All-Rounder icon carries the silhouette glyph"
+  }
+}

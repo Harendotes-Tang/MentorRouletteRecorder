@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "fixture_id": "mentor_disconnected_v1",
+  "description": "进入副本后连接中断，判定为 DISCONNECTED；绝不并入离开率。",
+  "contains_personal_data": false,
+  "profile": {
+    "profile_id": "synthetic/v1",
+    "mentor_roulette_id": 42,
+    "match_window_seconds": 45
+  },
+  "session": {
+    "capture_session_id": "10000000-0000-4000-8000-000000000013",
+    "started_at_utc": "2026-09-04T02:00:00.000Z"
+  },
+  "events": [
+    {
+      "kind": "CONTENT_FINDER_POP",
+      "event_key": "pop-1",
+      "observed_at_utc": "2026-09-04T02:00:01.000Z",
+      "monotonic_ms": 1000,
+      "roulette_id": 42,
+      "content_id": 900003
+    },
+    {
+      "kind": "ZONE_INITIALIZATION",
+      "event_key": "zone-1",
+      "observed_at_utc": "2026-09-04T02:00:05.000Z",
+      "monotonic_ms": 5000,
+      "content_id": 900003,
+      "territory_id": 800003,
+      "is_duty_instance": true
+    },
+    {
+      "kind": "PLAYER_JOB",
+      "event_key": "job-1",
+      "observed_at_utc": "2026-09-04T02:00:06.000Z",
+      "monotonic_ms": 6000,
+      "job_id": 24
+    },
+    {
+      "kind": "CONNECTION_LOST",
+      "event_key": "drop-1",
+      "observed_at_utc": "2026-09-04T02:01:35.000Z",
+      "monotonic_ms": 95000
+    }
+  ]
+}

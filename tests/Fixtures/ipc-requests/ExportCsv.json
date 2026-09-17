@@ -1,0 +1,14 @@
+{
+    "message_type": "ExportCsv",
+    "payload": {
+        "filter": {
+            "date_field": "entered_at_utc",
+            "from_utc": "2026-08-01T00:00:00.000Z",
+            "include_deleted": false,
+            "to_utc": "2026-09-01T00:00:00.000Z"
+        },
+        "target_path": "D:/exports/mentor.out"
+    },
+    "protocol_version": 1,
+    "request_id": "11111111-2222-4333-8444-555555555555"
+}

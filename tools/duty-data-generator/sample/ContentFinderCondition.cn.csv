@@ -1,0 +1,7 @@
+key,0,1,2,3
+#,Name,Something,ContentLinkType,Unknown
+int32,str,str,byte,byte
+1,样例迷宫一,x,1,0
+2,样例讨伐二,x,1,0
+3,,x,0,0
+4,,x,0,0

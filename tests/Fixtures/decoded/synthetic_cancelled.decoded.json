@@ -1,0 +1,28 @@
+{
+  "fixture_id": "synthetic_cancelled",
+  "format_version": 1,
+  "synthetic": true,
+  "description": "匹配后未进入即取消：CANCELLED_BEFORE_ENTRY，entered_at_utc 为空，不计入 attempt。",
+  "profile": "synthetic-v1",
+  "game_build": "synthetic-build-1",
+  "capture_session_id": "20000000-0000-4000-8000-000000000003",
+  "started_at_utc": "2026-09-04T03:00:00.000Z",
+  "messages": [
+    {
+      "t_ms": 0,
+      "direction": "SERVER_TO_CLIENT",
+      "segment_type": 61440,
+      "opcode": 61441,
+      "epoch": 0,
+      "payload_hex": "2a000000a1bb0d00"
+    },
+    {
+      "t_ms": 12000,
+      "direction": "SERVER_TO_CLIENT",
+      "segment_type": 61440,
+      "opcode": 61447,
+      "epoch": 12000,
+      "payload_hex": "0000"
+    }
+  ]
+}

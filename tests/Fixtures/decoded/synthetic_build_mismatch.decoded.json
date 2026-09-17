@@ -1,0 +1,36 @@
+{
+  "fixture_id": "synthetic_build_mismatch",
+  "format_version": 1,
+  "synthetic": true,
+  "description": "固件声明了另一个客户端版本：档案整体不适用，每条报文都被 E_PROFILE_UNSUPPORTED 拒绝，零写入。",
+  "profile": "synthetic-v1",
+  "game_build": "synthetic-build-2",
+  "capture_session_id": "20000000-0000-4000-8000-000000000010",
+  "started_at_utc": "2026-09-04T03:00:00.000Z",
+  "messages": [
+    {
+      "t_ms": 0,
+      "direction": "SERVER_TO_CLIENT",
+      "segment_type": 61440,
+      "opcode": 61441,
+      "epoch": 0,
+      "payload_hex": "2a000000a1bb0d00"
+    },
+    {
+      "t_ms": 5000,
+      "direction": "SERVER_TO_CLIENT",
+      "segment_type": 61440,
+      "opcode": 61442,
+      "epoch": 5000,
+      "payload_hex": "01350c00a1bb0d000700000001000000"
+    },
+    {
+      "t_ms": 125000,
+      "direction": "SERVER_TO_CLIENT",
+      "segment_type": 61440,
+      "opcode": 61443,
+      "epoch": 125000,
+      "payload_hex": "01000000"
+    }
+  ]
+}

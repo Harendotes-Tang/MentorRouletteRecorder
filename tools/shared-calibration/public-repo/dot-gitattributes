@@ -1,0 +1,7 @@
+# 索引、台账、校准码与模板按字节原样发布：软件校验大小与哈希，不能让 git 改动它们的换行。
+# Scripts are run by bash on the Actions runner, so they are always LF.
+* text=auto eol=lf
+*.mrc -text
+/index.json -text
+/submissions.json -text
+/templates/*.json -text

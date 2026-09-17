@@ -1,0 +1,1412 @@
+{
+  "generated_at": "2026-09-04T02:02:13.959207+00:00",
+  "generator": "scratchpad research task for FF14 导随记录器",
+  "game_data_version": {
+    "schema": "exdschema@2:rev:83e965d091116f895d5b17573cc5d12909a5f407",
+    "version": "284bb7f44b9c0976"
+  },
+  "sources": {
+    "working_endpoint": "xivapi v2 asset endpoint",
+    "asset_url_template": "https://v2.xivapi.com/api/asset?path=ui/icon/{folder}/{icon_id:06d}_hr1.tex&format=png",
+    "sheet_urls": [
+      "https://v2.xivapi.com/api/sheet/ClassJob?limit=100&fields=Name,Abbreviation,Role,JobIndex,ClassJobParent,IsLimitedJob,DohDolJobIndex",
+      "https://v2.xivapi.com/api/sheet/ContentType?limit=50&fields=Name,Icon,IconDutyFinder"
+    ],
+    "also_verified_working": {
+      "xivapi_v1": "https://xivapi.com/i/062000/062019.png (HTTP 200, image/png, but only 28x28 - low res, no _hr1 variant)"
+    },
+    "notes": [
+      "v2.xivapi.com required curl --tlsv1.2 on Windows/schannel; without it the TLS handshake intermittently failed.",
+      "Icon folder = floor(icon_id/1000)*1000 zero-padded to 6 digits. e.g. 062119 lives in ui/icon/062000/.",
+      "ClassJob sheet has NO Icon field - job icons are by convention 062000+id (plain) and 062100+id (framed).",
+      "v2 API supports language=en|ja|de|fr only. Chinese (chs/zh) returns HTTP 400, so zh_name below is supplied manually."
+    ]
+  },
+  "icon_sets": {
+    "jobs": {
+      "dir": "jobs/",
+      "icon_id_formula": "62000 + ClassJob.row_id",
+      "size": "56x56 RGBA",
+      "count": 43,
+      "description": "Plain gold/silver job glyph on transparent background. NOTE: 56px, slightly under the 64px target."
+    },
+    "jobs_framed": {
+      "dir": "jobs_framed/",
+      "icon_id_formula": "62100 + ClassJob.row_id",
+      "size": "64x64 RGBA",
+      "count": 43,
+      "description": "Job glyph on a role-coloured framed tile (blue=tank, green=healer, maroon=dps, grey=crafter/gatherer)."
+    },
+    "content_types": {
+      "dir": "content_types/",
+      "icon_id_source": "ContentType.Icon",
+      "size": "64x64 RGBA",
+      "count": 39,
+      "description": "Duty category icons, deduplicated by icon id (several ContentType rows share one icon)."
+    }
+  },
+  "not_downloaded_but_available": {
+    "jobs_mono": {
+      "icon_id_formula": "62800 + ClassJob.row_id",
+      "size": "80x80",
+      "description": "Greyscale/monochrome job glyph on a light tile. Verified 062819 = 200 OK 80x80. Skipped to stay within the download budget."
+    },
+    "content_types_duty_finder": {
+      "icon_id_source": "ContentType.IconDutyFinder (608xx range)",
+      "description": "Alternate duty-finder style category icons; ids recorded in content_types.json."
+    },
+    "probed_404": [
+      "ui/icon/062000/0622xx",
+      "ui/icon/062000/0625xx",
+      "ui/icon/062000/0626xx",
+      "ui/icon/062000/0627xx"
+    ]
+  },
+  "role_groups": {
+    "坦克": "tank",
+    "治疗": "healer",
+    "近战": "melee dps",
+    "远程物理": "physical ranged dps",
+    "魔法": "magical ranged dps",
+    "其他": "crafters (DoH) and gatherers (DoL)"
+  },
+  "jobs": [
+    {
+      "id": 1,
+      "abbreviation": "GLA",
+      "en_name": "gladiator",
+      "zh_name": "剑术师",
+      "role": "坦克",
+      "role_raw_id": 1,
+      "role_raw": "tank",
+      "job_index": 0,
+      "is_job": false,
+      "parent_class_id": 1,
+      "is_limited_job": false,
+      "icon": {
+        "file": "jobs/1.png",
+        "icon_id": 62001,
+        "source_path": "ui/icon/062000/062001_hr1.tex",
+        "width": 56,
+        "height": 56,
+        "mode": "RGBA",
+        "bytes": 6574
+      },
+      "icon_framed": {
+        "file": "jobs_framed/1.png",
+        "icon_id": 62101,
+        "source_path": "ui/icon/062000/062101_hr1.tex",
+        "width": 64,
+        "height": 64,
+        "mode": "RGBA",
+        "bytes": 7902
+      }
+    },
+    {
+      "id": 2,
+      "abbreviation": "PGL",
+      "en_name": "pugilist",
+      "zh_name": "格斗家",
+      "role": "近战",
+      "role_raw_id": 2,
+      "role_raw": "melee dps",
+      "job_index": 0,
+      "is_job": false,
+      "parent_class_id": 2,
+      "is_limited_job": false,
+      "icon": {
+        "file": "jobs/2.png",
+        "icon_id": 62002,
+        "source_path": "ui/icon/062000/062002_hr1.tex",
+        "width": 56,
+        "height": 56,
+        "mode": "RGBA",
+        "bytes": 5388
+      },
+      "icon_framed": {
+        "file": "jobs_framed/2.png",
+        "icon_id": 62102,
+        "source_path": "ui/icon/062000/062102_hr1.tex",
+        "width": 64,
+        "height": 64,
+        "mode": "RGBA",
+        "bytes": 7164
+      }
+    },
+    {
+      "id": 3,
+      "abbreviation": "MRD",
+      "en_name": "marauder",
+      "zh_name": "斧术师",
+      "role": "坦克",
+      "role_raw_id": 1,
+      "role_raw": "tank",
+      "job_index": 0,
+      "is_job": false,
+      "parent_class_id": 3,
+      "is_limited_job": false,
+      "icon": {
+        "file": "jobs/3.png",
+        "icon_id": 62003,
+        "source_path": "ui/icon/062000/062003_hr1.tex",
+        "width": 56,
+        "height": 56,
+        "mode": "RGBA",
+        "bytes": 7082
+      },
+      "icon_framed": {
+        "file": "jobs_framed/3.png",
+        "icon_id": 62103,
+        "source_path": "ui/icon/062000/062103_hr1.tex",
+        "width": 64,
+        "height": 64,
+        "mode": "RGBA",
+        "bytes": 8171
+      }
+    },
+    {
+      "id": 4,
+      "abbreviation": "LNC",
+      "en_name": "lancer",
+      "zh_name": "枪术师",
+      "role": "近战",
+      "role_raw_id": 2,
+      "role_raw": "melee dps",
+      "job_index": 0,
+      "is_job": false,
+      "parent_class_id": 4,
+      "is_limited_job": false,
+      "icon": {
+        "file": "jobs/4.png",
+        "icon_id": 62004,
+        "source_path": "ui/icon/062000/062004_hr1.tex",
+        "width": 56,
+        "height": 56,
+        "mode": "RGBA",
+        "bytes": 4193
+      },
+      "icon_framed": {
+        "file": "jobs_framed/4.png",
+        "icon_id": 62104,
+        "source_path": "ui/icon/062000/062104_hr1.tex",
+        "width": 64,
+        "height": 64,
+        "mode": "RGBA",
+        "bytes": 5982
+      }
+    },
+    {
+      "id": 5,
+      "abbreviation": "ARC",
+      "en_name": "archer",
+      "zh_name": "弓箭手",
+      "role": "远程物理",
+      "role_raw_id": 3,
+      "role_raw": "ranged dps (physical or magical)",
+      "job_index": 0,
+      "is_job": false,
+      "parent_class_id": 5,
+      "is_limited_job": false,
+      "icon": {
+        "file": "jobs/5.png",
+        "icon_id": 62005,
+        "source_path": "ui/icon/062000/062005_hr1.tex",
+        "width": 56,
+        "height": 56,
+        "mode": "RGBA",
+        "bytes": 6380
+      },
+      "icon_framed": {
+        "file": "jobs_framed/5.png",
+        "icon_id": 62105,
+        "source_path": "ui/icon/062000/062105_hr1.tex",
+        "width": 64,
+        "height": 64,
+        "mode": "RGBA",
+        "bytes": 7548
+      }
+    },
+    {
+      "id": 6,
+      "abbreviation": "CNJ",
+      "en_name": "conjurer",
+      "zh_name": "幻术师",
+      "role": "治疗",
+      "role_raw_id": 4,
+      "role_raw": "healer",
+      "job_index": 0,
+      "is_job": false,
+      "parent_class_id": 6,
+      "is_limited_job": false,
+      "icon": {
+        "file": "jobs/6.png",
+        "icon_id": 62006,
+        "source_path": "ui/icon/062000/062006_hr1.tex",
+        "width": 56,
+        "height": 56,
+        "mode": "RGBA",
+        "bytes": 6626
+      },
+      "icon_framed": {
+        "file": "jobs_framed/6.png",
+        "icon_id": 62106,
+        "source_path": "ui/icon/062000/062106_hr1.tex",
+        "width": 64,
+        "height": 64,
+        "mode": "RGBA",
+        "bytes": 8191
+      }
+    },
+    {
+      "id": 7,
+      "abbreviation": "THM",
+      "en_name": "thaumaturge",
+      "zh_name": "咒术师",
+      "role": "魔法",
+      "role_raw_id": 3,
+      "role_raw": "ranged dps (physical or magical)",
+      "job_index": 0,
+      "is_job": false,
+      "parent_class_id": 7,
+      "is_limited_job": false,
+      "icon": {
+        "file": "jobs/7.png",
+        "icon_id": 62007,
+        "source_path": "ui/icon/062000/062007_hr1.tex",
+        "width": 56,
+        "height": 56,
+        "mode": "RGBA",
+        "bytes": 6780
+      },
+      "icon_framed": {
+        "file": "jobs_framed/7.png",
+        "icon_id": 62107,
+        "source_path": "ui/icon/062000/062107_hr1.tex",
+        "width": 64,
+        "height": 64,
+        "mode": "RGBA",
+        "bytes": 8411
+      }
+    },
+    {
+      "id": 8,
+      "abbreviation": "CRP",
+      "en_name": "carpenter",
+      "zh_name": "刻木匠",
+      "role": "其他",
+      "role_raw_id": 0,
+      "role_raw": "none/crafter-gatherer",
+      "job_index": 0,
+      "is_job": false,
+      "parent_class_id": 8,
+      "is_limited_job": false,
+      "icon": {
+        "file": "jobs/8.png",
+        "icon_id": 62008,
+        "source_path": "ui/icon/062000/062008_hr1.tex",
+        "width": 56,
+        "height": 56,
+        "mode": "RGBA",
+        "bytes": 4693
+      },
+      "icon_framed": {
+        "file": "jobs_framed/8.png",
+        "icon_id": 62108,
+        "source_path": "ui/icon/062000/062108_hr1.tex",
+        "width": 64,
+        "height": 64,
+        "mode": "RGBA",
+        "bytes": 6422
+      }
+    },
+    {
+      "id": 9,
+      "abbreviation": "BSM",
+      "en_name": "blacksmith",
+      "zh_name": "锻铁匠",
+      "role": "其他",
+      "role_raw_id": 0,
+      "role_raw": "none/crafter-gatherer",
+      "job_index": 0,
+      "is_job": false,
+      "parent_class_id": 9,
+      "is_limited_job": false,
+      "icon": {
+        "file": "jobs/9.png",
+        "icon_id": 62009,
+        "source_path": "ui/icon/062000/062009_hr1.tex",
+        "width": 56,
+        "height": 56,
+        "mode": "RGBA",
+        "bytes": 3824
+      },
+      "icon_framed": {
+        "file": "jobs_framed/9.png",
+        "icon_id": 62109,
+        "source_path": "ui/icon/062000/062109_hr1.tex",
+        "width": 64,
+        "height": 64,
+        "mode": "RGBA",
+        "bytes": 5673
+      }
+    },
+    {
+      "id": 10,
+      "abbreviation": "ARM",
+      "en_name": "armorer",
+      "zh_name": "铸甲匠",
+      "role": "其他",
+      "role_raw_id": 0,
+      "role_raw": "none/crafter-gatherer",
+      "job_index": 0,
+      "is_job": false,
+      "parent_class_id": 10,
+      "is_limited_job": false,
+      "icon": {
+        "file": "jobs/10.png",
+        "icon_id": 62010,
+        "source_path": "ui/icon/062000/062010_hr1.tex",
+        "width": 56,
+        "height": 56,
+        "mode": "RGBA",
+        "bytes": 5488
+      },
+      "icon_framed": {
+        "file": "jobs_framed/10.png",
+        "icon_id": 62110,
+        "source_path": "ui/icon/062000/062110_hr1.tex",
+        "width": 64,
+        "height": 64,
+        "mode": "RGBA",
+        "bytes": 7306
+      }
+    },
+    {
+      "id": 11,
+      "abbreviation": "GSM",
+      "en_name": "goldsmith",
+      "zh_name": "雕金匠",
+      "role": "其他",
+      "role_raw_id": 0,
+      "role_raw": "none/crafter-gatherer",
+      "job_index": 0,
+      "is_job": false,
+      "parent_class_id": 11,
+      "is_limited_job": false,
+      "icon": {
+        "file": "jobs/11.png",
+        "icon_id": 62011,
+        "source_path": "ui/icon/062000/062011_hr1.tex",
+        "width": 56,
+        "height": 56,
+        "mode": "RGBA",
+        "bytes": 5257
+      },
+      "icon_framed": {
+        "file": "jobs_framed/11.png",
+        "icon_id": 62111,
+        "source_path": "ui/icon/062000/062111_hr1.tex",
+        "width": 64,
+        "height": 64,
+        "mode": "RGBA",
+        "bytes": 6641
+      }
+    },
+    {
+      "id": 12,
+      "abbreviation": "LTW",
+      "en_name": "leatherworker",
+      "zh_name": "制革匠",
+      "role": "其他",
+      "role_raw_id": 0,
+      "role_raw": "none/crafter-gatherer",
+      "job_index": 0,
+      "is_job": false,
+      "parent_class_id": 12,
+      "is_limited_job": false,
+      "icon": {
+        "file": "jobs/12.png",
+        "icon_id": 62012,
+        "source_path": "ui/icon/062000/062012_hr1.tex",
+        "width": 56,
+        "height": 56,
+        "mode": "RGBA",
+        "bytes": 7396
+      },
+      "icon_framed": {
+        "file": "jobs_framed/12.png",
+        "icon_id": 62112,
+        "source_path": "ui/icon/062000/062112_hr1.tex",
+        "width": 64,
+        "height": 64,
+        "mode": "RGBA",
+        "bytes": 8815
+      }
+    },
+    {
+      "id": 13,
+      "abbreviation": "WVR",
+      "en_name": "weaver",
+      "zh_name": "裁衣匠",
+      "role": "其他",
+      "role_raw_id": 0,
+      "role_raw": "none/crafter-gatherer",
+      "job_index": 0,
+      "is_job": false,
+      "parent_class_id": 13,
+      "is_limited_job": false,
+      "icon": {
+        "file": "jobs/13.png",
+        "icon_id": 62013,
+        "source_path": "ui/icon/062000/062013_hr1.tex",
+        "width": 56,
+        "height": 56,
+        "mode": "RGBA",
+        "bytes": 5547
+      },
+      "icon_framed": {
+        "file": "jobs_framed/13.png",
+        "icon_id": 62113,
+        "source_path": "ui/icon/062000/062113_hr1.tex",
+        "width": 64,
+        "height": 64,
+        "mode": "RGBA",
+        "bytes": 7240
+      }
+    },
+    {
+      "id": 14,
+      "abbreviation": "ALC",
+      "en_name": "alchemist",
+      "zh_name": "炼金术士",
+      "role": "其他",
+      "role_raw_id": 0,
+      "role_raw": "none/crafter-gatherer",
+      "job_index": 0,
+      "is_job": false,
+      "parent_class_id": 14,
+      "is_limited_job": false,
+      "icon": {
+        "file": "jobs/14.png",
+        "icon_id": 62014,
+        "source_path": "ui/icon/062000/062014_hr1.tex",
+        "width": 56,
+        "height": 56,
+        "mode": "RGBA",
+        "bytes": 6132
+      },
+      "icon_framed": {
+        "file": "jobs_framed/14.png",
+        "icon_id": 62114,
+        "source_path": "ui/icon/062000/062114_hr1.tex",
+        "width": 64,
+        "height": 64,
+        "mode": "RGBA",
+        "bytes": 7724
+      }
+    },
+    {
+      "id": 15,
+      "abbreviation": "CUL",
+      "en_name": "culinarian",
+      "zh_name": "烹调师",
+      "role": "其他",
+      "role_raw_id": 0,
+      "role_raw": "none/crafter-gatherer",
+      "job_index": 0,
+      "is_job": false,
+      "parent_class_id": 15,
+      "is_limited_job": false,
+      "icon": {
+        "file": "jobs/15.png",
+        "icon_id": 62015,
+        "source_path": "ui/icon/062000/062015_hr1.tex",
+        "width": 56,
+        "height": 56,
+        "mode": "RGBA",
+        "bytes": 4350
+      },
+      "icon_framed": {
+        "file": "jobs_framed/15.png",
+        "icon_id": 62115,
+        "source_path": "ui/icon/062000/062115_hr1.tex",
+        "width": 64,
+        "height": 64,
+        "mode": "RGBA",
+        "bytes": 6378
+      }
+    },
+    {
+      "id": 16,
+      "abbreviation": "MIN",
+      "en_name": "miner",
+      "zh_name": "采矿工",
+      "role": "其他",
+      "role_raw_id": 0,
+      "role_raw": "none/crafter-gatherer",
+      "job_index": 0,
+      "is_job": false,
+      "parent_class_id": 16,
+      "is_limited_job": false,
+      "icon": {
+        "file": "jobs/16.png",
+        "icon_id": 62016,
+        "source_path": "ui/icon/062000/062016_hr1.tex",
+        "width": 56,
+        "height": 56,
+        "mode": "RGBA",
+        "bytes": 4671
+      },
+      "icon_framed": {
+        "file": "jobs_framed/16.png",
+        "icon_id": 62116,
+        "source_path": "ui/icon/062000/062116_hr1.tex",
+        "width": 64,
+        "height": 64,
+        "mode": "RGBA",
+        "bytes": 6161
+      }
+    },
+    {
+      "id": 17,
+      "abbreviation": "BTN",
+      "en_name": "botanist",
+      "zh_name": "园艺工",
+      "role": "其他",
+      "role_raw_id": 0,
+      "role_raw": "none/crafter-gatherer",
+      "job_index": 0,
+      "is_job": false,
+      "parent_class_id": 17,
+      "is_limited_job": false,
+      "icon": {
+        "file": "jobs/17.png",
+        "icon_id": 62017,
+        "source_path": "ui/icon/062000/062017_hr1.tex",
+        "width": 56,
+        "height": 56,
+        "mode": "RGBA",
+        "bytes": 5148
+      },
+      "icon_framed": {
+        "file": "jobs_framed/17.png",
+        "icon_id": 62117,
+        "source_path": "ui/icon/062000/062117_hr1.tex",
+        "width": 64,
+        "height": 64,
+        "mode": "RGBA",
+        "bytes": 6300
+      }
+    },
+    {
+      "id": 18,
+      "abbreviation": "FSH",
+      "en_name": "fisher",
+      "zh_name": "捕鱼人",
+      "role": "其他",
+      "role_raw_id": 0,
+      "role_raw": "none/crafter-gatherer",
+      "job_index": 0,
+      "is_job": false,
+      "parent_class_id": 18,
+      "is_limited_job": false,
+      "icon": {
+        "file": "jobs/18.png",
+        "icon_id": 62018,
+        "source_path": "ui/icon/062000/062018_hr1.tex",
+        "width": 56,
+        "height": 56,
+        "mode": "RGBA",
+        "bytes": 5072
+      },
+      "icon_framed": {
+        "file": "jobs_framed/18.png",
+        "icon_id": 62118,
+        "source_path": "ui/icon/062000/062118_hr1.tex",
+        "width": 64,
+        "height": 64,
+        "mode": "RGBA",
+        "bytes": 6423
+      }
+    },
+    {
+      "id": 19,
+      "abbreviation": "PLD",
+      "en_name": "paladin",
+      "zh_name": "骑士",
+      "role": "坦克",
+      "role_raw_id": 1,
+      "role_raw": "tank",
+      "job_index": 1,
+      "is_job": true,
+      "parent_class_id": 1,
+      "is_limited_job": false,
+      "icon": {
+        "file": "jobs/19.png",
+        "icon_id": 62019,
+        "source_path": "ui/icon/062000/062019_hr1.tex",
+        "width": 56,
+        "height": 56,
+        "mode": "RGBA",
+        "bytes": 5193
+      },
+      "icon_framed": {
+        "file": "jobs_framed/19.png",
+        "icon_id": 62119,
+        "source_path": "ui/icon/062000/062119_hr1.tex",
+        "width": 64,
+        "height": 64,
+        "mode": "RGBA",
+        "bytes": 7232
+      }
+    },
+    {
+      "id": 20,
+      "abbreviation": "MNK",
+      "en_name": "monk",
+      "zh_name": "武僧",
+      "role": "近战",
+      "role_raw_id": 2,
+      "role_raw": "melee dps",
+      "job_index": 2,
+      "is_job": true,
+      "parent_class_id": 2,
+      "is_limited_job": false,
+      "icon": {
+        "file": "jobs/20.png",
+        "icon_id": 62020,
+        "source_path": "ui/icon/062000/062020_hr1.tex",
+        "width": 56,
+        "height": 56,
+        "mode": "RGBA",
+        "bytes": 6036
+      },
+      "icon_framed": {
+        "file": "jobs_framed/20.png",
+        "icon_id": 62120,
+        "source_path": "ui/icon/062000/062120_hr1.tex",
+        "width": 64,
+        "height": 64,
+        "mode": "RGBA",
+        "bytes": 7533
+      }
+    },
+    {
+      "id": 21,
+      "abbreviation": "WAR",
+      "en_name": "warrior",
+      "zh_name": "战士",
+      "role": "坦克",
+      "role_raw_id": 1,
+      "role_raw": "tank",
+      "job_index": 3,
+      "is_job": true,
+      "parent_class_id": 3,
+      "is_limited_job": false,
+      "icon": {
+        "file": "jobs/21.png",
+        "icon_id": 62021,
+        "source_path": "ui/icon/062000/062021_hr1.tex",
+        "width": 56,
+        "height": 56,
+        "mode": "RGBA",
+        "bytes": 6178
+      },
+      "icon_framed": {
+        "file": "jobs_framed/21.png",
+        "icon_id": 62121,
+        "source_path": "ui/icon/062000/062121_hr1.tex",
+        "width": 64,
+        "height": 64,
+        "mode": "RGBA",
+        "bytes": 7981
+      }
+    },
+    {
+      "id": 22,
+      "abbreviation": "DRG",
+      "en_name": "dragoon",
+      "zh_name": "龙骑士",
+      "role": "近战",
+      "role_raw_id": 2,
+      "role_raw": "melee dps",
+      "job_index": 4,
+      "is_job": true,
+      "parent_class_id": 4,
+      "is_limited_job": false,
+      "icon": {
+        "file": "jobs/22.png",
+        "icon_id": 62022,
+        "source_path": "ui/icon/062000/062022_hr1.tex",
+        "width": 56,
+        "height": 56,
+        "mode": "RGBA",
+        "bytes": 4422
+      },
+      "icon_framed": {
+        "file": "jobs_framed/22.png",
+        "icon_id": 62122,
+        "source_path": "ui/icon/062000/062122_hr1.tex",
+        "width": 64,
+        "height": 64,
+        "mode": "RGBA",
+        "bytes": 6668
+      }
+    },
+    {
+      "id": 23,
+      "abbreviation": "BRD",
+      "en_name": "bard",
+      "zh_name": "吟游诗人",
+      "role": "远程物理",
+      "role_raw_id": 3,
+      "role_raw": "ranged dps (physical or magical)",
+      "job_index": 5,
+      "is_job": true,
+      "parent_class_id": 5,
+      "is_limited_job": false,
+      "icon": {
+        "file": "jobs/23.png",
+        "icon_id": 62023,
+        "source_path": "ui/icon/062000/062023_hr1.tex",
+        "width": 56,
+        "height": 56,
+        "mode": "RGBA",
+        "bytes": 4341
+      },
+      "icon_framed": {
+        "file": "jobs_framed/23.png",
+        "icon_id": 62123,
+        "source_path": "ui/icon/062000/062123_hr1.tex",
+        "width": 64,
+        "height": 64,
+        "mode": "RGBA",
+        "bytes": 6586
+      }
+    },
+    {
+      "id": 24,
+      "abbreviation": "WHM",
+      "en_name": "white mage",
+      "zh_name": "白魔法师",
+      "role": "治疗",
+      "role_raw_id": 4,
+      "role_raw": "healer",
+      "job_index": 6,
+      "is_job": true,
+      "parent_class_id": 6,
+      "is_limited_job": false,
+      "icon": {
+        "file": "jobs/24.png",
+        "icon_id": 62024,
+        "source_path": "ui/icon/062000/062024_hr1.tex",
+        "width": 56,
+        "height": 56,
+        "mode": "RGBA",
+        "bytes": 3417
+      },
+      "icon_framed": {
+        "file": "jobs_framed/24.png",
+        "icon_id": 62124,
+        "source_path": "ui/icon/062000/062124_hr1.tex",
+        "width": 64,
+        "height": 64,
+        "mode": "RGBA",
+        "bytes": 5286
+      }
+    },
+    {
+      "id": 25,
+      "abbreviation": "BLM",
+      "en_name": "black mage",
+      "zh_name": "黑魔法师",
+      "role": "魔法",
+      "role_raw_id": 3,
+      "role_raw": "ranged dps (physical or magical)",
+      "job_index": 7,
+      "is_job": true,
+      "parent_class_id": 7,
+      "is_limited_job": false,
+      "icon": {
+        "file": "jobs/25.png",
+        "icon_id": 62025,
+        "source_path": "ui/icon/062000/062025_hr1.tex",
+        "width": 56,
+        "height": 56,
+        "mode": "RGBA",
+        "bytes": 6835
+      },
+      "icon_framed": {
+        "file": "jobs_framed/25.png",
+        "icon_id": 62125,
+        "source_path": "ui/icon/062000/062125_hr1.tex",
+        "width": 64,
+        "height": 64,
+        "mode": "RGBA",
+        "bytes": 8256
+      }
+    },
+    {
+      "id": 26,
+      "abbreviation": "ACN",
+      "en_name": "arcanist",
+      "zh_name": "秘术师",
+      "role": "魔法",
+      "role_raw_id": 3,
+      "role_raw": "ranged dps (physical or magical)",
+      "job_index": 0,
+      "is_job": false,
+      "parent_class_id": 26,
+      "is_limited_job": false,
+      "icon": {
+        "file": "jobs/26.png",
+        "icon_id": 62026,
+        "source_path": "ui/icon/062000/062026_hr1.tex",
+        "width": 56,
+        "height": 56,
+        "mode": "RGBA",
+        "bytes": 5637
+      },
+      "icon_framed": {
+        "file": "jobs_framed/26.png",
+        "icon_id": 62126,
+        "source_path": "ui/icon/062000/062126_hr1.tex",
+        "width": 64,
+        "height": 64,
+        "mode": "RGBA",
+        "bytes": 7468
+      }
+    },
+    {
+      "id": 27,
+      "abbreviation": "SMN",
+      "en_name": "summoner",
+      "zh_name": "召唤师",
+      "role": "魔法",
+      "role_raw_id": 3,
+      "role_raw": "ranged dps (physical or magical)",
+      "job_index": 8,
+      "is_job": true,
+      "parent_class_id": 26,
+      "is_limited_job": false,
+      "icon": {
+        "file": "jobs/27.png",
+        "icon_id": 62027,
+        "source_path": "ui/icon/062000/062027_hr1.tex",
+        "width": 56,
+        "height": 56,
+        "mode": "RGBA",
+        "bytes": 4868
+      },
+      "icon_framed": {
+        "file": "jobs_framed/27.png",
+        "icon_id": 62127,
+        "source_path": "ui/icon/062000/062127_hr1.tex",
+        "width": 64,
+        "height": 64,
+        "mode": "RGBA",
+        "bytes": 6957
+      }
+    },
+    {
+      "id": 28,
+      "abbreviation": "SCH",
+      "en_name": "scholar",
+      "zh_name": "学者",
+      "role": "治疗",
+      "role_raw_id": 4,
+      "role_raw": "healer",
+      "job_index": 9,
+      "is_job": true,
+      "parent_class_id": 26,
+      "is_limited_job": false,
+      "icon": {
+        "file": "jobs/28.png",
+        "icon_id": 62028,
+        "source_path": "ui/icon/062000/062028_hr1.tex",
+        "width": 56,
+        "height": 56,
+        "mode": "RGBA",
+        "bytes": 5569
+      },
+      "icon_framed": {
+        "file": "jobs_framed/28.png",
+        "icon_id": 62128,
+        "source_path": "ui/icon/062000/062128_hr1.tex",
+        "width": 64,
+        "height": 64,
+        "mode": "RGBA",
+        "bytes": 6784
+      }
+    },
+    {
+      "id": 29,
+      "abbreviation": "ROG",
+      "en_name": "rogue",
+      "zh_name": "双剑师",
+      "role": "近战",
+      "role_raw_id": 2,
+      "role_raw": "melee dps",
+      "job_index": 0,
+      "is_job": false,
+      "parent_class_id": 29,
+      "is_limited_job": false,
+      "icon": {
+        "file": "jobs/29.png",
+        "icon_id": 62029,
+        "source_path": "ui/icon/062000/062029_hr1.tex",
+        "width": 56,
+        "height": 56,
+        "mode": "RGBA",
+        "bytes": 5947
+      },
+      "icon_framed": {
+        "file": "jobs_framed/29.png",
+        "icon_id": 62129,
+        "source_path": "ui/icon/062000/062129_hr1.tex",
+        "width": 64,
+        "height": 64,
+        "mode": "RGBA",
+        "bytes": 7336
+      }
+    },
+    {
+      "id": 30,
+      "abbreviation": "NIN",
+      "en_name": "ninja",
+      "zh_name": "忍者",
+      "role": "近战",
+      "role_raw_id": 2,
+      "role_raw": "melee dps",
+      "job_index": 10,
+      "is_job": true,
+      "parent_class_id": 29,
+      "is_limited_job": false,
+      "icon": {
+        "file": "jobs/30.png",
+        "icon_id": 62030,
+        "source_path": "ui/icon/062000/062030_hr1.tex",
+        "width": 56,
+        "height": 56,
+        "mode": "RGBA",
+        "bytes": 6304
+      },
+      "icon_framed": {
+        "file": "jobs_framed/30.png",
+        "icon_id": 62130,
+        "source_path": "ui/icon/062000/062130_hr1.tex",
+        "width": 64,
+        "height": 64,
+        "mode": "RGBA",
+        "bytes": 6718
+      }
+    },
+    {
+      "id": 31,
+      "abbreviation": "MCH",
+      "en_name": "machinist",
+      "zh_name": "机工士",
+      "role": "远程物理",
+      "role_raw_id": 3,
+      "role_raw": "ranged dps (physical or magical)",
+      "job_index": 11,
+      "is_job": true,
+      "parent_class_id": 31,
+      "is_limited_job": false,
+      "icon": {
+        "file": "jobs/31.png",
+        "icon_id": 62031,
+        "source_path": "ui/icon/062000/062031_hr1.tex",
+        "width": 56,
+        "height": 56,
+        "mode": "RGBA",
+        "bytes": 5014
+      },
+      "icon_framed": {
+        "file": "jobs_framed/31.png",
+        "icon_id": 62131,
+        "source_path": "ui/icon/062000/062131_hr1.tex",
+        "width": 64,
+        "height": 64,
+        "mode": "RGBA",
+        "bytes": 7581
+      }
+    },
+    {
+      "id": 32,
+      "abbreviation": "DRK",
+      "en_name": "dark knight",
+      "zh_name": "暗黑骑士",
+      "role": "坦克",
+      "role_raw_id": 1,
+      "role_raw": "tank",
+      "job_index": 12,
+      "is_job": true,
+      "parent_class_id": 32,
+      "is_limited_job": false,
+      "icon": {
+        "file": "jobs/32.png",
+        "icon_id": 62032,
+        "source_path": "ui/icon/062000/062032_hr1.tex",
+        "width": 56,
+        "height": 56,
+        "mode": "RGBA",
+        "bytes": 4892
+      },
+      "icon_framed": {
+        "file": "jobs_framed/32.png",
+        "icon_id": 62132,
+        "source_path": "ui/icon/062000/062132_hr1.tex",
+        "width": 64,
+        "height": 64,
+        "mode": "RGBA",
+        "bytes": 7711
+      }
+    },
+    {
+      "id": 33,
+      "abbreviation": "AST",
+      "en_name": "astrologian",
+      "zh_name": "占星术士",
+      "role": "治疗",
+      "role_raw_id": 4,
+      "role_raw": "healer",
+      "job_index": 13,
+      "is_job": true,
+      "parent_class_id": 33,
+      "is_limited_job": false,
+      "icon": {
+        "file": "jobs/33.png",
+        "icon_id": 62033,
+        "source_path": "ui/icon/062000/062033_hr1.tex",
+        "width": 56,
+        "height": 56,
+        "mode": "RGBA",
+        "bytes": 4714
+      },
+      "icon_framed": {
+        "file": "jobs_framed/33.png",
+        "icon_id": 62133,
+        "source_path": "ui/icon/062000/062133_hr1.tex",
+        "width": 64,
+        "height": 64,
+        "mode": "RGBA",
+        "bytes": 6209
+      }
+    },
+    {
+      "id": 34,
+      "abbreviation": "SAM",
+      "en_name": "samurai",
+      "zh_name": "武士",
+      "role": "近战",
+      "role_raw_id": 2,
+      "role_raw": "melee dps",
+      "job_index": 14,
+      "is_job": true,
+      "parent_class_id": 34,
+      "is_limited_job": false,
+      "icon": {
+        "file": "jobs/34.png",
+        "icon_id": 62034,
+        "source_path": "ui/icon/062000/062034_hr1.tex",
+        "width": 56,
+        "height": 56,
+        "mode": "RGBA",
+        "bytes": 6547
+      },
+      "icon_framed": {
+        "file": "jobs_framed/34.png",
+        "icon_id": 62134,
+        "source_path": "ui/icon/062000/062134_hr1.tex",
+        "width": 64,
+        "height": 64,
+        "mode": "RGBA",
+        "bytes": 7494
+      }
+    },
+    {
+      "id": 35,
+      "abbreviation": "RDM",
+      "en_name": "red mage",
+      "zh_name": "赤魔法师",
+      "role": "魔法",
+      "role_raw_id": 3,
+      "role_raw": "ranged dps (physical or magical)",
+      "job_index": 15,
+      "is_job": true,
+      "parent_class_id": 35,
+      "is_limited_job": false,
+      "icon": {
+        "file": "jobs/35.png",
+        "icon_id": 62035,
+        "source_path": "ui/icon/062000/062035_hr1.tex",
+        "width": 56,
+        "height": 56,
+        "mode": "RGBA",
+        "bytes": 4474
+      },
+      "icon_framed": {
+        "file": "jobs_framed/35.png",
+        "icon_id": 62135,
+        "source_path": "ui/icon/062000/062135_hr1.tex",
+        "width": 64,
+        "height": 64,
+        "mode": "RGBA",
+        "bytes": 5833
+      }
+    },
+    {
+      "id": 36,
+      "abbreviation": "BLU",
+      "en_name": "blue mage",
+      "zh_name": "青魔法师",
+      "role": "魔法",
+      "role_raw_id": 3,
+      "role_raw": "ranged dps (physical or magical)",
+      "job_index": 16,
+      "is_job": true,
+      "parent_class_id": 36,
+      "is_limited_job": true,
+      "icon": {
+        "file": "jobs/36.png",
+        "icon_id": 62036,
+        "source_path": "ui/icon/062000/062036_hr1.tex",
+        "width": 56,
+        "height": 56,
+        "mode": "RGBA",
+        "bytes": 5450
+      },
+      "icon_framed": {
+        "file": "jobs_framed/36.png",
+        "icon_id": 62136,
+        "source_path": "ui/icon/062000/062136_hr1.tex",
+        "width": 64,
+        "height": 64,
+        "mode": "RGBA",
+        "bytes": 6347
+      }
+    },
+    {
+      "id": 37,
+      "abbreviation": "GNB",
+      "en_name": "gunbreaker",
+      "zh_name": "绝枪战士",
+      "role": "坦克",
+      "role_raw_id": 1,
+      "role_raw": "tank",
+      "job_index": 17,
+      "is_job": true,
+      "parent_class_id": 37,
+      "is_limited_job": false,
+      "icon": {
+        "file": "jobs/37.png",
+        "icon_id": 62037,
+        "source_path": "ui/icon/062000/062037_hr1.tex",
+        "width": 56,
+        "height": 56,
+        "mode": "RGBA",
+        "bytes": 6313
+      },
+      "icon_framed": {
+        "file": "jobs_framed/37.png",
+        "icon_id": 62137,
+        "source_path": "ui/icon/062000/062137_hr1.tex",
+        "width": 64,
+        "height": 64,
+        "mode": "RGBA",
+        "bytes": 7607
+      }
+    },
+    {
+      "id": 38,
+      "abbreviation": "DNC",
+      "en_name": "dancer",
+      "zh_name": "舞者",
+      "role": "远程物理",
+      "role_raw_id": 3,
+      "role_raw": "ranged dps (physical or magical)",
+      "job_index": 18,
+      "is_job": true,
+      "parent_class_id": 38,
+      "is_limited_job": false,
+      "icon": {
+        "file": "jobs/38.png",
+        "icon_id": 62038,
+        "source_path": "ui/icon/062000/062038_hr1.tex",
+        "width": 56,
+        "height": 56,
+        "mode": "RGBA",
+        "bytes": 6046
+      },
+      "icon_framed": {
+        "file": "jobs_framed/38.png",
+        "icon_id": 62138,
+        "source_path": "ui/icon/062000/062138_hr1.tex",
+        "width": 64,
+        "height": 64,
+        "mode": "RGBA",
+        "bytes": 7273
+      }
+    },
+    {
+      "id": 39,
+      "abbreviation": "RPR",
+      "en_name": "reaper",
+      "zh_name": "钐镰客",
+      "role": "近战",
+      "role_raw_id": 2,
+      "role_raw": "melee dps",
+      "job_index": 19,
+      "is_job": true,
+      "parent_class_id": 39,
+      "is_limited_job": false,
+      "icon": {
+        "file": "jobs/39.png",
+        "icon_id": 62039,
+        "source_path": "ui/icon/062000/062039_hr1.tex",
+        "width": 56,
+        "height": 56,
+        "mode": "RGBA",
+        "bytes": 5561
+      },
+      "icon_framed": {
+        "file": "jobs_framed/39.png",
+        "icon_id": 62139,
+        "source_path": "ui/icon/062000/062139_hr1.tex",
+        "width": 64,
+        "height": 64,
+        "mode": "RGBA",
+        "bytes": 6963
+      }
+    },
+    {
+      "id": 40,
+      "abbreviation": "SGE",
+      "en_name": "sage",
+      "zh_name": "贤者",
+      "role": "治疗",
+      "role_raw_id": 4,
+      "role_raw": "healer",
+      "job_index": 20,
+      "is_job": true,
+      "parent_class_id": 40,
+      "is_limited_job": false,
+      "icon": {
+        "file": "jobs/40.png",
+        "icon_id": 62040,
+        "source_path": "ui/icon/062000/062040_hr1.tex",
+        "width": 56,
+        "height": 56,
+        "mode": "RGBA",
+        "bytes": 5569
+      },
+      "icon_framed": {
+        "file": "jobs_framed/40.png",
+        "icon_id": 62140,
+        "source_path": "ui/icon/062000/062140_hr1.tex",
+        "width": 64,
+        "height": 64,
+        "mode": "RGBA",
+        "bytes": 6927
+      }
+    },
+    {
+      "id": 41,
+      "abbreviation": "VPR",
+      "en_name": "viper",
+      "zh_name": "蝰蛇剑士",
+      "role": "近战",
+      "role_raw_id": 2,
+      "role_raw": "melee dps",
+      "job_index": 21,
+      "is_job": true,
+      "parent_class_id": 41,
+      "is_limited_job": false,
+      "icon": {
+        "file": "jobs/41.png",
+        "icon_id": 62041,
+        "source_path": "ui/icon/062000/062041_hr1.tex",
+        "width": 56,
+        "height": 56,
+        "mode": "RGBA",
+        "bytes": 5597
+      },
+      "icon_framed": {
+        "file": "jobs_framed/41.png",
+        "icon_id": 62141,
+        "source_path": "ui/icon/062000/062141_hr1.tex",
+        "width": 64,
+        "height": 64,
+        "mode": "RGBA",
+        "bytes": 6944
+      }
+    },
+    {
+      "id": 42,
+      "abbreviation": "PCT",
+      "en_name": "pictomancer",
+      "zh_name": "绘灵法师",
+      "role": "魔法",
+      "role_raw_id": 3,
+      "role_raw": "ranged dps (physical or magical)",
+      "job_index": 22,
+      "is_job": true,
+      "parent_class_id": 42,
+      "is_limited_job": false,
+      "icon": {
+        "file": "jobs/42.png",
+        "icon_id": 62042,
+        "source_path": "ui/icon/062000/062042_hr1.tex",
+        "width": 56,
+        "height": 56,
+        "mode": "RGBA",
+        "bytes": 6159
+      },
+      "icon_framed": {
+        "file": "jobs_framed/42.png",
+        "icon_id": 62142,
+        "source_path": "ui/icon/062000/062142_hr1.tex",
+        "width": 64,
+        "height": 64,
+        "mode": "RGBA",
+        "bytes": 7224
+      }
+    },
+    {
+      "id": 43,
+      "abbreviation": "BST",
+      "en_name": "beastmaster",
+      "zh_name": "驯兽师",
+      "role": "近战",
+      "role_raw_id": 2,
+      "role_raw": "melee dps",
+      "job_index": 23,
+      "is_job": true,
+      "parent_class_id": 43,
+      "is_limited_job": true,
+      "icon": {
+        "file": "jobs/43.png",
+        "icon_id": 62043,
+        "source_path": "ui/icon/062000/062043_hr1.tex",
+        "width": 56,
+        "height": 56,
+        "mode": "RGBA",
+        "bytes": 6514
+      },
+      "icon_framed": {
+        "file": "jobs_framed/43.png",
+        "icon_id": 62143,
+        "source_path": "ui/icon/062000/062143_hr1.tex",
+        "width": 64,
+        "height": 64,
+        "mode": "RGBA",
+        "bytes": 7670
+      },
+      "zh_name_note": "Beastmaster 尚未在国服/中文客户端上线，'驯兽师' 为社区通用译名，非官方。"
+    }
+  ],
+  "content_types_file": "content_types.json",
+  "license": "See LICENSE-NOTE.md. All icons are © SQUARE ENIX CO., LTD. PUBLIC_DISTRIBUTION_READY = false.",
+  "PUBLIC_DISTRIBUTION_READY": false
+}

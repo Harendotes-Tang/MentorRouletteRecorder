@@ -1,0 +1,44 @@
+{
+  "fixture_id": "synthetic_complete",
+  "format_version": 1,
+  "synthetic": true,
+  "description": "匹配到导随、进入副本、观察到职业、胜利：唯一通往 COMPLETED 的路径。",
+  "profile": "synthetic-v1",
+  "game_build": "synthetic-build-1",
+  "capture_session_id": "20000000-0000-4000-8000-000000000001",
+  "started_at_utc": "2026-09-04T03:00:00.000Z",
+  "messages": [
+    {
+      "t_ms": 0,
+      "direction": "SERVER_TO_CLIENT",
+      "segment_type": 61440,
+      "opcode": 61441,
+      "epoch": 0,
+      "payload_hex": "2a000000a1bb0d00"
+    },
+    {
+      "t_ms": 5000,
+      "direction": "SERVER_TO_CLIENT",
+      "segment_type": 61440,
+      "opcode": 61442,
+      "epoch": 5000,
+      "payload_hex": "01350c00a1bb0d000700000001000000"
+    },
+    {
+      "t_ms": 6000,
+      "direction": "SERVER_TO_CLIENT",
+      "segment_type": 61440,
+      "opcode": 61444,
+      "epoch": 6000,
+      "payload_hex": "13000000"
+    },
+    {
+      "t_ms": 125000,
+      "direction": "SERVER_TO_CLIENT",
+      "segment_type": 61440,
+      "opcode": 61443,
+      "epoch": 125000,
+      "payload_hex": "01000000"
+    }
+  ]
+}

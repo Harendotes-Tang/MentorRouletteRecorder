@@ -1,0 +1,221 @@
+{
+  "schema_version": 1,
+  "profile_id": "synthetic-v1",
+  "region": "UNKNOWN",
+  "game_build": "synthetic-build-1",
+  "generated_at": "2026-09-04T00:00:00.000Z",
+  "mentor_roulette_id": 42,
+  "compatibility_status": "SYNTHETIC",
+  "match_window_seconds": 45,
+  "messages": [
+    {
+      "name": "CONTENT_FINDER_POP",
+      "opcode": 61441,
+      "direction": "SERVER_TO_CLIENT",
+      "segment_type": 61440,
+      "expected_length": 8,
+      "fields": [
+        {
+          "name": "roulette_id",
+          "offset": 0,
+          "type": "u16",
+          "endian": "little",
+          "constraints": {
+            "min": 1,
+            "max": 65535
+          }
+        },
+        {
+          "name": "content_id",
+          "offset": 4,
+          "type": "u32",
+          "endian": "little"
+        }
+      ]
+    },
+    {
+      "name": "ZONE_INITIALIZATION",
+      "opcode": 61442,
+      "direction": "SERVER_TO_CLIENT",
+      "segment_type": 61440,
+      "expected_length": 16,
+      "fields": [
+        {
+          "name": "territory_id",
+          "offset": 0,
+          "type": "u32",
+          "endian": "little",
+          "constraints": {
+            "min": 1
+          }
+        },
+        {
+          "name": "content_id",
+          "offset": 4,
+          "type": "u32",
+          "endian": "little"
+        },
+        {
+          "name": "instance_id",
+          "offset": 8,
+          "type": "u32",
+          "endian": "little"
+        },
+        {
+          "name": "is_duty_instance",
+          "offset": 12,
+          "type": "u8",
+          "constraints": {
+            "in": [
+              0,
+              1
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "DUTY_RESULT",
+      "opcode": 61443,
+      "direction": "SERVER_TO_CLIENT",
+      "segment_type": 61440,
+      "expected_length": 4,
+      "victory_values": [
+        1
+      ],
+      "fields": [
+        {
+          "name": "outcome",
+          "offset": 0,
+          "type": "u8",
+          "constraints": {
+            "in": [
+              0,
+              1,
+              2
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "PLAYER_JOB",
+      "opcode": 61444,
+      "direction": "SERVER_TO_CLIENT",
+      "segment_type": 61440,
+      "expected_length": 4,
+      "fields": [
+        {
+          "name": "job_id",
+          "offset": 0,
+          "type": "u8",
+          "constraints": {
+            "min": 1,
+            "max": 80
+          }
+        }
+      ]
+    },
+    {
+      "name": "ZONE_LEFT",
+      "opcode": 61445,
+      "direction": "SERVER_TO_CLIENT",
+      "segment_type": 61440,
+      "min_length": 2,
+      "max_length": 16,
+      "fields": [
+        {
+          "name": "territory_id",
+          "offset": 0,
+          "type": "u32",
+          "endian": "little",
+          "constraints": {
+            "min": 1
+          }
+        }
+      ]
+    },
+    {
+      "name": "INSTANCE_LEFT",
+      "opcode": 61446,
+      "direction": "SERVER_TO_CLIENT",
+      "segment_type": 61440,
+      "expected_length": 2,
+      "fields": []
+    },
+    {
+      "name": "MATCH_CANCELLED",
+      "opcode": 61447,
+      "direction": "SERVER_TO_CLIENT",
+      "segment_type": 61440,
+      "expected_length": 2,
+      "fields": []
+    }
+  ],
+  "fixtures": [
+    {
+      "path": "../../tests/Fixtures/decoded/synthetic_build_mismatch.decoded.json",
+      "sha256": "9e4697fe20495f0468e2fa9a0d75f51a8205b339fb9f33d976fd5397ca32b17d"
+    },
+    {
+      "path": "../../tests/Fixtures/decoded/synthetic_cancelled.decoded.json",
+      "sha256": "2a4ebf16d47224344d46b4d565a886cbc1e633b4692a81363990c7141b58ab1c"
+    },
+    {
+      "path": "../../tests/Fixtures/decoded/synthetic_complete.decoded.json",
+      "sha256": "0440bfdf2820f7e0fd3fc40d0676b8d5a1b912dd523a496b0dc80f9cc1dfd5fe"
+    },
+    {
+      "path": "../../tests/Fixtures/decoded/synthetic_constraint_fail.decoded.json",
+      "sha256": "4d7867ed2bb30ee748a20e1108fa91a357923b94bcd8f999c341139eded57b2d"
+    },
+    {
+      "path": "../../tests/Fixtures/decoded/synthetic_duplicates.decoded.json",
+      "sha256": "d48753d0713e00e660bbc1633a37865eb7c273671310ce0f2419ddedcc03a4ce"
+    },
+    {
+      "path": "../../tests/Fixtures/decoded/synthetic_left.decoded.json",
+      "sha256": "8b30add1f41cb07b778f177cf4d0cc113774cc1864ef8d6d60bb55d0f83eb47c"
+    },
+    {
+      "path": "../../tests/Fixtures/decoded/synthetic_len_mismatch.decoded.json",
+      "sha256": "71709e3c10e57ab76557cb5675e64f0a29cde8cc11075ee2c71f4d3b543efe3e"
+    },
+    {
+      "path": "../../tests/Fixtures/decoded/synthetic_non_mentor.decoded.json",
+      "sha256": "af4dfb129806d4ac5fbb067ec0350820e586abca970423d660a95788c35aead4"
+    },
+    {
+      "path": "../../tests/Fixtures/decoded/synthetic_offset_oob.decoded.json",
+      "sha256": "5d4f18f133feda3f215494abd49f9659999f7291c5f3f5b67c97e0b01cd38598"
+    },
+    {
+      "path": "../../tests/Fixtures/decoded/synthetic_unknown_opcode.decoded.json",
+      "sha256": "ff94dec17d47bb3e28c502b3b0df0e644dfe3b215a89ef7c09ba6e1b880a8cf3"
+    }
+  ],
+  "provenance": {
+    "summary": "SYNTHETIC — invented by this project for offline tests. Every opcode, segment type, offset, length and the mentor_roulette_id below are made up. They describe no real game build, in no region, and are evidence of nothing. The profile is loaded only when a path is passed explicitly (--profile / --replay-decoded) and is refused by live profile selection unless allow_synthetic is set.",
+    "capture_fixture": null,
+    "capture_fixture_sha256": null,
+    "evidence": [
+      {
+        "field": "messages.*.opcode",
+        "method": "SYNTHETIC",
+        "recorded_at_utc": "2026-09-04T00:00:00.000Z",
+        "sample_count": 0,
+        "url": null,
+        "note": "Invented values in the 61441..61447 range, chosen so that they read as obviously synthetic. Not observed anywhere."
+      },
+      {
+        "field": "mentor_roulette_id",
+        "method": "SYNTHETIC",
+        "recorded_at_utc": "2026-09-04T00:00:00.000Z",
+        "sample_count": 0,
+        "url": null,
+        "note": "42, the same invented value the Phase 1 semantic fixtures already use."
+      }
+    ]
+  },
+  "profile_sha256": "2582755e17582f1381c50e42d0225dc81063c65818e18d12d28c0eda1c4a0486"
+}

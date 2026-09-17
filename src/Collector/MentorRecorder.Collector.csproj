@@ -1,0 +1,62 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <ApplicationIcon>../Desktop/resources/app/app.ico</ApplicationIcon>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>MentorRecorder.Collector</AssemblyName>
+    <RootNamespace>MentorRecorder.Collector</RootNamespace>
+    <!-- Windows-only: Named Pipe ACLs, Npcap adapters, process discovery. -->
+    <TargetFramework>net8.0-windows</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!--
+      Dependency baseline (Phase 0).
+      Machina.FFXIV is GPL-3.0; it is the reason this project is GPL-3.0-or-later.
+      See docs/third-party-licenses.md.
+    -->
+    <PackageReference Include="Machina.FFXIV" Version="2.4.7.7" />
+    <PackageReference Include="SharpPcap" Version="6.3.1" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.11" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      Migration scripts and reference data are embedded so the running process never
+      depends on the working directory or on files sitting next to the executable.
+      The logical resource name is MentorRecorder.Collector.Migrations.<file>.
+    -->
+    <EmbeddedResource Include="..\..\migrations\*.sql" LogicalName="MentorRecorder.Collector.Migrations.%(Filename)%(Extension)" />
+    <EmbeddedResource Include="..\..\data\jobs\jobs.json" LogicalName="MentorRecorder.Collector.Data.jobs.json" Condition="Exists('..\..\data\jobs\jobs.json')" />
+    <EmbeddedResource Include="..\..\data\duties\*.json" LogicalName="MentorRecorder.Collector.Data.Duties.%(Filename)%(Extension)" />
+    <EmbeddedResource Include="..\..\data\roulettes\*.json" LogicalName="MentorRecorder.Collector.Data.Roulettes.%(Filename)%(Extension)" />
+    <!--
+      The profile schema is the boundary every protocol constant has to cross, so the
+      running process validates against the copy it was built with rather than against a
+      file on disk that anyone could edit after the fact.
+    -->
+    <EmbeddedResource Include="..\..\protocol-profiles\profile.schema.json" LogicalName="MentorRecorder.Collector.Protocol.profile.schema.json" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      Profiles themselves stay on disk: they are data the user may replace between releases,
+      and the list-profiles mode has to be able to show what is actually installed.
+    -->
+    <None Include="..\..\protocol-profiles\**\*.json"
+          Link="protocol-profiles\%(RecursiveDir)%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest"
+          CopyToPublishDirectory="PreserveNewest" />
+    <!-- Synthetic profiles are required beside test/build outputs for offline replay, but a
+         live validation package must never offer fabricated opcodes as installed profiles. -->
+    <None Update="..\..\protocol-profiles\synthetic\**\*.json"
+          CopyToPublishDirectory="Never" />
+  </ItemGroup>
+
+  <!--
+    NOTE: the repository-wide target StripInjectionPayloadFromOutput in
+    Directory.Build.targets removes the native injection payload shipped
+    inside the Machina.FFXIV package from every build output.
+  -->
+
+</Project>

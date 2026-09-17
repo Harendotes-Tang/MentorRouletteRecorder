@@ -1,0 +1,327 @@
+using System.Globalization;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using MentorRecorder.Collector.Domain;
+using MentorRecorder.Collector.Domain.Events;
+using MentorRecorder.Collector.Domain.Time;
+using MentorRecorder.Collector.Protocol.Calibration;
+using MentorRecorder.Collector.Protocol.Decoded;
+using MentorRecorder.Collector.Protocol.Profiles;
+using MentorRecorder.Collector.Storage.Repositories;
+
+namespace MentorRecorder.Collector.Protocol.Sharing;
+
+// SharedCalibrationSession, continued: registering and claiming downloads, and importing a pasted code.
+internal sealed partial class SharedCalibrationSession
+{
+    // ------------------------------------------------------------------ fetching
+
+    private SharedCheckOutcome MaybeFetch(SharedContext context, bool manual)
+    {
+        if (!_services.SharedFetchWired || !_enabled)
+        {
+            return manual ? SharedCheckOutcome.Disabled : SharedCheckOutcome.NotNeeded;
+        }
+
+        // The one outbound request is only for a build nothing records yet: "已经有可用档案时一次都不会发"
+        // (docs/privacy-boundary.md §8.2), manual checks included. A shared profile still being watched after
+        // binding is therefore never checked for revocation over the network.
+        if (context.Selection.IsUsable)
+        {
+            return SharedCheckOutcome.NotNeeded;
+        }
+
+        // 不用共享的: the player said no for this build, so there is nothing to fetch for until 重新观察.
+        if (IsUserRejected(context.Key.Region, context.Key.GameBuild))
+        {
+            return SharedCheckOutcome.NotNeeded;
+        }
+
+        if (_fetch is not null)
+        {
+            return SharedCheckOutcome.AlreadyFetching;
+        }
+
+        if (!manual && _nextAutoFetchAtUtc is { } next && _clock.UtcNow < next)
+        {
+            return SharedCheckOutcome.NotNeeded;
+        }
+
+        var ticket = new FetchTicket(context.Key, context.Template, manual);
+        _fetch = ticket;
+        Schedule(() => FetchAsync(ticket));
+        return SharedCheckOutcome.Started;
+    }
+
+    /// <summary>Off the gate: send when due and rebuild what came back; then claim it under the gate.</summary>
+    private async Task FetchAsync(FetchTicket ticket)
+    {
+        var (sent, last, result) = await SendIfDueAsync(ticket).ConfigureAwait(false);
+        var prepared = PrepareAll(ticket, result);
+        lock (_gate)
+        {
+            ClaimFetch(ticket, sent, last, result, prepared);
+        }
+    }
+
+    /// <summary>
+    /// Off the gate: sends the download unless the six-hour throttle says an earlier attempt still stands, tells
+    /// the card once it takes a noticeable moment, and records what it produced.
+    /// </summary>
+    private async Task<(bool Sent, SharedFetchRecord? Last, SharedCalibrationFetchResult? Result)> SendIfDueAsync(FetchTicket ticket)
+    {
+        var (region, build, templateSha, _) = ticket.Key;
+        var store = _services.SharedCalibrations;
+        var last = Attempt(() => store.LastFetch(region, build, templateSha));
+        if (!SharedCalibrationStore.ShouldAutoFetch(last?.LastAttemptAtUtc, _clock.UtcNow, ticket.Manual))
+        {
+            return (false, last, null);
+        }
+
+        var fetch = FetchOrNullAsync(ticket);
+        if (await Task.WhenAny(fetch, Task.Delay(FetchingNoticeDelay)).ConfigureAwait(false) != fetch)
+        {
+            ShowFetching(ticket);
+        }
+
+        var result = await fetch.ConfigureAwait(false);
+        if (result is not null)
+        {
+            Attempt(() => store.RecordFetch(region, build, templateSha, result, _clock.UtcNow));
+        }
+
+        return (true, last, result);
+    }
+
+    private void ShowFetching(FetchTicket ticket)
+    {
+        lock (_gate)
+        {
+            if (ReferenceEquals(_fetch, ticket))
+            {
+                _fetchVisible = true;
+                _host.SharedCalibrationChanged();
+            }
+        }
+    }
+
+    /// <summary>Under the gate: a download counts only while what it was started for is still in force.</summary>
+    private void ClaimFetch(
+        FetchTicket ticket, bool sent, SharedFetchRecord? last, SharedCalibrationFetchResult? result, IReadOnlyList<Prepared> prepared)
+    {
+        if (ReferenceEquals(_fetch, ticket))
+        {
+            _fetch = null;
+            _fetchVisible = false;
+        }
+
+        // Outbound activity is reported whatever becomes of the answer: the request did leave the machine.
+        if (sent && result is { IndexAttempts.Count: > 0 })
+        {
+            _lastSentAtUtc = _clock.UtcNow;
+            _lastSentStatus = result.Status;
+        }
+
+        if (_stopped || !_enabled || _key != ticket.Key || ticket.Cancellation.IsCancellationRequested ||
+            IsUserRejected(ticket.Key.Region, ticket.Key.GameBuild))
+        {
+            // Setting off, disarmed, another build or template, or refused by the player: whatever came back is not for this.
+            _host.SharedCalibrationChanged();
+            return;
+        }
+
+        _nextAutoFetchAtUtc = (sent ? _clock.UtcNow : last?.LastAttemptAtUtc ?? _clock.UtcNow) + SharedCalibrationStore.AutoFetchInterval;
+        if (result is not null && ApplyFetchResult(result))
+        {
+            return;
+        }
+
+        if (_bound is null)
+        {
+            foreach (var candidate in prepared)
+            {
+                Register(candidate, SharedCandidateSource.Downloaded);
+            }
+        }
+
+        Evaluate();
+        _host.SharedCalibrationChanged();
+    }
+
+    /// <summary>Keeps what a claimed download says and drops what its index revokes. True when that withdrew the profile in use.</summary>
+    private bool ApplyFetchResult(SharedCalibrationFetchResult result)
+    {
+        _lastFetchStatus = result.Status;
+        _lastAttempts = result.IndexAttempts;
+        if (!result.IndexWasRead)
+        {
+            return false;
+        }
+
+        var revoked = result.RevokedCodeSha256s.ToHashSet(StringComparer.Ordinal);
+        foreach (var candidate in _candidates.Where(item => revoked.Contains(item.Sha)).ToArray())
+        {
+            Drop(candidate, rejected: true);
+        }
+
+        // Reachable, and kept on purpose (B2a review): a pasted code can verify and bind while an automatic download
+        // that went out before any profile was usable is still waiting, and the index that download then reads may
+        // revoke exactly that code. Nothing is sent to learn this, so docs/privacy-boundary.md §8.2 holds.
+        if (_bound is { Proven: false, Sha: { } inUse } && revoked.Contains(inUse))
+        {
+            Supersede("REVOKED");
+            return true;
+        }
+
+        return false;
+    }
+
+    private async Task<SharedCalibrationFetchResult?> FetchOrNullAsync(FetchTicket ticket)
+    {
+        try
+        {
+            return await _services.FetchSharedCalibration(ticket.Key.Region, ticket.Key.GameBuild, ticket.Cancellation.Token)
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Off the gate: stored codes first (best first), then fresh ones the store could not keep, rebuilt through the template.</summary>
+    private IReadOnlyList<Prepared> PrepareAll(FetchTicket ticket, SharedCalibrationFetchResult? result)
+    {
+        if (ticket.Cancellation.IsCancellationRequested)
+        {
+            return Array.Empty<Prepared>();
+        }
+
+        var (region, build, templateSha, _) = ticket.Key;
+        var store = _services.SharedCalibrations;
+        var codes = (Attempt(() => store.LoadCandidates(region, build, templateSha)) ?? Array.Empty<SharedStoredCandidate>())
+            .Select(code => (code.CodeSha256, code.Payload))
+            .ToList();
+        foreach (var fetched in result?.Candidates ?? Array.Empty<SharedCalibrationCandidate>())
+        {
+            if (codes.All(code => code.CodeSha256 != fetched.CodeSha256) &&
+                !Attempt(() => store.IsRejected(region, build, templateSha, fetched.CodeSha256)))
+            {
+                codes.Add((fetched.CodeSha256, fetched.Payload));
+            }
+        }
+
+        var now = _clock.UtcNow;
+        return codes.Take(SharedCalibrationIndex.MaxCandidates)
+            .Select(code => Prepare(code.CodeSha256, code.Payload, ticket.Template, now))
+            .OfType<Prepared>()
+            .ToArray();
+    }
+
+    private static Prepared? Prepare(string sha, ShareCodePayload payload, CalibrationTemplate template, DateTimeOffset now)
+    {
+        if (!string.Equals(ShareCode.Sha256(payload), sha, StringComparison.Ordinal) ||
+            SharedCandidateVerifier.Candidate(payload, template) is not { } declared)
+        {
+            return null;
+        }
+
+        // The staging parser only needs the messages; consent changes the written provenance, never them.
+        var built = SharedProfileBuilder.Build(payload, template, now, NoCounts, queueInferenceAcceptedAtUtc: now);
+        return built is { Status: SharedProfileBuildStatus.Built, Profile: { } profile } ? new Prepared(sha, payload, declared, profile) : null;
+    }
+
+    // ------------------------------------------------------------------ import
+
+    /// <summary>
+    /// A code the player pasted (plan §5.1): decoded and checked against this client and template with
+    /// no network and whatever the setting says; one that fits is verified exactly like a downloaded
+    /// one. Refused while the player's 不用共享的 stands for the build. Takes the gate itself and rebuilds the
+    /// profile outside it.
+    /// </summary>
+    public SharedImportResult Import(string? code)
+    {
+        var decoded = ShareCode.Decode(code);
+        if (decoded is not { Payload: { } payload, CodeSha256: { } sha })
+        {
+            return new SharedImportResult(SharedImportOutcome.Malformed, decoded.Rejection?.Code,
+                "这不是一份能识别的校准码：" + (decoded.Rejection?.Message ?? "内容为空。"));
+        }
+
+        SharedContext? context;
+        bool userRejected;
+        lock (_gate)
+        {
+            context = _stopped ? null : _host.SharedContext();
+            userRejected = context is not null && IsUserRejected(context.Key.Region, context.Key.GameBuild);
+        }
+
+        if (Inapplicable(payload, sha, context, userRejected) is { } refused)
+        {
+            return refused;
+        }
+
+        if (Prepare(sha, payload, context!.Template, _clock.UtcNow) is not { } prepared)
+        {
+            return new SharedImportResult(SharedImportOutcome.Malformed, "UNBUILDABLE", "这份校准码无法在本机的随包模板上生成协议档案。", sha);
+        }
+
+        lock (_gate)
+        {
+            if (_stopped || _host.SharedContext()?.Key != context.Key)
+            {
+                return new SharedImportResult(SharedImportOutcome.NotApplicable, "CHANGED", "导入期间游戏版本或校准状态发生了变化，请重新导入。", sha);
+            }
+
+            if (Register(prepared, SharedCandidateSource.Manual) is { } refusal)
+            {
+                return new SharedImportResult(SharedImportOutcome.NotApplicable, refusal, RefusalMessage(refusal), sha);
+            }
+
+            Evaluate();
+            _host.SharedCalibrationChanged();
+            return new SharedImportResult(SharedImportOutcome.Applied, null, "校准码已导入，登录或排本时会在本机流量里自动核实。", sha);
+        }
+    }
+
+    private SharedImportResult? Inapplicable(ShareCodePayload payload, string sha, SharedContext? context, bool userRejected)
+    {
+        string? reason = null;
+        string? message = null;
+        if (context is null)
+        {
+            (reason, message) = ("NOT_CALIBRATING", "当前客户端不在校准中，暂时不需要导入校准码。");
+        }
+        else if (payload.Region != context.Key.Region)
+        {
+            (reason, message) = ("OTHER_REGION", "这份校准码属于另一个服务器区域（国服与国际服不能通用）。");
+        }
+        else if (!string.Equals(payload.GameBuild, context.Key.GameBuild, StringComparison.Ordinal))
+        {
+            (reason, message) = ("OTHER_BUILD",
+                $"这份校准码适用于客户端版本 {payload.GameBuild}，当前客户端版本是 {context.Key.GameBuild}，不能通用。");
+        }
+        else if (!SharedProfileBuilder.IsApplicable(payload, context.Template))
+        {
+            (reason, message) = ("OTHER_TEMPLATE", "这份校准码是用另一个版本的导随记录器生成的，与本机的版本对不上；请双方更新到同一版本。");
+        }
+        else if (userRejected)
+        {
+            (reason, message) = (UserRejectedReason, RefusalMessage(UserRejectedReason));
+        }
+        else if (Attempt(() => _services.SharedCalibrations.IsRejected(
+                     context.Key.Region, context.Key.GameBuild, context.Key.TemplateSha256, sha)))
+        {
+            (reason, message) = ("REJECTED", RefusalMessage("REJECTED"));
+        }
+
+        return reason is null ? null : new SharedImportResult(SharedImportOutcome.NotApplicable, reason, message!, sha);
+    }
+
+    private static string RefusalMessage(string refusal) => refusal switch
+    {
+        "REJECTED" => "这份校准码已经在本机流量里对不上，不再使用；在校准卡片上点「重新观察」可以清除这个判定。",
+        UserRejectedReason => "你已经选择这个游戏版本不用其他玩家的共享校准；在校准卡片上点「重新观察」后才能导入校准码。",
+        _ => "正在核实的校准码已经太多，请等当前的核实有结果后再导入。",
+    };
+}

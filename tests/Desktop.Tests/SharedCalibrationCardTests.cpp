@@ -1,0 +1,599 @@
+// ---------------------------------------------------------------------------
+// tst_sharedcalibrationcard - the 共享校准 section of the calibration card and
+// its two dialogs, in shipping QML.
+//
+// What it pins:
+//   * each --mock-shared state shows its sentence and exactly its buttons;
+//   * no visible text on the card carries maintainer vocabulary, a wire token,
+//     a candidate's short id or the code itself;
+//   * a shared profile that records replaces the "正在重新校准" headline, the
+//     progress rows and 清空进度并重新观察 - unless it is provisional, which keeps
+//     the provisional wording;
+//   * 导入校准码 shows the Collector's refusal and closes on success;
+//   * 不用共享的，我自己校准 asks first, and the consent button accepts;
+//   * a narrow card wraps the buttons instead of pushing them outside it;
+//   * the always-visible 协议档案 card on the capture page carries 分享给其他玩家
+//     after a restart, when the calibration card is gone, and steps aside while
+//     the calibration card offers the very same button.
+// ---------------------------------------------------------------------------
+
+#include "TestCollectorGuard.h"
+#include "AppController.h"
+#include "CalibrationController.h"
+#include "Formatters.h"
+#include "MockBackend.h"
+#include "SharedCalibrationController.h"
+
+#include <QDir>
+#include <QFont>
+#include <QFontDatabase>
+#include <QGuiApplication>
+#include <QJsonArray>
+#include <QJsonObject>
+#include <QQmlComponent>
+#include <QQmlContext>
+#include <QQmlEngine>
+#include <QQuickItem>
+#include <QQuickStyle>
+#include <QStandardPaths>
+#include <QTest>
+
+#include <memory>
+
+namespace {
+
+constexpr auto kVectorCode =
+    "MRC1.XY_LasMwEEX_ZdbG6G3LuxKyKyG02ZRShCSPExXbMrIdaEP-vWoKpeksZjH3wZkLHO2Axq2hb6EBRpgqiS4JLUme24IC3qMzcfKxRWgEZUwWMNjFn8wc1-TzEZ62-8cX83x4OGyzf4oTNBf4jWgqRQEz9uiXmMzZ9ivO0Lzyt2sBCY8hjrljs8vRBYeptwuaKcUu9GjCN5cfyx-0uiTyr2s-WSZVdvBOeYrEaVu1zAuUXU00tcxxL1qJqqtITTWz3AkvW4XVP_1WmlLIfB93v2bwMzS0gM844p3Cr18";
+
+const QStringList kButtons{QStringLiteral("sharedShareButton"), QStringLiteral("sharedCheckButton"),
+                           QStringLiteral("sharedImportButton"), QStringLiteral("sharedRejectButton"),
+                           QStringLiteral("sharedAcceptButton")};
+
+QQuickItem *findVisualItem(QQuickItem *root, const QString &name)
+{
+    if (!root)
+        return nullptr;
+    if (root->objectName() == name)
+        return root;
+    for (auto *child : root->childItems()) {
+        if (auto *found = findVisualItem(child, name))
+            return found;
+    }
+    return nullptr;
+}
+
+void collectVisibleText(QQuickItem *item, QStringList &texts)
+{
+    if (!item || !item->isVisible())
+        return;
+    const QVariant text = item->property("text");
+    if (text.isValid() && !text.toString().isEmpty())
+        texts.append(text.toString());
+    for (auto *child : item->childItems())
+        collectVisibleText(child, texts);
+}
+
+void verifyPlayerCopy(const QStringList &texts)
+{
+    static const QStringList words{
+        QString::fromUtf8("开始捕获"), QString::fromUtf8("开始验证"), QString::fromUtf8("停止捕获"),
+        QString::fromUtf8("维护者工具"), QString::fromUtf8("对照核对"), QStringLiteral("opcode"),
+        QStringLiteral("0x"), QStringLiteral("67ef1bb97e65"), QStringLiteral("REPLY_STATE"),
+        QStringLiteral("QUEUE_REQUEST"), QStringLiteral("CONTRADICTED"), QStringLiteral("GITHUB_RAW"),
+        QStringLiteral("INDEX_UNAVAILABLE"), QStringLiteral("AWAITING_CONSENT"), QStringLiteral("VERIFIED"),
+        QStringLiteral("ERR_"), QStringLiteral("MRC1"), QStringLiteral(".shared")};
+    for (const QString &text : texts) {
+        for (const QString &word : words) {
+            QVERIFY2(!text.contains(word, Qt::CaseInsensitive),
+                     qPrintable(QStringLiteral("card leaks \"%1\": %2").arg(word, text)));
+        }
+    }
+}
+
+/// $defs/SharedCalibrationStatus as a Collector reports it when nothing is going on:
+/// present (so the five requests exist), with no candidate and no refusal.
+QJsonObject sharedNone()
+{
+    return {{QStringLiteral("phase"), QStringLiteral("NONE")},
+            {QStringLiteral("candidates"), QJsonArray{}},
+            {QStringLiteral("last_fetch_status"), QJsonValue::Null},
+            {QStringLiteral("last_index_attempts"), QJsonArray{}},
+            {QStringLiteral("profile_id"), QJsonValue::Null},
+            {QStringLiteral("bound_at_utc"), QJsonValue::Null},
+            {QStringLiteral("last_refusal"), QJsonValue::Null},
+            {QStringLiteral("rejected_candidates"), 0},
+            {QStringLiteral("user_rejected"), false}};
+}
+
+/// Answers the two status reads with one hand-written capture status; everything else is empty.
+class CaptureBackend final : public mr::IBackend
+{
+public:
+    QJsonObject capture;
+
+    QString backendName() const override { return QStringLiteral("mock"); }
+    bool isConnected() const override { return true; }
+
+    mr::BackendReply *request(const QString &type, const QJsonObject & = {}) override
+    {
+        auto *reply = new mr::BackendReply(type, type, this);
+        if (type == QLatin1String("GetStatus"))
+            reply->succeed({{QStringLiteral("capture"), capture}});
+        else if (type == QLatin1String("GetCaptureStatus"))
+            reply->succeed(capture);
+        else
+            reply->succeed({});
+        return reply;
+    }
+};
+
+/// One card on a backend, torn down in dependency order.
+struct CardScene
+{
+    std::unique_ptr<mr::MockBackend> backend = std::make_unique<mr::MockBackend>();
+    std::unique_ptr<mr::IBackend> other;
+    std::unique_ptr<mr::AppController> app;
+    std::unique_ptr<QQmlEngine> engine;
+    std::unique_ptr<QObject> root;
+    QQuickItem *card = nullptr;
+
+    ~CardScene()
+    {
+        root.reset();
+        engine.reset();
+        app.reset();
+    }
+
+    bool open(const QString &fixture, int width)
+    {
+        backend->setSharedCalibrationFixture(fixture);
+        return openOn(backend.get(), width);
+    }
+
+    bool openOn(mr::IBackend *source, int width)
+    {
+        app = std::make_unique<mr::AppController>(source, nullptr);
+        engine = std::make_unique<QQmlEngine>();
+        engine->rootContext()->setContextProperty(QStringLiteral("App"), app.get());
+        engine->rootContext()->setContextProperty(QStringLiteral("ReduceMotion"), true);
+        QQmlComponent component(engine.get());
+        component.setData(QStringLiteral(R"(import QtQuick
+import QtQuick.Controls
+import MentorRecorder
+ApplicationWindow {
+    width: %1; height: 900; visible: true
+    color: Theme.surface
+    CalibrationCard { x: 16; y: 16; width: parent.width - 32; height: implicitHeight }
+})").arg(width).toUtf8(), QUrl());
+        root.reset(component.create());
+        if (!root) {
+            qWarning("%s", qPrintable(component.errorString()));
+            return false;
+        }
+        card = qobject_cast<QQuickItem *>(root->findChild<QObject *>(QStringLiteral("calibrationCard")));
+        return card != nullptr;
+    }
+
+    mr::SharedCalibrationController *shared() const { return app->calibration()->shared(); }
+    QQuickItem *item(const QString &name) const { return findVisualItem(card, name); }
+    QObject *section() const { return root->findChild<QObject *>(QStringLiteral("calibrationSharedSection")); }
+    QObject *dialog(const char *name) const { return section()->property(name).value<QObject *>(); }
+};
+
+/// The whole 捕获诊断 page, so that 协议档案 - the one card that is never hidden -
+/// can be read exactly as a player sees it. The browser and the clipboard are
+/// replaced before anything is clicked: a test never opens github.com and never
+/// overwrites the developer's own clipboard.
+struct PageScene
+{
+    std::unique_ptr<mr::MockBackend> backend = std::make_unique<mr::MockBackend>();
+    std::unique_ptr<mr::IBackend> other;
+    std::unique_ptr<mr::AppController> app;
+    std::unique_ptr<mr::Formatters> formatters;
+    std::unique_ptr<QQmlEngine> engine;
+    std::unique_ptr<QObject> root;
+    QQuickItem *page = nullptr;
+    QStringList opened;
+    QString copied;
+
+    ~PageScene()
+    {
+        root.reset();
+        engine.reset();
+        app.reset();
+    }
+
+    /// One --mock-calibration state beside one --mock-shared state, as the
+    /// screenshot targets take them.
+    bool open(const QString &calibration, const QString &shared, int width = 1180)
+    {
+        if (!calibration.isEmpty())
+            backend->setCalibrationFixture(calibration);
+        if (!shared.isEmpty())
+            backend->setSharedCalibrationFixture(shared);
+        return openOn(backend.get(), width);
+    }
+
+    bool openOn(mr::IBackend *source, int width)
+    {
+        app = std::make_unique<mr::AppController>(source, nullptr);
+        formatters = std::make_unique<mr::Formatters>();
+        engine = std::make_unique<QQmlEngine>();
+        engine->rootContext()->setContextProperty(QStringLiteral("App"), app.get());
+        engine->rootContext()->setContextProperty(QStringLiteral("Fmt"), formatters.get());
+        engine->rootContext()->setContextProperty(QStringLiteral("ReduceMotion"), true);
+        QQmlComponent component(engine.get());
+        component.setData(QStringLiteral(R"(import QtQuick
+import QtQuick.Controls
+import MentorRecorder
+ApplicationWindow {
+    width: %1; height: 900; visible: true
+    color: Theme.surface
+    CapturePage { objectName: "capturePage"; anchors.fill: parent; anchors.margins: 16 }
+})").arg(width).toUtf8(), QUrl());
+        root.reset(component.create());
+        if (!root) {
+            qWarning("%s", qPrintable(component.errorString()));
+            return false;
+        }
+        page = qobject_cast<QQuickItem *>(root->findChild<QObject *>(QStringLiteral("capturePage")));
+        if (!page)
+            return false;
+        shared()->setUrlOpener([this](const QUrl &url) {
+            opened.append(url.toString());
+            return true;
+        });
+        shared()->setClipboardWriter([this](const QString &text) { copied = text; });
+        return true;
+    }
+
+    mr::SharedCalibrationController *shared() const { return app->calibration()->shared(); }
+    QQuickItem *item(const QString &name) const { return findVisualItem(page, name); }
+    bool shows(const QString &name) const
+    {
+        auto *found = item(name);
+        return found && found->isVisible();
+    }
+};
+
+} // namespace
+
+class SharedCalibrationCardTests : public QObject
+{
+    Q_OBJECT
+
+private Q_SLOTS:
+    void initTestCase()
+    {
+        const QString qmlRoot = QString::fromUtf8(MR_DESKTOP_QML_DIR);
+        QVERIFY(QDir(qmlRoot).exists());
+        qmlRegisterSingletonType(QUrl::fromLocalFile(qmlRoot + QStringLiteral("/Theme.qml")),
+                                 "MentorRecorder", 1, 0, "Theme");
+        for (const auto &directory : {QStringLiteral("/components"), QStringLiteral("/pages")}) {
+            for (const auto &file :
+                 QDir(qmlRoot + directory).entryList({QStringLiteral("*.qml")}, QDir::Files)) {
+                const QByteArray name = file.chopped(4).toUtf8();
+                qmlRegisterType(QUrl::fromLocalFile(qmlRoot + directory + QLatin1Char('/') + file),
+                                "MentorRecorder", 1, 0, name.constData());
+            }
+        }
+    }
+
+    void eachStateShowsItsSentenceAndOnlyItsButtons_data()
+    {
+        QTest::addColumn<QString>("fixture");
+        QTest::addColumn<QString>("view");
+        QTest::addColumn<QString>("sentenceItem");
+        QTest::addColumn<QString>("sentence");
+        QTest::addColumn<QStringList>("buttons");
+
+        const auto u = [](const char *text) { return QString::fromUtf8(text); };
+        const QString headline = QStringLiteral("sharedCalibrationHeadline");
+        QTest::newRow("fetching") << "fetching" << "fetching" << headline << u("正在获取其他玩家的共享校准")
+                                  << QStringList{QStringLiteral("sharedImportButton")};
+        QTest::newRow("verifying") << "verifying" << "verifying" << headline << u("找到共享校准")
+            << QStringList{QStringLiteral("sharedImportButton"), QStringLiteral("sharedRejectButton")};
+        QTest::newRow("consent") << "consent" << "consent" << QStringLiteral("sharedConsentText")
+            << u("匹配时间是你申请排本的时间")
+            << QStringList{QStringLiteral("sharedRejectButton"), QStringLiteral("sharedAcceptButton")};
+        QTest::newRow("verified") << "verified" << "verified" << QStringLiteral("calibrationHeadline")
+            << u("已使用其他玩家分享的校准（本机已核实）") << QStringList{QStringLiteral("sharedRejectButton")};
+        QTest::newRow("rejected") << "rejected" << "rejected" << headline << u("共享校准与本机流量对不上")
+            << QStringList{QStringLiteral("sharedCheckButton"), QStringLiteral("sharedImportButton")};
+        QTest::newRow("unavailable") << "unavailable" << "unavailable" << headline << u("没取到共享校准（网络不通）")
+            << QStringList{QStringLiteral("sharedCheckButton"), QStringLiteral("sharedImportButton")};
+        QTest::newRow("user-rejected") << "user-rejected" << "user_rejected" << QStringLiteral("sharedCalibrationDetail")
+            << u("清空进度并重新观察") << QStringList{};
+        QTest::newRow("none-for-build") << "none-for-build" << "none_for_build" << headline
+            << u("还没有人分享这个版本的校准")
+            << QStringList{QStringLiteral("sharedCheckButton"), QStringLiteral("sharedImportButton")};
+        QTest::newRow("share") << "share" << "none" << QStringLiteral("sharedShareHint") << u("本软件自己不上传任何东西")
+                               << QStringList{QStringLiteral("sharedShareButton")};
+    }
+
+    void eachStateShowsItsSentenceAndOnlyItsButtons()
+    {
+        QFETCH(QString, fixture);
+        QFETCH(QString, view);
+        QFETCH(QString, sentenceItem);
+        QFETCH(QString, sentence);
+        QFETCH(QStringList, buttons);
+
+        CardScene scene;
+        QVERIFY(scene.open(fixture, 760));
+        QTRY_COMPARE(scene.shared()->view(), view);
+        QTRY_VERIFY(scene.item(QStringLiteral("calibrationSharedSection"))
+                    && scene.item(QStringLiteral("calibrationSharedSection"))->isVisible());
+
+        auto *text = scene.item(sentenceItem);
+        QVERIFY2(text, qPrintable(sentenceItem));
+        QTRY_VERIFY2(text->isVisible(), qPrintable(sentenceItem));
+        QVERIFY2(text->property("text").toString().contains(sentence),
+                 qPrintable(text->property("text").toString()));
+        for (const QString &name : kButtons) {
+            auto *button = scene.item(name);
+            QVERIFY2(button, qPrintable(name));
+            QCOMPARE(button->isVisible(), buttons.contains(name));
+        }
+        QStringList texts;
+        collectVisibleText(scene.card, texts);
+        verifyPlayerCopy(texts);
+    }
+
+    void aRecordingSharedProfileReplacesTheCalibratingCard()
+    {
+        CardScene scene;
+        QVERIFY(scene.open(QStringLiteral("verified"), 760));
+        QTRY_VERIFY(scene.shared()->inUse());
+        QTRY_VERIFY(!scene.item(QStringLiteral("calibrationHeadline"))->property("text").toString()
+                         .contains(QString::fromUtf8("正在重新校准")));
+        QVERIFY(!scene.item(QStringLiteral("calibrationProgress_pop_seen"))->isVisible());
+        QVERIFY(!scene.item(QStringLiteral("calibrationDiscardButton"))->isVisible());
+        QVERIFY(!scene.item(QStringLiteral("sharedCalibrationHeadline"))->isVisible());
+    }
+
+    void aProvisionalSharedProfileKeepsTheProvisionalWording()
+    {
+        // Plan §13: a queue-inferred shared profile that recorded its first duty keeps calibration
+        // looking for the real match message underneath it, so the Collector reports OBSERVING
+        // with that profile's id as local_profile_id. The card says it records and is still
+        // improving (the provisional wording), and the shared section names where it came from.
+        auto fake = std::make_unique<CaptureBackend>();
+        const QJsonObject shared{{QStringLiteral("phase"), QStringLiteral("VERIFIED")},
+                                 {QStringLiteral("candidates"), QJsonArray{}},
+                                 {QStringLiteral("last_fetch_status"), QStringLiteral("OK")},
+                                 {QStringLiteral("last_index_attempts"), QJsonArray{}},
+                                 {QStringLiteral("profile_id"), QStringLiteral("cn.2026.09.01.0000.0000.shared")},
+                                 {QStringLiteral("bound_at_utc"), QJsonValue::Null},
+                                 {QStringLiteral("last_refusal"), QJsonValue::Null},
+                                 {QStringLiteral("rejected_candidates"), 0},
+                                 {QStringLiteral("user_rejected"), false}};
+        fake->capture = {{QStringLiteral("ffxiv_running"), true},
+                         {QStringLiteral("state"), QStringLiteral("RUNNING")},
+                         {QStringLiteral("profile_status"), QStringLiteral("VERIFIED")},
+                         {QStringLiteral("profile_origin"), QStringLiteral("SHARED_CALIBRATION")},
+                         {QStringLiteral("calibration"), QJsonObject{
+                              {QStringLiteral("state"), QStringLiteral("OBSERVING")},
+                              {QStringLiteral("game_build"), QStringLiteral("2026.09.01.0000.0000")},
+                              {QStringLiteral("local_profile_id"), QStringLiteral("cn.2026.09.01.0000.0000.shared")},
+                              {QStringLiteral("blockers"), QJsonArray{}},
+                              {QStringLiteral("events"), QJsonArray{}},
+                              {QStringLiteral("shared"), shared}}}};
+        CardScene scene;
+        auto *source = fake.get();
+        scene.other = std::move(fake);
+        QVERIFY(scene.openOn(source, 760));
+        QTRY_VERIFY(scene.app->calibration()->provisional());
+        QTRY_VERIFY(scene.shared()->inUse());
+
+        QTRY_VERIFY(scene.item(QStringLiteral("calibrationHeadline"))->property("text").toString()
+                        .contains(QString::fromUtf8("已经可以正常记录导随了")));
+        auto *explanation = scene.item(QStringLiteral("calibrationExplanation"));
+        QVERIFY(explanation->isVisible());
+        QVERIFY(explanation->property("text").toString().contains(QString::fromUtf8("你申请了哪个随机任务")));
+        auto *sharedHeadline = scene.item(QStringLiteral("sharedCalibrationHeadline"));
+        QTRY_VERIFY(sharedHeadline->isVisible());
+        QVERIFY(sharedHeadline->property("text").toString().contains(QString::fromUtf8("已使用其他玩家分享的校准")));
+        QVERIFY(scene.item(QStringLiteral("sharedRejectButton"))->isVisible());
+        QStringList texts;
+        collectVisibleText(scene.card, texts);
+        verifyPlayerCopy(texts);
+    }
+
+    void importShowsTheRefusalAndClosesOnSuccess()
+    {
+        CardScene scene;
+        QVERIFY(scene.open(QStringLiteral("unavailable"), 760));
+        QTRY_VERIFY(scene.item(QStringLiteral("sharedImportButton"))->isVisible());
+        QVERIFY(QMetaObject::invokeMethod(scene.item(QStringLiteral("sharedImportButton")), "clicked"));
+        QObject *dialog = scene.dialog("importDialog");
+        QVERIFY(dialog);
+        QTRY_VERIFY(dialog->property("visible").toBool());
+
+        dialog->setProperty("code", QStringLiteral("not a code"));
+        QVERIFY(QMetaObject::invokeMethod(dialog, "submit"));
+        QTRY_VERIFY(!dialog->property("messageText").toString().isEmpty());
+        QVERIFY(dialog->property("messageText").toString().contains(QString::fromUtf8("这不是一份能识别的校准码")));
+        QVERIFY(dialog->property("visible").toBool());
+
+        dialog->setProperty("code", QLatin1String(kVectorCode));
+        QVERIFY(QMetaObject::invokeMethod(dialog, "submit"));
+        QTRY_VERIFY(!dialog->property("visible").toBool());
+        QTRY_COMPARE(scene.shared()->view(), QStringLiteral("verifying"));
+        QVERIFY(scene.app->toastMessage().contains(QString::fromUtf8("校准码已导入")));
+    }
+
+    void rejectAsksBeforeSending()
+    {
+        CardScene scene;
+        QVERIFY(scene.open(QStringLiteral("verifying"), 760));
+        QTRY_VERIFY(scene.item(QStringLiteral("sharedRejectButton"))->isVisible());
+        QVERIFY(QMetaObject::invokeMethod(scene.item(QStringLiteral("sharedRejectButton")), "clicked"));
+        QObject *dialog = scene.dialog("rejectDialog");
+        QVERIFY(dialog);
+        QTRY_VERIFY(dialog->property("visible").toBool());
+        QTest::qWait(50);
+        QCOMPARE(scene.backend->sharedCalibrationFixture(), QStringLiteral("verifying"));
+
+        auto *content = dialog->property("contentItem").value<QQuickItem *>();
+        auto *confirm = findVisualItem(content, QStringLiteral("sharedRejectConfirm"));
+        QVERIFY(confirm);
+        QVERIFY(QMetaObject::invokeMethod(confirm, "clicked"));
+        QTRY_VERIFY(!dialog->property("visible").toBool());
+        QTRY_COMPARE(scene.shared()->view(), QStringLiteral("user_rejected"));
+    }
+
+    void theConsentButtonAccepts()
+    {
+        CardScene scene;
+        QVERIFY(scene.open(QStringLiteral("consent"), 760));
+        QTRY_VERIFY(scene.item(QStringLiteral("sharedAcceptButton"))->isVisible());
+        QVERIFY(QMetaObject::invokeMethod(scene.item(QStringLiteral("sharedAcceptButton")), "clicked"));
+        QTRY_COMPARE(scene.shared()->view(), QStringLiteral("verified"));
+    }
+
+    void aNarrowCardWrapsItsButtons()
+    {
+        CardScene scene;
+        QVERIFY(scene.open(QStringLiteral("rejected"), 340));
+        QTRY_VERIFY(scene.item(QStringLiteral("sharedCheckButton"))->isVisible());
+        QTest::qWait(50);
+        for (const QString &name : kButtons) {
+            auto *button = scene.item(name);
+            if (!button->isVisible())
+                continue;
+            const QPointF at = button->mapToItem(scene.card, QPointF(0, 0));
+            QVERIFY2(at.x() >= 0 && at.x() + button->width() <= scene.card->width() + 0.5,
+                     qPrintable(QStringLiteral("%1 overflows: x=%2 w=%3 card=%4")
+                                    .arg(name).arg(at.x()).arg(button->width()).arg(scene.card->width())));
+        }
+    }
+
+    // -- 协议档案 card: sharing once the calibration card is gone --------------
+
+    void theProtocolCardOffersSharingAfterARestart()
+    {
+        // The normal state of the very player whose calibration is worth sharing: the app
+        // was started again, the local profile records, calibration is IDLE and its card -
+        // the other place 分享给其他玩家 appears - is not on the page at all.
+        PageScene scene;
+        QVERIFY(scene.open(QStringLiteral("idle"), QStringLiteral("share")));
+        QTRY_VERIFY(scene.shared()->canShare());
+        QTRY_VERIFY(scene.shows(QStringLiteral("protocolShareButton")));
+        QVERIFY(scene.shows(QStringLiteral("protocolShareHint")));
+        QVERIFY(!scene.shows(QStringLiteral("calibrationCard")));
+        QVERIFY(!scene.shows(QStringLiteral("sharedShareButton")));
+
+        QStringList texts;
+        collectVisibleText(scene.item(QStringLiteral("protocolProfileCard")), texts);
+        verifyPlayerCopy(texts);
+    }
+
+    void onlyOneShareButtonIsEverOnScreen()
+    {
+        // While the calibration card is up it is the card explaining the calibration that
+        // just finished, so it keeps the button; the protocol card steps aside rather than
+        // putting a second identical button on the same screen.
+        PageScene scene;
+        QVERIFY(scene.open(QStringLiteral("done"), QStringLiteral("share")));
+        QTRY_VERIFY(scene.shows(QStringLiteral("calibrationCard")));
+        QTRY_VERIFY(scene.shows(QStringLiteral("sharedShareButton")));
+        QVERIFY(!scene.shows(QStringLiteral("protocolShareButton")));
+        QVERIFY(!scene.shows(QStringLiteral("protocolShareHint")));
+    }
+
+    void bothShareButtonsTakeTheSamePath()
+    {
+        PageScene restarted;
+        QVERIFY(restarted.open(QStringLiteral("idle"), QStringLiteral("share")));
+        QTRY_VERIFY(restarted.shows(QStringLiteral("protocolShareButton")));
+        QVERIFY(QMetaObject::invokeMethod(restarted.item(QStringLiteral("protocolShareButton")), "clicked"));
+        QTRY_COMPARE(restarted.opened.size(), 1);
+
+        PageScene calibrated;
+        QVERIFY(calibrated.open(QStringLiteral("done"), QStringLiteral("share")));
+        QTRY_VERIFY(calibrated.shows(QStringLiteral("sharedShareButton")));
+        QVERIFY(QMetaObject::invokeMethod(calibrated.item(QStringLiteral("sharedShareButton")), "clicked"));
+        QTRY_COMPARE(calibrated.opened.size(), 1);
+
+        // Same request, same clipboard, same address, same sentence: one code path.
+        QCOMPARE(restarted.opened, calibrated.opened);
+        QCOMPARE(restarted.copied, calibrated.copied);
+        QVERIFY(!restarted.copied.isEmpty());
+        QVERIFY(restarted.opened.constFirst().startsWith(QStringLiteral("https://github.com/")));
+        QTRY_VERIFY(!restarted.app->toastMessage().isEmpty());
+        QTRY_COMPARE(restarted.app->toastMessage(), calibrated.app->toastMessage());
+        QVERIFY(restarted.app->toastMessage().contains(QString::fromUtf8("已在系统浏览器中打开")));
+    }
+
+    void onlyALocalCalibrationIsOfferedForSharing_data()
+    {
+        QTest::addColumn<QString>("origin");
+        // Someone else's calibration is never passed on, the shipped profile needs no
+        // sharing, and with no profile in force there is nothing to share yet.
+        QTest::newRow("shared") << "SHARED_CALIBRATION";
+        QTest::newRow("shipped") << "SHIPPED";
+        QTest::newRow("no-profile") << "";
+    }
+
+    void onlyALocalCalibrationIsOfferedForSharing()
+    {
+        QFETCH(QString, origin);
+
+        auto fake = std::make_unique<CaptureBackend>();
+        fake->capture = {{QStringLiteral("ffxiv_running"), true},
+                         {QStringLiteral("state"), QStringLiteral("RUNNING")},
+                         {QStringLiteral("profile_status"),
+                          origin.isEmpty() ? QStringLiteral("UNSUPPORTED_BUILD")
+                                           : QStringLiteral("VERIFIED")},
+                         {QStringLiteral("calibration"), QJsonObject{
+                              {QStringLiteral("state"), QStringLiteral("IDLE")},
+                              {QStringLiteral("blockers"), QJsonArray{}},
+                              {QStringLiteral("events"), QJsonArray{}},
+                              {QStringLiteral("shared"), sharedNone()}}}};
+        if (!origin.isEmpty())
+            fake->capture.insert(QStringLiteral("profile_origin"), origin);
+
+        PageScene scene;
+        auto *source = fake.get();
+        scene.other = std::move(fake);
+        QVERIFY(scene.openOn(source, 1180));
+        QTRY_VERIFY(scene.shared()->available());
+        QVERIFY(!scene.shared()->canShare());
+        QVERIFY(!scene.shows(QStringLiteral("protocolShareButton")));
+        QVERIFY(!scene.shows(QStringLiteral("protocolShareHint")));
+    }
+};
+
+int main(int argc, char **argv)
+{
+    // Never run against the user's own Collector, database or serve lease - see
+    // TestCollectorGuard.h. Must precede any construction.
+    mrtest::disableCollectorLaunch();
+    QStandardPaths::setTestModeEnabled(true);
+    QQuickStyle::setStyle(QStringLiteral("Basic"));
+    QGuiApplication app(argc, argv);
+#ifdef Q_OS_WIN
+    // Wrapping is measured in real glyphs; the offscreen platform finds no system fonts.
+    QStringList cjkFamilies;
+    const QString windowsDir = qEnvironmentVariable("WINDIR", QStringLiteral("C:/Windows"));
+    for (const char *file : {"Fonts/msyh.ttc", "Fonts/simhei.ttf"}) {
+        const int id = QFontDatabase::addApplicationFont(QDir(windowsDir).filePath(QString::fromLatin1(file)));
+        for (const QString &family : QFontDatabase::applicationFontFamilies(id)) {
+            if (!cjkFamilies.contains(family))
+                cjkFamilies.append(family);
+        }
+    }
+    if (cjkFamilies.isEmpty()) {
+        qCritical("SharedCalibrationCardTests requires a loadable Windows CJK font (msyh.ttc or simhei.ttf).");
+        return 6;
+    }
+    QFont testFont;
+    testFont.setFamilies(cjkFamilies);
+    app.setFont(testFont);
+#endif
+    SharedCalibrationCardTests tests;
+    return QTest::qExec(&tests, argc, argv);
+}
+
+#include "SharedCalibrationCardTests.moc"

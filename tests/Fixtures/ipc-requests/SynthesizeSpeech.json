@@ -1,0 +1,10 @@
+{
+    "message_type": "SynthesizeSpeech",
+    "payload": {
+        "rate_percent": 100,
+        "test": false,
+        "text": "匹配成功：导随任务，距离目标还差 12 次"
+    },
+    "protocol_version": 1,
+    "request_id": "11111111-2222-4333-8444-666666666703"
+}

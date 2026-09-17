@@ -1,0 +1,11 @@
+# Paths markdownlint-cli must not read. See .github/workflows/ci.yml.
+
+node_modules/
+build*/
+artifacts/
+openspec/
+
+# Local-only working material kept out of the repository by .gitignore; a checkout that
+# still has it must lint the same files CI does.
+docs/reviews/
+docs/plans/

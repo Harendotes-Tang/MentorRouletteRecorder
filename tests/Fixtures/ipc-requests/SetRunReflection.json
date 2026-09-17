@@ -1,0 +1,10 @@
+{
+    "message_type": "SetRunReflection",
+    "payload": {
+        "mood": "good",
+        "run_id": "6f1d2c3b-4a5e-4f60-8b7c-9d0e1f2a3b4c",
+        "text": "新人坦克第一次打灯塔，全程语音提醒机制，最后一个 boss 一次过。"
+    },
+    "protocol_version": 1,
+    "request_id": "11111111-2222-4333-8444-555555555555"
+}

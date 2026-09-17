@@ -1,0 +1,12 @@
+{
+    "message_type": "QueryCandidateObservations",
+    "payload": {
+        "session_id": null,
+        "from_utc": null,
+        "to_utc": null,
+        "page": 1,
+        "page_size": 50
+    },
+    "protocol_version": 1,
+    "request_id": "11111111-2222-4333-8444-555555555555"
+}

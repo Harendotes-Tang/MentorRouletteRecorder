@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "region": "CN",
+  "language": "zh-Hans",
+  "source": "thewakingsands/ffxiv-datamining-cn ContentRoulette.csv (community export of the Chinese client text; no licence file upstream, credited here as the source). Display data only: it never identifies a roulette and never makes a protocol profile usable. The roulette names are FINAL FANTASY XIV game text, © SQUARE ENIX CO., LTD., used for non-commercial display under the FINAL FANTASY XIV Materials Usage License with attribution.",
+  "updated_at_utc": "2026-09-07T00:00:00.000Z",
+  "provenance": {
+    "source_url": "https://raw.githubusercontent.com/thewakingsands/ffxiv-datamining-cn/master/ContentRoulette.csv",
+    "accessed_utc": "2026-09-07T00:00:00.000Z",
+    "note": "Ids 1,2,3,4,5,6,8,15,17 are the mapping this project has actually observed on the wire: the 2026-09-07 capture in which the player queued each roulette in list order and the client sent 5,8,2,1,6,3,4,17 (protocol-profiles/cn/cn.2026.08.05.json, calibration.finder_request.roulette_field evidence), confirmed again on 2026-09-12 when the player named 顶级迷宫 and 满级迷宫 for the ids the software had read as 5 and 8. An earlier version of this file carried the CSV's names against the wrong ids (5, 6, 8 and 17) and labelled the player's own evening wrongly. Ids this project has not observed are absent rather than guessed; id 9 (mentor) is the one exception and comes from the same CSV. This file is presentation-only -- it never identifies a roulette on the wire and never makes a protocol profile usable."
+  },
+  "roulettes": [
+    {
+      "roulette_id": 1,
+      "localized_name": "练级迷宫",
+      "enabled": true
+    },
+    {
+      "roulette_id": 2,
+      "localized_name": "拾级迷宫",
+      "enabled": true
+    },
+    {
+      "roulette_id": 3,
+      "localized_name": "主线任务",
+      "enabled": true
+    },
+    {
+      "roulette_id": 4,
+      "localized_name": "行会令",
+      "enabled": true
+    },
+    {
+      "roulette_id": 5,
+      "localized_name": "顶级迷宫",
+      "enabled": true
+    },
+    {
+      "roulette_id": 6,
+      "localized_name": "讨伐歼灭战",
+      "enabled": true
+    },
+    {
+      "roulette_id": 8,
+      "localized_name": "满级迷宫",
+      "enabled": true
+    },
+    {
+      "roulette_id": 9,
+      "localized_name": "指导者任务",
+      "enabled": true
+    },
+    {
+      "roulette_id": 15,
+      "localized_name": "团队任务",
+      "enabled": true
+    },
+    {
+      "roulette_id": 17,
+      "localized_name": "大型任务",
+      "enabled": true
+    }
+  ]
+}

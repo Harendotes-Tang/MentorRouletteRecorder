@@ -1,0 +1,137 @@
+name: CI
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # Push and pull-request runs filter out the Soak suite (see the verify step), so the only
+  # way to run it in CI is on demand: Actions -> CI -> Run workflow -> "Run the Soak suite".
+  workflow_dispatch:
+    inputs:
+      run_soak:
+        description: >-
+          同时运行 Soak 吞吐量套件（共享 runner 上吞吐量不稳定，可能误报）/
+          Also run the Soak throughput suite (a shared runner has no stable throughput
+          baseline, so a failure here may be the runner rather than the code)
+        type: boolean
+        default: false
+
+# One run per ref. Superseded pull-request runs are cancelled; pushes to main are not, because
+# every commit on main must be verified in its own right.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  verify:
+    name: Release verification (scripts/verify.ps1)
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 8.0.x
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install signature-tool test dependencies
+        shell: pwsh
+        run: |
+          python -m pip install capstone==5.0.9 pefile==2024.8.26
+          # Pin the scripts to this interpreter: install-qt-action below runs its own
+          # setup-python and moves pythonLocation (and `python` on PATH) to another release
+          # that does not have these packages.
+          "MR_PYTHON_EXE=$env:pythonLocation/python.exe" | Out-File $env:GITHUB_ENV -Append
+      - uses: jurplel/install-qt-action@v4
+        with:
+          # Pinned to the upstream commit that supports Qt 6.11's Windows mingw repository.
+          aqtsource: 'git+https://github.com/miurahr/aqtinstall.git@7e5a5c3d95cf962cfc2f36c86ffa0d2c07f1a0d4'
+          version: "6.11.2"
+          arch: win64_mingw
+          modules: qtgraphs qtmultimedia qtspeech qtquick3d qtshadertools qttasktree
+          tools: tools_mingw1310 tools_ninja tools_cmake
+
+      # The MR_* variables are the supported override for the example toolchain paths in
+      # scripts/build.ps1 and scripts/test.ps1. Setting them here keeps CI on the same
+      # scripts a maintainer runs locally, rather than a second copy of the build commands.
+      - name: Point the build scripts at the runner toolchain
+        shell: pwsh
+        run: |
+          $qt = $env:QT_ROOT_DIR.Replace('\', '/')
+          $tools = (Split-Path (Split-Path $qt)).Replace('\', '/')
+          "MR_QT_PREFIX=$qt"                            | Out-File $env:GITHUB_ENV -Append
+          "MR_MINGW_BIN=$tools/Tools/mingw1310_64/bin"   | Out-File $env:GITHUB_ENV -Append
+          "MR_NINJA_EXE=$tools/Tools/Ninja/ninja.exe"    | Out-File $env:GITHUB_ENV -Append
+          "MR_CMAKE_EXE=$tools/Tools/CMake_64/bin/cmake.exe" | Out-File $env:GITHUB_ENV -Append
+          "MR_CTEST_EXE=$tools/Tools/CMake_64/bin/ctest.exe" | Out-File $env:GITHUB_ENV -Append
+          # The Qt test binaries and the MinGW runtime have to be loadable when ctest runs
+          # them, and windres finds its preprocessor (gcc) through PATH.
+          "$qt/bin"                       | Out-File $env:GITHUB_PATH -Append
+          "$tools/Tools/mingw1310_64/bin" | Out-File $env:GITHUB_PATH -Append
+
+      # Independent of the build, so it runs first: a malformed profile is reported even on
+      # a run that later fails to compile.
+      - name: Protocol profiles validate
+        shell: pwsh
+        run: |
+          $profiles = Get-ChildItem protocol-profiles/cn/*.json, protocol-profiles/global/*.json, protocol-profiles/synthetic/*.json -File
+          if ($profiles.Count -eq 0) { throw 'No protocol profiles found' }
+          python tools/protocol-profile-validator/validate.py @($profiles.FullName)
+
+      - name: Restore
+        run: dotnet restore MentorRecorder.sln
+
+      # The whole release gate, including the Desktop<->real Collector ctest suites
+      # (MentorRecorderIpcIntegration, MentorRecorderLifecycle) - which is why
+      # scripts/build.ps1 stages the Collector next to both the Desktop executable and the
+      # test binaries.
+      #
+      #   * -TestFilter 'Category!=Soak' drops the soak suite only: it asserts a 5000 msg/s
+      #     throughput floor and a shared runner has no stable throughput baseline. That gate
+      #     runs in local release verification (docs/release-checklist.md) and in a manual
+      #     run of this workflow with "Run the Soak suite" ticked, which passes no filter. A
+      #     push or pull-request run is therefore not verify.ps1 with all gates.
+      #   * No -SkipGate is passed. Nothing here needs Npcap or a game client: the capture
+      #     gates assert compile-time boundary constants and accept "this machine cannot
+      #     capture right now" (exit code 1) as a correct answer.
+      - name: verify.ps1 (Release)
+        shell: pwsh
+        env:
+          RUN_SOAK: ${{ github.event_name == 'workflow_dispatch' && inputs.run_soak }}
+        run: |
+          if ($env:RUN_SOAK -eq 'true') {
+            Write-Host '手动触发并要求运行 Soak：不加任何测试筛选。'
+            pwsh -File scripts/verify.ps1 -Configuration Release
+          } else {
+            pwsh -File scripts/verify.ps1 -Configuration Release -TestFilter 'Category!=Soak'
+          }
+
+      # The TRX and JUnit files are the evidence behind the counts verify.ps1 printed, and are
+      # uploaded on failure too, which is when they are worth reading.
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-results
+          path: artifacts/test-results/
+          if-no-files-found: warn
+          retention-days: 14
+
+  markdown:
+    name: Markdown lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      # Scope: the documents a reader is pointed at. Rules are in .markdownlint.json;
+      # .markdownlintignore skips the local-only working material (docs/plans, docs/reviews,
+      # openspec) so a local run lints the same set of files as this job.
+      - name: markdownlint
+        run: npx --yes markdownlint-cli 'docs/**/*.md' 'README.md' 'CHANGELOG.md' 'CONTRIBUTING.md' 'SECURITY.md'

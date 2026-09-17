@@ -1,0 +1,33 @@
+# 共享校准码的提交表单。MentorRecorder 的「分享给其他玩家」按钮打开
+# issues/new?template=share-calibration.yml&title=...&code=...，查询参数 code 预填下面 id 为 code 的文本框。
+# 栏目标题（校准码、确认）与勾选项文字是 tools/issue.py 解析正文时找的字样，改动时两边一起改。
+name: 分享共享校准码
+description: 由 MentorRecorder 的「分享给其他玩家」打开并预填。提交后由 GitHub Action 自动校验、发布并回复结果。
+title: "[共享校准] "
+labels:
+  - share-calibration
+body:
+  - type: markdown
+    attributes:
+      value: |
+        这个页面由软件自动打开并填好，**一般不需要改动任何内容**，勾选下面的确认后直接提交即可。
+
+        - 校准码里只有这个客户端版本学到的几个报文编号和它依据的随包模板，不含角色、服务器、账号、时间、排过的任务或任何报文内容。
+        - 提交需要 GitHub 账号注册满 30 天；每个账号每个客户端版本只能提交一份校准码。
+        - 其他玩家的软件下载后会先在自己的本机流量里逐条核实，核实通过才会用来记录。
+        - 提交即表示同意这份校准码按 [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/legalcode) 公开（放弃权利，任何人可以任意使用）。
+  - type: textarea
+    id: code
+    attributes:
+      label: 校准码
+      description: 以 MRC1. 开头的一整行。软件没有自动填上时，把软件复制到剪贴板里的校准码原样粘贴进来，不要改动。
+      placeholder: MRC1.
+    validations:
+      required: true
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: 确认
+      options:
+        - label: 我在软件里逐条核对过校准时间线
+          required: true

@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "fixture_id": "mentor_interrupted_v1",
+  "description": "进入副本后事件序列出现空洞，判定为 INTERRUPTED，置信度 LOW。",
+  "contains_personal_data": false,
+  "profile": {
+    "profile_id": "synthetic/v1",
+    "mentor_roulette_id": 42,
+    "match_window_seconds": 45
+  },
+  "session": {
+    "capture_session_id": "10000000-0000-4000-8000-000000000014",
+    "started_at_utc": "2026-09-04T02:00:00.000Z"
+  },
+  "events": [
+    {
+      "kind": "CONTENT_FINDER_POP",
+      "event_key": "pop-1",
+      "observed_at_utc": "2026-09-04T02:00:01.000Z",
+      "monotonic_ms": 1000,
+      "roulette_id": 42,
+      "content_id": 900004
+    },
+    {
+      "kind": "ZONE_INITIALIZATION",
+      "event_key": "zone-1",
+      "observed_at_utc": "2026-09-04T02:00:05.000Z",
+      "monotonic_ms": 5000,
+      "content_id": 900004,
+      "territory_id": 800004,
+      "is_duty_instance": true
+    },
+    {
+      "kind": "PLAYER_JOB",
+      "event_key": "job-1",
+      "observed_at_utc": "2026-09-04T02:00:06.000Z",
+      "monotonic_ms": 6000,
+      "job_id": 21
+    },
+    {
+      "kind": "EVENT_SEQUENCE_GAP",
+      "event_key": "gap-1",
+      "observed_at_utc": "2026-09-04T02:00:45.000Z",
+      "monotonic_ms": 45000,
+      "dropped_count": 128
+    }
+  ]
+}

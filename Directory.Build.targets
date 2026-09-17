@@ -1,0 +1,68 @@
+<Project>
+
+  <!--
+    BOUNDARY-ALLOW: hard boundary enforcement, not an enablement.
+
+    The Machina.FFXIV NuGet package ships a native injection payload
+    (deucalion-*.dll, an injected in-process hook for the game) inside
+    lib/netstandard2.0/. This project uses only the Npcap / WinPCap
+    packet-capture path, so the payload must never be copied next to an
+    executable, even though it is never loaded.
+
+    These targets strip it from every project in the repository.
+    See docs/privacy-boundary.md and tools/static-boundary-check/.
+  -->
+  <Target Name="StripInjectionPayloadFromOutput" AfterTargets="ResolveReferences">
+    <ItemGroup>
+      <ReferenceCopyLocalPaths
+          Remove="@(ReferenceCopyLocalPaths)"
+          Condition="$([System.String]::Copy('%(ReferenceCopyLocalPaths.Filename)').ToLowerInvariant().StartsWith('deucalion'))" />
+    </ItemGroup>
+  </Target>
+
+  <Target Name="StripInjectionPayloadFromPublishItems" BeforeTargets="CopyFilesToPublishDirectory">
+    <ItemGroup>
+      <ResolvedFileToPublish
+          Remove="@(ResolvedFileToPublish)"
+          Condition="$([System.String]::Copy('%(ResolvedFileToPublish.Filename)').ToLowerInvariant().StartsWith('deucalion'))" />
+    </ItemGroup>
+  </Target>
+
+  <Target Name="ScrubInjectionPayloadFromPublishDir"
+          AfterTargets="Publish"
+          BeforeTargets="AssertNoInjectionPayloadInOutput"
+          Condition="'$(PublishDir)' != '' AND Exists('$(PublishDir)')">
+    <ItemGroup>
+      <_InjectionPayloadToDelete Include="$(PublishDir)**\deucalion*.dll" />
+    </ItemGroup>
+    <Delete Files="@(_InjectionPayloadToDelete)" />
+  </Target>
+
+  <!--
+    BOUNDARY-ALLOW: hard boundary enforcement, not an enablement.
+
+    This target verifies the strip above: after every build and publish it scans the output
+    folder for an injection payload and fails the build if one is present.
+
+    The strip runs on ReferenceCopyLocalPaths, which only covers payloads arriving through a
+    package reference. A payload could still reach the output another way - a Machina release
+    shipping it under a new name, a Content or None item, a stale file in bin/, a hand-copied
+    DLL - so the check must be on the artifact, not only on the input. This mirrors what
+    docs/privacy-boundary.md section 9 tells users to verify.
+
+    Failing the build is the correct severity: a release containing this file would break a
+    boundary the README states in plain language.
+  -->
+  <Target Name="AssertNoInjectionPayloadInOutput"
+          AfterTargets="Build;Publish"
+          Condition="'$(TargetDir)' != '' AND Exists('$(TargetDir)')">
+    <ItemGroup>
+      <_InjectionPayloadInOutput Include="$(TargetDir)**\deucalion*.dll" />
+      <_InjectionPayloadInOutput Include="$(PublishDir)**\deucalion*.dll" Condition="'$(PublishDir)' != ''" />
+    </ItemGroup>
+    <Error Condition="'@(_InjectionPayloadInOutput)' != ''"
+           Code="MRBOUNDARY001"
+           Text="边界违规 / boundary violation: an injection payload was found in the build output (@(_InjectionPayloadInOutput)). This project never ships or loads an injected in-process hook; see docs/privacy-boundary.md section 3. Remove the file and find out how it got there before building again." />
+  </Target>
+
+</Project>

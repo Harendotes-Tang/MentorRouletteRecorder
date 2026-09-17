@@ -1,0 +1,40 @@
+{
+  "exe_sha256": "e06704e3fa9c3bd43a0c8d238945163d7be14c5700cc4d350618b8ec1dd4e1a6",
+  "exe_size": 51952384,
+  "game_build": "2026.08.05.0000.0000",
+  "generated_at_utc": "2026-09-04T19:38:03Z",
+  "profile_sha256": "bf74fb5b1a5c18e153b619653b3f5db301145651752fd00a3eef2acfe350e2a4",
+  "region": "CN",
+  "reproduction": "checked",
+  "resolved_rvas": {
+    "OodleFree": "028E69D0",
+    "OodleMalloc": "028E69C8",
+    "OodleNetwork1TCP_Decode": "01E4A770",
+    "OodleNetwork1TCP_Encode": "01E43FD0",
+    "OodleNetwork1TCP_State_Size": "01E4A7B0",
+    "OodleNetwork1TCP_Train": "01E4A7C0",
+    "OodleNetwork1UDP_Decode": "01E4A910",
+    "OodleNetwork1UDP_Encode": "01E445E0",
+    "OodleNetwork1UDP_State_Size": "01E4AFB0",
+    "OodleNetwork1UDP_Train": "01E4B460",
+    "OodleNetwork1_Shared_SetWindow": "01E4C800",
+    "OodleNetwork1_Shared_Size": "01E4C930"
+  },
+  "schema_version": 1,
+  "signatures": {
+    "OodleFree": "48 8b cb f3 ab 4d 85 c0 74 ?? 49 8b c8 ff 15",
+    "OodleMalloc": "41 be 00 00 00 40 ba 10 00 00 00 49 8b ce ff 15",
+    "OodleNetwork1TCP_Decode": "4c 8b 11 48 89 6c ** ** 4d 85 d2 74 ** 49 8b ca e8",
+    "OodleNetwork1TCP_Encode": "48 8b ** 48 8d ** ** ** c6 44 ** ** ** 49 8b ** 48 89 44 ** ** e8",
+    "OodleNetwork1TCP_State_Size": "48 8b 7f ** 48 85 f6 75 ** 48 89 ** ** e8 ** ** ** ** 4c ** ** e8",
+    "OodleNetwork1TCP_Train": "41 83 ** 01 75 ** 48 8b 0f e8",
+    "OodleNetwork1UDP_Decode": "74 ** 49 8b ca e8 ** ** ** ** eb ** 48 8b 49 ** e8",
+    "OodleNetwork1UDP_Encode": "48 83 c7 02 4d 8b c4 48 89 7c ** ** e8",
+    "OodleNetwork1UDP_State_Size": "48 8b 7f ** 48 85 f6 75 ** 48 89 ** ** e8",
+    "OodleNetwork1UDP_Train": "41 83 ** 01 75 ** 48 8b 0f e8 ** ** ** ** eb ** 48 8b 4f ** e8",
+    "OodleNetwork1_Shared_SetWindow": "4c 8b 43 ** 41 b9 00 00 10 00 ba ** 00 00 00 48 89 43 ** 48 8b c8 e8",
+    "OodleNetwork1_Shared_Size": "48 83 7b ** 00 75 ** b9 11 00 00 00 e8"
+  },
+  "source": "tools/oodle-signature-finder",
+  "status": "VERIFIED"
+}

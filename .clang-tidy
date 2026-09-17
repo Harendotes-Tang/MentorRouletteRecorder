@@ -1,0 +1,57 @@
+# clang-tidy configuration for the Qt/C++ Desktop tree (src/Desktop/cpp, tests/Desktop.Tests).
+#
+# scripts/static-analysis.ps1 runs clang-tidy against build/compile_commands.json with this
+# file; an IDE that embeds clangd reads it as well. Checks are opted in group by group and a
+# few members of each group are opted out again, each for a reason a maintainer can revisit:
+#
+#   misc-const-correctness                  hundreds of "could be const" locals; no defect class
+#   misc-include-cleaner                    Qt's umbrella headers make include-what-you-use noise
+#   misc-non-private-member-variables...    Host/fixture structs are deliberately plain
+#   modernize-use-auto / -trailing-return   style choices this code base did not make
+#   modernize-use-nodiscard                 would touch every getter
+#   modernize-avoid-c-arrays                Qt tables (kDuties[] and friends) are C arrays on purpose
+#   readability-redundant-access-specifiers a Q_OBJECT class repeats public:/private: around
+#                                           Q_SLOTS / Q_SIGNALS sections by design
+#   readability-magic-numbers / -length     UI geometry and short loop variables
+#   readability-braces-around-statements    the code base writes single-statement if bodies
+#   readability-implicit-bool-conversion    `if (ptr)` / `if (!list.isEmpty())` are the Qt idiom
+#   cppcoreguidelines-special-member-...    QObject subclasses rely on Q_DISABLE_COPY/QObject
+#   bugprone-easily-swappable-parameters    (QString, QString) parameter pairs are everywhere
+#
+# Analyzer path diagnostics whose location is inside a Qt header (QPointer/QSharedPointer
+# reference counting reads as use-after-free to the analyzer) are reported by clang-tidy
+# regardless of HeaderFilterRegex; the script separates them from findings in this repository.
+Checks: >
+  -*,
+  bugprone-*,
+  -bugprone-easily-swappable-parameters,
+  clang-analyzer-*,
+  cppcoreguidelines-init-variables,
+  cppcoreguidelines-pro-type-member-init,
+  cppcoreguidelines-slicing,
+  cppcoreguidelines-virtual-class-destructor,
+  misc-*,
+  -misc-const-correctness,
+  -misc-include-cleaner,
+  -misc-no-recursion,
+  -misc-non-private-member-variables-in-classes,
+  -misc-use-anonymous-namespace,
+  modernize-*,
+  -modernize-avoid-c-arrays,
+  -modernize-use-auto,
+  -modernize-use-nodiscard,
+  -modernize-use-trailing-return-type,
+  performance-*,
+  readability-*,
+  -readability-braces-around-statements,
+  -readability-convert-member-functions-to-static,
+  -readability-else-after-return,
+  -readability-function-cognitive-complexity,
+  -readability-identifier-length,
+  -readability-implicit-bool-conversion,
+  -readability-magic-numbers,
+  -readability-named-parameter,
+  -readability-redundant-access-specifiers,
+  -readability-uppercase-literal-suffix
+HeaderFilterRegex: '(src[/\\]Desktop[/\\]cpp|tests[/\\]Desktop\.Tests)[/\\]'
+FormatStyle: none

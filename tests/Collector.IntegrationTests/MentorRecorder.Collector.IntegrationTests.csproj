@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <AssemblyName>MentorRecorder.Collector.IntegrationTests</AssemblyName>
+    <RootNamespace>MentorRecorder.Collector.IntegrationTests</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+
+    <!--
+      Draft 2020-12 validator. The contract tests validate every response and
+      every live event the Collector writes against contracts/ipc-v1.schema.json,
+      so an undeclared field fails the build instead of reaching a client.
+    -->
+    <PackageReference Include="JsonSchema.Net" Version="7.3.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Collector\MentorRecorder.Collector.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      The fixtures are the executable form of docs/state-machine.md; the integration suite
+      replays every one of them, so they travel with the test binaries.
+    -->
+    <None Include="..\Fixtures\**\*" Link="Fixtures\%(RecursiveDir)%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

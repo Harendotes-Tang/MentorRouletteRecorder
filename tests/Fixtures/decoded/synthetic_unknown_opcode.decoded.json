@@ -1,0 +1,44 @@
+{
+  "fixture_id": "synthetic_unknown_opcode",
+  "format_version": 1,
+  "synthetic": true,
+  "description": "夹杂一条档案未声明的 opcode：只计数，不记录内容，其余流程照常完成。",
+  "profile": "synthetic-v1",
+  "game_build": "synthetic-build-1",
+  "capture_session_id": "20000000-0000-4000-8000-000000000008",
+  "started_at_utc": "2026-09-04T03:00:00.000Z",
+  "messages": [
+    {
+      "t_ms": 0,
+      "direction": "SERVER_TO_CLIENT",
+      "segment_type": 61440,
+      "opcode": 61441,
+      "epoch": 0,
+      "payload_hex": "2a000000a1bb0d00"
+    },
+    {
+      "t_ms": 1000,
+      "direction": "SERVER_TO_CLIENT",
+      "segment_type": 61440,
+      "opcode": 60000,
+      "epoch": 1000,
+      "payload_hex": "deadbeef"
+    },
+    {
+      "t_ms": 5000,
+      "direction": "SERVER_TO_CLIENT",
+      "segment_type": 61440,
+      "opcode": 61442,
+      "epoch": 5000,
+      "payload_hex": "01350c00a1bb0d000700000001000000"
+    },
+    {
+      "t_ms": 125000,
+      "direction": "SERVER_TO_CLIENT",
+      "segment_type": 61440,
+      "opcode": 61443,
+      "epoch": 125000,
+      "payload_hex": "01000000"
+    }
+  ]
+}

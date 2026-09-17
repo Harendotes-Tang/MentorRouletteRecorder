@@ -1,0 +1,28 @@
+{
+  "fixture_id": "synthetic_constraint_fail",
+  "format_version": 1,
+  "synthetic": true,
+  "description": "roulette_id = 0 违反档案声明的 min=1：计一次 E_FIELD_CONSTRAINT，不创建任何记录。",
+  "profile": "synthetic-v1",
+  "game_build": "synthetic-build-1",
+  "capture_session_id": "20000000-0000-4000-8000-000000000009",
+  "started_at_utc": "2026-09-04T03:00:00.000Z",
+  "messages": [
+    {
+      "t_ms": 0,
+      "direction": "SERVER_TO_CLIENT",
+      "segment_type": 61440,
+      "opcode": 61441,
+      "epoch": 0,
+      "payload_hex": "00000000a1bb0d00"
+    },
+    {
+      "t_ms": 5000,
+      "direction": "SERVER_TO_CLIENT",
+      "segment_type": 61440,
+      "opcode": 61442,
+      "epoch": 5000,
+      "payload_hex": "01350c00a1bb0d000700000001000000"
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+    "message_type": "ConfirmCalibration",
+    "payload": {
+        "verdicts": [
+            { "event_id": "finder_request-60000", "verdict": "CORRECT" },
+            { "event_id": "pop-120000", "verdict": "CORRECT" },
+            { "event_id": "duty_enter-124000", "verdict": "CORRECT" },
+            { "event_id": "duty_exit-214000", "verdict": "CORRECT" }
+        ]
+    },
+    "protocol_version": 1,
+    "request_id": "11111111-2222-4333-8444-666666666601"
+}

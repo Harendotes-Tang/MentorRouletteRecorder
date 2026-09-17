@@ -1,0 +1,2 @@
+# 这个数据仓库只受理共享校准码；空白 Issue 没有人处理，所以关闭。
+blank_issues_enabled: false

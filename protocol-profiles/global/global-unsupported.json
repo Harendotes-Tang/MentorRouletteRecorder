@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "profile_id": "global-unsupported",
+  "region": "GLOBAL",
+  "game_build": "unknown",
+  "generated_at": "2026-09-04T00:00:00.000Z",
+  "mentor_roulette_id": null,
+  "compatibility_status": "UNSUPPORTED",
+  "messages": [],
+  "fixtures": [],
+  "provenance": {
+    "summary": "no verified capture yet — 国际服没有任何经过验证的抓包证据。本档案是占位符：它不声明任何 opcode、任何结构偏移、任何 mentor_roulette_id。Collector 对国际服 fail-closed，StartCapture 返回 ERR_PROFILE_UNSUPPORTED。要把它换成真实档案，见 protocol-profiles/global/README.md 中的证据清单。",
+    "capture_fixture": null,
+    "capture_fixture_sha256": null,
+    "evidence": []
+  },
+  "profile_sha256": "8cc235669ed0d27f7a19bd71c4eac88e8ba12eda509d978f7a627b88412ca979"
+}

@@ -1,0 +1,44 @@
+// Application icon and VERSIONINFO for MentorRecorder.Desktop.exe.
+//
+// TEMPLATE - src/Desktop/CMakeLists.txt runs configure_file() over this file into
+// ${CMAKE_CURRENT_BINARY_DIR}/app.rc and copies app.ico beside it. Every version
+// field below comes from Directory.Build.props/<Version> by way of the root
+// CMakeLists.txt, so Explorer's "Details" tab, MentorRecorder.Desktop.exe
+// --version and the installer can no longer disagree. Never write a literal
+// version here.
+//
+// The icon is named relatively and copied next to the generated script on
+// purpose: windres resolves it against the script's own directory, and it cannot
+// open a path that contains non-ASCII characters (this repository's name is
+// intentionally Chinese). The icon itself is original artwork - see
+// resources/app/README.md.
+IDI_ICON1 ICON "app.ico"
+
+1 VERSIONINFO
+ FILEVERSION @MR_VERSION_MAJOR@,@MR_VERSION_MINOR@,@MR_VERSION_PATCH@,0
+ PRODUCTVERSION @MR_VERSION_MAJOR@,@MR_VERSION_MINOR@,@MR_VERSION_PATCH@,0
+ FILEFLAGSMASK 0x3fL
+ FILEFLAGS 0x0L
+ FILEOS 0x40004L
+ FILETYPE 0x1L
+ FILESUBTYPE 0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"
+        BEGIN
+            VALUE "CompanyName", "MentorRecorder contributors\0"
+            VALUE "FileDescription", "MentorRecorder Desktop\0"
+            VALUE "FileVersion", "@MR_VERSION@.0\0"
+            VALUE "InternalName", "MentorRecorder.Desktop\0"
+            VALUE "LegalCopyright", "GPL-3.0-or-later\0"
+            VALUE "OriginalFilename", "MentorRecorder.Desktop.exe\0"
+            VALUE "ProductName", "MentorRecorder\0"
+            VALUE "ProductVersion", "@MR_VERSION@\0"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0409, 1200
+    END
+END

@@ -1,0 +1,10 @@
+{
+    "message_type": "RestoreRun",
+    "payload": {
+        "expected_revision": 4,
+        "reason": "重复记录",
+        "run_id": "9f1d3f2a-6b47-4a01-9a52-8c0d7f1e4b33"
+    },
+    "protocol_version": 1,
+    "request_id": "11111111-2222-4333-8444-555555555555"
+}

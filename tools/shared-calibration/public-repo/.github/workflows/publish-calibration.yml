@@ -1,0 +1,105 @@
+# 共享校准的自动发布 / Automatic publishing of shared calibrations.
+#
+# Maintained in the MentorRecorder repository under tools/shared-calibration/public-repo/ and copied
+# here by tools/shared-calibration/sync_public_repo.py.
+#
+# Security:
+# * The issue title, the body and the submitter's login are untrusted. No `run:` script contains an
+#   expression. Scripts receive the event file path; `env:` carries only trusted values (the token,
+#   the repository name, the issue number). Only tools/publish.py reads issue text, from the event
+#   file, and every value it hands back to the shell is validated first.
+# * The default GITHUB_TOKEN is the only credential: contents: write and issues: write, nothing else.
+# * publish.py prints each result as one line of ASCII JSON, so issue text can never begin a line of
+#   the log and be taken for a workflow command.
+# * Both jobs share one concurrency group (set on the jobs, so an event whose job is skipped never
+#   takes part) and a running job is never cancelled, so two submissions never race on index.json.
+#   A push that still loses a race (a maintainer pushed) is redone from the new main.
+# * GitHub keeps only ONE pending job per concurrency group and cancels older pending ones. During a
+#   burst some submission jobs therefore never start; the scheduled sweep answers every open
+#   submission that is still unanswered.
+name: publish-calibration
+
+on:
+  issues:
+    types: [opened, edited, labeled]
+  schedule:
+    - cron: "17,47 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  publish:
+    name: Publish a submitted share code
+    if: >-
+      github.event_name == 'issues' &&
+      github.event.issue.state == 'open' &&
+      contains(github.event.issue.labels.*.name, 'share-calibration') &&
+      (github.event.action != 'labeled' || github.event.label.name == 'share-calibration')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: publish-calibration
+      cancel-in-progress: false
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Validate, publish and reply
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: bash tools/publish_issue.sh "$GITHUB_EVENT_PATH"
+
+      - name: Tell the submitter that the workflow failed
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          set -euo pipefail
+          if [ ! -e "$RUNNER_TEMP/publish-$ISSUE_NUMBER/replied" ]; then
+            gh issue comment "$ISSUE_NUMBER" --body '自动发布没有完成（工作流出错），维护者会查看。这不是你的校准码的问题，请不要重复提交。'
+            gh issue edit "$ISSUE_NUMBER" --add-label needs-maintainer
+          fi
+
+  sweep:
+    name: Answer submissions a cancelled job left open
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    concurrency:
+      group: publish-calibration
+      cancel-in-progress: false
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Publish every open submission without an answer
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: bash tools/sweep_issues.sh

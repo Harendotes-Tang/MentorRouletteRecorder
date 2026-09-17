@@ -1,0 +1,112 @@
+{
+  "schema_version": 1,
+  "profile_id": "synthetic-cn-shape-v1",
+  "region": "UNKNOWN",
+  "game_build": "synthetic-build-3",
+  "generated_at": "2026-09-08T00:00:00.000Z",
+  "mentor_roulette_id": 42,
+  "compatibility_status": "SYNTHETIC",
+  "match_window_seconds": 45,
+  "messages": [
+    {
+      "name": "CONTENT_FINDER_POP",
+      "opcode": 61451,
+      "direction": "SERVER_TO_CLIENT",
+      "segment_type": 61440,
+      "expected_length": 8,
+      "fields": [
+        {
+          "name": "roulette_id",
+          "offset": 0,
+          "type": "u16",
+          "endian": "little",
+          "constraints": {
+            "min": 1
+          }
+        }
+      ]
+    },
+    {
+      "name": "ZONE_INITIALIZATION",
+      "opcode": 61452,
+      "direction": "SERVER_TO_CLIENT",
+      "segment_type": 61440,
+      "expected_length": 8,
+      "fields": []
+    },
+    {
+      "name": "ZONE_TERRITORY",
+      "opcode": 61453,
+      "direction": "SERVER_TO_CLIENT",
+      "segment_type": 61440,
+      "expected_length": 136,
+      "fields": [
+        {
+          "name": "territory_id",
+          "offset": 2,
+          "type": "u32",
+          "endian": "little",
+          "constraints": {
+            "min": 1
+          }
+        }
+      ]
+    },
+    {
+      "name": "PLAYER_JOB",
+      "opcode": 61454,
+      "direction": "SERVER_TO_CLIENT",
+      "segment_type": 61440,
+      "expected_length": 16,
+      "fields": [
+        {
+          "name": "job_id",
+          "offset": 0,
+          "type": "u8",
+          "constraints": {
+            "min": 1,
+            "max": 43
+          }
+        }
+      ]
+    }
+  ],
+  "fixtures": [
+    {
+      "path": "../../tests/Fixtures/decoded/synthetic_territory_duty.decoded.json",
+      "sha256": "399eeafed035658749294c5ce065ea737a622c38d22b198685155d2ef0717b2d"
+    }
+  ],
+  "provenance": {
+    "summary": "SYNTHETIC — invented by this project for offline tests. It has the SHAPE of the shipped CN profile and none of its values: a pop that names no content, an entry marker with no readable field at all, and a separate territory announcement that arrives just before it. That shape is what the CN client actually produces, and it is the only way an offline fixture can exercise the run learning its duty from a territory rather than from a content id (docs/state-machine.md section 3.11). Every opcode, offset and length below is made up and is evidence of nothing. The profile is loaded only when a path is passed explicitly (--profile / --replay-decoded) and is refused by live profile selection unless allow_synthetic is set; packaging deletes protocol-profiles/synthetic/ outright.",
+    "capture_fixture": null,
+    "capture_fixture_sha256": null,
+    "evidence": [
+      {
+        "field": "messages.*.opcode",
+        "method": "SYNTHETIC",
+        "recorded_at_utc": "2026-09-08T00:00:00.000Z",
+        "sample_count": 0,
+        "url": null,
+        "note": "Invented values in the 61451..61454 range, chosen so that they read as obviously synthetic and cannot collide with synthetic-v1's 61441..61447. Not observed anywhere."
+      },
+      {
+        "field": "messages.ZONE_TERRITORY.fields.territory_id",
+        "method": "SYNTHETIC",
+        "recorded_at_utc": "2026-09-08T00:00:00.000Z",
+        "sample_count": 0,
+        "url": null,
+        "note": "Offset 2 mirrors the offset the CN profile declares; the width is widened to u32 so that the invented sample territory 800001 from data/duties/cn.sample.json fits. The CN u16 read at that offset is covered by ProtocolParserTests instead."
+      },
+      {
+        "field": "mentor_roulette_id",
+        "method": "SYNTHETIC",
+        "recorded_at_utc": "2026-09-08T00:00:00.000Z",
+        "sample_count": 0,
+        "url": null,
+        "note": "42, the same invented value every other offline fixture uses."
+      }
+    ]
+  },
+  "profile_sha256": "603cb86b698c3e0df5acb00d4879860adc3fa7fc8ddb4705afbf417cd9c03c23"
+}

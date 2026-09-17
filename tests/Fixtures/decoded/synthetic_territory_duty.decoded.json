@@ -1,0 +1,52 @@
+{
+  "fixture_id": "synthetic_territory_duty",
+  "format_version": 1,
+  "synthetic": true,
+  "description": "登录时播报职业、匹配到导随、区域播报、进本标记不带任何字段、再一次换区离开：记录靠区域播报拿到副本名，靠登录时的播报拿到职业。",
+  "profile": "synthetic-cn-shape-v1",
+  "game_build": "synthetic-build-3",
+  "capture_session_id": "20000000-0000-4000-8000-000000000011",
+  "started_at_utc": "2026-09-04T03:00:00.000Z",
+  "messages": [
+    {
+      "t_ms": 0,
+      "direction": "SERVER_TO_CLIENT",
+      "segment_type": 61440,
+      "opcode": 61454,
+      "epoch": 0,
+      "payload_hex": "13000000000000000000000000000000"
+    },
+    {
+      "t_ms": 10000,
+      "direction": "SERVER_TO_CLIENT",
+      "segment_type": 61440,
+      "opcode": 61451,
+      "epoch": 10000,
+      "payload_hex": "2a00000000000000"
+    },
+    {
+      "t_ms": 19950,
+      "direction": "SERVER_TO_CLIENT",
+      "segment_type": 61440,
+      "opcode": 61453,
+      "epoch": 19950,
+      "payload_hex": "070001350c0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "t_ms": 20000,
+      "direction": "SERVER_TO_CLIENT",
+      "segment_type": 61440,
+      "opcode": 61452,
+      "epoch": 20000,
+      "payload_hex": "0000000000000000"
+    },
+    {
+      "t_ms": 80000,
+      "direction": "SERVER_TO_CLIENT",
+      "segment_type": 61440,
+      "opcode": 61452,
+      "epoch": 80000,
+      "payload_hex": "0000000000000000"
+    }
+  ]
+}

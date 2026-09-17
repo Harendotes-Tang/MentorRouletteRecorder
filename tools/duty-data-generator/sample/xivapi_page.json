@@ -1,0 +1,110 @@
+{
+  "schema": "exdschema@2:rev:SAMPLE",
+  "version": "sample-version",
+  "rows": [
+    {
+      "row_id": 1,
+      "fields": {
+        "ClassJobLevelRequired": 24,
+        "ContentMemberType": {
+          "value": 2,
+          "sheet": "ContentMemberType",
+          "row_id": 2,
+          "fields": { "MembersPerParty": 4, "PartyCount": 1 }
+        },
+        "ContentType": {
+          "value": 2,
+          "sheet": "ContentType",
+          "row_id": 2,
+          "fields": { "Name": "Dungeons" }
+        },
+        "Name": "Sample Dungeon One",
+        "TerritoryType": {
+          "value": 1039,
+          "sheet": "TerritoryType",
+          "row_id": 1039,
+          "fields": {
+            "ExVersion": {
+              "value": 0,
+              "sheet": "ExVersion",
+              "row_id": 0,
+              "fields": { "Name": "A Realm Reborn" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "row_id": 2,
+      "fields": {
+        "ClassJobLevelRequired": 50,
+        "ContentMemberType": {
+          "value": 3,
+          "sheet": "ContentMemberType",
+          "row_id": 3,
+          "fields": { "MembersPerParty": 8, "PartyCount": 3 }
+        },
+        "ContentType": {
+          "value": 4,
+          "sheet": "ContentType",
+          "row_id": 4,
+          "fields": { "Name": "Trials" }
+        },
+        "Name": "Sample Trial Two",
+        "TerritoryType": {
+          "value": 1040,
+          "sheet": "TerritoryType",
+          "row_id": 1040,
+          "fields": {
+            "ExVersion": {
+              "value": 1,
+              "sheet": "ExVersion",
+              "row_id": 1,
+              "fields": { "Name": "Heavensward" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "row_id": 3,
+      "fields": {
+        "ClassJobLevelRequired": 0,
+        "ContentType": {
+          "value": 0,
+          "sheet": "ContentType",
+          "row_id": 0,
+          "fields": { "Name": "" }
+        },
+        "Name": "",
+        "TerritoryType": { "value": 0 }
+      }
+    },
+    {
+      "row_id": 4,
+      "fields": {
+        "ClassJobLevelRequired": 90,
+        "ContentType": {
+          "value": 99,
+          "sheet": "ContentType",
+          "row_id": 99,
+          "fields": { "Name": "Something Nobody Mapped" }
+        },
+        "Name": "Sample Unmapped Four",
+        "TerritoryType": {
+          "value": 1041,
+          "sheet": "TerritoryType",
+          "row_id": 1041,
+          "fields": {
+            "ExVersion": {
+              "value": 4,
+              "sheet": "ExVersion",
+              "row_id": 4,
+              "fields": { "Name": "Endwalker" }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

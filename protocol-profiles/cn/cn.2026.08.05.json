@@ -1,0 +1,210 @@
+{
+  "schema_version": 1,
+  "profile_id": "cn.2026.08.05",
+  "region": "CN",
+  "game_build": "2026.08.05.0000.0000",
+  "generated_at": "2026-09-07T06:00:00.000Z",
+  "mentor_roulette_id": 9,
+  "compatibility_status": "VERIFIED",
+  "match_window_seconds": 120,
+  "messages": [
+    {
+      "name": "CONTENT_FINDER_POP",
+      "opcode": 803,
+      "direction": "SERVER_TO_CLIENT",
+      "expected_length": 40,
+      "fields": [
+        {
+          "name": "finder_state",
+          "offset": 9,
+          "type": "u8",
+          "role": "selector",
+          "constraints": {
+            "in": [
+              3
+            ]
+          }
+        },
+        {
+          "name": "roulette_id",
+          "offset": 16,
+          "type": "u8",
+          "constraints": {
+            "min": 1,
+            "max": 255
+          }
+        }
+      ]
+    },
+    {
+      "name": "ZONE_INITIALIZATION",
+      "opcode": 330,
+      "direction": "SERVER_TO_CLIENT",
+      "expected_length": 456,
+      "fields": []
+    },
+    {
+      "name": "ZONE_TERRITORY",
+      "opcode": 653,
+      "direction": "SERVER_TO_CLIENT",
+      "expected_length": 136,
+      "fields": [
+        {
+          "name": "territory_id",
+          "offset": 2,
+          "type": "u16",
+          "endian": "little",
+          "constraints": {
+            "min": 1
+          }
+        }
+      ]
+    },
+    {
+      "name": "PLAYER_JOB",
+      "opcode": 848,
+      "direction": "SERVER_TO_CLIENT",
+      "expected_length": 16,
+      "fields": [
+        {
+          "name": "job_id",
+          "offset": 0,
+          "type": "u8",
+          "constraints": {
+            "min": 1,
+            "max": 43
+          }
+        }
+      ]
+    }
+  ],
+  "fixtures": [],
+  "provenance": {
+    "summary": "国服 2026.08.05 的正式档案。判定副本进入/离开的仍然只有两条本机流量里稳定复现的消息：副本查找器状态更新（S2C 0x0323，40 字节，第 16 字节为 ContentRoulette 编号，第 9 字节 = 3 表示已匹配）与区域初始化（S2C 0x014a，456 字节，每次换区恰好一次）。另外两条只负责给记录补上“是哪个副本、用的什么职业”，不参与任何状态判定：ZONE_TERRITORY（S2C 0x028d，136 字节，偏移 2 的小端 u16 为 TerritoryType）与 PLAYER_JOB（S2C 0x0350，16 字节，偏移 0 的 u8 为 ClassJob）。这两条的 opcode 与长度取自 FFXIVOpcodes 的 CN 7.55a 表，并已在本机冷登录抓包里按 opcode + 长度复现；**字段偏移取自 Sapphire 的公开结构体定义，还没有用本机负载样本核对过**，取得一次副本内采样后必须回来确认。没有 DUTY_RESULT：离开副本的记录以 UNKNOWN 收尾并标记待复核，由用户确认是否通关；候选档案 cn.2026.08.05.candidate 的副本内采样用于定位通关报文。指导者任务编号 9 来自国服 ContentRoulette 表，尚未在本机流量中以弹窗形式观察到。",
+    "capture_fixture": null,
+    "capture_fixture_sha256": null,
+    "evidence": [
+      {
+        "field": "messages.CONTENT_FINDER_POP.opcode",
+        "method": "OBSERVED_LOCAL_TRAFFIC",
+        "recorded_at_utc": "2026-09-07T04:00:00.000Z",
+        "sample_count": 20,
+        "url": null,
+        "note": "2026-09-06 导出 candidate-evidence-20260906-163024 四条负载：练级迷宫弹窗 15:42:50Z / 15:44:27Z（字节 9 = 3，字节 16 = 1）、拾级迷宫弹窗 16:15:38Z（字节 9 = 3，字节 16 = 2）、离开副本后 16:14:33Z（字节 9 = 1，字节 16 = 2）；2026-09-07 导出 candidate-evidence-20260907-034302 十六条回执，字节 16 依次回带申请的编号 5、8、2、1、6、3、4、17，字节 9 = 5 或 7。因此只有字节 9 = 3 才当作弹窗；申请回执与离开后的状态更新被约束拒绝。"
+      },
+      {
+        "field": "messages.CONTENT_FINDER_POP.fields.roulette_id",
+        "method": "USER_CONFIRMED",
+        "recorded_at_utc": "2026-09-07T04:00:00.000Z",
+        "sample_count": 10,
+        "url": null,
+        "note": "用户核对：2026-09-06 两场分别为练级迷宫与拾级迷宫（沉没神殿斯卡拉遗迹），弹窗字节 16 读出 1 与 2；2026-09-07 按列表顺序申请顶级、满级、拾级、练级、讨伐、主线、行会令、大型，回执字节 16 读出 5、8、2、1、6、3、4、17，与国服 ContentRoulette 编号完全一致。"
+      },
+      {
+        "field": "messages.ZONE_INITIALIZATION.opcode",
+        "method": "OBSERVED_LOCAL_TRAFFIC",
+        "recorded_at_utc": "2026-09-07T04:00:00.000Z",
+        "sample_count": 31,
+        "url": null,
+        "note": "S2C 0x014a（456 字节）在 2026-09-06 导出的全部 29 个换区簇和 2026-09-07 的 2 个换区簇里各恰好出现一次，排本窗口采样里从未在簇外出现；登录、传送、进本、离开都会触发。档案不带 is_duty_instance 字段，进本与离开由状态机按顺序判定。"
+      },
+      {
+        "field": "mentor_roulette_id",
+        "method": "PUBLIC_DOCUMENTATION",
+        "recorded_at_utc": "2026-09-07T04:00:00.000Z",
+        "sample_count": 0,
+        "url": "https://raw.githubusercontent.com/thewakingsands/ffxiv-datamining-cn/master/ContentRoulette.csv",
+        "note": "国服 ContentRoulette 表（thewakingsands/ffxiv-datamining-cn，2026-09-07 访问）第 9 行为“随机任务：指导者任务”。同表：练级迷宫 1、拾级迷宫 2、主线任务 3、行会令 4、顶级迷宫 5、讨伐歼灭战 6、满级迷宫 8、团队任务 15、大型任务 17，这九个编号已在本机流量中按上面两条证据逐一对上。指导者任务本身尚无弹窗样本。"
+      },
+      {
+        "field": "match_window_seconds",
+        "method": "OBSERVED_LOCAL_TRAFFIC",
+        "recorded_at_utc": "2026-09-07T04:00:00.000Z",
+        "sample_count": 3,
+        "url": null,
+        "note": "2026-09-06 练级迷宫在 15:42:50Z 与 15:44:27Z 各出现一次弹窗（相隔 97 秒，应为他人未确认后的重新匹配），15:44:32Z 进本；拾级迷宫弹窗到进本 6 秒；2026-09-06 凌晨一场为 24 秒。窗口取 120 秒，避免重新匹配被记成一次“匹配后未进入”。"
+      },
+      {
+        "field": "messages.ZONE_TERRITORY.opcode",
+        "method": "PUBLIC_DOCUMENTATION",
+        "recorded_at_utc": "2026-09-08T00:00:00.000Z",
+        "sample_count": 8,
+        "url": "https://github.com/karashiiro/FFXIVOpcodes",
+        "note": "FFXIVOpcodes（karashiiro/FFXIVOpcodes，opcodes.json，region CN，version \"7.55a\"，2026-09-08 访问）那张表与本机 2026.08.05 客户端逐条对上：ActorControlSelf 0x035d/40B、PlayerStats 0x0325/144B、PlaceFieldMarkerPreset 0x0149/104B、ClientTrigger C2S 0x0357/32B、ItemInfo 0x013a/64B、ContainerInfo 0x0218/16B、WeatherChange 0x03b5/8B、PlayerSetup 0x03dd/2952B，八条的 opcode 与长度都在本机冷登录抓包 artifacts/cold-trace-20260905-130537-e3ea26f8/trace.jsonl 里出现（该文件只有 op/len/dir/seq/t_ms，不含任何负载）。同一张表把 0x028d(653) 记为 InitZone、0x0350(848) 记为 UpdateClassInfo。"
+      },
+      {
+        "field": "messages.ZONE_TERRITORY.opcode",
+        "method": "OBSERVED_LOCAL_TRAFFIC",
+        "recorded_at_utc": "2026-09-08T00:00:00.000Z",
+        "sample_count": 1,
+        "url": null,
+        "note": "冷登录抓包 artifacts/cold-trace-20260905-130537-e3ea26f8/trace.jsonl 里 S2C 0x028d 长度 136，在登录换区簇中恰好出现一次（seq 671），比本档案已验证的进本标记 0x014a/456B（seq 717）早约 47 毫秒。只有这一次登录样本，因此它只用来补齐副本名，不参与进本/离开的判定——那仍然只由 0x014a 决定。"
+      },
+      {
+        "field": "messages.ZONE_TERRITORY.fields.territory_id",
+        "method": "PUBLIC_DOCUMENTATION",
+        "recorded_at_utc": "2026-09-08T00:00:00.000Z",
+        "sample_count": 0,
+        "url": "https://github.com/SapphireServer/Sapphire/blob/master/src/common/Network/PacketDef/Zone/ServerZoneDef.h",
+        "note": "Sapphire（SapphireServer/Sapphire，src/common/Network/PacketDef/Zone/ServerZoneDef.h，2026-09-08 访问）的 FFXIVIpcInitZone 结构为 { uint16 ZoneId; uint16 TerritoryType; uint16 TerritoryIndex; … }，因此 TerritoryType 是偏移 2 的小端 u16。**该偏移来自公开结构体，尚未用本机负载样本核对过**：本项目至今没有留存过 0x028d 的负载。约束 min 1 会挡掉全零负载；万一偏移错了，读出的值多半不在 data/duties/cn.2026-09-04.json 的 632 个 territory_id 里，记录只会留下一个无法解释的 territory_id 而不会写错副本名。取得一次副本内负载采样后必须回来确认。"
+      },
+      {
+        "field": "messages.PLAYER_JOB.opcode",
+        "method": "PUBLIC_DOCUMENTATION",
+        "recorded_at_utc": "2026-09-08T00:00:00.000Z",
+        "sample_count": 8,
+        "url": "https://github.com/karashiiro/FFXIVOpcodes",
+        "note": "FFXIVOpcodes（karashiiro/FFXIVOpcodes，opcodes.json，region CN，version \"7.55a\"，2026-09-08 访问）那张表与本机 2026.08.05 客户端逐条对上：ActorControlSelf 0x035d/40B、PlayerStats 0x0325/144B、PlaceFieldMarkerPreset 0x0149/104B、ClientTrigger C2S 0x0357/32B、ItemInfo 0x013a/64B、ContainerInfo 0x0218/16B、WeatherChange 0x03b5/8B、PlayerSetup 0x03dd/2952B，八条的 opcode 与长度都在本机冷登录抓包 artifacts/cold-trace-20260905-130537-e3ea26f8/trace.jsonl 里出现（该文件只有 op/len/dir/seq/t_ms，不含任何负载）。同一张表把 0x028d(653) 记为 InitZone、0x0350(848) 记为 UpdateClassInfo。"
+      },
+      {
+        "field": "messages.PLAYER_JOB.opcode",
+        "method": "OBSERVED_LOCAL_TRAFFIC",
+        "recorded_at_utc": "2026-09-08T00:00:00.000Z",
+        "sample_count": 2,
+        "url": null,
+        "note": "同一份冷登录抓包里 S2C 0x0350 长度 16，在登录换区簇中出现两次，与 FFXIVOpcodes CN 7.55a 表登记的 UpdateClassInfo（0x0350）在 opcode 与长度上都一致。"
+      },
+      {
+        "field": "messages.PLAYER_JOB.fields.job_id",
+        "method": "PUBLIC_DOCUMENTATION",
+        "recorded_at_utc": "2026-09-08T00:00:00.000Z",
+        "sample_count": 0,
+        "url": "https://github.com/SapphireServer/Sapphire/blob/master/src/common/Network/PacketDef/Zone/ServerZoneDef.h",
+        "note": "Sapphire 的 FFXIVIpcPlayerStatusUpdate（即 UpdateClassInfo）为 { uint8 ClassJob; uint8 pad; uint16 Lv; uint16 Lv1; uint16 LvSync; uint32 Exp; uint32 RestPoint; } 共 16 字节，ClassJob 是偏移 0 的 u8。**该偏移同样来自公开结构体，尚未用本机负载样本核对过**；约束 min 1 / max 43 对齐 data/jobs/jobs.json 的 1..43，越界值会让整条消息被拒绝，而不是写进记录。"
+      },
+      {
+        "field": "calibration.finder_request.roulette_field",
+        "method": "OBSERVED_LOCAL_TRAFFIC",
+        "recorded_at_utc": "2026-09-07T04:00:00.000Z",
+        "sample_count": 8,
+        "url": null,
+        "note": "2026-09-07 本机导出 candidate-evidence-20260907-034302：用户按列表顺序逐个申请再取消八种随机任务，每次客户端发出一条 C2S 0x034b、24 字节的报文，第 0 字节依次为 5、8、2、1、6、3、4、17，与 ContentRoulette 表完全一致；每条之后 50 到 180 毫秒内服务器以同一 opcode 0x0323、40 字节回执，第 16 字节回传同一编号。校准模板只记录形状（方向、长度、编号偏移）和回执时限，不记录 opcode：换版本后 opcode 会变，形状不变，这一对“请求 + 回执”是新版本上重新认出两条报文的依据。"
+      },
+      {
+        "field": "calibration.finder_request.roulette_field",
+        "method": "USER_CONFIRMED",
+        "recorded_at_utc": "2026-09-07T04:00:00.000Z",
+        "sample_count": 8,
+        "url": null,
+        "note": "用户确认 2026-09-07 那次会话是按列表顺序逐个申请随机任务再取消，八次动作与八对报文一一对应。"
+      }
+    ]
+  },
+  "profile_sha256": "8c6ffec309e0597f723a09e5c787759475828aaf6152402d3c94a24af92b3cd1",
+  "calibration": {
+    "finder_request": {
+      "direction": "CLIENT_TO_SERVER",
+      "expected_length": 24,
+      "roulette_field": {
+        "name": "roulette_id",
+        "offset": 0,
+        "type": "u8",
+        "constraints": {
+          "min": 1,
+          "max": 255
+        }
+      }
+    },
+    "finder_reply_max_ms": 1000
+  }
+}

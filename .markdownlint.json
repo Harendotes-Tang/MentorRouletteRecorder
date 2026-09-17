@@ -1,0 +1,37 @@
+{
+  "$comment": "Rule set for the documents CI lints (see .github/workflows/ci.yml and .markdownlintignore). Disabled rules are the ones this repository's prose deliberately breaks. Structural rules - reversed links, empty links, table column counts, ordered-list numbering, missing final newline - stay on.",
+  "default": true,
+
+  "$comment-MD004": "Nested '+' bullets are used as a second level marker in docs/ui-design.md.",
+  "MD004": false,
+
+  "$comment-MD013": "Chinese prose is wrapped by meaning, not by column; an 80-column rule would rewrap every paragraph in the repository.",
+  "MD013": false,
+
+  "$comment-MD022": "Chinese section headings are written tight against their list.",
+  "MD022": false,
+
+  "$comment-MD024": "A changelog repeats '新增'/'修复' under every version heading; only duplicates under the same parent are a mistake.",
+  "MD024": { "siblings_only": true },
+
+  "$comment-MD028": "Multi-paragraph note blocks are written as consecutive blockquotes.",
+  "MD028": false,
+
+  "$comment-MD032": "See MD022 - lists follow their heading directly.",
+  "MD032": false,
+
+  "$comment-MD033": "README.md uses an inline <img> for the application icon.",
+  "MD033": false,
+
+  "$comment-MD034": "Bare upstream URLs are quoted verbatim in the third-party licence notes.",
+  "MD034": false,
+
+  "$comment-MD036": "Bold run-in labels (**A.** / **B.**) are used inside procedures.",
+  "MD036": false,
+
+  "$comment-MD040": "Several fences hold verbatim console output, which has no language.",
+  "MD040": false,
+
+  "$comment-MD060": "The dense CJK tables in docs/ are aligned for source readability, not to one pipe style.",
+  "MD060": false
+}

@@ -1,0 +1,261 @@
+{
+  "$comment": [
+    "Forbidden-identifier rules for the MentorRecorder hard boundary.",
+    "The patterns live in this data file (not in check.py) so that the",
+    "checker's own source contains no literal match. This directory is",
+    "itself excluded from the scan. See docs/privacy-boundary.md.",
+    "",
+    "'contracts/' is deliberately not scanned: the IPC schema states the boundary",
+    "in prose ('no TCP, no WebSocket'), which is documentation, not code.",
+    "'scan_dirs' are walked recursively; 'scan_files' are individual files",
+    "relative to the repository root (the root CMakeLists.txt and the shared",
+    "MSBuild files live there and would otherwise never be looked at).",
+    "",
+    "Every 'pattern' is a Python regular expression matched per line.",
+    "A line containing the allow_marker is skipped (use it only for",
+    "boundary-enforcing code that must name a forbidden symbol).",
+    "",
+    "A rule may name the files it does not apply to. 'allow_paths' lists",
+    "repository-relative, forward-slash FILE paths matched exactly (not by file",
+    "or directory name); 'allow_path_prefixes' lists directory prefixes that must",
+    "end in '/'. Each allowance lifts only its own rule, and every one must be",
+    "explained in docs/privacy-boundary.md (NET-006/NET-007: sections 8.2 and 8.3).",
+    "",
+    "A rule id may be declared more than once when every entry names a distinct",
+    "'variant' (lower-case token). Violations are still reported under the id; each",
+    "entry has its own pattern and its own allowances, so the shared-calibration",
+    "client may name its CDN hosts but not the speech host, and the online-speech",
+    "client the speech host but not the CDN hosts."
+  ],
+  "version": 3,
+  "allow_marker": "BOUNDARY-ALLOW",
+  "scan_dirs": [
+    "src",
+    "tests",
+    "tools",
+    "scripts"
+  ],
+  "exclude_dirs": [
+    ".git",
+    ".vs",
+    "TestResults",
+    "Testing",
+    "__pycache__",
+    "artifacts",
+    "bin",
+    "build",
+    "node_modules",
+    "obj",
+    "packages",
+    "static-boundary-check"
+  ],
+  "include_extensions": [
+    ".bat",
+    ".cc",
+    ".cmake",
+    ".cmd",
+    ".cpp",
+    ".cs",
+    ".csproj",
+    ".cxx",
+    ".h",
+    ".hpp",
+    ".js",
+    ".json",
+    ".mjs",
+    ".props",
+    ".ps1",
+    ".psm1",
+    ".py",
+    ".qml",
+    ".qrc",
+    ".sh",
+    ".sln",
+    ".targets",
+    ".txt",
+    ".ui",
+    ".yaml",
+    ".yml"
+  ],
+  "max_file_bytes": 4194304,
+  "rules": [
+    {
+      "id": "INJ-001",
+      "category": "process-injection",
+      "pattern": "\\bReadProcessMemory\\b",
+      "message": "读取其他进程内存被禁止 / reading another process's memory is forbidden"
+    },
+    {
+      "id": "INJ-002",
+      "category": "process-injection",
+      "pattern": "\\bWriteProcessMemory\\b",
+      "message": "写入其他进程内存被禁止 / writing another process's memory is forbidden"
+    },
+    {
+      "id": "INJ-003",
+      "category": "process-injection",
+      "pattern": "\\bVirtualAllocEx\\b",
+      "message": "在其他进程中分配内存被禁止 / remote memory allocation is forbidden"
+    },
+    {
+      "id": "INJ-004",
+      "category": "process-injection",
+      "pattern": "\\bCreateRemoteThread\\b",
+      "message": "远程线程注入被禁止 / remote thread injection is forbidden"
+    },
+    {
+      "id": "INJ-005",
+      "category": "process-injection",
+      "pattern": "\\bSetWindowsHookEx\\w*\\b",
+      "message": "全局/远程消息钩子被禁止 / installing Windows hooks is forbidden"
+    },
+    {
+      "id": "INJ-006",
+      "category": "process-injection",
+      "pattern": "\\bNtWriteVirtualMemory\\b|\\bNtCreateThreadEx\\b|\\bQueueUserAPC\\b",
+      "message": "底层注入原语被禁止 / low-level injection primitives are forbidden"
+    },
+    {
+      "id": "INJ-007",
+      "category": "process-injection",
+      "pattern": "\\bOpenProcess\\b|\\bNtOpenProcess\\b|\\bDebugActiveProcess\\b",
+      "message": "禁止打开游戏进程句柄；只允许进程存在性检查与系统 TCP 表 / opening a handle to another process is forbidden; only process existence checks and the system TCP table are allowed"
+    },
+    {
+      "id": "DEU-001",
+      "category": "injected-hook",
+      "pattern": "UseDeucalion\\s*(=|:)\\s*(true|1|\\$true)",
+      "message": "Deucalion 注入式钩子必须保持关闭 / the Deucalion injected hook must stay disabled"
+    },
+    {
+      "id": "DEU-002",
+      "category": "injected-hook",
+      "pattern": "\\bDeucalion(Client|Injector|Message|Broadcast)\\w*\\b",
+      "message": "禁止使用 Deucalion 注入式抓包 API / the Deucalion injected-capture API must not be used"
+    },
+    {
+      "id": "DEU-003",
+      "category": "injected-hook",
+      "pattern": "deucalion[-_][0-9A-Za-z.]*\\.dll",
+      "message": "禁止引用/分发 Deucalion 注入载荷 / the Deucalion injection payload must not be referenced or shipped"
+    },
+    {
+      "id": "DEU-004",
+      "category": "injected-hook",
+      "pattern": "\\bInjectLibrary\\b|\\bValidateLibraryChecksum\\b",
+      "message": "禁止调用注入载荷的加载入口 / the injection payload's loader entry points must not be called"
+    },
+    {
+      "id": "CAP-001",
+      "category": "packet-send",
+      "pattern": "\\bpcap_sendpacket\\b",
+      "message": "禁止发送数据包 / sending packets is forbidden (capture is strictly passive)"
+    },
+    {
+      "id": "CAP-002",
+      "category": "packet-send",
+      "pattern": "\\bpcap_inject\\b",
+      "message": "禁止注入数据包 / injecting packets is forbidden (capture is strictly passive)"
+    },
+    {
+      "id": "CAP-003",
+      "category": "capture-mode",
+      "pattern": "NetworkMonitorType\\s*\\.\\s*RawSocket",
+      "message": "只允许 Npcap/WinPCap 抓包模式，禁止 RawSocket 回退 / only the Npcap (WinPCap) monitor type is allowed, no raw-socket fallback"
+    },
+    {
+      "id": "CAP-004",
+      "category": "capture-mode",
+      "pattern": "\\bRawCaptureSocket\\b",
+      "message": "只允许 Npcap/WinPCap 抓包，禁止使用 raw socket 抓包实现 / only the Npcap (WinPCap) capture socket is allowed, never the raw-socket one"
+    },
+    {
+      "id": "CAP-005",
+      "category": "packet-persistence",
+      "pattern": "\\bpcap_dump\\w*\\b|\\bpcap_breakloop\\b",
+      "message": "禁止把原始报文写入抓包文件 / dumping raw packets to a capture file is forbidden"
+    },
+    {
+      "id": "CAP-006",
+      "category": "capture-mode",
+      "pattern": "DllImport\\s*\\(\\s*\"(?i:wpcap|packet\\.dll|npcap)",
+      "message": "禁止直接 P/Invoke pcap 原生库，抓包只经由 Machina 的 WinPCap 监视器 / no direct P/Invoke into the pcap native libraries; capture goes through Machina's WinPCap monitor only"
+    },
+    {
+      "id": "NET-001",
+      "category": "network-listener",
+      "pattern": "\\w*HttpListener\\b",
+      "message": "禁止 HTTP 监听器，进程间通信只允许命名管道 / no HTTP listener; IPC is Named Pipe only"
+    },
+    {
+      "id": "NET-002",
+      "category": "network-listener",
+      "pattern": "\\w*TcpListener\\b",
+      "message": "禁止 TCP 监听器，进程间通信只允许命名管道 / no TCP listener; IPC is Named Pipe only"
+    },
+    {
+      "id": "NET-003",
+      "category": "network-listener",
+      "pattern": "WebSocket\\w*",
+      "message": "禁止 WebSocket，进程间通信只允许命名管道 / no WebSocket; IPC is Named Pipe only"
+    },
+    {
+      "id": "NET-004",
+      "category": "network-listener",
+      "pattern": "\\bKestrel\\b|Microsoft\\.AspNetCore",
+      "message": "禁止内嵌 Web 服务器 / no embedded web server"
+    },
+    {
+      "id": "NET-005",
+      "category": "network-listener",
+      "pattern": "\\bQTcpServer\\b|\\bQHttpServer\\b|\\bQWebSocketServer\\b|\\bQLocalServer\\b",
+      "message": "桌面端不得监听任何端口或管道，只作为命名管道客户端 / the Desktop process must not listen; it is a Named Pipe client only"
+    },
+    {
+      "id": "NET-006",
+      "category": "outbound-network",
+      "pattern": "\\bHttpClient\\b|\\bWebClient\\b|\\bQNetworkAccessManager\\b",
+      "message": "禁止外发网络请求；例外只有共享校准获取客户端与在线语音客户端（docs/privacy-boundary.md §8.2、§8.3） / no outbound network requests; the only exceptions are the shared-calibration fetch client and the online-speech client (docs/privacy-boundary.md sections 8.2 and 8.3)",
+      "allow_paths": [
+        "src/Collector/Protocol/Sharing/SharedCalibrationClient.cs",
+        "src/Collector/Speech/OnlineSpeechClient.cs"
+      ]
+    },
+    {
+      "id": "NET-007",
+      "variant": "shared-calibration-hosts",
+      "category": "outbound-network",
+      "pattern": "(?i:jsdelivr|githubusercontent)",
+      "message": "共享校准数据源的主机名只允许出现在获取客户端、公开仓库脚本目录与开发期数据生成器 / shared-calibration source host names may only appear in the fetch client, tools/shared-calibration/ and the dev-time duty-data generator",
+      "allow_paths": [
+        "src/Collector/Protocol/Sharing/SharedCalibrationClient.cs",
+        "tools/duty-data-generator/generate.py"
+      ],
+      "allow_path_prefixes": [
+        "tools/shared-calibration/"
+      ]
+    },
+    {
+      "id": "NET-007",
+      "variant": "speech-host",
+      "category": "outbound-network",
+      "pattern": "(?i:tts\\.speech\\.microsoft\\.com)",
+      "message": "在线语音服务的主机名只允许出现在在线语音客户端（docs/privacy-boundary.md §8.3） / the online-speech host name may only appear in the online-speech client (docs/privacy-boundary.md section 8.3)",
+      "allow_paths": [
+        "src/Collector/Speech/OnlineSpeechClient.cs"
+      ]
+    },
+    {
+      "id": "AUT-001",
+      "category": "game-automation",
+      "pattern": "\\bSendInput\\b|\\bkeybd_event\\b|\\bmouse_event\\b",
+      "message": "禁止任何形式的游戏自动化/模拟输入 / synthetic input and game automation are forbidden"
+    }
+  ],
+  "scan_files": [
+    "CMakeLists.txt",
+    "Directory.Build.props",
+    "Directory.Build.targets",
+    "MentorRecorder.sln"
+  ]
+}

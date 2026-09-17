@@ -1,0 +1,129 @@
+# ---- .NET ----
+bin/
+obj/
+*.user
+*.suo
+*.userprefs
+.vs/
+artifacts/
+TestResults/
+*.nupkg
+*.snupkg
+
+# ---- CMake / C++ / Qt ----
+build/
+build-*/
+CMakeUserPresets.json
+CMakeCache.txt
+CMakeFiles/
+CMakeLists.txt.user*
+cmake-build-*/
+*.o
+*.obj
+*.exe
+*.dll
+*.pdb
+*.ilk
+*.qmlc
+*.jsc
+*.autosave
+.qmlls.ini
+
+# ---- Python tooling ----
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+.coverage
+htmlcov/
+*.egg-info/
+
+# ---- Node tooling (markdownlint via npx) ----
+node_modules/
+package-lock.json
+
+# ---- Secrets / local environment ----
+.env
+.env.*
+*.pfx
+*.p12
+*.snk
+*.pem
+*.key
+
+# ---- SQLite databases (never commit user data) ----
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# ---- Capture / diagnostic artifacts (may contain packet data) ----
+*.pcap
+*.pcapng
+captures/
+logs/
+*.log
+
+# ---- Bug-report media (screen recordings and their frame dumps) ----
+*.mp4
+*.mkv
+*.mov
+*.webm
+*.gif
+
+# ---- Export / packaging output ----
+exports/
+*.zip
+*.7z
+*.rar
+mr-pkg-verify-*/
+
+# ---- Test result files (TRX + coverage) ----
+# scripts/test.ps1 writes TRX here; the counts it reports are the artifact, not the file.
+artifacts/test-results/
+*.trx
+*.coverage
+coverage.*.xml
+
+# ---- Editor backups / scratch ----
+*.bak
+*.orig
+*.rej
+*.tmp
+*~
+
+# ---- Agent scaffolding, working documents and local agent state ----
+# Only what a clone needs to build, test, package and understand the product is tracked.
+# Everything below is developer working material that stays in the local checkout:
+#   .claude/ .superpowers/  agent harness state (user name, home-directory layout, caches)
+#   openspec/               spec-driven change proposals and their build/test evidence
+#   docs/plans/             implementation plans for past batches of work
+#   docs/reviews/           point-in-time review transcripts
+#   docs/diagrams/          generated architecture diagram plus the drawing tool's receipts
+# scripts/package.ps1 removes the docs/ entries from the staging directory as well, so a
+# package built from a local checkout matches one built from a fresh clone.
+.claude/
+.superpowers/
+openspec/
+docs/plans/
+docs/reviews/
+docs/diagrams/
+
+# ---- IDE / OS ----
+.idea/
+.vscode/
+.qtcreator/
+.serial_mcp/
+Thumbs.db
+desktop.ini
+.DS_Store
+*.swp
+
+# ---- Not part of the public repository ----
+# Design hand-off exports (private working material) and local tool logs.
+DOC/
+aqtinstall.log

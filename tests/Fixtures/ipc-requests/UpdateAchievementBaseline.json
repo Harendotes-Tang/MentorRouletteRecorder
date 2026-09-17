@@ -1,0 +1,11 @@
+{
+    "message_type": "UpdateAchievementBaseline",
+    "payload": {
+        "baseline_completed_count": 137,
+        "baseline_effective_at": "2026-09-04T12:00:00.000Z",
+        "goal_count": 2000,
+        "reason": "首次设定基线"
+    },
+    "protocol_version": 1,
+    "request_id": "11111111-2222-4333-8444-555555555555"
+}

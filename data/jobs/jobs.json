@@ -1,0 +1,330 @@
+{
+  "version": 1,
+  "schema_version": 1,
+  "language": "zh-Hans",
+  "source": "job id / abbreviation / English name from the public xivapi v2 ClassJob sheet (https://v2.xivapi.com/api/sheet/ClassJob, exdschema rev 83e965d0, accessed 2026-09-04); Simplified Chinese names and the six role groups are maintained by this project, because the public endpoint does not serve Chinese. No game file, asset or binary is copied here - only an id-to-name mapping, per docs/privacy-boundary.md section 7.",
+  "role_values": [
+    "坦克",
+    "治疗",
+    "近战",
+    "远程物理",
+    "魔法",
+    "其他"
+  ],
+  "role_to_stat_role": {
+    "坦克": "TANK",
+    "治疗": "HEALER",
+    "近战": "DPS",
+    "远程物理": "DPS",
+    "魔法": "DPS",
+    "其他": "UNKNOWN"
+  },
+  "unknown": {
+    "name_zh": "未知",
+    "role": "未知"
+  },
+  "updated_at_utc": "2026-09-04T00:00:00.000Z",
+  "jobs": [
+    {
+      "job_id": 1,
+      "abbreviation": "GLA",
+      "name_en": "gladiator",
+      "name_zh": "剑术师",
+      "role": "坦克"
+    },
+    {
+      "job_id": 2,
+      "abbreviation": "PGL",
+      "name_en": "pugilist",
+      "name_zh": "格斗家",
+      "role": "近战"
+    },
+    {
+      "job_id": 3,
+      "abbreviation": "MRD",
+      "name_en": "marauder",
+      "name_zh": "斧术师",
+      "role": "坦克"
+    },
+    {
+      "job_id": 4,
+      "abbreviation": "LNC",
+      "name_en": "lancer",
+      "name_zh": "枪术师",
+      "role": "近战"
+    },
+    {
+      "job_id": 5,
+      "abbreviation": "ARC",
+      "name_en": "archer",
+      "name_zh": "弓箭手",
+      "role": "远程物理"
+    },
+    {
+      "job_id": 6,
+      "abbreviation": "CNJ",
+      "name_en": "conjurer",
+      "name_zh": "幻术师",
+      "role": "治疗"
+    },
+    {
+      "job_id": 7,
+      "abbreviation": "THM",
+      "name_en": "thaumaturge",
+      "name_zh": "咒术师",
+      "role": "魔法"
+    },
+    {
+      "job_id": 8,
+      "abbreviation": "CRP",
+      "name_en": "carpenter",
+      "name_zh": "刻木匠",
+      "role": "其他"
+    },
+    {
+      "job_id": 9,
+      "abbreviation": "BSM",
+      "name_en": "blacksmith",
+      "name_zh": "锻铁匠",
+      "role": "其他"
+    },
+    {
+      "job_id": 10,
+      "abbreviation": "ARM",
+      "name_en": "armorer",
+      "name_zh": "铸甲匠",
+      "role": "其他"
+    },
+    {
+      "job_id": 11,
+      "abbreviation": "GSM",
+      "name_en": "goldsmith",
+      "name_zh": "雕金匠",
+      "role": "其他"
+    },
+    {
+      "job_id": 12,
+      "abbreviation": "LTW",
+      "name_en": "leatherworker",
+      "name_zh": "制革匠",
+      "role": "其他"
+    },
+    {
+      "job_id": 13,
+      "abbreviation": "WVR",
+      "name_en": "weaver",
+      "name_zh": "裁衣匠",
+      "role": "其他"
+    },
+    {
+      "job_id": 14,
+      "abbreviation": "ALC",
+      "name_en": "alchemist",
+      "name_zh": "炼金术士",
+      "role": "其他"
+    },
+    {
+      "job_id": 15,
+      "abbreviation": "CUL",
+      "name_en": "culinarian",
+      "name_zh": "烹调师",
+      "role": "其他"
+    },
+    {
+      "job_id": 16,
+      "abbreviation": "MIN",
+      "name_en": "miner",
+      "name_zh": "采矿工",
+      "role": "其他"
+    },
+    {
+      "job_id": 17,
+      "abbreviation": "BTN",
+      "name_en": "botanist",
+      "name_zh": "园艺工",
+      "role": "其他"
+    },
+    {
+      "job_id": 18,
+      "abbreviation": "FSH",
+      "name_en": "fisher",
+      "name_zh": "捕鱼人",
+      "role": "其他"
+    },
+    {
+      "job_id": 19,
+      "abbreviation": "PLD",
+      "name_en": "paladin",
+      "name_zh": "骑士",
+      "role": "坦克"
+    },
+    {
+      "job_id": 20,
+      "abbreviation": "MNK",
+      "name_en": "monk",
+      "name_zh": "武僧",
+      "role": "近战"
+    },
+    {
+      "job_id": 21,
+      "abbreviation": "WAR",
+      "name_en": "warrior",
+      "name_zh": "战士",
+      "role": "坦克"
+    },
+    {
+      "job_id": 22,
+      "abbreviation": "DRG",
+      "name_en": "dragoon",
+      "name_zh": "龙骑士",
+      "role": "近战"
+    },
+    {
+      "job_id": 23,
+      "abbreviation": "BRD",
+      "name_en": "bard",
+      "name_zh": "吟游诗人",
+      "role": "远程物理"
+    },
+    {
+      "job_id": 24,
+      "abbreviation": "WHM",
+      "name_en": "white mage",
+      "name_zh": "白魔法师",
+      "role": "治疗"
+    },
+    {
+      "job_id": 25,
+      "abbreviation": "BLM",
+      "name_en": "black mage",
+      "name_zh": "黑魔法师",
+      "role": "魔法"
+    },
+    {
+      "job_id": 26,
+      "abbreviation": "ACN",
+      "name_en": "arcanist",
+      "name_zh": "秘术师",
+      "role": "魔法"
+    },
+    {
+      "job_id": 27,
+      "abbreviation": "SMN",
+      "name_en": "summoner",
+      "name_zh": "召唤师",
+      "role": "魔法"
+    },
+    {
+      "job_id": 28,
+      "abbreviation": "SCH",
+      "name_en": "scholar",
+      "name_zh": "学者",
+      "role": "治疗"
+    },
+    {
+      "job_id": 29,
+      "abbreviation": "ROG",
+      "name_en": "rogue",
+      "name_zh": "双剑师",
+      "role": "近战"
+    },
+    {
+      "job_id": 30,
+      "abbreviation": "NIN",
+      "name_en": "ninja",
+      "name_zh": "忍者",
+      "role": "近战"
+    },
+    {
+      "job_id": 31,
+      "abbreviation": "MCH",
+      "name_en": "machinist",
+      "name_zh": "机工士",
+      "role": "远程物理"
+    },
+    {
+      "job_id": 32,
+      "abbreviation": "DRK",
+      "name_en": "dark knight",
+      "name_zh": "暗黑骑士",
+      "role": "坦克"
+    },
+    {
+      "job_id": 33,
+      "abbreviation": "AST",
+      "name_en": "astrologian",
+      "name_zh": "占星术士",
+      "role": "治疗"
+    },
+    {
+      "job_id": 34,
+      "abbreviation": "SAM",
+      "name_en": "samurai",
+      "name_zh": "武士",
+      "role": "近战"
+    },
+    {
+      "job_id": 35,
+      "abbreviation": "RDM",
+      "name_en": "red mage",
+      "name_zh": "赤魔法师",
+      "role": "魔法"
+    },
+    {
+      "job_id": 36,
+      "abbreviation": "BLU",
+      "name_en": "blue mage",
+      "name_zh": "青魔法师",
+      "role": "魔法"
+    },
+    {
+      "job_id": 37,
+      "abbreviation": "GNB",
+      "name_en": "gunbreaker",
+      "name_zh": "绝枪战士",
+      "role": "坦克"
+    },
+    {
+      "job_id": 38,
+      "abbreviation": "DNC",
+      "name_en": "dancer",
+      "name_zh": "舞者",
+      "role": "远程物理"
+    },
+    {
+      "job_id": 39,
+      "abbreviation": "RPR",
+      "name_en": "reaper",
+      "name_zh": "钐镰客",
+      "role": "近战"
+    },
+    {
+      "job_id": 40,
+      "abbreviation": "SGE",
+      "name_en": "sage",
+      "name_zh": "贤者",
+      "role": "治疗"
+    },
+    {
+      "job_id": 41,
+      "abbreviation": "VPR",
+      "name_en": "viper",
+      "name_zh": "蝰蛇剑士",
+      "role": "近战"
+    },
+    {
+      "job_id": 42,
+      "abbreviation": "PCT",
+      "name_en": "pictomancer",
+      "name_zh": "绘灵法师",
+      "role": "魔法"
+    },
+    {
+      "job_id": 43,
+      "abbreviation": "BST",
+      "name_en": "beastmaster",
+      "name_zh": "驯兽师",
+      "role": "近战"
+    }
+  ]
+}

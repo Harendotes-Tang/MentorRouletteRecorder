@@ -1,0 +1,18 @@
+{
+    "message_type": "CreateManualRun",
+    "payload": {
+        "content_id": 900001,
+        "contributes_to_goal": true,
+        "duty_category": "副本",
+        "duty_name": "石卫塔",
+        "ended_at_utc": "2026-09-04T12:26:00.000Z",
+        "entered_at_utc": "2026-09-04T12:00:00.000Z",
+        "job_id": 19,
+        "matched_at_utc": "2026-09-04T11:58:00.000Z",
+        "note": "程序未运行时补录",
+        "reason": "手工补录",
+        "result": "COMPLETED"
+    },
+    "protocol_version": 1,
+    "request_id": "11111111-2222-4333-8444-555555555555"
+}

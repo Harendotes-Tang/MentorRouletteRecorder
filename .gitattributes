@@ -1,0 +1,21 @@
+# Default: normalise line endings on commit, native on checkout.
+* text=auto
+
+# Hash-verified inputs must round-trip byte-for-byte (SHA-256 sidecars,
+# SHA256SUMS, profile_sha256). Never let git touch their line endings.
+tests/Fixtures/** -text
+protocol-profiles/** -text
+data/** -text
+contracts/*.json -text
+
+# Shell scripts run under bash (the public calibration repository's Action): a CRLF
+# checkout on Windows must not turn them into scripts bash cannot parse.
+*.sh text eol=lf
+
+# Binary assets
+*.png binary
+*.zip binary
+*.db binary
+
+# Lucide SVGs: the README lists their SHA-256 as downloaded, so they must round-trip byte-for-byte.
+src/Desktop/resources/icons/lucide/** -text
