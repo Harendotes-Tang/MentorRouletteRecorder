@@ -646,7 +646,23 @@
         "reads_game_executable": {
           "type": "boolean",
           "description": "True when the current Oodle mode reads the game executable. Reported so the user can verify the boundary at runtime."
-        }
+        },
+        "update": { "$ref": "#/$defs/UpdateStatus" }
+      }
+    },
+
+    "UpdateStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The update check as it stands (docs/privacy-boundary.md §8.4). Notification only: the Collector reads one small published metadata document and reports what it said. Nothing is downloaded, written or executed, and release_url is opened by the user, never by the software. Answered from a cache; reading the status is also what makes the next check fall due, at most once a day. Absent from Collectors before the update check.",
+      "required": ["enabled", "update_available"],
+      "properties": {
+        "enabled": { "type": "boolean", "description": "Whether update_check_enabled allows a check at all. Default true." },
+        "update_available": { "type": "boolean", "description": "True when latest_version is strictly newer than this build. A running prerelease counts as older than the release it was cut towards." },
+        "latest_version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$", "description": "Newest published version this installation has learned of. Absent until a check has succeeded; kept across a failed check and across restarts." },
+        "release_url": { "type": "string", "description": "The release page to show the user. A constant of this build, always present." },
+        "last_checked_at_utc": { "type": "string", "description": "When a check was last attempted, successfully or not. Absent until one has been." },
+        "last_outcome": { "type": "string", "description": "How that attempt ended: OK, NOT_FOUND (the ordinary answer while nothing is published), RATE_LIMITED, HTTP_STATUS, REDIRECT_REFUSED, HOST_REFUSED, TOO_LARGE, TIMEOUT, DNS_OR_CONNECT, TLS_FAILED, MALFORMED, TRANSPORT_FAILED, CANCELLED, DISABLED (the MR_DISABLE_UPDATE_CHECK kill switch). Not an enum: a build may learn new outcomes." }
       }
     },
 
@@ -1186,6 +1202,7 @@
         "candidate_validation_enabled": { "type": "boolean", "default": false },
         "auto_calibration_enabled": { "type": "boolean", "default": true },
         "shared_calibration_enabled": { "type": "boolean", "default": true },
+        "update_check_enabled": { "type": "boolean", "default": true },
         "research_payload_opcodes": { "type": "array", "default": [], "maxItems": 32, "uniqueItems": true, "items": { "type": "string", "pattern": "^0[xX][0-9a-fA-F]{4}$" }, "description": "Explicit small non-obfuscated candidate whitelist. Requires candidate validation before adding entries; [] disables further payload storage." },
         "follow_game": { "type": "boolean" },
         "autostart": { "type": "boolean" },
@@ -1199,12 +1216,13 @@
     "CaptureSettings": {
       "type": "object",
       "additionalProperties": false,
-      "description": "The capture settings the Collector owns, persisted in application_settings. Every one of these has an effect; none is a dead switch.",
+      "description": "采集服务持有的设置，持久化在 application_settings 中。The settings the Collector owns, not only the capture ones. Every one of these has an effect; none is a dead switch.",
       "required": ["follow_game", "autostart", "adapter_id", "log_retention_days", "allow_without_profile"],
       "properties": {
         "candidate_validation_enabled": { "type": "boolean", "description": "Explicit candidate metadata observation only; never enables formal parsing or recording." },
         "auto_calibration_enabled": { "type": "boolean", "description": "Whether a client build with no profile is calibrated automatically from the shipped template. Default true. Off means fail-closed silence on every patch day." },
         "shared_calibration_enabled": { "type": "boolean", "description": "Whether a build with no usable profile fetches other players' shared calibrations (docs/privacy-boundary.md §8.2). Default true. Off cancels a download in flight and drops downloaded candidates; a shared profile already verified stays, and ImportCalibrationCode is not affected. Absent from Collectors before shared calibration." },
+        "update_check_enabled": { "type": "boolean", "description": "Whether the software asks once a day whether a newer version has been published (docs/privacy-boundary.md §8.4). Default true. Notification only: the answer is one version string, nothing is downloaded or run, and off stops every check. Absent from Collectors before the update check." },
         "research_payload_opcodes": { "type": "array", "maxItems": 32, "uniqueItems": true, "items": { "type": "string", "pattern": "^0x[0-9a-f]{4}$" } },
         "follow_game": { "type": "boolean", "description": "Start capture automatically as soon as the game process appears." },
         "autostart": { "type": "boolean", "description": "Legacy name of follow_game, still honoured as a fallback when follow_game was never written." },

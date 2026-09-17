@@ -180,6 +180,11 @@ void MockBackend::setFormalCaptureRunning(bool running)
     Q_EMIT connectionChanged();
 }
 
+void MockBackend::setUpdateAvailable(bool available)
+{
+    m_updateAvailable = available;
+}
+
 void MockBackend::setMidstreamSuspected(bool suspected)
 {
     if (m_midstreamSuspected == suspected)
@@ -843,6 +848,10 @@ QJsonObject MockBackend::captureSettings() const
     // network client either way.
     if (!settings.contains(QStringLiteral("shared_calibration_enabled")))
         settings.insert(QStringLiteral("shared_calibration_enabled"), true);
+    // Default on, like the Collector (docs/privacy-boundary.md §8.4): notify
+    // only, and this backend never reads anything from the network.
+    if (!settings.contains(QStringLiteral("update_check_enabled")))
+        settings.insert(QStringLiteral("update_check_enabled"), true);
     if (!settings.contains(QStringLiteral("research_payload_opcodes")))
         settings.insert(QStringLiteral("research_payload_opcodes"), QJsonArray());
     return settings;
@@ -1038,6 +1047,22 @@ QJsonObject MockBackend::collectorStatus() const
         {QStringLiteral("install_hint"),
          m_npcapMissing ? QJsonValue(QString::fromUtf8("本软件不附带 Npcap，请从 npcap.com 自行安装。"))
                         : QJsonValue(QJsonValue::Null)}});
+
+    // GetStatus.update as the Collector reports it. The check itself is the
+    // Collector's; this backend never fetches anything, so the verdict is
+    // whatever setUpdateAvailable() was told and the version is synthetic.
+    status.insert(QStringLiteral("update"), QJsonObject{
+        {QStringLiteral("enabled"),
+         captureSettings().value(QStringLiteral("update_check_enabled")).toBool(true)},
+        {QStringLiteral("update_available"), m_updateAvailable},
+        {QStringLiteral("latest_version"), m_updateAvailable
+             ? QJsonValue(QStringLiteral("99.9.9")) : QJsonValue(QJsonValue::Null)},
+        {QStringLiteral("release_url"), m_updateAvailable
+             ? QJsonValue(QStringLiteral(
+                   "https://github.com/Harendotes-Tang/MentorRouletteRecorder/releases/latest"))
+             : QJsonValue(QJsonValue::Null)},
+        {QStringLiteral("last_checked_at_utc"), isoUtc(m_now.addSecs(-3600))},
+        {QStringLiteral("last_outcome"), QStringLiteral("OK")}});
 
     QJsonArray warnings;
     warnings.append(QString::fromUtf8("这是 Phase 1 的模拟后端，数据不是真实记录。"));

@@ -319,6 +319,8 @@ function Invoke-StagedCollectorJson {
         $childEnvironment['MR_DISABLE_SHARED_FETCH'] = '1'
         # Online-speech kill switch (docs/privacy-boundary.md section 8.3): a packaging probe never speaks online.
         $childEnvironment['MR_DISABLE_ONLINE_SPEECH'] = '1'
+        # Update-check kill switch (docs/privacy-boundary.md section 8.4): a packaging probe never checks for updates.
+        $childEnvironment['MR_DISABLE_UPDATE_CHECK'] = '1'
 
         $process = [System.Diagnostics.Process]::Start($startInfo)
         try {
@@ -859,9 +861,10 @@ if ($Verify) {
             $err = Join-Path $verifyRoot ("{0}.err" -f $Label)
             $startInfo = New-IsolatedPackageStartInfo -Executable $Exe -Arguments $PackageArgs `
                 -WorkingDirectory $unpacked -Offscreen:$Offscreen
-            # Kill switches for the unpacked runs (docs/privacy-boundary.md sections 8.2, 8.3).
+            # Kill switches for the unpacked runs (docs/privacy-boundary.md sections 8.2, 8.3, 8.4).
             $startInfo.get_EnvironmentVariables()['MR_DISABLE_SHARED_FETCH'] = '1'
             $startInfo.get_EnvironmentVariables()['MR_DISABLE_ONLINE_SPEECH'] = '1'
+            $startInfo.get_EnvironmentVariables()['MR_DISABLE_UPDATE_CHECK'] = '1'
             $process = [System.Diagnostics.Process]::Start($startInfo)
             try {
                 # Drain both pipes while the process runs so Qt diagnostics cannot fill

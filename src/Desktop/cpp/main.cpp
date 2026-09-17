@@ -12,6 +12,7 @@
 //                          [--mock-detail-tab refl] [--mock-open-reflection]
 //                          [--mock-ui-style classic] [--settings-tab tts]
 //                          [--mock-calibration done] [--mock-shared consent]
+//                          [--mock-update-available]
 //                          [--export-target DIR] [--open-detail] [--open-edit]
 //                          [--screenshot-size WxH] [--mock-speech azure]
 //                          [--mock-open-speech-confirm] [--mock-speech-preview]
@@ -523,6 +524,10 @@ int main(int argc, char *argv[])
                        "unavailable, user-rejected, none-for-build or share. Arms a matching "
                        "--mock-calibration state when none is given; nothing is downloaded."),
         QStringLiteral("state"));
+    QCommandLineOption updateOption(
+        QStringLiteral("mock-update-available"),
+        QStringLiteral("Pretend the Collector's update check found a newer release. "
+                       "The version and the page it names are synthetic; nothing is fetched."));
     QCommandLineOption liveOption(
         QStringLiteral("mock-live"),
         QStringLiteral("Live run state: none, matched or entered."),
@@ -638,6 +643,7 @@ int main(int argc, char *argv[])
     parser.addOption(candidatesOption);
     parser.addOption(calibrationOption);
     parser.addOption(sharedOption);
+    parser.addOption(updateOption);
     parser.addOption(liveOption);
     parser.addOption(validationOption);
     parser.addOption(maintainerOption);
@@ -739,6 +745,7 @@ int main(int argc, char *argv[])
             || parser.isSet(candidatesOption)
             || parser.isSet(calibrationOption)
             || parser.isSet(sharedOption)
+            || parser.isSet(updateOption)
             || parser.isSet(recordingOption)
             || parser.isSet(alertFlowOption)
             || parser.isSet(liveOption)
@@ -831,6 +838,8 @@ int main(int argc, char *argv[])
             mock->setCalibrationFixture(parser.value(calibrationOption));
         if (parser.isSet(sharedOption))
             mock->setSharedCalibrationFixture(parser.value(sharedOption));
+        if (parser.isSet(updateOption))
+            mock->setUpdateAvailable(true);
         if (parser.isSet(speechOption))
             mock->setSpeechFixture(mockSpeech);
         if (parser.isSet(recordingOption)) mock->setRecordingFixture(parser.value(recordingOption));

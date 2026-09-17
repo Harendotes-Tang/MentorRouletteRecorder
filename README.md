@@ -30,11 +30,14 @@
 > **English summary.** A Windows desktop application that records FINAL FANTASY XIV
 > *Duty Roulette: Mentor* runs by passively reading the game's network traffic through Npcap.
 > It performs no injection and no memory reading, sends no packets from the capture path, and
-> collects no telemetry. Only the background collector accesses the network, for two purposes:
+> collects no telemetry. Only the background collector accesses the network, for three purposes:
 > a read-only download of shared calibrations from a public GitHub repository after a game patch
-> (enabled by default, can be disabled in Settings), and optional online text-to-speech using the
+> (enabled by default, can be disabled in Settings), optional online text-to-speech using the
 > user's own Azure or OpenAI-compatible key (disabled by default; only the sentence being announced
-> is sent). Setting `MR_DISABLE_SHARED_FETCH=1` and `MR_DISABLE_ONLINE_SPEECH=1` disables both.
+> is sent), and a notify-only update check that reads the version number of the latest release at
+> most once a day (enabled by default, can be disabled; nothing is downloaded or installed).
+> Setting `MR_DISABLE_SHARED_FETCH=1`, `MR_DISABLE_ONLINE_SPEECH=1` and `MR_DISABLE_UPDATE_CHECK=1`
+> disables all three.
 > Supported client: Chinese server (国服) `2026.08.05`; see
 > [protocol-profiles/README.md](protocol-profiles/README.md).
 
@@ -71,7 +74,7 @@
 <p align="center"><img src="docs/screenshots/history-light.png" width="800" alt="历史记录页（演示数据）"></p>
 </details>
 
-**已知限制（0.9.1）：** 尚不能自动判定是否通关。离开副本后，软件弹出「本次导随结果」对话框，
+**已知限制（1.0.0）：** 尚不能自动判定是否通关。离开副本后，软件弹出「本次导随结果」对话框，
 由用户选择「通关」或「未通关」；也可稍后在总览页的「待复核」中确认。通关报文识别完成后，此步骤将不再需要。
 
 ## 系统要求
@@ -130,16 +133,19 @@
 ## 隐私与网络边界
 
 - 不注入进程，不读取游戏内存，不安装钩子，抓包过程不发送任何数据包，不提供任何自动化操作。
-- 无遥测、无账号、无自动更新，不上传任何数据。进程间仅通过本机命名管道通信，不监听网络端口。
-- 界面进程不发起网络请求。后台采集服务仅在以下两种情况下联网：
+- 无遥测、无账号，不自动下载、不自动安装更新，不上传任何数据。进程间仅通过本机命名管道通信，不监听网络端口。
+- 界面进程不发起网络请求。后台采集服务仅在以下三种情况下联网：
   - **共享校准获取**（默认开启）：游戏更新后本机无可用协议档案时，从固定的公开 GitHub 仓库只读下载
     其他玩家分享的校准，经本机流量核实后方可用于记录。可在"设置 → 通用"中关闭
     「游戏更新后获取其他玩家的共享校准」。请求内容与限制见[隐私边界](docs/privacy-boundary.md) §8.2。
   - **在线语音合成**（默认关闭）：仅当用户在"设置 → 播报"中选择在线语音并填写密钥后启用，
     播报时只将当前这句播报文本发送至所选语音服务。密钥仅保存在本机，并由 Windows 加密。
     详见[隐私边界](docs/privacy-boundary.md) §8.3。
-- 如需禁止一切出站请求，将系统环境变量 `MR_DISABLE_SHARED_FETCH` 与 `MR_DISABLE_ONLINE_SPEECH`
-  设为 `1` 后重启软件。
+  - **检查新版本**（默认开启）：每 24 小时最多一次，只读取发布页上的版本号文件，与当前版本比较；
+    发现新版本时在总览页提示一句，由用户自行在浏览器中下载。本软件不下载安装包，也不自动安装。
+    可在"设置 → 通用 → 更新"中关闭「检查新版本并提示」。详见[隐私边界](docs/privacy-boundary.md) §8.4。
+- 如需禁止一切出站请求，将系统环境变量 `MR_DISABLE_SHARED_FETCH`、`MR_DISABLE_ONLINE_SPEECH`
+  与 `MR_DISABLE_UPDATE_CHECK` 设为 `1` 后重启软件。
 - 不长期保存原始报文。
 - 不内置、不分发 Npcap，不分发任何游戏客户端文件。
 

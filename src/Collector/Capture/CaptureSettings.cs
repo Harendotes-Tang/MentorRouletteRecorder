@@ -27,6 +27,11 @@ namespace MentorRecorder.Collector.Capture;
 /// Turning it off cancels a download in flight; it never removes a shared profile that already
 /// passed local verification.
 /// </param>
+/// <param name="UpdateCheckEnabled">
+/// Whether the software asks once a day whether a newer version has been published
+/// (docs/privacy-boundary.md §8.4). On by default. Notification only: nothing is ever downloaded
+/// or run, and turning it off stops every check.
+/// </param>
 public sealed record CaptureSettingsSnapshot(
     bool FollowGame,
     bool Autostart,
@@ -37,7 +42,8 @@ public sealed record CaptureSettingsSnapshot(
     bool CandidateValidationEnabled = false,
     IReadOnlyList<string>? ResearchPayloadOpcodes = null,
     bool AutoCalibrationEnabled = true,
-    bool SharedCalibrationEnabled = true);
+    bool SharedCalibrationEnabled = true,
+    bool UpdateCheckEnabled = true);
 
 /// <summary>
 /// Reads and writes <see cref="CaptureSettingsSnapshot"/> against <c>application_settings</c>.
@@ -68,6 +74,13 @@ public static class CaptureSettingsStore
     /// </summary>
     public const string SharedCalibrationSetting = "capture.shared_calibration_enabled";
 
+    /// <summary>
+    /// Whether the software checks once a day for a newer published version
+    /// (docs/privacy-boundary.md §8.4). On by default. Named by the service that owns it, so the
+    /// key has one definition.
+    /// </summary>
+    public const string UpdateCheckSetting = Update.UpdateCheckService.EnabledSetting;
+
     /// <summary>Reads the current settings. Missing or unreadable values fall back to defaults.</summary>
     /// <param name="settings">Settings repository, or null when there is no database.</param>
     /// <param name="transaction">Enclosing settings transaction, or null for ordinary reads.</param>
@@ -88,7 +101,8 @@ public static class CaptureSettingsStore
             CandidateValidationEnabled: ReadBool(settings, CandidateValidationSetting, transaction) ?? false,
             ResearchPayloadOpcodes: ReadResearchOpcodes(settings, transaction),
             AutoCalibrationEnabled: ReadBool(settings, AutoCalibrationSetting, transaction) ?? true,
-            SharedCalibrationEnabled: ReadBool(settings, SharedCalibrationSetting, transaction) ?? true);
+            SharedCalibrationEnabled: ReadBool(settings, SharedCalibrationSetting, transaction) ?? true,
+            UpdateCheckEnabled: ReadBool(settings, UpdateCheckSetting, transaction) ?? true);
     }
 
     /// <summary>
@@ -132,6 +146,11 @@ public static class CaptureSettingsStore
         if (update.SharedCalibrationEnabled is { } sharedCalibration)
         {
             values[SharedCalibrationSetting] = sharedCalibration ? "true" : "false";
+        }
+
+        if (update.UpdateCheckEnabled is { } updateCheck)
+        {
+            values[UpdateCheckSetting] = updateCheck ? "true" : "false";
         }
 
         if (update.FollowGame is { } followGame)
@@ -186,6 +205,7 @@ public static class CaptureSettingsStore
             ["candidate_validation_enabled"] = snapshot.CandidateValidationEnabled,
             ["auto_calibration_enabled"] = snapshot.AutoCalibrationEnabled,
             ["shared_calibration_enabled"] = snapshot.SharedCalibrationEnabled,
+            ["update_check_enabled"] = snapshot.UpdateCheckEnabled,
             ["research_payload_opcodes"] = new JsonArray((snapshot.ResearchPayloadOpcodes ?? Array.Empty<string>())
                 .Select(value => (JsonNode?)JsonValue.Create(value)).ToArray()),
             ["autostart"] = snapshot.Autostart,
@@ -284,6 +304,9 @@ public sealed record CaptureSettingsUpdate
 
     /// <summary>Whether shared calibrations are fetched for builds with no profile; null leaves it alone.</summary>
     public bool? SharedCalibrationEnabled { get; init; }
+
+    /// <summary>Whether the daily update check runs; null leaves it alone.</summary>
+    public bool? UpdateCheckEnabled { get; init; }
     /// <summary>Start capture as soon as the game appears.</summary>
     public bool? FollowGame { get; init; }
 

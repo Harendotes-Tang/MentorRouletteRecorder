@@ -196,6 +196,10 @@ public sealed class MessageDispatcher
             ["uptime_ms"] = _host.UptimeMs,
             ["capture"] = CaptureWire.CaptureStatus(snapshot),
             ["warnings"] = Wire.Strings(messages),
+
+            // Poll-driven: reading the status is what makes a check fall due, and the answer comes
+            // from the cache whether or not one was scheduled (docs/privacy-boundary.md §8.4).
+            ["update"] = Update.UpdateWire.Status(_host.Updates.Observe()),
         };
 
         // The game, Npcap and the two Oodle disclosures. The last two exist because
@@ -504,7 +508,11 @@ public sealed class MessageDispatcher
         // The report is built from the same snapshot the diagnostics page reads, taken here
         // rather than passed in, so the file always describes the moment it was asked for.
         var result = _host.DiagnosticsReports.Write(
-            _host.Capture.Snapshot() with { OnlineSpeech = _host.Speech.Diagnostics() },
+            _host.Capture.Snapshot() with
+            {
+                OnlineSpeech = _host.Speech.Diagnostics(),
+                UpdateCheck = _host.Updates.Diagnostics(),
+            },
             Program.Version,
             request.TargetPath,
             request.Overwrite);

@@ -464,6 +464,16 @@ void AppSettings::setLastAutoBackupDate(const QString &isoDate)
     m_settings.setValue(QStringLiteral("data/last_auto_backup"), isoDate);
 }
 
+QString AppSettings::dismissedUpdateVersion() const
+{
+    return m_settings.value(QStringLiteral("ui/update_dismissed_version"), QString()).toString();
+}
+
+void AppSettings::setDismissedUpdateVersion(const QString &version)
+{
+    m_settings.setValue(QStringLiteral("ui/update_dismissed_version"), version);
+}
+
 // ---------------------------------------------------------------------------
 // Raw access
 // ---------------------------------------------------------------------------

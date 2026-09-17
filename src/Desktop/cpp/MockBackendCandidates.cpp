@@ -447,6 +447,7 @@ QJsonObject MockBackend::applyCaptureSettings(const QJsonObject &payload,
                               QStringLiteral("candidate_validation_enabled"),
                               QStringLiteral("auto_calibration_enabled"),
                               QStringLiteral("shared_calibration_enabled"),
+                              QStringLiteral("update_check_enabled"),
                               QStringLiteral("research_payload_opcodes")};
     if (hasUnknownKeys(payload, allowed))
         return badRequest(errorCode, errorMessage, QString::fromUtf8("捕获设置含未知字段。"));
@@ -458,7 +459,8 @@ QJsonObject MockBackend::applyCaptureSettings(const QJsonObject &payload,
             || key == QLatin1String("allow_without_profile")
             || key == QLatin1String("candidate_validation_enabled")
             || key == QLatin1String("auto_calibration_enabled")
-            || key == QLatin1String("shared_calibration_enabled")) {
+            || key == QLatin1String("shared_calibration_enabled")
+            || key == QLatin1String("update_check_enabled")) {
             if (!value.isBool())
                 return badRequest(errorCode, errorMessage, QString::fromUtf8("捕获开关必须是布尔值。"));
         } else if (key == QLatin1String("log_retention_days")) {
@@ -510,6 +512,7 @@ QJsonObject MockBackend::applyCaptureSettings(const QJsonObject &payload,
         next.insert(QStringLiteral("research_payload_opcodes"), normalized);
     }
     m_captureSettings = next;
+    m_lastCaptureSettingsUpdate = payload;
     return captureSettings();
 }
 

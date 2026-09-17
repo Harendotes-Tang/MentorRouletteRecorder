@@ -256,6 +256,14 @@ public sealed record CaptureDiagnosticsSnapshot
     public Speech.OnlineSpeechDiagnostics OnlineSpeech { get; init; } = Speech.OnlineSpeechDiagnostics.None;
 
     /// <summary>
+    /// The update-check request class as the report may state it (docs/privacy-boundary.md §8.4):
+    /// whether it is allowed, the kill switch, and when this process last attempted a check and how
+    /// it ended. Filled in by the IPC layer for an exported report; never an address or a version of
+    /// anything but the software itself.
+    /// </summary>
+    public Update.UpdateCheckDiagnostics UpdateCheck { get; init; } = Update.UpdateCheckDiagnostics.None;
+
+    /// <summary>
     /// The most recent parser refusals, oldest first, already reduced to the wire shape.
     /// Bounded by <see cref="MaxRecentParserErrors"/> before it leaves this process.
     /// </summary>
@@ -539,6 +547,17 @@ public static class SanitizedDiagnosticsReport
             ["kill_switch"] = snapshot.OnlineSpeech.KillSwitch,
             ["last_request_utc"] = UtcTimestamp.ToTextOrNull(snapshot.OnlineSpeech.LastRequestAtUtc),
             ["last_outcome"] = snapshot.OnlineSpeech.LastOutcome,
+        },
+
+        // The third request class (§8.4): notification only. What was asked and how it ended,
+        // never where; the release page is a constant of the build, not a fact about this machine.
+        ["update_check"] = new JsonObject
+        {
+            ["enabled"] = snapshot.UpdateCheck.Enabled,
+            ["kill_switch"] = snapshot.UpdateCheck.KillSwitch,
+            ["last_checked_utc"] = UtcTimestamp.ToTextOrNull(snapshot.UpdateCheck.LastCheckedAtUtc),
+            ["last_outcome"] = snapshot.UpdateCheck.LastOutcome,
+            ["latest_version"] = snapshot.UpdateCheck.LatestVersion,
         },
     };
 

@@ -32,7 +32,7 @@
 | `GetProtocolProfileStatus` | `status = NONE`，`message` 说明 fail-closed 规则与手工补录途径 |
 | `StartCapture` | `ERR_NPCAP_MISSING`（`details.capture = "UNAVAILABLE"`、`details.npcap = "NOT_INSTALLED"`） |
 | `StopCapture` | `ERR_CAPTURE_NOT_RUNNING` |
-| `GetStatus` | 除 `capture` 外，另有 `game`、`npcap`、`oodle_mode`、`reads_game_executable` |
+| `GetStatus` | 除 `capture` 外，另有 `game`、`npcap`、`oodle_mode`、`reads_game_executable`，以及可选的 `update`（更新检查的结果，见 [privacy-boundary.md](privacy-boundary.md) §8.4；该环境下取不到版本号，`update_available = false`） |
 
 > **与 Phase 1 的差别**：即使 Npcap 未安装，`ListCaptureAdapters` 也会列出网卡。
 > 枚举网卡不依赖驱动，将本机网卡与安装指引一并呈现比返回空列表更有价值。
@@ -629,8 +629,9 @@ Top 40 opcode。两者之间可能夹有用户输入的标记行（`marker` / `t
 
 ### 9.6 共享校准：`calibration.shared` 与 `boundary.outbound` 的解读
 
-共享校准是本软件默认会主动发起的唯一一类网络请求
-（[privacy-boundary.md](privacy-boundary.md) §8.2）。另一类为默认关闭的在线语音，见本节后半部分。
+共享校准是本软件默认会主动发起的网络请求之一
+（[privacy-boundary.md](privacy-boundary.md) §8.2）。另两类是默认关闭的在线语音与默认开启的更新检查，
+均见本节后半部分。
 报告中与共享校准相关的只有下列两部分，二者均为白名单，不含地址、主机名、IP、校准码正文、
 opcode 与负载字节。
 
@@ -658,7 +659,21 @@ opcode 与负载字节。
 该对象不含区域、地址、主机名、模型、音色与播报文字，也不含密钥。密钥仅保存在
 `speech-key.bin` 中，并以 DPAPI 加密。
 
-监听端口仍恒为 0。除共享校准与用户开启的在线语音之外，不存在任何出站连接。
+`boundary.outbound.update_check` 自 2026-09-17 起提供，同样属于只增不删的变更，报告版本仍为 2。
+它说明第三类出站请求，即默认开启、只读取发布页版本号的更新检查
+（[privacy-boundary.md](privacy-boundary.md) §8.4）：
+
+| 字段 | 含义 |
+|---|---|
+| `enabled` | 采集设置 `update_check_enabled` 是否开启。读不到设置时取默认值 `true` |
+| `kill_switch` | 进程环境变量 `MR_DISABLE_UPDATE_CHECK` 是否关闭了整个更新检查。除空值、`0`、`false` 之外的取值均视为关闭 |
+| `last_checked_utc` | 本进程**实际发出**请求的最近一次时间，从未发出时为 null。检查只在桌面端连接并轮询时顺带发起，且每 24 小时最多一次 |
+| `last_outcome` | 该次检查的结果：成功，或一个表示失败原因的短令牌。失败一律静默，界面上不出现任何提示 |
+| `latest_version` | 上次检查取到的版本号，未取到时为 null |
+
+该对象不含主机名，也不含地址：检查读取的是一个固定地址，没有可变部分可供记录。
+
+监听端口仍恒为 0。除共享校准、用户开启的在线语音与更新检查之外，不存在任何出站连接。
 
 **`calibration.shared`** 与 `CaptureStatus.calibration.shared` 为同一个对象，由同一个函数产出。
 
@@ -696,11 +711,11 @@ opcode 与负载字节。
 
 核对项目参见 [privacy-boundary.md](privacy-boundary.md) §9。诊断页直接展示其中的关键项：
 `monitor_type`、`injected_hook_enabled`、监听端口数（恒为 0）、`oodle_mode` 与
-`reads_game_executable`。出站连接不再标注为恒为 0。本软件会发出的请求是获取共享校准，
-脱敏报告的 `boundary.outbound` 如实给出该功能的开关状态（设置项与 `MR_DISABLE_SHARED_FETCH`），
-以及本进程最近一次实际发出请求的时间与结果（§9.6）。用户自行启用在线语音后，另有
+`reads_game_executable`。出站连接不再标注为恒为 0。本软件默认会发出的请求是获取共享校准与更新检查，
+脱敏报告的 `boundary.outbound` 如实给出二者的开关状态（设置项与 `MR_DISABLE_SHARED_FETCH` /
+`MR_DISABLE_UPDATE_CHECK`），以及本进程最近一次实际发出请求的时间与结果（§9.6）。用户自行启用在线语音后，另有
 `boundary.outbound.online_speech` 记录的语音合成请求（[privacy-boundary.md](privacy-boundary.md) §8.3）。
-除这两类之外没有任何出站连接。
+除这三类之外没有任何出站连接。
 
 ## 12. 无游戏环境下的自检
 

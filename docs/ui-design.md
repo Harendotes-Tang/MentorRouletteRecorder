@@ -143,6 +143,11 @@ IBM Plex Mono 随程序分发，许可为 SIL OFL 1.1。字体文件位于 `src/
   数据桶来自 `GetDashboardStats.trend`，由 Collector 在 SQL 中聚合。
   桌面端只把每个桶的 `start_utc` 按**本地时区**渲染成标签，不自行分桶。
   统计口径见 [statistics-definitions.md](statistics-definitions.md) §12.1。
+* `components/UpdateNotice.qml`（`updateNotice`）位于页头之下，仅在 `App.update.updateAvailable`
+  为真且本机未忽略该版本时可见，内容全部来自 `GetStatus` 应答中的可选对象 `update`。
+  卡片上是「打开下载页」（`openReleasePageButton`）与「忽略此版本」（`dismissUpdateButton`）。
+  前者把固定的公开发布页交给系统浏览器，后者只对该版本有效，升到更高的版本后会再次提示。
+  本软件不下载、不安装任何内容，见 [privacy-boundary.md](privacy-boundary.md) §8.4。
 * 「当前导随」卡片的**当前职业**一栏在存在职业编号时显示职业图标、职业名与职能图标，
   职业未识别时隐藏该栏。结束后的结果与心得对话框提供可选的职业补录，与确认结果一并保存；
   用户不选择时留待后续补录。
@@ -463,7 +468,7 @@ QtTest `MentorRecorderCapturePage`（`tests/Desktop.Tests/CapturePageTests.cpp`�
 
 | 分页 | `id` | 小字 | 面板 |
 |---|---|---|---|
-| 通用 | `general` | 启动 · 记录 · 外观 | 启动与托盘 / 记录 / 校准 / 外观 |
+| 通用 | `general` | 启动 · 记录 · 外观 | 启动与托盘 / 记录 / 校准 / 更新 / 外观 |
 | 播报 | `tts` | 语音与模板 | 本地语音播报 / 在线语音（只在选中在线语音时）/ 播报模板 |
 | 成就 | `goal` | 目标与基数 | 成就进度 |
 | 数据 | `data` | 数据库与备份 | 数据库 |
@@ -492,6 +497,13 @@ kicker `padding: 12px 0 4px`；`freeLayout` 面板 `padding: 20px 24px`，间距
   后者的描述写明这是默认开启的那一种联网请求，且不携带任何可识别玩家的信息，见 §4.4.2；
   另一种联网请求是默认关闭的在线语音，见下文的「播报」。
   `App.captureSettingsError` 以橙色显示在该面板底部。
+* **更新**：开关「检查新版本并提示」（`updateCheckToggle`，写入
+  `UpdateCaptureSettings.update_check_enabled`，由采集服务持有，默认开启）。
+  描述写明这是第三类联网请求：每天最多一次，只从本项目的发布页读取一个仅含版本号的小文件，
+  与当前版本比较；请求不带账号、安装编号或任何可识别信息，本软件也从不自动下载或安装任何东西，
+  见 [privacy-boundary.md](privacy-boundary.md) §8.4。已检查过时，面板下方以小字给出
+  「最近检查：<时间> · 最新版本 <版本号>」（`updateCheckStatusText`）。
+  新版本的提示本身在总览页（§4.1），设置页不重复呈现。
 * **外观**（`appearanceSettingsCard`）：界面风格（`uiStyleSettingControl`，取值 经典 / 艾欧泽亚，
   副标题「经典：圆角卡片 · 艾欧泽亚：金边石板面板」，绑定 `Settings.uiStyle`；
   分段控件显示的是**屏幕上实际生效的**风格，`--mock-ui-style` 固定风格时同样如此）、
@@ -686,6 +698,8 @@ toast 中回显后端返回的 `target_path`、`byte_count`、`integrity_check_p
 MockBackend 回 `{passed: true, detail: "ok", checked_at_utc: 现在}`。
 
 **关于**（`aboutSettingsCard`）包含 kicker「导随记录器」与 `v<App.appVersion> · GPL-3.0 或更高版本`。
+版本号一行（`aboutVersionText`）在 `GetStatus.update.update_available` 为真时附带
+「有新版本 x.y.z」，其右侧另有「打开下载页」（`aboutOpenReleasePageButton`），同样只在有新版本时出现。
 小标题「隐私与边界」下有三块内嵌信息：Oodle 解压（`GetStatus.oodle_mode`）、
 读取游戏可执行文件（`reads_game_executable`，为真时以橙色显示「是（DEC-OODLE-01）」）、
 首次运行说明（「已确认 · 时间」或「未确认」）。
@@ -757,11 +771,13 @@ MockBackend 回 `{passed: true, detail: "ok", checked_at_utc: 现在}`。
 2. **会读取游戏可执行文件的一份副本** — `oodle_mode` / `reads_game_executable`
 3. 不注入、不读取游戏进程内存 — `capture.injected_hook_enabled`
 4. 数据只留在本机 — 无遥测、无云同步、从不上传
-5. **只有两种联网，且均由后台进程发出**，分三段叙述：总述；
+5. **只有三种联网，且均由后台进程发出**，分四段叙述：总述；
    **联网一：游戏更新后获取共享校准**（默认开启），说明发送时机、不携带的内容，
    以及在「设置 → 通用」中的关闭方式（docs/privacy-boundary.md §8.2）；
    **联网二：在线语音**（默认关闭），仅在选择在线语音并填写自有密钥后才发送，
-   发送内容为当前这一句播报，改回本机语音即停止（§8.3）
+   发送内容为当前这一句播报，改回本机语音即停止（§8.3）；
+   **联网三：检查新版本**（默认开启，可关），每 24 小时最多一次，只读取发布页上的版本号并与当前版本比较，
+   不下载安装包、不自动安装，可在「设置 → 通用 → 更新」中关闭（§8.4）
 6. 尚未在真实游戏流量上验证 — `LIVE_CAPTURE_STATUS`
 
 说明正文可以滚动，确认开关与「我已了解」固定在底部；
@@ -770,6 +786,8 @@ MockBackend 回 `{passed: true, detail: "ok", checked_at_utc: 现在}`。
 此前的确认针对的是「没有任何出站网络请求」的版本。
 在线语音并入第 5 条时**未**再次提升版本号：该功能默认关闭，选用时另有确认框（§4.5「播报」），
 已确认版本 3 的用户不会因此被再次拦截。
+更新检查并入第 5 条时**再次**提升了版本号：它默认开启，且没有单独的确认框，
+因此每一位既有用户在升级之后都会再看到一次该页。
 
 必须先打开「我已阅读并理解」开关，「我已了解」按钮才可用。
 确认结果写入 `AppSettings` 的 `ui/disclosure_acknowledged_version` 与 `ui/disclosure_acknowledged_at`。

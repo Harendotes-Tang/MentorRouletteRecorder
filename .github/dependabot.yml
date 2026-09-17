@@ -1,0 +1,14 @@
+# Dependency update proposals. Security advisories are handled by Dependabot security updates
+# (repository setting); this file only adds the monthly version bumps for the two ecosystems
+# the build depends on. Qt and MinGW come from the toolchain, not from a package registry.
+version: 2
+updates:
+  - package-ecosystem: "nuget"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 5
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"

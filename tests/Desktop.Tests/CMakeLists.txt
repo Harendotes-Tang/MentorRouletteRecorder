@@ -146,9 +146,11 @@ add_test(NAME MentorRecorderReflections
 # Speech: 在线语音 - SpeechController, TtsService routing, the tts-cache path check.
 # CapturePage: 捕获诊断 in shipping QML - title row, 链路, 解析, player vocabulary.
 # Motion: 动效 - durations collapse under ReduceMotion, theme reveal lifecycle, trend transitions.
+# UpdateNotice: 检查新版本 - the projection of the Collector's verdict, the address
+#   predicate, per-version dismissal, the 总览 banner, the switch and the disclosure.
 foreach(MR_REVIEW_SUITE WorkflowController RunFormValidator ExportFailure UiWorkflowRegression EditRunDialogBinding
                         ReflectionDialogBinding Calibration SharedCalibration SharedCalibrationCard Speech
-                        CapturePage Motion)
+                        CapturePage Motion UpdateNotice)
     add_executable(MentorRecorder${MR_REVIEW_SUITE}Tests ${MR_REVIEW_SUITE}Tests.cpp)
     target_link_libraries(MentorRecorder${MR_REVIEW_SUITE}Tests PRIVATE
         MentorRecorderDesktopLib Qt6::Gui Qt6::Test)
@@ -676,6 +678,7 @@ set(MR_ALL_DESKTOP_TESTS
     MentorRecorderSpeech
     MentorRecorderCapturePage
     MentorRecorderMotion
+    MentorRecorderUpdateNotice
     MentorRecorderIpcRequests
     MentorRecorderLifecycle
     MentorRecorderIpcIntegration

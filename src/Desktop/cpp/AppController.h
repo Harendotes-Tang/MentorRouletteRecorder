@@ -36,6 +36,7 @@
 #include "HistoryController.h"
 #include "SpeechController.h"
 #include "StatisticsController.h"
+#include "UpdateController.h"
 
 namespace mr {
 
@@ -130,6 +131,9 @@ class AppController final : public QObject, public CaptureValidationController::
     /// 在线语音 (docs/privacy-boundary.md §8.3): the Collector's speech
     /// settings and the settings page's 保存 / 清除 / 测试.
     Q_PROPERTY(mr::SpeechController *speech READ speech CONSTANT)
+    /// 检查新版本 (docs/privacy-boundary.md §8.4): what the Collector decided
+    /// about a newer release, and the two buttons the banner offers.
+    Q_PROPERTY(mr::UpdateController *update READ update CONSTANT)
 
     // -- statistics ---------------------------------------------------------
     Q_PROPERTY(QVariantMap dashboard READ dashboard NOTIFY dashboardChanged)
@@ -312,6 +316,7 @@ public:
     CandidateReviewController *candidates() const { return m_candidates; }
     CalibrationController *calibration() const { return m_calibration; }
     SpeechController *speech() const { return m_speech; }
+    UpdateController *update() const { return m_update; }
 
     bool npcapInstalled() const;
     bool ffxivRunning() const;
@@ -655,6 +660,7 @@ private:
     CandidateReviewController *m_candidates = nullptr;
     CalibrationController *m_calibration = nullptr;
     SpeechController *m_speech = nullptr;
+    UpdateController *m_update = nullptr;
 
     QJsonObject m_collectorStatus;
     QJsonObject m_currentRun;

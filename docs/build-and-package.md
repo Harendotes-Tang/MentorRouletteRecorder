@@ -458,6 +458,11 @@ pwsh -File scripts/package.ps1 -Force -Verify   # 再解包运行一次，证明
 数据库与日志被明确列入禁止内容，原因是它们并非多余文件，而是**其他用户的游玩记录**
 与**其他机器的诊断数据**。发布包中出现其中任何一项都属于隐私事故，而非打包瑕疵。
 
+`BUILD-METADATA.json` 除随包分发外，还必须作为**独立的发布资产**上传到 GitHub 的发布页
+（0.9.1 已经如此）：更新检查读取的地址是 `releases/latest/download/BUILD-METADATA.json`
+（[privacy-boundary.md](privacy-boundary.md) §8.4）。该资产缺失时，检查只会得到"未找到"并静默降级，
+用户不会收到任何新版本提示。
+
 另有一条按**内容**而非文件名判定的断言 `Assert-NoLocalPathLeak`：以 UTF-8 与 UTF-16LE
 两种编码扫描产物中是否出现仓库根路径，命中即失败；`.md`、`.txt`、`.json` 不在扫描范围内，
 因为文档中出现源码树路径属于正常情况。该断言在打包阶段与 `-Verify` 解包后各执行一次。

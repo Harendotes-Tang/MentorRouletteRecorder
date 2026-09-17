@@ -126,6 +126,13 @@ pwsh -NoProfile -File scripts/package.ps1 -Force -Verify
 `THIRD_PARTY_NOTICES.md`、`README.md`、`SOURCE_CODE.md`、`BUILD-METADATA.json`、
 `SHA256SUMS.txt`、`docs/`（含 `privacy-boundary.md`、`third-party-licenses.md`、本文件）。
 
+### 发布页必须附带 / release assets
+
+`BUILD-METADATA.json` 除随包分发外，还必须作为**独立的发布资产**上传到 GitHub 的发布页
+（0.9.1 已经如此）。更新检查读取的正是
+`releases/latest/download/BUILD-METADATA.json`（[privacy-boundary.md](privacy-boundary.md) §8.4）；
+该资产缺失时，所有用户的检查都只会得到"未找到"并静默降级，界面上不出现任何提示。
+
 ### 发布包必须不包含 / must not contain
 
 | 类别 | 模式 | 理由 |

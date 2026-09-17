@@ -1,5 +1,24 @@
 # IPC 契约变更记录 / IPC contract changelog
 
+## 2026-09-17 — 更新检查：`CollectorStatus.update`、`update_check_enabled`（附加）
+
+只提示、不下载的更新检查（docs/privacy-boundary.md §8.4）。全部为附加式变更：新字段在 schema 中都是可选的，
+旧桌面端收到的应答照常通过校验。**不新增消息类型**，`$defs/MessageType` 仍为 48 个业务消息 + `Event` + `Error`。
+任何字段都不含主机名、URL、IP 或负载字节，唯一的例外是 `release_url`，它与
+`GetCalibrationShareCode.issue_url` 同类，是一个交给浏览器打开的固定公开页面地址。
+
+- **`CollectorStatus.update`**（可选，`GetStatus` 的应答）：
+  `enabled`（采集设置 `update_check_enabled` 的当前值）、`update_available`、`latest_version`（未取到时为 null）、
+  `release_url`（固定为公开发布页 `https://github.com/Harendotes-Tang/MentorRouletteRecorder/releases/latest`，
+  不随检查结果变化）、`last_checked_at_utc`（本进程实际发出过请求的最近一次时间，从未发出时为 null）、
+  `last_outcome`（该次检查的结果令牌）。检查只在采集服务应答 `GetStatus` 时顺带发起，因此只有桌面端连接并轮询时才会发生；
+  同一进程内每 24 小时最多一次，失败一律静默，桌面端据此不显示任何内容。旧采集服务不发这一项，桌面端按"未报告"处理。
+- **`CaptureSettings` / `UpdateCaptureSettingsRequest`** 新增 `update_check_enabled`（默认 true）：
+  关闭后不再发出任何请求，`CollectorStatus.update.enabled` 随之为 false。采集服务持久化为 `update.check_enabled`。
+- 脱敏诊断报告（不属于 IPC 契约，同步记在这里）：`boundary.outbound.update_check =
+  {enabled, kill_switch, last_checked_utc, last_outcome, latest_version}`，不含主机名、地址与请求头。
+  报告版本仍为 2（只增不删）。
+
 ## 2026-09-16 — 在线语音（三条新消息）、`CheckDatabaseIntegrity`、`CaptureStatus.last_valid_event_kind`（附加）
 
 界面改版 P4b 与决策 4、5。全部为附加式变更，旧桌面端收到的应答照常通过校验。

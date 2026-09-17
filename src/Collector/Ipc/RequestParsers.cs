@@ -285,7 +285,7 @@ public static class RequestParsers
         reader.RejectUnknown(
             "follow_game", "autostart", "adapter_id", "log_retention_days",
             "allow_without_profile", "region_override", "candidate_validation_enabled", "research_payload_opcodes",
-            "auto_calibration_enabled", "shared_calibration_enabled");
+            "auto_calibration_enabled", "shared_calibration_enabled", "update_check_enabled");
 
         // adapter_id and region_override distinguish "not named" from "named as null": for
         // both, null is a request to clear the value, not a request to leave it alone.
@@ -294,6 +294,8 @@ public static class RequestParsers
             throw CollectorException.BadRequest("research_payload_opcodes 必须是数组，清空请传 []。", "payload.research_payload_opcodes");
         if (reader.Has("candidate_validation_enabled") && reader.Bool("candidate_validation_enabled") is null)
             throw CollectorException.BadRequest("candidate_validation_enabled 必须是布尔值。", "payload.candidate_validation_enabled");
+        if (reader.Has("update_check_enabled") && reader.Bool("update_check_enabled") is null)
+            throw CollectorException.BadRequest("update_check_enabled 必须是布尔值。", "payload.update_check_enabled");
         var regionSpecified = reader.Has("region_override");
         var regionText = reader.String("region_override", 16);
         if (regionSpecified && regionText is not (null or "CN" or "GLOBAL"))
@@ -309,6 +311,7 @@ public static class RequestParsers
                 ? Capture.ResearchPayloadPolicy.Normalize(reader.StringArray("research_payload_opcodes", Capture.ResearchPayloadPolicy.MaxOpcodes)) : null,
             AutoCalibrationEnabled = reader.Bool("auto_calibration_enabled"),
             SharedCalibrationEnabled = reader.Bool("shared_calibration_enabled"),
+            UpdateCheckEnabled = reader.Bool("update_check_enabled"),
             FollowGame = reader.Bool("follow_game"),
             Autostart = reader.Bool("autostart"),
             AdapterId = reader.String("adapter_id", 400),

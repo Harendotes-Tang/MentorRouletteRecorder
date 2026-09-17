@@ -73,6 +73,7 @@ QJsonObject argsFor(const QString &messageType)
         changes.insert(QStringLiteral("candidate_validation_enabled"), false);
         changes.insert(QStringLiteral("research_payload_opcodes"), QJsonArray());
         changes.insert(QStringLiteral("region_override"), QJsonValue::Null);
+        changes.insert(QStringLiteral("update_check_enabled"), true);
         args.insert(QStringLiteral("changes"), changes);
     } else if (messageType == QLatin1String("ReviewCandidateObservation")) {
         args.insert(QStringLiteral("observation_id"),

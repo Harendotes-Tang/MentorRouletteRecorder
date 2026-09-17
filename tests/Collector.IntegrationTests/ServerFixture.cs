@@ -6,6 +6,7 @@ using MentorRecorder.Collector.Domain.Time;
 using MentorRecorder.Collector.Ipc;
 using MentorRecorder.Collector.Protocol.Profiles;
 using MentorRecorder.Collector.Speech;
+using MentorRecorder.Collector.Update;
 
 namespace MentorRecorder.Collector.IntegrationTests;
 
@@ -35,6 +36,11 @@ public sealed class ServerFixture : IAsyncDisposable
     /// <summary>A speech client whose transport throws before anything is sent.</summary>
     public static OnlineSpeechClient RefusingSpeechClient { get; } = new(
         (_, _) => throw new InvalidOperationException("integration tests never reach a speech service"));
+
+    /// <summary>An update-check client whose transport throws before anything is sent.</summary>
+    public static UpdateCheckClient RefusingUpdateCheckClient { get; } = new(
+        (_, _) => throw new InvalidOperationException("integration tests never reach a release host"),
+        readEnvironment: _ => null);
 
     /// <summary>Server-side diagnostics collected during the test.</summary>
     public List<string> Log { get; }
@@ -69,8 +75,15 @@ public sealed class ServerFixture : IAsyncDisposable
     /// Online speech client. When null the server gets one whose transport refuses to send, so
     /// no transport test can reach a speech service whatever settings it writes.
     /// </param>
+    /// <param name="updateCheckClient">
+    /// Update-check client. When null the server gets one whose transport refuses to send, so no
+    /// transport test can reach a release host however the status is polled.
+    /// </param>
     public static ServerFixture Start(
-        Action<CollectorHost>? seed = null, CaptureServices? capture = null, OnlineSpeechClient? speech = null)
+        Action<CollectorHost>? seed = null,
+        CaptureServices? capture = null,
+        OnlineSpeechClient? speech = null,
+        UpdateCheckClient? updateCheckClient = null)
     {
         var directory = Path.Combine(
             Path.GetTempPath(), "MentorRecorder.IntegrationTests", Guid.NewGuid().ToString("N"));
@@ -82,7 +95,8 @@ public sealed class ServerFixture : IAsyncDisposable
         var host = CollectorHost.Open(
             Path.Combine(directory, "test.db"), SystemClock.Instance, capture ?? CaptureFakes.NoGame(),
             profileSelector: game => selector.Select(game.Region, game.GameBuild),
-            speechClient: speech ?? RefusingSpeechClient);
+            speechClient: speech ?? RefusingSpeechClient,
+            updateCheckClient: updateCheckClient ?? RefusingUpdateCheckClient);
         seed?.Invoke(host);
 
         // A per-test pipe name keeps parallel tests from colliding with each other, and with

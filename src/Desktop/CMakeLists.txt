@@ -35,6 +35,12 @@ mr_use_ascii_autogen_dir(MentorRecorderDesktopLib)
 
 target_compile_features(MentorRecorderDesktopLib PUBLIC cxx_std_20)
 
+# UpdateController prints this build's version beside the one the Collector
+# reports, and it lives in the library the unit tests link, so the definition
+# cannot be left on the executable alone.
+target_compile_definitions(MentorRecorderDesktopLib
+    PRIVATE MR_APP_VERSION="${MentorRecorder_VERSION}")
+
 target_include_directories(MentorRecorderDesktopLib
     PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/cpp)
 
@@ -123,7 +129,9 @@ set(MR_CPP_SOURCES
     cpp/TrayController.h
     cpp/TtsService.cpp
     cpp/TtsService.h
-    cpp/TtsServiceOnline.cpp)
+    cpp/TtsServiceOnline.cpp
+    cpp/UpdateController.cpp
+    cpp/UpdateController.h)
 
 target_sources(MentorRecorderDesktopLib PRIVATE ${MR_CPP_SOURCES})
 
@@ -180,6 +188,7 @@ set(MR_QML_FILES
     qml/components/PageHost.qml
     qml/components/ToggleSwitch.qml
     qml/components/TrendBars.qml
+    qml/components/UpdateNotice.qml
     qml/dialogs/BaselineDialog.qml
     qml/dialogs/DisclosureDialog.qml
     qml/dialogs/EditRunDialog.qml

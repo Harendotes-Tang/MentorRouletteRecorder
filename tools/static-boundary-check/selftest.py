@@ -69,6 +69,7 @@ SAMPLES: dict[str, str] = {
     "NET-005": "        auto *server = new QTcpServer(this);",
     "NET-006": "        using var client = new HttpClient();",
     "NET-007/shared-calibration-hosts": '        const string Mirror = "https://cdn.jsdelivr.net/gh/owner/repo@main/index.json";',
+    "NET-007/github-content-hosts": '        const string Raw = "https://raw.githubusercontent.com/owner/repo/main/index.json";',
     "NET-007/speech-host": '        const string Endpoint = "https://eastasia.tts.speech.microsoft.com/cognitiveservices/v1";',
     "AUT-001": "        SendInput(1, ref input, Marshal.SizeOf(input));",
 }
@@ -294,6 +295,7 @@ def cases() -> Iterable[tuple[str, callable]]:
     client = "src/Collector/Protocol/Sharing/SharedCalibrationClient.cs"
     http_line = "        using var client = new HttpClient();"
     host_line = '        var index = "https://raw.githubusercontent.com/owner/repo/main/index.json";'
+    cdn_line = '        var mirror = "https://cdn.jsdelivr.net/gh/owner/repo@main/index.json";'
 
     def exact_path_is_allowed() -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -385,12 +387,94 @@ def cases() -> Iterable[tuple[str, callable]]:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             clean_tree(root)
-            plant(root, speech, host_line)
+            plant(root, speech, cdn_line)
             expect_violation(
                 root, f"a CDN host in {speech}", "NET-007", "NET-007/shared-calibration-hosts"
             )
 
     yield "NET-007 still rejects the CDN hosts in the online-speech client", speech_client_may_not_name_the_cdn
+
+    def speech_client_may_not_name_the_content_host() -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            clean_tree(root)
+            plant(root, speech, host_line)
+            expect_violation(
+                root, f"the content host in {speech}", "NET-007", "NET-007/github-content-hosts"
+            )
+
+    yield (
+        "NET-007 still rejects the content host in the online-speech client",
+        speech_client_may_not_name_the_content_host,
+    )
+
+    # --- the update-check client (docs/privacy-boundary.md section 8.4) -----------------
+    # The third outbound client is allowed HttpClient and the content host, by exact path, and
+    # nothing else: the CDN hosts and the speech host stay refused there, the content host stays
+    # refused in every other file of the feature, and a sibling is refused everywhere.
+    updates = "src/Collector/Update/UpdateCheckClient.cs"
+
+    def update_client_is_allowed() -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            clean_tree(root)
+            plant(root, updates, http_line + "\n" + host_line)
+            expect_clean(root, f"NET-006 and the content host in {updates}")
+
+    yield "NET-006/NET-007 allow the update-check client by exact path", update_client_is_allowed
+
+    for line, variant, what in (
+        (cdn_line, "NET-007/shared-calibration-hosts", "a CDN host"),
+        (speech_host_line, "NET-007/speech-host", "the speech host"),
+    ):
+
+        def update_client_may_not_name_it(
+            line: str = line, variant: str = variant, what: str = what
+        ) -> None:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                clean_tree(root)
+                plant(root, updates, line)
+                expect_violation(root, f"{what} in {updates}", "NET-007", variant)
+
+        yield f"NET-007 still rejects {what} in the update-check client", update_client_may_not_name_it
+
+    for elsewhere in (
+        "src/Collector/Update/UpdateCheckService.cs",
+        "src/Collector/Update/UpdateCheckClient.cs.bak.cs",
+        "src/Collector/Capture/UpdateCheckClient.cs",
+        "tests/Collector.UnitTests/UpdateCheckClientTests.cs",
+        "src/Collector/Speech/OnlineSpeechClient.cs",
+    ):
+
+        def content_host_elsewhere(elsewhere: str = elsewhere) -> None:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                clean_tree(root)
+                plant(root, elsewhere, host_line)
+                expect_violation(
+                    root, f"the content host in {elsewhere}", "NET-007", "NET-007/github-content-hosts"
+                )
+
+        yield f"NET-007 rejects the content host in {elsewhere}", content_host_elsewhere
+
+    def http_beside_the_update_client() -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            clean_tree(root)
+            plant(root, "src/Collector/Update/UpdateCheckService.cs", http_line)
+            expect_violation(root, "HttpClient in the update-check service", "NET-006")
+
+    yield "NET-006 still rejects HttpClient beside the update-check client", http_beside_the_update_client
+
+    def update_allowance_lifts_one_rule_only() -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            clean_tree(root)
+            plant(root, updates, "        var socket = new ClientWebSocket();")
+            expect_violation(root, f"a WebSocket in {updates}", "NET-003")
+
+    yield "the update-check client is still checked by every other rule", update_allowance_lifts_one_rule_only
 
     for elsewhere in (
         client,

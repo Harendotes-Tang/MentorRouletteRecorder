@@ -84,7 +84,9 @@ public:
     // 2: the notice gained the run order and the pending-review step.
     // 3: the notice names the one network request, the shared-calibration
     //    download, and how to turn it off (docs/privacy-boundary.md §8.2).
-    static constexpr int kDisclosureVersion = 3;
+    // 4: the notice gained a third network class, the update check, which the
+    //    earlier text explicitly ruled out.
+    static constexpr int kDisclosureVersion = 4;
     static int disclosureVersion();
     int acknowledgedDisclosureVersion() const;
     bool disclosureAcknowledged() const;
@@ -156,6 +158,11 @@ public:
     /// yyyy-MM-dd of the last automatic backup, empty when none ran yet.
     QString lastAutoBackupDate() const;
     void setLastAutoBackupDate(const QString &isoDate);
+
+    /// The version 忽略此版本 was last pressed for, empty when never. Stored per
+    /// version so a later release raises the update banner again by itself.
+    QString dismissedUpdateVersion() const;
+    void setDismissedUpdateVersion(const QString &version);
 
     bool value(const QString &key, bool defaultValue) const;
     int value(const QString &key, int defaultValue) const;

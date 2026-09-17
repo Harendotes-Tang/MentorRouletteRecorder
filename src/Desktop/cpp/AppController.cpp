@@ -53,7 +53,7 @@ bool isCaptureSettingKey(const QString &key)
     static const char *kKeys[] = {"follow_game", "autostart", "adapter_id",
                                   "log_retention_days", "allow_without_profile",
                                   "region_override", "auto_calibration_enabled",
-                                  "shared_calibration_enabled"};
+                                  "shared_calibration_enabled", "update_check_enabled"};
     for (const char *name : kKeys) {
         if (key == QLatin1String(name))
             return true;
@@ -126,6 +126,15 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
     // into <dir of database_path>\tts-cache\, and a fallback is one toast.
     m_speech = new SpeechController(this);
     m_speech->setBackend(backend);
+    // 检查新版本: the Collector decides whether one exists and names the page it
+    // lives on; this object only shows that decision and, on a click, hands the
+    // address to the system browser. It rides the same single status adoption
+    // path as calibration, so it cannot go stale behind one of them.
+    m_update = new UpdateController(this);
+    m_update->setSettings(settings);
+    connect(this, &AppController::statusChanged, this,
+            [this] { m_update->refreshFromStatus(collectorStatus()); });
+    connect(m_update, &UpdateController::toastRequested, this, &AppController::showToast);
     m_tts->setBackend(backend);
     m_tts->setSpeech(m_speech);
     connect(m_tts, &TtsService::toastRequested, this, &AppController::showToast);

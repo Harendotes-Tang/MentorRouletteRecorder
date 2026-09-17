@@ -98,6 +98,14 @@ public:
     /// SynthesizeSpeech requests answered so far (tests).
     int speechSynthesisCount() const { return m_speechSynthesisCount; }
 
+    /// Pretend the Collector's daily update check found a newer release. The
+    /// version and the page it names are synthetic; nothing is ever fetched.
+    void setUpdateAvailable(bool available);
+    bool updateAvailable() const { return m_updateAvailable; }
+    /// The `changes` object of the last accepted UpdateCaptureSettings, so a
+    /// test can pin what a switch actually put on the wire.
+    QJsonObject lastCaptureSettingsUpdate() const { return m_lastCaptureSettingsUpdate; }
+
     /// Simulate the live-validated failure mode of
     /// docs/live-validation-guide.md section 6: capture was started after the
     /// client had already logged in, so nothing decodes and the Collector says
@@ -241,6 +249,8 @@ private:
     bool m_npcapMissing = false;
     bool m_capturing = true;
     bool m_midstreamSuspected = false;
+    bool m_updateAvailable = false;
+    QJsonObject m_lastCaptureSettingsUpdate;
     /// Monotonic $defs/LiveEvent.sequence handed to every emitted event.
     qint64 m_liveSequence = 0;
     QString m_recordingFixture;

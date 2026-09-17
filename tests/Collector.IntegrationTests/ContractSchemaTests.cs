@@ -70,6 +70,14 @@ public sealed class ContractSchemaTests
                 Assert.True((await client.SendAsync(messageType)).Ok, messageType);
             }
 
+            // The update check rides on GetStatus rather than a message of its own.
+            // $defs/UpdateStatus is additionalProperties: false, so a field the Collector starts
+            // writing without declaring it fails here.
+            var update = (await client.SendAsync("GetStatus")).Require()["update"]!.AsObject();
+            ContractSchema.Validate("$defs/UpdateStatus", update, "update status");
+            Assert.True(update["enabled"]!.GetValue<bool>());
+            Assert.False(update["update_available"]!.GetValue<bool>());
+
             // -- create two runs so the statistics and the exports have something to say --
             var firstRunId = await CreateRunAsync(client, "COMPLETED", 900001, 19);
             _ = await CreateRunAsync(client, "LEFT_OR_ABANDONED", 900002, 24);

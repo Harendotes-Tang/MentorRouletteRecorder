@@ -5,6 +5,7 @@ using MentorRecorder.Collector.Protocol.Calibration;
 using MentorRecorder.Collector.Protocol.Parsing;
 using MentorRecorder.Collector.Protocol.Profiles;
 using MentorRecorder.Collector.Domain.Events;
+using MentorRecorder.Collector.Update;
 
 namespace MentorRecorder.Collector.UnitTests;
 
@@ -425,6 +426,47 @@ public sealed class CaptureDiagnosticsTests
         GameExecutableKnown = true,
         Warnings = new[] { "游戏安装路径为 D:\\SdoA\\FFXIV" },
     };
+
+    [Fact]
+    public void SanitizedReportStatesTheUpdateCheckWithoutSayingWhereItGoes()
+    {
+        var report = SanitizedDiagnosticsReport.Build(
+            Loaded() with
+            {
+                UpdateCheck = new UpdateCheckDiagnostics(
+                    true, false, DateTimeOffset.UnixEpoch.AddHours(3), "OK", "9.9.9"),
+            },
+            "0.1.0",
+            DateTimeOffset.UnixEpoch);
+        var update = report["boundary"]!["outbound"]!["update_check"]!;
+
+        Assert.True(update["enabled"]!.GetValue<bool>());
+        Assert.False(update["kill_switch"]!.GetValue<bool>());
+        Assert.Equal("1970-01-01T03:00:00.000Z", update["last_checked_utc"]!.GetValue<string>());
+        Assert.Equal("OK", update["last_outcome"]!.GetValue<string>());
+        Assert.Equal("9.9.9", update["latest_version"]!.GetValue<string>());
+
+        // The third request class states what it did, never where it went: no host, no address,
+        // no path (docs/privacy-boundary.md §8.4).
+        var json = report.ToJsonString();
+        Assert.DoesNotContain("github", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("http", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(UpdateCheckClient.Repository, json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(UpdateCheckClient.Owner, json, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void AnUncheckedInstallationReportsTheUpdateCheckAsUntouched()
+    {
+        var update = SanitizedDiagnosticsReport
+            .Build(Loaded(), "0.1.0", DateTimeOffset.UnixEpoch)["boundary"]!["outbound"]!["update_check"]!;
+
+        Assert.True(update["enabled"]!.GetValue<bool>());
+        Assert.False(update["kill_switch"]!.GetValue<bool>());
+        Assert.Null(update["last_checked_utc"]);
+        Assert.Null(update["last_outcome"]);
+        Assert.Null(update["latest_version"]);
+    }
 
     [Fact]
     public void SanitizedReportDropsWarningsRatherThanRiskingWhatIsInThem()

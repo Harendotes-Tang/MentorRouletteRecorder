@@ -35,10 +35,23 @@ ColumnLayout {
             Text {
                 objectName: "aboutVersionText"
                 Layout.fillWidth: true
-                text: qsTr("v%1 · GPL-3.0 或更高版本").arg(App.appVersion)
+                // 有没有新版本由后台进程判断；这里只把结论接在版本号后面。
+                text: App.update.updateAvailable
+                      ? qsTr("v%1 · GPL-3.0 或更高版本 · 有新版本 %2")
+                        .arg(App.appVersion).arg(App.update.latestVersion)
+                      : qsTr("v%1 · GPL-3.0 或更高版本").arg(App.appVersion)
                 color: Theme.textSecondary
                 font.pixelSize: Theme.fs(12)
                 elide: Text.ElideRight
+            }
+
+            AppButton {
+                objectName: "aboutOpenReleasePageButton"
+                Layout.fillWidth: false
+                visible: App.update.updateAvailable
+                compact: true
+                text: qsTr("打开下载页")
+                onClicked: App.update.openReleasePage()
             }
         }
 

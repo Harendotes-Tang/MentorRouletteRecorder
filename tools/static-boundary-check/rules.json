@@ -19,13 +19,14 @@
     "repository-relative, forward-slash FILE paths matched exactly (not by file",
     "or directory name); 'allow_path_prefixes' lists directory prefixes that must",
     "end in '/'. Each allowance lifts only its own rule, and every one must be",
-    "explained in docs/privacy-boundary.md (NET-006/NET-007: sections 8.2 and 8.3).",
+    "explained in docs/privacy-boundary.md (NET-006/NET-007: sections 8.2, 8.3 and 8.4).",
     "",
     "A rule id may be declared more than once when every entry names a distinct",
     "'variant' (lower-case token). Violations are still reported under the id; each",
     "entry has its own pattern and its own allowances, so the shared-calibration",
-    "client may name its CDN hosts but not the speech host, and the online-speech",
-    "client the speech host but not the CDN hosts."
+    "client may name its CDN hosts but not the speech host, the online-speech",
+    "client the speech host but not the CDN hosts, and the update-check client the",
+    "content host but neither the CDN hosts nor the speech host."
   ],
   "version": 3,
   "allow_marker": "BOUNDARY-ALLOW",
@@ -215,20 +216,36 @@
       "id": "NET-006",
       "category": "outbound-network",
       "pattern": "\\bHttpClient\\b|\\bWebClient\\b|\\bQNetworkAccessManager\\b",
-      "message": "禁止外发网络请求；例外只有共享校准获取客户端与在线语音客户端（docs/privacy-boundary.md §8.2、§8.3） / no outbound network requests; the only exceptions are the shared-calibration fetch client and the online-speech client (docs/privacy-boundary.md sections 8.2 and 8.3)",
+      "message": "禁止外发网络请求；例外只有共享校准获取客户端、在线语音客户端与更新检查客户端（docs/privacy-boundary.md §8.2、§8.3、§8.4） / no outbound network requests; the only exceptions are the shared-calibration fetch client, the online-speech client and the update-check client (docs/privacy-boundary.md sections 8.2, 8.3 and 8.4)",
       "allow_paths": [
         "src/Collector/Protocol/Sharing/SharedCalibrationClient.cs",
-        "src/Collector/Speech/OnlineSpeechClient.cs"
+        "src/Collector/Speech/OnlineSpeechClient.cs",
+        "src/Collector/Update/UpdateCheckClient.cs"
       ]
     },
     {
       "id": "NET-007",
       "variant": "shared-calibration-hosts",
       "category": "outbound-network",
-      "pattern": "(?i:jsdelivr|githubusercontent)",
-      "message": "共享校准数据源的主机名只允许出现在获取客户端、公开仓库脚本目录与开发期数据生成器 / shared-calibration source host names may only appear in the fetch client, tools/shared-calibration/ and the dev-time duty-data generator",
+      "pattern": "(?i:jsdelivr)",
+      "message": "共享校准 CDN 的主机名只允许出现在获取客户端、公开仓库脚本目录与开发期数据生成器 / the shared-calibration CDN host names may only appear in the fetch client, tools/shared-calibration/ and the dev-time duty-data generator",
       "allow_paths": [
         "src/Collector/Protocol/Sharing/SharedCalibrationClient.cs",
+        "tools/duty-data-generator/generate.py"
+      ],
+      "allow_path_prefixes": [
+        "tools/shared-calibration/"
+      ]
+    },
+    {
+      "id": "NET-007",
+      "variant": "github-content-hosts",
+      "category": "outbound-network",
+      "pattern": "(?i:githubusercontent)",
+      "message": "内容分发主机名只允许出现在共享校准获取客户端、更新检查客户端、公开仓库脚本目录与开发期数据生成器（docs/privacy-boundary.md §8.2、§8.4） / the content host name may only appear in the shared-calibration fetch client, the update-check client, tools/shared-calibration/ and the dev-time duty-data generator (docs/privacy-boundary.md sections 8.2 and 8.4)",
+      "allow_paths": [
+        "src/Collector/Protocol/Sharing/SharedCalibrationClient.cs",
+        "src/Collector/Update/UpdateCheckClient.cs",
         "tools/duty-data-generator/generate.py"
       ],
       "allow_path_prefixes": [

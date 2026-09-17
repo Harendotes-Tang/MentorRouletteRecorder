@@ -1,0 +1,288 @@
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using MentorRecorder.Collector.Domain;
+using MentorRecorder.Collector.Domain.Time;
+using MentorRecorder.Collector.Storage.Repositories;
+
+namespace MentorRecorder.Collector.Update;
+
+/// <summary>
+/// The update check as the IPC layer sees it: a cached answer, and a request sent at most once a
+/// day in the background (docs/privacy-boundary.md §8.4).
+///
+/// Poll-driven rather than timer-driven. <see cref="Observe"/> is called from <c>GetStatus</c>, it
+/// returns the cached state immediately and, when a check is due, schedules exactly one in the
+/// background; a Collector nobody is looking at sends nothing. "Due" means no check has ever been
+/// recorded, the recorded time lies in the future (a clock that was wrong or has been moved back),
+/// or <see cref="CheckInterval"/> plus this process's <see cref="Jitter"/> has passed - the jitter
+/// so that a thousand installs started by the same patch do not all ask at the same second.
+///
+/// Every attempt is stamped, successful or not, so a host that is down cannot turn into a request
+/// on every status frame; the version last learned survives a failure and a restart. Notification
+/// only: nothing is downloaded but the metadata document, and nothing is ever executed.
+/// </summary>
+public sealed class UpdateCheckService : IDisposable
+{
+    /// <summary>Whether the check may run at all. On by default.</summary>
+    public const string EnabledSetting = "update.check_enabled";
+
+    /// <summary>When a check was last attempted, successfully or not.</summary>
+    public const string LastCheckedSetting = "update.last_checked_at_utc";
+
+    /// <summary>Newest published version this installation has learned of.</summary>
+    public const string LatestVersionSetting = "update.latest_version";
+
+    /// <summary>How the last attempt ended, as an <see cref="UpdateCheckOutcome"/> token.</summary>
+    public const string LastOutcomeSetting = "update.last_outcome";
+
+    /// <summary>Shortest time between two checks, before the jitter is added.</summary>
+    public static readonly TimeSpan CheckInterval = TimeSpan.FromHours(24);
+
+    /// <summary>Exclusive upper bound of the per-process jitter.</summary>
+    public static readonly TimeSpan MaxJitter = TimeSpan.FromHours(2);
+
+    /// <summary>How long <see cref="Dispose"/> waits for the check in flight to finish.</summary>
+    public static readonly TimeSpan StopTimeout = TimeSpan.FromSeconds(5);
+
+    private readonly SettingsRepository _settings;
+    private readonly UpdateCheckClient _client;
+    private readonly UpdateVersion? _local;
+    private readonly IClock _clock;
+    private readonly object _gate = new();
+    private readonly CancellationTokenSource _stopping = new();
+
+    private DateTimeOffset? _lastCheckedAtUtc;
+    private string? _latestVersion;
+    private string? _lastOutcome;
+    private volatile bool _enabled;
+    private int _inFlight;
+    private Task? _pending;
+    private bool _disposed;
+
+    /// <summary>Creates the service and reads the state a previous run left behind.</summary>
+    /// <param name="settings">Settings repository; the only thing this service writes to.</param>
+    /// <param name="client">Check client; the production one in the shipping Collector.</param>
+    /// <param name="localVersion">This build's version stamp; an unreadable one means nothing is ever newer.</param>
+    /// <param name="clock">Clock used to decide what is due and to stamp attempts.</param>
+    /// <param name="jitter">
+    /// Draws this process's jitter once; clamped into <c>[0, <see cref="MaxJitter"/>)</c>. A random
+    /// draw when null.
+    /// </param>
+    public UpdateCheckService(
+        SettingsRepository settings,
+        UpdateCheckClient client,
+        string localVersion,
+        IClock clock,
+        Func<TimeSpan>? jitter = null)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        ArgumentNullException.ThrowIfNull(client);
+        ArgumentNullException.ThrowIfNull(clock);
+
+        _settings = settings;
+        _client = client;
+        _clock = clock;
+        _local = UpdateVersion.TryParseLocal(localVersion, out var parsed) ? parsed : null;
+        Jitter = Clamp(jitter is null ? Random.Shared.NextDouble() * MaxJitter : jitter());
+
+        _enabled = ReadBool(EnabledSetting) ?? true;
+        _lastCheckedAtUtc = UtcTimestamp.TryParse(ReadString(LastCheckedSetting), out var lastChecked)
+            ? lastChecked
+            : null;
+        _latestVersion = ReadString(LatestVersionSetting);
+        _lastOutcome = ReadString(LastOutcomeSetting);
+    }
+
+    /// <summary>This process's jitter, drawn once at startup and constant afterwards.</summary>
+    public TimeSpan Jitter { get; }
+
+    /// <summary>The background check in flight, or the last one that ran; null until one is scheduled.</summary>
+    internal Task? Pending => _pending;
+
+    /// <summary>
+    /// The state <c>GetStatus</c> reports, answered from the cache, and a check scheduled when one is
+    /// due. Never waits on a request.
+    /// </summary>
+    public UpdateCheckSnapshot Observe()
+    {
+        Schedule();
+        return Snapshot();
+    }
+
+    /// <summary>The state as it stands. Reads nothing and sends nothing.</summary>
+    public UpdateCheckSnapshot Snapshot()
+    {
+        DateTimeOffset? lastChecked;
+        string? latest;
+        string? outcome;
+        lock (_gate)
+        {
+            lastChecked = _lastCheckedAtUtc;
+            latest = _latestVersion;
+            outcome = _lastOutcome;
+        }
+
+        return new UpdateCheckSnapshot(
+            _enabled, IsNewer(latest), latest, lastChecked, outcome, UpdateCheckClient.ReleaseUrl);
+    }
+
+    /// <summary>What the sanitized diagnostics report may state. Never an address.</summary>
+    public UpdateCheckDiagnostics Diagnostics()
+    {
+        var snapshot = Snapshot();
+        return new UpdateCheckDiagnostics(
+            snapshot.Enabled,
+            _client.IsDisabledNow,
+            snapshot.LastCheckedAtUtc,
+            snapshot.LastOutcome,
+            snapshot.LatestVersion);
+    }
+
+    /// <summary>
+    /// Pushes <c>update.check_enabled</c> at the service, so that "saved" and "in force" are the same
+    /// moment. The value itself is written by <c>CaptureSettingsStore</c>.
+    /// </summary>
+    /// <param name="enabled">Whether checks may run.</param>
+    public void ApplySetting(bool enabled) => _enabled = enabled;
+
+    /// <summary>
+    /// Runs one check now, whatever is due, and records it. The seam tests drive; the shipping path
+    /// goes through <see cref="Observe"/>.
+    /// </summary>
+    /// <param name="cancellationToken">Stops the check.</param>
+    public async Task<UpdateCheckResult> CheckNowAsync(CancellationToken cancellationToken = default)
+    {
+        var result = await _client.FetchAsync(cancellationToken).ConfigureAwait(false);
+        Record(result);
+        return result;
+    }
+
+    /// <summary>
+    /// Stops scheduling and waits for the check in flight, so nothing writes to the database after
+    /// the host has started closing it.
+    /// </summary>
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        _stopping.Cancel();
+        try
+        {
+            _pending?.Wait(StopTimeout);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        {
+            // The background task swallows its own failures; a wait that faults anyway must not
+            // stop the rest of the shutdown.
+        }
+
+        _stopping.Dispose();
+    }
+
+    private void Schedule()
+    {
+        if (_disposed || !_enabled || !IsDue(_clock.UtcNow) ||
+            Interlocked.CompareExchange(ref _inFlight, 1, 0) != 0)
+        {
+            return;
+        }
+
+        _pending = Task.Run(async () =>
+        {
+            try
+            {
+                await CheckNowAsync(_stopping.Token).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+            {
+                // A check is a background convenience: a settings write that fails because the host
+                // is shutting down must not surface as an unobserved task exception.
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _inFlight, 0);
+            }
+        });
+    }
+
+    private bool IsDue(DateTimeOffset now)
+    {
+        lock (_gate)
+        {
+            return _lastCheckedAtUtc is not { } last || last > now || now - last >= CheckInterval + Jitter;
+        }
+    }
+
+    private void Record(UpdateCheckResult result)
+    {
+        if (result.Outcome == UpdateCheckOutcome.Cancelled)
+        {
+            // A check abandoned because the process is closing is not an attempt: stamping it would
+            // cost the user a day's checking, and the write would race the database closing anyway.
+            return;
+        }
+
+        var now = UtcTimestamp.Truncate(_clock.UtcNow);
+        lock (_gate)
+        {
+            _lastCheckedAtUtc = now;
+            _lastOutcome = EnumWire<UpdateCheckOutcome>.Format(result.Outcome);
+            if (result.LatestVersion is { } version)
+            {
+                _latestVersion = version;
+            }
+        }
+
+        var values = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            [LastCheckedSetting] = Text(UtcTimestamp.ToText(now)),
+            [LastOutcomeSetting] = Text(EnumWire<UpdateCheckOutcome>.Format(result.Outcome)),
+        };
+
+        // A failed check keeps whatever version the last successful one learned: the user is not
+        // told the update vanished because a server was down.
+        if (result.LatestVersion is { } latest)
+        {
+            values[LatestVersionSetting] = Text(latest);
+        }
+
+        _settings.SetSettings(values, _ => 0);
+    }
+
+    private bool IsNewer(string? latest) =>
+        _local is { } running && UpdateVersion.TryParse(latest, out var published) &&
+        UpdateVersion.IsNewer(published, running);
+
+    private static TimeSpan Clamp(TimeSpan jitter) =>
+        jitter <= TimeSpan.Zero ? TimeSpan.Zero
+        : jitter >= MaxJitter ? MaxJitter - TimeSpan.FromTicks(1)
+        : jitter;
+
+    private static string Text(string value) => JsonValue.Create(value)!.ToJsonString();
+
+    private JsonNode? ReadSetting(string key)
+    {
+        try
+        {
+            var raw = _settings.GetSetting(key);
+            return raw is null ? null : JsonNode.Parse(raw);
+        }
+        catch (Exception ex) when (ex is JsonException or Contracts.Errors.CollectorException)
+        {
+            return null;
+        }
+    }
+
+    private bool? ReadBool(string key) =>
+        ReadSetting(key) is JsonValue value && value.TryGetValue<bool>(out var flag) ? flag : null;
+
+    private string? ReadString(string key) =>
+        ReadSetting(key) is JsonValue value && value.TryGetValue<string>(out var text) &&
+        !string.IsNullOrWhiteSpace(text)
+            ? text
+            : null;
+}

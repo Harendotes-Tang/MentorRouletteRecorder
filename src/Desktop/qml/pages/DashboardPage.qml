@@ -69,6 +69,10 @@ ScrollView {
             subtitle: Fmt.dateWithWeekday(new Date().toISOString())
         }
 
+        // The Collector found a newer release. Notify only: nothing is
+        // downloaded or installed by this software.
+        UpdateNotice {}
+
         Flow {
             Layout.fillWidth: true
             spacing: 8

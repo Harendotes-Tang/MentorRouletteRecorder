@@ -55,7 +55,8 @@ public sealed class CaptureServerFixture : IAsyncDisposable
             SystemClock.Instance,
             capture ?? CaptureFakes.NoGame(),
             profileSelector: profileSelector, validation: validation,
-            speechClient: ServerFixture.RefusingSpeechClient);
+            speechClient: ServerFixture.RefusingSpeechClient,
+            updateCheckClient: ServerFixture.RefusingUpdateCheckClient);
 
         var pipeName = "MentorRecorder.test." + Guid.NewGuid().ToString("N") + ".v1";
         return new CaptureServerFixture(directory, host, new PipeServer(new MessageDispatcher(host), pipeName));

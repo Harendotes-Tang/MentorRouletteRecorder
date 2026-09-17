@@ -11,6 +11,7 @@ using MentorRecorder.Collector.Speech;
 using MentorRecorder.Collector.Storage;
 using MentorRecorder.Collector.Storage.Mutations;
 using MentorRecorder.Collector.Storage.Repositories;
+using MentorRecorder.Collector.Update;
 
 namespace MentorRecorder.Collector.Ipc;
 
@@ -115,6 +116,12 @@ public sealed class CollectorHost : IDisposable
     public OnlineSpeechService Speech { get; private set; } = null!;
 
     /// <summary>
+    /// The update check: the switch, the cached answer and the once-a-day background request
+    /// (docs/privacy-boundary.md §8.4). Notification only; nothing is downloaded or run.
+    /// </summary>
+    public UpdateCheckService Updates { get; private set; } = null!;
+
+    /// <summary>
     /// The capture pipeline: Npcap detection, adapter selection, the Machina monitor and the
     /// bounded parser queue. Always present, even where capture cannot run -- there it
     /// reports <c>UNAVAILABLE</c> honestly rather than being absent.
@@ -159,6 +166,10 @@ public sealed class CollectorHost : IDisposable
     /// until the user configures a service; tests pass one over a fake transport.
     /// </param>
     /// <param name="speechProtector">Key encryption; DPAPI when null.</param>
+    /// <param name="updateCheckClient">
+    /// Update-check client. Production passes null and gets the real one, which still sends nothing
+    /// until a check falls due; tests pass one over a fake transport.
+    /// </param>
     public static CollectorHost Open(
         string? databasePath = null,
         IClock? clock = null,
@@ -167,7 +178,8 @@ public sealed class CollectorHost : IDisposable
         Func<GameProcessDetection, ProfileSelection>? profileSelector = null,
         CaptureValidationServices? validation = null,
         OnlineSpeechClient? speechClient = null,
-        ISecretProtector? speechProtector = null)
+        ISecretProtector? speechProtector = null,
+        UpdateCheckClient? updateCheckClient = null)
     {
         var effectiveClock = clock ?? SystemClock.Instance;
         var path = string.IsNullOrWhiteSpace(databasePath)
@@ -190,6 +202,11 @@ public sealed class CollectorHost : IDisposable
                 new SpeechCache(dataDirectory, effectiveClock),
                 speechClient ?? OnlineSpeechClient.CreateDefault(),
                 () => host._logger,
+                effectiveClock);
+            host.Updates = new UpdateCheckService(
+                host.Settings,
+                updateCheckClient ?? UpdateCheckClient.CreateDefault(),
+                Program.Version,
                 effectiveClock);
 
             // The settings the user chose apply from the first line this process writes, not
@@ -338,6 +355,7 @@ public sealed class CollectorHost : IDisposable
         _logger.ApplyRetention(settings.LogRetentionDays);
         LiveProtocol?.ApplyCalibrationSetting(settings.AutoCalibrationEnabled);
         LiveProtocol?.ApplySharedCalibrationSetting(settings.SharedCalibrationEnabled);
+        Updates?.ApplySetting(settings.UpdateCheckEnabled);
         if (applyCandidateMode) LiveProtocol?.ApplyCandidateSettings(settings.CandidateValidationEnabled,
             researchPayloadOpcodes: settings.ResearchPayloadOpcodes);
     }
@@ -363,6 +381,10 @@ public sealed class CollectorHost : IDisposable
             // A download in flight is cancelled before anything it could claim into is torn down.
             LiveProtocol?.StopSharedCalibration();
             Speech?.Dispose();
+
+            // The update check writes settings from a background task; it is stopped and waited for
+            // before the database below can start closing under it.
+            Updates?.Dispose();
             failure = DisposeSubsystems(
                 Validation, Capture, (record, error) => _logger.WriteError("shutdown", record, error));
         }

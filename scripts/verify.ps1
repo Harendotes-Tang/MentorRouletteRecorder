@@ -67,6 +67,8 @@ try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false } c
 $env:MR_DISABLE_SHARED_FETCH = '1'
 # Online-speech kill switch (docs/privacy-boundary.md section 8.3), for the second request class.
 $env:MR_DISABLE_ONLINE_SPEECH = '1'
+# Update-check kill switch (docs/privacy-boundary.md section 8.4), for the third request class.
+$env:MR_DISABLE_UPDATE_CHECK = '1'
 
 $RepoRoot   = Split-Path -Parent $PSScriptRoot
 $CheckPy             = Join-Path $RepoRoot 'tools\static-boundary-check\check.py'

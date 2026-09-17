@@ -149,6 +149,48 @@ ColumnLayout {
         }
     }
 
+    // ------------------------------------------------------------ 更新 --
+    // 玩家可见（docs/privacy-boundary.md §8.4）：默认开启的联网请求，开关须显见。
+    // 只提示，不下载、不安装；判断在后台进程，界面只显示结论。
+    SettingsPanel {
+        kicker: qsTr("更新")
+
+        SettingToggleRow {
+            objectName: "updateCheckToggle"
+            showDivider: updateCheckStatusText.visible
+            label: qsTr("检查新版本并提示")
+            description: tab.captureSettingDescription(
+                qsTr("默认开启的联网请求：每天最多一次，从本项目的 GitHub 发布页读取一个只含版本号的小文件，"
+                     + "有新版本时在总览页提示。请求不带账号、安装编号或任何可识别信息；"
+                     + "本软件从不自动下载或安装任何东西。"))
+            toggleEnabled: App.captureSettingsSupported && App.captureSettingsLoaded
+            checked: !App.captureSettingsLoaded
+                     || App.captureSettings.update_check_enabled !== false
+            onToggled: function(value) {
+                App.updateCaptureSetting("update_check_enabled", value)
+            }
+        }
+
+        Text {
+            id: updateCheckStatusText
+
+            objectName: "updateCheckStatusText"
+            Layout.fillWidth: true
+            Layout.topMargin: 10
+            Layout.bottomMargin: 4
+            visible: App.update.available && App.update.lastCheckedAtUtc.length > 0
+            // 版本号只有采集器读到时才写出来，不在这里编一个「未知」。
+            text: App.update.latestVersion.length > 0
+                  ? qsTr("最近检查：%1 · 最新版本 %2")
+                    .arg(Fmt.localTime(App.update.lastCheckedAtUtc))
+                    .arg(App.update.latestVersion)
+                  : qsTr("最近检查：%1").arg(Fmt.localTime(App.update.lastCheckedAtUtc))
+            color: Theme.textMuted
+            font.pixelSize: Theme.fs(11)
+            wrapMode: Text.WordWrap
+        }
+    }
+
     // ------------------------------------------------------------ 外观 --
     SettingsPanel {
         objectName: "appearanceSettingsCard"

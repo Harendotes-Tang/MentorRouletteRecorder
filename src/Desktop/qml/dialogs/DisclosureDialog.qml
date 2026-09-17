@@ -8,11 +8,13 @@ import MentorRecorder
 //
 // Shown before the baseline dialog on a first run, and re-openable from the
 // settings page. The UI must state that the default decompressor reads a copy
-// of the game executable, and must name both kinds of network request the
-// Collector can send - the shared-calibration download (on by default) and
-// online speech (opt-in, docs/privacy-boundary.md §8.3) - together with how to
-// turn each off. Online speech does not raise the disclosure version: it is
-// opt-in and asks for its own confirmation when chosen.
+// of the game executable, and must name every kind of network request the
+// Collector can send - the shared-calibration download (on by default), online
+// speech (opt-in, docs/privacy-boundary.md §8.3) and the update check (on by
+// default, docs/privacy-boundary.md §8.4) - together with how to turn each off.
+// Online speech does not raise the disclosure version: it is opt-in and asks
+// for its own confirmation when chosen. The update check does, because the
+// previous text ruled it out in so many words.
 //
 // The live values (oodle_mode, reads_game_executable) come from GetStatus, so
 // the page states what this machine does rather than what the default is.
@@ -144,8 +146,8 @@ Dialog {
                             body: qsTr("记录写入本机数据库，桌面端与后台进程只通过本地管道通信。没有遥测、没有云同步，从不上传任何数据。")
                         },
                         {
-                            title: qsTr("只有两种联网，都由后台进程发出"),
-                            body: qsTr("界面本身从不联网。后台进程只会发出下面两种请求，除此之外没有遥测、没有更新检查，也不上传任何数据。")
+                            title: qsTr("只有三种联网，都由后台进程发出"),
+                            body: qsTr("界面本身从不联网。后台进程只会发出下面三种请求，除此之外没有遥测，也不上传任何数据。")
                         },
                         {
                             title: qsTr("联网一：游戏更新后获取共享校准（默认开启，可关）"),
@@ -159,6 +161,14 @@ Dialog {
                             body: qsTr("只有你在「设置 → 播报」把语音引擎选成在线语音、并填了自己的密钥之后才会发生：每次播报时，"
                                        + "后台进程把这一句要念的话（可能含副本名与进度数字）发给你选的语音服务（微软 Azure 语音，或你填写地址的 OpenAI 兼容服务），"
                                        + "取回读音在本机播放。密钥只保存在本机并由 Windows 加密。改回本机语音就不再发送。")
+                        },
+                        {
+                            title: qsTr("联网三：检查新版本（默认开启，可关）"),
+                            body: qsTr("每天最多一次，后台进程从本项目公开的 GitHub 发布页读取一个只含版本号的小文件，"
+                                       + "有新版本时在总览页提示一句。请求里不带账号、安装编号或任何能认出你的信息，"
+                                       + "GitHub 与 CDN 能看到请求来自哪个 IP 地址。本软件从不自动下载、也从不安装任何东西："
+                                       + "要不要更新、什么时候更新都由你自己决定。不想要可以在「设置 → 通用 → 更新」关掉"
+                                       + "「检查新版本并提示」。")
                         }
                     ]
                     delegate: noteDelegate
