@@ -284,7 +284,20 @@ public sealed partial class LiveProtocolPipeline
     /// what this binding recorded; a profile adopted from disk has no bound time and marks everything under
     /// the id.
     /// </summary>
-    int ISharedCalibrationHost.FlagSharedRecords(string profileId, DateTimeOffset? sinceUtc, string reason)
+    int ISharedCalibrationHost.FlagSharedRecords(string profileId, DateTimeOffset? sinceUtc, string reason) =>
+        FlagRecords(profileId, sinceUtc, SharedWithdrawalReason(reason), "其他玩家分享的校准已撤下，");
+
+    /// <summary>
+    /// Marks every run a withdrawn profile recorded as pending review. Shared by the two
+    /// withdrawals: a shared profile the build's traffic or the public repository disowned, and
+    /// a local one this machine's own traffic disproved. The two differ only in what the system
+    /// revision says and how the player is told.
+    /// </summary>
+    /// <param name="profileId">Profile whose records are suspect.</param>
+    /// <param name="sinceUtc">Limits the marking to what one binding recorded; null marks everything under the id.</param>
+    /// <param name="revisionReason">The reason on each system revision, in the player's words.</param>
+    /// <param name="noticePrefix">How the statistics notice opens, before the count.</param>
+    private int FlagRecords(string profileId, DateTimeOffset? sinceUtc, string revisionReason, string noticePrefix)
     {
         var now = UtcTimestamp.Truncate(_clock.UtcNow);
         var flagged = new List<MentorRun>();
@@ -334,7 +347,7 @@ public sealed partial class LiveProtocolPipeline
                             ChangedAtUtc = now,
                             ChangeKind = ChangeKind.Correct,
                             Actor = RevisionActor.System,
-                            Reason = SharedWithdrawalReason(reason),
+                            Reason = revisionReason,
                             RequestId = null,
                             Changes = RunMutationRules.Diff(run, repaired),
                         },
@@ -359,7 +372,7 @@ public sealed partial class LiveProtocolPipeline
 
         if (flagged.Count > 0)
         {
-            _liveEvents.PublishStatsInvalidated($"其他玩家分享的校准已撤下，它生成的 {flagged.Count} 条记录已标记待复核。");
+            _liveEvents.PublishStatsInvalidated(noticePrefix + $"它生成的 {flagged.Count} 条记录已标记待复核。");
         }
 
         return flagged.Count;
@@ -376,11 +389,17 @@ public sealed partial class LiveProtocolPipeline
     void ISharedCalibrationHost.SharedRetentionFinished(string profileId, bool matchFromQueue) =>
         FinishSharedRetention(profileId, matchFromQueue);
 
+    /// <inheritdoc />
+    void ISharedCalibrationHost.UnbindSharedProfile(string profileId) => UnbindProfile(profileId);
+
     /// <summary>
-    /// A withdrawn shared profile stops recording now, not at the end of the session: a run in flight is
+    /// A withdrawn profile stops recording now, not at the end of the session: a run in flight is
     /// closed the way a stopped capture closes it, and the session row stops naming the profile.
+    /// Shared by both withdrawals - a shared profile that was contradicted, revoked or refused,
+    /// and a local one this machine's own traffic disproved.
     /// </summary>
-    void ISharedCalibrationHost.UnbindSharedProfile(string profileId)
+    /// <param name="profileId">Profile that must stop recording.</param>
+    private void UnbindProfile(string profileId)
     {
         if (_processor is { } processor && string.Equals(_boundProfileId, profileId, StringComparison.Ordinal))
         {
@@ -396,6 +415,7 @@ public sealed partial class LiveProtocolPipeline
             _parser = null;
             _processor = null;
             _boundProfileId = null;
+            ForgetPopWatch();
             _runTimer?.Stop();
             _runTimer = null;
             if (_active && _sessionId is { } sessionId)
@@ -416,12 +436,18 @@ public sealed partial class LiveProtocolPipeline
         UseCalibrationRole(upgrading: false, retaining: false);
     }
 
+    /// <inheritdoc />
+    void ISharedCalibrationHost.ReselectAfterSharedChange(Func<GameProcessDetection, ProfileSelection> select) =>
+        ReselectAfterProfileChange(select);
+
     /// <summary>
-    /// After a withdrawn shared profile's file is gone: adopt the reloaded catalogue and re-arm
+    /// After a withdrawn profile's file is gone: adopt the reloaded catalogue and re-arm
     /// calibration, and if the running session is recording nothing and something usable is
     /// selected now, record with it. A profile that becomes unusable must lead to a re-arm.
+    /// Shared by both withdrawals, shared and local.
     /// </summary>
-    void ISharedCalibrationHost.ReselectAfterSharedChange(Func<GameProcessDetection, ProfileSelection> select)
+    /// <param name="select">Selector over the catalogue as it now stands on disk.</param>
+    private void ReselectAfterProfileChange(Func<GameProcessDetection, ProfileSelection> select)
     {
         _select = select;
         if (_active && _processor is not null)

@@ -555,6 +555,31 @@ public sealed class CalibrationCoordinator
     }
 
     /// <summary>
+    /// Refuses a CONTENT_FINDER_POP opcode for good, the way a WRONG verdict refuses one the
+    /// player rejected: the traffic itself disproved it - a message that carried three different
+    /// roulette ids inside one second is a list, not an announcement - so proposing it again
+    /// would walk the same machine back into the same wrong profile.
+    ///
+    /// Arming for another build or template forgets it, exactly as it forgets what the player
+    /// rejected, because an opcode means nothing across builds. Callers withdrawing a profile
+    /// therefore reject after re-arming, not before.
+    /// </summary>
+    /// <param name="opcode">Opcode the traffic disproved.</param>
+    public void RejectPopOpcode(ushort opcode)
+    {
+        if (_rejections.PopOpcodes.Contains(opcode))
+        {
+            return;
+        }
+
+        _rejections = new CalibrationRejections(
+            new HashSet<ushort>(_rejections.PopOpcodes) { opcode }, _rejections.ZoneKeys);
+        _draft = null;
+        _draftAtMessage = -1;
+        _generation++;
+    }
+
+    /// <summary>
     /// The local profile was written; remember it. A profile that reads the server's own
     /// announcement finishes calibration. One that infers the match from the queue keeps the
     /// observer alive instead, because the announcement is still worth finding and the evidence

@@ -252,7 +252,7 @@ public sealed record CalibrationDraft(
         // announcement is looked for as a message of its own. The reply path answers first, so
         // a build that kept the old structure is untouched.
         var searchable = matched.Pops.Length == 0 && !matched.Ambiguous && !matched.Contradicted;
-        var announcement = searchable ? LockAnnouncement(snapshot, template, pairs, matches.Keys) : null;
+        var announcement = searchable ? LockAnnouncement(snapshot, template, pairs, matches.Keys, rejections) : null;
         // Both paths above read the one byte offset the template's pop declares. A build that
         // splits the reply and the announcement gives the announcement a structure the template
         // has never seen, and nothing says its roulette id sits where the old one's did. The
@@ -599,14 +599,22 @@ public sealed record CalibrationDraft(
     /// the player refuses the match, leaving no duty behind it at all, which an escort cannot do.
     /// It is deliberately last, because refusing a match costs the player a duty-finder penalty
     /// and a calibration must not require one.
+    ///
+    /// Before any of that, the shape must not have contradicted itself. Every test above looks
+    /// only at the sightings that carried a requested roulette, and a list that counts through
+    /// the small numbers - the retainer bell's rows carry their slot, 0 to 9, at this very byte
+    /// on the CN 2026.09.15 client - always has one row that does. An announcement carries the
+    /// queued roulette every time it is sent while the queue stands; the marker scan counted
+    /// exactly that, so a shape it saw carrying anything else is refused (<see cref="Disagrees"/>).
     /// </summary>
     /// <param name="snapshot">Frozen observations.</param>
     /// <param name="template">Template lending the match window and the roulette field.</param>
     /// <param name="pairs">Request/echo pairs, for the requests an announcement can answer.</param>
     /// <param name="replyOpcodes">Opcodes a pair vouched for; the queue reply is not the pop.</param>
+    /// <param name="rejections">Candidates the user, or the traffic, already rejected.</param>
     private static AnnouncedMatch? LockAnnouncement(
         CalibrationSnapshot snapshot, CalibrationTemplate template, FinderPairHit[] pairs,
-        IEnumerable<ushort> replyOpcodes)
+        IEnumerable<ushort> replyOpcodes, CalibrationRejections rejections)
     {
         var entries = snapshot.Clusters.Where(cluster => cluster.TerritoryHits.Count > 0).ToArray();
         if (entries.Length == 0 || pairs.Length == 0)
@@ -616,7 +624,7 @@ public sealed record CalibrationDraft(
 
         var replies = new HashSet<ushort>(replyOpcodes);
         var hits = snapshot.RouletteEchoHits
-            .Where(hit => !replies.Contains(hit.Opcode))
+            .Where(hit => !replies.Contains(hit.Opcode) && !rejections.PopOpcodes.Contains(hit.Opcode))
             .Where(hit => !snapshot.Clusters.Any(cluster =>
                 hit.AtUtc >= cluster.LoadStartedAtUtc && hit.AtUtc <= cluster.EndedAtUtc))
             .Where(hit => pairs.Any(pair => pair.ConnectionTag == hit.ConnectionTag &&
@@ -625,6 +633,7 @@ public sealed record CalibrationDraft(
         var candidates = hits
             .GroupBy(hit => new MessageKey(PacketDirection.ServerToClient, hit.Opcode, hit.Length))
             .Select(group => (Shape: group.Key, Hits: group.ToArray()))
+            .Where(candidate => !Disagrees(snapshot, template, candidate.Shape))
             .Where(candidate => !snapshot.Clusters.Any(cluster => cluster.Members.ContainsKey(candidate.Shape)))
             .Where(candidate => entries.All(entry => candidate.Hits.Any(hit => Precedes(hit, entry, template))))
             .ToArray();
@@ -655,6 +664,40 @@ public sealed record CalibrationDraft(
             .ToArray();
         return new AnnouncedMatch(chosen.Shape, pops, PreferredEntry(supporting.Select(item => item.Entry), snapshot.Clusters)!);
     }
+
+    /// <summary>
+    /// True when the marker scan saw this shape, while a queue stood, carry something other than
+    /// the queued roulette at the template's roulette offset. A shape the scan never looked at
+    /// has contradicted nothing and is left to the other tests.
+    ///
+    /// One stray sighting is not a contradiction: the evidence is carried from run to run, so a
+    /// single odd message would bar the true announcement for good, while a list disagrees on
+    /// every row but one each time it is sent. And when the position table overflowed before this
+    /// position ever got a row, its silence is the table's, not the traffic's.
+    /// </summary>
+    /// <param name="snapshot">Frozen observations.</param>
+    /// <param name="template">Template lending the roulette offset.</param>
+    /// <param name="shape">Candidate announcement.</param>
+    private static bool Disagrees(CalibrationSnapshot snapshot, CalibrationTemplate template, MessageKey shape)
+    {
+        if (template.Pop.Field("roulette_id") is not { } field ||
+            !snapshot.MarkerShapeTotals.TryGetValue((shape.Opcode, shape.Length), out var total))
+        {
+            return false;
+        }
+
+        var agreed = snapshot.Markers.FirstOrDefault(marker =>
+            marker.Opcode == shape.Opcode && marker.Length == shape.Length && marker.Offset == field.Offset)?.Hits ?? 0;
+        if (agreed == 0 && snapshot.MarkerOverflow > 0)
+        {
+            return false;
+        }
+
+        return total - agreed >= MinDisagreements;
+    }
+
+    /// <summary>Sightings that must disagree before <see cref="Disagrees"/> refuses a shape.</summary>
+    internal const int MinDisagreements = 2;
 
     /// <summary>True when the hit sits inside the match window before a burst's load.</summary>
     /// <param name="hit">Timed roulette-echo hit.</param>

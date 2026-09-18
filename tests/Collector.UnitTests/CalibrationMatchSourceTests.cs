@@ -109,6 +109,42 @@ public sealed class CalibrationMatchSourceTests
     }
 
     /// <summary>
+    /// The CN 2026.09.15 client, real machine: the player opened the retainer bell while queued,
+    /// and the 80-byte retainer-list rows carry their slot number - 0 to 9 - at the template's
+    /// byte 16. A list that counts through the small numbers contains every roulette id the
+    /// player can queue, so one of its rows "announced" the match before every duty entry and
+    /// the opcode was written into a VERIFIED profile. The rows beside it said otherwise: an
+    /// announcement carries the queued roulette every time it is sent while the queue stands.
+    /// </summary>
+    [Fact]
+    public void AListThatCountsThroughTheSmallNumbersIsNotTheAnnouncement()
+    {
+        var rows = Enumerable.Range(0, 10).Select(slot => CalibrationObserverTests.Message(
+            MessageDirection.Inbound, Announce, CalibrationObserverTests.Bytes(80, (16, (byte)slot)), 110_000 + slot));
+        var draft = Derive(WithoutTheMatch().Concat(SecondQueue()).Concat(rows));
+
+        Assert.NotEqual(CalibrationMatchSource.Announcement, draft.MatchSource);
+        Assert.DoesNotContain(draft.Messages,
+            message => message.Name == "CONTENT_FINDER_POP" && message.Opcode == Announce);
+    }
+
+    /// <summary>
+    /// The evidence is kept on disk, so one odd message of the announcement's shape must not bar
+    /// the true announcement for good. A list disagrees on every row but one; this does not.
+    /// </summary>
+    [Fact]
+    public void OneStraySightingDoesNotDisqualifyTheAnnouncement()
+    {
+        var draft = Derive(CalibrationTrafficCases.Traffic(CalibrationTrafficCases.Announcement).Append(
+            CalibrationObserverTests.Message(
+                MessageDirection.Inbound, Announce, CalibrationObserverTests.Bytes(64, (16, 200)), 100_000)));
+
+        Assert.Equal(CalibrationMatchSource.Announcement, draft.MatchSource);
+        Assert.Contains(draft.Messages,
+            message => message.Name == "CONTENT_FINDER_POP" && message.Opcode == Announce);
+    }
+
+    /// <summary>
     /// One roulette proves nothing: a byte that happens to equal the id the player queued
     /// stays equal to it for as long as that queue stands, so a position sighted under a
     /// single roulette has not been tested at all.

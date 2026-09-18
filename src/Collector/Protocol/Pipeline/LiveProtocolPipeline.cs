@@ -411,6 +411,7 @@ public sealed partial class LiveProtocolPipeline :
             _parser = null;
             _processor = null;
             _boundProfileId = null;
+            ForgetPopWatch();
             _sessionCarried = carried;
             _candidateObserver = _candidateEnabled && _candidateProfile is { } candidate
                 ? new CandidateObserver(candidate, captureSessionId, observation => CandidateObserved?.Invoke(observation), _researchOpcodes)
@@ -479,7 +480,9 @@ public sealed partial class LiveProtocolPipeline :
                 captureSessionId,
                 _selection.GameBuild),
             _clock);
-        _parser = new ProfileMessageParser(profile, _processor);
+        // A local profile that reads every message of an opcode as a match is watched while it
+        // records, so traffic that disproves it can take it out of use (WatchPops).
+        _parser = new ProfileMessageParser(profile, WatchPops(profile, _processor));
         _boundProfileId = profile.ProfileId;
     }
 
@@ -524,6 +527,13 @@ public sealed partial class LiveProtocolPipeline :
             if (afterStats.ParseFailed > beforeFailed && afterStats.RecentErrors.Count > 0)
             {
                 PersistParserError(afterStats.RecentErrors[^1]);
+            }
+
+            // Only once the parser is done with the message: withdrawing replaces the parser and
+            // the state machine, which must not happen underneath the event being applied.
+            if (_popWatch is { Contradicted: true })
+            {
+                WithdrawContradictedLocalProfile();
             }
         }
     }

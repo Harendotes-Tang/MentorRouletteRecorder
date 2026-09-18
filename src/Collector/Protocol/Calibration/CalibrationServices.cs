@@ -88,6 +88,15 @@ public sealed record CalibrationServices(
     /// <summary>Removes the shared profile of a region and build when it was withdrawn. Inert by default. Never throws.</summary>
     public Action<Region, string> DeleteSharedProfile { get; init; } = (_, _) => { };
 
+    /// <summary>
+    /// Puts away the local profile of a region and build after this machine's own traffic
+    /// disproved it. Inert by default, like the evidence seams: a test that builds its own
+    /// services can withdraw a profile without anything happening to the real data directory
+    /// until it points the seam somewhere of its own (<see cref="WithLocalProfilesIn"/>).
+    /// Never throws.
+    /// </summary>
+    public Action<Region, string> RetireLocalProfile { get; init; } = (_, _) => { };
+
     /// <summary>The shared-calibration seams pointed at a fetch and a store of the caller's choosing.</summary>
     /// <param name="fetch">Fetches codes for a region and build.</param>
     /// <param name="store">Keeps what was fetched.</param>
@@ -118,6 +127,23 @@ public sealed record CalibrationServices(
         {
             WriteSharedProfile = built => SharedProfileFiles.Write(built, root),
             DeleteSharedProfile = (region, build) => SharedProfileFiles.Delete(root, region, build),
+        };
+    }
+
+    /// <summary>
+    /// The local-profile seams - writing one and putting one away - pointed at a directory;
+    /// production uses <see cref="ProfileCatalog.LocalRootPath"/>. The two belong together: a
+    /// profile must be retired out of the same directory it was written into, or the catalogue
+    /// keeps selecting the file the traffic disproved.
+    /// </summary>
+    /// <param name="root">Directory holding this machine's calibrated profiles by region.</param>
+    public CalibrationServices WithLocalProfilesIn(string root)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(root);
+        return this with
+        {
+            Write = (draft, template, build, now) => LocalProfileWriter.Write(draft, template, build, now, root),
+            RetireLocalProfile = (region, build) => LocalProfileFiles.Retire(root, region, build),
         };
     }
 
@@ -157,6 +183,7 @@ public sealed record CalibrationServices(
             return game => selector.Select(game.Region, game.GameBuild);
         },
         (draft, template, build, now) => LocalProfileWriter.Write(draft, template, build, now, ProfileCatalog.LocalRootPath))
+        .WithLocalProfilesIn(ProfileCatalog.LocalRootPath)
         .WithEvidenceIn(CalibrationEvidenceStore.RootPath)
         .WithRouletteNamesIn(RouletteNameOverrides.DefaultPath);
 }
