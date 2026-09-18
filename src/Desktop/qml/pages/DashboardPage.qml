@@ -479,7 +479,7 @@ ScrollView {
 
                     GridLayout {
                         Layout.fillWidth: true
-                        columns: App.currentRun.run && App.currentRun.run.job_id > 0 ? 6 : 5
+                        columns: 6
                         columnSpacing: 16
                         rowSpacing: 4
 
@@ -487,8 +487,10 @@ ScrollView {
                             model: [
                                 { label: qsTr("匹配时间"), value: App.currentRun.run ? Fmt.localTime(App.currentRun.run.matched_at_utc) : "—" },
                                 { label: qsTr("当前副本"), value: App.currentRun.run ? (App.currentRun.run.duty_name || "—") : "—" },
+                                // Always shown: a run whose job the software has not read yet says so,
+                                // instead of the column disappearing and reappearing.
                                 { label: qsTr("当前职业"), kind: "job",
-                                  value: App.currentRun.run ? (App.currentRun.run.job_name || "—") : "—" },
+                                  value: App.currentRun.run ? (App.currentRun.run.job_id > 0 ? App.currentRun.run.job_name : qsTr("未知")) : "—" },
                                 { label: qsTr("已进行"), value: App.currentRun.run ? Fmt.duration(App.liveElapsedMs) : "—" },
                                 { label: qsTr("进本时间"), value: App.currentRun.run ? Fmt.localTime(App.currentRun.run.entered_at_utc) : "—" },
                                 { label: qsTr("检测置信"),
@@ -508,7 +510,6 @@ ScrollView {
                                                                  ? App.currentRun.run.job_id : null
 
                                 objectName: isJob ? "currentRunJob" : ""
-                                visible: !isJob || liveJobId > 0
                                 Layout.fillWidth: true
                                 spacing: 4
 
