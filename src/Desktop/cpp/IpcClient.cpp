@@ -96,6 +96,8 @@ int IpcClient::timeoutForMessageType(const QString &messageType, int defaultMs)
 {
     if (messageType == QLatin1String("SynthesizeSpeech"))
         return kSpeechRequestTimeoutMs;
+    if (messageType == QLatin1String("CheckUpdateNow"))
+        return kUpdateCheckRequestTimeoutMs;
     return isLongRunning(messageType) ? kLongRequestTimeoutMs : defaultMs;
 }
 

@@ -157,7 +157,8 @@ ColumnLayout {
 
         SettingToggleRow {
             objectName: "updateCheckToggle"
-            showDivider: updateCheckStatusText.visible
+            // The row below it is always there now: the button lives in it.
+            showDivider: true
             label: qsTr("检查新版本并提示")
             description: tab.captureSettingDescription(
                 qsTr("默认开启的联网请求：每天最多一次，从本项目的 GitHub 发布页读取一个只含版本号的小文件，"
@@ -171,23 +172,48 @@ ColumnLayout {
             }
         }
 
-        Text {
-            id: updateCheckStatusText
-
-            objectName: "updateCheckStatusText"
+        // 最近一次检查的小字，右侧是用户主动触发的那一次检查。
+        RowLayout {
             Layout.fillWidth: true
             Layout.topMargin: 10
             Layout.bottomMargin: 4
-            visible: App.update.available && App.update.lastCheckedAtUtc.length > 0
-            // 版本号只有采集器读到时才写出来，不在这里编一个「未知」。
-            text: App.update.latestVersion.length > 0
-                  ? qsTr("最近检查：%1 · 最新版本 %2")
-                    .arg(Fmt.localTime(App.update.lastCheckedAtUtc))
-                    .arg(App.update.latestVersion)
-                  : qsTr("最近检查：%1").arg(Fmt.localTime(App.update.lastCheckedAtUtc))
-            color: Theme.textMuted
-            font.pixelSize: Theme.fs(11)
-            wrapMode: Text.WordWrap
+            spacing: 12
+
+            Text {
+                id: updateCheckStatusText
+
+                objectName: "updateCheckStatusText"
+                Layout.fillWidth: true
+                visible: App.update.available && App.update.lastCheckedAtUtc.length > 0
+                // 版本号只有采集器读到时才写出来，不在这里编一个「未知」。
+                text: App.update.latestVersion.length > 0
+                      ? qsTr("最近检查：%1 · 最新版本 %2")
+                        .arg(Fmt.localTime(App.update.lastCheckedAtUtc))
+                        .arg(App.update.latestVersion)
+                      : qsTr("最近检查：%1").arg(Fmt.localTime(App.update.lastCheckedAtUtc))
+                color: Theme.textMuted
+                font.pixelSize: Theme.fs(11)
+                wrapMode: Text.WordWrap
+            }
+
+            // 一个位置，两种用途：没有新版本时是「检查更新」，
+            // 有新版本时直接变成「打开下载页」。下载仍由用户在浏览器里自行完成。
+            AppButton {
+                objectName: "checkUpdateNowButton"
+                Layout.fillWidth: false
+                Layout.alignment: Qt.AlignVCenter
+                compact: true
+                text: App.update.updateAvailable ? qsTr("打开下载页")
+                                                 : qsTr("检查更新")
+                // 开关关闭或正在检查时不可用（privacy-boundary.md §8.4）。
+                enabled: App.update.canCheck
+                onClicked: {
+                    if (App.update.updateAvailable)
+                        App.update.openReleasePage()
+                    else
+                        App.update.checkNow()
+                }
+            }
         }
     }
 
@@ -198,7 +224,7 @@ ColumnLayout {
 
         SettingsRow {
             label: qsTr("界面风格")
-            description: qsTr("经典：圆角卡片 · 艾欧泽亚：金边石板面板")
+            description: qsTr("经典：圆角卡片 · 艾欧泽亚：游戏窗口配色")
 
             SegmentedControl {
                 objectName: "uiStyleSettingControl"

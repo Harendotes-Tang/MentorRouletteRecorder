@@ -41,6 +41,13 @@ public sealed class UpdateCheckService : IDisposable
     /// <summary>Exclusive upper bound of the per-process jitter.</summary>
     public static readonly TimeSpan MaxJitter = TimeSpan.FromHours(2);
 
+    /// <summary>
+    /// A fresh process checks once at startup unless the last persisted attempt is younger than this: a
+    /// user who restarts the software expects it to look, while a crash loop must not turn into a request
+    /// per restart.
+    /// </summary>
+    public static readonly TimeSpan RestartGrace = TimeSpan.FromHours(1);
+
     /// <summary>How long <see cref="Dispose"/> waits for the check in flight to finish.</summary>
     public static readonly TimeSpan StopTimeout = TimeSpan.FromSeconds(5);
 
@@ -54,6 +61,7 @@ public sealed class UpdateCheckService : IDisposable
     private DateTimeOffset? _lastCheckedAtUtc;
     private string? _latestVersion;
     private string? _lastOutcome;
+    private bool _checkedThisProcess;
     private volatile bool _enabled;
     private int _inFlight;
     private Task? _pending;
@@ -146,8 +154,8 @@ public sealed class UpdateCheckService : IDisposable
     public void ApplySetting(bool enabled) => _enabled = enabled;
 
     /// <summary>
-    /// Runs one check now, whatever is due, and records it. The seam tests drive; the shipping path
-    /// goes through <see cref="Observe"/>.
+    /// Runs one check now, whatever is due, and records it. The seam tests drive; the shipping paths are
+    /// <see cref="Observe"/> and <see cref="CheckNowIfAllowedAsync"/>.
     /// </summary>
     /// <param name="cancellationToken">Stops the check.</param>
     public async Task<UpdateCheckResult> CheckNowAsync(CancellationToken cancellationToken = default)
@@ -155,6 +163,58 @@ public sealed class UpdateCheckService : IDisposable
         var result = await _client.FetchAsync(cancellationToken).ConfigureAwait(false);
         Record(result);
         return result;
+    }
+
+    /// <summary>
+    /// 立即检查 (<c>CheckUpdateNow</c>): the user asked, so the daily throttle does not apply; the setting and
+    /// the kill switch still do, and nothing is sent under either. A scheduled check already in flight is
+    /// waited for rather than doubled. Returns once the cache holds the answer.
+    /// </summary>
+    /// <param name="cancellationToken">The connection's token.</param>
+    public async Task<UpdateCheckRequestOutcome> CheckNowIfAllowedAsync(CancellationToken cancellationToken = default)
+    {
+        if (_disposed || _client.IsDisabledNow)
+        {
+            return UpdateCheckRequestOutcome.Blocked;
+        }
+
+        if (!_enabled)
+        {
+            return UpdateCheckRequestOutcome.Disabled;
+        }
+
+        if (Interlocked.CompareExchange(ref _inFlight, 1, 0) != 0)
+        {
+            if (_pending is { } pending)
+            {
+                try
+                {
+                    await pending.WaitAsync(cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+                {
+                    // The in-flight check records its own outcome; the cache is what the caller reads.
+                }
+            }
+
+            return UpdateCheckRequestOutcome.Checked;
+        }
+
+        try
+        {
+            lock (_gate)
+            {
+                _checkedThisProcess = true;
+            }
+
+            await CheckNowAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _inFlight, 0);
+        }
+
+        return UpdateCheckRequestOutcome.Checked;
     }
 
     /// <summary>
@@ -191,6 +251,11 @@ public sealed class UpdateCheckService : IDisposable
             return;
         }
 
+        lock (_gate)
+        {
+            _checkedThisProcess = true;
+        }
+
         _pending = Task.Run(async () =>
         {
             try
@@ -213,7 +278,13 @@ public sealed class UpdateCheckService : IDisposable
     {
         lock (_gate)
         {
-            return _lastCheckedAtUtc is not { } last || last > now || now - last >= CheckInterval + Jitter;
+            if (_lastCheckedAtUtc is not { } last || last > now)
+            {
+                return true;
+            }
+
+            // Once per process start, past the restart grace; then once a day while it runs.
+            return (!_checkedThisProcess && now - last >= RestartGrace) || now - last >= CheckInterval + Jitter;
         }
     }
 

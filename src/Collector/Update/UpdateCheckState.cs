@@ -49,6 +49,19 @@ public enum UpdateCheckOutcome
     Disabled,
 }
 
+/// <summary>What an explicit request to check now (<c>CheckUpdateNow</c>) came to.</summary>
+public enum UpdateCheckRequestOutcome
+{
+    /// <summary>A check ran (or one already in flight was waited for); <c>update</c> says how it ended.</summary>
+    Checked,
+
+    /// <summary>The setting <c>update.check_enabled</c> is off; nothing was sent.</summary>
+    Disabled,
+
+    /// <summary>The kill switch <c>MR_DISABLE_UPDATE_CHECK</c> stops every check of this process; nothing was sent.</summary>
+    Blocked,
+}
+
 /// <summary>What one check produced.</summary>
 /// <param name="Outcome">How it ended.</param>
 /// <param name="LatestVersion">The published version, when one was read.</param>

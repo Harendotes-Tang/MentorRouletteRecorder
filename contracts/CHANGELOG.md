@@ -1,5 +1,17 @@
 # IPC 契约变更记录 / IPC contract changelog
 
+## 2026-09-18 — 更新检查：`CheckUpdateNow`（一条新消息）与启动时检查
+
+docs/privacy-boundary.md §8.4 的两处放宽：用户可以手动检查一次；每次进程启动检查一次。
+
+- **新消息 `CheckUpdateNow {}`**（`$defs/MessageType` 现共 **49** 个业务消息 + `Event` + `Error`）→
+  `{ outcome, update }`：`outcome` 为 `CHECKED`（发出了一次检查，或等到了正在进行的那次）、`DISABLED`（`update_check_enabled` 关闭，不发请求）、
+  `BLOCKED`（`MR_DISABLE_UPDATE_CHECK` 生效，不发请求）；`update` 与 `CollectorStatus.update` 同一对象（`$defs/UpdateStatus`），
+  `last_outcome` 说明这次检查怎么结束。**异步应答**：与 `SynthesizeSpeech` 同类，请求发出后同一连接上的其他请求照常应答，
+  应答按 `request_id` 配对；不受每日节流限制。空载荷。
+- 行为变化（不在字段上）：采集服务每个进程启动后第一次应答 `GetStatus` 时检查一次（上次检查距今不足 1 小时则不检查，防止反复重启变成反复请求），
+  之后仍是每 24 小时最多一次。
+
 ## 2026-09-17 — 共享校准：核实门槛按来源分级（附加）
 
 docs/plans/shared-calibration.md §18。全部为附加式变更：新字段在 schema 中都是可选的，旧桌面端收到的应答照常通过校验，

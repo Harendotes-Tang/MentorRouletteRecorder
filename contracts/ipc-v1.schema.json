@@ -45,6 +45,7 @@
         "GetCalibrationShareCode", "CheckSharedCalibration", "ImportCalibrationCode", "AcceptSharedQueueInference",
         "RejectSharedCalibration",
         "GetSpeechSettings", "UpdateSpeechSettings", "SynthesizeSpeech", "CheckDatabaseIntegrity",
+        "CheckUpdateNow",
         "Event", "Error"
       ]
     },
@@ -767,7 +768,7 @@
         { "if": { "properties": { "message_type": { "const": "GetRunEvents" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/GetRunEventsRequest" } } } },
         { "if": { "properties": { "message_type": { "const": "GetCaptureSettings" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/EmptyPayload" } } } },
         { "if": { "properties": { "message_type": { "const": "UpdateCaptureSettings" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/UpdateCaptureSettingsRequest" } } } },
-        { "if": { "properties": { "message_type": { "enum": ["GetSpeechSettings", "CheckDatabaseIntegrity"] } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/EmptyPayload" } } } },
+        { "if": { "properties": { "message_type": { "enum": ["GetSpeechSettings", "CheckDatabaseIntegrity", "CheckUpdateNow"] } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/EmptyPayload" } } } },
         { "if": { "properties": { "message_type": { "const": "UpdateSpeechSettings" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/UpdateSpeechSettingsRequest" } } } },
         { "if": { "properties": { "message_type": { "const": "SynthesizeSpeech" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/SynthesizeSpeechRequest" } } } }
       ]
@@ -1605,6 +1606,16 @@
           "passed": { "type": "boolean" },
           "detail": { "type": "string", "minLength": 1, "maxLength": 200, "description": "\"ok\", or the first problem line, run through the log sanitizer." },
           "checked_at_utc": { "$ref": "#/$defs/UtcTimestamp" }
+        }
+      },
+      "CheckUpdateNow": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["outcome", "update"],
+        "description": "The user asked for an update check now (docs/privacy-boundary.md §8.4). The daily throttle does not apply; the setting and the kill switch do, and nothing is sent under either. Asynchronous: answered when the one GET has returned (or at once when nothing is sent); other requests on the connection are answered meanwhile. Notification only, as ever: nothing is downloaded or run.",
+        "properties": {
+          "outcome": { "type": "string", "enum": ["CHECKED", "DISABLED", "BLOCKED"], "description": "CHECKED: a check ran, or one already in flight was waited for; update.last_outcome says how it ended. DISABLED: update_check_enabled is off. BLOCKED: MR_DISABLE_UPDATE_CHECK stops every check of this process." },
+          "update": { "$ref": "#/$defs/UpdateStatus" }
         }
       }
     },

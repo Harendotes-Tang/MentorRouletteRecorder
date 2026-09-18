@@ -44,15 +44,17 @@ public sealed class MessageDispatcher
         "GetCalibrationShareCode", "CheckSharedCalibration", "ImportCalibrationCode", "AcceptSharedQueueInference",
         "RejectSharedCalibration",
         "GetSpeechSettings", "UpdateSpeechSettings", "SynthesizeSpeech", "CheckDatabaseIntegrity",
+        "CheckUpdateNow",
     };
 
     /// <summary>
     /// Message types answered off the connection's read loop, because they wait on something slower
-    /// than the database: <c>SynthesizeSpeech</c> can wait for a queue slot and a network request. The
-    /// connection keeps answering other requests meanwhile and writes this answer when it is ready.
+    /// than the database: <c>SynthesizeSpeech</c> can wait for a queue slot and a network request, and
+    /// <c>CheckUpdateNow</c> waits for the update check's one request. The connection keeps answering
+    /// other requests meanwhile and writes this answer when it is ready.
     /// </summary>
     public static IReadOnlySet<string> AsynchronousMessageTypes { get; } =
-        new HashSet<string>(StringComparer.Ordinal) { "SynthesizeSpeech", "CheckDatabaseIntegrity" };
+        new HashSet<string>(StringComparer.Ordinal) { "SynthesizeSpeech", "CheckDatabaseIntegrity", "CheckUpdateNow" };
 
     /// <summary>Host this dispatcher serves.</summary>
     public CollectorHost Host => _host;
@@ -117,6 +119,8 @@ public sealed class MessageDispatcher
             "CheckDatabaseIntegrity" => SpeechHandlers.CheckDatabaseIntegrity(_host, reader),
             "SynthesizeSpeech" => SpeechHandlers.SynthesizeAsync(_host, reader, CancellationToken.None)
                 .GetAwaiter().GetResult(),
+            "CheckUpdateNow" => UpdateHandlers.CheckNowAsync(_host, reader, CancellationToken.None)
+                .GetAwaiter().GetResult(),
             _ => throw UnknownMessageType(request.MessageType),
         };
     }
@@ -140,6 +144,7 @@ public sealed class MessageDispatcher
             "CheckDatabaseIntegrity" => Task.Run(
                 () => SpeechHandlers.CheckDatabaseIntegrity(_host, new PayloadReader(request.Payload)),
                 cancellationToken),
+            "CheckUpdateNow" => UpdateHandlers.CheckNowAsync(_host, new PayloadReader(request.Payload), cancellationToken),
             _ => Task.FromResult(Dispatch(request)),
         };
     }

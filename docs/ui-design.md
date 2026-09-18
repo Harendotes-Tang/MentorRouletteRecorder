@@ -6,6 +6,7 @@
 绑定的视觉规范为 **`DOC/表单提交后设计/mentor-recorder-ff14.dc.html` 与 `ff14.css`**，
 下称「原型」，对应「艾欧泽亚 / eorzea」界面风格。原型是唯一的视觉基准。
 本文件只说明实现如何映射到原型，不另行定义布局。
+布局与结构以原型为准；艾欧泽亚风格的**色值**自 1.1.x 起改为对照游戏自身窗口配色（深色 = 暖灰石板配浅字，浅色 = 羊皮纸配深棕字，金色只留给标记、进度环与柱条），见 6.1 节，不再照搬 `ff14.css` 的金边深蓝。
 
 **「经典 / classic」界面风格**自 2026-09 改版起为**默认风格**，取值以
 **`DOC/表单提交后设计/workbench.css`** 为准，取代早先的 `apple.css`。
@@ -520,9 +521,16 @@ kicker `padding: 12px 0 4px`；`freeLayout` 面板 `padding: 20px 24px`，间距
   与当前版本比较；请求不带账号、安装编号或任何可识别信息，本软件也从不自动下载或安装任何东西，
   见 [privacy-boundary.md](privacy-boundary.md) §8.4。已检查过时，面板下方以小字给出
   「最近检查：<时间> · 最新版本 <版本号>」（`updateCheckStatusText`）。
-  新版本的提示本身在总览页（§4.1），设置页不重复呈现。
+  该行右侧是「检查更新」（`checkUpdateNowButton`）：点击发出 `CheckUpdateNow`，
+  采集服务随即检查一次，不受每日节流限制，结果以一句提示说明。有新版本时同一位置改为
+  「打开下载页」，点击把发布页交给系统浏览器，不在本软件内下载任何东西。
+  按钮在开关关闭、采集服务未给出更新信息，或上一次检查尚未返回时停用，
+  判据是 `App.update.canCheck`（`available && enabled && !checking`）。
+  提示共五句，分别对应：有新版本、已是最新版本、没有检查成功、开关已关闭、
+  本机已通过环境变量禁用；其中失败一句不区分具体原因，也不出现地址或协议标记。
+  新版本的横幅提示本身在总览页（§4.1），设置页不重复呈现。
 * **外观**（`appearanceSettingsCard`）：界面风格（`uiStyleSettingControl`，取值 经典 / 艾欧泽亚，
-  副标题「经典：圆角卡片 · 艾欧泽亚：金边石板面板」，绑定 `Settings.uiStyle`；
+  副标题「经典：圆角卡片 · 艾欧泽亚：游戏窗口配色」，绑定 `Settings.uiStyle`；
   分段控件显示的是**屏幕上实际生效的**风格，`--mock-ui-style` 固定风格时同样如此）、
   主题（深色 / 浅色 / 跟随系统）、UI 缩放（100–175，步长 25，小字「重启后生效」）。
   缩放在 `QApplication` 构造之前注入 `QT_SCALE_FACTOR`，不支持运行时切换。
@@ -717,6 +725,8 @@ MockBackend 回 `{passed: true, detail: "ok", checked_at_utc: 现在}`。
 **关于**（`aboutSettingsCard`）包含 kicker「导随记录器」与 `v<App.appVersion> · GPL-3.0 或更高版本`。
 版本号一行（`aboutVersionText`）在 `GetStatus.update.update_available` 为真时附带
 「有新版本 x.y.z」，其右侧另有「打开下载页」（`aboutOpenReleasePageButton`），同样只在有新版本时出现。
+没有新版本时，该位置是「检查更新」（`aboutCheckUpdateButton`），与设置页「通用」的同名按钮
+发出同一条 `CheckUpdateNow`、遵循同一套停用规则，结果同样以一句提示说明。
 小标题「隐私与边界」下有三块内嵌信息：Oodle 解压（`GetStatus.oodle_mode`）、
 读取游戏可执行文件（`reads_game_executable`，为真时以橙色显示「是（DEC-OODLE-01）」）、
 首次运行说明（「已确认 · 时间」或「未确认」）。
@@ -991,7 +1001,7 @@ MockBackend 回 `{passed: true, detail: "ok", checked_at_utc: 现在}`。
 
 | CSS 变量 | Theme 属性 | 说明 |
 |---|---|---|
-| `--color-bg` | `contentBackground` | 艾欧泽亚 深 `#0d1017` / 浅 `#d9cdb2`；经典 `#141922` / `#f5f7fa` |
+| `--color-bg` | `contentBackground` | 艾欧泽亚 深 `#222222` / 浅 `#c6b387`；经典 `#141922` / `#f5f7fa` |
 | `--color-surface` | `surface` | 经典 `#1b212c` / `#ffffff` |
 | `--color-surface-2` | `surfaceRaised` / `surfaceMuted` | 经典分别等于 `surface` / `fill` |
 | `--color-text` | `textPrimary` | 经典 `#e8ecf2` / `#1c2430` |
@@ -1000,7 +1010,7 @@ MockBackend 回 `{passed: true, detail: "ok", checked_at_utc: 现在}`。
 | `--color-divider` | `border` | 经典 `#2b3342` / `#e4e8ee` |
 | `--color-fill` / `--color-fill-2` | `fill` / `fillStrong` | 经典 `#252d3a` / `#eceff3`、`#2f384a` / `#e2e6ec` |
 | `--color-neutral-300` | `borderStrong` / `neutral300` | 经典按钮、输入框、关着的开关 |
-| `--color-gold` / `-2` / `-3` | `gold` / `gold2` / `gold3` | 经典按 workbench 退化为 `textSecondary` / `textPrimary` / `border` |
+| `--color-gold` / `-2` / `-3` | `gold` / `gold2` / `gold3` | 艾欧泽亚 `gold` / `gold2` 只用于标记、侧栏标题、进度环与柱条；`gold3` 是面板边线，取暖灰 `#7a7260` / `#a8946c`。经典按 workbench 退化为 `textSecondary` / `textPrimary` / `border` |
 | `--color-accent` | `accent` | 艾欧泽亚 = 金色；经典 = `#5b8ff0` / `#2f6bd8` |
 | `--color-accent-600` | `accentStrong` | 主按钮悬停；经典 `#7aa4f5` / `#2559b8` |
 | `--color-accent-700` | `accent700` | 浅色标题色；经典 `#9dbcf8` / `#1e4a9a` |
@@ -1019,10 +1029,12 @@ MockBackend 回 `{passed: true, detail: "ok", checked_at_utc: 现在}`。
 | `--rule-accent` | `ruleAccent` | 页头金线的亮段 |
 | `<linearGradient id="ffgold">` | `ringStart` / `ringEnd` | 进度环描边 |
 | `.ring-track` | `ringTrack` | |
-| `.btn-primary` 的三个 stop | `buttonPrimaryTop/Mid/Bottom` + `buttonPrimaryText` | |
+| `.btn-primary` 的三个 stop | `buttonPrimaryTop/Mid/Bottom` + `buttonPrimaryText` / `buttonPrimaryBorder` | 艾欧泽亚 = 游戏按钮：比窗口更深的灰 / 棕渐变，浅色 1 px 边与浅色文字 |
+| `.btn` | `buttonBorder` / `buttonText` | 艾欧泽亚次级按钮：`surfaceRaised` 底、`gold3` 边、`textPrimary` 字 |
+| 页签选中态 | `tabActiveTop/Bottom/Border/Text` | 艾欧泽亚 = 游戏页签：深灰 / 深棕底、浅字（`components/SegmentedControl.qml`）；经典 = accent |
 | `--radius-xxs/xs/sm/md/lg` = 1/2/3/4/6 | `radiusXxs/Xs/S/M/L` | 经典风格 = 3/4/6/8/10 |
 | body 的两层 radial wash | `washTop` / `washBottom` | `Main.qml` 的 `backdropWash` Canvas 用 `createRadialGradient` 画真正的两层径向渐变，位置、半径、颜色同原型，两种风格相同 |
-| `h1..h4` 的颜色 | `headingColor` | 深色 = gold-2，浅色 = accent-700 |
+| `h1..h4` 的颜色 | `headingColor` | 艾欧泽亚 深 `#f6f1e4` / 浅 `#3a2c17`（游戏窗口标题不是金色）；经典 = `textPrimary` |
 
 下列辅助函数把 CSS 的类名收敛到一处：
 

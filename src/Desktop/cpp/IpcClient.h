@@ -61,6 +61,11 @@ public:
     /// ($defs/SynthesizeSpeechRequest). TtsService gives up a little earlier
     /// on its own and speaks the sentence with the local voice.
     static constexpr int kSpeechRequestTimeoutMs = 25000;
+    /// Deadline for CheckUpdateNow. The Collector answers it only after its
+    /// own HTTP GET has finished or given up, and that budget is 15 s
+    /// (docs/privacy-boundary.md §8.4). Under the ordinary deadline the
+    /// button would report a failure the check had not yet reached.
+    static constexpr int kUpdateCheckRequestTimeoutMs = 20000;
 
     /// Deadline for one message type. \a defaultMs is what a message type
     /// that is not long-running gets, so a caller can shorten every ordinary

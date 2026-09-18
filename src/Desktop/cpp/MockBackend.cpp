@@ -1737,6 +1737,18 @@ BackendReply *MockBackend::request(const QString &messageType, const QJsonObject
         result.insert(QStringLiteral("detail"), QStringLiteral("ok"));
         result.insert(QStringLiteral("checked_at_utc"),
                       isoUtc(QDateTime::currentDateTimeUtc()));
+    } else if (messageType == QLatin1String("CheckUpdateNow")) {
+        // 检查更新: this backend never fetches anything, so the answer is the
+        // very `update` object GetStatus already carries - the verdict
+        // --mock-update-available fed it - and the outcome the 检查新版本并提示
+        // setting implies. There is no kill switch to simulate offline, so
+        // BLOCKED never comes from here.
+        const QJsonObject update =
+            collectorStatus().value(QStringLiteral("update")).toObject();
+        result.insert(QStringLiteral("outcome"),
+                      update.value(QStringLiteral("enabled")).toBool()
+                          ? QStringLiteral("CHECKED") : QStringLiteral("DISABLED"));
+        result.insert(QStringLiteral("update"), update);
     } else if (messageType == QLatin1String("ExportDiagnosticsReport")) {
         // The mock writes nothing: it has no capture pipeline to describe and
         // must never produce a file of invented counters. It answers the wire

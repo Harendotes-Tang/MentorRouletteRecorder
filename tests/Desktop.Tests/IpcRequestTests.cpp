@@ -155,6 +155,10 @@ QJsonObject argsFor(const QString &messageType)
         // No arguments: $defs/EmptyPayload. The committed sample was written on
         // the Collector side first (tests/Fixtures/README.md); this wrapper must
         // produce exactly that payload.
+    } else if (messageType == QLatin1String("CheckUpdateNow")) {
+        // No arguments: $defs/EmptyPayload. The committed sample was written on
+        // the Collector side first (tests/Fixtures/README.md); this wrapper must
+        // produce exactly that payload.
     } else if (messageType == QLatin1String("GetSpeechSettings")) {
         // {}: the Collector side wrote this sample first (tests/Fixtures/README.md).
     } else if (messageType == QLatin1String("UpdateSpeechSettings")) {
@@ -247,6 +251,7 @@ QStringList allMessageTypes()
         QStringLiteral("GetSpeechSettings"),
         QStringLiteral("UpdateSpeechSettings"),
         QStringLiteral("SynthesizeSpeech"),
+        QStringLiteral("CheckUpdateNow"),
     };
 }
 

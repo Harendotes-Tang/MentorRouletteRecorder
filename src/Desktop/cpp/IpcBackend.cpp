@@ -214,6 +214,8 @@ QJsonObject IpcBackend::buildRequestForTest(const QString &messageType,
     else if (messageType == QLatin1String("SynthesizeSpeech"))
         backend.synthesizeSpeech(stringArg(args, "text"), intArg(args, "rate_percent", 100),
                                  args.value(QLatin1String("test")).toBool(false));
+    else if (messageType == QLatin1String("CheckUpdateNow"))
+        backend.checkUpdateNow();
     else
         return {};
 

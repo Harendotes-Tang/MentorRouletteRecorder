@@ -252,6 +252,18 @@ public:
     /// (IpcClient::kSpeechRequestTimeoutMs).
     BackendReply *synthesizeSpeech(const QString &text, int ratePercent, bool test);
 
+    // -- 检查新版本 (docs/privacy-boundary.md §8.4) ---------------------------
+    /// {} -> {outcome: CHECKED|DISABLED|BLOCKED, update: $defs/UpdateStatus}.
+    /// The user-triggered check, exempt from the daily throttle but not from
+    /// the setting or the kill switch. The Collector performs one HTTP GET
+    /// while it answers, so this may take up to ~15 s and the IPC client gives
+    /// it its own deadline (IpcClient::kUpdateCheckRequestTimeoutMs); the
+    /// connection keeps answering other requests meanwhile. `update` is exactly
+    /// the object CollectorStatus.update carries, so the answer is adopted
+    /// through the one projection UpdateController already has. A Collector
+    /// older than the message refuses it with ERR_UNKNOWN_MESSAGE.
+    BackendReply *checkUpdateNow();
+
 Q_SIGNALS:
     void connectionChanged();
     /// One LiveEvent payload (see $defs/LiveEvent).

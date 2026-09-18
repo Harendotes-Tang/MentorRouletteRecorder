@@ -299,6 +299,11 @@ public sealed class ContractSchemaTests
             })).Require();
             Assert.False(spoken["from_cache"]!.GetValue<bool>());
             Assert.True((await client.SendAsync("CheckDatabaseIntegrity")).Require()["passed"]!.GetValue<bool>());
+            // The fixture's update-check client refuses every request, so the check "runs" without sending anything;
+            // the answer still carries the same status object GetStatus does.
+            var checkedUpdate = (await client.SendAsync("CheckUpdateNow")).Require();
+            Assert.Equal("CHECKED", checkedUpdate["outcome"]!.GetValue<string>());
+            Assert.True(checkedUpdate["update"]!["enabled"]!.GetValue<bool>());
 
             // target_path omitted on purpose: the managed backups folder, and pruned_count.
             var backup = await client.SendAsync("BackupDatabase", new JsonObject());

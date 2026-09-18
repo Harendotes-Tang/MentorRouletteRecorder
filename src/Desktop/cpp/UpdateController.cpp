@@ -1,6 +1,7 @@
 #include "UpdateController.h"
 
 #include "AppSettings.h"
+#include "IBackend.h"
 
 #include <QDesktopServices>
 #include <QMetaType>
@@ -18,6 +19,12 @@ UpdateController::UpdateController(QObject *parent)
 void UpdateController::setSettings(AppSettings *settings)
 {
     m_settings = settings;
+    Q_EMIT changed();
+}
+
+void UpdateController::setBackend(IBackend *backend)
+{
+    m_backend = backend;
     Q_EMIT changed();
 }
 
@@ -104,6 +111,58 @@ void UpdateController::openReleasePage()
     }
     Q_EMIT toastRequested(tr("已在系统浏览器中打开下载页（由你手动触发）。"
                              "是否下载安装由你决定，本软件不会自动下载或替换任何文件。"));
+}
+
+QString UpdateController::checkSentence(const QVariantMap &payload) const
+{
+    const QString outcome = payload.value(QStringLiteral("outcome")).toString();
+    if (outcome == QLatin1String("DISABLED"))
+        return tr("「检查新版本并提示」已关闭，打开后才能检查。");
+    if (outcome == QLatin1String("BLOCKED"))
+        return tr("本机已通过环境变量禁用更新检查。");
+
+    // CHECKED: a check ran, and how it ended is the answer's own
+    // update.last_outcome. The verdict is read back from the state the answer
+    // was just adopted into, so the sentence and the version row cannot
+    // disagree.
+    if (updateAvailable() && !m_state.latestVersion.isEmpty())
+        return tr("有新版本 %1，可以点「打开下载页」下载。").arg(m_state.latestVersion);
+    const QVariantMap update = payload.value(QStringLiteral("update")).toMap();
+    if (!updateAvailable()
+        && update.value(QStringLiteral("last_outcome")).toString() == QLatin1String("OK")) {
+        return tr("已是最新版本（%1）。").arg(currentVersion());
+    }
+    // NOT_FOUND, TIMEOUT, DNS_OR_CONNECT and anything a later Collector adds:
+    // one sentence for all of them, and never the token itself.
+    return tr("没有检查成功（网络不通或发布页暂时不可用），稍后再试。");
+}
+
+void UpdateController::checkNow()
+{
+    // The same predicate the buttons are enabled by: a Collector that sends no
+    // update projection is also too old to answer this message, one that has
+    // the setting off would only answer DISABLED, and a request already out is
+    // waited for rather than sent twice.
+    if (!canCheck())
+        return;
+    m_checking = true;
+    Q_EMIT changed();
+    m_backend->checkUpdateNow()->whenDone(this,
+        [this](bool ok, const QVariantMap &payload, const QString &, const QString &) {
+        m_checking = false;
+        if (!ok) {
+            // No reply, a refusal from a Collector too old for the message, or
+            // a deadline: one sentence, and nothing about the state changes.
+            Q_EMIT changed();
+            Q_EMIT toastRequested(tr("检查失败，请稍后再试。"));
+            return;
+        }
+        // The answer carries `update` under exactly the key a status does, so
+        // the one projection this class has adopts it unchanged.
+        refreshFromStatus(payload);
+        Q_EMIT changed();
+        Q_EMIT toastRequested(checkSentence(payload));
+    });
 }
 
 void UpdateController::dismiss()

@@ -14,6 +14,13 @@
 // A Collector that sends no `update` object leaves this controller unavailable
 // and nothing about updates is shown.
 //
+// 检查更新 (checkNow) is the one thing this class asks for rather than waits
+// for: CheckUpdateNow makes the Collector check once, outside its daily
+// throttle. The answer carries the same `update` object a status does and is
+// adopted through the same projection; the outcome only decides which single
+// sentence the toast gets. Nothing is downloaded and no version is compared
+// here either.
+//
 // 忽略此版本 is remembered per version in AppSettings, so a later release raises
 // the banner again without the user having to undo anything.
 // ---------------------------------------------------------------------------
@@ -30,6 +37,7 @@
 namespace mr {
 
 class AppSettings;
+class IBackend;
 
 class UpdateController final : public QObject
 {
@@ -54,6 +62,13 @@ class UpdateController final : public QObject
     Q_PROPERTY(QString detail READ detail NOTIFY changed)
     /// 忽略此版本 was pressed for exactly the version now on offer.
     Q_PROPERTY(bool dismissed READ dismissed NOTIFY changed)
+    /// A CheckUpdateNow request is out. The buttons that would send another
+    /// one are disabled while it is true.
+    Q_PROPERTY(bool checking READ checking NOTIFY changed)
+    /// 检查更新 can be pressed: the Collector reports an update projection, it
+    /// has 检查新版本并提示 on, and nothing is in flight. A Collector that is too
+    /// old to carry the projection is also too old to carry the message.
+    Q_PROPERTY(bool canCheck READ canCheck NOTIFY changed)
 
 public:
     using UrlOpener = std::function<bool(const QUrl &)>;
@@ -63,6 +78,9 @@ public:
     /// Where 忽略此版本 is remembered. Without one the dismissal lasts only for
     /// this session.
     void setSettings(AppSettings *settings);
+    /// Where checkNow() sends CheckUpdateNow. Without one the button can never
+    /// be pressed (canCheck stays false).
+    void setBackend(IBackend *backend);
     /// Test seam. By default the address goes to QDesktopServices.
     void setUrlOpener(UrlOpener opener);
 
@@ -76,6 +94,11 @@ public:
     QString headline() const;
     QString detail() const;
     bool dismissed() const;
+    bool checking() const { return m_checking; }
+    bool canCheck() const
+    {
+        return m_backend && m_state.available && m_state.enabled && !m_checking;
+    }
 
     /// True only for an https://github.com/ address without credentials and on
     /// the default port: the one kind of address this process opens.
@@ -89,6 +112,10 @@ public Q_SLOTS:
     void openReleasePage();
     /// 忽略此版本, for the version currently on offer only.
     void dismiss();
+    /// 检查更新. Sends CheckUpdateNow, adopts the `update` object it answers
+    /// with, and asks for one toast sentence. A second press while the first
+    /// request is still out does nothing.
+    void checkNow();
 
 Q_SIGNALS:
     void changed();
@@ -109,11 +136,17 @@ private:
         bool operator==(const State &) const = default;
     };
 
+    /// The one sentence a CheckUpdateNow answer deserves. Read from the answer
+    /// and from the state it was just adopted into, never from a token.
+    QString checkSentence(const QVariantMap &payload) const;
+
     QPointer<AppSettings> m_settings;
+    QPointer<IBackend> m_backend;
     UrlOpener m_openUrl;
     State m_state;
     /// Remembers 忽略此版本 while no AppSettings is attached.
     QString m_dismissedVersion;
+    bool m_checking = false;
 };
 
 } // namespace mr

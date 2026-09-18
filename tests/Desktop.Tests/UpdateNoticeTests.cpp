@@ -14,6 +14,11 @@
 //   * the banner is on 总览 only while there is an update to show, and it offers
 //     both buttons;
 //   * 检查新版本并提示 writes update_check_enabled through UpdateCaptureSettings;
+//   * 检查更新 sends CheckUpdateNow, adopts the `update` object the answer
+//     carries and says exactly one sentence per outcome - never a wire token -
+//     while `checking` holds the buttons down for the one request in flight;
+//   * the settings panel and the 关于 page offer that button under the same
+//     rule, and turn it into 打开下载页 once there is something to download;
 //   * the first-run disclosure names three kinds of network access.
 // ---------------------------------------------------------------------------
 
@@ -38,6 +43,7 @@
 #include <QQmlEngine>
 #include <QQuickItem>
 #include <QQuickStyle>
+#include <QPointer>
 #include <QRegularExpression>
 #include <QStandardPaths>
 #include <QTest>
@@ -90,12 +96,33 @@ QJsonObject updateStatus(bool updateAvailable, const QString &latest,
             {QStringLiteral("last_outcome"), QStringLiteral("OK")}};
 }
 
-/// Answers GetStatus with one hand-written collector status; everything else is
-/// empty, so nothing but the update projection is under test.
+/// $defs/UpdateStatus with an explicit last_outcome and 开关 value, for the
+/// answers a check can come back with.
+QJsonObject updateStatus(bool updateAvailable, const QString &latest,
+                         const QString &lastOutcome, bool enabled)
+{
+    QJsonObject status = updateStatus(updateAvailable, latest);
+    status.insert(QStringLiteral("last_outcome"), lastOutcome);
+    status.insert(QStringLiteral("enabled"), enabled);
+    return status;
+}
+
+/// Answers GetStatus with one hand-written collector status and CheckUpdateNow
+/// with one hand-written answer; everything else is empty, so nothing but the
+/// update projection is under test.
 class StatusBackend final : public mr::IBackend
 {
 public:
     QJsonObject status;
+    /// The CheckUpdateNow answer, verbatim.
+    QJsonObject checkAnswer;
+    /// Answer CheckUpdateNow with an error envelope instead.
+    bool checkFails = false;
+    /// Hold the answer back until releaseCheck() runs, so a test can observe
+    /// the request while it is still out.
+    bool holdCheck = false;
+    /// CheckUpdateNow requests this backend was asked for.
+    int checkCount = 0;
 
     QString backendName() const override { return QStringLiteral("mock"); }
     bool isConnected() const override { return true; }
@@ -103,13 +130,45 @@ public:
     mr::BackendReply *request(const QString &type, const QJsonObject & = {}) override
     {
         auto *reply = new mr::BackendReply(type, type, this);
-        if (type == QLatin1String("GetStatus"))
+        if (type == QLatin1String("GetStatus")) {
             reply->succeed(status);
-        else
+        } else if (type == QLatin1String("CheckUpdateNow")) {
+            ++checkCount;
+            if (holdCheck)
+                m_held = reply;
+            else
+                answerCheck(reply);
+        } else {
             reply->succeed({});
+        }
         return reply;
     }
+
+    void releaseCheck()
+    {
+        if (m_held)
+            answerCheck(m_held);
+        m_held = nullptr;
+    }
+
+private:
+    void answerCheck(mr::BackendReply *reply)
+    {
+        if (checkFails)
+            reply->fail(QStringLiteral("ERR_UNKNOWN_MESSAGE"),
+                        QString::fromUtf8("当前采集器不支持该消息。"));
+        else
+            reply->succeed(checkAnswer);
+    }
+
+    QPointer<mr::BackendReply> m_held;
 };
+
+/// One CheckUpdateNow answer:  outcome plus the `update` object it carries.
+QJsonObject checkAnswer(const QString &outcome, const QJsonObject &update)
+{
+    return {{QStringLiteral("outcome"), outcome}, {QStringLiteral("update"), update}};
+}
 
 /// One controller on a hand-written status, torn down in dependency order.
 struct ControllerScene
@@ -134,6 +193,12 @@ struct ControllerScene
             opened.append(url.toString());
             return openerSucceeds;
         });
+    }
+
+    /// What CheckUpdateNow will answer on the next 检查更新.
+    void willAnswer(const QString &outcome, const QJsonObject &update)
+    {
+        backend->checkAnswer = checkAnswer(outcome, update);
     }
 
     /// Re-answer GetStatus with a different `update` object.
@@ -393,6 +458,240 @@ private Q_SLOTS:
             QVERIFY2(!text.contains(latin),
                      qPrintable(QStringLiteral("update copy leaks a Latin token: ") + text));
         }
+    }
+
+    // -- 检查更新 -------------------------------------------------------
+
+    void checkNowAdoptsTheAnswerAndNamesTheNewVersion()
+    {
+        ControllerScene scene;
+        scene.open(updateStatus(false, QString()));
+        QTRY_VERIFY(scene.controller()->available());
+        QVERIFY(scene.controller()->canCheck());
+        QVERIFY(!scene.controller()->checking());
+
+        scene.willAnswer(QStringLiteral("CHECKED"),
+                         updateStatus(true, QStringLiteral("9.9.9")));
+        scene.controller()->checkNow();
+        QTRY_COMPARE(scene.backend->checkCount, 1);
+        // The answer's `update` object is adopted exactly as a status would be.
+        QTRY_VERIFY(scene.controller()->updateAvailable());
+        QCOMPARE(scene.controller()->latestVersion(), QStringLiteral("9.9.9"));
+        QCOMPARE(scene.controller()->releaseUrl(), QLatin1String(kReleaseUrl));
+        QCOMPARE(scene.controller()->lastCheckedAtUtc(), QLatin1String(kCheckedAt));
+        QVERIFY(!scene.controller()->checking());
+        QTRY_VERIFY(!scene.app->toastMessage().isEmpty());
+        QCOMPARE(scene.app->toastMessage(),
+                 QString::fromUtf8("有新版本 9.9.9，可以点「打开下载页」下载。"));
+        // Nothing was opened: the check only checks.
+        QVERIFY(scene.opened.isEmpty());
+    }
+
+    void checkNowSaysThisIsTheNewestVersionWhenTheCheckFoundNothing()
+    {
+        ControllerScene scene;
+        scene.open(updateStatus(false, QString()));
+        QTRY_VERIFY(scene.controller()->canCheck());
+
+        scene.willAnswer(QStringLiteral("CHECKED"),
+                         updateStatus(false, QString(), QStringLiteral("OK"), true));
+        scene.controller()->checkNow();
+        QTRY_VERIFY(!scene.app->toastMessage().isEmpty());
+        QCOMPARE(scene.app->toastMessage(),
+                 QString::fromUtf8("已是最新版本（%1）。")
+                     .arg(scene.controller()->currentVersion()));
+        QVERIFY(!scene.controller()->updateAvailable());
+    }
+
+    void checkNowSaysItDidNotSucceedForEveryOtherOutcome_data()
+    {
+        QTest::addColumn<QString>("lastOutcome");
+        QTest::newRow("not-found") << "NOT_FOUND";
+        QTest::newRow("timeout") << "TIMEOUT";
+        QTest::newRow("dns-or-connect") << "DNS_OR_CONNECT";
+        QTest::newRow("http-error") << "HTTP_ERROR";
+        // A token a later Collector may add reads the same way here.
+        QTest::newRow("unknown-to-this-build") << "SOMETHING_NEW";
+    }
+
+    void checkNowSaysItDidNotSucceedForEveryOtherOutcome()
+    {
+        QFETCH(QString, lastOutcome);
+        ControllerScene scene;
+        scene.open(updateStatus(false, QString()));
+        QTRY_VERIFY(scene.controller()->canCheck());
+
+        scene.willAnswer(QStringLiteral("CHECKED"),
+                         updateStatus(false, QString(), lastOutcome, true));
+        scene.controller()->checkNow();
+        QTRY_VERIFY(!scene.app->toastMessage().isEmpty());
+        const QString toast = scene.app->toastMessage();
+        QCOMPARE(toast,
+                 QString::fromUtf8("没有检查成功（网络不通或发布页暂时不可用），稍后再试。"));
+        // Never the wire token, and never a Latin word of any kind.
+        QVERIFY(!toast.contains(lastOutcome));
+        static const QRegularExpression latin(QStringLiteral("[A-Za-z]"));
+        QVERIFY(!toast.contains(latin));
+    }
+
+    void checkNowSaysTheSettingIsOff()
+    {
+        ControllerScene scene;
+        scene.open(updateStatus(false, QString()));
+        QTRY_VERIFY(scene.controller()->canCheck());
+
+        scene.willAnswer(QStringLiteral("DISABLED"),
+                         updateStatus(false, QString(), QStringLiteral("OK"), false));
+        scene.controller()->checkNow();
+        QTRY_VERIFY(!scene.app->toastMessage().isEmpty());
+        QCOMPARE(scene.app->toastMessage(),
+                 QString::fromUtf8("「检查新版本并提示」已关闭，打开后才能检查。"));
+        // The answer said the switch is off, so the button follows it down.
+        QTRY_VERIFY(!scene.controller()->enabled());
+        QVERIFY(!scene.controller()->canCheck());
+    }
+
+    void checkNowSaysTheMachineDisabledTheCheck()
+    {
+        ControllerScene scene;
+        scene.open(updateStatus(false, QString()));
+        QTRY_VERIFY(scene.controller()->canCheck());
+
+        scene.willAnswer(QStringLiteral("BLOCKED"),
+                         updateStatus(false, QString(), QStringLiteral("OK"), true));
+        scene.controller()->checkNow();
+        QTRY_VERIFY(!scene.app->toastMessage().isEmpty());
+        QCOMPARE(scene.app->toastMessage(),
+                 QString::fromUtf8("本机已通过环境变量禁用更新检查。"));
+    }
+
+    void aFailedCheckRequestSaysSoAndChangesNothing()
+    {
+        ControllerScene scene;
+        scene.open(updateStatus(false, QString()));
+        QTRY_VERIFY(scene.controller()->canCheck());
+
+        scene.backend->checkFails = true;
+        scene.controller()->checkNow();
+        QTRY_VERIFY(!scene.app->toastMessage().isEmpty());
+        QCOMPARE(scene.app->toastMessage(),
+                 QString::fromUtf8("检查失败，请稍后再试。"));
+        // A refusal is not a verdict: the projection is left exactly as it was.
+        QVERIFY(!scene.controller()->checking());
+        QVERIFY(scene.controller()->available());
+        QVERIFY(!scene.controller()->updateAvailable());
+        QVERIFY(scene.controller()->canCheck());
+    }
+
+    void checkingHoldsTheButtonDownForTheOneRequestInFlight()
+    {
+        ControllerScene scene;
+        scene.open(updateStatus(false, QString()));
+        QTRY_VERIFY(scene.controller()->canCheck());
+
+        scene.backend->holdCheck = true;
+        scene.willAnswer(QStringLiteral("CHECKED"),
+                         updateStatus(false, QString(), QStringLiteral("OK"), true));
+        scene.controller()->checkNow();
+        QVERIFY(scene.controller()->checking());
+        QVERIFY(!scene.controller()->canCheck());
+        QCOMPARE(scene.backend->checkCount, 1);
+
+        // A second press while the first is out sends nothing.
+        scene.controller()->checkNow();
+        QCOMPARE(scene.backend->checkCount, 1);
+        QVERIFY(scene.app->toastMessage().isEmpty());
+
+        scene.backend->releaseCheck();
+        QTRY_VERIFY(!scene.controller()->checking());
+        QVERIFY(scene.controller()->canCheck());
+        QTRY_VERIFY(!scene.app->toastMessage().isEmpty());
+    }
+
+    void withoutAnUpdateProjectionTheCheckButtonCannotBePressed()
+    {
+        // An older Collector sends no `update` object, and is also too old to
+        // answer CheckUpdateNow: the button stays down and sends nothing.
+        ControllerScene scene;
+        scene.openWithoutUpdate();
+        QTest::qWait(50);
+        QVERIFY(!scene.controller()->canCheck());
+        scene.controller()->checkNow();
+        QTest::qWait(50);
+        QCOMPARE(scene.backend->checkCount, 0);
+    }
+
+    void theSettingsPanelOffersCheckNowAndTurnsItIntoTheDownloadButton()
+    {
+        PageScene quiet;
+        QVERIFY(quiet.open(QStringLiteral("SettingsGeneralTab"), false));
+        QTRY_VERIFY(quiet.app->update()->available());
+        auto *button = quiet.item(QStringLiteral("checkUpdateNowButton"));
+        QVERIFY(button);
+        QTRY_VERIFY(button->isVisible());
+        QCOMPARE(button->property("text").toString(), QString::fromUtf8("检查更新"));
+        QTRY_VERIFY(button->property("enabled").toBool());
+
+        // One press asks the deterministic backend, which answers CHECKED with
+        // the very `update` object its status carries.
+        QVERIFY(QMetaObject::invokeMethod(button, "clicked"));
+        QTRY_VERIFY(!quiet.app->toastMessage().isEmpty());
+        QCOMPARE(quiet.app->toastMessage(),
+                 QString::fromUtf8("已是最新版本（%1）。")
+                     .arg(quiet.app->update()->currentVersion()));
+        // The check never opens a browser.
+        QVERIFY(quiet.opened.isEmpty());
+
+        // With something to download, the same place becomes the download button.
+        PageScene raised;
+        QVERIFY(raised.open(QStringLiteral("SettingsGeneralTab"), true));
+        QTRY_VERIFY(raised.app->update()->updateAvailable());
+        auto *download = raised.item(QStringLiteral("checkUpdateNowButton"));
+        QVERIFY(download);
+        QTRY_COMPARE(download->property("text").toString(),
+                     QString::fromUtf8("打开下载页"));
+        QVERIFY(QMetaObject::invokeMethod(download, "clicked"));
+        QTRY_COMPARE(raised.opened.size(), 1);
+        QVERIFY(raised.opened.constFirst().startsWith(QStringLiteral("https://github.com/")));
+        // And the 最近检查 line is there as soon as the Collector named a time.
+        QVERIFY(raised.shows(QStringLiteral("updateCheckStatusText")));
+    }
+
+    void theSettingsCheckButtonIsDisabledWhileTheCheckIsOut()
+    {
+        PageScene scene;
+        QVERIFY(scene.open(QStringLiteral("SettingsGeneralTab"), false));
+        QTRY_VERIFY(scene.app->update()->canCheck());
+        auto *button = scene.item(QStringLiteral("checkUpdateNowButton"));
+        QVERIFY(button);
+        QTRY_VERIFY(button->property("enabled").toBool());
+
+        QVERIFY(QMetaObject::invokeMethod(button, "clicked"));
+        // The mock answers on the next event-loop turn, so the disabled state
+        // is asserted before the loop is given back.
+        QVERIFY(scene.app->update()->checking());
+        QVERIFY(!button->property("enabled").toBool());
+        QTRY_VERIFY(!scene.app->update()->checking());
+        QTRY_VERIFY(button->property("enabled").toBool());
+    }
+
+    void theAboutPageOffersCheckNowOnlyWhileThereIsNothingToDownload()
+    {
+        PageScene quiet;
+        QVERIFY(quiet.open(QStringLiteral("SettingsAboutTab"), false));
+        QTRY_VERIFY(quiet.shows(QStringLiteral("aboutCheckUpdateButton")));
+        QVERIFY(!quiet.shows(QStringLiteral("aboutOpenReleasePageButton")));
+        auto *button = quiet.item(QStringLiteral("aboutCheckUpdateButton"));
+        QCOMPARE(button->property("text").toString(), QString::fromUtf8("检查更新"));
+        QTRY_VERIFY(button->property("enabled").toBool());
+        QVERIFY(QMetaObject::invokeMethod(button, "clicked"));
+        QTRY_VERIFY(!quiet.app->toastMessage().isEmpty());
+        QVERIFY(quiet.opened.isEmpty());
+
+        PageScene raised;
+        QVERIFY(raised.open(QStringLiteral("SettingsAboutTab"), true));
+        QTRY_VERIFY(raised.shows(QStringLiteral("aboutOpenReleasePageButton")));
+        QVERIFY(!raised.shows(QStringLiteral("aboutCheckUpdateButton")));
     }
 
     void theDashboardShowsTheBannerOnlyWhenAnUpdateIsAvailable()

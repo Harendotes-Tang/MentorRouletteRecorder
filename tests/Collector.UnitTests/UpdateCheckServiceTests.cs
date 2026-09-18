@@ -101,15 +101,16 @@ public sealed class UpdateCheckServiceTests : IDisposable
         Assert.Equal(T0 + UpdateCheckService.CheckInterval, service.Snapshot().LastCheckedAtUtc);
     }
 
+    /// <summary>A crash loop must not become a request per restart: inside the grace the persisted stamp stands.</summary>
     [Fact]
-    public async Task ARestartInsideTheWindowSendsNothing()
+    public async Task ARestartInsideTheGraceSendsNothing()
     {
         var transport = new Transport();
         var first = Service(transport);
         first.Observe();
         await SettleAsync(first);
 
-        _clock.UtcNow = T0.AddHours(2);
+        _clock.UtcNow = T0.AddMinutes(30);
         var restarted = Service(transport);
         var snapshot = restarted.Observe();
         await SettleAsync(restarted);
@@ -118,6 +119,86 @@ public sealed class UpdateCheckServiceTests : IDisposable
         Assert.Equal(T0, snapshot.LastCheckedAtUtc);
         Assert.Equal(Published, snapshot.LatestVersion);
         Assert.Equal("OK", snapshot.LastOutcome);
+    }
+
+    /// <summary>A user who restarts the software expects it to look: once per process start, past the grace.</summary>
+    [Fact]
+    public async Task ARestartPastTheGraceChecksOnceAndThenWaitsForTheDay()
+    {
+        var transport = new Transport();
+        var first = Service(transport);
+        first.Observe();
+        await SettleAsync(first);
+
+        _clock.UtcNow = T0.AddHours(2);
+        var restarted = Service(transport);
+        restarted.Observe();
+        await SettleAsync(restarted);
+        Assert.Equal(2, transport.Calls);
+        Assert.Equal(T0.AddHours(2), restarted.Snapshot().LastCheckedAtUtc);
+
+        // The same process, hours later: the startup check was the one for today.
+        _clock.UtcNow = T0.AddHours(10);
+        restarted.Observe();
+        await SettleAsync(restarted);
+        Assert.Equal(2, transport.Calls);
+    }
+
+    // ------------------------------------------------------------------------- 立即检查
+
+    [Fact]
+    public async Task AManualCheckSendsWhateverIsDueAndReportsChecked()
+    {
+        var transport = new Transport();
+        var service = Service(transport);
+        service.Observe();
+        await SettleAsync(service);
+        _clock.UtcNow = T0.AddMinutes(5);
+
+        var outcome = await service.CheckNowIfAllowedAsync();
+
+        Assert.Equal(UpdateCheckRequestOutcome.Checked, outcome);
+        Assert.Equal(2, transport.Calls);
+        Assert.Equal(T0.AddMinutes(5), service.Snapshot().LastCheckedAtUtc);
+    }
+
+    [Fact]
+    public async Task AManualCheckWithTheSettingOffSendsNothingAndSaysDisabled()
+    {
+        var transport = new Transport();
+        var service = Service(transport);
+        service.ApplySetting(false);
+
+        Assert.Equal(UpdateCheckRequestOutcome.Disabled, await service.CheckNowIfAllowedAsync());
+        Assert.Equal(0, transport.Calls);
+    }
+
+    [Fact]
+    public async Task AManualCheckUnderTheKillSwitchSendsNothingAndSaysBlocked()
+    {
+        var transport = new Transport();
+        var service = Service(transport, environment: name => name == UpdateCheckClient.DisableVariable ? "1" : null);
+
+        Assert.Equal(UpdateCheckRequestOutcome.Blocked, await service.CheckNowIfAllowedAsync());
+        Assert.Equal(0, transport.Calls);
+    }
+
+    [Fact]
+    public async Task AManualCheckWhileOneIsInFlightWaitsForItInsteadOfSendingTwice()
+    {
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var transport = new Transport { Gate = gate };
+        var service = Service(transport);
+        service.Observe();
+        await transport.Invoked.WaitAsync(TimeSpan.FromSeconds(10));
+
+        var manual = service.CheckNowIfAllowedAsync();
+        Assert.False(manual.IsCompleted);
+        gate.SetResult();
+
+        Assert.Equal(UpdateCheckRequestOutcome.Checked, await manual.WaitAsync(TimeSpan.FromSeconds(10)));
+        Assert.Equal(1, transport.Calls);
+        Assert.Equal(Published, service.Snapshot().LatestVersion);
     }
 
     [Fact]

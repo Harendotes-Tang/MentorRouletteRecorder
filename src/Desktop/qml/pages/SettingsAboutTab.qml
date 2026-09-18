@@ -53,6 +53,17 @@ ColumnLayout {
                 text: qsTr("打开下载页")
                 onClicked: App.update.openReleasePage()
             }
+
+            // 没有新版本时，同一个位置是主动检查（privacy-boundary.md §8.4）。
+            AppButton {
+                objectName: "aboutCheckUpdateButton"
+                Layout.fillWidth: false
+                visible: !App.update.updateAvailable
+                compact: true
+                text: qsTr("检查更新")
+                enabled: App.update.canCheck
+                onClicked: App.update.checkNow()
+            }
         }
 
         FieldLabel {

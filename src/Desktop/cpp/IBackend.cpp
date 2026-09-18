@@ -462,4 +462,9 @@ BackendReply *IBackend::synthesizeSpeech(const QString &text, int ratePercent, b
     return request(QStringLiteral("SynthesizeSpeech"), payload);
 }
 
+BackendReply *IBackend::checkUpdateNow()
+{
+    return request(QStringLiteral("CheckUpdateNow"));
+}
+
 } // namespace mr

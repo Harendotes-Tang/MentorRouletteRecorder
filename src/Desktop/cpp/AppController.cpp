@@ -132,6 +132,9 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
     // path as calibration, so it cannot go stale behind one of them.
     m_update = new UpdateController(this);
     m_update->setSettings(settings);
+    // 检查更新 is the one request it sends: CheckUpdateNow, outside the daily
+    // throttle, still behind the setting and the kill switch.
+    m_update->setBackend(backend);
     connect(this, &AppController::statusChanged, this,
             [this] { m_update->refreshFromStatus(collectorStatus()); });
     connect(m_update, &UpdateController::toastRequested, this, &AppController::showToast);
