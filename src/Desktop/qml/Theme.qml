@@ -7,27 +7,40 @@ import QtQuick
 //
 //   * "classic" - DOC/表单提交后设计/workbench.css (default: light work surface,
 //                 #2f6bd8 accent, six-step type scale, IBM Plex Mono figures)
-//   * "eorzea"  - DOC/表单提交后设计/ff14.css      (gilded dark slate)
+//   * "eorzea"  - the game's own window palette: dark = warm slate grey with
+//                 pale text, light = parchment with dark-brown text; gold is
+//                 kept for markers, rings and bars only (docs/ui-design.md 6.1)
+//   * "harendotes" - the wolf's own colours. Dark "夜色狼身": navy-black fur
+//                 as the ground, flame orange (the mane) as the accent, old
+//                 gold only as a garnish. Light "白胸冷光": the white chest as
+//                 panels on a cool blue-grey, chrome as pale as the page. Shares
+//                 eorzea's layout; headings are cold-white Song, not gold Cinzel
 //
 // Pages bind to token names, never to a literal colour, so flipping
 // `Settings.uiStyle` repaints the whole shell.
 QtObject {
     readonly property bool dark: typeof App === "undefined" ? true : App.dark
 
-    // Defaults to classic unless the setting explicitly says "eorzea", so the
-    // UI still renders when the property is missing.
-    readonly property bool eorzea: {
+    // The style on screen: "classic", "eorzea" or "harendotes". Defaults to
+    // classic unless the setting explicitly names another style, so the UI
+    // still renders when the property is missing.
+    readonly property string uiStyle: {
         // --mock-ui-style pins the style for a screenshot run without touching
         // the persisted desktop.ini.
         if (typeof ForceUiStyle !== "undefined" && ForceUiStyle !== "")
-            return ForceUiStyle === "eorzea"
+            return normalizeStyle(ForceUiStyle)
         if (typeof Settings === "undefined")
-            return false
-        const style = Settings.uiStyle
-        if (style === undefined || style === null || style === "")
-            return false
-        return style === "eorzea"
+            return "classic"
+        return normalizeStyle(Settings.uiStyle)
     }
+    function normalizeStyle(value) {
+        return value === "eorzea" || value === "harendotes" ? value : "classic"
+    }
+    // The gilded family: eorzea and harendotes share layout, fonts, radii and
+    // motion; only their palettes differ (gilded() below).
+    readonly property bool eorzea: uiStyle !== "classic"
+    // Harendotes: navy-black / cool white grounds with a flame-orange accent.
+    readonly property bool harendotes: uiStyle === "harendotes"
 
     // ----------------------------------------------------------- 动效 --
     // One vocabulary for every animation in the shell (docs/ui-design.md 动效).
@@ -67,7 +80,10 @@ QtObject {
     // Classic headings use the application (body) font; an empty family name
     // would make Qt fall back to a serif face on Windows.
     readonly property string bodyFamily: Qt.application.font.family
-    readonly property string headingFamily: eorzea ? "Cinzel" : bodyFamily
+    // Harendotes sets headings and big figures in Song (Noto Serif SC), Latin
+    // included; eorzea keeps Cinzel for Latin and figures.
+    readonly property string headingFamily: eorzea
+        ? (harendotes ? "Noto Serif SC" : "Cinzel") : bodyFamily
     readonly property string headingFamilyCjk: eorzea ? "Noto Serif SC" : bodyFamily
     // The QML font value type has no `families` list, so a heading picks the
     // face by its own content: Cinzel covers Latin and figures, Noto Serif SC
@@ -155,125 +171,227 @@ QtObject {
     }
 
     // ------------------------------------------------------ 艾欧泽亚 --
-    // workbench.css maps the gold family onto its text and divider colours.
-    readonly property color gold: eorzea ? (dark ? "#cfae62" : "#8a6a1f") : textSecondary
-    readonly property color gold2: eorzea ? (dark ? "#e9d18f" : "#a8853a") : textPrimary
-    readonly property color gold3: eorzea ? (dark ? "#8a6f35" : "#c9ab6a") : border
+    // A gilded-family value: eorzea (the game's own window palette) or
+    // harendotes (navy and flame), each in dark and light. Pages still
+    // write `eorzea ? gilded(...) : classic`; classic keeps workbench.css.
+    function gilded(eorzeaDark, eorzeaLight, harendotesDark, harendotesLight) {
+        if (harendotes)
+            return dark ? harendotesDark : harendotesLight
+        return dark ? eorzeaDark : eorzeaLight
+    }
+
+    // The game's gold is the small marker on the active tab, so gold / gold2 stay
+    // saturated for markers and the sidebar title; gold3 is the frame line, which
+    // the game draws in a warm neutral. In harendotes the "gold" family is the
+    // flame: gold = 橙焰, gold2 = 亮焰 (dark) / 深焰 (light), gold3 = the blue-grey
+    // divider; the real old gold is `oldGold`, a garnish only.
+    // workbench.css maps the family onto its text and divider colours.
+    readonly property color gold: eorzea
+        ? gilded("#e3b94a", "#8a6a1f", "#e85018", "#c8420f") : textSecondary
+    readonly property color gold2: eorzea
+        ? gilded("#f0cf70", "#9e7a2e", "#ff7a3d", "#a83408") : textPrimary
+    readonly property color gold3: eorzea
+        ? gilded("#7a7260", "#a8946c", "#3897a0b8", "#33263961") : border
     readonly property color accent700: eorzea
-        ? (dark ? "#f3e2ad" : "#553f10") : (dark ? "#9dbcf8" : "#1e4a9a")
-    readonly property color headingColor: eorzea ? (dark ? gold2 : accent700) : textPrimary
+        ? gilded("#f5e6b8", "#4a3612", "#ffb48c", "#7a2505") : (dark ? "#9dbcf8" : "#1e4a9a")
+    // Window titles are pale text in the game's dark theme and dark brown in the
+    // light one; harendotes sets them in its own text colour (cold white / ink).
+    // 古金 · 仅点缀: the tail of the panel's top line and of the ring.
+    readonly property color oldGold: eorzea
+        ? gilded(gold, gold, "#c8a45a", "#8a6a24") : textSecondary
+    readonly property color headingColor: eorzea
+        ? gilded("#f6f1e4", "#3a2c17", textPrimary, textPrimary) : textPrimary
     readonly property color ruleAccent: eorzea ? gold2 : clear(border)
-    readonly property color badgeForeground: eorzea ? (dark ? "#0d1017" : "#fff8e8") : "#ffffff"
+    readonly property color badgeForeground: eorzea
+        ? gilded("#1c1c1c", "#fff8e8", "#0a0d16", "#ffffff") : "#ffffff"
 
     // --inset-bg / --inset-bg-2 / --inset-border
     readonly property color insetBackground: eorzea
-        ? (dark ? "#38000000" : "#14785c28")
+        ? gilded("#40000000", "#1a4d3d26", "#4d05070d", "#0f263961")
         : (dark ? "#212936" : "#f3f7fe")
     readonly property color insetBackgroundStrong: eorzea
-        ? (dark ? "#52000000" : "#24785c28")
+        ? gilded("#5c000000", "#2e4d3d26", "#7005070d", "#1f263961")
         : (dark ? "#2a3341" : fill)
     readonly property color insetBorder: eorzea ? border : clear(border)
 
-    // .panel / --panel-bg
+    // .panel / --panel-bg: the game window plate, lighter at the top; the
+    // archive's near-black card.
     readonly property color panelTop: eorzea
-        ? (dark ? "#eb262c3a" : "#f2faf5e8") : surface
+        ? gilded("#f5474747", "#f7e8dab4", "#f5141b2d", "#f7f8f9fc") : surface
     readonly property color panelBottom: eorzea
-        ? (dark ? "#f512161f" : "#f7ece2cc") : surface
+        ? gilded("#f82e2e2e", "#f9d4c296", "#f8111726", "#f9f3f5fa") : surface
     // --chrome-bg (title bar + sidebar)
     readonly property color chromeTop: eorzea
-        ? (dark ? "#f21e2430" : "#fae8dec6") : titlebarBackground
+        ? gilded("#f8333333", "#fadccb9f", "#f80e1320", "#faeef1f7") : titlebarBackground
     readonly property color chromeBottom: eorzea
-        ? (dark ? "#fa0e1119" : "#fad8cbac") : titlebarBackground
+        ? gilded("#fb1a1a1a", "#fac9b585", "#fb0a0d16", "#fae4e8f1") : titlebarBackground
     // The two radial washes over --color-bg (`.app` and `.app[data-theme="light"]`
     // in mentor-recorder-ff14.dc.html), identical in both styles and painted by
     // Main.qml's backdropWash Canvas. Top: 1000x600 at (50%, -20%); bottom:
-    // 600x400 at (100%, 100%).
-    readonly property color washTop: dark ? Qt.rgba(70 / 255, 85 / 255, 120 / 255, 0.35)
-                                          : Qt.rgba(1, 250 / 255, 235 / 255, 0.7)
-    readonly property color washBottom: dark ? Qt.rgba(140 / 255, 110 / 255, 50 / 255, 0.15)
-                                             : Qt.rgba(160 / 255, 130 / 255, 70 / 255, 0.25)
+    // 600x400 at (100%, 100%). Harendotes: a navy glow above and a faint flame
+    // below in the dark, plain cool white and navy in the light.
+    readonly property color washTop: harendotes
+        ? (dark ? Qt.rgba(38 / 255, 57 / 255, 97 / 255, 0.45)
+                : Qt.rgba(1, 1, 1, 0.7))
+        : (dark ? Qt.rgba(70 / 255, 85 / 255, 120 / 255, 0.35)
+                : Qt.rgba(1, 250 / 255, 235 / 255, 0.7))
+    readonly property color washBottom: harendotes
+        ? (dark ? Qt.rgba(232 / 255, 80 / 255, 24 / 255, 0.10)
+                : Qt.rgba(38 / 255, 57 / 255, 97 / 255, 0.10))
+        : (dark ? Qt.rgba(140 / 255, 110 / 255, 50 / 255, 0.15)
+                : Qt.rgba(160 / 255, 130 / 255, 70 / 255, 0.25))
 
     // The title bar's theme switch wears the other theme's --color-bg and text:
     // 深色 is a dark button on the light page, 浅色 a light one on the dark.
-    readonly property color inverseBackground: eorzea ? (dark ? "#d9cdb2" : "#0d1017")
-                                                      : (dark ? "#f5f7fa" : "#141922")
-    readonly property color inverseText: eorzea ? (dark ? "#2b2418" : "#e9d18f")
-                                                : (dark ? "#1c2430" : "#e8ecf2")
+    readonly property color inverseBackground: eorzea
+        ? gilded("#e4d5ae", "#2c2c2c", "#f3f5fa", "#0a0d16") : (dark ? "#f5f7fa" : "#141922")
+    readonly property color inverseText: eorzea
+        ? gilded("#3a2d1b", "#f2f2f2", "#141a2b", "#eef0f6") : (dark ? "#1c2430" : "#e8ecf2")
 
-    // --bar-fill: linear-gradient(180deg, gold-2, gold-3)
-    readonly property color barFillStart: eorzea ? gold3 : accent
-    readonly property color barFillEnd: eorzea ? gold2 : accent
+    // --bar-fill: linear-gradient(180deg, gold-2, dim gold). gold3 is a frame
+    // line, so the bar keeps its own dim stop.
+    readonly property color barFillStart: eorzea
+        ? gilded("#a8863c", "#7d5f1c", "#9a330c", "#a83408") : accent
+    readonly property color barFillEnd: eorzea
+        ? gilded(gold2, gold2, "#ff7a3d", "#e85018") : accent
     // The progress ring stroke gradient (#f0dc9e -> #b08a3a).
-    readonly property color ringStart: eorzea ? (dark ? "#f0dc9e" : "#b08a3a") : accent
-    readonly property color ringEnd: eorzea ? (dark ? "#b08a3a" : "#6f5417") : accent
+    readonly property color ringStart: eorzea
+        ? gilded("#f0dc9e", "#b08a3a", "#e8401a", "#c8380f") : accent
+    readonly property color ringEnd: eorzea
+        ? gilded("#b08a3a", "#6f5417", "#c8a45a", "#8a6a24") : accent
+    // Harendotes runs the ring along its arc from ringTail to ringStart: yellow
+    // flame to deep flame, both opaque and far apart in hue and lightness. A translucent or greyish tail mixes with the track
+    // into mud, so the whole run stays in saturated warm colours.
+    readonly property color ringTail: eorzea
+        ? gilded(ringEnd, ringEnd, "#ffd84a", "#f7bc1f") : accent
     readonly property color ringTrack: eorzea
-        ? (dark ? "#59000000" : "#26785c28") : fill
+        ? gilded("#59000000", "#264d3d26", "#59000000", "#1f263961") : fill
 
-    // btn-primary: linear-gradient(180deg,#f0dc9e,#c9a24a 55%,#a98330)
-    readonly property color buttonPrimaryTop: eorzea ? "#f0dc9e" : accent
-    readonly property color buttonPrimaryMid: eorzea ? "#c9a24a" : accent
-    readonly property color buttonPrimaryBottom: eorzea ? "#a98330" : accent
-    readonly property color buttonPrimaryText: eorzea ? "#2a2109" : "#ffffff"
+    // btn-primary. Eorzea: the game's button, a plate darker than the window
+    // with a pale 1 px frame and pale text (dark grey / dark brown). Harendotes:
+    // the archive's gold, linear-gradient(gold-2, gold, dim gold) with ink text.
+    readonly property color buttonPrimaryTop: eorzea
+        ? gilded("#525252", "#65503a", "#f2601f", "#e85018") : accent
+    readonly property color buttonPrimaryMid: eorzea
+        ? gilded("#3a3a3a", "#4c3a25", "#e85018", "#c8420f") : accent
+    readonly property color buttonPrimaryBottom: eorzea
+        ? gilded("#242424", "#332514", "#c8420f", "#a83408") : accent
+    readonly property color buttonPrimaryText: eorzea
+        ? gilded("#f4f4f4", "#f3e9d2", "#ffffff", "#ffffff") : "#ffffff"
+    readonly property color buttonPrimaryBorder: eorzea
+        ? gilded("#8c8c8c", "#c8b58c", "#ff7a3d", "#a83408") : accent
+    // .btn (secondary): a plate a step lighter than the window, framed in gold3.
+    // Eorzea labels it in the window's text colour, harendotes in gold.
+    readonly property color buttonBorder: eorzea
+        ? gilded(gold3, gold3, "#9a330c", "#e85018") : neutral300
+    readonly property color buttonText: eorzea
+        ? gilded(textPrimary, textPrimary, "#ff7a3d", "#c8420f") : textPrimary
+
+    // The chosen tab. Eorzea: the game's plate darker than the window with pale
+    // text; harendotes: the archive's dark card with gold text (light: a gold
+    // plate). Classic keeps its accent chip (components/SegmentedControl.qml).
+    readonly property color tabActiveTop: eorzea
+        ? gilded("#2c2c2c", "#5c4830", "#f2601f", "#d94c12") : accent
+    readonly property color tabActiveBottom: eorzea
+        ? gilded("#141414", "#3a2b19", "#d8460f", "#c8420f") : accent
+    readonly property color tabActiveBorder: eorzea
+        ? gilded("#6e6e6e", "#8c7554", "#ff7a3d", "#a83408") : border
+    readonly property color tabActiveText: eorzea
+        ? gilded("#f4f4f4", "#f3e9d2", "#ffffff", "#ffffff") : accent
+
+    // The title bar shares --chrome-bg with the sidebar in every style. Its
+    // brand is gold in eorzea and the plain text colour elsewhere; harendotes
+    // marks the bar's lower edge with the flame -> old gold line (Main.qml).
+    readonly property color titlebarTop: chromeTop
+    readonly property color titlebarBottom: chromeBottom
+    readonly property color titlebarBrand: eorzea
+        ? gilded(gold2, gold2, textPrimary, textPrimary) : textPrimary
+    readonly property color titlebarText: textPrimary
+    readonly property color titlebarTextSecondary: textSecondary
+    readonly property color titlebarMark: gold
+    readonly property color titlebarFill: fill
+
+    // .navi[data-active] / a chosen detail tab: the accent fading out to the right.
+    readonly property color navActiveStart: eorzea
+        ? Qt.rgba(accent.r, accent.g, accent.b, 0.28) : accentMuted
+    readonly property color navActiveEnd: eorzea
+        ? Qt.rgba(accent.r, accent.g, accent.b, 0.04) : clear(accentMuted)
+    // .sw: the track tint and the knob gradient of a switch that is on.
+    readonly property color switchTrackOn: eorzea
+        ? Qt.rgba(accent.r, accent.g, accent.b, 0.22) : accent
+    readonly property color switchKnobTop: eorzea
+        ? gilded("#f0dc9e", "#f0dc9e", "#ff9a66", "#f2601f") : "#ffffff"
+    readonly property color switchKnobBottom: eorzea
+        ? gilded("#c9a24a", "#c9a24a", "#e85018", "#c8420f") : "#ffffff"
 
     // ------------------------------------------------------ 基础色板 --
-    readonly property color desktopBackdropStart: eorzea ? "#111725" : "#5b6270"
-    readonly property color desktopBackdropEnd: eorzea ? "#07090e" : "#2c2f36"
+    readonly property color desktopBackdropStart: eorzea
+        ? (harendotes ? "#111726" : "#1e3a6e") : "#5b6270"
+    readonly property color desktopBackdropEnd: eorzea
+        ? (harendotes ? "#0a0d16" : "#0a1630") : "#2c2f36"
     readonly property color shellBorder: eorzea ? gold3 : borderStrong
     // --chrome-bg is --color-surface in the classic style.
     readonly property color titlebarBackground: eorzea
-        ? (dark ? "#1e2430" : "#e8dec6") : surface
+        ? gilded("#2a2a2a", "#d6c59c", "#0e1320", "#eef1f7") : surface
     readonly property color sidebarBackground: titlebarBackground
     // .status-panel: the sidebar status plate sits on the chrome, not on a
     // panel, so it gets its own tint and border instead of the panel gradient
     // (ff14.css rgba(255,235,190,.05) / workbench.css --color-bg + 1 px divider).
     readonly property color statusPanelBackground: eorzea
-        ? (dark ? "#0dffebbe" : "#1a785c28") : contentBackground
+        ? gilded("#0dffffff", "#1a4d3d26", "#263961", "#ffffff") : contentBackground
     readonly property color statusPanelBorder: eorzea
         ? gold3 : border
     // --color-bg
     readonly property color contentBackground: eorzea
-        ? (dark ? "#0d1017" : "#d9cdb2") : (dark ? "#141922" : "#f5f7fa")
+        ? gilded("#222222", "#c6b387", "#0a0d16", "#e4e8f1") : (dark ? "#141922" : "#f5f7fa")
     readonly property color windowBackground: contentBackground
     // Classic values are workbench.css (light / dark) one for one: --color-surface,
     // --color-fill, --color-fill-2, --color-divider, --color-neutral-300,
     // --color-text / -2 / -3, --color-accent / -100 / -600.
     readonly property color surface: eorzea
-        ? (dark ? "#171c26" : "#efe6d2") : (dark ? "#1b212c" : "#ffffff")
+        ? gilded("#3a3a3a", "#e3d4ad", "#111726", "#f3f5fa") : (dark ? "#1b212c" : "#ffffff")
     readonly property color surfaceRaised: eorzea
-        ? (dark ? "#1f2532" : "#f6efe0") : surface
+        ? gilded("#4a4a4a", "#ede1bf", "#182034", "#ffffff") : surface
     readonly property color surfaceMuted: eorzea
-        ? (dark ? "#1f2532" : "#f6efe0") : fill
+        ? gilded("#444444", "#e9dcb8", "#182034", "#ebeef5") : fill
+    // Translucent white over the dark slate, translucent brown over parchment;
+    // the archive tints with its gold.
     readonly property color fill: eorzea
-        ? (dark ? "#1ac9aa6a" : "#1a785c28") : (dark ? "#252d3a" : "#eceff3")
+        ? gilded("#14ffffff", "#144d3d26", "#1497a0b8", "#12263961") : (dark ? "#252d3a" : "#eceff3")
     readonly property color fillStrong: eorzea
-        ? (dark ? "#2ec9aa6a" : "#2e785c28") : (dark ? "#2f384a" : "#e2e6ec")
+        ? gilded("#24ffffff", "#244d3d26", "#2497a0b8", "#1f263961") : (dark ? "#2f384a" : "#e2e6ec")
     readonly property color border: eorzea
-        ? (dark ? "#38c9aa6a" : "#47785c28") : (dark ? "#2b3342" : "#e4e8ee")
+        ? gilded("#3dffffff", "#4d4d3d26", "#3897a0b8", "#33263961") : (dark ? "#2b3342" : "#e4e8ee")
     readonly property color borderStrong: eorzea ? gold3 : neutral300
     readonly property color textPrimary: eorzea
-        ? (dark ? "#e8e1cf" : "#2b2418") : (dark ? "#e8ecf2" : "#1c2430")
+        ? gilded("#f2f2f2", "#3a2d1b", "#eef0f6", "#141a2b") : (dark ? "#e8ecf2" : "#1c2430")
     readonly property color textSecondary: eorzea
-        ? (dark ? "#9ed6c8a8" : "#9e40341e") : (dark ? "#a4adbb" : "#5d6675")
+        ? gilded("#a6f2f2f2", "#a83a2d1b", "#97a0b8", "#4f5a75") : (dark ? "#a4adbb" : "#5d6675")
     readonly property color textMuted: eorzea
-        ? (dark ? "#7ad6c8a8" : "#7a40341e") : (dark ? "#7b8494" : "#8a93a1")
+        ? gilded("#78f2f2f2", "#7a3a2d1b", "#6b748c", "#7a849c") : (dark ? "#7b8494" : "#8a93a1")
     readonly property color accent: eorzea
-        ? (dark ? "#cfae62" : "#8a6a1f") : (dark ? "#5b8ff0" : "#2f6bd8")
+        ? gilded("#e3b94a", "#8a6a1f", "#e85018", "#c8420f") : (dark ? "#5b8ff0" : "#2f6bd8")
     // --color-accent-100 (dark: rgba(91,143,240,.18)).
     readonly property color accentMuted: eorzea
-        ? (dark ? "#29cfae62" : "#248a6a1f") : (dark ? "#2e5b8ff0" : "#e8effc")
+        ? gilded("#29e3b94a", "#248a6a1f", "#29e85018", "#1fc8420f") : (dark ? "#2e5b8ff0" : "#e8effc")
     // --color-accent-600: the hover shade of a primary button.
     readonly property color accentStrong: eorzea
-        ? (dark ? "#e9d18f" : "#6f5417") : (dark ? "#7aa4f5" : "#2559b8")
+        ? gilded("#f0cf70", "#6f5417", "#ff7a3d", "#a83408") : (dark ? "#7aa4f5" : "#2559b8")
     readonly property color green: eorzea
-        ? (dark ? "#6fcf7a" : "#3f8f4a") : "#31a24c"
-    readonly property color orange: eorzea ? (dark ? "#e8944a" : "#c2691f") : "#dfa937"
-    readonly property color yellow: eorzea ? (dark ? "#f2d55c" : "#b89a1a") : "#e9b949"
+        ? gilded("#6fcf7a", "#3f8f4a", "#6fbf8a", "#35804e") : "#31a24c"
+    readonly property color orange: eorzea
+        ? gilded("#e8944a", "#c2691f", "#c8a020", "#8f7010") : "#dfa937"
+    readonly property color yellow: eorzea
+        ? gilded("#f2d55c", "#b89a1a", "#c8a45a", "#8a6a24") : "#e9b949"
+    // The archive's --red / --red2 and --blue2 (Egyptian blue).
     readonly property color red: eorzea
-        ? (dark ? "#e0574f" : "#b83a32") : "#d92b2b"
+        ? gilded("#e0574f", "#b83a32", "#e74c3c", "#b8322a") : "#d92b2b"
     readonly property color purple: eorzea
-        ? (dark ? "#b07ad9" : "#7b4fa8") : "#7b5cd6"
-    readonly property color teal: eorzea ? (dark ? "#6fc3d6" : "#2f8ea3") : "#2b8fb8"
-    readonly property color blue: eorzea ? (dark ? "#6ea0e0" : "#3b6fb5") : accent
+        ? gilded("#b07ad9", "#7b4fa8", "#a98bd6", "#7b4fa8") : "#7b5cd6"
+    readonly property color teal: eorzea
+        ? gilded("#6fc3d6", "#2f8ea3", "#1ab8cc", "#0f8d9e") : "#2b8fb8"
+    readonly property color blue: eorzea
+        ? gilded("#6ea0e0", "#3b6fb5", "#5fa8d3", "#2f6f9e") : accent
     // Tinted plates behind a coloured label (workbench.css --color-*-bg / -fg). The
     // eorzea tags are framed instead, so the eorzea values only mirror the palette.
     readonly property color greenBackground: eorzea
@@ -289,19 +407,20 @@ QtObject {
         ? Qt.rgba(red.r, red.g, red.b, 0.18) : (dark ? "#2ed92b2b" : "#fdecec")
     // --color-neutral-100 ... -800 (ff14.css / workbench.css).
     readonly property color neutral100: eorzea
-        ? (dark ? "#1ac9aa6a" : "#1a785c28") : (dark ? "#252d3a" : "#eceff3")
+        ? gilded("#14ffffff", "#144d3d26", "#1497a0b8", "#12263961") : (dark ? "#252d3a" : "#eceff3")
     readonly property color neutral300: eorzea
-        ? (dark ? "#39404d" : "#c9bc9d") : (dark ? "#3a4454" : "#d5dae2")
+        ? gilded("#5a5a5a", "#b9a67c", "#2a3450", "#c9d0de") : (dark ? "#3a4454" : "#d5dae2")
     readonly property color neutral400: eorzea
-        ? (dark ? "#5a6272" : "#a89a7a") : (dark ? "#80556072" : "#b6bdc8")
+        ? gilded("#767676", "#9c885e", "#47526f", "#9aa4ba") : (dark ? "#80556072" : "#b6bdc8")
     readonly property color neutral500: eorzea
-        ? (dark ? "#7c8494" : "#7d7159") : (dark ? "#7b8494" : "#8a93a1")
+        ? gilded("#929292", "#7d6a46", "#6b748c", "#6b7690") : (dark ? "#7b8494" : "#8a93a1")
     readonly property color neutral600: eorzea
-        ? (dark ? "#a2a8b4" : "#5a5040") : (dark ? "#a4adbb" : "#5d6675")
+        ? gilded("#b4b4b4", "#5e4d32", "#97a0b8", "#4f5a75") : (dark ? "#a4adbb" : "#5d6675")
     readonly property color neutral800: eorzea
-        ? (dark ? "#d0d3da" : "#3a3226") : (dark ? "#d5dae2" : "#2b3442")
+        ? gilded("#dcdcdc", "#3a2d1b", "#d5d9e6", "#1f2740") : (dark ? "#d5dae2" : "#2b3442")
     // .dialog-backdrop: rgba(28,36,48,.4) in the classic style.
-    readonly property color blackScrim: eorzea ? "#99050710" : "#661c2430"
+    readonly property color blackScrim: eorzea
+        ? (harendotes ? "#a605070d" : "#99101010") : "#661c2430"
     // A modal dialog's backdrop. Eorzea keeps Qt Basic's own
     // `Color.transparent(control.palette.shadow, 0.5)` (alpha int(255 * .5));
     // classic uses workbench's .dialog-backdrop.
@@ -361,7 +480,7 @@ QtObject {
     // -blue / -neutral).
     function tagBackground(variant) {
         if (eorzea)
-            return dark ? "#2e000000" : "#59ffffff"
+            return gilded("#2e000000", "#59ffffff", "#33000000", "#99ffffff")
         switch (variant) {
         case "blue":
             return accentMuted

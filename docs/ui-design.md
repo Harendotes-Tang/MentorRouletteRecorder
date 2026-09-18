@@ -7,6 +7,9 @@
 下称「原型」，对应「艾欧泽亚 / eorzea」界面风格。原型是唯一的视觉基准。
 本文件只说明实现如何映射到原型，不另行定义布局。
 布局与结构以原型为准；艾欧泽亚风格的**色值**自 1.1.x 起改为对照游戏自身窗口配色（深色 = 暖灰石板配浅字，浅色 = 羊皮纸配深棕字，金色只留给标记、进度环与柱条），见 6.1 节，不再照搬 `ff14.css` 的金边深蓝。
+第三种风格 **Harendotes** 与艾欧泽亚共用布局与圆角，色板取自角色毛色：
+深色「夜色狼身」以海军蓝黑为底、橙焰为主色、古金仅作点缀；浅色「白胸冷光」以纯白为面板、冷调蓝灰为背景，
+顶栏与侧栏同为浅色，底边一条焰→金细线。标题用冷白宋体（Noto Serif SC）而非金色 Cinzel。面板不画金色四角，外框为 1 px 对角渐变：自左上角的橙焰经古金过渡，到右下角完全透明并露出面板自身的分割线色边框（components/PanelDecoration.qml，四条直线渐变加三个圆角弧拼成，不依赖 Canvas 或 Qt Quick Shapes）；侧栏状态面板在此风格下使用同一外框。
 
 **「经典 / classic」界面风格**自 2026-09 改版起为**默认风格**，取值以
 **`DOC/表单提交后设计/workbench.css`** 为准，取代早先的 `apple.css`。
@@ -531,7 +534,7 @@ kicker `padding: 12px 0 4px`；`freeLayout` 面板 `padding: 20px 24px`，间距
   本机已通过环境变量禁用；其中失败一句不区分具体原因，也不出现地址或协议标记。
   新版本的横幅提示本身在总览页（§4.1），设置页不重复呈现。
 * **外观**（`appearanceSettingsCard`）：界面风格（`uiStyleSettingControl`，取值 经典 / 艾欧泽亚，
-  副标题「经典：圆角卡片 · 艾欧泽亚：游戏窗口配色」，绑定 `Settings.uiStyle`；
+  副标题「经典：圆角卡片 · 艾欧泽亚：游戏窗口配色 · Harendotes：夜色与橙焰」，绑定 `Settings.uiStyle`；
   分段控件显示的是**屏幕上实际生效的**风格，`--mock-ui-style` 固定风格时同样如此）、
   主题（深色 / 浅色 / 跟随系统）、UI 缩放（100–175，步长 25，小字「重启后生效」）。
   缩放在 `QApplication` 构造之前注入 `QT_SCALE_FACTOR`，不支持运行时切换。
@@ -986,7 +989,9 @@ MockBackend 回 `{passed: true, detail: "ok", checked_at_utc: 现在}`。
 | 开关 | 取值 | 来源 |
 |---|---|---|
 | `Theme.dark` | 深 / 浅 | `App.dark`（`themeMode` = dark / light / system） |
-| `Theme.eorzea` | 艾欧泽亚 / 经典 | `Settings.uiStyle === "eorzea"`（`--mock-ui-style` 优先） |
+| `Theme.uiStyle` | `classic` / `eorzea` / `harendotes` | `Settings.uiStyle`（`--mock-ui-style` 优先），未知值按 `classic` |
+| `Theme.eorzea` | 镀金系（艾欧泽亚、Harendotes）/ 经典 | `Theme.uiStyle !== "classic"`：布局、字体、圆角、动效按此分支 |
+| `Theme.harendotes` | Harendotes / 其他 | `Theme.uiStyle === "harendotes"`：只影响色板，经 `Theme.gilded()` 选值 |
 
 `Theme.eorzea` 的读取方式**具有防御性**：`Settings` 不存在、`uiStyle` 未定义或为空串时，
 一律按经典风格（默认风格）渲染。因此旧配置文件或旧版 `AppSettings` 缺少该键时，界面仍可正常显示。
@@ -997,6 +1002,30 @@ MockBackend 回 `{passed: true, detail: "ok", checked_at_utc: 现在}`。
 `Theme.eorzea` 的变化并重绘。
 
 ### 6.1 token 映射（`ff14.css` / `workbench.css` → `Theme.qml`）
+
+镀金系的每个颜色 token 写作 `eorzea ? gilded(艾深, 艾浅, H深, H浅) : 经典`，
+`Theme.gilded()` 按 `harendotes` 与 `dark` 取其一。Harendotes 的取值（深 / 浅）：
+
+| 规格名 | Theme 属性 | 深色 | 浅色 |
+|---|---|---|---|
+| 背景 | `contentBackground` | `#0a0d16` | `#e4e8f1` |
+| 面板 / 面板 2 | `surface` / `surfaceRaised` | `#111726` / `#182034` | `#f3f5fa` / `#ffffff` |
+| 主毛 · 状态面板 | `statusPanelBackground` | `#263961` | `#ffffff` |
+| 主文字 / 次文字 | `textPrimary` / `textSecondary` | `#eef0f6` / `#97a0b8` | `#141a2b` / `#4f5a75` |
+| 分割线 | `border` / `gold3` | 蓝灰 22 % | 海军蓝 20 % |
+| 橙焰 · 主色 | `accent` / `gold` | `#e85018` | `#c8420f` |
+| 亮焰（深）/ 深焰（浅）· 悬停、链接 | `accentStrong` / `gold2` | `#ff7a3d` | `#a83408` |
+| 暗焰（深）/ 亮焰（浅）· 边框 | `buttonBorder` | `#9a330c` | `#e85018` |
+| 古金 · 仅点缀 | `oldGold` / `yellow` | `#c8a45a` | `#8a6a24` |
+| 蓝焰 · 强调 | `teal` | `#1ab8cc` | `#0f8d9e` |
+| 埃及青 · 信息 | `blue` | `#5fa8d3` | `#2f6f9e` |
+| 成功 / 黄焰 · 警告 / 危险 | `green` / `orange` / `red` | `#6fbf8a` / `#c8a020` / `#e74c3c` | `#35804e` / `#8f7010` / `#b8322a` |
+
+在 Harendotes 中 `gold` 系即"焰"：原先绑定金色的标记、小标题、导航选中条都随之变为橙焰，真正的古金只经 `oldGold`
+出现在面板外框与标题栏底线的尾段。成就进度环在此风格下沿弧线渐变（components/ProgressRing.qml 的锥形渐变）：12 点方向的起点为黄焰（`ringTail`，深 `#ffd84a` / 浅 `#f7bc1f`），末端为深橙焰（`ringStart`，深 `#e8401a` / 浅 `#c8380f`），两端在色相与明度上都拉开，全程不透明：半透明或低饱和的色段叠在轨道上会发灰；艾欧泽亚仍为对角直线渐变。标题栏经 `titlebarTop/Bottom/Brand/Text/TextSecondary/Mark/Fill` 取色，
+各风格下都与侧栏同底；规格原定的浅色海军蓝顶栏实机观感过重，已改为浅色。「深色 / 浅色」切换按钮在三种风格下
+一律按"对方主题的底色与文字"反色绘制（`inverseBackground` / `inverseText`）；
+导航选中底与开关不再写死金色字面量，改由 `navActiveStart/End`、`switchTrackOn`、`switchKnobTop/Bottom` 给出。
 
 经典一列是 `workbench.css` 的深色 / 浅色取值。
 
@@ -1210,7 +1239,7 @@ build/src/Desktop/MentorRecorder.Desktop.exe --screenshot <png> --page N
     [--mock-wizard-step 1|2|3]
                              # 向导停在第几步（配合 --mock-open-create / --mock-open-edit，默认 1）
     [--mock-detail-tab refl] # 详情浮层默认页签 info / events / revs / refl（会一并打开浮层）
-    [--mock-ui-style classic]# 固定界面风格 eorzea / classic，不改写 desktop.ini
+    [--mock-ui-style classic]# 固定界面风格 classic / eorzea / harendotes，不改写 desktop.ini
     [--settings-tab tts]     # 设置页（--page 6）打开的分页：general / tts / goal / data / about
     [--export-target DIR]    # 用固定目录替代 QFileDialog（测试 / 无人值守）
 

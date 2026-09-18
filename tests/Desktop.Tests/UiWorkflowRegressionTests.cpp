@@ -860,6 +860,8 @@ void UiWorkflowRegressionTests::styleSwitchShowsTheStyleOnScreen_data()
     QTest::newRow("forced-eorzea") << QStringLiteral("eorzea") << QStringLiteral("classic") << QStringLiteral("eorzea");
     QTest::newRow("persisted-classic") << QString() << QStringLiteral("classic") << QStringLiteral("classic");
     QTest::newRow("persisted-eorzea") << QString() << QStringLiteral("eorzea") << QStringLiteral("eorzea");
+    QTest::newRow("forced-harendotes") << QStringLiteral("harendotes") << QStringLiteral("classic") << QStringLiteral("harendotes");
+    QTest::newRow("persisted-harendotes") << QString() << QStringLiteral("harendotes") << QStringLiteral("harendotes");
 }
 
 void UiWorkflowRegressionTests::styleSwitchShowsTheStyleOnScreen()
@@ -886,6 +888,7 @@ import MentorRecorder
 ApplicationWindow {
     width: 1100; height: 720; visible: true
     readonly property bool eorzea: Theme.eorzea
+    readonly property string uiStyle: Theme.uiStyle
     SettingsPage { anchors.fill: parent }
 })", QUrl());
     const std::unique_ptr<QObject> root(component.create());
@@ -894,7 +897,9 @@ ApplicationWindow {
         errors += error.toString() + QLatin1Char('\n');
     QVERIFY2(root, qPrintable(errors));
 
-    QCOMPARE(root->property("eorzea").toBool(), expected == QLatin1String("eorzea"));
+    // Both gilded styles share eorzea's layout; uiStyle names the palette.
+    QCOMPARE(root->property("eorzea").toBool(), expected != QLatin1String("classic"));
+    QCOMPARE(root->property("uiStyle").toString(), expected);
     const QObject *control = root->findChild<QObject *>(QStringLiteral("uiStyleSettingControl"));
     QVERIFY(control);
     QCOMPARE(control->property("currentValue").toString(), expected);

@@ -581,8 +581,8 @@ int main(int argc, char *argv[])
         QStringLiteral("Open the reflection (导随笔记) dialog on the first history row."));
     QCommandLineOption uiStyleOption(
         QStringLiteral("mock-ui-style"),
-        QStringLiteral("Pin the UI style for this run without touching desktop.ini: eorzea or "
-                       "classic. Works with either backend."),
+        QStringLiteral("Pin the UI style for this run without touching desktop.ini: classic, "
+                       "eorzea or harendotes. Works with either backend."),
         QStringLiteral("style"), QString());
     QCommandLineOption settingsTabOption(
         QStringLiteral("settings-tab"),
@@ -918,8 +918,8 @@ int main(int argc, char *argv[])
                                              parser.isSet(disclosureOption));
     const QString uiStyle = parser.value(uiStyleOption);
     if (!uiStyle.isEmpty() && uiStyle != QLatin1String("eorzea")
-        && uiStyle != QLatin1String("classic")) {
-        std::fprintf(stderr, "invalid --mock-ui-style value: %s (expected eorzea or classic)\n",
+        && uiStyle != QLatin1String("classic") && uiStyle != QLatin1String("harendotes")) {
+        std::fprintf(stderr, "invalid --mock-ui-style value: %s (expected classic, eorzea or harendotes)\n",
                      qPrintable(uiStyle));
         return 2;
     }

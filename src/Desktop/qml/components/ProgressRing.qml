@@ -4,7 +4,9 @@ import MentorRecorder
 
 // Achievement progress ring. The Eorzea theme paints a butt-capped arc with the
 // #f0dc9e -> #b08a3a gradient of the prototype's <linearGradient id="ffgold">,
-// plus hairline gold rings at r=76 / r=96.
+// plus hairline gold rings at r=76 / r=96. Harendotes paints the gradient along
+// the arc instead: an amber tail at 12 o'clock running into the flame at the
+// head, every stop opaque so nothing mixes with the track underneath.
 Item {
     id: root
 
@@ -32,6 +34,7 @@ Item {
             target: Theme
             function onDarkChanged() { ring.requestPaint() }
             function onEorzeaChanged() { ring.requestPaint() }
+            function onUiStyleChanged() { ring.requestPaint() }
         }
 
         onPaint: {
@@ -60,7 +63,19 @@ Item {
             }
 
             ctx.lineWidth = 14 * scale
-            if (Theme.eorzea) {
+            if (Theme.harendotes) {
+                // A conical gradient runs counter-clockwise from its start angle
+                // and the arc clockwise from the top, so the arc fraction f sits
+                // at gradient position 1 - f: the tail (f = 0) at 1, the head
+                // (f = shown) at 1 - shown.
+                const head = 1 - root.shown
+                const gradient = ctx.createConicalGradient(cx, cy, Math.PI / 2)
+                gradient.addColorStop(0, Theme.ringStart)
+                gradient.addColorStop(head, Theme.ringStart)
+                gradient.addColorStop(1, Theme.ringTail)
+                ctx.strokeStyle = gradient
+                ctx.lineCap = "butt"
+            } else if (Theme.eorzea) {
                 const gradient = ctx.createLinearGradient(0, 0, width, height)
                 gradient.addColorStop(0, Theme.ringStart)
                 gradient.addColorStop(1, Theme.ringEnd)

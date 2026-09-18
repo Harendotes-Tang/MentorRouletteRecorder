@@ -32,7 +32,7 @@ Item {
         anchors.fill: parent
         radius: Theme.eorzea ? Theme.radiusS : height / 2
         color: Theme.eorzea
-               ? (root.checked ? "#38cfae62" : Theme.insetBackgroundStrong)
+               ? (root.checked ? Theme.switchTrackOn : Theme.insetBackgroundStrong)
                : (root.checked ? Theme.accent : Theme.neutral300)
         border.width: Theme.eorzea ? 1 : 0
         border.color: root.checked ? Theme.gold3 : Theme.border
@@ -64,11 +64,11 @@ Item {
         gradient: Gradient {
             GradientStop {
                 position: 0.0
-                color: Theme.eorzea ? (root.checked ? "#f0dc9e" : "#8f97a6") : "#ffffff"
+                color: Theme.eorzea ? (root.checked ? Theme.switchKnobTop : "#8f97a6") : "#ffffff"
             }
             GradientStop {
                 position: 1.0
-                color: Theme.eorzea ? (root.checked ? "#c9a24a" : "#5a6272") : "#ffffff"
+                color: Theme.eorzea ? (root.checked ? Theme.switchKnobBottom : "#5a6272") : "#ffffff"
             }
         }
 

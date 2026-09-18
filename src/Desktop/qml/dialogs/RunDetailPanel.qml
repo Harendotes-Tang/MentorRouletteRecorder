@@ -192,8 +192,8 @@ Rectangle {
                         visible: Theme.eorzea && tabItem.current
                         gradient: Gradient {
                             orientation: Gradient.Horizontal
-                            GradientStop { position: 0.0; color: "#47cfae62" }
-                            GradientStop { position: 1.0; color: "#0acfae62" }
+                            GradientStop { position: 0.0; color: Theme.navActiveStart }
+                            GradientStop { position: 1.0; color: Theme.navActiveEnd }
                         }
                     }
 

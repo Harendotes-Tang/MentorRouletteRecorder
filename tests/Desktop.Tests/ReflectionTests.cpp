@@ -161,11 +161,18 @@ void ReflectionTests::settings_roundTripReflectPromptAndUiStyle()
         settings.setUiStyle(QStringLiteral("eorzea"));
         QCOMPARE(appearance.count(), 1);
 
-        // Anything outside the two shipped styles keeps the previous value.
+        // Anything outside the three shipped styles keeps the previous value.
         settings.setUiStyle(QStringLiteral("garlean"));
         settings.setUiStyle(QString());
         QCOMPARE(settings.uiStyle(), QStringLiteral("eorzea"));
         QCOMPARE(appearance.count(), 1);
+
+        // The archive palette is the third style and round-trips like eorzea.
+        settings.setUiStyle(QStringLiteral("harendotes"));
+        QCOMPARE(settings.uiStyle(), QStringLiteral("harendotes"));
+        QCOMPARE(appearance.count(), 2);
+        settings.setUiStyle(QStringLiteral("eorzea"));
+        QCOMPARE(appearance.count(), 3);
     }
 
     {

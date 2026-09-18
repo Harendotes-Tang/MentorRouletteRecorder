@@ -85,16 +85,17 @@ Rectangle {
                     color: option.current && !Theme.eorzea ? plate : Theme.clear(plate)
                     Behavior on color { ColorAnimation { duration: Theme.motionMedium } }
                     border.width: option.current ? 1 : 0
-                    border.color: Theme.eorzea ? Theme.gold3 : Theme.border
+                    border.color: Theme.eorzea ? Theme.tabActiveBorder : Theme.border
 
+                    // The game's chosen tab: a dark plate (Theme.tabActive*).
                     Rectangle {
                         anchors.fill: parent
                         anchors.margins: 1
                         radius: Math.max(0, parent.radius - 1)
                         visible: Theme.eorzea && option.current
                         gradient: Gradient {
-                            GradientStop { position: 0.0; color: "#59cfae62" }
-                            GradientStop { position: 1.0; color: "#26cfae62" }
+                            GradientStop { position: 0.0; color: Theme.tabActiveTop }
+                            GradientStop { position: 1.0; color: Theme.tabActiveBottom }
                         }
                     }
                 }
@@ -106,7 +107,7 @@ Rectangle {
                             return Theme.textSecondary
                         if (!Theme.eorzea)
                             return Theme.accent
-                        return Theme.dark ? Theme.gold2 : Theme.accent700
+                        return Theme.tabActiveText
                     }
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter

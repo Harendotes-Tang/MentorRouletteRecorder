@@ -397,8 +397,8 @@ ApplicationWindow {
                 border.width: 0
 
                 gradient: Gradient {
-                    GradientStop { position: 0.0; color: Theme.chromeTop }
-                    GradientStop { position: 1.0; color: Theme.chromeBottom }
+                    GradientStop { position: 0.0; color: Theme.titlebarTop }
+                    GradientStop { position: 1.0; color: Theme.titlebarBottom }
                 }
 
                 Rectangle {
@@ -407,6 +407,22 @@ ApplicationWindow {
                     anchors.bottom: parent.bottom
                     height: 1
                     color: Theme.eorzea ? Theme.gold3 : Theme.border
+                }
+
+                // Harendotes: the flame -> old gold line of its panels, along
+                // the bar's lower edge.
+                Rectangle {
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.bottom: parent.bottom
+                    height: 1
+                    visible: Theme.harendotes
+                    gradient: Gradient {
+                        orientation: Gradient.Horizontal
+                        GradientStop { position: 0.0; color: Theme.accent }
+                        GradientStop { position: 0.45; color: Theme.oldGold }
+                        GradientStop { position: 1.0; color: Theme.clear(Theme.oldGold) }
+                    }
                 }
 
                 // Title-bar behaviour of the frameless window. Sits under the
@@ -440,13 +456,13 @@ ApplicationWindow {
                             rotation: 45
                             color: "transparent"
                             border.width: 1.5
-                            border.color: Theme.gold
+                            border.color: Theme.titlebarMark
 
                             Rectangle {
                                 anchors.centerIn: parent
                                 width: 5
                                 height: 5
-                                color: Theme.gold
+                                color: Theme.titlebarMark
                             }
                         }
                     }
@@ -456,7 +472,7 @@ ApplicationWindow {
 
                         Text {
                             text: qsTr("导随记录器")
-                            color: Theme.eorzea ? Theme.gold2 : Theme.textPrimary
+                            color: Theme.titlebarBrand
                             font.family: Theme.headingFamilyFor(text)
                             font.pixelSize: Theme.fs(12)
                             font.bold: true
@@ -468,7 +484,7 @@ ApplicationWindow {
                         Text {
                             objectName: "titleBarVersion"
                             text: "v" + App.appVersion
-                            color: Theme.textSecondary
+                            color: Theme.titlebarTextSecondary
                             font.pixelSize: Theme.fs(11)
                             font.letterSpacing: 0.3
                         }
@@ -489,7 +505,7 @@ ApplicationWindow {
 
                     Text {
                         text: App.collectorStatusText
-                        color: Theme.textSecondary
+                        color: Theme.titlebarTextSecondary
                         font.pixelSize: Theme.fs(11)
                         elide: Text.ElideRight
                         Layout.maximumWidth: 420
@@ -526,7 +542,7 @@ ApplicationWindow {
                                 height: 28
                                 radius: 6
                                 color: controlArea.containsMouse
-                                       ? (isClose ? "#e81123" : Theme.fill)
+                                       ? (isClose ? "#e81123" : Theme.titlebarFill)
                                        : "transparent"
 
                                 Text {
@@ -535,7 +551,7 @@ ApplicationWindow {
                                           ? "\u2750" : control.modelData.glyph
                                     font.pixelSize: control.isClose ? 13 : 12
                                     color: controlArea.containsMouse && control.isClose
-                                           ? "#ffffff" : Theme.textPrimary
+                                           ? "#ffffff" : Theme.titlebarText
                                 }
 
                                 MouseArea {
@@ -655,7 +671,9 @@ ApplicationWindow {
                             padding: 12
                             spacing: 7
                             flat: true
-                            decorated: false
+                            // Eorzea keeps the plate bare; harendotes frames it
+                            // like its cards (the flame -> gold diagonal frame).
+                            decorated: Theme.harendotes
                             fillColor: Theme.statusPanelBackground
                             borderColor: Theme.statusPanelBorder
                             borderWidth: 1

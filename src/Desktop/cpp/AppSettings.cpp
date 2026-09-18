@@ -233,8 +233,16 @@ void AppSettings::setConfirmPrompt(bool enabled)
 // written by a newer build, keeps the previous value rather than leaving the UI
 // bound to a theme that has no tokens.
 //
-// The default is "classic" (the workbench skin). setUiStyle() never writes the
-// value that is already current, so a stored "eorzea" is always a user's choice.
+// The default is "classic" (the workbench skin); "eorzea" and "harendotes" are
+// the two gilded styles. setUiStyle() never writes the value that is already
+// current, so a stored non-default style is always a user's choice.
+namespace {
+bool isKnownUiStyle(const QString &style)
+{
+    return style == QLatin1String("classic") || style == QLatin1String("eorzea")
+           || style == QLatin1String("harendotes");
+}
+} // namespace
 // ---------------------------------------------------------------------------
 
 QString AppSettings::uiStyle() const
@@ -242,12 +250,12 @@ QString AppSettings::uiStyle() const
     const QString style =
         m_settings.value(QStringLiteral("appearance/uiStyle"), QStringLiteral("classic"))
             .toString();
-    return style == QLatin1String("eorzea") ? style : QStringLiteral("classic");
+    return isKnownUiStyle(style) ? style : QStringLiteral("classic");
 }
 
 void AppSettings::setUiStyle(const QString &style)
 {
-    if (style != QLatin1String("eorzea") && style != QLatin1String("classic"))
+    if (!isKnownUiStyle(style))
         return;
     if (uiStyle() == style)
         return;

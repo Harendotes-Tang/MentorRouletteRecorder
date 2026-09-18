@@ -66,7 +66,7 @@ Button {
         border.color: control.keyboardFocusVisible
                       ? (Theme.dark ? "#ffffff" : Theme.accent700)
                       : (Theme.eorzea
-                         ? (control.primary ? Theme.gold2 : Theme.gold3)
+                         ? (control.primary ? Theme.buttonPrimaryBorder : Theme.buttonBorder)
                          : (control.primary
                             ? (active ? Theme.accentStrong : Theme.accent)
                             : Theme.neutral300))
@@ -103,7 +103,7 @@ Button {
             return active ? Theme.fill : Theme.surface
         }
 
-        // btn-primary: linear-gradient(180deg,#f0dc9e,#c9a24a 55%,#a98330)
+        // btn-primary: the game's dark button plate (Theme.buttonPrimary*).
         Rectangle {
             anchors.fill: parent
             anchors.margins: 1
@@ -159,8 +159,7 @@ Button {
         if (Theme.eorzea)
             return control.primary
                    ? Theme.buttonPrimaryText
-                   : (control.ghost ? Theme.accentStrong
-                                    : (Theme.dark ? Theme.gold2 : Theme.accentStrong))
+                   : (control.ghost ? Theme.accentStrong : Theme.buttonText)
         if (control.primary)
             return "#ffffff"
         return control.ghost ? Theme.accent : Theme.textPrimary

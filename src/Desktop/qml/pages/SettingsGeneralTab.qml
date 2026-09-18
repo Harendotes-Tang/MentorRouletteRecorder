@@ -19,7 +19,7 @@ ColumnLayout {
                                                  ? Settings.confirmPrompt : true
     // The style on screen, not the persisted one: --mock-ui-style pins Theme
     // without touching desktop.ini, and the segment must agree with the skin.
-    readonly property string uiStyleValue: Theme.eorzea ? "eorzea" : "classic"
+    readonly property string uiStyleValue: Theme.uiStyle
 
     // One place decides how an unsupported Collector reads, so a switch that can
     // do nothing never looks like one that can.
@@ -224,14 +224,15 @@ ColumnLayout {
 
         SettingsRow {
             label: qsTr("界面风格")
-            description: qsTr("经典：圆角卡片 · 艾欧泽亚：游戏窗口配色")
+            description: qsTr("经典：圆角卡片 · 艾欧泽亚：游戏窗口配色 · Harendotes：夜色与橙焰")
 
             SegmentedControl {
                 objectName: "uiStyleSettingControl"
-                Layout.preferredWidth: 180
+                Layout.preferredWidth: 280
                 options: [
                     { value: "classic", label: qsTr("经典") },
-                    { value: "eorzea", label: qsTr("艾欧泽亚") }
+                    { value: "eorzea", label: qsTr("艾欧泽亚") },
+                    { value: "harendotes", label: "Harendotes" }
                 ]
                 currentValue: tab.uiStyleValue
                 onActivated: function(value) {
