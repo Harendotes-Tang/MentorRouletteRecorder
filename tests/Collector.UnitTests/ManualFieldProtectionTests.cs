@@ -47,7 +47,8 @@ public sealed class ManualFieldProtectionTests
         Assert.Equal(fixture.Start.AddSeconds(60), fixture.Run.EndedAtUtc);
         Assert.Equal(59_000, fixture.Run.DurationMs);
         Assert.True(fixture.Run.PendingReview);
-        Assert.True(fixture.Run.ManuallyCorrected);
+        // A note was never the software's to record, so writing one corrects nothing (1.3.1).
+        Assert.False(fixture.Run.ManuallyCorrected);
         Assert.Equal(1, fixture.Statistics.GetDashboard().UnfinishedPendingReview);
     }
 

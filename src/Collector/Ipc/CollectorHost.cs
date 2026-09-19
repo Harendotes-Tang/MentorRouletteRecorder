@@ -193,6 +193,16 @@ public sealed class CollectorHost : IDisposable
             var host = new CollectorHost(database, effectiveClock, Guid.NewGuid().ToString("D"));
             host.Settings.EnsureDefaults();
             host.Recovery = CrashRecoveryService.Run(host);
+            try
+            {
+                // Rows flagged under the pre-1.3.1 rule (every CorrectRun, confirmations included).
+                CorrectedFlagMaintenance.Run(database);
+            }
+            catch (Exception ex) when (ex is Microsoft.Data.Sqlite.SqliteException or InvalidOperationException)
+            {
+                // A label is not worth refusing to start over; the next launch tries again.
+                logger?.WriteError("storage", "corrected_flag_maintenance_failed", ex);
+            }
             var services = host.BuildCaptureServices(capture, logger, profileSelector);
             host._logger = services.Logger;
             var dataDirectory = Path.GetDirectoryName(database.Path) ?? DatabasePaths.RootDirectory;

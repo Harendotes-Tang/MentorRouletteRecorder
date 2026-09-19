@@ -58,7 +58,7 @@ Microsoft.Data.Sqlite 仍会自行重试至命令超时（默认 5 秒）为止�
 | `source` | TEXT | NOT NULL, IN (`AUTO_NETWORK`,`MANUAL`,`IMPORT`) | 数据来源 |
 | `contributes_to_goal` | INTEGER | NOT NULL, 0/1, default 1 | 是否计入成就进度 |
 | `manually_created` | INTEGER | NOT NULL, 0/1 | 是否为手工创建 |
-| `manually_corrected` | INTEGER | NOT NULL, 0/1 | 是否被人工更正过（首次 `CorrectRun` 后置 1，且不再回退） |
+| `manually_corrected` | INTEGER | NOT NULL, 0/1 | 是否被人工**更正**过：某次 `CorrectRun` 改动了软件已记下的内容后置 1，且不再回退。仅回答待复核记录的结局（`result` / `pending_review` / `contributes_to_goal`）、补上原本为空的职业或副本、或编辑备注，不算更正（`RunMutationRules.OverrulesTheRecord`）。1.3.1 之前每次 `CorrectRun` 都置 1；旧数据在采集服务启动时按各自的修订链重新判定（`CorrectedFlagMaintenance`，不产生修订、不改 `updated_at_utc`） |
 | `soft_deleted` | INTEGER | NOT NULL, 0/1, default 0 | 软删除标记 |
 | `pending_review` | INTEGER | NOT NULL, 0/1, default 0 | 崩溃恢复标记「待复核」（schema v2 新增） |
 | `note` | TEXT | NULL | 用户手工填写的备注（schema v2 新增） |

@@ -238,11 +238,66 @@ public sealed class MutationTests
 
         var after = fixture.Runs.Get(created.RunId)!;
         Assert.False(after.PendingReview);
-        Assert.True(after.ManuallyCorrected);
+        // Acknowledging a review supplies what the software could not see; it corrects nothing.
+        Assert.False(after.ManuallyCorrected);
         Assert.Equal(RunResult.Unknown, after.Result);
         Assert.Equal(stored.Revision + 1, outcome.Revision);
         var revision = fixture.Revisions.ListForRun(created.RunId, 1, 50).Items[^1];
         Assert.Contains(revision.Changes, change => change.Field == RunFields.PendingReview);
+    }
+
+    /// <summary>
+    /// The player asked why every automatic record was tagged 已修正. The shipping profile cannot
+    /// observe whether a duty was cleared, so every run ends pending review and the player says
+    /// how it went in 本次导随结果 - and that answer was filed as a correction. Supplying the
+    /// outcome the software could not see, or filling a field it left blank, corrects nothing.
+    /// </summary>
+    [Fact]
+    public void CorrectRun_ConfirmingTheOutcomeAndFillingABlankIsNotACorrection()
+    {
+        using var fixture = new Fixture();
+        var created = fixture.CreateRun(RunResult.Unknown);
+        var stored = fixture.Runs.Get(created.RunId)!;
+        fixture.Database.Database.RunInTransaction(tx => fixture.Runs.Update(
+            stored with { PendingReview = true, JobId = null, JobName = "未知", Role = Role.Unknown },
+            stored.Revision, tx));
+
+        fixture.Service.CorrectRun(new CorrectRunCommand(
+            Fixture.NewId(), created.RunId, stored.Revision, "确认通关并补录职业",
+            new RunChangeSet
+            {
+                Specified = new HashSet<string> { RunFields.Result, RunFields.JobId },
+                Result = RunResult.Completed,
+                JobId = 19,
+            }));
+
+        var after = fixture.Runs.Get(created.RunId)!;
+        Assert.Equal(RunResult.Completed, after.Result);
+        Assert.Equal(19, after.JobId);
+        Assert.False(after.PendingReview);
+        Assert.False(after.ManuallyCorrected);
+    }
+
+    /// <summary>Changing something the software DID record is a correction, outcome included.</summary>
+    [Fact]
+    public void CorrectRun_ChangingARecordedValueIsACorrection()
+    {
+        using var fixture = new Fixture();
+        var created = fixture.CreateRun(RunResult.Completed);
+        var stored = fixture.Runs.Get(created.RunId)!;
+
+        // Not pending review: the outcome was settled, so changing it overrules the record.
+        fixture.Service.CorrectRun(new CorrectRunCommand(
+            Fixture.NewId(), created.RunId, stored.Revision, "其实是中途退出",
+            Change(RunFields.Result, b => b.Value = b.Value with { Result = RunResult.LeftOrAbandoned })));
+        Assert.True(fixture.Runs.Get(created.RunId)!.ManuallyCorrected);
+
+        var second = fixture.CreateRun(RunResult.Completed);
+        var other = fixture.Runs.Get(second.RunId)!;
+        fixture.Service.CorrectRun(new CorrectRunCommand(
+            Fixture.NewId(), second.RunId, other.Revision, "职业记错了",
+            Change(RunFields.JobId, b => b.Value = b.Value with { JobId = 21 })));
+        Assert.True(fixture.Runs.Get(second.RunId)!.ManuallyCorrected);
     }
 
     [Fact]

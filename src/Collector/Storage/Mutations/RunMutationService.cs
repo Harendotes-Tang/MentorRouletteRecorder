@@ -189,9 +189,12 @@ public sealed class RunMutationService
                 RunMutationValidation.RequireChanges(RunMutationRules.Diff(before, candidate));
             }
 
+            // Saying how a pending run went, or filling a field the software left blank, corrects
+            // nothing (RunMutationRules.OverrulesTheRecord). The revision is written either way.
             return Commit(
                 before, candidate, ChangeKind.Correct, reason, command.RequestId, fingerprint, tx,
-                markCorrected: true, clearPendingReview: acknowledgesReview);
+                markCorrected: RunMutationRules.OverrulesTheRecord(before, RunMutationRules.Diff(before, candidate)),
+                clearPendingReview: acknowledgesReview);
         });
     }
 

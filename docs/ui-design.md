@@ -174,7 +174,9 @@ IBM Plex Mono 随程序分发，许可为 SIL OFL 1.1。字体文件位于 `src/
   可移除 chip（`removable`，点击时发出 `removed()`）；点击该 chip 即清除 `content_id` 并重新查询。
   下钻仍经由 `App.showHistoryForContent()`，不存在第二套筛选状态。
 * `有心得` chip 打开时，在 `RunFilter` 中加入 `with_reflection: true`。
-* 「标记」列除 已修正 / 已删除 / 手动创建 之外，还会显示 **有心得**（`run.reflection` 非空）。
+* 「标记」列除 已修正 / 已确认 / 已删除 / 手动创建 之外，还会显示 **有心得**（`run.reflection` 非空）。
+  已修正 取自 `run.manually_corrected`（人改过软件记下的内容）；已确认 表示该记录有过修订、已不在待复核，
+  但没有任何一次改动推翻软件的记录——通常是用户在「本次导随结果」里回答了是否通关。
 * **筛选实时生效**，带 300 ms 去抖。先前实现中的「应用筛选」按钮已移除。
 * 日期输入接受 `yyyy-MM-dd`，由 C++ `RunForm.isValidDate()` 校验。
   值非法时输入框文字转为红色，该值不会进入筛选条件，也不会以空值静默查询。

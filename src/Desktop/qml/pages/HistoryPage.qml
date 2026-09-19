@@ -659,7 +659,12 @@ Item {
                             Text {
                                 Layout.preferredWidth: 74
                                 text: [run.pending_review ? qsTr("待复核") : "",
-                                       Number(run.revision || 1) > 1 ? qsTr("已修正") : "",
+                                       // 已修正：人改过软件记下的内容。已确认：人只回答了软件
+                                       // 留待复核的结局，或补上了它没认出的职业、副本。
+                                       run.manually_corrected ? qsTr("已修正")
+                                           : (Number(run.revision || 1) > 1 && !run.pending_review
+                                              && !run.manually_created && !run.soft_deleted
+                                              ? qsTr("已确认") : ""),
                                        run.soft_deleted ? qsTr("已删除") : "",
                                        run.manually_created ? qsTr("手动创建") : "",
                                        run.reflection ? qsTr("有笔记") : ""]

@@ -157,6 +157,52 @@ public static class RunMutationRules
         return changes;
     }
 
+    /// <summary>
+    /// True when a change set overrules something the software had recorded, as opposed to
+    /// supplying what it could not know.
+    ///
+    /// A profile without DUTY_RESULT ends every run pending review, and the player says how it
+    /// went; a build whose job message was not identified leaves the job blank, and the player
+    /// fills it in. Neither corrects anything, and filing both as corrections tagged every
+    /// automatic record 已修正. A change is NOT a correction when it is
+    /// <list type="bullet">
+    /// <item>the outcome (<c>result</c>, <c>pending_review</c>, <c>contributes_to_goal</c>) of a
+    /// run that was pending review - the question was open, and this answers it;</item>
+    /// <item>the duty or the job being filled in where the software had none: the old value was
+    /// null, or the 未知 / UNKNOWN placeholder the job name and role carry meanwhile. Times are
+    /// not on this list - an end time typed into an open run decides when the run ended, and the
+    /// field protection that follows from it is a correction in every sense;</item>
+    /// <item>the note, which was never the software's to begin with.</item>
+    /// </list>
+    /// Everything else - a recorded duty, job, time, or a settled outcome changed - is one.
+    /// </summary>
+    /// <param name="before">The run as stored.</param>
+    /// <param name="changes">The diff the correction produces.</param>
+    public static bool OverrulesTheRecord(MentorRun before, IReadOnlyList<RunFieldChange> changes)
+    {
+        ArgumentNullException.ThrowIfNull(before);
+        return OverrulesTheRecord(before.PendingReview, changes);
+    }
+
+    /// <summary>The same question asked of a stored revision, where only the diff survives.</summary>
+    /// <param name="wasPendingReview">Whether the run was pending review before the change.</param>
+    /// <param name="changes">The diff the correction produced.</param>
+    public static bool OverrulesTheRecord(bool wasPendingReview, IReadOnlyList<RunFieldChange> changes)
+    {
+        ArgumentNullException.ThrowIfNull(changes);
+        return changes.Any(change => change.Field switch
+        {
+            RunFields.ManuallyCorrected or RunFields.Note => false,
+            RunFields.Result or RunFields.PendingReview or RunFields.ContributesToGoal => !wasPendingReview,
+            RunFields.JobId or RunFields.JobName or RunFields.Role or RunFields.ContentId or
+                RunFields.DutyName or RunFields.DutyCategory => !IsBlank(change.OldValue),
+            _ => true,
+        });
+    }
+
+    private static bool IsBlank(object? value) =>
+        value is null || value is "未知" or "UNKNOWN" || (value is string text && text.Length == 0);
+
     /// <summary>Rejects a correction that would change nothing.</summary>
     /// <param name="changes">Difference produced by <see cref="Diff"/>.</param>
     public static IReadOnlyList<RunFieldChange> RequireChanges(IReadOnlyList<RunFieldChange> changes)

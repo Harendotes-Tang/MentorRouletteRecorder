@@ -92,7 +92,8 @@ public sealed class ReviewBusinessRegressionTests
                 Specified = new HashSet<string> { RunFields.Note }, Note = "结局尚未核实",
             }));
 
-        Assert.True(corrected.Run!.ManuallyCorrected);
+        // A note corrects nothing the software recorded (RunMutationRules.OverrulesTheRecord).
+        Assert.False(corrected.Run!.ManuallyCorrected);
         Assert.True(corrected.Run.PendingReview);
         Assert.Equal(30_000L, corrected.Run.DurationMs);
         Assert.Equal(1, new StatisticsRepository(db.Database, settings).GetDashboard().UnfinishedPendingReview);
@@ -125,7 +126,9 @@ public sealed class ReviewBusinessRegressionTests
             NewId(), created.RunId, created.Revision, "明确确认本次结局", changes));
 
         Assert.False(corrected.Run!.PendingReview);
-        Assert.True(corrected.Run.ManuallyCorrected);
+        // Answering an open question is a confirmation, not a correction: the record said
+        // "unknown, please review" and the player reviewed it.
+        Assert.False(corrected.Run.ManuallyCorrected);
         Assert.Equal(created.Revision + 1, corrected.Revision);
         Assert.Equal(0, new StatisticsRepository(db.Database, settings).GetDashboard().UnfinishedPendingReview);
         var revision = new RunRevisionRepository(db.Database).GetAt(created.RunId, corrected.Revision, null)!;
