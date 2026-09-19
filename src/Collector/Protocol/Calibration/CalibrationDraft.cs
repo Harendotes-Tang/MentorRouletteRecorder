@@ -436,7 +436,18 @@ public sealed record CalibrationDraft(
                                      VouchesForJob(exit, opcode, jobDirection, jobLength))
                     .Where(opcode => !clusters.Any(cluster => ContradictsJob(cluster, opcode)))
                     .Where(opcode => clusters.Count(cluster => VouchesForJob(cluster, opcode, jobDirection, jobLength)) * 2 >= clusters.Count)
+                    .OrderBy(opcode => opcode)
                     .ToArray();
+                // Some builds announce the job on two messages at once (CN 2026.09.15: two opcodes,
+                // the same bursts, the same value through four class changes). Candidates that never
+                // read a different job in any burst are one answer, and demanding a single opcode
+                // left every record on such a build 职业未知. The lowest opcode is taken so that
+                // every machine on the build writes the same profile and the same share code.
+                if (jobCandidates.Length > 1 && JobReadingsAgree(clusters, jobCandidates))
+                {
+                    jobCandidates = jobCandidates[..1];
+                }
+
                 if (jobCandidates.Length == 1)
                 {
                     messages.Add(CalibratedShape.Job(template, jobCandidates[0]));
@@ -1017,6 +1028,19 @@ public sealed record CalibrationDraft(
         cluster.Members.ContainsKey(new MessageKey(direction, opcode, length)) &&
         !ContradictsJob(cluster, opcode) &&
         cluster.JobValues.TryGetValue(opcode, out var values) && values.Count > 0;
+
+    /// <summary>
+    /// True when, in every burst, all the candidates that spoke read the same job. A burst one of
+    /// them is absent from says nothing; one where two of them name different jobs means at least
+    /// one is not the job message.
+    /// </summary>
+    /// <param name="clusters">Every burst observed.</param>
+    /// <param name="opcodes">Candidates that each passed the job rule on their own.</param>
+    private static bool JobReadingsAgree(IReadOnlyList<ZoneCluster> clusters, IReadOnlyList<ushort> opcodes) =>
+        clusters.All(cluster => opcodes
+            .SelectMany(opcode => cluster.JobValues.TryGetValue(opcode, out var values) ? values : Array.Empty<long>())
+            .Distinct()
+            .Count() <= 1);
 
     /// <summary>A burst contradicts a job shape when a reading broke the constraints or two readings disagreed.</summary>
     internal static bool ContradictsJob(ZoneCluster cluster, ushort opcode) =>

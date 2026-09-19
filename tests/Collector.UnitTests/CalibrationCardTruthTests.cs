@@ -106,6 +106,43 @@ public sealed class CalibrationCardTruthTests
         Assert.Contains($"0x{CalibrationTrafficCases.Job:x4}=3/3!0 v21", rows!);
     }
 
+    /// <summary>A second 16-byte message in every burst, carrying a job of its own choosing at byte 0.</summary>
+    private static IEnumerable<DecodedMessage> WithATwin(ushort opcode, Func<long, byte> job) =>
+        CalibrationObserverTests.Session1().Concat(new long[] { 5_000, 125_000, 215_000 }.Select(t =>
+            CalibrationObserverTests.Message(MessageDirection.Inbound, opcode, CalibrationObserverTests.Bytes(16, (0, job(t))), t + 470)))
+            .OrderBy(message => message.Mono);
+
+    /// <summary>
+    /// CN 2026.09.15, the player's own machine: job_shapes read "0x0266=12/18!0 v19;25;27;40" and
+    /// "0x0314=12/18!0 v19;25;27;40". Two messages announce the job, in the same bursts, with the
+    /// same value every time, through four class changes - and "exactly one candidate" left every
+    /// record on that build 职业未知. Twins that never disagree are one answer, and the lower
+    /// opcode is taken so every machine on the build writes the same profile and share code.
+    /// </summary>
+    [Fact]
+    public void TwoJobMessagesThatAlwaysAgreeAreOneAnswer()
+    {
+        var lower = (ushort)(CalibrationTrafficCases.Job - 1);
+        var draft = CalibrationDraft.Derive(
+            CalibrationTrafficCases.Observe(WithATwin(lower, _ => 21)), CalibrationObserverTests.Template());
+
+        Assert.Equal(CalibrationDraftStatus.Ready, draft.Status);
+        Assert.True(draft.Progress.JobSeen);
+        Assert.Equal(lower, draft.Messages.Single(message => message.Name == "PLAYER_JOB").Opcode);
+    }
+
+    /// <summary>Two candidates that read different jobs in the same burst are still nobody's answer.</summary>
+    [Fact]
+    public void TwoJobMessagesThatDisagreeAreStillLeftOut()
+    {
+        var draft = CalibrationDraft.Derive(
+            CalibrationTrafficCases.Observe(WithATwin((ushort)(CalibrationTrafficCases.Job - 1), _ => 5)),
+            CalibrationObserverTests.Template());
+
+        Assert.DoesNotContain(draft.Messages, message => message.Name == "PLAYER_JOB");
+        Assert.False(draft.Progress.JobSeen);
+    }
+
     /// <summary>Two duties in one evening, the announcement sent several times per match, as the marker path sees it.</summary>
     private static CalibrationDraft TwoDutyEvening() => CalibrationDraft.Derive(
         CalibrationTrafficCases.Observe(CalibrationTrafficCases.WithoutTheMatch()

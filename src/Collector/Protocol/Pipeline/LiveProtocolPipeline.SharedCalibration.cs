@@ -136,7 +136,12 @@ public sealed partial class LiveProtocolPipeline
 
     private void UseCalibrationRole(bool upgrading, bool retaining)
     {
-        _calibration.UseProvisional(upgrading, upgrading ? _selection.Profile?.ProfileId : null);
+        _calibration.UseProvisional(
+            upgrading,
+            upgrading ? _selection.Profile?.ProfileId : null,
+            // Only a profile this machine wrote can be rewritten by a confirmation here.
+            declaresJob: _selection.Origin != ProfileOrigin.Local ||
+                _selection.Profile?.Message(CalibratedShape.JobName) is not null);
         _calibration.UseRetention(retaining && !upgrading);
     }
 

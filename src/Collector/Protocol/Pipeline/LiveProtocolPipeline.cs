@@ -956,6 +956,18 @@ public sealed partial class LiveProtocolPipeline :
                     bound = true;
                 }
             }
+            else if (_active && _processor is { } recording && _sessionId is { } running &&
+                     string.Equals(_boundProfileId, profile.ProfileId, StringComparison.Ordinal) &&
+                     recording.Machine.State == RunState.Idle)
+            {
+                // The confirmation rewrote the profile this session is already recording with (it
+                // gained a message it lacked). Between runs the parser can simply be rebuilt over
+                // the new file; with a run in flight it waits for the next session instead, because
+                // a fresh machine would drop the run.
+                BindParser(profile, running, JobRemembered(profile) ?? recording.Machine.Memory);
+                _calibrationBoundAt = _clock.UtcNow;
+                bound = true;
+            }
 
             var provisional = draft.MatchSource == CalibrationMatchSource.QueueRequest;
             if (provisional)
@@ -969,6 +981,10 @@ public sealed partial class LiveProtocolPipeline :
             }
 
             _calibration.MarkDone(written.ProfileId, bound ? _calibrationBoundAt : null, provisional);
+            // The role is read off the profile in force, and that profile has just changed: one
+            // that gained the job must stop being offered the job.
+            var (_, upgrading, retaining) = CalibrationRoles();
+            UseCalibrationRole(upgrading, retaining);
             _shared.Sync();
             NotifyCalibrationChanged();
             return new CalibrationConfirmation(written.ProfileId, written.Path, bound);

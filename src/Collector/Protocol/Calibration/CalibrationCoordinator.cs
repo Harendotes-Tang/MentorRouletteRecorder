@@ -121,6 +121,7 @@ public sealed class CalibrationCoordinator
     private DateTimeOffset? _boundAt;
     private string? _localProfileId;
     private string? _provisionalProfileId;
+    private bool _provisionalLacksJob;
     private bool _provisional;
     private bool _retaining;
     private int _generation;
@@ -248,6 +249,7 @@ public sealed class CalibrationCoordinator
         _localProfileId = null;
         _provisional = false;
         _provisionalProfileId = null;
+        _provisionalLacksJob = false;
         _retaining = false;
         _carried = null;
         _declared.Clear();
@@ -333,11 +335,18 @@ public sealed class CalibrationCoordinator
     /// the desktop tells "recording while the search goes on" from "not recording yet"; the id a
     /// confirmation leaves behind is gone after a restart or a discard, and the profile is not.
     /// </param>
-    public void UseProvisional(bool provisional, string? profileId = null)
+    /// <param name="declaresJob">
+    /// Whether that profile declares the job message. One written before the job could be named
+    /// is offered the same inferred match again once it can: the draft then carries something the
+    /// profile lacks, and without the offer every record stays job-less for the life of the build.
+    /// </param>
+    public void UseProvisional(bool provisional, string? profileId = null, bool declaresJob = true)
     {
         _provisionalProfileId = provisional ? profileId : null;
-        if (_provisional != provisional)
+        var lacksJob = provisional && !declaresJob;
+        if (_provisional != provisional || _provisionalLacksJob != lacksJob)
         {
+            _provisionalLacksJob = lacksJob;
             _provisional = provisional;
             _draft = null;
             _draftAtMessage = -1;
@@ -401,7 +410,9 @@ public sealed class CalibrationCoordinator
         {
             _draft = CalibrationDraft.Derive(snapshot, _template, _rejections, _roulettes);
             _draftAtMessage = snapshot.MessagesSeen;
-            _state = StateFor(_draft.Status, _draft.MatchSource, _provisional, _retaining);
+            var bringsJob = _provisionalLacksJob &&
+                _draft.Messages.Any(message => message.Name == CalibratedShape.JobName);
+            _state = StateFor(_draft.Status, _draft.MatchSource, _provisional, _retaining, bringsJob);
         }
 
         return _draft;
@@ -412,9 +423,13 @@ public sealed class CalibrationCoordinator
     /// <param name="source">Where the draft gets the match from.</param>
     /// <param name="provisional">A queue-inferred profile is in force and recording.</param>
     /// <param name="retaining">A shared profile is in force and still being watched.</param>
+    /// <param name="bringsJob">The draft declares the job message and the profile in force does not.</param>
     internal static CalibrationState StateFor(
-        CalibrationDraftStatus status, CalibrationMatchSource source, bool provisional, bool retaining) => status switch
+        CalibrationDraftStatus status, CalibrationMatchSource source, bool provisional, bool retaining,
+        bool bringsJob = false) => status switch
     {
+        CalibrationDraftStatus.Ready when provisional && source == CalibrationMatchSource.QueueRequest && bringsJob
+            => CalibrationState.Ready,
         // A provisional profile is already in force, so re-proposing the same inferred
         // match would ask the player to confirm what they confirmed once already. Only
         // a draft that found the server's own announcement is worth interrupting for.
