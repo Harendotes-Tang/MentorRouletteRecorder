@@ -136,7 +136,7 @@ public sealed partial class LiveProtocolPipeline
 
     private void UseCalibrationRole(bool upgrading, bool retaining)
     {
-        _calibration.UseProvisional(upgrading);
+        _calibration.UseProvisional(upgrading, upgrading ? _selection.Profile?.ProfileId : null);
         _calibration.UseRetention(retaining && !upgrading);
     }
 

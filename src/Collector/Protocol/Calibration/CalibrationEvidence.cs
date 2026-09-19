@@ -357,6 +357,11 @@ public sealed record CalibrationSnapshot(
 /// <param name="ZoneShapes">Per shape at that length, as "0xop:len=marked/bursts+outside".</param>
 /// <param name="ClustersAt">How many seconds ago each zone load started, newest last.</param>
 /// <param name="PairsAt">How many seconds ago each request/echo pair happened, newest last.</param>
+/// <param name="JobShapes">
+/// Per job-shaped opcode, as "0xop=vouching bursts/bursts!contradicting bursts v values": the job rule
+/// wants exactly one opcode the entry and exit bursts vouch for, and without this row a report cannot
+/// tell "none qualifies" from "two tie" from "one was contradicted".
+/// </param>
 public sealed record CalibrationEvidenceSummary(
     int Sessions,
     int MessagesSeen,
@@ -384,7 +389,8 @@ public sealed record CalibrationEvidenceSummary(
     int ZoneOutside = 0,
     IReadOnlyList<string>? ZoneShapes = null,
     IReadOnlyList<long>? ClustersAt = null,
-    IReadOnlyList<long>? PairsAt = null)
+    IReadOnlyList<long>? PairsAt = null,
+    IReadOnlyList<string>? JobShapes = null)
 {
     /// <summary>Whole seconds since this shape last carried a requested roulette id.</summary>
     /// <param name="snapshot">Frozen observations.</param>
@@ -602,6 +608,27 @@ public sealed record CalibrationEvidenceSummary(
             ? 0
             : CalibrationDraft.ZoneShapes(snapshot, territoryLength).Count(key => CalibrationDraft.Behaves(snapshot, key));
         var dutyZones = snapshot.Clusters.Count(cluster => cluster.TerritoryHits.Count > 0);
+        // Every opcode a burst read at the job message's shape. The values are ClassJob ids, the
+        // same number every record already stores; up to four are shown because the row exists to
+        // tell the true job message (the player's job) from a neighbour that carries a small constant.
+        var jobShapes = template.PlayerJob is { ExpectedLength: { } jobLength } jobTemplate
+            ? snapshot.Clusters
+                .SelectMany(cluster => cluster.JobValues.Keys.Concat(cluster.JobViolations.Keys))
+                .Distinct()
+                .Select(opcode => (
+                    Opcode: opcode,
+                    Vouching: snapshot.Clusters.Count(cluster =>
+                        CalibrationDraft.VouchesForJob(cluster, opcode, jobTemplate.Direction, jobLength)),
+                    Contradicting: snapshot.Clusters.Count(cluster => CalibrationDraft.ContradictsJob(cluster, opcode)),
+                    Values: snapshot.Clusters
+                        .SelectMany(cluster => cluster.JobValues.TryGetValue(opcode, out var values) ? values : Array.Empty<long>())
+                        .Distinct().OrderBy(value => value).Take(4).ToArray()))
+                .OrderByDescending(row => row.Vouching).ThenBy(row => row.Contradicting).ThenBy(row => row.Opcode)
+                .Take(8)
+                .Select(row => $"0x{row.Opcode:x4}={row.Vouching}/{snapshot.Clusters.Count}!{row.Contradicting} v" +
+                    string.Join(";", row.Values))
+                .ToArray()
+            : Array.Empty<string>();
         return new CalibrationEvidenceSummary(
             snapshot.SessionCount,
             snapshot.MessagesSeen,
@@ -629,6 +656,7 @@ public sealed record CalibrationEvidenceSummary(
             zoneOutside,
             zoneShapes,
             clustersAt,
-            pairsAt);
+            pairsAt,
+            jobShapes);
     }
 }

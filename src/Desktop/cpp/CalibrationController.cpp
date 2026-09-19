@@ -95,7 +95,8 @@ void CalibrationController::refreshFromCaptureStatus(const QVariantMap &capture)
     // A local profile already written while observation continues is the provisional
     // case; the contract needs no new field to say it, because those two facts cannot
     // both be true of a calibration that finished.
-    const bool provisional = state == QLatin1String("OBSERVING")
+    // WAITING is the same calibration with no capture session under it (the game is closed).
+    const bool provisional = (state == QLatin1String("OBSERVING") || state == QLatin1String("WAITING"))
         && !calibration.value(QStringLiteral("local_profile_id")).toString().isEmpty();
     publish(state, calibration.value(QStringLiteral("game_build")).toString(), blockers,
             progress.isValid() && !progress.isNull() ? progress.toMap() : QVariantMap(), events,

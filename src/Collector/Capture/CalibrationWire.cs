@@ -182,6 +182,7 @@ public static class CalibrationWire
         ["pairs_at"] = Numbers(evidence.PairsAt ?? Array.Empty<long>()),
         ["finder_states"] = Texts(evidence.FinderStates),
         ["zone_once_only"] = Texts(evidence.ZoneOnceOnly),
+        ["job_shapes"] = Texts(evidence.JobShapes ?? Array.Empty<string>()),
         ["diagnostics_overflow"] = evidence.DiagnosticsOverflow,
     };
 

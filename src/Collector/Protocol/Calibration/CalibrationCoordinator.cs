@@ -120,6 +120,7 @@ public sealed class CalibrationCoordinator
     private CalibrationState _state = CalibrationState.Idle;
     private DateTimeOffset? _boundAt;
     private string? _localProfileId;
+    private string? _provisionalProfileId;
     private bool _provisional;
     private bool _retaining;
     private int _generation;
@@ -246,6 +247,7 @@ public sealed class CalibrationCoordinator
         _boundAt = null;
         _localProfileId = null;
         _provisional = false;
+        _provisionalProfileId = null;
         _retaining = false;
         _carried = null;
         _declared.Clear();
@@ -326,8 +328,14 @@ public sealed class CalibrationCoordinator
 
     /// <summary>Says whether the profile in force infers the match from the queue (derived from the profile, not from memory).</summary>
     /// <param name="provisional">True for a queue-inferred local or shared profile.</param>
-    public void UseProvisional(bool provisional)
+    /// <param name="profileId">
+    /// Id of that profile. The status names it for as long as it is in force, because that is how
+    /// the desktop tells "recording while the search goes on" from "not recording yet"; the id a
+    /// confirmation leaves behind is gone after a restart or a discard, and the profile is not.
+    /// </param>
+    public void UseProvisional(bool provisional, string? profileId = null)
     {
+        _provisionalProfileId = provisional ? profileId : null;
         if (_provisional != provisional)
         {
             _provisional = provisional;
@@ -393,23 +401,34 @@ public sealed class CalibrationCoordinator
         {
             _draft = CalibrationDraft.Derive(snapshot, _template, _rejections, _roulettes);
             _draftAtMessage = snapshot.MessagesSeen;
-            _state = _draft.Status switch
-            {
-                // A provisional profile is already in force, so re-proposing the same inferred
-                // match would ask the player to confirm what they confirmed once already. Only
-                // a draft that found the server's own announcement is worth interrupting for.
-                CalibrationDraftStatus.Ready
-                    when _provisional && _draft.MatchSource == CalibrationMatchSource.QueueRequest
-                    => CalibrationState.Observing,
-                CalibrationDraftStatus.Ready when _retaining => CalibrationState.Observing,
-                CalibrationDraftStatus.Ready => CalibrationState.Ready,
-                CalibrationDraftStatus.Blocked => CalibrationState.Blocked,
-                _ => CalibrationState.Observing,
-            };
+            _state = StateFor(_draft.Status, _draft.MatchSource, _provisional, _retaining);
         }
 
         return _draft;
     }
+
+    /// <summary>The state a freshly derived draft puts calibration in.</summary>
+    /// <param name="status">Status of the draft.</param>
+    /// <param name="source">Where the draft gets the match from.</param>
+    /// <param name="provisional">A queue-inferred profile is in force and recording.</param>
+    /// <param name="retaining">A shared profile is in force and still being watched.</param>
+    internal static CalibrationState StateFor(
+        CalibrationDraftStatus status, CalibrationMatchSource source, bool provisional, bool retaining) => status switch
+    {
+        // A provisional profile is already in force, so re-proposing the same inferred
+        // match would ask the player to confirm what they confirmed once already. Only
+        // a draft that found the server's own announcement is worth interrupting for.
+        CalibrationDraftStatus.Ready when provisional && source == CalibrationMatchSource.QueueRequest
+            => CalibrationState.Observing,
+        CalibrationDraftStatus.Ready when retaining => CalibrationState.Observing,
+        CalibrationDraftStatus.Ready => CalibrationState.Ready,
+        // BLOCKED reads "本机校准无法继续，当前不会生成记录" on the card. With a profile in force
+        // and recording, a search underneath it that got stuck is a missed upgrade, not a
+        // failure to record, and the card must not say otherwise.
+        CalibrationDraftStatus.Blocked when provisional || retaining => CalibrationState.Observing,
+        CalibrationDraftStatus.Blocked => CalibrationState.Blocked,
+        _ => CalibrationState.Observing,
+    };
 
     /// <summary>What the capture page shows.</summary>
     public CalibrationStatusSnapshot Snapshot()
@@ -429,12 +448,24 @@ public sealed class CalibrationCoordinator
             // The player is recording already; what is left is an upgrade, so the card must not
             // read like a failure. The line replaces the draft's own blockers rather than
             // joining them: those describe a calibration that has not started working yet.
-            blockers = new[]
-            {
-                "已经可以正常记录导随了：目前按「你申请了哪个随机任务 + 你进了哪个副本」判定。" +
-                "软件还在后台找这一版真正的「匹配成功」报文，找到后会请你再核对一次，之后判定会更准。" +
-                "想帮忙的话，打两把不同的随机任务就够了。",
-            };
+            //
+            // Unless that upgrade is stuck. A blocked draft never unblocks by itself - an overflowed
+            // table stays overflowed, and the evidence is carried from run to run - so telling the
+            // player that two more roulettes will do it is a promise the software cannot keep.
+            blockers = draft?.Status == CalibrationDraftStatus.Blocked
+                ? new[]
+                {
+                    "已经可以正常记录导随了：目前按「你申请了哪个随机任务 + 你进了哪个副本」判定，记录不受下面这件事影响。组队排本时只有队长的电脑发出申请，所以你不是队长的那几把，这种判定方式记不到。",
+                    "软件在后台找这一版真正的「匹配成功」报文，但这次积累的观察已经用不上了（多半是抓包从游戏中途开始，" +
+                    "或者周围报文太多把记录表挤满了），继续打本也不会有进展。想让它重新找：先开着本软件，" +
+                    "再启动游戏并登录，然后点下面的「清空进度并重新观察」，之后打两把不同的随机任务。",
+                }
+                : new[]
+                {
+                    "已经可以正常记录导随了：目前按「你申请了哪个随机任务 + 你进了哪个副本」判定。" +
+                    "软件还在后台找这一版真正的「匹配成功」报文，找到后会请你再核对一次，之后判定会更准。" +
+                    "想帮忙的话，打两把不同的随机任务就够了（要自己点申请：组队排本时只有队长的电脑发出申请，所以你不是队长的那几把，这种判定方式记不到，也帮不上校准）。",
+                };
         }
         else if (_retaining)
         {
@@ -453,7 +484,7 @@ public sealed class CalibrationCoordinator
             blockers,
             draft?.Events ?? Array.Empty<CalibrationEvent>(),
             _boundAt,
-            _localProfileId,
+            _localProfileId ?? _provisionalProfileId,
             observations is not null && _template is not null
                 ? CalibrationEvidenceSummary.From(observations, _template)
                 : null,

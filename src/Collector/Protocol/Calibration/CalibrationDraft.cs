@@ -696,6 +696,36 @@ public sealed record CalibrationDraft(
         return total - agreed >= MinDisagreements;
     }
 
+    /// <summary>How close two sightings of one roulette must be to read as one popup on the timeline.</summary>
+    internal static readonly TimeSpan PopRunGap = TimeSpan.FromSeconds(60);
+
+    /// <summary>Groups time-ordered pops into runs: the same roulette, each within <see cref="PopRunGap"/> of the last.</summary>
+    /// <param name="ordered">Pops in time order.</param>
+    private static IEnumerable<IReadOnlyList<PopHit>> PopRuns(IEnumerable<PopHit> ordered)
+    {
+        List<PopHit>? run = null;
+        foreach (var pop in ordered)
+        {
+            if (run is not null && run[^1].RouletteId == pop.RouletteId && pop.AtUtc - run[^1].AtUtc <= PopRunGap)
+            {
+                run.Add(pop);
+                continue;
+            }
+
+            if (run is not null)
+            {
+                yield return run;
+            }
+
+            run = new List<PopHit> { pop };
+        }
+
+        if (run is not null)
+        {
+            yield return run;
+        }
+    }
+
     /// <summary>Sightings that must disagree before <see cref="Disagrees"/> refuses a shape.</summary>
     internal const int MinDisagreements = 2;
 
@@ -1174,11 +1204,18 @@ public sealed record CalibrationDraft(
         // When the match is inferred from the queue, the samples ARE the requests already
         // listed above. Printing them again as "匹配弹窗" would put two lines on the same
         // millisecond and claim the software saw a popup it never identified.
-        foreach (var pop in source == CalibrationMatchSource.QueueRequest ? Array.Empty<PopHit>() : genuinePops)
+        //
+        // Some builds send the announcement several times for one match (four times for one
+        // alliance-raid match on the CN 2026.09.15 client). That is one popup on the player's
+        // screen and one thing to confirm, so a run of the same roulette is one line.
+        var shown = source == CalibrationMatchSource.QueueRequest ? Array.Empty<PopHit>() : genuinePops;
+        foreach (var run in PopRuns(shown.OrderBy(pop => pop.AtUtc)))
         {
+            var pop = run[0];
             events.Add(new CalibrationEvent(
                 Id("pop", pop.AtUtc), "pop", pop.TMs, pop.AtUtc,
-                "匹配弹窗：" + roulettes.DisplayName((int)Math.Min(pop.RouletteId, int.MaxValue), region),
+                "匹配弹窗：" + roulettes.DisplayName((int)Math.Min(pop.RouletteId, int.MaxValue), region) +
+                (run.Count > 1 ? $"（这条报文连发了 {run.Count} 次）" : string.Empty),
                 pop.RouletteId, null, null, true));
         }
 
@@ -1218,6 +1255,16 @@ public sealed record CalibrationDraft(
             {
                 kind = "login";
                 label = "登录进入游戏";
+            }
+            else if (cluster.TerritoryHits.FirstOrDefault(hit => territoryOpcode is null || hit.Opcode == territoryOpcode)
+                     is { DutyName: not null } other)
+            {
+                // Only the entry the draft rests on is asked about, but every duty of the evening
+                // was recognised the same way, and a bare "换区" reads as "the name is missing".
+                kind = "zone";
+                label = "换区：进入了 " + other.DutyName;
+                territoryId = other.TerritoryId;
+                dutyName = other.DutyName;
             }
             else
             {

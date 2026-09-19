@@ -810,6 +810,26 @@ ApplicationWindow {
         QCOMPARE(backend.count("DiscardCalibration"), 0);
     }
 
+    void aRecordingProfileReadsAsProvisionalWhileTheGameIsClosed()
+    {
+        // Real machine, 1.2.1: after 清空进度并重新观察 with the game closed the card said
+        // "正在重新校准…期间不会生成记录" above a line saying recording works. WAITING is the
+        // same calibration with no capture session under it; a named profile is still in force.
+        CalibrationBackend backend;
+        QJsonObject calibration = observingCalibration();
+        calibration.insert(QStringLiteral("state"), QStringLiteral("WAITING"));
+        calibration.insert(QStringLiteral("local_profile_id"), QStringLiteral("cn.2026.09.15.0000.0000.local"));
+        backend.capture.insert(QStringLiteral("calibration"), calibration);
+        mr::AppController app(&backend, nullptr);
+        QTRY_COMPARE(app.calibration()->state(), QStringLiteral("WAITING"));
+        QVERIFY(app.calibration()->provisional());
+
+        calibration.remove(QStringLiteral("local_profile_id"));
+        backend.capture.insert(QStringLiteral("calibration"), calibration);
+        app.refreshStatus();
+        QTRY_VERIFY(!app.calibration()->provisional());
+    }
+
     void aPopShapeStaysUnconfirmedUntilDutyEntryAndWrapsAtNarrowWidth()
     {
         // A shape match is only diagnostic evidence. Until a duty entry supports
