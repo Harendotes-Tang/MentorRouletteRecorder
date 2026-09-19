@@ -46,7 +46,7 @@
     <!-- Project-wide identity. -->
     <Company>MentorRecorder</Company>
     <Product>FF14 导随记录器 / FF14 Mentor Roulette Recorder</Product>
-    <Version>1.3.0</Version>
+    <Version>1.3.1</Version>
     <AssemblyVersion>$(Version).0</AssemblyVersion>
     <FileVersion>$(Version).0</FileVersion>
     <NeutralLanguage>zh-Hans</NeutralLanguage>
