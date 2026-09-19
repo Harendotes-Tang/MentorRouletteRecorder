@@ -28,11 +28,19 @@ internal static class CalibrationTrafficCases
     internal const string MarkerOffset = "marker-offset";
     internal const string QueueRequest = "queue-request";
     internal const string QueueRequestNoJob = "queue-request-no-job";
+    internal const string QueueRequestAnnounced = "queue-request-announced";
 
     internal static readonly string[] All =
     {
         ReplyState, ReplyStateMinimal, Announcement, MarkerOffset, QueueRequest, QueueRequestNoJob,
+        QueueRequestAnnounced,
     };
+
+    private const int DutyTerritory = 1039;
+    private const int TownTerritory = 5000;
+
+    /// <summary>Payload length of the timed announcement; it carries nothing readable at all.</summary>
+    internal const int AnnouncedLength = 12;
 
     /// <summary>The traffic of one case, in arrival order.</summary>
     /// <param name="name">Case name.</param>
@@ -52,6 +60,11 @@ internal static class CalibrationTrafficCases
         }),
         QueueRequest => WithoutTheMatch().Concat(SecondQueue()),
         QueueRequestNoJob => WithoutExitJob(WithoutTheMatch()).Concat(SecondQueue()),
+        QueueRequestAnnounced => WithoutTheMatch()
+            .Concat(SecondQueue())
+            .Concat(CalibrationObserverTests.Cluster(365_000, DutyTerritory))
+            .Concat(CalibrationObserverTests.Cluster(455_000, TownTerritory))
+            .Concat(TimedAnnouncements()),
         _ => throw new ArgumentOutOfRangeException(nameof(name), name, "unknown traffic case"),
     }).OrderBy(message => message.Mono).ToArray();
 
@@ -71,6 +84,10 @@ internal static class CalibrationTrafficCases
     {
         ReplyStateMinimal => new[] { "CONTENT_FINDER_POP", "ZONE_INITIALIZATION" },
         QueueRequestNoJob => new[] { "CONTENT_FINDER_POP", "ZONE_INITIALIZATION", "ZONE_TERRITORY" },
+        QueueRequestAnnounced => new[]
+        {
+            "CONTENT_FINDER_POP", "MATCH_ANNOUNCED", "ZONE_INITIALIZATION", "ZONE_TERRITORY", "PLAYER_JOB",
+        },
         _ => new[] { "CONTENT_FINDER_POP", "ZONE_INITIALIZATION", "ZONE_TERRITORY", "PLAYER_JOB" },
     };
 
@@ -117,6 +134,20 @@ internal static class CalibrationTrafficCases
     private static IEnumerable<DecodedMessage> WithoutExitJob(IEnumerable<DecodedMessage> traffic) =>
         traffic.Where(message => !(message.Opcode == Job &&
             message.Mono >= TimeSpan.FromMilliseconds(215_000) && message.Mono < TimeSpan.FromMilliseconds(216_000)));
+
+    /// <summary>
+    /// The server announcing each of the two matches, three times over as the CN 2026.09.15
+    /// client does. The payload says nothing: twelve zero bytes, no roulette id anywhere in it,
+    /// which is exactly why no search by value can find this message.
+    /// </summary>
+    private static IEnumerable<DecodedMessage> TimedAnnouncements()
+    {
+        foreach (var at in new long[] { 118_000, 118_100, 118_200, 358_000, 358_100, 358_200 })
+        {
+            yield return CalibrationObserverTests.Message(
+                MessageDirection.Inbound, Announce, new byte[AnnouncedLength], at);
+        }
+    }
 
     /// <summary>
     /// A second territory-shaped message in every burst, carrying the same territory as the real

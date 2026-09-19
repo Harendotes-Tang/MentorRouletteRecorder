@@ -98,8 +98,8 @@ internal sealed class SharedCalibrationTestBed : IDisposable
         return services.WithSharedCalibration(client.FetchAsync, Store);
     }
 
-    public LiveProtocolPipeline Pipeline(CalibrationServices services) =>
-        new(Db.Database, Db.Clock, new LiveEventBus(Db.Clock), DiskSelect(), null, services);
+    public LiveProtocolPipeline Pipeline(CalibrationServices services, LiveEventBus? bus = null) =>
+        new(Db.Database, Db.Clock, bus ?? new LiveEventBus(Db.Clock), DiskSelect(), null, services);
 
     public static Task Idle(LiveProtocolPipeline pipeline) =>
         pipeline.WhenSharedCalibrationIdleAsync().WaitAsync(TimeSpan.FromSeconds(30));

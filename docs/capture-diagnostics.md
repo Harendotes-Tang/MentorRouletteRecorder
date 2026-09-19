@@ -211,7 +211,7 @@ Machina 的 WinPCap 监视器按**本地 IP** 选择设备，因此采集服务�
 | `message_rate_per_second` | 平滑后的报文速率 | 与游戏活跃度相关 |
 | `uptime_ms` | 本次抓包已运行时长，未抓包时为进程运行时长 | 单调增长 |
 | `last_valid_event_at_utc` | 解析器最近一次产出语义事件的时间 | 近期 |
-| `last_valid_event_kind` | 同一条事件的语义类型（`CONTENT_FINDER_POP` / `ZONE_INITIALIZATION` / `ZONE_TERRITORY` / `DUTY_RESULT` / `PLAYER_JOB` / `ZONE_LEFT` / `INSTANCE_LEFT` / `MATCH_CANCELLED`），与时间戳同时设置，界面显示为"21:38:04 副本结算" | 与上一行同时出现 |
+| `last_valid_event_kind` | 同一条事件的语义类型（`CONTENT_FINDER_POP` / `ZONE_INITIALIZATION` / `ZONE_TERRITORY` / `DUTY_RESULT` / `PLAYER_JOB` / `ZONE_LEFT` / `INSTANCE_LEFT` / `MATCH_CANCELLED` / `MATCH_ANNOUNCED`），与时间戳同时设置，界面显示为"21:38:04 副本结算" | 与上一行同时出现 |
 | `recent_parser_errors` | 最近的解析拒绝（≤ 20 条，见 §5.3） | 空数组 |
 
 > **`packets_observed` 与 `raw_packets_observed` 的含义不同。**
@@ -588,6 +588,8 @@ Top 40 opcode。两者之间可能夹有用户输入的标记行（`marker` / `t
 | `zone_candidates` / `territory_candidates` | 模板所声明的两个长度上剩余的候选数量 |
 | `zone_shapes` | 换区报文所在长度上每个形状的表现，格式为 `0x报文:长度=恰好出现一次的簇数/总簇数+簇外出现次数`。真正的换区标记表现为前一项数值大、后一项数值小。`zone_candidates` 为 0 时，本行是唯一能说明原因的字段 |
 | `job_shapes` | 职业报文形状（模板声明的方向与长度）上每个 opcode 的表现，格式为 `0x报文=佐证的换区簇数/总簇数!与之矛盾的簇数 v读到的职业编号`（最多列 4 个取值）。判据要求进本簇与出本簇都佐证、至少半数簇佐证、没有任何簇矛盾，且满足条件的 opcode **恰好一个**。`progress.job_seen` 为 false 时，本行说明原因：没有一行满足条件、两行并列，或唯一的一行被某个簇否决（取值越界，或同一簇内取值不一致）。取值为 ClassJob 编号，与记录中保存的职业编号相同 |
+| `timed_candidates` | 按**出现时机**判断的候选，每个未出局的形状一行，格式为 `0x报文:长度=排本期间出现次数+进本之前出现次数/总次数!离群次数 e先于几次进本/进本总数 lead最小提前量秒`。国服 2026.09.15 客户端的匹配通知在任何字节位置都不带轮盘编号，`markers` 与 `match_echoes` 都指不出它，只能看它何时出现：真正的匹配通知只在排本期间出现（离群为 0），先于每一次自己排本后的进本，提前量是玩家确认与读条的那几秒到十几秒；伴随加载的报文提前量接近 0。判据要求至少 2 次进本、至少 2 个不同轮盘，并列时取最小提前量最大者（见 [protocol-profile-format.md](protocol-profile-format.md) §11.5） |
+| `timing_overflow` | 上述表格溢出过多少次。与 `marker_overflow` 不同，该值不为 0 时**不会给出任何按时机认定的候选**：判据的说法是「每次进本之前它都出现过」，而没能入表的形状既不能佐证也不能否定这句话 |
 | `zone_outside` | 换区报文所在长度上，**既出现在换区簇内、又在簇外出现过**的形状数量。`zone_candidates` 为 0 时应先查看本项。该值不为 0 表示形状仍然存在，只是本次抓包遗漏了报文：某次换区未被识别为簇，簇内的标记即被记为在簇外出现，而一次簇外出现即永久取消候选资格。此时应重新登录游戏并点击「重新观察」，无需等待新版本软件。两项同时为 0 才表示长度确实发生了变化 |
 | `outside_keys` / `overflow` | 前者为在换区簇之外出现过的形状数；后者非零表示有界表曾经溢出，证据已不完整，只能重新观察 |
 

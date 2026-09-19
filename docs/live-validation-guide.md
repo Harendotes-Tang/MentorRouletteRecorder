@@ -275,7 +275,7 @@ trace 文件本身已脱敏，但**不应提交到 issue**：
 - `duty_name` 与实际副本一致；`content_id` 仅在报文确实携带该字段时非空，
   仅按区域识别出的记录 `content_id` 为空、`territory_id` 非空
   （本机数据库中 `duty_source = 'TERRITORY'`，见 [data-model.md](data-model.md) §1.4）；
-- 终态不在“当前记录”中查看：收尾之后状态机立即回到空闲（[state-machine.md](state-machine.md) §3.12），
+- 终态不在“当前记录”中查看：收尾之后状态机立即回到空闲（[state-machine.md](state-machine.md) §3.13），
   应查看记录列表或监听 `run_finished`；
 - 场景 6 的记录**不得**被自动判定为 `COMPLETED`；
 - 场景 2 的记录**不计入** `attempt_count`（见 [statistics-definitions.md](statistics-definitions.md)）。

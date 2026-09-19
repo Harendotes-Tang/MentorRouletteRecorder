@@ -257,6 +257,71 @@ public sealed class CalibrationEvidenceStoreTests : IDisposable
         CalibrationEvidenceStore.Delete(_root, Region.Cn, Build); // Twice is not an error.
     }
 
+    /// <summary>
+    /// The timing tables are the slowest evidence of all to collect - they need two duties on two
+    /// different roulettes - so losing them to a restart would cost the player the whole evening
+    /// twice over. A sighting still waiting for a duty to explain it keeps waiting: the software
+    /// stopping is not the window running out.
+    /// </summary>
+    [Fact]
+    public void TheTimingTablesSurviveARestart()
+    {
+        var template = CalibrationObserverTests.Template();
+        var before = Observe(CalibrationTrafficCases.Traffic(CalibrationTrafficCases.QueueRequestAnnounced));
+        var announced = before.TimedShapes.Single(shape => shape.Opcode == CalibrationTrafficCases.Announce);
+        Assert.True(announced.InQueue > 0);
+
+        Assert.True(CalibrationEvidenceStore.Save(_root, Region.Cn, Build, TemplateSha, before));
+        var carried = CalibrationEvidenceStore.Load(_root, Region.Cn, Build, TemplateSha);
+
+        Assert.NotNull(carried);
+        var restored = new CalibrationObserver(template, Region.Cn, "session-two");
+        restored.AdoptEvidence(carried!);
+        var after = restored.Snapshot();
+
+        Assert.Equal(before.TimedShapes.Count, after.TimedShapes.Count);
+        Assert.Equal(before.TimedDead.Count, after.TimedDead.Count);
+        Assert.Equal(before.TimingOverflow, after.TimingOverflow);
+        var carriedShape = after.TimedShapes.Single(shape => shape.Opcode == CalibrationTrafficCases.Announce);
+        Assert.Equal(
+            (announced.Length, announced.Total, announced.InQueue, announced.PreDuty, announced.Stray,
+                announced.SightingsComplete),
+            (carriedShape.Length, carriedShape.Total, carriedShape.InQueue, carriedShape.PreDuty,
+                carriedShape.Stray, carriedShape.SightingsComplete));
+        Assert.Equal(
+            announced.Sightings.Select(sighting => (sighting.AtUtc, sighting.TMs, sighting.ConnectionTag)),
+            carriedShape.Sightings.Select(sighting => (sighting.AtUtc, sighting.TMs, sighting.ConnectionTag)));
+
+        // The invariant that matters: the same message comes out the other side.
+        Assert.Equal(
+            CalibrationDraft.Derive(before, template).TimedAnnouncement?.Shape,
+            CalibrationDraft.Derive(after, template).TimedAnnouncement?.Shape);
+    }
+
+    /// <summary>
+    /// A file written by a version that had no timing tables still loads. Players upgrade in the
+    /// middle of a build's life, and refusing their evidence would send them back to the start.
+    /// </summary>
+    [Fact]
+    public void AFileWrittenBeforeTheTimingTablesExistedStillLoads()
+    {
+        CalibrationEvidenceStore.Save(
+            _root, Region.Cn, Build, TemplateSha, Observe(CalibrationObserverTests.Session1()));
+        var path = Path.Combine(_root, CalibrationEvidenceStore.FileNameFor(Region.Cn, Build));
+        var document = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(path))!.AsObject();
+        document.Remove("timed_shapes");
+        document.Remove("timed_dead");
+        document.Remove("timing_overflow");
+        File.WriteAllText(path, document.ToJsonString());
+
+        var carried = CalibrationEvidenceStore.Load(_root, Region.Cn, Build, TemplateSha);
+
+        Assert.NotNull(carried);
+        Assert.Empty(carried!.TimedShapes);
+        Assert.Empty(carried.TimedDead);
+        Assert.Equal(0, carried.TimingOverflow);
+    }
+
     [Fact]
     public void NoPayloadEverReachesTheFile()
     {

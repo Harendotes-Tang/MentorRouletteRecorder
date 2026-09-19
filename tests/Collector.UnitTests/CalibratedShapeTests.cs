@@ -42,7 +42,12 @@ public sealed class CalibratedShapeTests
         Assert.Equal(CalibrationTrafficCases.Source(name), values!.MatchSource);
         var rebuilt = CalibratedShape.Messages(template, values);
         Assert.Null(rebuilt.Error);
-        Assert.Equal(Json(draft.Messages), Json(rebuilt.Messages));
+        // Apart from the announcement, which a share code deliberately does not carry: the
+        // opcode is named by this machine's timing evidence, which does not travel with the
+        // code, so a profile holding one shares as the plain queue-request profile underneath.
+        Assert.Equal(
+            Json(draft.Messages.Where(message => message.Name != "MATCH_ANNOUNCED").ToArray()),
+            Json(rebuilt.Messages));
         Assert.True(CalibratedShape.IsComplete(values.MatchSource, rebuilt.Messages));
     }
 

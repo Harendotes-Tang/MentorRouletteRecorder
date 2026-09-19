@@ -140,8 +140,11 @@ public sealed partial class LiveProtocolPipeline
             upgrading,
             upgrading ? _selection.Profile?.ProfileId : null,
             // Only a profile this machine wrote can be rewritten by a confirmation here.
-            declaresJob: _selection.Origin != ProfileOrigin.Local ||
-                _selection.Profile?.Message(CalibratedShape.JobName) is not null);
+            lacking: _selection.Origin != ProfileOrigin.Local || _selection.Profile is not { } profile
+                ? null
+                : CalibrationCoordinator.Upgradable
+                    .Where(name => profile.Message(name) is null)
+                    .ToHashSet(StringComparer.Ordinal));
         _calibration.UseRetention(retaining && !upgrading);
     }
 

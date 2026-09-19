@@ -1,5 +1,13 @@
 # IPC 契约变更记录 / IPC contract changelog
 
+## 2026-09-19 — 「匹配成功」报文：`CaptureStatus.last_valid_event_kind` 新增 `MATCH_ANNOUNCED`（附加）
+
+docs/plans/timed-announcement.md。全部为附加式变更：只向一个已有的枚举里加了一个取值，旧桌面端按该字段原本的约定将不认识的令牌当作「某个事件」处理，只显示时间。**不新增消息类型**，`$defs/MessageType` 仍为 49 个业务消息 + `Event` + `Error`。
+
+- **`CaptureStatus.last_valid_event_kind`** 新增取值 `MATCH_ANNOUNCED`：国服 2026.09.15 客户端的匹配通知在任何字节位置都不带轮盘编号，只能按出现时机认出；档案里记为可选消息 `MATCH_ANNOUNCED`，解析器产生同名语义事件。该报文只提供「匹配成功」的时刻，所排的轮盘仍由玩家自己发出的排本申请确定。
+- 行为变化（不在字段上）：按排本申请推断匹配的档案，若另带有 `MATCH_ANNOUNCED`，则由它开启的那一次 `MENTOR_MATCHED` 状态事件发 `match_from_queue = false`（字段早已存在），桌面端现有逻辑据此播报「匹配成功」；其余状态仍为 `true`。
+- 脱敏诊断报告（不属于 IPC 契约，同步记在这里）：`calibration.evidence` 新增 `timed_candidates[]` 与 `timing_overflow`，只含 opcode、长度、计数与秒数。报告版本仍为 2（只增不删）。
+
 ## 2026-09-18 — 更新检查：`CheckUpdateNow`（一条新消息）与启动时检查
 
 docs/privacy-boundary.md §8.4 的两处放宽：用户可以手动检查一次；每次进程启动检查一次。

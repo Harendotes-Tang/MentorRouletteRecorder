@@ -55,7 +55,7 @@ public sealed class ProfileMessageParser : IDecodedMessageSink, IParserStats
     public static IReadOnlyList<string> EventKinds { get; } = Array.AsReadOnly(new[]
     {
         "CONTENT_FINDER_POP", "ZONE_INITIALIZATION", "ZONE_TERRITORY", "DUTY_RESULT",
-        "PLAYER_JOB", "ZONE_LEFT", "INSTANCE_LEFT", "MATCH_CANCELLED",
+        "PLAYER_JOB", "ZONE_LEFT", "INSTANCE_LEFT", "MATCH_CANCELLED", "MATCH_ANNOUNCED",
     });
 
     /// <summary>Creates a parser bound to one profile.</summary>
@@ -391,6 +391,11 @@ public sealed class ProfileMessageParser : IDecodedMessageSink, IParserStats
 
             case "MATCH_CANCELLED":
                 return new MatchCancelled { Key = key, ObservedAtUtc = observed, Mono = mono };
+
+            // No field to read: the build this message exists for carries no roulette id in it
+            // at all, and the message arriving is the whole observation.
+            case "MATCH_ANNOUNCED":
+                return new MatchAnnounced { Key = key, ObservedAtUtc = observed, Mono = mono };
 
             default:
                 return null;

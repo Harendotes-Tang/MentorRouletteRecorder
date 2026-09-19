@@ -280,7 +280,9 @@ Npcap 未安装或不可用；游戏未运行（「等待游戏启动 · 档案�
 `last_valid_event_kind` 的取值含义如下：`CONTENT_FINDER_POP` 匹配成功、
 `ZONE_INITIALIZATION` 进入区域（每次换区都会出现，不限于进入副本）、`ZONE_TERRITORY` 识别所在区域、
 `DUTY_RESULT` 副本结算、`PLAYER_JOB` 识别职业、`ZONE_LEFT` 离开副本区域、`INSTANCE_LEFT` 退出副本、
-`MATCH_CANCELLED` 匹配取消。
+`MATCH_CANCELLED` 匹配取消。契约另有 `MATCH_ANNOUNCED`（按出现时机认出的匹配通知，
+见 [protocol-profile-format.md](protocol-profile-format.md) §11.5）：桌面端不为它准备文案，
+按上面的约定只显示时间。
 
 **采集服务未发送的计数一律渲染为 `—`**。`AppController::captureCounters` 只复制实际到达的键，
 `last_valid_event_kind` 同样如此，因此界面上的 `0` 必定是实测得到的 0。

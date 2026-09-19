@@ -150,6 +150,21 @@ public sealed record EventSequenceGap : SemanticEvent
     public override string EventType => "EVENT_SEQUENCE_GAP";
 }
 
+/// <summary>
+/// The server announced that a match was found, on a build where that message carries nothing
+/// else - no roulette id at any offset, which is why no profile could find it by value.
+///
+/// It therefore says only <em>when</em>, never what. The roulette comes from the queue request
+/// the player made earlier, which the profile is already standing in for the match; the
+/// announcement moves that match to the moment the popup actually appeared and lets the desktop
+/// say so out loud (docs/state-machine.md section 3.12).
+/// </summary>
+public sealed record MatchAnnounced : SemanticEvent
+{
+    /// <inheritdoc />
+    public override string EventType => "MATCH_ANNOUNCED";
+}
+
 /// <summary>Matching was cancelled or declined before entering the duty.</summary>
 public sealed record MatchCancelled : SemanticEvent
 {
