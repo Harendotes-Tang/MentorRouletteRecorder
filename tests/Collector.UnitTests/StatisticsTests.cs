@@ -26,6 +26,38 @@ public sealed class StatisticsTests
         Assert.Equal(Enum.GetValues<RunResult>().Length, result.ResultBreakdown.Buckets.Count);
     }
 
+    /// <summary>
+    /// The player looked at the dashboard in the middle of a duty: 导随总次数 6, 通关率 83.3%,
+    /// 未知结果 1. The run in flight is stored as UNKNOWN with no end time, and was counted as an
+    /// attempt whose outcome is unknown - so every duty lowered the completion rate for as long
+    /// as it lasted. A run that has not ended has no outcome yet and belongs to no statistic.
+    /// </summary>
+    [Fact]
+    public void Dashboard_LeavesOutTheRunThatIsStillInProgress()
+    {
+        using var fixture = new TestDatabase();
+        var runs = new RunRepository(fixture.Database);
+        fixture.Database.RunInTransaction(tx =>
+        {
+            runs.Insert(TestDatabase.Run(result: RunResult.Completed, source: RunSource.AutoNetwork), tx);
+            // Finished, outcome unknown until the player confirms it: this one DOES count.
+            runs.Insert(TestDatabase.Run(result: RunResult.Unknown, source: RunSource.AutoNetwork), tx);
+            runs.Insert(TestDatabase.Run(result: RunResult.Unknown, source: RunSource.AutoNetwork) with
+            {
+                EndedAtUtc = null,
+                DurationMs = null,
+            }, tx);
+        });
+        var settings = new SettingsRepository(fixture.Database, fixture.Clock);
+        settings.EnsureDefaults();
+
+        var result = new StatisticsRepository(fixture.Database, settings).GetDashboard();
+
+        Assert.Equal(2, result.AttemptCount);
+        Assert.Equal(0.5, result.CompletionRate);
+        Assert.Equal(1, result.ResultBreakdown.Buckets.Single(b => b.Result == RunResult.Unknown).Count);
+    }
+
     [Fact]
     public void Dashboard_KeepsCompletionLeaveAndDisconnectSeparate()
     {

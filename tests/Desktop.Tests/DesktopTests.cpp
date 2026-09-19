@@ -464,6 +464,25 @@ void DesktopTests::formatters_renderNullsAndDurations()
     QCOMPARE(mr::Formatters::count(42), QStringLiteral("42"));
     QCOMPARE(mr::Formatters::resultLabel(QStringLiteral("DISCONNECTED")),
              QString::fromUtf8("断线"));
+    // A duty still being played is stored as UNKNOWN with no end time. The history page read
+    // 未知 for it, which is what a finished run with an unconfirmed outcome reads: two different
+    // things, and the player asked why a run in progress already had a result.
+    const QVariantMap inFlight{{QStringLiteral("source"), QStringLiteral("AUTO_NETWORK")},
+                               {QStringLiteral("result"), QStringLiteral("UNKNOWN")},
+                               {QStringLiteral("entered_at_utc"), QStringLiteral("2026-09-19T04:44:18.000Z")},
+                               {QStringLiteral("ended_at_utc"), QVariant()}};
+    QVERIFY(mr::Formatters::runInProgress(inFlight));
+    QCOMPARE(mr::Formatters::runResultLabel(inFlight), QString::fromUtf8("进行中"));
+    QVariantMap finished = inFlight;
+    finished.insert(QStringLiteral("ended_at_utc"), QStringLiteral("2026-09-19T05:01:20.000Z"));
+    QVERIFY(!mr::Formatters::runInProgress(finished));
+    QCOMPARE(mr::Formatters::runResultLabel(finished), QString::fromUtf8("未知"));
+    QVariantMap recovered = inFlight;
+    recovered.insert(QStringLiteral("pending_review"), true);
+    QVERIFY(!mr::Formatters::runInProgress(recovered));
+    QVariantMap manual = inFlight;
+    manual.insert(QStringLiteral("source"), QStringLiteral("MANUAL"));
+    QVERIFY(!mr::Formatters::runInProgress(manual));
     // Live-run states and confidence never reach the player as raw tokens.
     QCOMPARE(mr::Formatters::stateLabel(QStringLiteral("IDLE")),
              QString::fromUtf8("空闲 · 等待匹配"));

@@ -43,7 +43,7 @@ Rectangle {
               v: runData.duty_expansion
                  ? qsTr("%1 · %2级").arg(runData.duty_expansion).arg(runData.duty_level || 0)
                  : Fmt.dash() },
-            { k: qsTr("结果"), v: Fmt.resultLabel(runData.result || "UNKNOWN") },
+            { k: qsTr("结果"), v: Fmt.runResultLabel(runData) },
             // Rendered by the delegate as job icon + name + role icon + label;
             // `v` stays filled so the field degrades to plain text when the
             // catalogue is empty.

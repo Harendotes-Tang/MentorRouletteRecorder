@@ -50,6 +50,11 @@ public:
     // -- enums --------------------------------------------------------------
     /// Chinese label for a RunResult code.
     Q_INVOKABLE static QString resultLabel(const QString &code);
+    /// True for an automatic run that has not ended: UNKNOWN, no end time, not pending review -
+    /// the test docs/statistics-definitions.md section 0 uses. Such a run has no result yet.
+    Q_INVOKABLE static bool runInProgress(const QVariantMap &run);
+    /// The result column of a run: 进行中 while it is in flight, its RunResult label after.
+    Q_INVOKABLE static QString runResultLabel(const QVariantMap &run);
     /// Palette token name for a RunResult code, resolved by Theme.token().
     Q_INVOKABLE static QString resultColorToken(const QString &code);
     /// Tag variant name for a RunResult code (ink / accent / outline / neutral).

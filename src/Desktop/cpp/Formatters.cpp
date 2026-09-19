@@ -122,6 +122,25 @@ QString Formatters::resultLabel(const QString &code)
     return QString::fromUtf8("未知");
 }
 
+bool Formatters::runInProgress(const QVariantMap &run)
+{
+    const QString source = run.value(QStringLiteral("source")).toString();
+    return (source.isEmpty() || source == QLatin1String("AUTO_NETWORK"))
+        && run.value(QStringLiteral("result"), QStringLiteral("UNKNOWN")).toString() == QLatin1String("UNKNOWN")
+        && run.value(QStringLiteral("ended_at_utc")).toString().isEmpty()
+        // An unfinished run crash recovery handed over for review is over, not in progress.
+        && !run.value(QStringLiteral("pending_review")).toBool()
+        && (!run.value(QStringLiteral("entered_at_utc")).toString().isEmpty()
+            || !run.value(QStringLiteral("matched_at_utc")).toString().isEmpty());
+}
+
+QString Formatters::runResultLabel(const QVariantMap &run)
+{
+    if (runInProgress(run))
+        return QString::fromUtf8("进行中");
+    return resultLabel(run.value(QStringLiteral("result"), QStringLiteral("UNKNOWN")).toString());
+}
+
 QString Formatters::resultColorToken(const QString &code)
 {
     if (code == QLatin1String("COMPLETED"))              return QStringLiteral("green");

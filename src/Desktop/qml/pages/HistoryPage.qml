@@ -634,8 +634,9 @@ Item {
                                 Tag {
                                     anchors.left: parent.left
                                     anchors.verticalCenter: parent.verticalCenter
-                                    text: Fmt.resultLabel(run.result || "UNKNOWN")
-                                    variant: Fmt.resultTagVariant(run.result || "UNKNOWN")
+                                    text: Fmt.runResultLabel(run)
+                                    variant: Fmt.runInProgress(run)
+                                             ? "outline" : Fmt.resultTagVariant(run.result || "UNKNOWN")
                                 }
                             }
 

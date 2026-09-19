@@ -18,6 +18,18 @@ soft_deleted = 0
 软删除的记录**永远不参与任何统计**，无论查询是否带 `include_deleted`。
 `include_deleted` 只影响列表展示，不影响统计。
 
+**进行中的记录同样不参与任何统计：**
+
+```sql
+NOT (source = 'AUTO_NETWORK' AND result = 'UNKNOWN' AND ended_at_utc IS NULL AND pending_review = 0)
+```
+
+自动记录在副本尚未结束时以 `result = 'UNKNOWN'`、`ended_at_utc IS NULL`、`pending_review = 0` 保存。
+它还没有结果：计入尝试次数会使完成率在整场副本期间被拉低，并在「未知结果」中多出一条。
+副本结束后（`ended_at_utc` 已写入）即正常计入，结果未知的记录仍计入尝试次数与「未知」。
+崩溃恢复交给用户复核的未结束记录（`pending_review = 1`，见 state-machine.md §3.9）**不属于**进行中：
+该次游玩已经结束，只是结果无人见证，照常计入，并继续计入 `unfinished_pending_review`。
+
 用户提供的 `RunFilter`（时间范围、副本、职业、结果、来源、文本等）在此基础上叠加。
 
 ## 1. 确认为导随（confirmed mentor）

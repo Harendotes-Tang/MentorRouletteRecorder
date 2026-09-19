@@ -66,6 +66,13 @@ public static class RunFilterSql
             // or imported run only counts when the state machine identified the roulette,
             // and a manual run counts by definition.
             clauses.Add("(source = 'MANUAL' OR mentor_roulette_id IS NOT NULL)");
+            // A run still in flight is stored as UNKNOWN with no end time and no review flag. It
+            // has no outcome yet, so counting it lowers the completion rate for exactly as long
+            // as the duty lasts (docs/statistics-definitions.md section 0). An unfinished run
+            // that crash recovery handed to the player carries pending_review = 1 and DOES count:
+            // it is over, only nobody saw how.
+            clauses.Add(
+                "NOT (source = 'AUTO_NETWORK' AND result = 'UNKNOWN' AND ended_at_utc IS NULL AND pending_review = 0)");
         }
 
         var dateColumn = ColumnOf(filter.DateField);

@@ -67,8 +67,10 @@ public sealed class ProtocolDecodedReplayTests
         new("synthetic_len_mismatch", RunState.MentorMatched, 1, 0, 0,
             new[] { RunResult.Unknown }, ParseOk: 2, ParseFailed: 1, ErrorCode: "E_LEN_MISMATCH"),
 
-        // A field that would read past a short payload is refused, so the duty never ends.
-        new("synthetic_offset_oob", RunState.EnteredDuty, 1, 1, 0,
+        // A field that would read past a short payload is refused, so the duty never ends: the
+        // run is still in flight when the replay stops, and a run in flight is not an attempt yet
+        // (docs/statistics-definitions.md section 0).
+        new("synthetic_offset_oob", RunState.EnteredDuty, 1, 0, 0,
             new[] { RunResult.Unknown }, ParseOk: 2, ParseFailed: 1, ErrorCode: "E_OFFSET_OOB"),
 
         // An undeclared opcode is counted as ignored, not refused; the run completes normally.
