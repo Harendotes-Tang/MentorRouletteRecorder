@@ -591,7 +591,17 @@ public sealed class CalibrationCoordinator
         // about the zone marker, and the other way round.
         var pops = new HashSet<ushort>(_rejections.PopOpcodes);
         var zones = new HashSet<MessageKey>(_rejections.ZoneKeys);
-        var popWrong = wrongKinds.Contains("finder_request") || wrongKinds.Contains("pop");
+        var timed = new HashSet<ushort>(_rejections.TimedOpcodes);
+        // On a draft that recognised the announcement by its timing, every "匹配弹窗" line came
+        // from that announcement - the queue request has its own lines - so a wrong one costs
+        // the announcement and leaves the request, and the recording that rests on it, alone.
+        var timedWrong = draft.TimedAnnouncement is not null && wrongKinds.Contains("pop");
+        if (timedWrong && draft.TimedAnnouncement is { } announced)
+        {
+            timed.Add(announced.Shape.Opcode);
+        }
+
+        var popWrong = wrongKinds.Contains("finder_request") || (wrongKinds.Contains("pop") && !timedWrong);
         var zoneWrong = wrongKinds.Contains("duty_enter") || wrongKinds.Contains("duty_exit");
         foreach (var message in draft.Messages)
         {
@@ -605,7 +615,7 @@ public sealed class CalibrationCoordinator
             }
         }
 
-        _rejections = new CalibrationRejections(pops, zones);
+        _rejections = new CalibrationRejections(pops, zones) { TimedOpcodes = timed };
         _draft = null;
         _draftAtMessage = -1;
         _state = CalibrationState.Observing;
@@ -631,8 +641,10 @@ public sealed class CalibrationCoordinator
             return;
         }
 
-        _rejections = new CalibrationRejections(
-            new HashSet<ushort>(_rejections.PopOpcodes) { opcode }, _rejections.ZoneKeys);
+        _rejections = _rejections with
+        {
+            PopOpcodes = new HashSet<ushort>(_rejections.PopOpcodes) { opcode },
+        };
         _draft = null;
         _draftAtMessage = -1;
         _generation++;

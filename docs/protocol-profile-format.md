@@ -127,7 +127,7 @@ protocol-profiles/
 
 ### 3.1 消息名与语义
 
-`name` 只能取状态机识别的以下八个取值，每一个对应
+`name` 只能取状态机识别的以下九个取值，每一个对应
 `src/Collector/Domain/Events/SemanticEvent.cs` 中的一个事件类型：
 
 | `name` | 必需字段 | 可选字段 | 产生的语义事件 |
@@ -140,6 +140,7 @@ protocol-profiles/
 | `ZONE_LEFT` | —— | `territory_id` | `ZoneLeft` |
 | `INSTANCE_LEFT` | —— | —— | `InstanceLeft` |
 | `MATCH_CANCELLED` | —— | —— | `MatchCancelled` |
+| `MATCH_ANNOUNCED` | —— | —— | `MatchAnnounced`（只说「匹配成功了」，不说是哪个轮盘；见 §11.5） |
 
 档案可以声明表中没有的字段名（例如 `padding`）。这类字段**会被读取并校验约束**，
 但不会进入语义事件，从而使"该段必须为某个固定值"成为可表达的健壮性检查。
@@ -478,3 +479,38 @@ VERIFIED 模板还必须有 `field = "calibration.finder_request"` 的非 SYNTHE
 - 该 opcode 在本次运行内不再作为候选，本机校准重新进入观察。
 
 随包档案、共享档案（另有核实与撤下机制，见隐私边界 §8.2）、带选择器的本机档案与按排本推断的本机档案不在此检查之内。
+
+### 11.5 `MATCH_ANNOUNCED`：按出现时机认出的匹配通知
+
+国服 2026.09.15 客户端的匹配通知在**任何字节位置**都不携带所排的轮盘编号，
+按数值寻找的三条路径（回执状态、模板偏移、任意偏移扫描）因此全部落空，
+档案只能按排本申请推断匹配（`CONTENT_FINDER_POP` 方向为 CLIENT_TO_SERVER）。
+这样的档案记录正确，但弹窗出现时没有任何可播报的时刻。
+
+`MATCH_ANNOUNCED` 补上这个时刻，且**只**补这个时刻：
+
+- 只有 opcode、方向与 `expected_length`，**不声明任何字段**；所排的轮盘仍由排本申请确定。
+- 方向必须为 `SERVER_TO_CLIENT`；只允许出现在 `CONTENT_FINDER_POP` 方向为 `CLIENT_TO_SERVER`
+  的档案里。两条规则在 `ProfileLoader` 与 `tools/protocol-profile-validator/validate.py`
+  中一致实现，违反其一即 `E_PROFILE_MESSAGE_CONTEXT`。
+- 可选：缺少它的档案与 1.2.x 的行为完全相同。
+- **不进校准码**：该 opcode 由本机的时机证据认定，证据不随分享码传播，
+  因此带有它的档案分享出去仍是纯 QueueRequest 档案（格式 v1 不变），
+  接收方自行在本机寻找自己的那一条。
+
+判据（`CalibrationDraft.LockTimedAnnouncement`，仅在 QueueRequest 推断成立时尝试）：
+
+| 子句 | 要求 |
+|---|---|
+| 存活 | 观察器的时机表里仍在（离群比例 ≤ 1/5、总数 ≤ 400），且 `timing_overflow` 为 0 |
+| 位置 | 不是任何换区簇的成员；不是回执 opcode；不在用户拒绝过的 opcode 里 |
+| 覆盖 | 每一次「自己申请后进入已知副本」之前的模板匹配窗口内都至少出现一次，且晚于对应申请 |
+| 样本 | 这样的进本至少 2 次，且涉及至少 2 个不同的轮盘 |
+| 频次 | 每个排本窗口（申请到进本）内出现不超过 8 次 |
+| 并列 | 取「各次进本的最小提前量」最大者；提前量再并列则不出结论 |
+
+时间线上每次进本给出一行「匹配弹窗：<轮盘名>（按出现时机认出）」，需要用户确认。
+把这样一行标为「错」只否决该 opcode 作为匹配通知，不影响同一份草稿的排本申请部分，
+因此玩家已经在用的记录方式不受影响。
+
+状态机的处理见 [state-machine.md](state-machine.md) §3.12。

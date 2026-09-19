@@ -250,6 +250,42 @@ public sealed class TimedAnnouncementDraftTests
     }
 
     /// <summary>
+    /// The player marks the popup line wrong on the card. That line is the only thing the
+    /// announcement contributed, and the recording they already have rests on the queue request
+    /// underneath it - so the announcement goes and the profile stays, rather than an evening of
+    /// evidence being thrown away over an add-on.
+    /// </summary>
+    [Fact]
+    public void MarkingThePopupLineWrongCostsTheAnnouncementAndNothingElse()
+    {
+        var coordinator = new CalibrationCoordinator();
+        coordinator.Arm(CalibrationObserverTests.Template(), Region.Cn, CalibrationTrafficCases.Build);
+        coordinator.Begin("calibration-session");
+        foreach (var message in CalibrationTrafficCases.Traffic(CalibrationTrafficCases.QueueRequestAnnounced)
+            .Concat(CalibrationObserverTests.Noise(470_000, 490_000))
+            .OrderBy(message => message.Mono))
+        {
+            coordinator.Accept(message);
+        }
+
+        var offered = coordinator.Snapshot();
+        Assert.Equal(CalibrationState.Ready, offered.State);
+        var verdicts = offered.Events.Where(item => item.RequiresConfirmation).ToDictionary(
+            item => item.EventId,
+            item => item.Kind == "pop" ? CalibrationVerdict.Wrong : CalibrationVerdict.Correct,
+            StringComparer.Ordinal);
+
+        Assert.Null(coordinator.Judge(verdicts));
+
+        var again = coordinator.CurrentDraft()!;
+        Assert.Equal(CalibrationDraftStatus.Ready, again.Status);
+        Assert.Null(again.TimedAnnouncement);
+        Assert.Equal(CalibrationMatchSource.QueueRequest, again.MatchSource);
+        Assert.Contains(again.Messages, message => message.Name == "CONTENT_FINDER_POP");
+        Assert.DoesNotContain(again.Messages, message => message.Name == "MATCH_ANNOUNCED");
+    }
+
+    /// <summary>
     /// A duty the player was brought into by a party member has no request of their own behind
     /// it, so it cannot test anything: the software does not know what was queued. It must not
     /// count against the shape either, which is what the pre-duty classification is for.
