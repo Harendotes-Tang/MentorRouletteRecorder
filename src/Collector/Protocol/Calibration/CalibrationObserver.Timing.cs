@@ -108,15 +108,16 @@ public sealed partial class CalibrationObserver
             _timing.Add(key, stat);
         }
 
+        var sighting = new TimedSighting(at, t, connection.Tag);
         stat.Total++;
-        stat.Remember(new TimedSighting(at, t, connection.Tag));
+        stat.Remember(sighting);
         if (connection.Outstanding is not null)
         {
             stat.InQueue++;
         }
         else
         {
-            Hold(key, stat, new TimedSighting(at, t, connection.Tag));
+            Hold(key, stat, sighting);
         }
 
         Retire(key, stat);
@@ -232,22 +233,40 @@ public sealed partial class CalibrationObserver
         }
     }
 
-    /// <summary>A frozen copy of the timing table, newest-behaving shapes first.</summary>
-    private IReadOnlyList<TimedShape> TimedShapes() => _timing
-        .OrderBy(entry => entry.Key.Opcode)
-        .ThenBy(entry => entry.Key.Length)
-        .Select(entry => new TimedShape(
-            entry.Key.Opcode,
-            entry.Key.Length,
-            entry.Value.Total,
-            entry.Value.InQueue,
-            entry.Value.PreDuty,
-            entry.Value.Stray,
-            entry.Value.Sightings.ToArray(),
-            _timingPending.Where(waiting => waiting.Key == entry.Key)
-                .Select(waiting => waiting.Sighting).ToArray(),
-            entry.Value.SightingsComplete))
-        .ToArray();
+    /// <summary>A frozen copy of the timing table, in opcode order.</summary>
+    private IReadOnlyList<TimedShape> TimedShapes()
+    {
+        // Grouped once rather than scanned per shape: a snapshot is taken every couple of
+        // seconds of captured time, and both tables are in the hundreds.
+        var waiting = new Dictionary<(ushort, int), List<TimedSighting>>();
+        foreach (var pending in _timingPending)
+        {
+            if (!waiting.TryGetValue(pending.Key, out var held))
+            {
+                held = new List<TimedSighting>();
+                waiting[pending.Key] = held;
+            }
+
+            held.Add(pending.Sighting);
+        }
+
+        return _timing
+            .OrderBy(entry => entry.Key.Opcode)
+            .ThenBy(entry => entry.Key.Length)
+            .Select(entry => new TimedShape(
+                entry.Key.Opcode,
+                entry.Key.Length,
+                entry.Value.Total,
+                entry.Value.InQueue,
+                entry.Value.PreDuty,
+                entry.Value.Stray,
+                entry.Value.Sightings.ToArray(),
+                waiting.TryGetValue(entry.Key, out var held)
+                    ? held.ToArray()
+                    : Array.Empty<TimedSighting>(),
+                entry.Value.SightingsComplete))
+            .ToArray();
+    }
 
     /// <summary>
     /// Takes on the timing evidence of an earlier run. Sightings still waiting keep waiting: the
