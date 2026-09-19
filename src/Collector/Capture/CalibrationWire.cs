@@ -183,6 +183,8 @@ public static class CalibrationWire
         ["finder_states"] = Texts(evidence.FinderStates),
         ["zone_once_only"] = Texts(evidence.ZoneOnceOnly),
         ["job_shapes"] = Texts(evidence.JobShapes ?? Array.Empty<string>()),
+        ["timed_candidates"] = Texts(evidence.TimedCandidates ?? Array.Empty<string>()),
+        ["timing_overflow"] = evidence.TimingOverflow,
         ["diagnostics_overflow"] = evidence.DiagnosticsOverflow,
     };
 

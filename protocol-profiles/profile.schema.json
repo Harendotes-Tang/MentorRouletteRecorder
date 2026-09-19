@@ -100,7 +100,8 @@
             "PLAYER_JOB",
             "ZONE_LEFT",
             "INSTANCE_LEFT",
-            "MATCH_CANCELLED"
+            "MATCH_CANCELLED",
+            "MATCH_ANNOUNCED"
           ]
         },
         "opcode": { "type": "integer", "minimum": 0, "maximum": 65535 },

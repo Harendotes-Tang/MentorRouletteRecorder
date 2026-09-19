@@ -290,6 +290,28 @@ public sealed record CalibrationSnapshot(
     /// </summary>
     public int MarkerOverflow { get; init; }
 
+    /// <summary>
+    /// What each server shape does in time: only while a queue stands, before a duty, or on its
+    /// own. This is the one table that can name the message announcing a match on a build whose
+    /// announcement carries no roulette id at all.
+    /// </summary>
+    public IReadOnlyList<TimedShape> TimedShapes { get; init; } = Array.Empty<TimedShape>();
+
+    /// <summary>
+    /// Shapes the timing rule has retired. Kept so a shape that strayed once cannot come back to
+    /// life on its next sighting, which matters because the evidence outlives the session.
+    /// </summary>
+    public IReadOnlyCollection<(ushort Opcode, int Length)> TimedDead { get; init; } =
+        Array.Empty<(ushort, int)>();
+
+    /// <summary>
+    /// Anything the timing tables could not keep. Unlike <see cref="MarkerOverflow"/> this is not
+    /// merely a weaker scan: the timing rule's claim is "this shape appeared before every entry",
+    /// and a shape that never got a row cannot support or refute it, so any overflow means no
+    /// timed candidate is named at all.
+    /// </summary>
+    public int TimingOverflow { get; init; }
+
     /// <summary>First message the observer accepted, or null when it has accepted none.</summary>
     public DateTimeOffset? FirstMessageAtUtc { get; init; }
 
@@ -357,6 +379,12 @@ public sealed record CalibrationSnapshot(
 /// <param name="ZoneShapes">Per shape at that length, as "0xop:len=marked/bursts+outside".</param>
 /// <param name="ClustersAt">How many seconds ago each zone load started, newest last.</param>
 /// <param name="PairsAt">How many seconds ago each request/echo pair happened, newest last.</param>
+/// <param name="TimedCandidates">
+/// Per surviving timed shape, as "0xop:len=inqueue+preduty/total!stray e(duty entries it preceded)
+/// /(duty entries)  lead(smallest lead)s": what each shape does in time, which is the only thing
+/// that can name the announcement on a build whose announcement carries no roulette id at all.
+/// </param>
+/// <param name="TimingOverflow">Dropped from a timing table; any of it means no timed candidate is named.</param>
 /// <param name="JobShapes">
 /// Per job-shaped opcode, as "0xop=vouching bursts/bursts!contradicting bursts v values": the job rule
 /// wants exactly one opcode the entry and exit bursts vouch for, and without this row a report cannot
@@ -390,7 +418,9 @@ public sealed record CalibrationEvidenceSummary(
     IReadOnlyList<string>? ZoneShapes = null,
     IReadOnlyList<long>? ClustersAt = null,
     IReadOnlyList<long>? PairsAt = null,
-    IReadOnlyList<string>? JobShapes = null)
+    IReadOnlyList<string>? JobShapes = null,
+    IReadOnlyList<string>? TimedCandidates = null,
+    int TimingOverflow = 0)
 {
     /// <summary>Whole seconds since this shape last carried a requested roulette id.</summary>
     /// <param name="snapshot">Frozen observations.</param>
@@ -657,6 +687,8 @@ public sealed record CalibrationEvidenceSummary(
             zoneShapes,
             clustersAt,
             pairsAt,
-            jobShapes);
+            jobShapes,
+            TimedShape.Report(snapshot, template.MatchWindow),
+            snapshot.TimingOverflow);
     }
 }

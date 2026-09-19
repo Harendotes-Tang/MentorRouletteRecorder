@@ -31,6 +31,9 @@ REQUIRED_MESSAGE_FIELDS = {
     "ZONE_LEFT": (),
     "INSTANCE_LEFT": (),
     "MATCH_CANCELLED": (),
+    # Nothing to require: on a build like CN 2026.09.15 the message announcing a match carries
+    # no roulette id at any offset, and the message arriving is the whole observation.
+    "MATCH_ANNOUNCED": (),
 }
 
 FIELD_SIZES = {"u8": 1, "u16": 2, "u32": 4, "i32": 4, "u64": 8}
@@ -256,11 +259,34 @@ def semantic_errors(document: dict, path: str) -> list:
     if "calibration" in document:
         errors += calibration_errors(document["calibration"])
 
+    errors += announcement_errors(messages)
+
     for message in messages:
         if message["opcode"] in document.get("obfuscated_opcodes", []):
             errors.append("opcode %s is declared obfuscated and also declared as message %s" %
                           (message["opcode"], message["name"]))
         errors += message_errors(message)
+    return errors
+
+
+def announcement_errors(messages: list) -> list:
+    """Where MATCH_ANNOUNCED may appear. Mirrors ProfileLoader.CheckAnnouncementContext.
+
+    It exists for a build whose announcement carries no roulette id anywhere, where the profile
+    already stands the player's own queue request in for the match and the announcement only adds
+    the moment. Beside a CONTENT_FINDER_POP the server sends there is nothing for it to add, and a
+    match is something the server tells the client.
+    """
+    announced = next((m for m in messages if m.get("name") == "MATCH_ANNOUNCED"), None)
+    if announced is None:
+        return []
+
+    errors = []
+    if announced.get("direction") != "SERVER_TO_CLIENT":
+        errors.append("MATCH_ANNOUNCED must be SERVER_TO_CLIENT")
+    pop = next((m for m in messages if m.get("name") == "CONTENT_FINDER_POP"), None)
+    if pop is None or pop.get("direction") != "CLIENT_TO_SERVER":
+        errors.append("MATCH_ANNOUNCED is only valid where CONTENT_FINDER_POP is CLIENT_TO_SERVER")
     return errors
 
 

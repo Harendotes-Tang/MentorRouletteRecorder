@@ -129,10 +129,15 @@ public static class LocalProfileWriter
             var key = "messages." + message.Name + ".opcode";
             var samples = draft.SampleCounts.GetValueOrDefault(key);
             evidence.Add(CalibratedProfileDocument.Evidence(key, "OBSERVED_LOCAL_TRAFFIC", recorded, samples,
-                $"本机校准：在客户端 {gameBuild} 的被动流量里，按模板 {draft.TemplateProfileId} 的 {message.Name} 结构" +
-                $"（长度 {message.ExpectedLength}、字段偏移继承自模板）找到唯一满足条件的 opcode，样本 {samples} 次。" +
-                Learned(message) +
-                Rationale(message)));
+                Observed(message, draft, gameBuild, samples) + Learned(message) + Rationale(message)));
+        }
+
+        if (draft.TimedAnnouncement is { } announced)
+        {
+            evidence.Add(CalibratedProfileDocument.Evidence(
+                "messages." + CalibratedShape.AnnouncedName + ".opcode", "USER_CONFIRMED", recorded,
+                announced.Samples.Count,
+                "用户逐条确认了时间线上「匹配弹窗（按出现时机认出）」各行与自己看到的弹窗时刻一致。"));
         }
 
         if (draft.MatchSource == CalibrationMatchSource.QueueRequest)
@@ -189,6 +194,23 @@ public static class LocalProfileWriter
         };
     }
 
+    /// <summary>
+    /// What this machine saw of one message. The announcement is described differently because
+    /// nothing about it is inherited: it declares no field, borrows no offset from the template,
+    /// and was recognised by nothing but when it arrived.
+    /// </summary>
+    /// <param name="message">Message as the draft resolved it.</param>
+    /// <param name="draft">Draft being written.</param>
+    /// <param name="gameBuild">Client build the profile is for.</param>
+    /// <param name="samples">Observation count behind it.</param>
+    private static string Observed(ProfileMessage message, CalibrationDraft draft, string gameBuild, int samples) =>
+        message.Name == CalibratedShape.AnnouncedName
+            ? $"本机校准：在客户端 {gameBuild} 的被动流量里，按出现时机认出这条服务器报文" +
+              $"（方向 SERVER_TO_CLIENT、长度 {message.ExpectedLength}，不声明任何字段）；" +
+              $"有 {samples} 次进本由它先行。"
+            : $"本机校准：在客户端 {gameBuild} 的被动流量里，按模板 {draft.TemplateProfileId} 的 {message.Name} 结构" +
+              $"（长度 {message.ExpectedLength}、字段偏移继承自模板）找到唯一满足条件的 opcode，样本 {samples} 次。";
+
     /// <summary>How this profile knows a match happened, in one clause of the summary sentence.</summary>
     /// <param name="draft">Draft being written.</param>
     private static string MatchNote(CalibrationDraft draft) => draft.MatchSource switch
@@ -199,7 +221,11 @@ public static class LocalProfileWriter
             "「匹配成功」在这一版是与排本回执不同的一条报文，其 opcode、长度与轮盘编号所在字节位置均来自本机观察",
         CalibrationMatchSource.QueueRequest =>
             "这一版没能认出服务器发出的「匹配成功」报文，因此本档案改用玩家自己发出的排本请求作为起点，" +
-            "再由随后进入的已知副本确认；这是推断而不是观察，档案里的 CONTENT_FINDER_POP 方向为 CLIENT_TO_SERVER 即为标记",
+            "再由随后进入的已知副本确认；这是推断而不是观察，档案里的 CONTENT_FINDER_POP 方向为 CLIENT_TO_SERVER 即为标记" +
+            (draft.TimedAnnouncement is null
+                ? string.Empty
+                : "。另外本机按出现时机认出了一条只在排本期间、且每次进本之前都会出现的服务器报文，" +
+                  "记为 MATCH_ANNOUNCED：它只提供「匹配成功」的时刻，所排的轮盘仍然由排本请求确定"),
         _ => "匹配状态的选择器取值来自本机观察",
     };
 
@@ -239,6 +265,14 @@ public static class LocalProfileWriter
             "（属于加载的报文会随每次换区一起出现，宣布匹配的报文不会）。若仍并列，再要求它出现过而其后没有任何进本；" +
             "仍然并列则不启用。",
         "CONTENT_FINDER_POP" => "判据：同一连接上客户端排本请求后在模板回执窗口内回传同一轮盘编号；候选来自同一 opcode 配对，晚于同轮盘请求，在回执窗口与实际加载之外，并由模板匹配窗口内唯一已知副本进本佐证；状态取值从未出现在回执里，歧义不启用。",
+        "MATCH_ANNOUNCED" =>
+            "判据：这一版的匹配通知在任何字节位置都不带轮盘编号，按数值找不到，因此只按出现时机认定。" +
+            "候选须满足：只在本连接有未结束的排本申请时出现（或其后一小段时间内确实进了已知副本），" +
+            "从不在无人排本、也无副本加载时出现；不属于任何换区簇；" +
+            "在每一次「自己申请后进入已知副本」之前的模板匹配窗口内都至少出现一次，且晚于对应申请；" +
+            "这样的进本至少两次、涉及至少两个不同轮盘；每次排本窗口内出现不超过 8 次。" +
+            "若仍有多个候选，取各次进本最小提前量最大的那个；并列则不启用。" +
+            "本条只提供匹配时刻，不提供轮盘编号。",
         "ZONE_INITIALIZATION" => "判据：长度等于模板长度，在至少三个换区簇里各恰好出现一次，且所选同一链的进本、出本簇各恰好一次，簇外从不出现。",
         "ZONE_TERRITORY" => "判据：进本簇里恰好出现一次，且区域编号命中副本表。",
         "PLAYER_JOB" => "判据：进本、出本两个换区簇都出现且取值稳定、满足职业编号约束，全部换区簇（含进本、出本）至少半数出现，没有任何换区簇与之矛盾。",

@@ -23,7 +23,7 @@ namespace MentorRecorder.Collector.Protocol.Calibration;
 /// This is deliberately not <see cref="Parsing.CandidateObserver"/>: that one is keyed by
 /// opcodes a CANDIDATE profile already names, and a new build names none.
 /// </summary>
-public sealed class CalibrationObserver
+public sealed partial class CalibrationObserver
 {
     /// <summary>Payload length from which a server message counts as large.</summary>
     public const int LargeBytes = 256;
@@ -248,6 +248,9 @@ public sealed class CalibrationObserver
 
         TrackClusters(connection, entry);
         TrackFinder(connection, direction, payload, message.Opcode, t, message.ObservedAtUtc);
+        // After the pairing, so an opcode a request/echo pair has just vouched for is already
+        // excluded, and after the bursts, so nothing that travelled inside a load is timed.
+        TrackTiming(connection, direction, payload.Length, message.Opcode, t, message.ObservedAtUtc);
         if (_candidates.Count > 0)
         {
             _candidates.Observe(connection.SessionId, connection.Tag, direction, message.Opcode, payload,
@@ -311,6 +314,9 @@ public sealed class CalibrationObserver
             connection => connection.Tag, connection => connection.SessionId, StringComparer.Ordinal),
         SessionHealth = new Dictionary<string, CaptureSessionHealth>(_health, StringComparer.Ordinal),
         Candidates = _candidates.Snapshot(),
+        TimedShapes = TimedShapes(),
+        TimedDead = _timingDead.ToArray(),
+        TimingOverflow = _timingOverflow,
     };
 
     private static string Tag(string sessionId, string connectionKey) =>
@@ -414,6 +420,7 @@ public sealed class CalibrationObserver
         Merge(_finderSelectors, carried.FinderSelectors);
         Merge(_markerShapes, carried.MarkerShapeTotals);
         _echoHits.AddRange(carried.RouletteEchoHits);
+        AdoptTiming(carried);
         foreach (var marker in carried.Markers)
         {
             _markers[(marker.Opcode, marker.Length, marker.Offset)] = MarkerStat.Restored(marker);
@@ -773,6 +780,9 @@ public sealed class CalibrationObserver
 
         if (entry.Territory is { } territory)
         {
+            // This load is going into a duty the duty table knows, which is what a sighting with
+            // no queue request behind it has been waiting for.
+            ResolveTimedPending(open.LoadStartedAtUtc);
             if (open.TerritoryHits.Count < MaxClusterKeys)
             {
                 open.TerritoryHits.Add(territory);

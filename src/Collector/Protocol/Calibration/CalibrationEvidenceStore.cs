@@ -385,6 +385,35 @@ public static class CalibrationEvidenceStore
             ["length"] = entry.Key.Length,
             ["count"] = entry.Value,
         }),
+        // The timing tables. They need two duties on two different roulettes before they can
+        // say anything, so they are the slowest evidence of all to collect and the most
+        // expensive to lose; absent from a file written by an older version, which reads back
+        // as "nothing timed yet" and simply starts collecting.
+        ["timing_overflow"] = snapshot.TimingOverflow,
+        ["timed_dead"] = Array(snapshot.TimedDead, dead => new JsonObject
+        {
+            ["opcode"] = dead.Opcode,
+            ["length"] = dead.Length,
+        }),
+        ["timed_shapes"] = Array(snapshot.TimedShapes, shape => new JsonObject
+        {
+            ["opcode"] = shape.Opcode,
+            ["length"] = shape.Length,
+            ["total"] = shape.Total,
+            ["in_queue"] = shape.InQueue,
+            ["pre_duty"] = shape.PreDuty,
+            ["stray"] = shape.Stray,
+            ["complete"] = shape.SightingsComplete,
+            ["sightings"] = Array(shape.Sightings, Sighting),
+            ["pending"] = Array(shape.Pending, Sighting),
+        }),
+    };
+
+    private static JsonObject Sighting(TimedSighting sighting) => new()
+    {
+        ["at"] = Stamp(sighting.AtUtc),
+        ["t"] = sighting.TMs,
+        ["tag"] = sighting.ConnectionTag,
     };
 
     private static JsonArray Keys(IReadOnlyDictionary<MessageKey, int> counts) =>
@@ -486,12 +515,23 @@ public static class CalibrationEvidenceStore
                 Bool(item, "complete"))).ToArray(),
             MarkerShapeTotals = Items(node, "marker_shapes").ToDictionary(
                 item => ((ushort)Int32(item, "opcode"), Int32(item, "length")), item => Int32(item, "count")),
+            TimedShapes = Items(node, "timed_shapes").Select(item => new TimedShape(
+                (ushort)Int32(item, "opcode"), Int32(item, "length"), Int32(item, "total"),
+                Int32(item, "in_queue"), Int32(item, "pre_duty"), Int32(item, "stray"),
+                Sightings(item, "sightings"), Sightings(item, "pending"), Bool(item, "complete"))).ToArray(),
+            TimedDead = Items(node, "timed_dead")
+                .Select(item => ((ushort)Int32(item, "opcode"), Int32(item, "length"))).ToArray(),
+            TimingOverflow = Int32(node, "timing_overflow"),
             MarkerOverflow = Int32(node, "marker_overflow"),
             DiagnosticsOverflow = Int32(node, "diagnostics_overflow"),
             FirstMessageAtUtc = AtOrNull(node, "first_at"),
             LastMessageAtUtc = AtOrNull(node, "last_at"),
         };
     }
+
+    private static IReadOnlyList<TimedSighting> Sightings(JsonElement node, string name) =>
+        Items(node, name).Select(item => new TimedSighting(
+            At(item, "at"), Int64(item, "t"), Text(item, "tag") ?? string.Empty)).ToArray();
 
     private static Dictionary<MessageKey, int> KeyCounts(JsonElement node, string name) =>
         Items(node, name).ToDictionary(

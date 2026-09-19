@@ -45,6 +45,15 @@ public sealed record CalibrationRejections(IReadOnlySet<ushort> PopOpcodes, IRea
 {
     /// <summary>Nothing rejected yet.</summary>
     public static CalibrationRejections None { get; } = new(new HashSet<ushort>(), new HashSet<MessageKey>());
+
+    /// <summary>
+    /// Server opcodes rejected as the timed announcement, kept apart from
+    /// <see cref="PopOpcodes"/> on purpose. On a queue-inferred profile the pop is the player's
+    /// own request and the announcement is an add-on beside it, so a popup line the player marks
+    /// wrong must cost the draft its announcement and nothing else: the recording they already
+    /// have rests on the request.
+    /// </summary>
+    public IReadOnlySet<ushort> TimedOpcodes { get; init; } = new HashSet<ushort>();
 }
 
 /// <summary>One line of the timeline the user is asked to confirm.</summary>
@@ -101,7 +110,7 @@ public sealed record CalibrationProgress(
 /// <param name="SampleCounts">Observation counts per evidence key, for the provenance section.</param>
 /// <param name="ConfirmedRouletteIds">Roulette ids seen in the echoes and pops, for the provenance note.</param>
 /// <param name="TemplateProfileId">Profile the shapes came from.</param>
-public sealed record CalibrationDraft(
+public sealed partial record CalibrationDraft(
     CalibrationDraftStatus Status,
     IReadOnlyList<string> Blockers,
     CalibrationProgress Progress,
@@ -268,6 +277,12 @@ public sealed record CalibrationDraft(
         var queued = searchable && announcement is null && marker is null && lockedReply is not null
             ? InferFromQueue(snapshot, pairs, lockedReply.Value)
             : null;
+        // Last of all, and only on top of the inferred match: the server's announcement
+        // recognised by when it arrives rather than by anything it carries. It adds the moment
+        // the popup appeared; the roulette still comes from the request above.
+        var timed = queued is null
+            ? null
+            : LockTimedAnnouncement(snapshot, template, queued.Chains, new HashSet<ushort>(matches.Keys), rejections);
         var genuinePops = announcement?.Pops ?? marker?.Pops ?? queued?.Pops ?? matched.Pops;
         var source = announcement is not null
             ? CalibrationMatchSource.Announcement
@@ -327,6 +342,11 @@ public sealed record CalibrationDraft(
                             Selectors: matched.Selectors)));
             samples["messages.CONTENT_FINDER_POP.opcode"] = lockedPairs.Length + genuinePops.Length;
             samples[ProfileLoader.CalibrationEvidenceKey] = lockedPairs.Length;
+            if (timed is { } announced)
+            {
+                messages.Add(CalibratedShape.Announced(announced.Shape.Opcode, announced.Shape.Length));
+                samples["messages." + CalibratedShape.AnnouncedName + ".opcode"] = announced.Samples.Count;
+            }
         }
 
         // 2. Zone-load bursts, and which of them is the duty.
@@ -459,7 +479,8 @@ public sealed record CalibrationDraft(
 
         // 4. Timeline.
         var events = BuildEvents(
-            snapshot, template, roulettes, region, lockedReply, pairs, genuinePops, entry, exit, messages, source);
+            snapshot, template, roulettes, region, lockedReply, pairs, genuinePops, entry, exit, messages, source,
+            timed);
         // Entry and exit say whether a burst corroborated the match, so on their own they read
         // as "this software never noticed you were in a duty". DutyZoneSeen is the plainer fact
         // underneath, so the card can separate "we did not see you enter" from "we saw it and
@@ -510,6 +531,7 @@ public sealed record CalibrationDraft(
             template.Source.ProfileId)
         {
             MatchSource = source,
+            TimedAnnouncement = status == CalibrationDraftStatus.Ready ? timed : null,
         };
     }
 
@@ -827,7 +849,16 @@ public sealed record CalibrationDraft(
     /// <summary>A match taken from the player's own request, with the duty that confirms it.</summary>
     /// <param name="Pops">One sample per request that a duty entry followed.</param>
     /// <param name="Entry">The first such duty entry.</param>
-    private sealed record QueuedMatch(PopHit[] Pops, ZoneCluster Entry);
+    private sealed record QueuedMatch(PopHit[] Pops, ZoneCluster Entry)
+    {
+        /// <summary>
+        /// Every request with the duty entry it explains, in time order. The pop above keeps only
+        /// the requests, and the timing rule has to ask what happened between each request and
+        /// its own entry.
+        /// </summary>
+        public IReadOnlyList<(PopHit Pop, ZoneCluster Entry)> Chains { get; init; } =
+            Array.Empty<(PopHit, ZoneCluster)>();
+    }
 
     /// <summary>
     /// Reads the match from the player's own request instead of from the server's announcement.
@@ -893,7 +924,10 @@ public sealed record CalibrationDraft(
 
         var ordered = chains.OrderBy(chain => chain.Pop.AtUtc).ToArray();
         return new QueuedMatch(ordered.Select(chain => chain.Pop).ToArray(),
-            PreferredEntry(ordered.Select(chain => chain.Entry), snapshot.Clusters)!);
+            PreferredEntry(ordered.Select(chain => chain.Entry), snapshot.Clusters)!)
+        {
+            Chains = ordered,
+        };
     }
 
     // A missed exit on an old connection can never arrive after a relogin. Prefer a
@@ -1203,9 +1237,11 @@ public sealed record CalibrationDraft(
         ZoneCluster? entry,
         ZoneCluster? exit,
         IReadOnlyList<ProfileMessage> messages,
-        CalibrationMatchSource source)
+        CalibrationMatchSource source,
+        TimedAnnouncement? timed)
     {
         var events = new List<CalibrationEvent>();
+        events.AddRange(TimedEvents(timed, roulettes, region));
         var territoryOpcode = messages.FirstOrDefault(message => message.Name == "ZONE_TERRITORY")?.Opcode;
         DateTimeOffset? lastRequest = null;
         foreach (var pair in pairs.Where(pair => pair.ReplyOpcode == lockedReply).OrderBy(pair => pair.ReplyAtUtc))

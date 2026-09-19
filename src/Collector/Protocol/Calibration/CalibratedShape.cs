@@ -101,6 +101,9 @@ public static class CalibratedShape
     /// <summary>Semantic name of the job message.</summary>
     public const string JobName = "PLAYER_JOB";
 
+    /// <summary>Semantic name of the announcement recognised by its timing.</summary>
+    public const string AnnouncedName = "MATCH_ANNOUNCED";
+
     private const string RouletteFieldName = "roulette_id";
 
     /// <summary>
@@ -213,6 +216,19 @@ public static class CalibratedShape
     }
 
     /// <summary>
+    /// The announcement recognised by its timing: an opcode and an exact length, and nothing
+    /// else. It declares no field because it has none to declare - the message carries no
+    /// roulette id at any offset, which is why no search by value could find it - and it takes
+    /// no structure from the template for the same reason. The message arriving is the whole
+    /// observation.
+    /// </summary>
+    /// <param name="opcode">Opcode learned from the traffic.</param>
+    /// <param name="length">Exact payload length learned from the traffic.</param>
+    public static ProfileMessage Announced(ushort opcode, int length) => new(
+        AnnouncedName, opcode, PacketDirection.ServerToClient, null, length, null, null,
+        Array.Empty<long>(), Array.Empty<ProfileField>());
+
+    /// <summary>
     /// True when a set of messages is enough to record with: the pop and the zone-change marker,
     /// plus the territory when the match is inferred from the queue.
     /// </summary>
@@ -303,6 +319,15 @@ public static class CalibratedShape
         var byName = new Dictionary<string, ProfileMessage>(StringComparer.Ordinal);
         foreach (var message in messages)
         {
+            // A share code is format v1 and carries no announcement: the timing evidence that
+            // names one is this machine's, and an opcode learned from it means nothing without
+            // that evidence. A profile carrying one therefore shares as the plain queue-request
+            // profile it is, and the receiving machine can find its own announcement.
+            if (string.Equals(message.Name, AnnouncedName, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
             if (message.Name is not (PopName or ZoneName or TerritoryName or JobName) ||
                 !byName.TryAdd(message.Name, message))
             {

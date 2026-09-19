@@ -38,6 +38,10 @@ public static class ProfileLoader
             ["ZONE_LEFT"] = Array.Empty<string>(),
             ["INSTANCE_LEFT"] = Array.Empty<string>(),
             ["MATCH_CANCELLED"] = Array.Empty<string>(),
+            // Nothing to require: the message that announces a match on a build like CN
+            // 2026.09.15 carries no roulette id at any offset, and the message arriving is the
+            // whole observation (docs/protocol-profile-format.md section 11).
+            ["MATCH_ANNOUNCED"] = Array.Empty<string>(),
         };
 
     // DUTY_RESULT is optional: a profile without it can still record a run from pop to
@@ -294,6 +298,7 @@ public static class ProfileLoader
         IReadOnlyList<ProfileHypothesis> hypotheses,
         List<ProfileIssue> errors)
     {
+        CheckAnnouncementContext(messages, errors);
         var rouletteIsNull = root.GetProperty("mentor_roulette_id").ValueKind == JsonValueKind.Null;
         if (string.Equals(statusText, "UNSUPPORTED", StringComparison.Ordinal))
         {
@@ -372,6 +377,44 @@ public static class ProfileLoader
             errors.Add(new ProfileIssue(
                 "E_PROFILE_NO_EVIDENCE", "$.provenance.evidence",
                 "a VERIFIED template needs an evidence entry for " + CalibrationEvidenceKey));
+        }
+    }
+
+    /// <summary>
+    /// Where <c>MATCH_ANNOUNCED</c> is allowed to appear.
+    ///
+    /// It exists for a build whose announcement carries no roulette id anywhere, where the
+    /// profile already stands the player's own queue request in for the match and the message
+    /// only adds the moment. Beside a CONTENT_FINDER_POP the server sends there is nothing for it
+    /// to add and no evidence behind it, so declaring it there is a malformed profile rather than
+    /// a weaker one. And a match is something the server tells the client: an announcement
+    /// travelling the other way is the client asking for something.
+    /// </summary>
+    /// <param name="messages">Messages the profile declares.</param>
+    /// <param name="errors">Errors collected so far.</param>
+    private static void CheckAnnouncementContext(IReadOnlyList<ProfileMessage> messages, List<ProfileIssue> errors)
+    {
+        var announced = messages.FirstOrDefault(message =>
+            string.Equals(message.Name, "MATCH_ANNOUNCED", StringComparison.Ordinal));
+        if (announced is null)
+        {
+            return;
+        }
+
+        if (announced.Direction != PacketDirection.ServerToClient)
+        {
+            errors.Add(new ProfileIssue(
+                "E_PROFILE_MESSAGE_CONTEXT", "$.messages.MATCH_ANNOUNCED.direction",
+                "MATCH_ANNOUNCED must be SERVER_TO_CLIENT"));
+        }
+
+        var pop = messages.FirstOrDefault(message =>
+            string.Equals(message.Name, "CONTENT_FINDER_POP", StringComparison.Ordinal));
+        if (pop is not { Direction: PacketDirection.ClientToServer })
+        {
+            errors.Add(new ProfileIssue(
+                "E_PROFILE_MESSAGE_CONTEXT", "$.messages.MATCH_ANNOUNCED",
+                "MATCH_ANNOUNCED is only valid where CONTENT_FINDER_POP is CLIENT_TO_SERVER"));
         }
     }
 

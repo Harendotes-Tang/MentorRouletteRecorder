@@ -68,6 +68,18 @@ public sealed class SharedProfileBuilderTests : IDisposable
             node.Remove(key);
         }
 
+        // The announcement recognised by its timing does not travel in a share code: its opcode
+        // was named by evidence this machine collected, and the code carries none of it. A
+        // profile holding one is shared as the queue-request profile underneath it, and the
+        // receiving machine looks for its own announcement (docs/protocol-profile-format.md §11).
+        var messages = node["messages"]!.AsArray();
+        var announced = messages.FirstOrDefault(
+            message => message!["name"]!.GetValue<string>() == "MATCH_ANNOUNCED");
+        if (announced is not null)
+        {
+            messages.Remove(announced);
+        }
+
         return node;
     }
 
