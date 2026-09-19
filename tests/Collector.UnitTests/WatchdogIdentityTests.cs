@@ -168,7 +168,24 @@ public sealed class WatchdogIdentityTests : IDisposable
         parent.Kill(entireProcessTree: true);
         await parent.WaitForExitAsync(new CancellationTokenSource(TimeSpan.FromSeconds(15)).Token);
         await watchdog.WaitAsync(new CancellationTokenSource(TimeSpan.FromSeconds(15)).Token);
-        await Task.Delay(TimeSpan.FromMilliseconds(500));
+        // The hard exit runs on a timer after the wait above returns. A fixed 500 ms was enough on an
+        // idle machine and not under the full suite (it failed the 1.2.4 packaging gate once), so the
+        // callback is waited for, and then given time to prove it does not fire twice.
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(15);
+        while (DateTime.UtcNow < deadline)
+        {
+            lock (codes)
+            {
+                if (codes.Count > 0)
+                {
+                    break;
+                }
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(25));
+        }
+
+        await Task.Delay(TimeSpan.FromMilliseconds(200));
 
         lock (codes)
         {
