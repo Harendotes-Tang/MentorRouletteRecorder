@@ -652,8 +652,13 @@ public sealed partial class LiveProtocolPipeline :
             // which on the CN client has no duty name in it at all (review finding H-3).
             // Use the bound machine, not the latest catalogue or calibration state: a newly
             // confirmed profile can be selected before the current parser is replaced.
+            // The match source the desktop is told about is about this transition, not about the
+            // profile: a queue-inferred profile that also recognised the server's announcement
+            // observed THIS match, and the desktop speaks only for an observed one. Every other
+            // state it publishes stays inferred, because every other state still is.
+            var observed = afterState == RunState.MentorMatched && machine.MatchObserved;
             _liveEvents.PublishState(afterState, afterId is null ? null : _runs.Get(afterId),
-                machine.MatchFromQueue);
+                machine.MatchFromQueue && !observed);
         }
 
         if (beforeId is not null)

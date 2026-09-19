@@ -536,7 +536,7 @@
         "last_valid_event_at_utc": { "$ref": "#/$defs/NullableUtcTimestamp", "description": "When the parser last produced a semantic event." },
         "last_valid_event_kind": {
           "type": ["string", "null"],
-          "enum": ["CONTENT_FINDER_POP", "ZONE_INITIALIZATION", "ZONE_TERRITORY", "DUTY_RESULT", "PLAYER_JOB", "ZONE_LEFT", "INSTANCE_LEFT", "MATCH_CANCELLED", null],
+          "enum": ["CONTENT_FINDER_POP", "ZONE_INITIALIZATION", "ZONE_TERRITORY", "DUTY_RESULT", "PLAYER_JOB", "ZONE_LEFT", "INSTANCE_LEFT", "MATCH_CANCELLED", "MATCH_ANNOUNCED", null],
           "description": "Semantic event type of the event last_valid_event_at_utc describes, set at the same moment; null when there is none. The Desktop shows it in words (DUTY_RESULT = 副本结算). Absent from Collectors before 0.8: a client must treat an absent field as 'not reported', and a token it does not know as 'some event'."
         },
         "recent_parser_errors": {

@@ -2,48 +2,6 @@ using MentorRecorder.Collector.Domain.Events;
 
 namespace MentorRecorder.Collector.Domain.StateMachine;
 
-/// <summary>Enough mutable state to roll a <see cref="MentorRunStateMachine"/> back after a failed commit.</summary>
-/// <param name="State">Current state.</param>
-/// <param name="RunId">Run in flight, if any.</param>
-/// <param name="MatchedMono">Monotonic time of the current match.</param>
-/// <param name="EnteredMono">Monotonic time of the duty entry, if any.</param>
-/// <param name="Entered">Whether the duty has been entered.</param>
-/// <param name="ContentId">Content currently tracked, if any.</param>
-/// <param name="TerritoryId">Territory currently tracked, if any.</param>
-/// <param name="JobId">Job currently tracked, if any.</param>
-/// <param name="LastKnownJobId">Most recent job observed in any state, if any.</param>
-/// <param name="ProfileLost">Whether the bound profile became unusable.</param>
-/// <param name="ParserErrorCount">Refusal count.</param>
-/// <param name="DuplicateCount">Duplicate count.</param>
-/// <param name="DedupKeys">Retained dedup keys, oldest first.</param>
-public sealed record StateMachineCheckpoint(
-    RunState State,
-    string? RunId,
-    TimeSpan MatchedMono,
-    TimeSpan? EnteredMono,
-    bool Entered,
-    int? ContentId,
-    int? TerritoryId,
-    int? JobId,
-    int? LastKnownJobId,
-    TerritoryObserved? LastTerritory,
-    bool ProfileLost,
-    int ParserErrorCount,
-    int DuplicateCount,
-    IReadOnlyList<string> DedupKeys)
-{
-    /// <summary>Queue evidence awaiting a duty entry; it has no persisted run yet.</summary>
-    public ContentFinderPop? PendingQueue { get; init; }
-}
-
-/// <summary>
-/// What one machine knew about the player rather than about a run, so a machine built for a
-/// retried capture session can start from it (docs/state-machine.md section 3.11).
-/// </summary>
-/// <param name="LastKnownJobId">Most recent job observed in any state, if any.</param>
-/// <param name="LastTerritory">Most recent territory announcement, if any.</param>
-public sealed record StateMachineMemory(int? LastKnownJobId);
-
 /// <summary>
 /// The only place that decides what a mentor roulette attempt was.
 ///
@@ -72,6 +30,7 @@ public sealed class MentorRunStateMachine
     private int? _territoryId;
     private int? _jobId;
     private ContentFinderPop? _pendingQueue;
+    private bool _matchObserved;
 
     // Remembered across runs and across states, because both observations arrive outside the
     // run they belong to: the job is announced at login and on every class change, and the
@@ -116,6 +75,20 @@ public sealed class MentorRunStateMachine
 
     /// <summary>Whether this machine's bound profile uses a queue request as the match.</summary>
     public bool MatchFromQueue => _profile.MatchFromQueue;
+
+    /// <summary>
+    /// True while the match in flight was opened by the server's own announcement rather than
+    /// inferred from the queue request. On a queue-inferred profile this is the difference
+    /// between "you queued and then a duty loaded" and "the popup is on your screen now", which
+    /// is the whole reason the desktop speaks at one of them and not the other.
+    /// </summary>
+    public bool MatchObserved => _matchObserved;
+
+    /// <summary>
+    /// How long the duty may take to load. An announced match has spent its queue already, so
+    /// only the confirmation and the loading screen are left.
+    /// </summary>
+    private TimeSpan EntryWindow => _matchObserved ? _options.AnnouncedWindow : _options.MatchWindow;
 
     /// <summary>Monotonic reading taken when the current match popped.</summary>
     public TimeSpan MatchedMono => _matchedMono;
@@ -236,7 +209,7 @@ public sealed class MentorRunStateMachine
             _profileLost,
             ParserErrorCount,
             DuplicateCount,
-            _dedup.Snapshot()) { PendingQueue = _pendingQueue };
+            _dedup.Snapshot()) { PendingQueue = _pendingQueue, MatchObserved = _matchObserved };
 
     /// <summary>Restores a snapshot captured by <see cref="Checkpoint"/>.</summary>
     /// <param name="checkpoint">State to restore.</param>
@@ -252,6 +225,7 @@ public sealed class MentorRunStateMachine
         _territoryId = checkpoint.TerritoryId;
         _jobId = checkpoint.JobId;
         _pendingQueue = checkpoint.PendingQueue;
+        _matchObserved = checkpoint.MatchObserved;
         _lastKnownJobId = checkpoint.LastKnownJobId;
         _lastTerritory = checkpoint.LastTerritory;
         _profileLost = checkpoint.ProfileLost;
@@ -366,6 +340,14 @@ public sealed class MentorRunStateMachine
                 _pendingQueue = null;
                 break;
 
+            // The server said the match is here. The roulette still comes from the request -
+            // nothing in the announcement names one - but the moment is the server's, and the
+            // run opens now rather than when the duty finishes loading.
+            case MatchAnnounced announced when _pendingQueue is { } matched:
+                _pendingQueue = null;
+                _matchObserved = true;
+                return StartRun(matched, Array.Empty<StateCommand>(), announced);
+
             case ZoneInitialization zone when zone.IsDutyInstance != false &&
                 _pendingQueue is { } queued && CanEnterDuty(zone, queued.Mono, queued.ContentId):
                 // Create and enter in one transaction. No MENTOR_MATCHED event or incomplete
@@ -385,14 +367,24 @@ public sealed class MentorRunStateMachine
         return TransitionResult.Ignored(_state, null);
     }
 
-    private TransitionResult StartRun(ContentFinderPop pop, IReadOnlyList<StateCommand> before)
+    /// <summary>Opens a run for a mentor match.</summary>
+    /// <param name="pop">The pop, or the queue request standing in for it, that names the roulette.</param>
+    /// <param name="before">Commands that must be applied first, such as closing a previous run.</param>
+    /// <param name="trigger">
+    /// The observation that dates the match, when it is not the pop itself. An announcement
+    /// recognised by its timing carries no roulette, so it dates a match the request names: the
+    /// run is stamped with the moment the popup appeared and the trail shows the announcement.
+    /// </param>
+    private TransitionResult StartRun(
+        ContentFinderPop pop, IReadOnlyList<StateCommand> before, SemanticEvent? trigger = null)
     {
+        var matched = trigger ?? pop;
         var runId = _newRunId();
         var commands = new List<StateCommand>(before.Count + 3);
         commands.AddRange(before);
-        commands.Add(new CreateRunCommand(runId, pop.ObservedAtUtc, pop.RouletteId, pop.ContentId)
+        commands.Add(new CreateRunCommand(runId, matched.ObservedAtUtc, pop.RouletteId, pop.ContentId)
         {
-            MatchedMono = pop.Mono,
+            MatchedMono = matched.Mono,
         });
 
         // The job is announced at login and on every class change, so for most runs the only
@@ -404,11 +396,11 @@ public sealed class MentorRunStateMachine
         }
 
         commands.Add(new AppendEventCommand(
-            runId, pop, RunState.Idle, RunState.MentorMatched, DetectionConfidence.High));
+            runId, matched, RunState.Idle, RunState.MentorMatched, DetectionConfidence.High));
 
         _runId = runId;
         _state = RunState.MentorMatched;
-        _matchedMono = pop.Mono;
+        _matchedMono = matched.Mono;
         _entered = false;
         _enteredMono = null;
         _contentId = pop.ContentId;
@@ -435,13 +427,27 @@ public sealed class MentorRunStateMachine
             // A zone change the profile cannot classify, arriving after the match window has
             // lapsed, is the lapsed match itself: the player went somewhere without entering.
             case ZoneInitialization { IsDutyInstance: null } zone
-                when zone.Mono - _matchedMono > _options.MatchWindow:
+                when zone.Mono - _matchedMono > EntryWindow:
                 return Finish(
                     ev, RunState.CancelledBeforeEntry, RunResult.CancelledBeforeEntry,
                     DetectionConfidence.Low);
 
             case ZoneInitialization:
                 return TransitionResult.Ignored(_state, _runId);
+
+            // The server announced the match again: somebody declined and the finder re-formed
+            // the party, or this client simply sends the announcement three times for one match.
+            // Either way it is the same run, and the entry window has to move with it.
+            case MatchAnnounced announced when _matchObserved:
+                return RefreshMatch(announced);
+
+            // On a profile that stands the player's request in for the match, a CONTENT_FINDER_POP
+            // is that request. Arriving while an announced match stands, it says the player let
+            // that match go and asked the finder for something else; it is never the same match
+            // being offered again, whatever the roulette.
+            case ContentFinderPop pop when _matchObserved:
+                return RestartOn(pop, RunState.CancelledBeforeEntry, RunResult.CancelledBeforeEntry,
+                    DetectionConfidence.Medium);
 
             case ContentFinderPop pop when pop.Mono - _matchedMono >= _options.MatchWindow:
                 return RestartOn(pop, RunState.CancelledBeforeEntry, RunResult.CancelledBeforeEntry,
@@ -615,17 +621,17 @@ public sealed class MentorRunStateMachine
     /// The re-pop is appended to the trail rather than swallowed: the audit has to be able
     /// to show why an entry three minutes after the first pop was still accepted.
     /// </summary>
-    /// <param name="pop">The repeated mentor pop.</param>
-    private TransitionResult RefreshMatch(ContentFinderPop pop)
+    /// <param name="match">The repeated mentor pop, or the repeated announcement of one.</param>
+    private TransitionResult RefreshMatch(SemanticEvent match)
     {
         var runId = _runId!;
-        _matchedMono = pop.Mono;
-        _contentId = pop.ContentId ?? _contentId;
+        _matchedMono = match.Mono;
+        _contentId = (match as ContentFinderPop)?.ContentId ?? _contentId;
 
         var commands = new StateCommand[]
         {
             new AppendEventCommand(
-                runId, pop, RunState.MentorMatched, RunState.MentorMatched, DetectionConfidence.High),
+                runId, match, RunState.MentorMatched, RunState.MentorMatched, DetectionConfidence.High),
         };
 
         return new TransitionResult(
@@ -652,7 +658,7 @@ public sealed class MentorRunStateMachine
             return matchedContent == zoneContent;
         }
 
-        return elapsed <= _options.MatchWindow;
+        return elapsed <= EntryWindow;
     }
 
     /// <summary>True when this zone change lands in a territory the duty table knows.</summary>
@@ -795,5 +801,6 @@ public sealed class MentorRunStateMachine
         _territoryId = null;
         _jobId = null;
         _pendingQueue = null;
+        _matchObserved = false;
     }
 }

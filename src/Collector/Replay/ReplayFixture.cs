@@ -177,6 +177,7 @@ public static class ReplayFixtureLoader
                 Key = key, ObservedAtUtc = observed, Mono = mono, Victory = victory,
             },
             "MATCH_CANCELLED" => new MatchCancelled { Key = key, ObservedAtUtc = observed, Mono = mono },
+            "MATCH_ANNOUNCED" => new MatchAnnounced { Key = key, ObservedAtUtc = observed, Mono = mono },
             "ZONE_LEFT" => new ZoneLeft
             {
                 Key = key, ObservedAtUtc = observed, Mono = mono, TerritoryId = row.TerritoryId,

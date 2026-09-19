@@ -18,6 +18,21 @@ public sealed record StateMachineOptions
     public TimeSpan MatchWindow { get; init; } = TimeSpan.FromSeconds(45);
 
     /// <summary>
+    /// How long the duty may take to load once the server has announced the match.
+    ///
+    /// A queue-inferred profile declares an hour as its match window, because what it is timing
+    /// is a queue. An announcement ends the queue: what is left is the player's own confirmation
+    /// and a loading screen, a couple of minutes at the outside. Keeping the hour there would
+    /// leave a declined match standing until the player's next zone change an evening later.
+    ///
+    /// The profile does not carry this number. It is the same two minutes every shipped template
+    /// declares as its match window, and a queue-inferred profile has overwritten its own with
+    /// the queue ceiling, so there is nothing in the file left to read it from
+    /// (docs/state-machine.md section 3.12).
+    /// </summary>
+    public TimeSpan AnnouncedWindow { get; init; } = TimeSpan.FromSeconds(120);
+
+    /// <summary>
     /// How long a territory announcement stays usable as the territory of a duty that is
     /// entered afterwards. The CN client sends the two about 50 ms apart, so the window is
     /// generous by two orders of magnitude and still far too short to reach the previous
