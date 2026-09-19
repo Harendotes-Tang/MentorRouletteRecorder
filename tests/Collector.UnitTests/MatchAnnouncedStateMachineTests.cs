@@ -271,4 +271,60 @@ public sealed class MatchAnnouncedStateMachineTests
         Assert.False(result.Accepted);
         Assert.Empty(result.Commands);
     }
+
+    /// <summary>
+    /// The rule this feature was let in under: it only ever adds. If the learned message is wrong
+    /// and speaks early, the duty the player then enters is still the duty they queued for - the
+    /// queue request stands behind it exactly as it did before there was any announcement.
+    /// </summary>
+    [Fact]
+    public void ADutyEnteredLongAfterAnEarlyAnnouncementIsStillRecorded()
+    {
+        var machine = Machine();
+        machine.Handle(Queue(0));
+        machine.Handle(Announced(10));
+
+        var result = machine.Handle(Duty(10 + (int)StateMachineOptions.Default.AnnouncedWindow.TotalSeconds + 300));
+
+        Assert.Equal(RunState.EnteredDuty, result.ToState);
+    }
+
+    /// <summary>
+    /// An announced match that lapses closes its run, but the request behind it has not expired:
+    /// the player who teleported after a false alarm and is matched ten minutes later must still
+    /// get their record.
+    /// </summary>
+    [Fact]
+    public void AnAnnouncedMatchThatLapsesLeavesTheQueueStanding()
+    {
+        var machine = Machine();
+        machine.Handle(Queue(0));
+        machine.Handle(Announced(10));
+        var lapsed = machine.Handle(Town(300));
+        Assert.Equal(RunState.CancelledBeforeEntry, lapsed.ToState);
+
+        var result = machine.Handle(Duty(900));
+
+        Assert.Equal(RunState.EnteredDuty, result.ToState);
+    }
+
+    /// <summary>
+    /// A learned message that turns out to be chatty must not write a trail row per arrival for
+    /// as long as the match stands.
+    /// </summary>
+    [Fact]
+    public void AnAnnouncementRepeatedWithoutEndStopsRefreshingTheMatch()
+    {
+        var machine = Machine();
+        machine.Handle(Queue(0));
+        machine.Handle(Announced(10));
+        var written = 0;
+        for (var i = 1; i <= 60; i++)
+        {
+            written += machine.Handle(Announced(10 + i)).Commands.Count;
+        }
+
+        Assert.True(written <= MentorRunStateMachine.MaxAnnouncedRefreshes,
+            $"{written} trail rows for one match");
+    }
 }

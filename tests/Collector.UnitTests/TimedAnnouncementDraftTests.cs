@@ -300,4 +300,53 @@ public sealed class TimedAnnouncementDraftTests
         Assert.NotNull(draft.TimedAnnouncement);
         Assert.Equal(Announce, draft.TimedAnnouncement!.Shape.Opcode);
     }
+
+    /// <summary>
+    /// Review of the first cut: the tie-break only compares candidates with each other, so a
+    /// shape that arrives as the loading screen begins wins unopposed whenever the real popup is
+    /// not a candidate at all. Between the popup and the load stand the player's click, everybody
+    /// else's, and the countdown; nothing that leads the load by a second is the popup.
+    /// </summary>
+    [Fact]
+    public void ALoneShapeThatArrivesWithTheLoadingScreenIsNotThePopup()
+    {
+        var draft = Derive(WithoutSightings().Concat(new[]
+        {
+            Sighting(124_000), Sighting(364_000),
+        }));
+
+        Assert.Null(draft.TimedAnnouncement);
+        Assert.Equal(CalibrationDraftStatus.Ready, draft.Status);
+    }
+
+    /// <summary>
+    /// A queue request stands until a zone load clears it, so in a long queue everything first
+    /// seen in town is "seen while queueing" and never strays. What separates the announcement is
+    /// what follows it: a duty, nearly every time. A shape mostly seen with no duty behind it is
+    /// the town talking.
+    /// </summary>
+    [Fact]
+    public void AShapeMostlySeenWithNoDutyBehindItIsNotThePopup()
+    {
+        var idle = new long[] { 520_000, 560_000, 600_000, 640_000, 700_000, 760_000, 800_000 };
+        var draft = Derive(CalibrationTrafficCases.Traffic(CalibrationTrafficCases.QueueRequestAnnounced)
+            .Concat(CalibrationTrafficCases.SecondQueue(3, 500_000))
+            .Concat(idle.Select(t => Sighting(t))));
+
+        Assert.Null(draft.TimedAnnouncement);
+    }
+
+    /// <summary>
+    /// "A popup happened around then" is true of any candidate, so the line also says how long
+    /// before the loading screen it came - the one number the player can hold against what they
+    /// remember, and the one a maintainer reads first in a screenshot.
+    /// </summary>
+    [Fact]
+    public void TheLineToConfirmSaysHowLongBeforeTheLoadItCame()
+    {
+        var draft = Derive(CalibrationTrafficCases.Traffic(CalibrationTrafficCases.QueueRequestAnnounced));
+
+        Assert.All(draft.Events.Where(item => item.Kind == "pop"),
+            item => Assert.Matches(@"读条前约 \d+ 秒", item.Label));
+    }
 }

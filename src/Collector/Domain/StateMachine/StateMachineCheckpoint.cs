@@ -41,6 +41,12 @@ public sealed record StateMachineCheckpoint(
     /// long the entry may take, so a rolled-back commit has to roll it back too.
     /// </summary>
     public bool MatchObserved { get; init; }
+
+    /// <summary>The queue request behind an announced match, which outlives the announcement's window.</summary>
+    public ContentFinderPop? AnnouncedRequest { get; init; }
+
+    /// <summary>How many times the announced match in flight has been announced again.</summary>
+    public int AnnouncedRefreshes { get; init; }
 }
 
 /// <summary>

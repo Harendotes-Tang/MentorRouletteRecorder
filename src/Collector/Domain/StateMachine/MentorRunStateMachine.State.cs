@@ -69,7 +69,13 @@ public sealed partial class MentorRunStateMachine
             _profileLost,
             ParserErrorCount,
             DuplicateCount,
-            _dedup.Snapshot()) { PendingQueue = _pendingQueue, MatchObserved = _matchObserved };
+            _dedup.Snapshot())
+            {
+                PendingQueue = _pendingQueue,
+                MatchObserved = _matchObserved,
+                AnnouncedRequest = _announcedRequest,
+                AnnouncedRefreshes = _announcedRefreshes,
+            };
 
     /// <summary>Restores a snapshot captured by <see cref="Checkpoint"/>.</summary>
     /// <param name="checkpoint">State to restore.</param>
@@ -86,6 +92,8 @@ public sealed partial class MentorRunStateMachine
         _jobId = checkpoint.JobId;
         _pendingQueue = checkpoint.PendingQueue;
         _matchObserved = checkpoint.MatchObserved;
+        _announcedRequest = checkpoint.AnnouncedRequest;
+        _announcedRefreshes = checkpoint.AnnouncedRefreshes;
         _lastKnownJobId = checkpoint.LastKnownJobId;
         _lastTerritory = checkpoint.LastTerritory;
         _profileLost = checkpoint.ProfileLost;

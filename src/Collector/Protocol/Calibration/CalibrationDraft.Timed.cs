@@ -19,7 +19,9 @@ namespace MentorRecorder.Collector.Protocol.Calibration;
 /// One sighting per duty entry it explained, in time order: the first arrival inside the match
 /// window before that entry. These are the lines the user confirms.
 /// </param>
-public sealed record TimedAnnouncement(MessageKey Shape, IReadOnlyList<PopHit> Samples);
+/// <param name="Leads">How long before its duty's loading screen each sample arrived, in sample order.</param>
+public sealed record TimedAnnouncement(
+    MessageKey Shape, IReadOnlyList<PopHit> Samples, IReadOnlyList<TimeSpan>? Leads = null);
 
 public sealed partial record CalibrationDraft
 {
@@ -43,6 +45,15 @@ public sealed partial record CalibrationDraft
     /// date it to the moment the player queued.
     /// </summary>
     public const int MaxPerWindow = 8;
+
+    /// <summary>
+    /// The least a popup can lead its loading screen by. Between the two stand the player's click,
+    /// everybody else's, and the countdown; a shape that arrives a second before the load is the
+    /// load being announced, not the match. The tie-break below only compares candidates with
+    /// each other, so without a floor such a shape wins unopposed whenever the real popup is not
+    /// a candidate at all - the same kind of mistake as the retainer list and the 24-byte escort.
+    /// </summary>
+    public static readonly TimeSpan MinTimedLead = TimeSpan.FromSeconds(3);
 
     /// <summary>
     /// The announcement this draft recognised by its timing, or null when none could be. Never
@@ -90,7 +101,7 @@ public sealed partial record CalibrationDraft
         }
 
         var window = template.MatchWindow;
-        var candidates = new List<(MessageKey Shape, TimeSpan Lead, PopHit[] Samples)>();
+        var candidates = new List<(MessageKey Shape, TimeSpan Lead, PopHit[] Samples, TimeSpan[] Leads)>();
         foreach (var shape in snapshot.TimedShapes)
         {
             if (replies.Contains(shape.Opcode) || rejections.TimedOpcodes.Contains(shape.Opcode) ||
@@ -100,9 +111,10 @@ public sealed partial record CalibrationDraft
                 continue;
             }
 
-            if (Supports(shape, chains, window) is { } support)
+            if (Supports(shape, chains, window) is { } support && support.Lead >= MinTimedLead &&
+                MostlyPrecedesADuty(shape, snapshot.Clusters, window))
             {
-                candidates.Add((shape.Shape, support.Lead, support.Samples));
+                candidates.Add((shape.Shape, support.Lead, support.Samples, support.Leads));
             }
         }
 
@@ -117,7 +129,29 @@ public sealed partial record CalibrationDraft
             return null;
         }
 
-        return new TimedAnnouncement(ordered[0].Shape, ordered[0].Samples);
+        return new TimedAnnouncement(ordered[0].Shape, ordered[0].Samples, ordered[0].Leads);
+    }
+
+    /// <summary>
+    /// True when at least half of the sightings the row still holds came inside the match window
+    /// before some known-duty load - the player's own or one a party leader queued them into.
+    ///
+    /// A queue request stands until a zone load clears it, so during a long queue everything
+    /// first seen in town counts as "seen while queueing" and never strays; the observer cannot
+    /// retire it. What the announcement has that the town does not is a duty behind it nearly
+    /// every time (a withdrawn match is the exception, and half leaves room for those).
+    /// </summary>
+    /// <param name="shape">Timing row of the shape.</param>
+    /// <param name="clusters">Every zone load observed.</param>
+    /// <param name="window">Match window from the template.</param>
+    private static bool MostlyPrecedesADuty(TimedShape shape, IReadOnlyList<ZoneCluster> clusters, TimeSpan window)
+    {
+        var duties = clusters.Where(cluster => cluster.TerritoryHits.Count > 0)
+            .Select(cluster => cluster.LoadStartedAtUtc)
+            .ToArray();
+        var followed = shape.Sightings.Count(sighting => duties.Any(load =>
+            load > sighting.AtUtc && load - sighting.AtUtc <= window));
+        return shape.Sightings.Count > 0 && followed * 2 >= shape.Sightings.Count;
     }
 
     /// <summary>
@@ -127,7 +161,7 @@ public sealed partial record CalibrationDraft
     /// <param name="shape">Timing row of the shape.</param>
     /// <param name="chains">Each duty entry with the queue request that explains it.</param>
     /// <param name="window">Match window from the template.</param>
-    private static (TimeSpan Lead, PopHit[] Samples)? Supports(
+    private static (TimeSpan Lead, PopHit[] Samples, TimeSpan[] Leads)? Supports(
         TimedShape shape, IReadOnlyList<(PopHit Pop, ZoneCluster Entry)> chains, TimeSpan window)
     {
         // Only entries the row still holds sightings for. Sightings are bounded, and an evening
@@ -141,7 +175,7 @@ public sealed partial record CalibrationDraft
             return null;
         }
 
-        var samples = new List<PopHit>(considered.Length);
+        var samples = new List<(PopHit Hit, TimeSpan Lead)>(considered.Length);
         var lead = TimeSpan.MaxValue;
         foreach (var (request, entry) in considered)
         {
@@ -173,12 +207,13 @@ public sealed partial record CalibrationDraft
 
             // The roulette comes from the request, never from the announcement: nothing in the
             // announcement says which duty it is about.
-            samples.Add(new PopHit(
+            samples.Add((new PopHit(
                 announced.ConnectionTag, shape.Opcode, request.RouletteId, announced.TMs, announced.AtUtc,
-                false, Array.Empty<CalibrationSelectorReading>()));
+                false, Array.Empty<CalibrationSelectorReading>()), ahead));
         }
 
-        return (lead, samples.OrderBy(sample => sample.AtUtc).ToArray());
+        var ordered = samples.OrderBy(sample => sample.Hit.AtUtc).ToArray();
+        return (lead, ordered.Select(sample => sample.Hit).ToArray(), ordered.Select(sample => sample.Lead).ToArray());
     }
 
     /// <summary>
@@ -197,12 +232,19 @@ public sealed partial record CalibrationDraft
             yield break;
         }
 
-        foreach (var sample in timed.Samples.OrderBy(sample => sample.AtUtc))
+        for (var index = 0; index < timed.Samples.Count; index++)
         {
+            var sample = timed.Samples[index];
+            // "A popup happened around then" is true of any candidate. How long before the
+            // loading screen it came is the one number the player can hold against what they
+            // remember, and the first thing a maintainer reads off a screenshot.
+            var lead = timed.Leads is { } leads && index < leads.Count
+                ? $"，读条前约 {Math.Max(0, (int)Math.Round(leads[index].TotalSeconds))} 秒"
+                : string.Empty;
             yield return new CalibrationEvent(
                 Id("pop", sample.AtUtc), "pop", sample.TMs, sample.AtUtc,
                 "匹配弹窗：" + roulettes.DisplayName((int)Math.Min(sample.RouletteId, int.MaxValue), region) +
-                "（按出现时机认出）",
+                "（按出现时机认出" + lead + "）",
                 sample.RouletteId, null, null, true);
         }
     }

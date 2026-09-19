@@ -32,6 +32,19 @@ public sealed partial class MentorRunStateMachine
     private ContentFinderPop? _pendingQueue;
     private bool _matchObserved;
 
+    // The queue request behind an announced match. The announcement only dates the match; the
+    // request is still what says the player queued for the mentor roulette, and it goes on
+    // saying so after the announcement's short window has closed (see CanEnterDuty).
+    private ContentFinderPop? _announcedRequest;
+    private int _announcedRefreshes;
+
+    /// <summary>
+    /// Trail rows one announced match may earn by being announced again. A client sends the
+    /// announcement three or four times for one match; a learned message that turns out to be
+    /// chatty must not write a row per arrival for as long as the match stands.
+    /// </summary>
+    public const int MaxAnnouncedRefreshes = 16;
+
     // Remembered across runs and across states, because both observations arrive outside the
     // run they belong to: the job is announced at login and on every class change, and the
     // territory is announced just before the entry marker (docs/state-machine.md section 3.11).
@@ -265,8 +278,11 @@ public sealed partial class MentorRunStateMachine
             // run opens now rather than when the duty finishes loading.
             case MatchAnnounced announced when _pendingQueue is { } matched:
                 _pendingQueue = null;
+                var opened = StartRun(matched, Array.Empty<StateCommand>(), announced);
                 _matchObserved = true;
-                return StartRun(matched, Array.Empty<StateCommand>(), announced);
+                _announcedRequest = matched;
+                _announcedRefreshes = 0;
+                return opened;
 
             case ZoneInitialization zone when zone.IsDutyInstance != false &&
                 _pendingQueue is { } queued && CanEnterDuty(zone, queued.Mono, queued.ContentId):
@@ -348,9 +364,20 @@ public sealed partial class MentorRunStateMachine
             // lapsed, is the lapsed match itself: the player went somewhere without entering.
             case ZoneInitialization { IsDutyInstance: null } zone
                 when zone.Mono - _matchedMono > EntryWindow:
-                return Finish(
+                // An announced match that lapsed says nothing about the queue behind it: the
+                // request has its own, much longer window, and a player who teleported after a
+                // false alarm is still queued. Without this an early or wrong announcement would
+                // cost the very record the queue request alone would have made.
+                var standing = _announcedRequest;
+                var lapsed = Finish(
                     ev, RunState.CancelledBeforeEntry, RunResult.CancelledBeforeEntry,
                     DetectionConfidence.Low);
+                if (standing is not null && zone.Mono - standing.Mono <= _options.MatchWindow)
+                {
+                    _pendingQueue = standing;
+                }
+
+                return lapsed;
 
             case ZoneInitialization:
                 return TransitionResult.Ignored(_state, _runId);
@@ -359,6 +386,12 @@ public sealed partial class MentorRunStateMachine
             // the party, or this client simply sends the announcement three times for one match.
             // Either way it is the same run, and the entry window has to move with it.
             case MatchAnnounced announced when _matchObserved:
+                if (_announcedRefreshes >= MaxAnnouncedRefreshes)
+                {
+                    return TransitionResult.Ignored(_state, _runId);
+                }
+
+                _announcedRefreshes++;
                 return RefreshMatch(announced);
 
             // On a profile that stands the player's request in for the match, a CONTENT_FINDER_POP
@@ -578,7 +611,16 @@ public sealed partial class MentorRunStateMachine
             return matchedContent == zoneContent;
         }
 
-        return elapsed <= EntryWindow;
+        if (elapsed <= EntryWindow)
+        {
+            return true;
+        }
+
+        // Past the announcement's own window the request still stands behind a known duty, for
+        // as long as it would have without any announcement (the MatchFromQueue test above has
+        // already required the known duty). The announcement only ever adds.
+        return _matchObserved && _announcedRequest is { } request &&
+            zone.Mono - request.Mono <= _options.MatchWindow;
     }
 
     /// <summary>True when this zone change lands in a territory the duty table knows.</summary>
@@ -722,5 +764,7 @@ public sealed partial class MentorRunStateMachine
         _jobId = null;
         _pendingQueue = null;
         _matchObserved = false;
+        _announcedRequest = null;
+        _announcedRefreshes = 0;
     }
 }
