@@ -541,6 +541,54 @@ Item {
 
     // -- QML ----------------------------------------------------------------
 
+    void aLongTimelineScrollsAndKeepsTheConfirmButtonInsideTheWindow()
+    {
+        // Real machine, 1.2.3: a morning of logins, zone changes and five queues made a timeline
+        // taller than the window, and the dialog grew with it - 以后再说 / 核对并启用 ended up
+        // below the bottom edge, so the calibration could be neither confirmed nor postponed.
+        CalibrationBackend backend;
+        QJsonObject calibration = readyTimeline();
+        QJsonArray events = calibration.value(QStringLiteral("events")).toArray();
+        for (int i = 0; i < 40; ++i)
+            events.append(::event(QStringLiteral("zone"), 300000 + i * 1000, QString::fromUtf8("换区"), false));
+        calibration.insert(QStringLiteral("events"), events);
+        backend.capture.insert(QStringLiteral("calibration"), calibration);
+        mr::AppController app(&backend, nullptr);
+        QTRY_COMPARE(app.calibration()->state(), QStringLiteral("READY"));
+
+        QQmlEngine engine;
+        engine.rootContext()->setContextProperty(QStringLiteral("App"), &app);
+        engine.rootContext()->setContextProperty(QStringLiteral("ReduceMotion"), true);
+        QQmlComponent component(&engine);
+        component.setData(R"(import QtQuick
+import QtQuick.Controls
+import MentorRecorder
+ApplicationWindow {
+    width: 720; height: 640; visible: true
+    CalibrationDialog { id: inner; anchors.centerIn: parent }
+})", QUrl());
+        std::unique_ptr<QObject> root(component.create());
+        QVERIFY2(root != nullptr, qPrintable(component.errorString()));
+        auto *dialog = root->findChild<QObject *>(QStringLiteral("calibrationDialog"));
+        QVERIFY(dialog);
+        QVERIFY(QMetaObject::invokeMethod(dialog, "openDialog"));
+        QTRY_VERIFY(dialog->property("visible").toBool());
+
+        auto *confirm = dialog->findChild<QQuickItem *>(QStringLiteral("calibrationDialogConfirm"));
+        QVERIFY(confirm);
+        QTRY_VERIFY(confirm->height() > 0);
+        // The popup lays its content out after it opens, so the position is waited for.
+        QTRY_VERIFY2(confirm->mapToScene(QPointF(0, confirm->height())).y() <= 640.0,
+                     qPrintable(QStringLiteral("confirm button bottom at %1, dialog height %2")
+                                    .arg(confirm->mapToScene(QPointF(0, confirm->height())).y())
+                                    .arg(dialog->property("height").toReal())));
+        QVERIFY(dialog->property("height").toReal() <= 640.0);
+
+        auto *timeline = dialog->findChild<QQuickItem *>(QStringLiteral("calibrationDialogTimelineView"));
+        QVERIFY(timeline);
+        QVERIFY(timeline->property("contentHeight").toReal() > timeline->height());
+    }
+
     void dialogEnablesConfirmOnlyAfterEveryVerdictAndSendsThemAll()
     {
         mr::MockBackend backend;

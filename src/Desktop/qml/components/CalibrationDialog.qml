@@ -53,6 +53,9 @@ Dialog {
     // Qt Basic's backdrop in eorzea, workbench's .dialog-backdrop in classic.
     Overlay.modal: Rectangle { color: Theme.modalScrim(dialog.palette.shadow) }
     width: 560
+    // 时间线可能比窗口还高（一上午的登录、换区与多次排本）：对话框不超出窗口，
+    // 时间线在内部滚动，底部两个按钮始终可见。
+    height: Math.min(implicitHeight, (dialog.parent ? dialog.parent.height : implicitHeight) - 32)
     padding: 20
     closePolicy: Popup.CloseOnEscape
 
@@ -61,6 +64,7 @@ Dialog {
     function openDialog() {
         dialog.verdicts = ({})
         dialog.noticeText = ""
+        timelineView.contentY = 0
         dialog.open()
     }
 
@@ -113,9 +117,26 @@ Dialog {
             wrapMode: Text.WordWrap
         }
 
-        ColumnLayout {
-            objectName: "calibrationDialogTimeline"
+        Flickable {
+            id: timelineView
+            objectName: "calibrationDialogTimelineView"
             Layout.fillWidth: true
+            Layout.fillHeight: true
+            Layout.preferredHeight: timelineRows.implicitHeight
+            Layout.minimumHeight: Math.min(timelineRows.implicitHeight, 160)
+            contentWidth: width
+            contentHeight: timelineRows.implicitHeight
+            clip: true
+            boundsBehavior: Flickable.StopAtBounds
+            ScrollBar.vertical: ScrollBar {
+                policy: timelineView.contentHeight > timelineView.height ? ScrollBar.AlwaysOn : ScrollBar.AlwaysOff
+            }
+
+        ColumnLayout {
+            id: timelineRows
+            objectName: "calibrationDialogTimeline"
+            // 与各滚动页一致，始终预留滚动条的位置：宽度不随高度变化。
+            width: timelineView.width - Theme.scrollGutter
             spacing: 6
 
             Repeater {
@@ -219,6 +240,7 @@ Dialog {
                     }
                 }
             }
+        }
         }
 
         Text {
