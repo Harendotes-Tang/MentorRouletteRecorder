@@ -484,12 +484,12 @@ public sealed partial class MentorRunStateMachine
         {
             // The single path to COMPLETED. There is no other one, by design.
             case DutyResult { Victory: true }:
-                return Finish(ev, RunState.Completed, RunResult.Completed, CompletionConfidence());
+                return Finish(ev, RunState.Completed, RunResult.Completed, CompletionConfidence(outcomeObserved: true));
 
             // A verified non-victory result is an observed outcome.
             case DutyResult:
                 return Finish(
-                    ev, RunState.LeftOrAbandoned, RunResult.LeftOrAbandoned, CompletionConfidence());
+                    ev, RunState.LeftOrAbandoned, RunResult.LeftOrAbandoned, CompletionConfidence(outcomeObserved: true));
 
             // An exit alone cannot reveal whether a duty was won when the profile has
             // no result message, even if it can identify the departing zone precisely.
@@ -497,7 +497,7 @@ public sealed partial class MentorRunStateMachine
             case InstanceLeft:
             case ZoneInitialization { IsDutyInstance: false }:
                 return _profile.CanDetectDutyResult
-                    ? Finish(ev, RunState.LeftOrAbandoned, RunResult.LeftOrAbandoned, CompletionConfidence())
+                    ? Finish(ev, RunState.LeftOrAbandoned, RunResult.LeftOrAbandoned, CompletionConfidence(outcomeObserved: false))
                     : Finish(ev, RunState.UnknownFinalState, RunResult.Unknown, DetectionConfidence.Low,
                         pendingReview: true);
 
@@ -507,7 +507,7 @@ public sealed partial class MentorRunStateMachine
             // record waits for the user (docs/state-machine.md section 3.10).
             case ZoneInitialization { IsDutyInstance: null } when _profile.CanDetectDutyResult:
                 return Finish(
-                    ev, RunState.LeftOrAbandoned, RunResult.LeftOrAbandoned, CompletionConfidence());
+                    ev, RunState.LeftOrAbandoned, RunResult.LeftOrAbandoned, CompletionConfidence(outcomeObserved: false));
 
             case ZoneInitialization { IsDutyInstance: null }:
                 return Finish(
@@ -526,7 +526,7 @@ public sealed partial class MentorRunStateMachine
 
             case ContentFinderPop pop when _profile.CanDetectDutyResult:
                 return RestartOn(pop, RunState.LeftOrAbandoned, RunResult.LeftOrAbandoned,
-                    CompletionConfidence());
+                    CompletionConfidence(outcomeObserved: false));
 
             case ContentFinderPop pop:
                 return RestartOn(pop, RunState.UnknownFinalState, RunResult.Unknown,
@@ -745,9 +745,11 @@ public sealed partial class MentorRunStateMachine
     /// the territory and never a content id, so asking for the content id alone made HIGH
     /// unreachable there. Both fields only ever come from protocol events here; the local
     /// content-to-territory display mapping never reaches them (docs/state-machine.md section 4).
+    /// An outcome read off a DUTY_RESULT is observed; one concluded from the player leaving the
+    /// zone is not, however well the duty is known, and stays at MEDIUM.
     /// </summary>
-    private DetectionConfidence CompletionConfidence() =>
-        _entered && (_contentId is not null || _territoryId is not null) && _jobId is not null
+    private DetectionConfidence CompletionConfidence(bool outcomeObserved) =>
+        outcomeObserved && _entered && (_contentId is not null || _territoryId is not null) && _jobId is not null
             ? DetectionConfidence.High
             : DetectionConfidence.Medium;
 
