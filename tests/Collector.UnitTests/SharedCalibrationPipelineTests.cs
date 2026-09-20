@@ -210,6 +210,45 @@ public sealed class SharedCalibrationPipelineTests : IDisposable
         Assert.Contains("cn/" + Bed.Build, remembered, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// A real machine: the player had retired her local profile so she could use the code a
+    /// friend sent her, and the client downloaded the published queue-inferred one first. It
+    /// passed, so the card parked on "同意一次" - and the two answers on offer were to bind that
+    /// weaker code or to refuse every shared code for the build. The Collector never refused an
+    /// import in this phase; only the desktop hid the button. This pins both halves: the import
+    /// is taken, and a code that reads the server's own match outranks one that infers it.
+    /// </summary>
+    [Fact]
+    public async Task ACodePastedWhileConsentIsPendingIsTakenAndOutranksTheInferredOne()
+    {
+        _bed.Publish(_bed.CodeFromEveningA(CalibrationTrafficCases.QueueRequest));
+        var pipeline = _bed.Pipeline(_bed.Services());
+        pipeline.Refresh(Bed.Game());
+        await Bed.Idle(pipeline);
+
+        var session = _bed.Start(pipeline);
+        Bed.Feed(pipeline, session, Bed.Before(Bed.Evening(), 124_000));
+        await Bed.Idle(pipeline);
+        Assert.Equal(SharedCalibrationPhase.AwaitingConsent, pipeline.CalibrationStatus().Shared.Phase);
+        Assert.False(File.Exists(_bed.SharedProfilePath));
+
+        // The friend's code, which reads the server's own match message.
+        var better = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
+        Assert.Equal(SharedImportOutcome.Applied, pipeline.ImportCalibrationCode(better.Code).Outcome);
+        Bed.Feed(pipeline, session, Bed.From(Bed.Before(Bed.Evening(), 200_000), 124_000));
+        await Bed.Idle(pipeline);
+
+        // It binds without asking about queue inference at all, because it does not infer.
+        Assert.Equal(ProfileOrigin.Shared, pipeline.Current.Origin);
+        var bound = Assert.Single(
+            pipeline.CalibrationStatus().Shared.Candidates,
+            candidate => candidate.Status == SharedCandidateStatus.InUse);
+        Assert.Equal(better.Sha[..12], bound.Sha12);
+        Assert.NotEqual(CalibrationMatchSource.QueueRequest, bound.MatchSource);
+        Assert.Null(new SettingsRepository(_bed.Db.Database, _bed.Db.Clock)
+            .GetSetting(SharedCalibrationSession.QueueConsentSetting));
+    }
+
     [Fact]
     public async Task AConsentSettingThatCannotBeReadAsksAgainInsteadOfFailing()
     {

@@ -224,8 +224,13 @@ bool SharedCalibrationController::canCheck() const
 
 bool SharedCalibrationController::canImport() const
 {
-    return m_inputs.available && calibrating() && !m_inputs.userRejected && !inUse()
-        && view() != QLatin1String("consent");
+    // The consent view is where importing matters most, not least. A downloaded
+    // queue-inferred code that passed verification parks the card there, and the two
+    // answers on offer are "bind this weaker code" and "refuse every shared code until
+    // 重新观察" - after which the same code is downloaded again. A player holding a
+    // friend's better code had no way in at all. The Collector never refused an import
+    // in this phase (SharedCalibrationSession.Import); only this card did.
+    return m_inputs.available && calibrating() && !m_inputs.userRejected && !inUse();
 }
 
 bool SharedCalibrationController::canReject() const
@@ -247,8 +252,12 @@ bool SharedCalibrationController::canShare() const
 
 QString SharedCalibrationController::consentText()
 {
+    // The last sentence is the third answer. Without it the box reads as a choice between
+    // accepting this code and giving up on shared calibration for the build, which is what
+    // left a player with a better code in hand stuck between the two.
     return tr("这份校准没有认出服务器发出的「匹配成功」报文，所以会%1：记录里的匹配时间是你申请排本的时间，"
-              "取消排队不会留下记录。本机校准遇到同样的情况也是这样记录的。同意一次，这个游戏版本就不再问。")
+              "取消排队不会留下记录。本机校准遇到同样的情况也是这样记录的。同意一次，这个游戏版本就不再问。"
+              "手上有其他玩家发来的校准码的话，也可以先点「导入校准码」。")
         .arg(CalibrationController::queueInferenceText());
 }
 

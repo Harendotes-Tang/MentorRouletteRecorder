@@ -428,8 +428,11 @@ private Q_SLOTS:
         c.refreshFromCaptureStatus(captureWith(QStringLiteral("OBSERVING"), sharedStatus(QStringLiteral("VERIFYING"))));
         QVERIFY(!c.canCheck() && c.canImport() && c.canReject());
 
+        // Awaiting consent is the phase importing matters most in, not least: the two answers
+        // on offer are "bind this queue-inferred code" and "refuse every shared code until
+        // 重新观察", and a player holding a friend's better code needs a third.
         c.refreshFromCaptureStatus(captureWith(QStringLiteral("OBSERVING"), sharedStatus(QStringLiteral("AWAITING_CONSENT"))));
-        QVERIFY(!c.canImport() && c.canReject());
+        QVERIFY(c.canImport() && c.canReject());
 
         c.refreshFromCaptureStatus(captureWith(QStringLiteral("OBSERVING"), sharedStatus(QStringLiteral("REJECTED"), true)));
         QVERIFY(!c.canCheck() && !c.canImport() && !c.canReject());
