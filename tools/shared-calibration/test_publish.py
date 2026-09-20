@@ -304,10 +304,19 @@ class ReportTests(PublishTestCase):
             "user": {"id": 4242, "login": "Octo-Cat", "type": "User"},
         }}
 
-    def report(self, event) -> tuple:
-        path = self.root / "event.json"
+    @staticmethod
+    def live(event, state="OPEN", labels=None) -> dict:
+        """`gh issue view --json state,labels`: the issue as it is now, not as the event remembers it."""
+        names = [label["name"] for label in event["issue"]["labels"]] if isinstance(event, dict) else []
+        return {"state": state, "labels": [{"name": name} for name in (names if labels is None else labels)]}
+
+    def report(self, event, live=None) -> tuple:
+        path, live_path = self.root / "event.json", self.root / "live.json"
         path.write_text(event if isinstance(event, str) else json.dumps(event, ensure_ascii=False), encoding="utf-8")
-        exit_code, stdout = self.call("report", "--event", path, "--out", self.out)
+        current = self.live(event) if live is None else live
+        live_path.write_text(current if isinstance(current, str) else json.dumps(current, ensure_ascii=False),
+                             encoding="utf-8")
+        exit_code, stdout = self.call("report", "--event", path, "--live", live_path, "--out", self.out)
         result = json.loads((self.out / "result.json").read_text(encoding="utf-8"))
         return exit_code, result, (self.out / "comment.md").read_text(encoding="utf-8"), stdout
 
@@ -358,15 +367,32 @@ class ReportTests(PublishTestCase):
         pull_request = self.event()
         pull_request["issue"]["pull_request"] = {"url": "https://example.invalid"}
         cases = (
-            (self.event(labels=("calibration-report", "needs-maintainer")), "ALREADY_ANSWERED"),
-            (self.event(labels=("share-calibration",)), "NOT_LABELLED"),
-            (self.event(state="closed"), "NOT_OPEN"),
-            (pull_request, "NOT_AN_ISSUE"),
+            (self.event(labels=("calibration-report", "needs-maintainer")), None, "ALREADY_ANSWERED"),
+            (self.event(labels=("share-calibration",)), None, "NOT_LABELLED"),
+            (self.event(), self.live(self.event(), state="CLOSED"), "NOT_OPEN"),
+            (pull_request, None, "NOT_AN_ISSUE"),
         )
-        for event, reason in cases:
+        for event, live, reason in cases:
             with self.subTest(reason):
-                _, result, comment, _ = self.report(event)
+                _, result, comment, _ = self.report(event, live=live)
                 self.assertEqual(("skipped", reason, "", ""), (result["status"], result["reason"], result["labels"], comment))
+
+    def test_the_labels_and_the_state_are_taken_from_the_issue_now_not_from_the_event(self):
+        """A redelivered event still says "unanswered"; the live labels are what decides."""
+        stale = self.event()
+        answered = self.live(stale, labels=("calibration-report", "needs-maintainer"))
+        _, result, comment, _ = self.report(stale, live=answered)
+        self.assertEqual(("skipped", "ALREADY_ANSWERED", ""), (result["status"], result["reason"], comment))
+        # And the other way round: an event that never carried the label, which was added afterwards.
+        added = self.event(labels=())
+        _, result, _, _ = self.report(added, live=self.live(added, labels=("calibration-report",)))
+        self.assertEqual("received", result["status"])
+
+    def test_an_unreadable_view_of_the_issue_replies_to_nobody(self):
+        for live in ("not json", {"state": "OPEN"}, {"state": 7, "labels": []}, {"labels": [{"name": "calibration-report"}]}):
+            with self.subTest(repr(live)[:30]):
+                _, result, comment, _ = self.report(self.event(), live=live)
+                self.assertEqual(("skipped", "NOT_OPEN", ""), (result["status"], result["reason"], comment))
 
     def test_an_unreadable_event_needs_a_maintainer_rather_than_a_reply_to_nobody(self):
         _, result, comment, _ = self.report("not json")
@@ -387,7 +413,7 @@ class ReportTests(PublishTestCase):
         options = set()
         for action in publish._parser()._subparsers._group_actions[0].choices["report"]._actions:
             options.update(action.option_strings)
-        self.assertEqual({"-h", "--help", "--event", "--out"}, options)
+        self.assertEqual({"-h", "--help", "--event", "--live", "--out"}, options)
 
 
 class HelperCommandTests(PublishTestCase):

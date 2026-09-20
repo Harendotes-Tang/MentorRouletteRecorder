@@ -17,7 +17,9 @@ Run by tools/publish_issue.sh and tools/sweep_issues.sh, which .github/workflows
 
 ``report`` publishes nothing and revokes nothing: a report is a reason for a maintainer to look, and
 a count of reports must never be able to take a working calibration down. It only decides whether the
-form was filled in, which labels the issue gets, and what the single reply says.
+form was filled in, which labels the issue gets, and what the single reply says. Because the issue is
+left open, it takes the state and the labels from ``--live`` (the issue as it is now) rather than from
+the event, so a redelivered event cannot answer the same report twice.
 
 Untrusted input - the issue title, the body, the submitter's login - is read only from the event file
 named on the command line, never from arguments or the environment. Every decision writes result.json
@@ -319,20 +321,28 @@ def compose_report_comment(result: ReportResult) -> str:
     return "\n".join(lines + ["", "<sub>MentorRecorder 共享校准 · 自动回复</sub>"]) + "\n"
 
 
-def evaluate_report(event: Any) -> ReportResult:
-    """One report issue decided. Reads only the event file; publishes, revokes and closes nothing."""
+def evaluate_report(event: Any, live: Any) -> ReportResult:
+    """One report issue decided. Publishes, revokes and closes nothing.
+
+    ``live`` is ``gh issue view --json state,labels`` taken just now. A report is left open, so the
+    only thing standing between a redelivered or replayed event and a second reply is the answer
+    label the first run added -- and the event remembers the labels as they were when it fired. The
+    state and the labels therefore come from ``live``; only the body comes from the event. Anything
+    unreadable in ``live`` skips without a reply: an unanswered report is a maintainer noticing a
+    label, while a duplicate reply is noise nobody can take back.
+    """
     issue = event.get("issue") if isinstance(event, dict) else None
     if not isinstance(issue, dict) or not _positive_int(issue.get("number")):
         return ReportResult(ERROR, EVENT_UNREADABLE)
     number = issue["number"]
     if "pull_request" in issue:
         return ReportResult(SKIPPED, NOT_AN_ISSUE, issue=number)
-    if issue.get("state") != "open":
+    state = live.get("state") if isinstance(live, dict) else None
+    if not isinstance(state, str) or state.upper() != "OPEN" or not isinstance(live.get("labels"), list):
         return ReportResult(SKIPPED, NOT_OPEN, issue=number)
-    labels = _label_names(issue)
+    labels = _label_names(live)
     if REPORT_LABEL not in labels:
         return ReportResult(SKIPPED, NOT_LABELLED, issue=number)
-    # The report stays open, so a later edit or relabel would otherwise answer it a second time.
     if labels & ANSWER_LABELS:
         return ReportResult(SKIPPED, ALREADY_ANSWERED, issue=number)
     form = issue_form.parse_report(issue.get("body"))
@@ -680,7 +690,8 @@ def command_wrap_event(args: argparse.Namespace) -> int:
 
 def command_report(args: argparse.Namespace) -> int:
     _, event = _load_json(args.event)
-    _emit(args.out, evaluate_report(event))
+    _, live = _load_json(args.live)
+    _emit(args.out, evaluate_report(event, live))
     return 0
 
 
@@ -736,6 +747,7 @@ def _parser() -> argparse.ArgumentParser:
 
     report = commands.add_parser("report")
     report.add_argument("--event", required=True, help="path of the GitHub issues event JSON")
+    report.add_argument("--live", required=True, help="path of `gh issue view --json state,labels` output")
     report.add_argument("--out", required=True, help="directory for result.json and comment.md")
     report.set_defaults(run=command_report)
 

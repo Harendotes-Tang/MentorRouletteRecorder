@@ -28,7 +28,12 @@ import sync_public_repo
 GH_STUB = """#!/usr/bin/env bash
 printf '%s\\n' "$*" >> "$STUB_DIR/gh.log"
 if [ "$1" = issue ] && [ "$2" = view ]; then
-  if [ -e "$STUB_DIR/state-$3" ]; then cat "$STUB_DIR/state-$3"; else echo OPEN; fi
+  case "$*" in
+    *labels*)
+      if [ -e "$STUB_DIR/live-$3.json" ]; then cat "$STUB_DIR/live-$3.json"; else echo '{"state":"OPEN","labels":[]}'; fi ;;
+    *)
+      if [ -e "$STUB_DIR/state-$3" ]; then cat "$STUB_DIR/state-$3"; else echo OPEN; fi ;;
+  esac
 elif [ "$1" = issue ] && [ "$2" = comment ]; then
   cat "$5" >> "$STUB_DIR/comment-$3.md"
 elif [ "$1" = issue ] && [ "$2" = close ]; then
@@ -231,7 +236,13 @@ class WorkflowScriptTests(unittest.TestCase):
                  "user": {"id": 6006, "login": "worried-player", "type": "User"}}
         event = self.root / ("report-%d.json" % number)
         event.write_text(json.dumps({"action": "opened", "issue": issue}, ensure_ascii=False), encoding="utf-8")
+        self.set_live(number, labels)
         return event
+
+    def set_live(self, number, labels, state="OPEN") -> None:
+        """What `gh issue view --json state,labels` will answer from now on: the issue as it is now."""
+        live = {"state": state, "labels": [{"name": name} for name in labels]}
+        (self.stub / ("live-%d.json" % number)).write_text(json.dumps(live), encoding="utf-8")
 
     def test_a_report_gets_both_labels_one_reply_and_is_left_open(self):
         completed = self.run_bash("tools/report_issue.sh", self.report(21).as_posix())
@@ -239,18 +250,33 @@ class WorkflowScriptTests(unittest.TestCase):
         self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
         self.assertEqual(["seed"], [subject for _, subject in self.origin_log()], "a report changes no file")
         calls = self.gh_calls()
-        for expected in ("issue edit 21 --add-label calibration-report", "issue edit 21 --add-label needs-maintainer",
+        for expected in ("issue view 21 --json state,labels", "issue edit 21 --add-label calibration-report",
+                         "issue edit 21 --add-label needs-maintainer",
                          "label create calibration-report", "label create needs-maintainer"):
             self.assertIn(expected, calls)
         self.assertFalse(any(call.startswith("issue close 21") for call in calls))
         self.assertIn("已收到。维护者核实后会撤回有问题的校准码，或在此说明原因。", self.comment(21))
         self.assertEqual(1, self.comment(21).count("已收到"))
 
+    def test_a_redelivered_event_cannot_answer_the_same_report_twice(self):
+        """The event still remembers the labels of the moment it fired, so the live ones must decide."""
+        event = self.report(24)
+        self.assertEqual(0, self.run_bash("tools/report_issue.sh", event.as_posix()).returncode)
+        self.assertEqual(1, self.comment(24).count("已收到"))
+
+        # GitHub now has the label the first run added; the very same event is delivered again.
+        self.set_live(24, ("calibration-report", "needs-maintainer"))
+        completed = self.run_bash("tools/report_issue.sh", event.as_posix())
+
+        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+        self.assertIn("nothing to do", completed.stdout)
+        self.assertEqual(1, self.comment(24).count("已收到"), "the report was answered a second time")
+
     def test_an_answered_report_is_left_alone_and_one_that_is_not_the_form_is_still_labelled(self):
         completed = self.run_bash("tools/report_issue.sh",
                                   self.report(22, labels=("calibration-report", "needs-maintainer")).as_posix())
         self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
-        self.assertEqual(["issue view 22 --json state --jq .state"], self.gh_calls())
+        self.assertEqual(["issue view 22 --json state,labels"], self.gh_calls())
 
         completed = self.run_bash("tools/report_issue.sh", self.report(23, body="我随便写的 $(whoami)").as_posix())
         self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)

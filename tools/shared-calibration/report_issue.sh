@@ -20,19 +20,21 @@ py() {
 }
 
 answer() {
-  local number="$1" out="$2" event="$3"
-  local status label
-  py report --event "$event" --out "$out"
+  local number="$1" out="$2" event="$3" live="$4"
+  local status labels label
+  py report --event "$event" --live "$live" --out "$out"
   status="$(py field --out "$out" --name status)"
   if [ "$status" = skipped ]; then
     echo "issue #$number: nothing to do"
     return 0
   fi
   gh issue comment "$number" --body-file "$out/comment.md"
-  # Word splitting is the point: publish.py returns the labels separated by a space, and `field`
-  # has already refused anything but the one allowed value. Creating a label that already exists
-  # fails harmlessly.
-  for label in $(py field --out "$out" --name labels); do
+  # A plain assignment, so a failing `py field` trips errexit and nothing is labelled; `for` over a
+  # command substitution would swallow the failure and quietly iterate over nothing. The value is
+  # one whitelisted constant, so splitting it on spaces is how the two labels arrive. Creating a
+  # label that already exists fails harmlessly.
+  labels="$(py field --out "$out" --name labels)"
+  for label in $labels; do
     gh label create "$label" > /dev/null 2>&1 || true
     gh issue edit "$number" --add-label "$label"
   done
@@ -40,20 +42,17 @@ answer() {
 
 main() {
   local event="${1:?usage: bash tools/report_issue.sh <event.json>}"
-  local number work state
+  local number work
   number="$(py event-field --event "$event" --name number)"
   work="${RUNNER_TEMP:?RUNNER_TEMP is not set}/report-$number"
   rm -rf "$work"
   mkdir -p "$work"
 
-  # The event may be stale: an earlier run can already have answered this issue, or it may be closed.
-  state="$(gh issue view "$number" --json state --jq .state)"
-  if [ "$state" != OPEN ]; then
-    echo "issue #$number is not open; nothing to do"
-    return 0
-  fi
+  # The event may be stale or redelivered, and a report is left open rather than closed, so whether
+  # it is still open and still unanswered is read from the issue as it is now, never from the event.
+  gh issue view "$number" --json state,labels > "$work/live.json"
 
-  answer "$number" "$work/out" "$event"
+  answer "$number" "$work/out" "$event" "$work/live.json"
 }
 
 main "$@"; exit "$?"

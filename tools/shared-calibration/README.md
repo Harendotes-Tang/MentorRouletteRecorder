@@ -21,7 +21,7 @@
 | `publish.py` | Action 的命令行：`check`、`update-index`、`push-failed`、`field`、`event-field`、`pending`、`wrap-event`、`revoke`、`report` | 是 |
 | `publish_issue.sh` | 处理一个提交 Issue：查状态 → 查账号 → 校验、提交、推送（推送被拒时从新的 main 重新开始）→ 回复、打标签、关闭 | 是 |
 | `sweep_issues.sh` | 定时补处理：逐个处理尚未回复的提交 | 是 |
-| `report_issue.sh` | 处理一个「报告校准有误」Issue：校验栏目 → 回复一次、打两个标签；不改任何文件，不关闭 Issue | 是 |
+| `report_issue.sh` | 处理一个「报告校准有误」Issue：现查状态与标签 → 校验栏目 → 回复一次、打两个标签；不改任何文件，不关闭 Issue | 是 |
 | `public-repo/` | 公开仓库的 README、LICENSE、两个 Issue 表单、两个工作流、`.gitattributes`（`dot-` 前缀的文件同步时改名为点文件） | 是（改名后） |
 | `sync_public_repo.py` | 把上面这些与随包模板、空索引、许可全文组装成公开仓库的完整文件集 | 否 |
 | `generate_index_sample.py` | 生成 C# 回归测试读的 `tests/Fixtures/shared-calibration/index-sample*` | 否 |
@@ -81,6 +81,17 @@
 台账行增加可选字段 `replaced`（该账号此前提交过的码，旧在前），仅供审计；`index.json` 的格式**不变**，
 被取代的码就是 `revoked: true`，旧版客户端按撤销处理，语义正确。
 
+`replaced` 的两条约束：
+
+- **一行的 `replaced` 里绝不含这一行当前的码。** 旧码还有别的账号提交时并不撤销，该账号因此可以再换回去
+  （X 与 Z 都提交 A，X 换成 B，X 又换回 A）。若让 A 出现在 A 自己那一行里，`dump` 写得出去、
+  下一次 `parse` 却会判为 `IndexCorrupt`——而每次 Action 都以读取台账开始，整个提交流程会就此停摆。
+  换回去时把离开的那一份（B）留在链里，历史不丢。`check_consistent` 与 `_read_ledger` 因此校验同一组规则：
+  **读不回来的台账不允许被写出去**。
+- **只保留最近 `MAX_REPLACED`（16）项**，并且 `submissions.json` 另有 `MAX_LEDGER_BYTES`（4 MiB）上限，
+  超出时按维护者问题（`LEDGER_FULL_BYTES`）处理。两者合起来堵住「两个账号互相把两份码轮流换来换去」把台账撑大的路径。
+  这两个上限是仓库自己的：客户端从不下载台账。
+
 ### 「报告校准有误」的规则
 
 1. 只处理带 `calibration-report` 标签、仍然打开的 Issue。
@@ -88,7 +99,10 @@
    「区服」与「现象」必须是表单提供的选项，「游戏版本」必须形如客户端版本号；栏目缺失、重复或不合法一律按「没读全」回复。
 3. 打标签 `calibration-report` 与 `needs-maintainer`，回复一次，**Issue 保持打开**。
 4. **不做任何自动撤回**，也不按报告数量设阈值：报告只是维护者查看的理由。撤回始终由维护者执行 `publish.py revoke`。
-5. 已带结果标签的 Issue 直接跳过，因此编辑或重新打标签不会产生第二条回复。
+5. **状态与标签一律现查**（`gh issue view --json state,labels`），不取事件里的那一份：
+   报告不会被关闭，事件又可能被重投或重放，而挡住第二条回复的正是上一次打下的结果标签，
+   事件里记着的却是它触发那一刻的标签。已带结果标签的 Issue 直接跳过；现查的内容读不出来时同样跳过，
+   宁可漏一条自动回复（维护者按标签仍能找到），也不重复回复。
 6. 回复只由固定文字拼成，不回显正文或标题的任何内容；「说明」的文字根本不会离开 Issue 正文。
 
 > **报告没有定时补处理。** 并发组中同时只保留一个排队任务，短时间内大量报告会让部分任务在开始前被取消，

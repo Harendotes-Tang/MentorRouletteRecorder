@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import random
 import tempfile
 import unittest
 from pathlib import Path
@@ -403,6 +404,94 @@ class ReplacementTests(unittest.TestCase):
         self.assertNotIn(b"replaced", files[repo_index.LEDGER_FILE])
         parsed = repo_index.parse(files[repo_index.INDEX_FILE], files[repo_index.LEDGER_FILE])
         self.assertEqual(files, repo_index.dump(parsed))
+
+    def test_switching_back_to_a_code_that_is_still_alive_never_lists_it_in_its_own_chain(self):
+        """X takes A, Z takes A too, X moves to B, X comes back to A: A must not name itself.
+
+        A row that named its own code would be written by ``dump`` and then refused by the reader on
+        the next run, which stops every submission for everybody until a maintainer edits the file.
+        """
+        first = sharecode.code_sha256(testsupport.payload("ANNOUNCEMENT", 1))
+        second = sharecode.code_sha256(testsupport.payload("ANNOUNCEMENT", 2))
+        state = _submit(self.first(), number=1, account=2, when=NOW + dt.timedelta(minutes=30)).index
+        state = self.second(state).index
+        back = _submit(state, number=1, account=1, when=NOW + dt.timedelta(hours=3))
+        self.assertEqual(repo_index.ADDED, back.status)
+        row = self.row_for(back.index)
+        self.assertEqual((first, [second]), (row["code_sha256"], row["replaced"]),
+                         "the code it left stays as history; the code it is on never names itself")
+        files = repo_index.dump(back.index)
+        self.assertEqual(back.index, repo_index.parse(files[repo_index.INDEX_FILE], files[repo_index.LEDGER_FILE]))
+
+    def test_a_ledger_the_reader_would_refuse_is_never_written(self):
+        state = self.second(self.first()).index
+        row = self.row_for(state)
+        for why, chain in (("its own code", [row["code_sha256"]]),
+                           ("a repeat", list(row["replaced"]) * 2),
+                           ("not a hash", ["nope"]),
+                           ("nothing", []),
+                           ("too long", [sha(number) for number in range(repo_index.MAX_REPLACED + 1)])):
+            with self.subTest(why), self.assertRaises(repo_index.IndexCorrupt):
+                repo_index.dump(repo_index.Index(state.entries, (dict(row, replaced=chain),)))
+
+    def test_only_the_most_recent_replacements_are_kept(self):
+        state, account = repo_index.empty_index(), 1
+        for number in range(repo_index.MAX_REPLACED + 3):
+            outcome = _submit(state, number=number, account=account, when=NOW + dt.timedelta(hours=number))
+            self.assertEqual(repo_index.PUBLISHED, outcome.status)
+            state = outcome.index
+        chain = self.row_for(state)["replaced"]
+        expected = [sharecode.code_sha256(testsupport.payload("ANNOUNCEMENT", number))
+                    for number in range(repo_index.MAX_REPLACED + 2)]
+        self.assertEqual(expected[-repo_index.MAX_REPLACED:], chain)
+        self.assertEqual(repo_index.MAX_REPLACED, len(chain))
+
+    def test_no_row_once_the_ledger_would_pass_its_byte_limit(self):
+        state = self.first()
+        size = len(repo_index.serialize_ledger(state.submissions))
+        with mock.patch.object(repo_index, "MAX_LEDGER_BYTES", size):
+            outcome = _submit(state, number=2, account=2, when=NOW + dt.timedelta(hours=1))
+        self.assertEqual((repo_index.REFUSED, repo_index.LEDGER_FULL_BYTES), (outcome.status, outcome.reason))
+        self.assertIsNone(outcome.index)
+        self.assertIn(repo_index.LEDGER_FULL_BYTES, repo_index.MAINTAINER_REFUSALS)
+
+    def test_a_replacement_refused_over_a_file_name_leaves_the_old_code_exactly_as_it_was(self):
+        real = sharecode.code_sha256(testsupport.payload("ANNOUNCEMENT", 2))
+        impostor = real[:12] + ("0" if real[12] != "0" else "1") + real[13:]
+        state = self.first()
+        crowded = repo_index.Index(state.entries + (entry(impostor, published="2026-09-01T00:00:00Z"),), state.submissions)
+        outcome = self.second(crowded)
+        self.assertEqual((repo_index.REFUSED, repo_index.PATH_COLLISION), (outcome.status, outcome.reason))
+        self.assertIsNone(outcome.index)
+        self.assertEqual(repo_index.dump(crowded), repo_index.dump(crowded), "nothing was mutated in place")
+        self.assertEqual((False, 1), (crowded.entries[0]["revoked"], crowded.entries[0]["submitters"]))
+
+    def test_a_replacement_refused_over_a_cap_leaves_the_old_code_exactly_as_it_was(self):
+        state = self.first()
+        before = repo_index.dump(state)
+        with mock.patch.object(repo_index, "MAX_INDEX_BYTES", len(before[repo_index.INDEX_FILE])):
+            outcome = self.second(state)
+        self.assertEqual((repo_index.REFUSED, repo_index.INDEX_FULL_BYTES), (outcome.status, outcome.reason))
+        self.assertIsNone(outcome.index)
+        self.assertEqual(before, repo_index.dump(state))
+        self.assertNotIn(repo_index.REPLACED, self.row_for(state))
+
+    def test_whatever_the_submissions_do_the_files_always_read_back(self):
+        """Every reachable state has to survive dump then parse: the writer may never outrun the reader."""
+        dice = random.Random(20260920)
+        state = repo_index.empty_index()
+        for step in range(500):
+            if dice.random() < 0.08 and state.entries:
+                state = repo_index.revoke(state, dice.choice(state.entries)["code_sha256"])
+            else:
+                outcome = _submit(state, number=dice.choice(range(6)), account=dice.choice((1, 2, 3, 4)),
+                                  when=NOW + dt.timedelta(minutes=step))
+                if outcome.index is not None:
+                    state = outcome.index
+            files = repo_index.dump(state)
+            self.assertEqual(state, repo_index.parse(files[repo_index.INDEX_FILE], files[repo_index.LEDGER_FILE]),
+                             "step %d" % step)
+        self.assertTrue(any(repo_index.REPLACED in row for row in state.submissions), "no replacement happened")
 
     def test_a_malformed_replaced_list_is_corrupt(self):
         state = self.second(self.first()).index
