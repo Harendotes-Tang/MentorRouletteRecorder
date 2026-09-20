@@ -86,7 +86,10 @@ public:
     //    download, and how to turn it off (docs/privacy-boundary.md §8.2).
     // 4: the notice gained a third network class, the update check, which the
     //    earlier text explicitly ruled out.
-    static constexpr int kDisclosureVersion = 4;
+    // 5: the shared-calibration download is no longer limited to "no usable
+    //    profile": a shared or queue-inferred profile in use is rechecked
+    //    against the public list, which the earlier text ruled out.
+    static constexpr int kDisclosureVersion = 5;
     static int disclosureVersion();
     int acknowledgedDisclosureVersion() const;
     bool disclosureAcknowledged() const;

@@ -825,7 +825,11 @@ ApplicationWindow {
         // The acknowledgement is only ever valid for the text it was given for.
         QVERIFY(!all.contains(QString::fromUtf8("只有两种联网")));
         QVERIFY(!all.contains(QString::fromUtf8("没有更新检查")));
-        QVERIFY(mr::AppSettings::kDisclosureVersion >= 4);
+        // The recheck of a shared or queue-inferred profile is a network request
+        // the version 4 text ruled out ("已经有可用档案时不会联网").
+        QVERIFY(all.contains(QString::fromUtf8("登录后还会再读一次同一份公开列表")));
+        QVERIFY(!all.contains(QString::fromUtf8("通过才用来记录；已经有可用档案时不会联网")));
+        QVERIFY(mr::AppSettings::kDisclosureVersion >= 5);
     }
 };
 

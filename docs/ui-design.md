@@ -857,6 +857,8 @@ MockBackend 回 `{passed: true, detail: "ok", checked_at_utc: 现在}`。
 已确认版本 3 的用户不会因此被再次拦截。
 更新检查并入第 5 条时**再次**提升了版本号：它默认开启，且没有单独的确认框，
 因此每一位既有用户在升级之后都会再看到一次该页。
+「联网一」写明在用的共享校准或按排本推断的校准会被再次核对时，版本号提升至 5：
+此前的文案写的是「已经有可用档案时不会联网」，与新的行为不符（§8.2）。
 
 必须先打开「我已阅读并理解」开关，「我已了解」按钮才可用。
 确认结果写入 `AppSettings` 的 `ui/disclosure_acknowledged_version` 与 `ui/disclosure_acknowledged_at`。
