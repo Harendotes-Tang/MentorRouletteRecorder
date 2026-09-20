@@ -102,9 +102,9 @@ public sealed partial class LiveProtocolPipeline :
     private IReadOnlyList<CandidateHypothesisView>? _hypothesisCache;
 
     /// <summary>
-    /// Every CANDIDATE profile the catalogue holds, used only to label the whitelist while
-    /// the game is not running (so the client build is unknown) and exactly one candidate
-    /// exists. Injectable so tests never depend on the shipped catalogue.
+    /// Every CANDIDATE profile the catalogue holds, used only to label the whitelist while the
+    /// client build is unknown - no client running and none remembered as installed - and
+    /// exactly one candidate exists. Injectable so tests never depend on the shipped catalogue.
     /// </summary>
     public Func<IReadOnlyList<ProtocolProfile>> ListCandidateProfiles { get; init; } = static () =>
         ProfileCatalog.LoadDefault(allowCandidate: true).Entries
@@ -1041,8 +1041,9 @@ public sealed partial class LiveProtocolPipeline :
             return;
         }
 
-        // The game is not running: keep whatever was armed, so a client that comes back on
-        // the same build does not lose its template.
+        // The client version is unknown -- no client is running and none is remembered as
+        // installed: keep whatever was armed, so a client that comes back on the same build
+        // does not lose its template.
         if (string.IsNullOrWhiteSpace(_game.GameBuild))
         {
             return;

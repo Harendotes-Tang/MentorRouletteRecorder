@@ -33,15 +33,30 @@ public interface IGameFileReader
     string? ReadText(string path);
 }
 
-/// <summary>What the locator concluded about the game client.</summary>
+/// <summary>
+/// What the locator concluded about the game client.
+///
+/// <see cref="Running"/> and <see cref="GameBuild"/> are independent: with the client closed,
+/// the build can still be known from the install directory this machine remembers, and a
+/// caller that needs a process to observe must read <see cref="Running"/> for that.
+/// </summary>
 /// <param name="Running">True when a game process was found.</param>
 /// <param name="ProcessId">Process identifier of the chosen instance.</param>
 /// <param name="ProcessName">Process name of the chosen instance.</param>
 /// <param name="StartedAtUtc">Start time of the chosen instance.</param>
-/// <param name="Region">Region guessed from the install path; Unknown when the path is unreadable.</param>
-/// <param name="GameBuild">Build read from <c>ffxivgame.ver</c>; null when unavailable.</param>
+/// <param name="Region">
+/// Region guessed from the install path -- the running client's, or the remembered one when
+/// the client is not running; Unknown when neither is readable.
+/// </param>
+/// <param name="GameBuild">
+/// Build read from <c>ffxivgame.ver</c> in the running client's directory, or in the remembered
+/// install directory when the client is not running; null when unavailable.
+/// </param>
 /// <param name="InstanceCount">How many candidate processes were seen.</param>
-/// <param name="ExecutablePath">Install path of the chosen instance. Never rendered to a client.</param>
+/// <param name="ExecutablePath">
+/// Install path of the chosen instance. Never rendered to a client, and null whenever no
+/// instance is running, the remembered path included.
+/// </param>
 /// <param name="Warnings">User-facing notes, free of paths and identifiers.</param>
 public sealed record GameProcessDetection(
     bool Running,
@@ -72,6 +87,13 @@ public sealed record GameProcessDetection(
 /// items 2 and 3). A path that still cannot be read is simply left unknown -- the region and
 /// the build then stay unknown too, and the profile layer refuses to parse, which is the
 /// correct fail-closed outcome.
+///
+/// With no client running, the same version file is read from the install directory this
+/// machine remembers (<see cref="IGameInstallMemory"/>), so the build and the region are known
+/// at startup rather than only after the player logs in. That answer says <c>Running = false</c>
+/// and names no process: it is about the installation, not about a session to observe. The
+/// memory is opt-in -- the default locator persists nothing -- and remains the same two reads
+/// as before: the process table, and a small text file on disk.
 /// </summary>
 public sealed class GameProcessLocator
 {
@@ -100,6 +122,7 @@ public sealed class GameProcessLocator
     private readonly IGameProcessProvider _processes;
     private readonly IGameFileReader _files;
     private readonly Func<Region?>? _regionOverride;
+    private readonly IGameInstallMemory _installMemory;
 
     /// <summary>Creates a locator.</summary>
     /// <param name="processes">Process listing source; the real machine when null.</param>
@@ -111,14 +134,20 @@ public sealed class GameProcessLocator
     /// override such a user is permanently locked out of every path that requires a known
     /// region.
     /// </param>
+    /// <param name="installMemory">
+    /// Where the install path is remembered across runs; inert by default, so only the shipping
+    /// service persists anything and a test's locator never touches the real data directory.
+    /// </param>
     public GameProcessLocator(
         IGameProcessProvider? processes = null,
         IGameFileReader? files = null,
-        Func<Region?>? regionOverride = null)
+        Func<Region?>? regionOverride = null,
+        IGameInstallMemory? installMemory = null)
     {
         _processes = processes ?? WindowsGameProcessProvider.Instance;
         _files = files ?? WindowsGameFileReader.Instance;
         _regionOverride = regionOverride;
+        _installMemory = installMemory ?? NullGameInstallMemory.Instance;
     }
 
     /// <summary>Returns a copy of this locator that consults an explicit region override.</summary>
@@ -126,7 +155,18 @@ public sealed class GameProcessLocator
     public GameProcessLocator WithRegionOverride(Func<Region?> regionOverride)
     {
         ArgumentNullException.ThrowIfNull(regionOverride);
-        return new GameProcessLocator(_processes, _files, regionOverride);
+        return new GameProcessLocator(_processes, _files, regionOverride, _installMemory);
+    }
+
+    /// <summary>True when this locator has somewhere to remember the install path.</summary>
+    public bool RemembersInstall => !ReferenceEquals(_installMemory, NullGameInstallMemory.Instance);
+
+    /// <summary>Returns a copy of this locator that remembers where the client is installed.</summary>
+    /// <param name="installMemory">The memory to read at startup and write while the client runs.</param>
+    public GameProcessLocator WithInstallMemory(IGameInstallMemory installMemory)
+    {
+        ArgumentNullException.ThrowIfNull(installMemory);
+        return new GameProcessLocator(_processes, _files, _regionOverride, installMemory);
     }
 
     /// <summary>
@@ -143,7 +183,7 @@ public sealed class GameProcessLocator
 
         if (candidates.Count == 0)
         {
-            return GameProcessDetection.NotRunning;
+            return FromRememberedInstall();
         }
 
         // Several clients can legitimately run at once (two accounts, or a stale process the
@@ -153,6 +193,8 @@ public sealed class GameProcessLocator
             .OrderBy(candidate => candidate.StartedAtUtc ?? DateTimeOffset.MaxValue)
             .ThenBy(candidate => candidate.ProcessId)
             .First();
+
+        Remember(chosen.ExecutablePath);
 
         var warnings = new List<string>();
         if (candidates.Count > 1)
@@ -207,6 +249,64 @@ public sealed class GameProcessLocator
             candidates.Count,
             chosen.ExecutablePath,
             warnings);
+    }
+
+    /// <summary>
+    /// Writes the install path to the memory, when there is one and the path was readable.
+    /// A memory that fails, or one a caller supplied that throws, costs nothing here.
+    /// </summary>
+    /// <param name="executablePath">Main module path of the chosen instance, or null.</param>
+    private void Remember(string? executablePath)
+    {
+        if (string.IsNullOrWhiteSpace(executablePath))
+        {
+            return;
+        }
+
+        try
+        {
+            _installMemory.Remember(executablePath);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        {
+            // Remembering is an optimisation for the next launch, never a requirement of this one.
+        }
+    }
+
+    /// <summary>
+    /// What is known about the client while none is running: the build and the region, read
+    /// from the install directory this machine remembers.
+    ///
+    /// The install can have moved, been uninstalled, or sit on a drive that is not plugged in
+    /// today; the version file is then unreadable and the answer is the plain "nothing is
+    /// running", the same fail-closed outcome as before. The memory is deliberately not erased
+    /// over it -- an unplugged drive is not an uninstall, and the next run of the game rewrites
+    /// it anyway.
+    /// </summary>
+    private GameProcessDetection FromRememberedInstall()
+    {
+        string? remembered;
+        try
+        {
+            remembered = _installMemory.Recall();
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        {
+            return GameProcessDetection.NotRunning;
+        }
+
+        if (string.IsNullOrWhiteSpace(remembered) || ReadBuild(remembered) is not { } build)
+        {
+            return GameProcessDetection.NotRunning;
+        }
+
+        // Everything about a session stays empty: no process was found, and the path is not
+        // carried out of here either, so nothing downstream can read this as a client to
+        // observe or render a path it must not (docs/privacy-boundary.md section 5).
+        return new GameProcessDetection(
+            false, null, null, null,
+            SafeRegionOverride() ?? GuessRegion(remembered),
+            build, 0, null, Array.Empty<string>());
     }
 
     /// <summary>

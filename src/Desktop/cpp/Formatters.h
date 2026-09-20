@@ -47,6 +47,13 @@ public:
     /// An integer, or an em dash when null.
     Q_INVOKABLE static QString count(const QVariant &value);
 
+    // -- game version -------------------------------------------------------
+    /// The client version as a player reads it: the date part of a game build
+    /// (2026.09.01.0000.0000 -> 2026.09.01). The trailing revision groups are
+    /// wire detail no player needs. Null and empty give an em dash; a value
+    /// this build cannot split is returned unchanged rather than hidden.
+    Q_INVOKABLE static QString gameVersionLabel(const QVariant &build);
+
     // -- enums --------------------------------------------------------------
     /// Chinese label for a RunResult code.
     Q_INVOKABLE static QString resultLabel(const QString &code);

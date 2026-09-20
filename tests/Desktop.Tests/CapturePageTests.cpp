@@ -7,6 +7,9 @@
 //     start / stop button; a maintainer gets the button and the 维护者工具 block;
 //   * 链路: the summary line and the four columns when everything is up, while
 //     the game is not running, and while Npcap is missing (with the 降级模式 panel);
+//   * 链路 with the game closed but the installed version known: the profile is
+//     answered for that version instead of being deferred to the game's launch,
+//     and nothing tells the player to go play a duty while the game is shut;
 //   * 最近有效事件: time plus the Chinese name of a known kind, the time alone
 //     for a kind this build does not know;
 //   * a player's page carries no opcode, hex or ERR_ token and no maintainer text.
@@ -161,6 +164,17 @@ QString chainSub(const PageScene &scene, const char *key)
     return scene.text(QStringLiteral("captureChainSub_") + QLatin1String(key));
 }
 
+/// The 链路 summary is drawn in Theme.textSecondary while it is only waiting and
+/// in Theme.orangeText when something is wrong. The sub lines of the four
+/// columns are always Theme.textSecondary, so one of them names the wait tone
+/// without this test having to reach into Theme.
+bool summaryReadsAsWaiting(const PageScene &scene)
+{
+    auto *summary = scene.item(QStringLiteral("captureChainSummary"));
+    auto *sub = scene.item(QStringLiteral("captureChainSub_game"));
+    return summary && sub && summary->property("color") == sub->property("color");
+}
+
 } // namespace
 
 class CapturePageTests : public QObject
@@ -271,6 +285,58 @@ private slots:
         QVERIFY(!scene.shows(QStringLiteral("captureNpcapPanel")));
         // Nothing is wrong yet, so no 协议档案 notice either.
         QVERIFY(!scene.shows(QStringLiteral("protocolProfileCard")));
+        QVERIFY(summaryReadsAsWaiting(scene));
+        // No install directory has ever been remembered, so no version may be
+        // named - not even a stale one.
+        QVERIFY(!scene.visibleTexts().join(QLatin1Char('\n'))
+                     .contains(QString::fromUtf8("已安装版本")));
+    }
+
+    // -- 游戏未运行，但已知已安装的版本 --------------------------------------
+
+    void aClosedGameWithAUsableProfileIsReadyBeforeItStarts()
+    {
+        // The Collector remembers where the game is installed and reads the
+        // version off disk, so 协议档案 is already answered for that version.
+        PageScene scene;
+        scene.mock->setRecordingFixture(QStringLiteral("waiting-verified"));
+        QVERIFY(scene.open());
+        QTRY_COMPARE(scene.text(QStringLiteral("captureChainSummary")),
+                     QString::fromUtf8("等待游戏启动 · 已安装版本的档案已就绪，启动游戏后会自动记录"));
+        // The chain is still not whole: nothing records until the game runs.
+        QVERIFY(summaryReadsAsWaiting(scene));
+        QCOMPARE(chainValue(scene, "game"), QString::fromUtf8("未运行"));
+        QCOMPARE(chainSub(scene, "game"), QString::fromUtf8("已安装版本 2026.09.01"));
+        QCOMPARE(chainValue(scene, "profile"), QString::fromUtf8("档案匹配"));
+        QCOMPARE(chainSub(scene, "profile"), QString::fromUtf8("与已安装的游戏版本匹配"));
+        // 待游戏启动后校验 was the answer only while the version was unknown.
+        const QString page = scene.visibleTexts().join(QLatin1Char('\n'));
+        QVERIFY(!page.contains(QString::fromUtf8("待游戏启动后校验")));
+        QVERIFY(!scene.shows(QStringLiteral("protocolProfileCard")));
+        QVERIFY(!scene.shows(QStringLiteral("calibrationCard")));
+    }
+
+    void aClosedGameWithoutAProfileSaysSoWithoutSendingThePlayerIntoADuty()
+    {
+        PageScene scene;
+        scene.mock->setRecordingFixture(QStringLiteral("waiting-calibrating"));
+        QVERIFY(scene.open());
+        QTRY_COMPARE(scene.text(QStringLiteral("captureChainSummary")),
+                     QString::fromUtf8("等待游戏启动 · 已安装的游戏版本还没有可用档案，启动游戏后需要重新校准"));
+        QVERIFY(!summaryReadsAsWaiting(scene));
+        QCOMPARE(chainValue(scene, "game"), QString::fromUtf8("未运行"));
+        QCOMPARE(chainSub(scene, "game"), QString::fromUtf8("已安装版本 2026.09.01"));
+        QCOMPARE(chainValue(scene, "profile"), QString::fromUtf8("待校准"));
+        QCOMPARE(chainSub(scene, "profile"), QString::fromUtf8("启动游戏后重新校准"));
+        // The calibration card explains it, and while the game is closed it
+        // never claims to be calibrating now.
+        QTRY_VERIFY(scene.shows(QStringLiteral("calibrationCard")));
+        const QString headline = scene.text(QStringLiteral("calibrationHeadline"));
+        QVERIFY2(headline.contains(QString::fromUtf8("启动游戏后")), qPrintable(headline));
+        QVERIFY(!headline.contains(QString::fromUtf8("正在重新校准")));
+        const QString page = scene.visibleTexts().join(QLatin1Char('\n'));
+        QVERIFY(!page.contains(QString::fromUtf8("尚未识别游戏版本或区服")));
+        QVERIFY(!page.contains(QString::fromUtf8("待游戏启动后校验")));
     }
 
     void aMissingNpcapBlocksTheChainAndOpensTheDegradedPanel()

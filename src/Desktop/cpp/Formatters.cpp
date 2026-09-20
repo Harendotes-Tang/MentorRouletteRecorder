@@ -112,6 +112,28 @@ QString Formatters::count(const QVariant &value)
     return QString::number(number);
 }
 
+QString Formatters::gameVersionLabel(const QVariant &build)
+{
+    if (!build.isValid() || build.isNull())
+        return dash();
+    const QString text = build.toString().trimmed();
+    if (text.isEmpty())
+        return dash();
+    // 2026.09.01.0000.0000 -> 2026.09.01. Anything else is shown as it is: a
+    // version this build does not recognise is still the truth, and inventing
+    // an em dash for it would hide the one fact the player asked for.
+    const QStringList parts = text.split(QLatin1Char('.'));
+    if (parts.size() < 4)
+        return text;
+    for (int index = 0; index < 3; ++index) {
+        bool numeric = false;
+        parts.at(index).toInt(&numeric);
+        if (!numeric || parts.at(index).isEmpty())
+            return text;
+    }
+    return parts.mid(0, 3).join(QLatin1Char('.'));
+}
+
 QString Formatters::resultLabel(const QString &code)
 {
     if (code == QLatin1String("COMPLETED"))              return QString::fromUtf8("通关");

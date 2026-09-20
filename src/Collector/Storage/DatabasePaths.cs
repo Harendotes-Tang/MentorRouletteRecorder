@@ -107,6 +107,33 @@ public static class DatabasePaths
             : Path.Combine(directory, OodleTempManifestFileName);
     }
 
+    /// <summary>
+    /// File name of the note recording where the game was last seen installed, so the client
+    /// version can be read while the game is closed (docs/privacy-boundary.md section 9).
+    /// </summary>
+    public const string GameInstallFileName = "game-install.json";
+
+    /// <summary>
+    /// Where the remembered install path is kept for one run of the Collector: beside an
+    /// explicit <c>--db</c>, otherwise in the managed root.
+    ///
+    /// Beside the database for the same reason as the Oodle manifest: a run pointed at a
+    /// throw-away database keeps its own note and never rewrites the user's.
+    /// </summary>
+    /// <param name="databasePath">Value of <c>--db</c>, or null for the default database.</param>
+    public static string ResolveGameInstallMemory(string? databasePath)
+    {
+        if (string.IsNullOrWhiteSpace(databasePath))
+        {
+            return Path.Combine(RootDirectory, GameInstallFileName);
+        }
+
+        var directory = Path.GetDirectoryName(Path.GetFullPath(databasePath));
+        return string.IsNullOrEmpty(directory)
+            ? Path.Combine(RootDirectory, GameInstallFileName)
+            : Path.Combine(directory, GameInstallFileName);
+    }
+
     /// <summary>Creates the directory of <paramref name="filePath"/> when it is missing.</summary>
     /// <param name="filePath">Path of a file that is about to be written.</param>
     public static void EnsureParentDirectory(string filePath)

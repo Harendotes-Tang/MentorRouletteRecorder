@@ -139,6 +139,7 @@
   无法识别时为 `UNKNOWN`。
 - **客户端版本**：读取 exe 同目录下启动器的 **`ffxivgame.ver` 文本文件**。
   只接受长度不超过 64、且仅含 `0-9 A-Z a-z . _ -` 的短串，否则视为读取失败。
+  游戏未运行时改从记住的安装目录读取同一个文件，见本节末。
 
 **边界**：上述信息全部来自操作系统的进程列表与磁盘上的一个文本文件。本软件
 **从不**打开游戏进程句柄，**从不**读取游戏进程内存，**从不**附加到游戏进程。
@@ -149,6 +150,16 @@
 
 **路径读取失败**：区服与版本保持 `UNKNOWN` / `null`，档案因此无法匹配，
 随即 fail-closed，不产生任何自动记录。这是预期行为。
+
+**游戏未运行时的客户端版本**：采集服务把上次看到的游戏程序路径记在数据库同目录的
+`game-install.json`（[privacy-boundary.md](privacy-boundary.md) §9）。没有找到任何游戏进程时，
+它按同样的规则读取该目录下的 `ffxivgame.ver` 与路径关键字，因此软件启动后即可得知客户端版本与区服，
+档案匹配与共享校准获取（§8.2）不必等到玩家登录游戏。这种情况下 `ffxiv_running` 仍为 `false`，
+`ffxiv_process_id` 与 `install_path_readable` 仍为空：已知的是**安装**，不是一个可供监听的客户端，
+启动抓包依旧以 `ERR_FFXIV_NOT_RUNNING` 拒绝。记住的路径只在采集服务内部使用，不进入 IPC 应答、
+日志、诊断报告或数据库。安装被移走、卸载或所在磁盘未接入时，版本重新变为未知并继续 fail-closed；
+该文件不会因此被删除。客户端更新后，`ffxivgame.ver` 在启动器打补丁之前仍是旧版本号，游戏启动后按
+真实版本重新匹配，与今天版本变化时的行为一致。
 
 ## 4. 适配器选择
 
@@ -187,7 +198,7 @@ Machina 的 WinPCap 监视器按**本地 IP** 选择设备，因此采集服务�
 | `capture_session_id` | 本次抓包会话的 UUID | 运行时非空 |
 | `npcap_installed` / `npcap_version` | Npcap 检测结果 | `true` + 版本号 |
 | `ffxiv_running` / `ffxiv_process_id` | 游戏进程 | `true` + PID |
-| `game_build` / `region` | 从 `ffxivgame.ver` 与安装路径得到 | 非空 |
+| `game_build` / `region` | 从 `ffxivgame.ver` 与安装路径得到；游戏未运行时取自记住的安装目录（§3），因此可以在 `ffxiv_running` 为 `false` 时非空 | 非空 |
 | `profile_status` | 与本次检测到的区服、版本精确匹配的协议档案状态 | `VERIFIED`，其余取值一律 fail-closed |
 | `adapter_id` | 本次使用的网卡 | 非空 |
 | `preference_stale`（`$defs/CaptureAdapter`） | 记住的网卡不再承载游戏流量而另一张网卡承载时为 `true`，此时推荐后者 | `false` |

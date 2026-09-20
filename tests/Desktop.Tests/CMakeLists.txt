@@ -661,6 +661,38 @@ foreach(MR_RECORDING_STYLE classic eorzea)
     endforeach()
 endforeach()
 
+# 游戏未运行、但采集服务已从安装目录读出版本：捕获诊断页（第 5 页）的 链路 一行
+# 必须给出该版本的真实档案结论，而不是再让玩家等游戏启动。
+set(MR_CLOSED_GAME_TEXT_waiting-verified
+    "等待游戏启动 · 已安装版本的档案已就绪，启动游戏后会自动记录")
+set(MR_CLOSED_GAME_TEXT_waiting-calibrating
+    "等待游戏启动 · 已安装的游戏版本还没有可用档案，启动游戏后需要重新校准")
+foreach(MR_CLOSED_GAME_STATE waiting-verified waiting-calibrating)
+    foreach(MR_CLOSED_GAME_THEME light dark)
+        set(MR_CLOSED_GAME_TEST
+            MentorRecorderQmlClosedGame_${MR_CLOSED_GAME_THEME}_${MR_CLOSED_GAME_STATE})
+        add_test(NAME ${MR_CLOSED_GAME_TEST}
+            COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
+                --backend mock --mock-recording-state ${MR_CLOSED_GAME_STATE}
+                --mock-live none --page 5 --theme ${MR_CLOSED_GAME_THEME}
+                --screenshot "${CMAKE_CURRENT_BINARY_DIR}/${MR_CLOSED_GAME_TEST}.png"
+                --screenshot-size 1280x900 --screenshot-delay 900
+                --verify-text "${MR_CLOSED_GAME_TEXT_${MR_CLOSED_GAME_STATE}}"
+                --verify-text "已安装版本 2026.09.01")
+        list(APPEND MR_RECORDING_QML_TESTS ${MR_CLOSED_GAME_TEST})
+    endforeach()
+endforeach()
+
+# 共享校准正在获取时，链路不另下「需要重新校准」的结论，而是指向上方的校准卡片。
+add_test(NAME MentorRecorderQmlClosedGame_dark_shared-fetching
+    COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
+        --backend mock --mock-recording-state waiting-calibrating --mock-shared fetching
+        --mock-live none --page 5 --theme dark
+        --screenshot "${CMAKE_CURRENT_BINARY_DIR}/MentorRecorderQmlClosedGame_dark_shared-fetching.png"
+        --screenshot-size 1280x900 --screenshot-delay 900
+        --verify-text "等待游戏启动 · 已安装的游戏版本还没有可用档案 · 见上方校准卡片")
+list(APPEND MR_RECORDING_QML_TESTS MentorRecorderQmlClosedGame_dark_shared-fetching)
+
 set(MR_ALL_DESKTOP_TESTS
     ${MR_RECORDING_QML_TESTS}
     MentorRecorderAutomaticRecording

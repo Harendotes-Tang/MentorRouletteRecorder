@@ -28,6 +28,22 @@ internal static class CaptureFakes
         DetectionTtl = TimeSpan.Zero,
     };
 
+    /// <summary>
+    /// No game process, but an install this machine remembers seeing: the shape the shipping
+    /// service is in at startup, before the player launches the client.
+    /// </summary>
+    /// <param name="gameBuild">Build text the remembered install directory holds.</param>
+    /// <param name="npcapInstalled">True supplies a usable driver, so capture refusals are about the game.</param>
+    public static CaptureServices RememberedInstall(string gameBuild, bool npcapInstalled = true) =>
+        NoGame(npcapInstalled) with
+    {
+        Game = new GameProcessLocator(new NoGameProcess(), new FixedGameFiles(gameBuild))
+            .WithInstallMemory(new RememberedGameInstall(RememberedExecutable)),
+    };
+
+    /// <summary>Where the fake install sits; a CN path, so the region is read from it.</summary>
+    public const string RememberedExecutable = @"D:\SdoA\FFXIV\game\ffxiv_dx11.exe";
+
     /// <summary>Capture services that can start: Npcap ready, one game process, one adapter.</summary>
     /// <param name="source">Source the controller should use.</param>
     /// <param name="gameBuild">Build text returned from the fake game directory.</param>
@@ -98,6 +114,17 @@ internal static class CaptureFakes
     private sealed class FixedGameFiles(string? gameBuild) : IGameFileReader
     {
         public string? ReadText(string path) => gameBuild;
+    }
+
+    /// <summary>An install memory that answers from memory, so no test writes into the data directory.</summary>
+    private sealed class RememberedGameInstall(string executablePath) : IGameInstallMemory
+    {
+        public string? Recall() => executablePath;
+
+        public void Remember(string path)
+        {
+            // Nothing is running in this environment, so nothing is ever remembered.
+        }
     }
 
     private sealed class OneAdapter : IAdapterProvider

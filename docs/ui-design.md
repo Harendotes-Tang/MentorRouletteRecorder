@@ -245,7 +245,8 @@ IBM Plex Mono 随程序分发，许可为 SIL OFL 1.1。字体文件位于 `src/
   或游戏正在运行而档案不是 `VERIFIED`（校准卡片存在时由校准卡片解释）时出现。
   普通用户看到的标题是「正在使用本机校准出来的档案」「当前游戏版本没有可用档案」一类语句，
   **不出现档案编号与状态令牌**；维护者在 `VERIFIED` 时看到「已就绪：`<profile_id>`」。
-  游戏未运行时该提示条不出现，相关信息已由链路总结给出。
+  游戏未运行时，措辞中的「当前游戏版本」改为「已安装的游戏版本」；档案不可用的提示此时不出现，
+  相关信息已由链路总结按已安装的版本给出。
 * 中途开抓 / 无流量（`captureSilentNotice`，标题 `midstreamBannerTitle`）：
   `captureMidstreamSuspected`、`captureSilent` 或 `recording.silent` 时出现。
   正文取采集服务的 `hint`，缺失时取自动记录控制器的提示，下面一行为「已解码 N · 解码失败 N」。
@@ -256,11 +257,23 @@ IBM Plex Mono 随程序分发，许可为 SIL OFL 1.1。字体文件位于 `src/
 **链路**的标题行包含小标题「链路」、一句总结，以及两个 ghost 按钮：
 「重扫 FF14」（`GetStatus` 与档案状态）与「重扫适配器」（`ListCaptureAdapters`）。
 总结（`captureChainSummary`）按链路顺序给出**第一个**阻碍记录的原因，依次为：
-Npcap 未安装或不可用；游戏未运行（「等待游戏启动 · 档案按版本匹配，游戏启动后才知道能否记录」，灰字）；
+Npcap 未安装或不可用；游戏未运行（见下）；
 校准中 / 待核对 / 校准受阻；档案核对中；档案不可用（与协议档案提示使用同一套说法）；
 记住的网卡没有流量；`last_error_code`（`Fmt.captureErrorLabel`）；监听尚未启动；无流量；
 其他受阻情况（`recording.message`）。以上均不成立时，总结为「FF14 → Npcap → 适配器 → 协议档案 全部就绪」。
 问题用橙字，等待与就绪用灰字。
+
+游戏未运行时的总结取决于采集服务是否已从本机记住的安装目录读到客户端版本
+（`capture.ffxiv_running` 为假而 `capture.game_build` 与 `region` 已知）：
+
+* 版本未知（首次使用，尚未见过游戏）：「等待游戏启动 · 档案按版本匹配，游戏启动后才知道能否记录」，灰字。
+* 版本已知且档案为 `VERIFIED`：「等待游戏启动 · 已安装版本的档案已就绪，启动游戏后会自动记录」，灰字。
+* 版本已知而没有可用档案：以「等待游戏启动 · 已安装的游戏版本还没有可用档案」开头，橙字，
+  其后按情况说明「启动游戏后需要重新校准」、待核对、校准受阻、档案冲突或暂时不会自动记录；
+  共享校准正在获取、等待核实或等待同意时，以「见上方校准卡片」结尾，不与校准卡片的说法冲突。
+
+游戏未运行时一律称「已安装的游戏版本」而不称「当前」或「最新」：补丁日启动器完成更新之前，
+磁盘上仍是旧版本，游戏启动后以运行中的客户端为准。此时界面不给出「去打一把副本」一类的操作指示。
 
 总结下方是四列等宽、竖线分隔的状态列（`captureChain_<key>`，值为 `captureChainValue_<key>`，
 副行为 `captureChainSub_<key>`）。每列包含一个状态点（绿为就绪、灰为等待、橙为有问题）与名称、
@@ -268,10 +281,10 @@ Npcap 未安装或不可用；游戏未运行（「等待游戏启动 · 档案�
 
 | 列 | 值 | 副行 | 来源 |
 |---|---|---|---|
-| FF14 进程 | `ffxiv_dx11.exe`（固定）/ 未运行 | PID n / 启动游戏后自动检测 | `capture.ffxiv_running` / `ffxiv_process_id` |
+| FF14 进程 | `ffxiv_dx11.exe`（固定）/ 未运行 | PID n / 已安装版本 2026.09.01（游戏未运行而版本已知，`Fmt.gameVersionLabel`）/ 启动游戏后自动检测 | `capture.ffxiv_running` / `ffxiv_process_id` / `game_build` |
 | Npcap | v版本 / 未安装 | WinPcap 兼容模式 / 驱动缺失 / 未启用 WinPcap 兼容模式 / 仅限管理员使用 / 驱动文件无法加载 | `GetStatus.npcap.version`、`status`，`capture.npcap_*` |
 | 适配器 | 正在用的网卡友好名 / 未选择 | 自动选择（有 FF14 连接）/ 手动指定 / 记住的网卡上没有游戏流量 | `capture.adapter_id` 对上 `App.captureAdapters[].friendly_name`（找不到时用 `capture.adapter_description`；普通用户从不看到不透明的 adapter_id）；`captureSettings.adapter_id` 为空即自动 |
-| 协议档案 | 普通用户：档案匹配 / 本机校准 / 共享校准 / 待游戏启动 / 校准中 / 待核对 / 版本不支持 / 档案冲突 / 未匹配；维护者：`profile_id` | 与游戏版本匹配 / 待游戏启动后校验 / …；维护者：状态令牌 · build | `capture.profile_status` / `profile_origin`、`App.calibration.state`、`App.protocolProfile` |
+| 协议档案 | 普通用户：档案匹配 / 本机校准 / 共享校准 / 待游戏启动（仅版本未知时）/ 校准中 / 待校准（游戏未运行）/ 待核对 / 版本不支持 / 档案冲突 / 未匹配；维护者：`profile_id` | 与游戏版本匹配 / 与已安装的游戏版本匹配 / 启动游戏后重新校准 / 已安装版本暂时不会自动记录 / 待游戏启动后校验（仅版本未知时）/ …；维护者：状态令牌 · build | `capture.profile_status` / `profile_origin`、`App.calibration.state`、`App.protocolProfile` |
 
 适配器只有在监听运行时才显示绿点；游戏未运行时，即使采集服务已记住网卡也显示灰点。
 

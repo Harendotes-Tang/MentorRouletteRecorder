@@ -29,8 +29,17 @@ ColumnLayout {
                                         && !notices.calibrationCardVisible
     readonly property bool calibratedProfile: notices.profileStatus === "VERIFIED"
         && (notices.profileOrigin === "LOCAL_CALIBRATION" || notices.profileOrigin === "SHARED_CALIBRATION")
+    // The Collector knows the installed version with the game closed, so the
+    // build is no longer unknown then; the version is still only 已安装 - the
+    // launcher may patch over it before the next login.
+    readonly property bool buildUnknown: !notices.capture.game_build || !notices.capture.region
+                                         || notices.capture.region === "UNKNOWN"
+    readonly property string buildPhrase: App.ffxivRunning ? qsTr("当前游戏版本")
+                                                           : qsTr("已安装的游戏版本")
     // A known, non-verified profile while the game runs is the reason nothing is
-    // recorded. While calibration runs its own card explains that instead.
+    // recorded. While calibration runs its own card explains that instead, and
+    // with the game closed 链路 already says it once - a second card there would
+    // only nag about something the player cannot act on yet.
     readonly property bool profileProblem: App.ffxivRunning && notices.profileStatus.length > 0
                                            && notices.profileStatus !== "VERIFIED"
                                            && !notices.calibrationCardVisible
@@ -85,11 +94,12 @@ ColumnLayout {
         if (notices.profileOrigin === "SHARED_CALIBRATION" && status === "VERIFIED")
             return qsTr("正在使用其他玩家分享的校准")
         if (status === "VERIFIED")
-            return qsTr("档案与游戏版本匹配")
-        if (!notices.capture.game_build || !notices.capture.region || notices.capture.region === "UNKNOWN")
+            return App.ffxivRunning ? qsTr("档案与游戏版本匹配")
+                                    : qsTr("档案与已安装的游戏版本匹配")
+        if (notices.buildUnknown)
             return qsTr("尚未识别游戏版本或区服")
         if (status === "UNSUPPORTED_BUILD")
-            return qsTr("当前游戏版本没有可用档案")
+            return qsTr("%1没有可用档案").arg(notices.buildPhrase)
         if (status === "AMBIGUOUS")
             return qsTr("同一版本有两份档案，已全部拒绝")
         return qsTr("尚未匹配到档案")
@@ -108,7 +118,7 @@ ColumnLayout {
                         + "在记录里用“修正”填上结果。")
         const detail = notices.profile.message ? " " + notices.profile.message : ""
         const stale = App.protocolProfileStale ? qsTr("（以下档案详情为上次已知信息）") : ""
-        if (!notices.capture.game_build || !notices.capture.region || notices.capture.region === "UNKNOWN")
+        if (notices.buildUnknown)
             return qsTr("无法确认适用档案，当前不会生成自动记录，可以先手动记录。") + stale + detail
         return qsTr("当前不会生成自动记录，可以先手动记录。") + stale + detail
     }

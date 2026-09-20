@@ -48,7 +48,7 @@ public sealed record RouletteRenaming(int RouletteId, string Name);
 /// <summary>Where calibration stands for the running client.</summary>
 public enum CalibrationState
 {
-    /// <summary>Not calibrating: a profile matches, no template exists, or the game is not running.</summary>
+    /// <summary>Not calibrating: a profile matches, no template exists, or the client version is unknown.</summary>
     Idle,
 
     /// <summary>Armed for a build with no profile, but no capture session is running yet.</summary>

@@ -810,11 +810,62 @@ QJsonObject MockBackend::captureStatus() const
                       calibration.value(QStringLiteral("bound_at_utc")));
     }
     if (!m_recordingFixture.isEmpty()) {
-        status.insert(QStringLiteral("ffxiv_running"), m_recordingFixture != QLatin1String("waiting"));
-        status.insert(QStringLiteral("profile_status"), m_recordingFixture == QLatin1String("listening")
-                      ? QStringLiteral("VERIFIED") : QStringLiteral("NONE"));
+        // The three 游戏未运行 fixtures. Plain "waiting" is the first-ever run:
+        // no install directory has been remembered, so the Collector cannot name
+        // a version either. The two suffixed ones are the ordinary case after
+        // that - the installed version was read off disk and the profile
+        // question is already answered - with and without a usable profile.
+        const bool waiting = m_recordingFixture.startsWith(QLatin1String("waiting"));
+        const bool buildKnown = waiting && m_recordingFixture != QLatin1String("waiting");
+        status.insert(QStringLiteral("ffxiv_running"), !waiting);
+        status.insert(QStringLiteral("profile_status"),
+                      m_recordingFixture == QLatin1String("listening")
+                              || m_recordingFixture == QLatin1String("waiting-verified")
+                          ? QStringLiteral("VERIFIED") : QStringLiteral("NONE"));
         if (m_recordingFixture == QLatin1String("checking")) status.remove(QStringLiteral("profile_status"));
-        if (m_recordingFixture == QLatin1String("waiting")) status.insert(QStringLiteral("state"), QStringLiteral("STOPPED"));
+        if (waiting) {
+            status.insert(QStringLiteral("state"), QStringLiteral("STOPPED"));
+            status.insert(QStringLiteral("ffxiv_process_id"), QJsonValue::Null);
+        }
+        if (waiting && !buildKnown) {
+            status.insert(QStringLiteral("game_build"), QJsonValue::Null);
+            status.insert(QStringLiteral("region"), QStringLiteral("UNKNOWN"));
+        }
+        if (buildKnown) {
+            status.insert(QStringLiteral("game_build"), QStringLiteral("2026.09.01.0000.0000"));
+            status.insert(QStringLiteral("region"), QStringLiteral("CN"));
+            const bool verified = m_recordingFixture == QLatin1String("waiting-verified");
+            // A profile that ships with the software, so no 来源 to name.
+            status.insert(QStringLiteral("profile_id"),
+                          verified ? QJsonValue(QStringLiteral("cn/2026.09.01"))
+                                   : QJsonValue(QJsonValue::Null));
+            status.insert(QStringLiteral("profile_origin"), QJsonValue::Null);
+            status.insert(QStringLiteral("profile_matches_build"), verified);
+        }
+        if (m_recordingFixture == QLatin1String("waiting-calibrating")) {
+            // 尚无可用档案：采集服务为这个版本备好校准，但游戏启动前什么也观察不到。
+            status.insert(QStringLiteral("profile_status"), QStringLiteral("UNSUPPORTED_BUILD"));
+            QJsonObject waitingCalibration{
+                {QStringLiteral("state"), QStringLiteral("WAITING")},
+                {QStringLiteral("game_build"), QStringLiteral("2026.09.01.0000.0000")},
+                {QStringLiteral("template_profile_id"), QStringLiteral("cn.2026.08.05")},
+                {QStringLiteral("local_profile_id"), QJsonValue::Null},
+                {QStringLiteral("bound_at_utc"), QJsonValue::Null},
+                {QStringLiteral("blockers"), QJsonArray()},
+                {QStringLiteral("progress"),
+                 QJsonObject{{QStringLiteral("finder_request_seen"), false},
+                             {QStringLiteral("pop_seen"), false},
+                             {QStringLiteral("pop_shape_seen"), false},
+                             {QStringLiteral("zone_clusters"), 0},
+                             {QStringLiteral("duty_entry_seen"), false},
+                             {QStringLiteral("duty_exit_seen"), false}}},
+                {QStringLiteral("events"), QJsonArray()}};
+            // 共享校准 fixtures still apply, so the closed-game chain can be seen
+            // deferring to a card that is fetching or awaiting consent.
+            if (!m_sharedState.isEmpty())
+                waitingCalibration.insert(QStringLiteral("shared"), sharedCalibrationStatus());
+            status.insert(QStringLiteral("calibration"), waitingCalibration);
+        }
         // Keep SYNTHETIC_ONLY provenance even when exercising the VERIFIED branch.
     }
     return status;

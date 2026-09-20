@@ -338,8 +338,7 @@ public sealed class CollectorHost : IDisposable
         {
             Clock = provided?.Clock ?? Clock,
             Logger = logger ?? services.Logger,
-            Game = services.Game.WithRegionOverride(
-                () => CaptureSettingsStore.ReadRegionOverride(Settings)),
+            Game = WithHostSeams(services.Game),
             Settings = services.Settings ?? Settings,
             Sessions = services.Sessions ?? Sessions,
             Database = services.Database ?? Database,
@@ -348,6 +347,22 @@ public sealed class CollectorHost : IDisposable
             OodleTempManifestPath = services.OodleTempManifestPath
                 ?? DatabasePaths.ResolveOodleTempManifest(Database.Path),
         };
+    }
+
+    /// <summary>
+    /// Gives the locator the two things only this host can supply: the user's region override,
+    /// and a place to remember where the client is installed, so the client version is known at
+    /// startup rather than only once the game runs. The note sits beside this host's database,
+    /// like the Oodle manifest. A caller that supplied its own memory keeps it.
+    /// </summary>
+    /// <param name="locator">Locator from the capture services.</param>
+    private GameProcessLocator WithHostSeams(GameProcessLocator locator)
+    {
+        var located = locator.WithRegionOverride(() => CaptureSettingsStore.ReadRegionOverride(Settings));
+        return located.RemembersInstall
+            ? located
+            : located.WithInstallMemory(
+                FileGameInstallMemory.At(DatabasePaths.ResolveGameInstallMemory(Database.Path)));
     }
 
     /// <summary>

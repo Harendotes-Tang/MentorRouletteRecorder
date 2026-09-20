@@ -32,6 +32,9 @@ public sealed class CaptureServerFixture : IAsyncDisposable
     /// <summary>The running host.</summary>
     public CollectorHost Host { get; }
 
+    /// <summary>Throw-away data directory this server's database and side files live in.</summary>
+    public string DataDirectory => _directory;
+
     /// <summary>The running server.</summary>
     public PipeServer Server { get; }
 

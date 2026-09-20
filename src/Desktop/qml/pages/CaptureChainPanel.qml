@@ -8,7 +8,8 @@ import MentorRecorder
 // it first, the two rescan buttons) over four equal columns separated by 1 px
 // dividers. Each column: a dot (green ready / grey waiting / orange problem) and
 // its name, a 16 px figure value, a small sub line.
-//   FF14 进程  capture.ffxiv_running / ffxiv_process_id
+//   FF14 进程  capture.ffxiv_running / ffxiv_process_id, and while the game is
+//              closed the installed capture.game_build the Collector read off disk
 //   Npcap      GetStatus.npcap.version / status, capture.npcap_*
 //   适配器     capture.adapter_id joined on ListCaptureAdapters; captureSettings.adapter_id
 //   协议档案   capture.profile_status / profile_origin, App.calibration.state;
@@ -49,8 +50,21 @@ Card {
     // verified profile is never "calibrating".
     readonly property bool calibrating: !chain.profileReady
         && ["WAITING", "OBSERVING", "READY", "BLOCKED"].indexOf(chain.calibrationState) >= 0
+    // The Collector reads the installed version off disk, so a closed game no
+    // longer means an unknown one: only a build it has never located leaves the
+    // chain unable to say anything about the profile.
     readonly property bool buildUnknown: !chain.capture.game_build || !chain.capture.region
                                          || chain.capture.region === "UNKNOWN"
+    // 已安装的游戏版本: the launcher may still patch over it, so it is never
+    // called 当前 or 最新 while the game is closed.
+    readonly property string installedVersion: Fmt.gameVersionLabel(chain.capture.game_build)
+    // 共享校准 is fetching, verifying or waiting for consent: the calibration
+    // card above says what happens next, and this panel must not talk past it.
+    readonly property var sharedCalibration: App.calibration ? App.calibration.shared : null
+    readonly property string sharedView: chain.sharedCalibration
+                                         ? String(chain.sharedCalibration.view || "none") : "none"
+    readonly property bool sharedPending: ["fetching", "verifying", "consent"]
+                                          .indexOf(chain.sharedView) >= 0
     readonly property string errorCode: {
         const code = String(chain.capture.last_error_code || "")
         return code === "NONE" ? "" : code
@@ -66,8 +80,28 @@ Card {
             return App.npcapInstalled
                    ? [qsTr("Npcap 暂时用不了 · 按上方说明处理后点“重新检测”"), "bad"]
                    : [qsTr("Npcap 未安装 · 安装前只能手动记录"), "bad"]
-        if (!chain.gameRunning)
-            return [qsTr("等待游戏启动 · 档案按版本匹配，游戏启动后才知道能否记录"), "wait"]
+        // 游戏未运行. The chain is never whole here, but with the installed
+        // version known the profile question already has a real answer, so it
+        // is given instead of being deferred to the game's launch.
+        if (!chain.gameRunning) {
+            if (chain.buildUnknown)
+                return [qsTr("等待游戏启动 · 档案按版本匹配，游戏启动后才知道能否记录"), "wait"]
+            if (chain.profileStatus === "")
+                return [qsTr("等待游戏启动 · 正在核对已安装游戏版本的档案"), "wait"]
+            if (chain.profileReady)
+                return [qsTr("等待游戏启动 · 已安装版本的档案已就绪，启动游戏后会自动记录"), "wait"]
+            if (chain.calibrationState === "READY")
+                return [qsTr("等待游戏启动 · 校准完成，等你核对 · 见上方校准卡片"), "bad"]
+            if (chain.calibrationState === "BLOCKED")
+                return [qsTr("等待游戏启动 · 本机校准无法继续 · 见上方校准卡片"), "bad"]
+            if (chain.sharedPending)
+                return [qsTr("等待游戏启动 · 已安装的游戏版本还没有可用档案 · 见上方校准卡片"), "bad"]
+            if (chain.calibrating)
+                return [qsTr("等待游戏启动 · 已安装的游戏版本还没有可用档案，启动游戏后需要重新校准"), "bad"]
+            if (chain.profileStatus === "AMBIGUOUS")
+                return [qsTr("等待游戏启动 · 已安装的游戏版本有两份档案，已全部拒绝"), "bad"]
+            return [qsTr("等待游戏启动 · 已安装的游戏版本没有可用档案，暂时不会自动记录"), "bad"]
+        }
         if (chain.calibrating) {
             if (chain.calibrationState === "READY")
                 return [qsTr("校准完成，等你核对 · 见上方校准卡片"), "bad"]
@@ -136,7 +170,7 @@ Card {
         if (chain.maintainer)
             return chain.profile.profile_id || chain.capture.profile_id || qsTr("无")
         // Plain words a player can read, never an id.
-        if (!chain.gameRunning)
+        if (!chain.gameRunning && chain.buildUnknown)
             return qsTr("待游戏启动")
         if (chain.profileReady)
             return chain.profileOrigin === "LOCAL_CALIBRATION" ? qsTr("本机校准")
@@ -144,7 +178,9 @@ Card {
                  : qsTr("档案匹配")
         if (chain.calibrating)
             return chain.calibrationState === "READY" ? qsTr("待核对")
-                 : chain.calibrationState === "BLOCKED" ? qsTr("需诊断") : qsTr("校准中")
+                 : chain.calibrationState === "BLOCKED" ? qsTr("需诊断")
+                 // Nothing is being observed until the game runs.
+                 : chain.gameRunning ? qsTr("校准中") : qsTr("待校准")
         if (chain.profileStatus === "")
             return qsTr("检查中")
         if (chain.buildUnknown)
@@ -160,23 +196,24 @@ Card {
         if (chain.maintainer)
             return qsTr("%1 · build %2").arg(App.protocolProfileStatus)
                    .arg(chain.profile.game_build || chain.capture.game_build || Fmt.dash())
-        if (!chain.gameRunning)
+        if (!chain.gameRunning && chain.buildUnknown)
             return qsTr("待游戏启动后校验")
         if (chain.profileReady)
-            return qsTr("与游戏版本匹配")
+            return chain.gameRunning ? qsTr("与游戏版本匹配") : qsTr("与已安装的游戏版本匹配")
         if (chain.calibrating)
-            return qsTr("游戏更新后重新校准")
+            return chain.gameRunning ? qsTr("游戏更新后重新校准") : qsTr("启动游戏后重新校准")
         if (chain.profileStatus === "")
             return qsTr("正在核对")
         if (chain.buildUnknown)
             return qsTr("尚未识别游戏版本或区服")
         if (chain.profileStatus === "AMBIGUOUS")
             return qsTr("同一版本有两份档案")
-        return qsTr("当前版本暂时不会自动记录")
+        return chain.gameRunning ? qsTr("当前版本暂时不会自动记录")
+                                 : qsTr("已安装版本暂时不会自动记录")
     }
 
     function profileState() {
-        if (!chain.gameRunning || chain.profileStatus === "")
+        if (chain.profileStatus === "" || (!chain.gameRunning && chain.buildUnknown))
             return "wait"
         return chain.profileReady ? "ok" : "bad"
     }
@@ -189,8 +226,11 @@ Card {
         {
             key: "game", label: qsTr("FF14 进程"),
             value: chain.gameRunning ? "ffxiv_dx11.exe" : qsTr("未运行"),
+            // With the game closed the installed version is what the profile is
+            // matched against, and it is the one fact worth the line.
             sub: chain.gameRunning ? qsTr("PID %1").arg(chain.capture.ffxiv_process_id || Fmt.dash())
-                                   : qsTr("启动游戏后自动检测"),
+                 : chain.buildUnknown ? qsTr("启动游戏后自动检测")
+                                      : qsTr("已安装版本 %1").arg(chain.installedVersion),
             tone: chain.gameRunning ? "ok" : "wait"
         },
         {

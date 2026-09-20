@@ -13,6 +13,7 @@
 //                          [--mock-ui-style classic] [--settings-tab tts]
 //                          [--mock-calibration done] [--mock-shared consent]
 //                          [--mock-update-available]
+//                          [--mock-recording-state waiting-verified]
 //                          [--export-target DIR] [--open-detail] [--open-edit]
 //                          [--screenshot-size WxH] [--mock-speech azure]
 //                          [--mock-open-speech-confirm] [--mock-speech-preview]
@@ -536,7 +537,11 @@ int main(int argc, char *argv[])
     QCommandLineOption alertFlowOption(QStringLiteral("mock-recording-alert-flow"),
         QStringLiteral("Verify hidden/minimized/deferred recording alerts and normal controls in compiled QML."));
     QCommandLineOption recordingOption(QStringLiteral("mock-recording-state"),
-        QStringLiteral("Synthetic automatic recording UI state: waiting, checking, listening or blocked."),
+        QStringLiteral("Synthetic automatic recording UI state: waiting, waiting-verified, "
+                       "waiting-calibrating, checking, listening or blocked. The three waiting "
+                       "states are the game closed: with no remembered install directory "
+                       "(waiting), and with the installed version read off disk and a profile "
+                       "for it that is usable (waiting-verified) or not yet (waiting-calibrating)."),
         QStringLiteral("state"));
     QCommandLineOption maintainerOption(QStringLiteral("maintainer-tools"),
         QStringLiteral("Enable manual capture, validation and candidate maintenance tools."));
@@ -773,7 +778,9 @@ int main(int argc, char *argv[])
         return 2;
     }
 
-    if (parser.isSet(recordingOption) && !QStringList{QStringLiteral("waiting"), QStringLiteral("checking"),
+    if (parser.isSet(recordingOption) && !QStringList{QStringLiteral("waiting"),
+            QStringLiteral("waiting-verified"), QStringLiteral("waiting-calibrating"),
+            QStringLiteral("checking"),
             QStringLiteral("listening"), QStringLiteral("blocked")}.contains(parser.value(recordingOption))) {
         std::fputs("invalid --mock-recording-state value\n", stderr);
         return 2;
