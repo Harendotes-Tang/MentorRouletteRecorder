@@ -495,7 +495,7 @@ ScrollView {
                                 { label: qsTr("进本时间"), value: App.currentRun.run ? Fmt.localTime(App.currentRun.run.entered_at_utc) : "—" },
                                 { label: qsTr("检测置信"),
                                   value: App.currentRun.run
-                                         ? Fmt.confidenceLabel(App.currentRun.run.detection_confidence || "")
+                                         ? Fmt.runConfidenceLabel(App.currentRun.run)
                                          : Fmt.dash() }
                             ]
 

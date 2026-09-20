@@ -39,6 +39,40 @@ public sealed class StateMachineTests
         Assert.Equal(DetectionConfidence.High, finish.Confidence);
     }
 
+    /// <summary>
+    /// The CN client names the duty by its territory and never sends a content id. A run whose
+    /// match, entry, end, job and duty were all read off the wire is as certain as a run gets;
+    /// holding it at MEDIUM for a field this client does not have made HIGH unreachable.
+    /// </summary>
+    [Fact]
+    public void ADutyKnownByItsTerritoryAloneStillCompletesWithHighConfidence()
+    {
+        var machine = Machine();
+
+        machine.Handle(Pop(0, 42));
+        machine.Handle(Zone(5, contentId: null) with { TerritoryId = null });
+        machine.Handle(Territory(5_050, 1036));
+        machine.Handle(Job(6, 19));
+        var result = machine.Handle(Result(125, victory: true));
+
+        var finish = Assert.IsType<FinishRunCommand>(result.Commands[0]);
+        Assert.Equal(DetectionConfidence.High, finish.Confidence);
+    }
+
+    [Fact]
+    public void ARunWhoseDutyWasNeverNamedStaysAtMediumConfidence()
+    {
+        var machine = Machine();
+
+        machine.Handle(Pop(0, 42));
+        machine.Handle(Zone(5, contentId: null) with { TerritoryId = null });
+        machine.Handle(Job(6, 19));
+        var result = machine.Handle(Result(125, victory: true));
+
+        var finish = Assert.IsType<FinishRunCommand>(result.Commands[0]);
+        Assert.Equal(DetectionConfidence.Medium, finish.Confidence);
+    }
+
     [Fact]
     public void NonVictory_NeverCompletes()
     {

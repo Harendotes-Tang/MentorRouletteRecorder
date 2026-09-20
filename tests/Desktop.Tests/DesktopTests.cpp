@@ -499,6 +499,14 @@ void DesktopTests::formatters_renderNullsAndDurations()
              QString::fromUtf8("未知"));
     QCOMPARE(mr::Formatters::confidenceLabel(QStringLiteral("HIGH")), QString::fromUtf8("高"));
     QCOMPARE(mr::Formatters::confidenceLabel(QString()), QString::fromUtf8("—"));
+    // The Collector grades a run when it ends; until then the stored value is only the MEDIUM
+    // every run starts with, and showing it reads as a verdict on a run that has none yet.
+    QVariantMap ungraded = inFlight;
+    ungraded.insert(QStringLiteral("detection_confidence"), QStringLiteral("MEDIUM"));
+    QCOMPARE(mr::Formatters::runConfidenceLabel(ungraded), QString::fromUtf8("结束时评定"));
+    QVariantMap graded = finished;
+    graded.insert(QStringLiteral("detection_confidence"), QStringLiteral("HIGH"));
+    QCOMPARE(mr::Formatters::runConfidenceLabel(graded), QString::fromUtf8("高"));
 
     // 最近有效事件 on the capture page: every contract token has a Chinese name;
     // null and a token this build does not know give nothing (time only).

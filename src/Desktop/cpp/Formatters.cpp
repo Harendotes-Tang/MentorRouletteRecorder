@@ -200,6 +200,13 @@ QString Formatters::stateLabel(const QString &code)
     return resultLabel(code);
 }
 
+QString Formatters::runConfidenceLabel(const QVariantMap &run)
+{
+    if (runInProgress(run))
+        return QString::fromUtf8("结束时评定");
+    return confidenceLabel(run.value(QStringLiteral("detection_confidence")).toString());
+}
+
 QString Formatters::confidenceLabel(const QString &code)
 {
     if (code.isEmpty())                  return dash();

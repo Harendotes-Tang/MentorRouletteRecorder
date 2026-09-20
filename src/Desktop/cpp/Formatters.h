@@ -72,6 +72,8 @@ public:
     Q_INVOKABLE static QString stateLabel(const QString &code);
     /// Chinese label for a DetectionConfidence code (高 / 中 / 低 / 无).
     Q_INVOKABLE static QString confidenceLabel(const QString &code);
+    /// confidenceLabel for a run, except that a run still in progress has not been graded yet.
+    Q_INVOKABLE static QString runConfidenceLabel(const QVariantMap &run);
     /// Chinese label for a Role code.
     Q_INVOKABLE static QString roleLabel(const QString &code);
     /// Palette token for a role: TANK/HEALER/DPS/UNKNOWN.

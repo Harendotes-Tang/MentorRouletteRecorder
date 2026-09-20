@@ -740,8 +740,14 @@ public sealed partial class MentorRunStateMachine
         return StartRun(pop, closeCommands);
     }
 
+    /// <summary>
+    /// HIGH needs the duty named by the wire, not by one particular field. The CN client sends
+    /// the territory and never a content id, so asking for the content id alone made HIGH
+    /// unreachable there. Both fields only ever come from protocol events here; the local
+    /// content-to-territory display mapping never reaches them (docs/state-machine.md section 4).
+    /// </summary>
     private DetectionConfidence CompletionConfidence() =>
-        _entered && _contentId is not null && _jobId is not null
+        _entered && (_contentId is not null || _territoryId is not null) && _jobId is not null
             ? DetectionConfidence.High
             : DetectionConfidence.Medium;
 

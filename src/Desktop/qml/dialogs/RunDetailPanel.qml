@@ -76,7 +76,7 @@ Rectangle {
         fields.push({ k: qsTr("检测置信"),
                       v: root.showRawTokens
                          ? (runData.detection_confidence || Fmt.dash())
-                         : Fmt.confidenceLabel(runData.detection_confidence || "") })
+                         : Fmt.runConfidenceLabel(runData) })
         fields.push({ k: qsTr("待复核"),
                       v: runData.pending_review
                          ? qsTr("是 · 结果未经确认（崩溃恢复，或档案尚不能判定是否通关）")
