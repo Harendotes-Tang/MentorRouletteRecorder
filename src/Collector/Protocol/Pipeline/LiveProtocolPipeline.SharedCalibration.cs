@@ -176,10 +176,15 @@ public sealed partial class LiveProtocolPipeline
         }
     }
 
-    /// <summary>Hands the staged entries to the state machine through the path live events take, in order.</summary>
+    /// <summary>
+    /// Hands the staged entries to the state machine through the path live events take, in order. What was
+    /// staged more than <see cref="FreshMatchAge"/> ago, on the capture source's clock, is replayed rather
+    /// than announced (see <see cref="ApplyAndPublish"/>).
+    /// </summary>
     private void DrainStaged(SharedCandidateStage stage)
     {
         var processor = _processor!;
+        var now = LifecycleMono();
         foreach (var entry in stage.Drain())
         {
             try
@@ -187,7 +192,7 @@ public sealed partial class LiveProtocolPipeline
                 switch (entry.Kind)
                 {
                     case StagedEntryKind.Event when entry.Event is { } semanticEvent:
-                        ApplyAndPublish(() => processor.Accept(semanticEvent));
+                        ApplyAndPublish(() => processor.Accept(semanticEvent), replayed: now - entry.Mono > FreshMatchAge);
                         break;
                     case StagedEntryKind.EventsDropped:
                         ApplyAndPublish(() => processor.OnEventsDropped(entry.DroppedCount, entry.AtUtc, entry.Mono));
@@ -268,18 +273,23 @@ public sealed partial class LiveProtocolPipeline
         // the parser is rebuilt over the better profile at once, the way a confirmed local calibration that
         // rewrites the profile in force is rebound. Nothing is staged in this case - staging only happens
         // while no parser is bound - and what the machine knows about the player is carried across.
-        // Mid-run this branch is not taken, and the swap waits for the next evaluation (see VerifyCandidate).
-        var swapNow = !bindNow && _active && _processor is { } recording && recording.Machine.State == RunState.Idle;
-        var carried = _processor?.Machine.Memory;
+        // The profile was written off the gate, so a run may have begun meanwhile, or the player may be
+        // queued on a request the old machine has parked: then the swap is owed, and settled after the first
+        // message that leaves the machine between runs (SettleOwedSharedSwap) - in this session, not the next.
+        var recordingNow = !bindNow && _active && _processor is not null;
+        var swapNow = recordingNow && BetweenRuns(_processor!);
 
         _selection = selection;
         UseCalibrationRole(upgrading: profile.MatchFromQueue, retaining: true);
+        _sharedSwapOwed = null;
         var outcome = SharedBindOutcome.Selected;
-        if (swapNow && _sessionId is { } swapped && TryUpdateSessionProfile(swapped, profile.ProfileId, ProfileStatus.Verified))
+        if (swapNow)
         {
-            BindParser(profile, swapped, JobRemembered(profile) ?? carried);
-            _calibrationBoundAt = _clock.UtcNow;
-            outcome = SharedBindOutcome.Bound;
+            outcome = SwapParser(profile) ? SharedBindOutcome.Bound : SharedBindOutcome.Selected;
+        }
+        else if (recordingNow)
+        {
+            _sharedSwapOwed = profile.ProfileId;
         }
         else if (bindNow && _sessionId is { } sessionId && TryUpdateSessionProfile(sessionId, profile.ProfileId, ProfileStatus.Verified))
         {
@@ -302,7 +312,86 @@ public sealed partial class LiveProtocolPipeline
             FinishSharedRetention(profile.ProfileId, profile.MatchFromQueue);
         }
 
-        return new SharedBindResult(outcome, outcome == SharedBindOutcome.Bound ? "BOUND" : "FROM_NEXT_SESSION", proven, ranComplete);
+        var reason = outcome == SharedBindOutcome.Bound ? "BOUND" : _sharedSwapOwed is null ? "FROM_NEXT_SESSION" : "AFTER_THIS_RUN";
+        return new SharedBindResult(outcome, reason, proven, ranComplete);
+    }
+
+    /// <summary>
+    /// True when replacing the state machine loses nothing: no run is in flight - a terminal state still on
+    /// display until the next declared message is a finished run, not one in flight - and no queue request
+    /// is parked that the old machine would still turn into a run when the duty loads. The new profile
+    /// starts its runs from the server's announcement, which for a parked request may already have gone by.
+    /// </summary>
+    private bool BetweenRuns(SemanticEventProcessor recording) =>
+        recording.Machine.State is not (RunState.MentorMatched or RunState.EnteredDuty) &&
+        !recording.Machine.HasParkedQueue(LifecycleMono()) &&
+        string.IsNullOrWhiteSpace(recording.LastStorageError);
+
+    /// <summary>
+    /// Rebuilds the parser and the state machine over <paramref name="profile"/> inside the running session,
+    /// carrying across what the old machine knew about the player. The old machine's terminal state is
+    /// collapsed through the ordinary publication path first, so the desktop is told the run is over by the
+    /// machine that recorded it. False changes nothing.
+    /// </summary>
+    private bool SwapParser(ProtocolProfile profile)
+    {
+        if (_processor is not { } recording || _sessionId is not { } sessionId)
+        {
+            return false;
+        }
+
+        try
+        {
+            ApplyAndPublish(recording.Machine.NormalizeIfTerminal);
+        }
+        catch (InvalidOperationException)
+        {
+            // A latched storage failure: capture is about to fault, and a fresh processor would hide the latch.
+            return false;
+        }
+
+        if (!TryUpdateSessionProfile(sessionId, profile.ProfileId, ProfileStatus.Verified))
+        {
+            return false;
+        }
+
+        BindParser(profile, sessionId, JobRemembered(profile) ?? recording.Machine.Memory);
+        _calibrationBoundAt = _clock.UtcNow;
+        return true;
+    }
+
+    /// <summary>
+    /// A swap that had to wait - a run was under way when the better profile was written, or the player was
+    /// queued - goes ahead after the first message that leaves the machine between runs. Called once the
+    /// parser is done with that message, never underneath it. An owed swap the selection no longer stands
+    /// behind (the profile was withdrawn, or another took its place) is forgotten.
+    /// </summary>
+    private void SettleOwedSharedSwap()
+    {
+        if (_sharedSwapOwed is not { } owed)
+        {
+            return;
+        }
+
+        if (!_active || _processor is not { } recording ||
+            _selection is not { IsUsable: true, Origin: ProfileOrigin.Shared, Profile: { } profile } ||
+            !string.Equals(profile.ProfileId, owed, StringComparison.Ordinal))
+        {
+            _sharedSwapOwed = null;
+            return;
+        }
+
+        if (!BetweenRuns(recording))
+        {
+            return;
+        }
+
+        _sharedSwapOwed = null;
+        if (SwapParser(profile))
+        {
+            _shared.OnBoundLater(owed, _calibrationBoundAt ?? _clock.UtcNow);
+            NotifyCalibrationChanged();
+        }
     }
 
     /// <summary>
@@ -430,6 +519,11 @@ public sealed partial class LiveProtocolPipeline
     /// <param name="profileId">Profile that must stop recording.</param>
     private void UnbindProfile(string profileId)
     {
+        if (string.Equals(_sharedSwapOwed, profileId, StringComparison.Ordinal))
+        {
+            _sharedSwapOwed = null;
+        }
+
         if (_processor is { } processor && string.Equals(_boundProfileId, profileId, StringComparison.Ordinal))
         {
             try

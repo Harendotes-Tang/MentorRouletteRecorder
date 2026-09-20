@@ -114,6 +114,16 @@ public sealed partial class MentorRunStateMachine
     public bool MatchObserved => _matchObserved;
 
     /// <summary>
+    /// True while a queue request is parked on a queue-inferred profile and could still become a run: the
+    /// machine reads IDLE, but the player is queued, and replacing the machine now would lose the duty
+    /// that request leads to. A request older than the match window no longer counts, exactly as the
+    /// next event would forget it.
+    /// </summary>
+    /// <param name="mono">Monotonic reading of now, on the capture source's clock.</param>
+    public bool HasParkedQueue(TimeSpan mono) =>
+        _pendingQueue is { } pending && mono - pending.Mono <= _options.MatchWindow;
+
+    /// <summary>
     /// How long the duty may take to load. An announced match has spent its queue already, so
     /// only the confirmation and the loading screen are left.
     /// </summary>
