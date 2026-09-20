@@ -52,6 +52,10 @@ class CalibrationController final : public QObject
     Q_PROPERTY(int confirmCount READ confirmCount NOTIFY changed)
     Q_PROPERTY(bool busy READ busy NOTIFY changed)
     Q_PROPERTY(QString error READ error NOTIFY changed)
+    /// A local profile the player retired through 重新校准 is still on disk for
+    /// this build and nothing is in force under its name, so 恢复上一份本机校准
+    /// has something to put back. False on a Collector that does not report it.
+    Q_PROPERTY(bool retiredLocalProfileAvailable READ retiredLocalProfileAvailable NOTIFY changed)
     /// The accepted ConfirmCalibration response: profile_id, profile_path,
     /// bound_in_session. Empty until one is accepted.
     Q_PROPERTY(QVariantMap lastResult READ lastResult NOTIFY changed)
@@ -75,6 +79,7 @@ public:
     int confirmCount() const { return m_confirmCount; }
     bool busy() const { return m_busy; }
     QString error() const { return m_error; }
+    bool retiredLocalProfileAvailable() const { return m_retiredLocalProfileAvailable; }
     QVariantMap lastResult() const { return m_lastResult; }
     SharedCalibrationController *shared() const { return m_shared; }
 
@@ -92,15 +97,27 @@ public Q_SLOTS:
     /// require confirmation are sent, in timeline order.
     void confirm(const QVariantMap &verdicts);
     void discard();
+    /// 重新校准: the same request, asking the Collector to stop using the profile
+    /// this machine calibrated as well. The file is kept, renamed; the records it
+    /// already made are left exactly as they are.
+    void recalibrate();
+    /// 恢复上一份本机校准: the undo of recalibrate(). Puts the retired profile back
+    /// and records with it again, letting go of whatever records now. A refusal
+    /// is shown as-is; the Collector's sentence is already player-facing.
+    void restoreLocalProfile();
 
 Q_SIGNALS:
     void changed();
     void confirmed(const QString &profileId, bool boundInSession);
     void rejected(const QString &message);
+    /// The profile in force changed, so the capture status has to be re-read.
+    void refreshRequested();
 
 private:
     void publish(const QString &state, const QString &gameBuild, const QStringList &blockers,
-                 const QVariantMap &progress, const QVariantList &events, bool provisional);
+                 const QVariantMap &progress, const QVariantList &events, bool provisional,
+                 bool retiredLocalProfileAvailable);
+    void sendDiscard(bool retireLocalProfile, bool restoreLocalProfile);
 
     QPointer<IBackend> m_backend;
     SharedCalibrationController *m_shared = nullptr;
@@ -114,6 +131,7 @@ private:
     QString m_error;
     int m_confirmCount = 0;
     bool m_busy = false;
+    bool m_retiredLocalProfileAvailable = false;
 };
 
 } // namespace mr

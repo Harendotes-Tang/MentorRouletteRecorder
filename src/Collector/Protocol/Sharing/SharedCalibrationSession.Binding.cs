@@ -137,10 +137,17 @@ internal sealed partial class SharedCalibrationSession
     /// remove it off the gate. Only a contradiction or a revocation marks its code as rejected; the player's
     /// refusal is about the build, not the code, and the store keeps it apart.
     /// </summary>
-    private void Supersede(string reason, bool contradicted = true)
+    /// <param name="reason">Refusal token; <c>CONTRADICTED</c>, <c>REVOKED</c> or the player's own.</param>
+    /// <param name="contradicted">False for the player's refusal: no accusation, no flagged records.</param>
+    /// <param name="pending">
+    /// Codes of the index that revoked it, offered once the file is gone - a replacement is written to that
+    /// same path, so it must not be written while the delete is still in flight.
+    /// </param>
+    private void Supersede(string reason, bool contradicted = true, IReadOnlyList<Prepared>? pending = null)
     {
         if (_bound is not { } bound)
         {
+            RegisterDownloaded(pending ?? Array.Empty<Prepared>());
             return;
         }
 
@@ -169,13 +176,13 @@ internal sealed partial class SharedCalibrationSession
 
         Schedule(() =>
         {
-            Withdraw(bound);
+            Withdraw(bound, pending);
             return Task.CompletedTask;
         });
         _host.SharedCalibrationChanged();
     }
 
-    private void Withdraw(BoundProfile bound)
+    private void Withdraw(BoundProfile bound, IReadOnlyList<Prepared>? pending = null)
     {
         Attempt(() =>
         {
@@ -192,11 +199,34 @@ internal sealed partial class SharedCalibrationSession
 
             _host.ReselectAfterSharedChange(select);
             Sync();
+            if (pending is { Count: > 0 })
+            {
+                // The file is gone and the catalogue has been read again, so the next best code of the
+                // index that revoked this one may now be offered - and written to that same path.
+                RegisterDownloaded(pending);
+                Evaluate();
+            }
+
             _host.SharedCalibrationChanged();
         }
     }
 
     // ------------------------------------------------------------------ bookkeeping
+
+    /// <summary>
+    /// Registers what a download offered. With nothing in force that is all of it; beside a profile that
+    /// records, only a code that outranks it (plan §3), so a build already answered by an announcement code
+    /// spends no observer slot and shows the player no candidate they have no use for.
+    /// </summary>
+    /// <param name="prepared">Codes rebuilt from the index just read, best first.</param>
+    private void RegisterDownloaded(IReadOnlyList<Prepared> prepared)
+    {
+        var selection = _host.SharedSelection();
+        foreach (var candidate in prepared.Where(item => CanReplace(selection, item.Payload.MatchSource)))
+        {
+            Register(candidate, SharedCandidateSource.Downloaded, SharedCandidateProvenance.Published);
+        }
+    }
 
     private string? Register(Prepared prepared, SharedCandidateSource source, SharedCandidateProvenance provenance)
     {
@@ -295,7 +325,11 @@ internal sealed partial class SharedCalibrationSession
 
     private void AdoptBound(SharedContext context)
     {
-        if (_bound is not { Proven: false } bound)
+        // The code behind a settled profile is recovered too, although its watch is over: a revocation
+        // read from the index is matched by code, and this is where the profile in use learns its own
+        // (plan §3). Nothing else about a settled profile changes - it is not registered for counting,
+        // and no criterion is judged against it again.
+        if (_bound is not { } bound)
         {
             return;
         }
@@ -311,7 +345,7 @@ internal sealed partial class SharedCalibrationSession
             // Adopted from disk - after a restart, or after a withdrawal whose delete failed: a code this
             // build's traffic already rejected is withdrawn again, never trusted. Once per profile per
             // process, so a file that cannot be deleted does not turn every selection into a retry.
-            if (!_withdrawn.Contains(bound.ProfileId) &&
+            if (!bound.Proven && !_withdrawn.Contains(bound.ProfileId) &&
                 (_rejected.Contains(declared.CandidateId) || Attempt(() => _services.SharedCalibrations.IsRejected(
                     context.Key.Region, context.Key.GameBuild, context.Key.TemplateSha256, declared.CandidateId))))
             {
@@ -320,7 +354,7 @@ internal sealed partial class SharedCalibrationSession
             }
         }
 
-        if (bound.Declared is { } watched)
+        if (!bound.Proven && bound.Declared is { } watched)
         {
             _host.RegisterSharedCandidate(watched);
         }
@@ -345,6 +379,7 @@ internal sealed partial class SharedCalibrationSession
         }
 
         _binding = null;
+        _deferred = null;
         _key = key;
         _rejected.Clear();
         _rejectedSummaries.Clear();

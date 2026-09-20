@@ -2,6 +2,7 @@
 ;
 ; Built by scripts/package.ps1 (which passes AppVersion, StageDir and OutputDir) or by
 ; hand:  ISCC.exe /DAppVersion=<version> installer\MentorRecorder.iss   (no default exists)
+; The version may be a prerelease (1.4.0-beta.1); see the AppVersionNumeric note below.
 ;
 ; What the installer bundles: the staged release directory (Desktop + self-contained
 ; Collector, Qt and MinGW runtimes, licences, docs). What it does NOT bundle: Npcap. The
@@ -9,11 +10,23 @@
 ; downloads the official installer from npcap.com (pinned version + SHA-256) and runs it;
 ; the user completes the Npcap wizard themselves. See docs/build-and-package.md.
 
-; The version has exactly one source: Directory.Build.props/<Version>. There is deliberately
-; no fallback, because a literal here would drift from it. scripts/package.ps1 passes
-; /DAppVersion; a hand run must pass it too.
+; The version has exactly one source: Directory.Build.props (<VersionPrefix> plus the
+; optional <VersionSuffix>). There is deliberately no fallback, because a literal here would
+; drift from it. scripts/package.ps1 passes /DAppVersion; a hand run must pass it too.
+;
+; AppVersion is the full string a person reads and may carry a prerelease suffix
+; (1.4.0-beta.1). VersionInfoVersion cannot: it becomes the setup executable's Win32
+; VERSIONINFO resource, whose fields are four numbers, and ISCC refuses anything else. The
+; numeric part is therefore derived below rather than written out a second time.
 #ifndef AppVersion
-  #error AppVersion is not defined. Run scripts/package.ps1, or pass /DAppVersion=x.y.z
+  #error AppVersion is not defined. Run scripts/package.ps1, or pass /DAppVersion=x.y.z[-beta.N]
+#endif
+#ifndef AppVersionNumeric
+  #if Pos("-", AppVersion) > 0
+    #define AppVersionNumeric Copy(AppVersion, 1, Pos("-", AppVersion) - 1)
+  #else
+    #define AppVersionNumeric AppVersion
+  #endif
 #endif
 #ifndef StageDir
   #define StageDir "..\artifacts\MentorRecorder-" + AppVersion + "-win-x64"
@@ -74,7 +87,7 @@ CloseApplications=yes
 RestartApplications=no
 MinVersion=10.0
 ShowLanguageDialog=no
-VersionInfoVersion={#AppVersion}
+VersionInfoVersion={#AppVersionNumeric}
 VersionInfoProductName={#AppNameEn}
 VersionInfoDescription={#AppNameEn} Setup
 VersionInfoCopyright=GPL-3.0-or-later

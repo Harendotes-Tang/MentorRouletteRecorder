@@ -102,6 +102,8 @@ public sealed class SharedCalibrationSessionReconcileTests : IDisposable
 
         bool ISharedCalibrationHost.HasFinishedSharedRun(string profileId) => false;
 
+        bool ISharedCalibrationHost.SharedRunInFlight() => false;
+
         SharedBindResult ISharedCalibrationHost.CommitSharedBind(SharedBindRequest request) =>
             throw new InvalidOperationException("nothing binds in this test");
 

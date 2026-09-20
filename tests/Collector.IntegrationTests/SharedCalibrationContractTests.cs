@@ -44,6 +44,7 @@ public sealed class SharedCalibrationContractTests
             UserRejected = true,
             LastSentAtUtc = At,
             LastSentStatus = SharedFetchStatus.Ok,
+            Recheck = new SharedRecheckRecord(At, SharedFetchStatus.Ok, SharedRecheckReason.SharedInUse),
         };
     }
 
@@ -116,6 +117,7 @@ public sealed class SharedCalibrationContractTests
         Assert.Equal(Tokens<SharedCandidateStatus>(), Declared("$defs", "SharedCandidateStatus", "enum"));
         Assert.Equal(Tokens<SharedVerdict>(), Declared("$defs", "SharedVerdict", "enum"));
         Assert.Equal(Tokens<SharedFetchStatus>(), Declared("$defs", "SharedFetchStatus", "enum"));
+        Assert.Equal(Tokens<SharedRecheckReason>(), Declared("$defs", "SharedRecheckReason", "enum"));
         Assert.Equal(Tokens<SharedCalibrationSource>(), Declared("$defs", "SharedCalibrationSource", "enum"));
         Assert.Equal(Tokens<SharedFetchOutcome>(), Declared("$defs", "SharedFetchOutcome", "enum"));
         Assert.Equal(Tokens<CalibrationMatchSource>(), Declared("$defs", "CalibrationMatchSource", "enum"));

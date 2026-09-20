@@ -53,7 +53,7 @@ void CalibrationController::refreshFromCaptureStatus(const QVariantMap &capture)
     m_shared->refreshFromCaptureStatus(capture);
     const QVariant raw = capture.value(QStringLiteral("calibration"));
     if (!raw.isValid() || raw.isNull()) {
-        publish(QStringLiteral("IDLE"), QString(), {}, {}, {}, false);
+        publish(QStringLiteral("IDLE"), QString(), {}, {}, {}, false, false);
         return;
     }
     const QVariantMap calibration = raw.toMap();
@@ -100,12 +100,16 @@ void CalibrationController::refreshFromCaptureStatus(const QVariantMap &capture)
         && !calibration.value(QStringLiteral("local_profile_id")).toString().isEmpty();
     publish(state, calibration.value(QStringLiteral("game_build")).toString(), blockers,
             progress.isValid() && !progress.isNull() ? progress.toMap() : QVariantMap(), events,
-            provisional);
+            provisional,
+            // Optional: a Collector that does not report it offers no rollback, which is the
+            // same thing a Collector reporting false says.
+            calibration.value(QStringLiteral("retired_local_profile_available")).toBool());
 }
 
 void CalibrationController::publish(const QString &state, const QString &gameBuild,
                                     const QStringList &blockers, const QVariantMap &progress,
-                                    const QVariantList &events, bool provisional)
+                                    const QVariantList &events, bool provisional,
+                                    bool retiredLocalProfileAvailable)
 {
     int required = 0;
     for (const auto &value : events) {
@@ -115,12 +119,14 @@ void CalibrationController::publish(const QString &state, const QString &gameBui
     const QString nextState = state.isEmpty() ? QStringLiteral("IDLE") : state;
     if (m_state == nextState && m_gameBuild == gameBuild && m_blockers == blockers
         && m_progress == progress && m_events == events && m_confirmCount == required
-        && m_provisional == provisional) {
+        && m_provisional == provisional
+        && m_retiredLocalProfileAvailable == retiredLocalProfileAvailable) {
         return;
     }
     m_state = nextState;
     m_gameBuild = gameBuild;
     m_provisional = provisional;
+    m_retiredLocalProfileAvailable = retiredLocalProfileAvailable;
     m_blockers = blockers;
     m_progress = progress;
     m_events = events;
@@ -192,17 +198,43 @@ void CalibrationController::confirm(const QVariantMap &verdicts)
 
 void CalibrationController::discard()
 {
+    sendDiscard(false, false);
+}
+
+void CalibrationController::recalibrate()
+{
+    sendDiscard(true, false);
+}
+
+void CalibrationController::restoreLocalProfile()
+{
+    sendDiscard(false, true);
+}
+
+void CalibrationController::sendDiscard(bool retireLocalProfile, bool restoreLocalProfile)
+{
     if (m_busy || !m_backend)
         return;
+    // A profile change is what both flags ask for, and the card must not keep showing what
+    // the previous attempt said about a state that no longer exists.
+    const bool changesProfile = retireLocalProfile || restoreLocalProfile;
     m_busy = true;
     m_error.clear();
     Q_EMIT changed();
-    m_backend->discardCalibration()->whenDone(this,
-        [this](bool ok, const QVariantMap &result, const QString &code, const QString &message) {
+    m_backend->discardCalibration(retireLocalProfile, restoreLocalProfile)->whenDone(this,
+        [this, retireLocalProfile, restoreLocalProfile, changesProfile](
+            bool ok, const QVariantMap &result, const QString &code, const QString &message) {
         m_busy = false;
         if (!ok) {
+            // The Collector's refusals here are already written for the player ("上一份本机
+            // 校准已经无法使用，请重新校准。"), so they are shown verbatim; the token stays in
+            // the log.
             Q_UNUSED(code);
-            m_error = message.isEmpty() ? tr("重新观察失败，请稍后再试。") : message;
+            m_error = !message.isEmpty()
+                ? message
+                : retireLocalProfile ? tr("重新校准失败，请稍后再试。")
+                : restoreLocalProfile ? tr("恢复上一份本机校准失败，请稍后再试。")
+                                      : tr("重新观察失败，请稍后再试。");
             Q_EMIT changed();
             return;
         }
@@ -211,9 +243,16 @@ void CalibrationController::discard()
         const QString state = result.value(QStringLiteral("state")).toString();
         m_lastResult.clear();
         // 重新观察丢掉的是草稿，不是已经写出并生效的本机档案：provisional 保持原样。
+        // 重新校准 does stop that profile, and what is in force is not this controller's to
+        // decide: the capture status is re-read and says so.
         publish(state.isEmpty() ? m_state : state, m_gameBuild, QStringList(), QVariantMap(),
-                QVariantList(), m_provisional);
+                QVariantList(), changesProfile ? false : m_provisional,
+                // The rollback consumed the retired file; a retirement produced one. Either way
+                // the next capture status is what decides, and it is asked for below.
+                restoreLocalProfile ? false : m_retiredLocalProfileAvailable);
         Q_EMIT changed();
+        if (changesProfile)
+            Q_EMIT refreshRequested();
     });
 }
 

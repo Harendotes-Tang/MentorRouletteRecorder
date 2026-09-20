@@ -63,17 +63,32 @@ public static class CalibrationHandlers
         };
     }
 
-    /// <summary>Handles <c>DiscardCalibration</c>.</summary>
+    /// <summary>
+    /// Handles <c>DiscardCalibration</c>: 重新观察, and with <c>retire_local_profile</c> the
+    /// 重新校准 that also puts the local profile in force away. The field is optional and its
+    /// absence is the behaviour the message always had.
+    /// </summary>
     /// <param name="host">Collector host.</param>
     /// <param name="reader">Request payload.</param>
     public static JsonObject Discard(CollectorHost host, PayloadReader reader)
     {
         ArgumentNullException.ThrowIfNull(host);
         ArgumentNullException.ThrowIfNull(reader);
-        reader.RequireEmpty();
+        reader.RejectUnknown("retire_local_profile", "restore_local_profile");
+        var retire = reader.Bool("retire_local_profile") ?? false;
+        var restore = reader.Bool("restore_local_profile") ?? false;
+        if (retire && restore)
+        {
+            // Opposite requests: one puts the profile in force away, the other puts the last one
+            // back. There is no order in which honouring both means anything, and guessing which
+            // the caller meant is how a rollback quietly becomes a retirement.
+            throw CollectorException.BadRequest(
+                "retire_local_profile 与 restore_local_profile 不能同时为真。", "payload");
+        }
+
         var pipeline = host.LiveProtocol ?? throw new CollectorException(
             ErrorCodes.CalibrationNotReady, "本进程没有运行协议管线，无法校准。");
-        var snapshot = pipeline.DiscardCalibration();
+        var snapshot = pipeline.DiscardCalibration(retire, restore);
         return new JsonObject
         {
             ["state"] = CalibrationWire.State(snapshot.State),

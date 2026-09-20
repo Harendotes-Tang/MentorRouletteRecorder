@@ -24,11 +24,13 @@ except ImportError:  # pragma: no cover - depends on the machine
 
 PUBLIC = testsupport.HERE / "public-repo"
 WORKFLOW = PUBLIC / ".github" / "workflows" / "publish-calibration.yml"
+REPORT_WORKFLOW = PUBLIC / ".github" / "workflows" / "report-calibration.yml"
 FORM = PUBLIC / ".github" / "ISSUE_TEMPLATE" / "share-calibration.yml"
+REPORT_FORM = PUBLIC / ".github" / "ISSUE_TEMPLATE" / "report-calibration.yml"
 CONFIG = PUBLIC / ".github" / "ISSUE_TEMPLATE" / "config.yml"
 CI = testsupport.REPO / ".github" / "workflows" / "ci.yml"
 SHARING = testsupport.REPO / "src" / "Collector" / "Protocol" / "Sharing"
-SCRIPTS = ("publish_issue.sh", "sweep_issues.sh")
+SCRIPTS = ("publish_issue.sh", "sweep_issues.sh", "report_issue.sh")
 
 
 def run_scripts(text: str) -> list:
@@ -133,8 +135,100 @@ class WorkflowSecurityTests(unittest.TestCase):
 
     def test_every_label_the_scripts_use_is_documented_for_the_manual_setup(self):
         readme = (testsupport.HERE / "README.md").read_text(encoding="utf-8")
-        for label in (publish.SUBMISSION_LABEL, publish.LABEL_PUBLISHED, publish.LABEL_REJECTED, publish.LABEL_MAINTAINER):
+        for label in (publish.SUBMISSION_LABEL, publish.REPORT_LABEL, publish.LABEL_PUBLISHED, publish.LABEL_REJECTED,
+                      publish.LABEL_MAINTAINER):
             self.assertIn("`%s`" % label, readme)
+        for label in (publish.REPORT_LABEL, publish.LABEL_MAINTAINER):
+            with self.subTest(label):
+                self.assertIn("gh label create %s" % label, readme, "a new label needs a manual step")
+
+
+class ReportWorkflowSecurityTests(unittest.TestCase):
+    """report-calibration.yml: the same hardening, less power, and no way to take a calibration down."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.text = REPORT_WORKFLOW.read_text(encoding="utf-8")
+
+    def test_no_run_script_contains_an_expression_and_no_event_text_is_referenced(self):
+        scripts = [script for script in run_scripts(self.text) if script.strip()]
+        self.assertGreaterEqual(len(scripts), 1)
+        for script in scripts:
+            with self.subTest(script[:40]):
+                self.assertNotIn("${{", script)
+        for forbidden in ("github.event.issue.title", "github.event.issue.body", "github.event.issue.user",
+                          "github.event.comment", "github.head_ref", "pull_request_target", "secrets."):
+            with self.subTest(forbidden):
+                self.assertNotIn(forbidden, self.text)
+
+    def test_expressions_outside_if_conditions_are_only_trusted_values(self):
+        expressions = set(re.findall(r"\$\{\{\s*(.*?)\s*\}\}", self.text))
+        self.assertLessEqual(expressions, {"github.token", "github.repository", "github.event.issue.number"})
+
+    def test_it_cannot_write_to_the_repository_and_never_queues_behind_publishing(self):
+        self.assertNotIn("contents: write", self.text)
+        self.assertNotIn("group: publish-calibration", self.text, "a report must never block a submission")
+        if yaml is None:
+            self.assertIn("permissions:\n  contents: read\n  issues: write\n", self.text)
+            return
+        data = yaml.safe_load(self.text)
+        self.assertEqual({"contents": "read", "issues": "write"}, data["permissions"])
+        self.assertEqual({"issues"}, set(data.get("on", data.get(True))))
+        for job in data["jobs"].values():
+            self.assertEqual(False, job["concurrency"]["cancel-in-progress"])
+            self.assertIn("timeout-minutes", job)
+            self.assertNotIn("permissions", job)
+        condition = next(iter(data["jobs"].values()))["if"]
+        for fragment in ("github.event.issue.state == 'open'",
+                         "contains(github.event.issue.labels.*.name, '%s')" % publish.REPORT_LABEL):
+            self.assertIn(fragment, condition)
+
+    def test_actions_are_pinned_like_the_main_ci(self):
+        used = set(re.findall(r"uses:\s*(\S+)", self.text))
+        self.assertTrue(used)
+        self.assertLessEqual(used, set(re.findall(r"uses:\s*(\S+)", CI.read_text(encoding="utf-8"))))
+
+    def test_it_revokes_nothing_and_closes_nothing(self):
+        for forbidden in ("revoke", "issue close", "git push", "--reason"):
+            with self.subTest(forbidden):
+                self.assertNotIn(forbidden, (testsupport.HERE / "report_issue.sh").read_text(encoding="utf-8"))
+
+
+class ReportFormTests(unittest.TestCase):
+    def test_the_form_is_the_one_the_parser_reads(self):
+        text = REPORT_FORM.read_text(encoding="utf-8")
+        self.assertEqual(publish.REPORT_FORM, REPORT_FORM.name)
+        for fragment in ("- " + publish.REPORT_LABEL, 'title: "%s"' % issue_form.REPORT_TITLE_PREFIX,
+                         "label: " + issue_form.REPORT_REGION_LABEL, "label: " + issue_form.REPORT_BUILD_LABEL,
+                         "label: " + issue_form.REPORT_SYMPTOM_LABEL, "label: " + issue_form.REPORT_NOTE_LABEL):
+            with self.subTest(fragment):
+                self.assertIn(fragment, text)
+        if yaml is None:
+            return
+        data = yaml.safe_load(text)
+        self.assertEqual(issue_form.REPORT_TITLE_PREFIX, data["title"])
+        self.assertEqual([publish.REPORT_LABEL], data["labels"])
+        fields = [field for field in data["body"] if field["type"] != "markdown"]
+        self.assertEqual(["dropdown", "input", "dropdown", "textarea"], [field["type"] for field in fields])
+        region, build, symptom, note = fields
+        self.assertEqual(list(issue_form.REPORT_REGIONS), region["attributes"]["options"])
+        self.assertEqual(list(issue_form.REPORT_SYMPTOMS), symptom["attributes"]["options"])
+        for field in (region, build, symptom):
+            with self.subTest(field["attributes"]["label"]):
+                self.assertTrue(field["validations"]["required"])
+        self.assertEqual(issue_form.REPORT_NOTE_LABEL, note["attributes"]["label"])
+        self.assertNotIn("validations", note, "说明 is optional, so an empty one renders as _No response_")
+
+    def test_a_body_the_form_renders_reads_back_as_the_values_it_offered(self):
+        if yaml is None:
+            self.skipTest("PyYAML is not installed")
+        data = yaml.safe_load(REPORT_FORM.read_text(encoding="utf-8"))
+        fields = [field for field in data["body"] if field["type"] != "markdown"]
+        for region in fields[0]["attributes"]["options"]:
+            for symptom in fields[2]["attributes"]["options"]:
+                with self.subTest(region=region, symptom=symptom):
+                    form = issue_form.parse_report(testsupport.report_body(region=region, symptom=symptom))
+                    self.assertEqual((region, symptom, None), (form.region, form.symptom, form.problem))
 
 
 class IssueFormTests(unittest.TestCase):

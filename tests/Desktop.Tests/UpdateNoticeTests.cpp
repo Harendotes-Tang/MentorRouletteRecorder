@@ -2,6 +2,8 @@
 // tst_updatenotice - 检查新版本 (notify only), desktop half, in shipping QML.
 //
 // What it pins:
+//   * the version shown on screen is the whole version from Directory.Build.props,
+//     prerelease suffix included, so a test build cannot look like the release;
 //   * the `update` object on the collector status is adopted as it arrives, and
 //     a Collector that sends none leaves the controller unavailable;
 //   * the Desktop never compares two versions: the Collector's verdict is what
@@ -33,6 +35,7 @@
 #include "UpdateController.h"
 
 #include <QDir>
+#include <QFile>
 #include <QFont>
 #include <QFontDatabase>
 #include <QGuiApplication>
@@ -329,6 +332,37 @@ private Q_SLOTS:
         }
     }
 
+    // The version the title bar ("v" + App.appVersion) and the 关于 page show is
+    // MR_APP_VERSION, stamped by CMake from Directory.Build.props. A test build is
+    // X.Y.Z-beta.N and has to be recognisable as one on screen, so the suffix must
+    // survive that route; the numeric-only shapes (VERSIONINFO, AssemblyVersion) are
+    // checked by scripts/package.ps1 against the built binaries. Read from the props
+    // file rather than from the same CMake variable, which would agree with itself
+    // even if the suffix had been dropped on the way here.
+    void theVersionOnScreenIsTheWholeVersionIncludingItsPrereleaseSuffix()
+    {
+        QFile props(QString::fromUtf8(MR_SOURCE_DIR) + QStringLiteral("/Directory.Build.props"));
+        QVERIFY2(props.open(QIODevice::ReadOnly | QIODevice::Text), qPrintable(props.fileName()));
+        const QString text = QString::fromUtf8(props.readAll());
+
+        const QRegularExpressionMatch prefix =
+            QRegularExpression(QStringLiteral("<VersionPrefix>([^<]*)</VersionPrefix>"))
+                .match(text);
+        QVERIFY2(prefix.hasMatch(), "Directory.Build.props carries no <VersionPrefix>");
+        const QRegularExpressionMatch suffix =
+            QRegularExpression(QStringLiteral("<VersionSuffix>([^<]*)</VersionSuffix>"))
+                .match(text);
+
+        QString expected = prefix.captured(1).trimmed();
+        QVERIFY2(QRegularExpression(QStringLiteral("^\\d+\\.\\d+\\.\\d+$"))
+                     .match(expected).hasMatch(),
+                 qPrintable(expected));
+        if (suffix.hasMatch() && !suffix.captured(1).trimmed().isEmpty())
+            expected += QLatin1Char('-') + suffix.captured(1).trimmed();
+
+        QCOMPARE(mr::UpdateController::currentVersion(), expected);
+    }
+
     void adoptsTheUpdateObjectFromTheCollectorStatus()
     {
         ControllerScene scene;
@@ -452,10 +486,21 @@ private Q_SLOTS:
         ControllerScene scene;
         scene.open(updateStatus(true, QStringLiteral("9.9.9")));
         QTRY_VERIFY(scene.controller()->updateAvailable());
-        // Player copy: no address, no wire token, no Latin word anywhere.
+        // Player copy: no address, no wire token, no Latin word anywhere - except
+        // inside the two version numbers the sentences quote, which the reader is
+        // meant to see and which carry a Latin prerelease label on a test build
+        // (1.4.0-beta.1). They are removed first, so everything else still has to
+        // be free of Latin: an address, a hex string or an outcome token would be
+        // caught exactly as before.
         static const QRegularExpression latin(QStringLiteral("[A-Za-z]"));
         for (const QString &text : {scene.controller()->headline(), scene.controller()->detail()}) {
-            QVERIFY2(!text.contains(latin),
+            QString rest = text;
+            for (const QString &version :
+                 {scene.controller()->currentVersion(), scene.controller()->latestVersion()}) {
+                if (!version.isEmpty())
+                    rest.remove(version);
+            }
+            QVERIFY2(!rest.contains(latin),
                      qPrintable(QStringLiteral("update copy leaks a Latin token: ") + text));
         }
     }
@@ -780,7 +825,11 @@ ApplicationWindow {
         // The acknowledgement is only ever valid for the text it was given for.
         QVERIFY(!all.contains(QString::fromUtf8("只有两种联网")));
         QVERIFY(!all.contains(QString::fromUtf8("没有更新检查")));
-        QVERIFY(mr::AppSettings::kDisclosureVersion >= 4);
+        // The recheck of a shared or queue-inferred profile is a network request
+        // the version 4 text ruled out ("已经有可用档案时不会联网").
+        QVERIFY(all.contains(QString::fromUtf8("还会再读一次同一份公开列表")));
+        QVERIFY(!all.contains(QString::fromUtf8("通过才用来记录；已经有可用档案时不会联网")));
+        QVERIFY(mr::AppSettings::kDisclosureVersion >= 5);
     }
 };
 

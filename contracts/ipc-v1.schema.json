@@ -713,7 +713,7 @@
         "capture_session_id": { "$ref": "#/$defs/Uuid" },
         "state": { "$ref": "#/$defs/RunState" },
         "match_from_queue": { "type": "boolean", "description": "run_state_changed: whether the bound state machine uses the client's queue request as the match. Only explicit false confirms a server match for voice announcements; absent means unknown." },
-        "match_offer": { "type": "integer", "minimum": 1, "description": "run_state_changed with state MENTOR_MATCHED: which offer of this run the event is about, from 1. The state does not change when a match pops again after somebody withdrew, so a second event for the same run and state with a higher number is a new popup, not a replay. Absent from collectors older than 1.3.2." },
+        "match_offer": { "type": "integer", "minimum": 1, "description": "run_state_changed with state MENTOR_MATCHED: which offer of this run the event is about, from 1. The state does not change when a match pops again after somebody withdrew, so a second event for the same run and state with a higher number is a new popup, not a replay. Absent from collectors older than 1.4.0." },
         "run": { "$ref": "#/$defs/Run" },
         "capture": { "$ref": "#/$defs/CaptureStatus" },
         "profile": { "$ref": "#/$defs/ProtocolProfileStatus" },
@@ -733,7 +733,7 @@
         { "if": { "properties": { "message_type": { "const": "ReviewCandidateObservation" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/ReviewCandidateObservationRequest" } } } },
         { "if": { "properties": { "message_type": { "const": "ExportCandidateEvidence" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/ExportCandidateEvidenceRequest" } } } },
         { "if": { "properties": { "message_type": { "const": "ConfirmCalibration" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/ConfirmCalibrationRequest" } } } },
-        { "if": { "properties": { "message_type": { "const": "DiscardCalibration" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/EmptyPayload" } } } },
+        { "if": { "properties": { "message_type": { "const": "DiscardCalibration" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/DiscardCalibrationRequest" } } } },
         { "if": { "properties": { "message_type": { "enum": ["GetCalibrationShareCode", "CheckSharedCalibration", "AcceptSharedQueueInference", "RejectSharedCalibration"] } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/EmptyPayload" } } } },
         { "if": { "properties": { "message_type": { "const": "ImportCalibrationCode" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/ImportCalibrationCodeRequest" } } } },
         { "if": { "properties": { "message_type": { "const": "StartCaptureValidation" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/StartCaptureValidationRequest" } } } },
@@ -1028,7 +1028,8 @@
         "blockers": { "type": "array", "maxItems": 16, "items": { "type": "string", "maxLength": 400 } },
         "progress": { "oneOf": [{ "$ref": "#/$defs/CalibrationProgress" }, { "type": "null" }] },
         "events": { "type": "array", "maxItems": 256, "items": { "$ref": "#/$defs/CalibrationEvent" } },
-        "shared": { "$ref": "#/$defs/SharedCalibrationStatus", "description": "Shared calibration for the running client. Optional: a Collector from before shared calibration does not send it, and a Desktop that does not know it ignores it." }
+        "shared": { "$ref": "#/$defs/SharedCalibrationStatus", "description": "Shared calibration for the running client. Optional: a Collector from before shared calibration does not send it, and a Desktop that does not know it ignores it." },
+        "retired_local_profile_available": { "type": "boolean", "description": "True when a local profile the player retired through 重新校准 is still on disk for the running build and no local profile is in force, so 恢复上一份本机校准 (DiscardCalibration.restore_local_profile) has something to put back. Optional: a Collector before this field does not send it, and its absence means “no rollback”. A profile the traffic disproved never counts." }
       }
     },
     "SharedCalibrationPhase": {
@@ -1048,6 +1049,18 @@
       "description": "Which gate set a candidate is judged by (plans/shared-calibration.md §18.3). PUBLISHED: the last index this machine read lists the code (downloaded, or pasted and found there); the login burst suffices to bind, and the match and the duty entry are audited while it records. IMPORTED: pasted and unknown to every index read so far; nothing is recorded until the match and the duty entry have both been seen to behave."
     },
     "SharedFetchStatus": { "type": "string", "enum": ["OK", "DISABLED", "CANCELLED", "INDEX_UNAVAILABLE", "NONE_FOR_BUILD", "CODES_UNAVAILABLE"] },
+    "SharedRecheckReason": { "type": "string", "enum": ["SHARED_IN_USE", "QUEUE_INFERRED_IN_USE"], "description": "Why the index was read although a profile was recording: another player's calibration was in force, or one that infers the match from the player's own queue request." },
+    "SharedCalibrationRecheck": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["last_utc", "status", "reason"],
+      "description": "The last index read made beside a profile already in force. Diagnostics only; no address, host or code.",
+      "properties": {
+        "last_utc": { "$ref": "#/$defs/UtcTimestamp", "description": "When that read was claimed." },
+        "status": { "$ref": "#/$defs/SharedFetchStatus", "description": "How it ended." },
+        "reason": { "$ref": "#/$defs/SharedRecheckReason" }
+      }
+    },
     "SharedCalibrationSource": { "type": "string", "enum": ["GITHUB_RAW", "CDN_PRIMARY", "CDN_FALLBACK"], "description": "Source names, never addresses." },
     "SharedFetchOutcome": {
       "type": "string",
@@ -1110,7 +1123,8 @@
         "last_refusal": { "type": ["string", "null"], "pattern": "^[A-Z0-9_]{1,64}$", "description": "Why the last bind or withdrawal did not go through, as a short token (NOT_SELECTED, WRITE_FAILED, CONTRADICTED, REVOKED, REJECTED, USER_REJECTED, STALE...). Diagnostics only." },
         "rejected_candidates": { "type": "integer", "minimum": 0, "description": "Candidates with status REJECTED." },
         "user_rejected": { "type": "boolean", "description": "True while the player's 不用共享的，我自己校准 stands for this build: nothing shared is fetched, imported or bound until DiscardCalibration (重新观察)." },
-        "audit_pending": { "type": "boolean", "description": "True while the profile in use records with an audited criterion still waiting (§18.4): a PUBLISHED code bound at login whose match or duty entry has not yet been seen to behave. Optional: a Collector before 1.1.0 does not send it." }
+        "audit_pending": { "type": "boolean", "description": "True while the profile in use records with an audited criterion still waiting (§18.4): a PUBLISHED code bound at login whose match or duty entry has not yet been seen to behave. Optional: a Collector before 1.1.0 does not send it." },
+        "recheck": { "oneOf": [{ "$ref": "#/$defs/SharedCalibrationRecheck" }, { "type": "null" }], "description": "The last index read that happened although a profile was already recording (docs/privacy-boundary.md §8.2), or null while none has. Optional: a Collector before 1.4.0 does not send it." }
       }
     },
     "ImportCalibrationCodeRequest": {
@@ -1120,6 +1134,15 @@
       "description": "A share code the player pasted (导入校准码). Decoded and checked without any network and whatever shared_calibration_enabled says; one that fits is verified against local traffic exactly like a downloaded one.",
       "properties": {
         "code": { "type": "string", "maxLength": 65536, "description": "Pasted text; surrounding whitespace is ignored. Over 4096 characters after trimming answers MALFORMED without being decoded." }
+      }
+    },
+    "DiscardCalibrationRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "重新观察：丢弃本次会话已积累的校准证据，重新开始观察。空载荷仍然合法。",
+      "properties": {
+        "retire_local_profile": { "type": "boolean", "default": false, "description": "重新校准：true 时，若当前生效的是本机校准出来的档案（profile_origin = LOCAL_CALIBRATION），则先停用它：文件改名保留（不删除），正在进行的记录按停止捕获收尾，校准重新开始观察。它生成的记录不会被标为待复核，它所认的报文也不会被拒绝：是玩家要求重新校准，而不是流量证伪了它。缺省为 false，即只重新观察；当前生效的不是本机校准档案时，true 与 false 等价。" },
+        "restore_local_profile": { "type": "boolean", "default": false, "description": "恢复上一份本机校准：把 `retire_local_profile` 停用的那份档案（`<profile_id>.json.retired`）改回 `.json` 并立即用它记录，同时放开当前生效的档案（包括正在使用的共享校准；共享校准只是被让位，不计作被证伪，其校准码不被拒绝，已生成的记录也不标待复核）。不会丢弃校准证据。流量证伪后自动撤下的档案（`.json.contradicted`）永远不可恢复。无可恢复、同名档案已存在、或恢复后无法通过档案校验时答 ERR_CALIBRATION_NOT_READY 并带上可直接展示的中文说明。与 `retire_local_profile` 互斥，同时为真答 ERR_BAD_REQUEST。" }
       }
     },
     "ConfirmCalibrationRequest": {

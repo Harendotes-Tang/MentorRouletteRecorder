@@ -1,5 +1,32 @@
 # IPC 契约变更记录 / IPC contract changelog
 
+## 2026-09-20 · 共享校准在用时也读索引：`CalibrationStatus.shared` 新增 `recheck`（附加）
+
+docs/plans/shared-calibration-rollback.md §3。全部为附加式：一个新的可选对象字段与两个新的 `$defs`，缺席或为 `null` 即“未发生过”，旧桌面端忽略即可。**消息数目不变**：`$defs/MessageType` 仍为 49 个业务消息 + `Event` + `Error`。
+
+- **`$defs/SharedCalibrationStatus` 新增可选 `recheck`**（对象或 `null`）：已有档案在记录时仍读取索引的那一次。`last_utc` 为读取时刻，`status` 与 `last_fetch_status` 同一套取值（`$defs/SharedFetchStatus`），`reason` 为新枚举 `$defs/SharedRecheckReason`：`SHARED_IN_USE`（在用的是其他玩家分享的校准）与 `QUEUE_INFERRED_IN_USE`（在用的档案按排本推断匹配）。1.4.0 之前的采集服务不发送该字段。同一对象同时出现在脱敏诊断报告的 `calibration.shared` 中（docs/capture-diagnostics.md §9.6），不含地址、主机名与校准码。
+- 行为变化（不在字段上）：`CheckSharedCalibration` 在已有可用档案时不再一律答 `NOT_NEEDED`——在用的档案来自共享校准、或按排本推断匹配时答 `STARTED`。取值集合未变。
+
+## 2026-09-20 — 重新校准与回退：`DiscardCalibration` 新增 `retire_local_profile` / `restore_local_profile`，`CalibrationStatus` 新增 `retired_local_profile_available`（附加）
+
+附加式变更：一个新的可选请求字段，缺省 `false` 即旧行为，旧桌面端不发它，旧采集服务按契约未声明字段拒绝。**不新增消息类型**，`$defs/MessageType` 仍为 49 个业务消息 + `Event` + `Error`。
+
+- **`DiscardCalibration` 请求载荷**（原为 `$defs/EmptyPayload`，现为 `$defs/DiscardCalibrationRequest`）新增可选布尔字段 `retire_local_profile`，缺省 `false`。
+  置 `true` 时，若当前生效的是本机校准档案（`profile_origin = LOCAL_CALIBRATION`），则先停用它：文件改名保留（后缀 `.json.retired`，不删除），
+  正在进行的记录按停止捕获收尾，校准在当前会话内重新开始观察，其后可以再次导入校准码。
+- 与流量证伪后的自动撤下不同：它生成的记录**不**标为待复核，它所认的匹配报文也**不**被拒绝——是玩家要求重新校准，而不是流量证伪了它。
+- 当前生效的不是本机校准档案（随包档案、共享校准，或未选中任何档案）时，`true` 与 `false` 等价，即仅重新观察。应答仍为 `{state}`。
+- **`DiscardCalibration` 请求载荷**再新增可选布尔字段 `restore_local_profile`，缺省 `false`：把 `retire_local_profile` 停用的那份档案
+  （`<profile_id>.json.retired`）改回 `.json` 并立即用它记录，同时放开当前生效的档案。正在使用的共享校准只是被让位：
+  不计作被证伪，其校准码不被拒绝，`user_rejected` 不变，已生成的记录也不标待复核。不丢弃校准证据。
+  流量证伪后自动撤下的档案（`.json.contradicted`）永远不可恢复。
+- `retire_local_profile` 与 `restore_local_profile` 互斥：同时为真答 `ERR_BAD_REQUEST`。
+  无可恢复、同名档案已存在、或恢复后无法通过档案校验时，答 `ERR_CALIBRATION_NOT_READY` 并带上可直接展示的中文说明。
+- **`$defs/CalibrationStatus` 新增可选 `retired_local_profile_available`**（布尔）：被停用的本机校准还在磁盘上、
+  且当前没有本机档案生效时为 `true`，桌面端据此决定是否展示「恢复上一份本机校准」。
+  旧采集服务不发该字段，缺席等同于 `false`。同一字段一并出现在脱敏诊断报告的 `calibration` 对象里
+  （只是一个文件名事实，不涉及玩家打过什么、也不涉及协议）。
+
 ## 2026-09-20 — 再次匹配也播报：`run_state_changed` 新增可选 `match_offer`（附加）
 
 附加式变更：一个新的可选字段，旧桌面端忽略它，旧采集服务不发它。**不新增消息类型**，`$defs/MessageType` 仍为 49 个业务消息 + `Event` + `Error`。

@@ -157,10 +157,14 @@ python tools/protocol-profile-validator/validate.py --stamp <file>
 
 ## 提交 Pull Request
 
-1. Fork 本仓库，并基于 `main` 创建分支。
+本项目有两条长期分支：`main` 只包含已发布的提交（每个都带 `vX.Y.Z` tag），
+`dev` 是集成分支，功能分支合入此处，测试包也从此处切出。
+分支模型与发布流程见 [docs/release-checklist.md](docs/release-checklist.md) 第 9 节。
+
+1. Fork 本仓库，并基于 `dev` 创建分支。
 2. 完成修改，确保 `pwsh -File scripts/verify.ps1` 在本地通过。
 3. 按上文规范更新测试、文档与变更记录。
-4. 向 `main` 发起 Pull Request，在描述中说明改动内容、原因及验证方式；如关联 issue，请注明编号。
+4. 向 `dev` 发起 Pull Request，在描述中说明改动内容、原因及验证方式；如关联 issue，请注明编号。
 5. CI 通过后等待维护者审查。
 
 每个 Pull Request 应只做一件事，无关的改动请分别提交。

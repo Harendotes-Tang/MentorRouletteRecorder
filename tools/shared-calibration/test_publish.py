@@ -113,15 +113,42 @@ class FlowTests(PublishTestCase):
         self.assertEqual(("duplicate", "published", "completed"), (duplicate["status"], duplicate["label"], duplicate["close_reason"]))
         self.assertEqual(before, (self.repo / "index.json").read_bytes())
 
-    def test_a_second_different_code_from_the_same_account_is_refused_and_writes_nothing(self):
+    def test_a_second_different_code_from_the_same_account_replaces_the_first(self):
         self.publish_as(4242, "Octo-Cat")
         payload = testsupport.payload("MARKER_OFFSET", 2)
-        other = sharecode.encode(payload)
-        _, result, comment, _ = self.decide("check", self.issue(body=testsupport.issue_body(other), number=8), self.account())
-        self.assertEqual(("refused", "ACCOUNT_HAS_OTHER_CODE", "rejected", "not planned"),
-                         (result["status"], result["reason"], result["label"], result["close_reason"]))
-        self.assertIn("另一份校准码", comment)
-        self.assertFalse((self.repo / repo_index.code_path("CN", BUILD, sharecode.code_sha256(payload))).exists())
+        other, other_sha = sharecode.encode(payload), sharecode.code_sha256(payload)
+        result = self.publish_as(4242, "Octo-Cat", number=8, code=other)
+        self.assertEqual(("published", "published", "completed"), (result["status"], result["label"], result["close_reason"]))
+        self.assertEqual([self.sha[:12]], result["replaced"])
+        self.assertIn("替换你此前为该版本提交的那一份", result["comment"])
+        self.assertIn("旧码已撤回", result["comment"])
+        state = repo_index.load(self.repo)
+        self.assertEqual({self.sha: True, other_sha: False}, {e["code_sha256"]: e["revoked"] for e in state.entries})
+        self.assertEqual([(other_sha, [self.sha])], [(row["code_sha256"], row["replaced"]) for row in state.submissions])
+        self.assertEqual((other_sha,), tuple(e["code_sha256"] for e in repo_index.select(state.entries, "CN", BUILD)))
+
+    def test_a_replacement_keeps_a_code_another_account_also_submitted(self):
+        self.publish_as(4242, "Octo-Cat")
+        self.assertEqual("added", self.publish_as(5151, "Other-One", number=8)["status"])
+        other = sharecode.encode(testsupport.payload("MARKER_OFFSET", 2))
+        result = self.publish_as(4242, "Octo-Cat", number=9, code=other)
+        self.assertEqual("published", result["status"])
+        self.assertIn("仍有其他账号提交", result["comment"])
+        self.assertNotIn("旧码已撤回", result["comment"])
+        state = repo_index.load(self.repo)
+        self.assertEqual((False, 1), tuple(next(e for e in state.entries if e["code_sha256"] == self.sha)[name]
+                                           for name in ("revoked", "submitters")))
+
+    def test_a_revoked_code_frees_the_slot_and_is_never_published_again(self):
+        self.publish_as(4242, "Octo-Cat")
+        self.assertEqual(0, self.call("revoke", "--repo", self.repo, "--code-sha256", self.sha)[0])
+        _, refused, comment, _ = self.decide("check", self.issue(number=8), self.account())
+        self.assertEqual(("refused", "REVOKED"), (refused["status"], refused["reason"]))
+        self.assertIn("已被维护者撤销", comment)
+        other = sharecode.encode(testsupport.payload("MARKER_OFFSET", 2))
+        result = self.publish_as(4242, "Octo-Cat", number=9, code=other)
+        self.assertEqual("published", result["status"])
+        self.assertEqual([self.sha[:12]], result["replaced"])
 
     def test_update_index_needs_a_commit_for_a_new_code(self):
         self.decide("check", self.issue(), self.account())
@@ -260,6 +287,133 @@ class SkipAndErrorTests(PublishTestCase):
         result = json.loads((self.out / "result.json").read_text(encoding="utf-8"))
         self.assertEqual((0, "error", "PUSH_FAILED", 7, "needs-maintainer", ""),
                          (exit_code, result["status"], result["reason"], result["issue"], result["label"], result["close_reason"]))
+
+
+HOSTILE = "$(whoami) `id` @octocat [x](https://evil.example) <script>alert(1)</script> #1"
+
+
+class ReportTests(PublishTestCase):
+    """The "report a wrong calibration" form: labelled, answered, left open, and nothing automatic."""
+
+    def event(self, body=None, number=12, state="open", labels=("calibration-report",),
+              title="[校准有误] CN " + BUILD) -> dict:
+        return {"action": "opened", "issue": {
+            "number": number, "state": state, "title": title,
+            "body": testsupport.report_body() if body is None else body,
+            "labels": [{"name": name} for name in labels],
+            "user": {"id": 4242, "login": "Octo-Cat", "type": "User"},
+        }}
+
+    @staticmethod
+    def live(event, state="OPEN", labels=None) -> dict:
+        """`gh issue view --json state,labels`: the issue as it is now, not as the event remembers it."""
+        names = [label["name"] for label in event["issue"]["labels"]] if isinstance(event, dict) else []
+        return {"state": state, "labels": [{"name": name} for name in (names if labels is None else labels)]}
+
+    def report(self, event, live=None) -> tuple:
+        path, live_path = self.root / "event.json", self.root / "live.json"
+        path.write_text(event if isinstance(event, str) else json.dumps(event, ensure_ascii=False), encoding="utf-8")
+        current = self.live(event) if live is None else live
+        live_path.write_text(current if isinstance(current, str) else json.dumps(current, ensure_ascii=False),
+                             encoding="utf-8")
+        exit_code, stdout = self.call("report", "--event", path, "--live", live_path, "--out", self.out)
+        result = json.loads((self.out / "result.json").read_text(encoding="utf-8"))
+        return exit_code, result, (self.out / "comment.md").read_text(encoding="utf-8"), stdout
+
+    def test_a_valid_report_is_labelled_answered_and_left_open(self):
+        before = (self.repo / "index.json").read_bytes()
+        exit_code, result, comment, stdout = self.report(self.event())
+        self.assertEqual((0, "received", None, 12), (exit_code, result["status"], result["reason"], result["issue"]))
+        self.assertEqual("calibration-report needs-maintainer", result["labels"])
+        self.assertEqual(("CN", BUILD, "弹窗时误报匹配", False),
+                         (result["region"], result["game_build"], result["symptom"], result["note"]))
+        self.assertIn("已收到。维护者核实后会撤回有问题的校准码，或在此说明原因。", comment)
+        self.assertIn("本 Issue 保持打开", comment)
+        self.assertEqual("", result.get("close_reason", ""), "a report is never closed automatically")
+        self.assertEqual(before, (self.repo / "index.json").read_bytes(), "a report revokes nothing")
+        self.assertEqual(1, len(stdout.splitlines()))
+        self.assertTrue(stdout.isascii())
+
+    def test_a_report_that_is_not_the_form_is_still_labelled_and_left_open(self):
+        cases = {
+            "REPORT_BUILD_MISSING": testsupport.report_body(build="_No response_"),
+            "REPORT_REGION_INVALID": testsupport.report_body(region="cn"),
+            "REPORT_SYMPTOM_AMBIGUOUS": testsupport.report_body() + "\n### 现象\n\n其他\n",
+            "BODY_MISSING": "",
+        }
+        for reason, body in cases.items():
+            with self.subTest(reason):
+                _, result, comment, _ = self.report(self.event(body=body))
+                self.assertEqual(("refused", reason), (result["status"], result["reason"]))
+                self.assertEqual("calibration-report needs-maintainer", result["labels"])
+                self.assertEqual((None, None, None), (result["region"], result["game_build"], result["symptom"]))
+                self.assertIn("本 Issue 保持打开", comment)
+                self.assertIn("报告校准有误", comment)
+
+    def test_nothing_from_a_hostile_report_is_echoed_or_executed(self):
+        bodies = [testsupport.report_body(note=HOSTILE), testsupport.report_body(region=HOSTILE),
+                  testsupport.report_body(build=HOSTILE), testsupport.report_body(symptom=HOSTILE)]
+        for body in bodies + [testsupport.report_body()]:
+            for title in ("[校准有误] CN " + BUILD, HOSTILE):
+                with self.subTest(body=body[:24], title=title[:24]):
+                    _, result, comment, stdout = self.report(self.event(body=body, title=title))
+                    for token in ("whoami", "octocat", "evil", "<script", "](", "`id`", "#1"):
+                        self.assertNotIn(token, comment)
+                    self.assertNotIn("whoami", json.dumps(result, ensure_ascii=False))
+                    self.assertTrue(stdout.isascii())
+                    self.assertEqual(1, len(stdout.splitlines()))
+
+    def test_an_issue_that_was_already_answered_or_is_not_a_report_is_skipped_silently(self):
+        pull_request = self.event()
+        pull_request["issue"]["pull_request"] = {"url": "https://example.invalid"}
+        cases = (
+            (self.event(labels=("calibration-report", "needs-maintainer")), None, "ALREADY_ANSWERED"),
+            (self.event(labels=("share-calibration",)), None, "NOT_LABELLED"),
+            (self.event(), self.live(self.event(), state="CLOSED"), "NOT_OPEN"),
+            (pull_request, None, "NOT_AN_ISSUE"),
+        )
+        for event, live, reason in cases:
+            with self.subTest(reason):
+                _, result, comment, _ = self.report(event, live=live)
+                self.assertEqual(("skipped", reason, "", ""), (result["status"], result["reason"], result["labels"], comment))
+
+    def test_the_labels_and_the_state_are_taken_from_the_issue_now_not_from_the_event(self):
+        """A redelivered event still says "unanswered"; the live labels are what decides."""
+        stale = self.event()
+        answered = self.live(stale, labels=("calibration-report", "needs-maintainer"))
+        _, result, comment, _ = self.report(stale, live=answered)
+        self.assertEqual(("skipped", "ALREADY_ANSWERED", ""), (result["status"], result["reason"], comment))
+        # And the other way round: an event that never carried the label, which was added afterwards.
+        added = self.event(labels=())
+        _, result, _, _ = self.report(added, live=self.live(added, labels=("calibration-report",)))
+        self.assertEqual("received", result["status"])
+
+    def test_an_unreadable_view_of_the_issue_replies_to_nobody(self):
+        for live in ("not json", {"state": "OPEN"}, {"state": 7, "labels": []}, {"labels": [{"name": "calibration-report"}]}):
+            with self.subTest(repr(live)[:30]):
+                _, result, comment, _ = self.report(self.event(), live=live)
+                self.assertEqual(("skipped", "NOT_OPEN", ""), (result["status"], result["reason"], comment))
+
+    def test_an_unreadable_event_needs_a_maintainer_rather_than_a_reply_to_nobody(self):
+        _, result, comment, _ = self.report("not json")
+        self.assertEqual(("error", "EVENT_UNREADABLE"), (result["status"], result["reason"]))
+        self.assertIn("维护者", comment)
+
+    def test_the_shell_only_ever_sees_the_two_labels_the_maintainer_created(self):
+        self.report(self.event())
+        self.assertEqual((0, "calibration-report needs-maintainer\n"), self.call("field", "--out", self.out, "--name", "labels"))
+        data = json.loads((self.out / "result.json").read_text(encoding="utf-8"))
+        for value in ("calibration-report; rm -rf /", "admin", "calibration-report\nneeds-maintainer"):
+            with self.subTest(value):
+                (self.out / "result.json").write_text(json.dumps(dict(data, labels=value)), encoding="utf-8")
+                with contextlib.redirect_stderr(io.StringIO()):
+                    self.assertEqual((2, ""), self.call("field", "--out", self.out, "--name", "labels"))
+
+    def test_report_text_can_only_arrive_through_the_event_file(self):
+        options = set()
+        for action in publish._parser()._subparsers._group_actions[0].choices["report"]._actions:
+            options.update(action.option_strings)
+        self.assertEqual({"-h", "--help", "--event", "--live", "--out"}, options)
 
 
 class HelperCommandTests(PublishTestCase):

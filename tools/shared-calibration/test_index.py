@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import random
 import tempfile
 import unittest
 from pathlib import Path
@@ -277,25 +278,239 @@ class SubmissionTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             _submit(repo_index.empty_index(), created=dt.datetime(2020, 1, 1))
 
-    def test_one_code_per_account_per_region_and_build(self):
+    def test_one_live_code_per_account_per_region_and_build(self):
         state = _submit(repo_index.empty_index(), number=1).index
-        other_code = _submit(state, number=2)
         same_code = _submit(state, number=1, when=NOW + dt.timedelta(days=1))
         other_build = _submit(state, number=2, build="2026.09.10.0000.0000")
         other_region = _submit(state, number=2, region="GLOBAL")
-        self.assertEqual((repo_index.REFUSED, repo_index.ACCOUNT_HAS_OTHER_CODE), (other_code.status, other_code.reason))
         self.assertEqual(repo_index.DUPLICATE, same_code.status)
         self.assertEqual(repo_index.dump(state), repo_index.dump(same_code.index))
         self.assertEqual(repo_index.PUBLISHED, other_build.status)
         self.assertEqual(repo_index.PUBLISHED, other_region.status)
+        self.assertEqual(1, len([row for row in other_build.index.submissions if row["game_build"] == BUILD]))
 
     def test_an_account_is_its_numeric_id_so_renaming_it_buys_nothing(self):
         state = _submit(repo_index.empty_index(), number=1, login="old-name").index
-        renamed = _submit(state, number=2, login="new-name")
-        self.assertEqual(repo_index.ACCOUNT_HAS_OTHER_CODE, renamed.reason)
+        renamed = _submit(state, number=2, login="new-name", when=NOW + dt.timedelta(hours=1))
+        self.assertEqual(repo_index.PUBLISHED, renamed.status)
+        self.assertEqual(1, len(renamed.index.submissions), "the renamed account keeps one row, not two")
+        self.assertEqual([True, False], [item["revoked"] for item in renamed.index.entries])
         by_login = _submit(repo_index.empty_index(), number=1, account=None, login="Octo-Cat").index
         self.assertEqual("login:octo-cat", by_login.submissions[0]["account"])
-        self.assertEqual(repo_index.ACCOUNT_HAS_OTHER_CODE, _submit(by_login, number=2, account=None, login="OCTO-cat").reason)
+        recased = _submit(by_login, number=2, account=None, login="OCTO-cat", when=NOW + dt.timedelta(hours=1))
+        self.assertEqual(1, len(recased.index.submissions))
+
+
+class ReplacementTests(unittest.TestCase):
+    """Rollback plan section 2: a revocation frees the slot, and a second code replaces the first."""
+
+    def first(self, number=1, account=1) -> repo_index.Index:
+        return _submit(repo_index.empty_index(), number=number, account=account).index
+
+    def second(self, state, number=2, account=1, **extra) -> repo_index.SubmissionOutcome:
+        return _submit(state, number=number, account=account, when=NOW + dt.timedelta(hours=1), **extra)
+
+    @staticmethod
+    def row_for(state, account="id:1") -> dict:
+        return next(row for row in state.submissions if row["account"] == account)
+
+    @staticmethod
+    def entry_for(state, code_sha) -> dict:
+        return next(item for item in state.entries if item["code_sha256"] == code_sha)
+
+    def test_a_revoked_code_frees_the_accounts_slot(self):
+        state = repo_index.revoke(self.first(), sharecode.code_sha256(testsupport.payload("ANNOUNCEMENT", 1)))
+        again = self.second(state)
+        self.assertEqual(repo_index.PUBLISHED, again.status)
+        self.assertEqual(1, len(again.index.submissions), "the freed row is superseded, never doubled")
+        self.assertEqual(sharecode.code_sha256(testsupport.payload("ANNOUNCEMENT", 2)),
+                         self.row_for(again.index)["code_sha256"])
+
+    def test_the_freed_slot_still_refuses_the_revoked_code_itself(self):
+        old = sharecode.code_sha256(testsupport.payload("ANNOUNCEMENT", 1))
+        state = repo_index.revoke(self.first(), old)
+        again = self.second(state, number=1)
+        self.assertEqual((repo_index.REFUSED, repo_index.REVOKED), (again.status, again.reason))
+        self.assertIsNone(again.index)
+
+    def test_a_second_code_replaces_the_first_and_revokes_it_when_nobody_else_submitted_it(self):
+        old = sharecode.code_sha256(testsupport.payload("ANNOUNCEMENT", 1))
+        new = sharecode.code_sha256(testsupport.payload("ANNOUNCEMENT", 2))
+        outcome = self.second(self.first())
+        self.assertEqual((repo_index.PUBLISHED, (old,), (old,)), (outcome.status, outcome.replaced, outcome.replaced_revoked))
+        self.assertTrue(self.entry_for(outcome.index, old)["revoked"])
+        self.assertEqual(1, self.entry_for(outcome.index, old)["submitters"], "the client refuses submitters below one")
+        self.assertEqual((new, False, 1), tuple(self.entry_for(outcome.index, new)[name]
+                                                for name in ("code_sha256", "revoked", "submitters")))
+        self.assertEqual([old], self.row_for(outcome.index)["replaced"])
+
+    def test_replacing_a_code_another_account_also_submitted_only_takes_this_account_off_it(self):
+        old = sharecode.code_sha256(testsupport.payload("ANNOUNCEMENT", 1))
+        shared = _submit(self.first(), number=1, account=2, when=NOW + dt.timedelta(minutes=30)).index
+        self.assertEqual(2, self.entry_for(shared, old)["submitters"])
+        outcome = self.second(shared)
+        self.assertEqual((repo_index.PUBLISHED, (old,), ()), (outcome.status, outcome.replaced, outcome.replaced_revoked))
+        self.assertEqual((False, 1), (self.entry_for(outcome.index, old)["revoked"],
+                                      self.entry_for(outcome.index, old)["submitters"]))
+        self.assertEqual([old], [row["code_sha256"] for row in outcome.index.submissions if row["account"] == "id:2"])
+
+    def test_replacing_with_a_code_that_was_revoked_is_refused_and_changes_nothing(self):
+        state = self.first()
+        state = _submit(state, number=2, account=9, when=NOW + dt.timedelta(minutes=10)).index
+        state = repo_index.revoke(state, sharecode.code_sha256(testsupport.payload("ANNOUNCEMENT", 2)))
+        outcome = self.second(state)
+        self.assertEqual((repo_index.REFUSED, repo_index.REVOKED), (outcome.status, outcome.reason))
+        self.assertIsNone(outcome.index)
+
+    def test_replacing_with_another_accounts_live_code_makes_this_account_a_second_submitter(self):
+        old = sharecode.code_sha256(testsupport.payload("ANNOUNCEMENT", 1))
+        new = sharecode.code_sha256(testsupport.payload("ANNOUNCEMENT", 2))
+        state = _submit(self.first(), number=2, account=9, when=NOW + dt.timedelta(minutes=10)).index
+        outcome = self.second(state)
+        self.assertEqual((repo_index.ADDED, (old,), (old,)), (outcome.status, outcome.replaced, outcome.replaced_revoked))
+        self.assertEqual(2, self.entry_for(outcome.index, new)["submitters"])
+        self.assertTrue(self.entry_for(outcome.index, old)["revoked"])
+        self.assertEqual([old], self.row_for(outcome.index)["replaced"])
+
+    def test_a_replaced_code_is_never_published_again_by_anybody(self):
+        old = sharecode.code_sha256(testsupport.payload("ANNOUNCEMENT", 1))
+        state = self.second(self.first()).index
+        outcome = _submit(state, number=1, account=5, when=NOW + dt.timedelta(hours=2))
+        self.assertEqual((repo_index.REFUSED, repo_index.REVOKED), (outcome.status, outcome.reason))
+        self.assertTrue(self.entry_for(state, old)["revoked"])
+
+    def test_the_chain_of_replaced_codes_is_kept_in_the_ledger_and_reads_back(self):
+        first = sharecode.code_sha256(testsupport.payload("ANNOUNCEMENT", 1))
+        second = sharecode.code_sha256(testsupport.payload("ANNOUNCEMENT", 2))
+        state = self.second(self.first()).index
+        state = _submit(state, number=3, account=1, when=NOW + dt.timedelta(hours=2)).index
+        self.assertEqual([first, second], self.row_for(state)["replaced"])
+        files = repo_index.dump(state)
+        self.assertEqual(state, repo_index.parse(files[repo_index.INDEX_FILE], files[repo_index.LEDGER_FILE]))
+        self.assertIn(b'"replaced":["%s","%s"]' % (first.encode(), second.encode()), files[repo_index.LEDGER_FILE])
+
+    def test_the_index_keeps_the_format_the_released_client_reads(self):
+        state = self.second(self.first()).index
+        files = repo_index.dump(state)
+        read = repo_index.read_index(files[repo_index.INDEX_FILE])
+        self.assertTrue(read.readable)
+        self.assertEqual((), read.skipped)
+        self.assertNotIn(b"replaced", files[repo_index.INDEX_FILE], "the index format does not change")
+        self.assertEqual(1, len(repo_index.select(read.entries, "CN", BUILD)))
+
+    def test_a_ledger_written_before_the_field_existed_still_reads_and_rewrites_byte_for_byte(self):
+        state = _submit(_submit(repo_index.empty_index(), number=1, account=1).index, number=1, account=2).index
+        files = repo_index.dump(state)
+        self.assertNotIn(b"replaced", files[repo_index.LEDGER_FILE])
+        parsed = repo_index.parse(files[repo_index.INDEX_FILE], files[repo_index.LEDGER_FILE])
+        self.assertEqual(files, repo_index.dump(parsed))
+
+    def test_switching_back_to_a_code_that_is_still_alive_never_lists_it_in_its_own_chain(self):
+        """X takes A, Z takes A too, X moves to B, X comes back to A: A must not name itself.
+
+        A row that named its own code would be written by ``dump`` and then refused by the reader on
+        the next run, which stops every submission for everybody until a maintainer edits the file.
+        """
+        first = sharecode.code_sha256(testsupport.payload("ANNOUNCEMENT", 1))
+        second = sharecode.code_sha256(testsupport.payload("ANNOUNCEMENT", 2))
+        state = _submit(self.first(), number=1, account=2, when=NOW + dt.timedelta(minutes=30)).index
+        state = self.second(state).index
+        back = _submit(state, number=1, account=1, when=NOW + dt.timedelta(hours=3))
+        self.assertEqual(repo_index.ADDED, back.status)
+        row = self.row_for(back.index)
+        self.assertEqual((first, [second]), (row["code_sha256"], row["replaced"]),
+                         "the code it left stays as history; the code it is on never names itself")
+        files = repo_index.dump(back.index)
+        self.assertEqual(back.index, repo_index.parse(files[repo_index.INDEX_FILE], files[repo_index.LEDGER_FILE]))
+
+    def test_a_ledger_the_reader_would_refuse_is_never_written(self):
+        state = self.second(self.first()).index
+        row = self.row_for(state)
+        for why, chain in (("its own code", [row["code_sha256"]]),
+                           ("a repeat", list(row["replaced"]) * 2),
+                           ("not a hash", ["nope"]),
+                           ("nothing", []),
+                           ("too long", [sha(number) for number in range(repo_index.MAX_REPLACED + 1)])):
+            with self.subTest(why), self.assertRaises(repo_index.IndexCorrupt):
+                repo_index.dump(repo_index.Index(state.entries, (dict(row, replaced=chain),)))
+
+    def test_only_the_most_recent_replacements_are_kept(self):
+        state, account = repo_index.empty_index(), 1
+        for number in range(repo_index.MAX_REPLACED + 3):
+            outcome = _submit(state, number=number, account=account, when=NOW + dt.timedelta(hours=number))
+            self.assertEqual(repo_index.PUBLISHED, outcome.status)
+            state = outcome.index
+        chain = self.row_for(state)["replaced"]
+        expected = [sharecode.code_sha256(testsupport.payload("ANNOUNCEMENT", number))
+                    for number in range(repo_index.MAX_REPLACED + 2)]
+        self.assertEqual(expected[-repo_index.MAX_REPLACED:], chain)
+        self.assertEqual(repo_index.MAX_REPLACED, len(chain))
+
+    def test_no_row_once_the_ledger_would_pass_its_byte_limit(self):
+        state = self.first()
+        size = len(repo_index.serialize_ledger(state.submissions))
+        with mock.patch.object(repo_index, "MAX_LEDGER_BYTES", size):
+            outcome = _submit(state, number=2, account=2, when=NOW + dt.timedelta(hours=1))
+        self.assertEqual((repo_index.REFUSED, repo_index.LEDGER_FULL_BYTES), (outcome.status, outcome.reason))
+        self.assertIsNone(outcome.index)
+        self.assertIn(repo_index.LEDGER_FULL_BYTES, repo_index.MAINTAINER_REFUSALS)
+
+    def test_a_replacement_refused_over_a_file_name_leaves_the_old_code_exactly_as_it_was(self):
+        real = sharecode.code_sha256(testsupport.payload("ANNOUNCEMENT", 2))
+        impostor = real[:12] + ("0" if real[12] != "0" else "1") + real[13:]
+        state = self.first()
+        crowded = repo_index.Index(state.entries + (entry(impostor, published="2026-09-01T00:00:00Z"),), state.submissions)
+        outcome = self.second(crowded)
+        self.assertEqual((repo_index.REFUSED, repo_index.PATH_COLLISION), (outcome.status, outcome.reason))
+        self.assertIsNone(outcome.index)
+        self.assertEqual(repo_index.dump(crowded), repo_index.dump(crowded), "nothing was mutated in place")
+        self.assertEqual((False, 1), (crowded.entries[0]["revoked"], crowded.entries[0]["submitters"]))
+
+    def test_a_replacement_refused_over_a_cap_leaves_the_old_code_exactly_as_it_was(self):
+        state = self.first()
+        before = repo_index.dump(state)
+        with mock.patch.object(repo_index, "MAX_INDEX_BYTES", len(before[repo_index.INDEX_FILE])):
+            outcome = self.second(state)
+        self.assertEqual((repo_index.REFUSED, repo_index.INDEX_FULL_BYTES), (outcome.status, outcome.reason))
+        self.assertIsNone(outcome.index)
+        self.assertEqual(before, repo_index.dump(state))
+        self.assertNotIn(repo_index.REPLACED, self.row_for(state))
+
+    def test_whatever_the_submissions_do_the_files_always_read_back(self):
+        """Every reachable state has to survive dump then parse: the writer may never outrun the reader."""
+        dice = random.Random(20260920)
+        state = repo_index.empty_index()
+        for step in range(500):
+            if dice.random() < 0.08 and state.entries:
+                state = repo_index.revoke(state, dice.choice(state.entries)["code_sha256"])
+            else:
+                outcome = _submit(state, number=dice.choice(range(6)), account=dice.choice((1, 2, 3, 4)),
+                                  when=NOW + dt.timedelta(minutes=step))
+                if outcome.index is not None:
+                    state = outcome.index
+            files = repo_index.dump(state)
+            self.assertEqual(state, repo_index.parse(files[repo_index.INDEX_FILE], files[repo_index.LEDGER_FILE]),
+                             "step %d" % step)
+        self.assertTrue(any(repo_index.REPLACED in row for row in state.submissions), "no replacement happened")
+
+    def test_a_malformed_replaced_list_is_corrupt(self):
+        state = self.second(self.first()).index
+        files = repo_index.dump(state)
+        ledger = files[repo_index.LEDGER_FILE].decode("utf-8")
+        old = sharecode.code_sha256(testsupport.payload("ANNOUNCEMENT", 1))
+        new = sharecode.code_sha256(testsupport.payload("ANNOUNCEMENT", 2))
+        cases = {
+            "not a list": ledger.replace('"replaced":["%s"]' % old, '"replaced":"%s"' % old),
+            "empty": ledger.replace('"replaced":["%s"]' % old, '"replaced":[]'),
+            "not a hash": ledger.replace('"replaced":["%s"]' % old, '"replaced":["nope"]'),
+            "repeated": ledger.replace('"replaced":["%s"]' % old, '"replaced":["%s","%s"]' % (old, old)),
+            "the row's own code": ledger.replace('"replaced":["%s"]' % old, '"replaced":["%s"]' % new),
+            "a code the index does not list": ledger.replace('"replaced":["%s"]' % old, '"replaced":["%s"]' % sha("e")),
+            "an unknown field": ledger.replace('"issue":7', '"issue":7,"note":"x"'),
+        }
+        for why, text in cases.items():
+            with self.subTest(why), self.assertRaises(repo_index.IndexCorrupt):
+                repo_index.parse(files[repo_index.INDEX_FILE], text.encode("utf-8"))
 
     def test_the_same_code_from_other_accounts_counts_distinct_submitters(self):
         state = _submit(repo_index.empty_index(), number=1, account=1).index

@@ -46,9 +46,37 @@
     <!-- Project-wide identity. -->
     <Company>MentorRecorder</Company>
     <Product>FF14 导随记录器 / FF14 Mentor Roulette Recorder</Product>
-    <Version>1.3.1</Version>
-    <AssemblyVersion>$(Version).0</AssemblyVersion>
-    <FileVersion>$(Version).0</FileVersion>
+    <!--
+      ================= THE ONLY TWO LINES A HUMAN EDITS TO CHANGE THE VERSION =================
+
+      VersionPrefix is the release number, always three plain numbers.
+      VersionSuffix is empty for a release and `beta.N` for a test build, which makes the
+      version `X.Y.Z-beta.N`. A test build handed to users must always carry a suffix, so a
+      release number is never spent on something that was not released; the release is then
+      cut by emptying VersionSuffix again. See docs/release-checklist.md.
+
+        release      VersionPrefix = 1.4.0   VersionSuffix = (empty)   ->  1.4.0
+        test build   VersionPrefix = 1.4.0   VersionSuffix = beta.1    ->  1.4.0-beta.1
+
+      Everything else derives from these two: Version/InformationalVersion carry the full
+      string (suffix included) and are what the user sees, while AssemblyVersion and
+      FileVersion stay purely numeric - a Windows version resource has four numeric fields
+      and cannot hold a suffix at all. scripts/package.ps1 and the root CMakeLists.txt read
+      these two properties out of this file; no second literal exists anywhere.
+
+      Do not write the two element names in angle brackets anywhere in a comment in this
+      file. The root CMakeLists.txt and the Desktop version test read them with a line
+      regex, not an XML parser, and take the first line that matches - a commented-out
+      example would quietly become the version the Desktop is built with.
+      ==========================================================================================
+    -->
+    <VersionPrefix>1.4.0</VersionPrefix>
+    <VersionSuffix>beta.1</VersionSuffix>
+    <Version Condition="'$(VersionSuffix)' == ''">$(VersionPrefix)</Version>
+    <Version Condition="'$(VersionSuffix)' != ''">$(VersionPrefix)-$(VersionSuffix)</Version>
+    <InformationalVersion>$(Version)</InformationalVersion>
+    <AssemblyVersion>$(VersionPrefix).0</AssemblyVersion>
+    <FileVersion>$(VersionPrefix).0</FileVersion>
     <NeutralLanguage>zh-Hans</NeutralLanguage>
 
     <!-- Licensing: the project is GPL-3.0-or-later (see LICENSE / THIRD_PARTY_NOTICES.md). -->

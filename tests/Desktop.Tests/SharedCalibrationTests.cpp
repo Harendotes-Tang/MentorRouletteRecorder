@@ -87,7 +87,7 @@ QJsonObject sharedStatus(const QString &phase, bool userRejected = false,
 }
 
 QVariantMap captureWith(const QString &calibrationState, const QJsonObject &shared,
-                        const QString &origin = QString())
+                        const QString &origin = QString(), const QString &profileStatus = QString())
 {
     QJsonObject calibration{{QStringLiteral("state"), calibrationState},
                             {QStringLiteral("game_build"), QStringLiteral("2026.09.01.0000.0000")},
@@ -98,6 +98,8 @@ QVariantMap captureWith(const QString &calibrationState, const QJsonObject &shar
     QJsonObject capture{{QStringLiteral("calibration"), calibration}};
     if (!origin.isEmpty())
         capture.insert(QStringLiteral("profile_origin"), origin);
+    if (!profileStatus.isEmpty())
+        capture.insert(QStringLiteral("profile_status"), profileStatus);
     return capture.toVariantMap();
 }
 
@@ -382,6 +384,64 @@ private Q_SLOTS:
         verifyPlayerCopy(c.detail(), true);
     }
 
+    // -- a better code checked underneath a profile that already records -----
+
+    void aCandidateCheckedUnderARecordingProfileNeverSaysRecordingHasNotStarted_data()
+    {
+        QTest::addColumn<QString>("origin");
+        QTest::addColumn<QString>("provenance");
+        QTest::addColumn<QString>("headline");
+
+        const QString better = QString::fromUtf8("找到更准的共享校准，正在本机核实；当前记录照常生成。");
+        const QString pasted = QString::fromUtf8("已导入校准码，正在本机核实；当前记录照常生成。");
+        // The machine's own queue-inferred calibration records; a code that reads the server's own
+        // match is being checked underneath it.
+        QTest::newRow("under a local queue-inferred profile")
+            << "LOCAL_CALIBRATION" << "PUBLISHED" << better;
+        QTest::newRow("under a local queue-inferred profile, pasted code")
+            << "LOCAL_CALIBRATION" << "IMPORTED" << pasted;
+    }
+
+    void aCandidateCheckedUnderARecordingProfileNeverSaysRecordingHasNotStarted()
+    {
+        QFETCH(QString, origin);
+        QFETCH(QString, provenance);
+        QFETCH(QString, headline);
+
+        mr::SharedCalibrationController c;
+        const QJsonArray checking{candidate(QStringLiteral("DOWNLOADED"), QStringLiteral("VERIFYING"), provenance)};
+        c.refreshFromCaptureStatus(captureWith(
+            QStringLiteral("OBSERVING"),
+            sharedStatus(QStringLiteral("VERIFYING"), false, QStringLiteral("OK"), checking), origin,
+            QStringLiteral("VERIFIED")));
+
+        QCOMPARE(c.view(), QStringLiteral("verifying"));
+        QCOMPARE(c.headline(), headline);
+        QCOMPARE(c.detail(),
+                 QString::fromUtf8("现在的记录不受影响；核实通过后会自动换用更准的那一份，之前生成的记录不会改动。"));
+        // The sentences from before 1.3.2 promised that nothing records yet; both would be false here.
+        QVERIFY(!c.headline().contains(QString::fromUtf8("通过就开始记录")));
+        QVERIFY(!c.detail().contains(QString::fromUtf8("核实通过才会开始记录")));
+        verifyPlayerCopy(c.headline());
+        verifyPlayerCopy(c.detail());
+    }
+
+    /// With nothing in force the wording is untouched: the candidate really would start the recording.
+    void aCandidateCheckedWithNothingRecordingKeepsTheOlderWording()
+    {
+        mr::SharedCalibrationController c;
+        const QJsonArray checking{candidate(QStringLiteral("DOWNLOADED"), QStringLiteral("VERIFYING"),
+                                            QStringLiteral("PUBLISHED"))};
+        c.refreshFromCaptureStatus(captureWith(
+            QStringLiteral("OBSERVING"),
+            sharedStatus(QStringLiteral("VERIFYING"), false, QStringLiteral("OK"), checking), QString(),
+            QStringLiteral("UNSUPPORTED_BUILD")));
+
+        QCOMPARE(c.headline(), QString::fromUtf8("找到共享校准，登录时自动核实，通过就开始记录。"));
+        QCOMPARE(c.detail(),
+                 QString::fromUtf8("核实通过才会开始记录，期间照常游戏即可；对不上就继续本机校准，已经攒下的进度不受影响。"));
+    }
+
     void aRecordingProfileUnderAuditSaysSoInGrey()
     {
         mr::SharedCalibrationController c;
@@ -428,8 +488,11 @@ private Q_SLOTS:
         c.refreshFromCaptureStatus(captureWith(QStringLiteral("OBSERVING"), sharedStatus(QStringLiteral("VERIFYING"))));
         QVERIFY(!c.canCheck() && c.canImport() && c.canReject());
 
+        // Awaiting consent is the phase importing matters most in, not least: the two answers
+        // on offer are "bind this queue-inferred code" and "refuse every shared code until
+        // 重新观察", and a player holding a friend's better code needs a third.
         c.refreshFromCaptureStatus(captureWith(QStringLiteral("OBSERVING"), sharedStatus(QStringLiteral("AWAITING_CONSENT"))));
-        QVERIFY(!c.canImport() && c.canReject());
+        QVERIFY(c.canImport() && c.canReject());
 
         c.refreshFromCaptureStatus(captureWith(QStringLiteral("OBSERVING"), sharedStatus(QStringLiteral("REJECTED"), true)));
         QVERIFY(!c.canCheck() && !c.canImport() && !c.canReject());

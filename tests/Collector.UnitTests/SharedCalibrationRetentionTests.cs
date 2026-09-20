@@ -167,21 +167,25 @@ public sealed class SharedCalibrationRetentionTests : IDisposable
         Assert.True(pipeline.CalibrationArmed);
     }
 
-    /// <summary>docs/privacy-boundary.md §8.2: with a usable profile in force not even 立即检查 sends anything.</summary>
+    /// <summary>
+    /// docs/privacy-boundary.md §8.2 as it stands since 1.3.2: a shared profile in force is one of the two
+    /// cases in which the index is still read, and a revocation of its code then takes it out of use at once.
+    /// </summary>
     [Fact]
-    public async Task WhileASharedProfileRecordsNothingIsDownloadedEvenOnAManualCheck()
+    public async Task WhileASharedProfileRecordsItsCodeIsStillCheckedForRevocation()
     {
         var code = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
         var pipeline = await BoundAndStillWatched(code);
         _bed.PublishRevoked(code);
         var sent = _bed.Transport.Requests.Count;
 
-        Assert.Equal(SharedCheckOutcome.NotNeeded, pipeline.CheckSharedCalibrationNow());
+        Assert.Equal(SharedCheckOutcome.Started, pipeline.CheckSharedCalibrationNow());
         await Bed.Idle(pipeline);
 
-        Assert.Equal(sent, _bed.Transport.Requests.Count);
-        Assert.True(File.Exists(_bed.SharedProfilePath));
-        Assert.Equal(ProfileOrigin.Shared, pipeline.Current.Origin);
+        Assert.True(_bed.Transport.Requests.Count > sent);
+        Assert.False(File.Exists(_bed.SharedProfilePath));
+        Assert.Equal(ProfileStatus.UnsupportedBuild, pipeline.Refresh(Bed.Game()).Status);
+        Assert.True(pipeline.CalibrationArmed);
     }
 
     [Fact]
@@ -233,17 +237,23 @@ public sealed class SharedCalibrationRetentionTests : IDisposable
         Assert.Equal(ProfileOrigin.Shared, pipeline.Current.Origin);
         Assert.True(File.Exists(_bed.SharedProfilePath));
 
-        // docs/privacy-boundary.md §8.2: while the profile records nothing new is sent, not even on 立即检查.
-        Assert.Equal(SharedCheckOutcome.NotNeeded, pipeline.CheckSharedCalibrationNow());
+        // The download that was already out has not answered yet, so 立即检查 finds it and starts nothing new.
+        Assert.Equal(SharedCheckOutcome.AlreadyFetching, pipeline.CheckSharedCalibrationNow());
         Assert.Single(_bed.Transport.Requests);
 
         _bed.PublishRevoked(code);
         release.SetResult();
         await Bed.Idle(pipeline);
 
+        // The duty is still under way, so the withdrawal waits rather than cutting the run short.
+        Assert.Equal(RunState.EnteredDuty, pipeline.RunState);
+        Assert.NotNull(pipeline.CalibrationStatus().Shared.ProfileId);
+
+        Bed.Feed(pipeline, session, Bed.From(Bed.Evening(), 200_000));
+        await Bed.Idle(pipeline);
+
         var shared = pipeline.CalibrationStatus().Shared;
         Assert.Null(shared.ProfileId);
-        Assert.Equal("REVOKED", shared.LastRefusal);
         Assert.False(File.Exists(_bed.SharedProfilePath));
         Assert.True(pipeline.CalibrationArmed);
         Assert.Equal(ProfileStatus.UnsupportedBuild, pipeline.Current.Status);

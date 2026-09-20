@@ -62,6 +62,10 @@ public static class CalibrationWire
             ["local_profile_id"] = snapshot.LocalProfileId,
             ["bound_at_utc"] = UtcTimestamp.ToTextOrNull(snapshot.BoundAtUtc),
             ["blockers"] = new JsonArray(snapshot.Blockers.Select(text => (JsonNode?)JsonValue.Create(text)).ToArray()),
+            // Whether 恢复上一份本机校准 has anything to put back. A file-name fact about this
+            // machine's own profile directory: it names nothing the player played and nothing
+            // about the protocol, so it belongs in the sanitized report as well as on the card.
+            ["retired_local_profile_available"] = snapshot.RetiredLocalProfileAvailable,
         };
         node["evidence"] = snapshot.Evidence is { } evidence ? Evidence(evidence, snapshot.CarriedSource) : null;
         node["progress"] = snapshot.Progress is { } progress
@@ -107,6 +111,14 @@ public static class CalibrationWire
             ["rejected_candidates"] = shared.Candidates.Count(item => item.Status == SharedCandidateStatus.Rejected),
             ["user_rejected"] = shared.UserRejected,
             ["audit_pending"] = shared.AuditPending,
+            ["recheck"] = shared.Recheck is { } recheck
+                ? new JsonObject
+                {
+                    ["last_utc"] = UtcTimestamp.ToTextOrNull(recheck.LastUtc),
+                    ["status"] = EnumWire<SharedFetchStatus>.Format(recheck.Status),
+                    ["reason"] = EnumWire<SharedRecheckReason>.Format(recheck.Reason),
+                }
+                : null,
         };
     }
 

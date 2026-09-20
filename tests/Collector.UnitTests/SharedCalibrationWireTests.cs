@@ -49,6 +49,7 @@ public sealed class SharedCalibrationWireTests : IDisposable
     {
         LastSentAtUtc = Bed.Confirmed,
         LastSentStatus = SharedFetchStatus.Ok,
+        Recheck = new SharedRecheckRecord(Bed.Confirmed, SharedFetchStatus.NoneForBuild, SharedRecheckReason.QueueInferredInUse),
     };
 
     private static ProfileSelection Selecting(ProtocolProfile profile, ProfileOrigin origin) =>
@@ -101,6 +102,13 @@ public sealed class SharedCalibrationWireTests : IDisposable
         Assert.Null(second["provenance"]);
         Assert.False(second["audit_pending"]!.GetValue<bool>());
         Assert.False(node["audit_pending"]!.GetValue<bool>());
+        // The relaxation of §8.2: when the index was last read although a profile was recording, and why.
+        var recheck = node["recheck"]!.AsObject();
+        Assert.Equal(new[] { "last_utc", "reason", "status" }, recheck.Select(pair => pair.Key).Order(StringComparer.Ordinal));
+        Assert.Equal("2026-09-09T12:30:00.000Z", recheck["last_utc"]!.GetValue<string>());
+        Assert.Equal("NONE_FOR_BUILD", recheck["status"]!.GetValue<string>());
+        Assert.Equal("QUEUE_INFERRED_IN_USE", recheck["reason"]!.GetValue<string>());
+        Assert.Null(CalibrationWire.Shared(SharedCalibrationSnapshot.None)["recheck"]);
 
         var text = node.ToJsonString();
         Assert.DoesNotContain("AppData", text, StringComparison.Ordinal);

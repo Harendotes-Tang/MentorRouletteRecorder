@@ -155,9 +155,17 @@ BackendReply *IBackend::confirmCalibration(const QJsonArray &verdicts)
     return request(QStringLiteral("ConfirmCalibration"), payload);
 }
 
-BackendReply *IBackend::discardCalibration()
+BackendReply *IBackend::discardCalibration(bool retireLocalProfile, bool restoreLocalProfile)
 {
-    return request(QStringLiteral("DiscardCalibration"));
+    // Omitted rather than sent as false: the contract's default is false, and an empty
+    // payload is what every Collector since the message existed understands. Never both -
+    // the two are opposites and the Collector answers ERR_BAD_REQUEST.
+    QJsonObject payload;
+    if (retireLocalProfile)
+        payload.insert(QStringLiteral("retire_local_profile"), true);
+    else if (restoreLocalProfile)
+        payload.insert(QStringLiteral("restore_local_profile"), true);
+    return request(QStringLiteral("DiscardCalibration"), payload);
 }
 
 BackendReply *IBackend::getCalibrationShareCode()

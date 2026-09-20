@@ -89,13 +89,31 @@ public sealed record CalibrationServices(
     public Action<Region, string> DeleteSharedProfile { get; init; } = (_, _) => { };
 
     /// <summary>
-    /// Puts away the local profile of a region and build after this machine's own traffic
-    /// disproved it. Inert by default, like the evidence seams: a test that builds its own
-    /// services can withdraw a profile without anything happening to the real data directory
-    /// until it points the seam somewhere of its own (<see cref="WithLocalProfilesIn"/>).
-    /// Never throws.
+    /// Puts away the local profile of a region and build: either because this machine's own
+    /// traffic disproved it, or because the player asked for it through 重新校准. The third
+    /// argument is the suffix that says which (<see cref="LocalProfileFiles.RetiredSuffix"/> or
+    /// <see cref="LocalProfileFiles.RetiredByRequestSuffix"/>).
+    ///
+    /// Inert by default, like the evidence seams: a test that builds its own services can retire
+    /// a profile without anything happening to the real data directory until it points the seam
+    /// somewhere of its own (<see cref="WithLocalProfilesIn"/>). Never throws.
     /// </summary>
-    public Action<Region, string> RetireLocalProfile { get; init; } = (_, _) => { };
+    public Action<Region, string, string> RetireLocalProfile { get; init; } = (_, _, _) => { };
+
+    /// <summary>
+    /// Puts back the local profile the player retired through 重新校准. False when there was
+    /// nothing to put back or the file system refused; never throws. Inert by default, like
+    /// <see cref="RetireLocalProfile"/>, and wired by <see cref="WithLocalProfilesIn"/>.
+    /// </summary>
+    public Func<Region, string, bool> RestoreLocalProfile { get; init; } = (_, _) => false;
+
+    /// <summary>
+    /// Whether a retired local profile is waiting to be put back for a region and build, which
+    /// is what the capture status tells the desktop so it can offer the rollback. Inert by
+    /// default: a test that builds its own services sees no rollback until it points the local
+    /// profile seams at a directory of its own. Never throws.
+    /// </summary>
+    public Func<Region, string, bool> HasRetiredLocalProfile { get; init; } = (_, _) => false;
 
     /// <summary>The shared-calibration seams pointed at a fetch and a store of the caller's choosing.</summary>
     /// <param name="fetch">Fetches codes for a region and build.</param>
@@ -143,7 +161,9 @@ public sealed record CalibrationServices(
         return this with
         {
             Write = (draft, template, build, now) => LocalProfileWriter.Write(draft, template, build, now, root),
-            RetireLocalProfile = (region, build) => LocalProfileFiles.Retire(root, region, build),
+            RetireLocalProfile = (region, build, suffix) => LocalProfileFiles.Retire(root, region, build, suffix),
+            RestoreLocalProfile = (region, build) => LocalProfileFiles.Restore(root, region, build),
+            HasRetiredLocalProfile = (region, build) => LocalProfileFiles.HasRetired(root, region, build),
         };
     }
 

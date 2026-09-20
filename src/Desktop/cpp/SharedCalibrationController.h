@@ -137,11 +137,15 @@ private:
         QString lastFetchStatus;
         QString calibrationState = QStringLiteral("IDLE");
         QString profileOrigin;
+        QString profileStatus;
 
         bool operator==(const Inputs &) const = default;
     };
 
     bool calibrating() const;
+    /// True while a profile is recording, whatever wrote it: a candidate being checked underneath it
+    /// replaces it rather than starting the recording.
+    bool recordingAlready() const;
     bool begin();
     void end();
     void deliverShareCode(const QVariantMap &payload);

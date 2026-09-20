@@ -19,13 +19,25 @@ not buy a second code. The same id is already public on the issue the account op
 Submission rules (``add_submission``):
 
 * the account is at least ``MIN_ACCOUNT_AGE`` old;
-* one code per account per (region, build): a different second code is refused, the same code
-  again changes nothing;
+* a revoked code is never published again, by anybody;
+* one *live* code per account per (region, build): the same code again changes nothing, and a
+  different code **replaces** the account's earlier one (rollback plan section 2). Replacing takes
+  the account off the old code: its last submitter revokes it, another only lowers ``submitters``.
+  A revoked code therefore frees the slot on its own, because its row is superseded like any other;
 * no slot limit: a new code from a new account is a new entry; the same code from another account
   adds that account to ``submitters``;
-* a revoked code is not published again; a code whose 12-digit file name is taken by another code is
-  refused;
+* a code whose 12-digit file name is taken by another code is refused;
 * nothing is written that would take the index past the client's caps.
+
+The index format does not change: a code taken out of use is ``revoked: true``, which a client that
+predates replacement already reads correctly. Only the ledger gains an optional ``replaced``, the
+codes this account submitted for this build before, newest last, at most ``MAX_REPLACED`` of them and
+never including the code the row is on now.
+
+Whatever ``dump`` writes, ``parse`` has to read back: ``check_consistent`` therefore enforces exactly
+the rules ``_read_ledger`` enforces. A row the reader would refuse must never reach the file, because
+every run of the Action begins by loading it, so one such row would stop every submission until a
+maintainer edited the file by hand.
 
 Everything here is pure except ``load`` / ``write_files``.
 """
@@ -45,6 +57,11 @@ SCHEMA_VERSION = 1
 MAX_ENTRIES = 512
 MAX_INDEX_BYTES = 64 * 1024
 MAX_CANDIDATES = 8
+# Caps on the ledger. They are ours, not the client's: nothing downloads submissions.json. A chain is
+# an audit trail, so only the most recent codes are worth keeping; the byte cap is the backstop that
+# stops accounts trading codes back and forth from growing the file without end.
+MAX_REPLACED = 16
+MAX_LEDGER_BYTES = 4 * 1024 * 1024
 CODE_EXTENSION = ".mrc"
 MIN_ACCOUNT_AGE = _dt.timedelta(days=30)
 INDEX_FILE = "index.json"
@@ -58,6 +75,10 @@ FIELDS = (
 OPTIONAL_FIELDS = ("conflicting",)
 CONFLICTING = "conflicting"
 LEDGER_FIELDS = ("region", "game_build", "account", "code_sha256", "submitted_at", "issue")
+# The ledger's own optional fields, written after LEDGER_FIELDS and only when a row carries them, so
+# a ledger written before the field existed rewrites byte for byte. The client downloads no ledger.
+LEDGER_OPTIONAL_FIELDS = ("replaced",)
+REPLACED = "replaced"
 
 PUBLISHED = "published"
 ADDED = "added"
@@ -69,12 +90,12 @@ CODE_INVALID = "CODE_INVALID"
 PAYLOAD_MISMATCH = "PAYLOAD_MISMATCH"
 BUILD_NOT_INDEXABLE = "BUILD_NOT_INDEXABLE"
 ACCOUNT_TOO_NEW = "ACCOUNT_TOO_NEW"
-ACCOUNT_HAS_OTHER_CODE = "ACCOUNT_HAS_OTHER_CODE"
 REVOKED = "REVOKED"
 PATH_COLLISION = "PATH_COLLISION"
 INDEX_FULL_ENTRIES = "INDEX_FULL_ENTRIES"
 INDEX_FULL_BYTES = "INDEX_FULL_BYTES"
-MAINTAINER_REFUSALS = frozenset({PATH_COLLISION, INDEX_FULL_ENTRIES, INDEX_FULL_BYTES})
+LEDGER_FULL_BYTES = "LEDGER_FULL_BYTES"
+MAINTAINER_REFUSALS = frozenset({PATH_COLLISION, INDEX_FULL_ENTRIES, INDEX_FULL_BYTES, LEDGER_FULL_BYTES})
 
 _REGION_DIRECTORIES = {"CN": "cn", "GLOBAL": "global"}
 _BUILD = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
@@ -126,6 +147,10 @@ class SubmissionOutcome:
     code_sha256: str | None = None
     payload: Mapping | None = None
     new_code_path: str | None = None
+    # The codes this submission took the account off, and the ones that left with no submitter and
+    # were therefore revoked. At most one of each, because a ledger holds one row per account and build.
+    replaced: tuple = ()
+    replaced_revoked: tuple = ()
 
 
 # --------------------------------------------------------------------------- formats
@@ -326,7 +351,14 @@ def _entry_fields(entry: Mapping) -> dict:
 
 def serialize_ledger(submissions: Iterable[Mapping]) -> bytes:
     rows = sorted(submissions, key=lambda row: (row["region"], row["game_build"], row["submitted_at"], row["account"]))
-    return _serialize("submissions", [{name: row[name] for name in LEDGER_FIELDS} for row in rows])
+    return _serialize("submissions", [_ledger_fields(row) for row in rows])
+
+
+def _ledger_fields(row: Mapping) -> dict:
+    """The row as one ledger line: the six fields in order, then any optional field it carries."""
+    written = {name: row[name] for name in LEDGER_FIELDS}
+    written.update((name, row[name]) for name in LEDGER_OPTIONAL_FIELDS if name in row)
+    return written
 
 
 def _serialize(name: str, rows: list) -> bytes:
@@ -338,11 +370,13 @@ def _serialize(name: str, rows: list) -> bytes:
 
 
 def check_caps(index: Index) -> None:
-    """Raises IndexFull when the client would refuse or truncate this index."""
+    """Raises IndexFull when the client would refuse or truncate this index, or the ledger is too big."""
     if len(index.entries) > MAX_ENTRIES:
         raise IndexFull(INDEX_FULL_ENTRIES)
     if len(serialize_index(index.entries)) > MAX_INDEX_BYTES:
         raise IndexFull(INDEX_FULL_BYTES)
+    if len(serialize_ledger(index.submissions)) > MAX_LEDGER_BYTES:
+        raise IndexFull(LEDGER_FULL_BYTES)
 
 
 def dump(index: Index) -> dict:
@@ -382,6 +416,13 @@ def check_consistent(index: Index) -> None:
         if key in seen:
             raise IndexCorrupt("submissions.json has two rows for one account and build")
         seen.add(key)
+        # Exactly what _read_ledger demands, so dump can never write a file parse would refuse.
+        if REPLACED in row and not _is_replaced_chain(row[REPLACED], row["code_sha256"]):
+            raise IndexCorrupt("submissions.json has a replaced chain the reader would refuse")
+        for superseded in row.get(REPLACED, ()):
+            was = by_sha.get(superseded)
+            if was is None or (was["region"], was["game_build"]) != (row["region"], row["game_build"]):
+                raise IndexCorrupt("submissions.json replaces a code index.json does not list")
     for entry in index.entries:
         count = sum(1 for row in index.submissions if row["code_sha256"] == entry["code_sha256"])
         if count and count != entry["submitters"]:
@@ -399,7 +440,8 @@ def _read_ledger(data: bytes) -> tuple:
         raise IndexCorrupt("submissions.json has no submissions list")
     read = []
     for position, row in enumerate(rows):
-        if not isinstance(row, dict) or getattr(row, "duplicate_key", None) is not None or set(row) != set(LEDGER_FIELDS):
+        known = set(LEDGER_FIELDS) <= set(row) <= set(LEDGER_FIELDS) | set(LEDGER_OPTIONAL_FIELDS) if isinstance(row, dict) else False
+        if not isinstance(row, dict) or getattr(row, "duplicate_key", None) is not None or not known:
             raise IndexCorrupt("submissions.json row %d is malformed" % position)
         valid = (
             isinstance(row["region"], str) and row["region"] in _REGION_DIRECTORIES
@@ -407,11 +449,20 @@ def _read_ledger(data: bytes) -> tuple:
             and isinstance(row["account"], str) and _ACCOUNT.fullmatch(row["account"]) is not None
             and parse_stamp(row["submitted_at"]) is not None
             and (row["issue"] is None or (type(row["issue"]) is int and row["issue"] > 0))
+            and (REPLACED not in row or _is_replaced_chain(row[REPLACED], row["code_sha256"]))
         )
         if not valid:
             raise IndexCorrupt("submissions.json row %d is malformed" % position)
-        read.append({name: row[name] for name in LEDGER_FIELDS})
+        read.append(_ledger_fields(row))
     return tuple(read)
+
+
+def _is_replaced_chain(chain: Any, code_sha256: str) -> bool:
+    """A short, non-empty list of distinct code hashes, none of them the row's own code."""
+    return (
+        isinstance(chain, list) and 1 <= len(chain) <= MAX_REPLACED and all(is_sha256(item) for item in chain)
+        and len(set(chain)) == len(chain) and code_sha256 not in chain
+    )
 
 
 def load(root: Path) -> Index:
@@ -468,47 +519,80 @@ def add_submission(
     if now - created < MIN_ACCOUNT_AGE:
         return SubmissionOutcome(REFUSED, ACCOUNT_TOO_NEW, code_sha256=sha, payload=payload)
 
-    mine = [row for row in index.submissions if (row["region"], row["game_build"], row["account"]) == (region, build, account)]
     existing = next((entry for entry in index.entries if entry["code_sha256"] == sha), None)
-    if any(row["code_sha256"] == sha for row in mine):
+    if existing is not None and existing["revoked"]:
+        return SubmissionOutcome(REFUSED, REVOKED, code_sha256=sha, payload=payload)
+    mine = next((row for row in index.submissions
+                 if (row["region"], row["game_build"], row["account"]) == (region, build, account)), None)
+    if mine is not None and mine["code_sha256"] == sha:
         return SubmissionOutcome(DUPLICATE, index=index, entry=existing, code_sha256=sha, payload=payload)
-    if mine:
-        return SubmissionOutcome(REFUSED, ACCOUNT_HAS_OTHER_CODE, code_sha256=sha, payload=payload)
 
     row = {"region": region, "game_build": build, "account": account, "code_sha256": sha,
            "submitted_at": format_stamp(now), "issue": issue}
+    entries, submissions = index.entries, index.submissions
+    replaced, replaced_revoked = (), ()
+    if mine is not None:
+        replaced = (mine["code_sha256"],)
+        entries, replaced_revoked = _release(entries, mine["code_sha256"])
+        submissions = tuple(item for item in submissions if item is not mine)
+        row[REPLACED] = list(_replaced_chain(mine, sha))
+
     if existing is not None:
-        return _add_submitter(index, existing, row, sha, payload)
+        current = next(entry for entry in entries if entry["code_sha256"] == sha)
+        entry = dict(current, submitters=current["submitters"] + 1)
+        entries = tuple(entry if item["code_sha256"] == sha else item for item in entries)
+        status, path = ADDED, None
+    else:
+        path = code_path(region, build, sha)
+        if any(item["path"] == path for item in entries):
+            return SubmissionOutcome(REFUSED, PATH_COLLISION, code_sha256=sha, payload=payload)
+        entry = {
+            "region": region, "game_build": build, "code_sha256": sha, "match_source": payload["match_source"],
+            "submitters": 1, "first_published_at": format_stamp(now), "path": path,
+            "commit": commit_sha_for_new_code or _PLACEHOLDER_COMMIT, "revoked": False,
+        }
+        entries, status = sort_entries(entries + (entry,)), PUBLISHED
 
-    path = code_path(region, build, sha)
-    if any(entry["path"] == path for entry in index.entries):
-        return SubmissionOutcome(REFUSED, PATH_COLLISION, code_sha256=sha, payload=payload)
-    entry = {
-        "region": region, "game_build": build, "code_sha256": sha, "match_source": payload["match_source"],
-        "submitters": 1, "first_published_at": format_stamp(now), "path": path,
-        "commit": commit_sha_for_new_code or _PLACEHOLDER_COMMIT, "revoked": False,
-    }
-    updated = Index(sort_entries(index.entries + (entry,)), index.submissions + (row,))
+    updated = Index(entries, submissions + (row,))
     refusal = _cap_refusal(updated)
     if refusal is not None:
         return SubmissionOutcome(REFUSED, refusal, code_sha256=sha, payload=payload)
-    if commit_sha_for_new_code is None:
-        return SubmissionOutcome(PUBLISHED, entry=entry, code_sha256=sha, payload=payload, new_code_path=path)
-    return SubmissionOutcome(PUBLISHED, index=updated, entry=entry, code_sha256=sha, payload=payload, new_code_path=path)
+    # A new code with no commit yet: every rule has been applied, but there is nothing to write.
+    written = None if status == PUBLISHED and commit_sha_for_new_code is None else updated
+    return SubmissionOutcome(status, index=written, entry=entry, code_sha256=sha, payload=payload,
+                             new_code_path=path, replaced=replaced, replaced_revoked=replaced_revoked)
 
 
-def _add_submitter(index: Index, existing: Mapping, row: Mapping, sha: str, payload: Mapping) -> SubmissionOutcome:
-    if existing["revoked"]:
-        return SubmissionOutcome(REFUSED, REVOKED, code_sha256=sha, payload=payload)
-    counted = dict(existing, submitters=existing["submitters"] + 1)
-    updated = Index(
-        tuple(counted if entry["code_sha256"] == sha else entry for entry in index.entries),
-        index.submissions + (row,),
-    )
-    refusal = _cap_refusal(updated)
-    if refusal is not None:
-        return SubmissionOutcome(REFUSED, refusal, code_sha256=sha, payload=payload)
-    return SubmissionOutcome(ADDED, index=updated, entry=counted, code_sha256=sha, payload=payload)
+def _release(entries: tuple, code_sha256: str) -> tuple:
+    """``(entries, revoked)`` with one account taken off a code.
+
+    The last submitter leaving revokes the code, so it is never published again; with other
+    submitters left only the count drops. ``submitters`` never falls below one, which is what the
+    client reads: a code nobody submits any more is revoked, not counted down to zero.
+    """
+    # check_consistent guarantees every ledger row's code is listed, and entries are never deleted,
+    # so the lookup cannot miss; a default would only turn a broken invariant into a silent no-op.
+    current = next(entry for entry in entries if entry["code_sha256"] == code_sha256)
+    if current["submitters"] > 1:
+        freed, revoked = dict(current, submitters=current["submitters"] - 1), ()
+    else:
+        freed, revoked = dict(current, revoked=True), (code_sha256,)
+    return tuple(freed if entry["code_sha256"] == code_sha256 else entry for entry in entries), revoked
+
+
+def _replaced_chain(superseded: Mapping, current: str) -> tuple:
+    """Every code this account submitted for this build before, newest last, each named once.
+
+    ``current`` is the code the new row is on, and it is never in its own chain. An account can come
+    back to a code it left, because leaving a code another account still submits does not revoke it:
+    X and Z both take A, X moves to B, X comes back to A. Naming A in A's own row would pass
+    ``dump`` and then be refused by ``_read_ledger`` on the next run, which stops every submission
+    until a maintainer edits the file. The code being left now still joins the chain, so coming back
+    keeps the history instead of erasing it. Only the most recent ``MAX_REPLACED`` are kept.
+    """
+    chain = list(superseded.get(REPLACED, ())) + [superseded["code_sha256"]]
+    kept = [code for code in dict.fromkeys(chain) if code != current]
+    return tuple(kept[-MAX_REPLACED:])
 
 
 def _cap_refusal(index: Index) -> str | None:

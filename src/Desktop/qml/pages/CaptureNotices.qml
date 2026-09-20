@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls
 import QtQuick.Layouts
 import MentorRecorder
 
@@ -36,6 +37,18 @@ ColumnLayout {
                                          || notices.capture.region === "UNKNOWN"
     readonly property string buildPhrase: App.ffxivRunning ? qsTr("当前游戏版本")
                                                            : qsTr("已安装的游戏版本")
+    // 本机校准出来的档案生效后，校准卡片连同「清空进度并重新观察」「导入校准码」一起消失，
+    // 玩家再无入口可用。「重新校准」只在这种情况下出现：别人分享的校准由「不用共享的，
+    // 我自己校准」停用，随包档案不是本机的猜测，没有档案时也无从停用。
+    readonly property bool offersRecalibrate: notices.profileStatus === "VERIFIED"
+                                              && notices.profileOrigin === "LOCAL_CALIBRATION"
+    // 「重新校准」的退路：上次停用的那份本机校准还在磁盘上。采集服务只在没有本机档案
+    // 生效时报 true，因此这两个按钮天然互斥，这里再显式排除一次。
+    readonly property bool offersRestore: !!App.calibration && App.calibration.retiredLocalProfileAvailable
+                                          && !notices.offersRecalibrate
+    // 停用档案会把正在进行的记录按停止捕获收尾，等于让玩家白打这一把。
+    readonly property bool runInFlight: App.currentRunState === "MENTOR_MATCHED"
+                                        || App.currentRunState === "ENTERED_DUTY"
     // A known, non-verified profile while the game runs is the reason nothing is
     // recorded. While calibration runs its own card explains that instead, and
     // with the game closed 链路 already says it once - a second card there would
@@ -43,8 +56,10 @@ ColumnLayout {
     readonly property bool profileProblem: App.ffxivRunning && notices.profileStatus.length > 0
                                            && notices.profileStatus !== "VERIFIED"
                                            && !notices.calibrationCardVisible
+    // 停用本机校准之后校准卡片会重新出现，于是 profileProblem 为假；若不把退路算进来，
+    // 协议档案卡就会整张隐藏，「恢复上一份本机校准」也随之不可达——正是本功能要堵的洞。
     readonly property bool profileCardVisible: notices.offersShare || notices.calibratedProfile
-                                               || notices.profileProblem
+                                               || notices.profileProblem || notices.offersRestore
     readonly property bool silentVisible: App.captureMidstreamSuspected || App.captureSilent
                                           || App.recording.silent
 
@@ -200,6 +215,178 @@ ColumnLayout {
                 text: qsTr("分享给其他玩家")
                 enabled: !!notices.sharedCalibration && !notices.sharedCalibration.busy
                 onClicked: notices.sharedCalibration.share()
+            }
+        }
+
+        // 本机校准的档案认错了报文时，这里是唯一的退路：停用它，软件回到观察状态，
+        // 之后可以重新校准，也可以导入其他玩家的校准码。
+        // 停用之后，同一行改为提供反向的退路：把上次停用的那一份换回来。
+        RowLayout {
+            Layout.fillWidth: true
+            Layout.topMargin: 2
+            visible: notices.offersRecalibrate || notices.offersRestore
+            spacing: 16
+
+            Text {
+                objectName: "protocolRecalibrateHint"
+                Layout.fillWidth: true
+                visible: notices.runInFlight
+                text: qsTr("副本进行中，结束后再试")
+                textFormat: Text.PlainText
+                color: Theme.textSecondary
+                font.pixelSize: Theme.fs(12)
+                wrapMode: Text.WordWrap
+            }
+
+            Item { Layout.fillWidth: true; visible: !notices.runInFlight }
+
+            AppButton {
+                objectName: "protocolRestoreButton"
+                visible: notices.offersRestore
+                text: qsTr("恢复上一份本机校准")
+                enabled: !notices.runInFlight
+                         && (!App.calibration || !App.calibration.busy)
+                onClicked: restoreDialog.open()
+            }
+
+            AppButton {
+                objectName: "protocolRecalibrateButton"
+                visible: notices.offersRecalibrate
+                text: qsTr("重新校准")
+                enabled: !notices.runInFlight
+                         && (!App.calibration || !App.calibration.busy)
+                onClicked: recalibrateDialog.open()
+            }
+        }
+
+        // 采集服务拒绝时，它给的句子本身就是写给玩家看的，原样显示。
+        // 校准卡片此时可能并不在场，这一行是唯一能说明原因的地方。
+        Text {
+            objectName: "protocolCalibrationError"
+            Layout.fillWidth: true
+            visible: (notices.offersRecalibrate || notices.offersRestore)
+                     && !!App.calibration && App.calibration.error.length > 0
+            text: App.calibration ? App.calibration.error : ""
+            textFormat: Text.PlainText
+            color: Theme.orangeText
+            font.pixelSize: Theme.fs(12)
+            wrapMode: Text.WordWrap
+        }
+    }
+
+    // 停用一份还在记录的档案，先把代价说清楚再问一次。
+    Dialog {
+        id: recalibrateDialog
+        objectName: "protocolRecalibrateDialog"
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        modal: true
+        Overlay.modal: Rectangle { color: Theme.modalScrim(recalibrateDialog.palette.shadow) }
+        width: 460
+        padding: 20
+        closePolicy: Popup.CloseOnEscape
+
+        background: DialogFrame {}
+
+        contentItem: ColumnLayout {
+            spacing: 12
+
+            HeadingLabel {
+                Layout.fillWidth: true
+                text: qsTr("重新校准这一版游戏？")
+                font.pixelSize: Theme.dialogTitleSize(20)
+            }
+
+            Text {
+                Layout.fillWidth: true
+                text: qsTr("现在这份本机校准会停用（文件会保留，不会删除），软件回到观察状态："
+                           + "期间不会生成记录，直到重新校准完成，或导入了其他玩家的校准码。"
+                           + "之前的记录不受影响。")
+                textFormat: Text.PlainText
+                color: Theme.textSecondary
+                font.pixelSize: Theme.fs(12)
+                wrapMode: Text.WordWrap
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
+
+                Item { Layout.fillWidth: true }
+
+                AppButton {
+                    text: qsTr("取消")
+                    onClicked: recalibrateDialog.close()
+                }
+
+                AppButton {
+                    objectName: "protocolRecalibrateConfirm"
+                    variant: "primary"
+                    text: qsTr("停用并重新校准")
+                    enabled: !!App.calibration && !App.calibration.busy
+                    onClicked: {
+                        App.calibration.recalibrate()
+                        recalibrateDialog.close()
+                    }
+                }
+            }
+        }
+    }
+
+    // 换回上次停用的那一份，同样先说清楚会发生什么。
+    Dialog {
+        id: restoreDialog
+        objectName: "protocolRestoreDialog"
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        modal: true
+        Overlay.modal: Rectangle { color: Theme.modalScrim(restoreDialog.palette.shadow) }
+        width: 460
+        padding: 20
+        closePolicy: Popup.CloseOnEscape
+
+        background: DialogFrame {}
+
+        contentItem: ColumnLayout {
+            spacing: 12
+
+            HeadingLabel {
+                Layout.fillWidth: true
+                text: qsTr("恢复上一份本机校准？")
+                font.pixelSize: Theme.dialogTitleSize(20)
+            }
+
+            Text {
+                Layout.fillWidth: true
+                text: qsTr("软件会停用现在这份校准，换回你上次停用的那一份本机校准，并立刻用它记录。"
+                           + "之前的记录不受影响。")
+                textFormat: Text.PlainText
+                color: Theme.textSecondary
+                font.pixelSize: Theme.fs(12)
+                wrapMode: Text.WordWrap
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
+
+                Item { Layout.fillWidth: true }
+
+                AppButton {
+                    text: qsTr("取消")
+                    onClicked: restoreDialog.close()
+                }
+
+                AppButton {
+                    objectName: "protocolRestoreConfirm"
+                    variant: "primary"
+                    text: qsTr("恢复")
+                    enabled: !!App.calibration && !App.calibration.busy
+                    onClicked: {
+                        App.calibration.restoreLocalProfile()
+                        restoreDialog.close()
+                    }
+                }
             }
         }
     }

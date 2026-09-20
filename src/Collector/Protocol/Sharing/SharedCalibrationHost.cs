@@ -85,6 +85,13 @@ internal interface ISharedCalibrationHost
     bool HasFinishedSharedRun(string profileId);
 
     /// <summary>
+    /// True while a run is under way: matched, or inside the duty. Taking a profile out of use then would
+    /// close the run the way a stopped capture closes it, and swapping one for another would hand the
+    /// evening to a fresh state machine, so both wait for the machine to be between runs.
+    /// </summary>
+    bool SharedRunInFlight();
+
+    /// <summary>
     /// Adopts the reloaded selector and, when it selects the written profile, binds it: in the running
     /// session when that session has no parser, draining the stage in order; otherwise from the next session.
     /// </summary>

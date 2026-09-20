@@ -1682,7 +1682,20 @@ BackendReply *MockBackend::request(const QString &messageType, const QJsonObject
     } else if (messageType == QLatin1String("ConfirmCalibration")) {
         result = applyCalibrationVerdicts(payload, &errorCode, &errorMessage);
     } else if (messageType == QLatin1String("DiscardCalibration")) {
-        if (m_calibrationState.isEmpty()) {
+        ++m_discardCalibrationCount;
+        m_lastDiscardCalibration = payload;
+        if (payload.value(QStringLiteral("restore_local_profile")).toBool()) {
+            // The rollback: the retired file goes back and records again, so the fixture
+            // returns to "a local profile is in force and nothing is being calibrated".
+            if (!m_retiredLocalProfileAvailable) {
+                errorCode = QStringLiteral("ERR_CALIBRATION_NOT_READY");
+                errorMessage = QString::fromUtf8("没有可以恢复的本机校准。");
+            } else {
+                m_retiredLocalProfileAvailable = false;
+                m_calibrationState = QStringLiteral("idle");
+                result.insert(QStringLiteral("state"), QStringLiteral("IDLE"));
+            }
+        } else if (m_calibrationState.isEmpty()) {
             errorCode = QStringLiteral("ERR_CALIBRATION_NOT_READY");
             errorMessage = QString::fromUtf8("当前没有正在进行的本机校准。");
         } else {

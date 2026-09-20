@@ -2,6 +2,7 @@ using MentorRecorder.Collector.Contracts.Errors;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Domain.Events;
 using MentorRecorder.Collector.Protocol.Decoded;
+using MentorRecorder.Collector.Protocol.Profiles;
 using MentorRecorder.Collector.Protocol.Sharing;
 using MentorRecorder.Collector.Reference;
 
@@ -93,6 +94,14 @@ public sealed record CalibrationStatusSnapshot(
     /// <summary>Shared calibration for the running client; none by default.</summary>
     public SharedCalibrationSnapshot Shared { get; init; } = SharedCalibrationSnapshot.None;
 
+    /// <summary>
+    /// True when a local profile the player retired through 重新校准 is waiting on disk for this
+    /// build and nothing occupies the name it would come back under - that is, when the desktop
+    /// may offer 恢复上一份本机校准. Decided by the pipeline, which knows where the profiles live;
+    /// this record only carries it.
+    /// </summary>
+    public bool RetiredLocalProfileAvailable { get; init; }
+
     /// <summary>Nothing is being calibrated.</summary>
     public static CalibrationStatusSnapshot Idle { get; } = new(
         CalibrationState.Idle, null, null, null, Array.Empty<string>(), Array.Empty<CalibrationEvent>(), null, null);
@@ -124,6 +133,8 @@ public sealed class CalibrationCoordinator
     private HashSet<string> _provisionalLacks = new(StringComparer.Ordinal);
     private bool _provisional;
     private bool _retaining;
+    private bool _completing;
+    private IReadOnlyList<ProfileMessage>? _completingInForce;
     private int _generation;
     private int _armEpoch;
     private readonly List<DeclaredCandidate> _declared = new();
@@ -251,6 +262,8 @@ public sealed class CalibrationCoordinator
         _provisionalProfileId = null;
         _provisionalLacks.Clear();
         _retaining = false;
+        _completing = false;
+        _completingInForce = null;
         _carried = null;
         _declared.Clear();
         _generation++;
@@ -379,6 +392,70 @@ public sealed class CalibrationCoordinator
         }
     }
 
+    /// <summary>
+    /// Says whether a finished local profile is waiting to be completed: it reads the server's
+    /// own match and records correctly, and it has no <c>PLAYER_JOB</c>, so every record it makes
+    /// says 职业未知. Calibration runs on beside it, out of sight, until a draft turns up that can
+    /// add the job without changing anything else.
+    /// </summary>
+    /// <param name="completing">True for such a profile.</param>
+    /// <param name="inForce">
+    /// That profile's declared messages, which a draft has to reproduce exactly before it may be
+    /// offered. Without them nothing can be compared and nothing is ever offered.
+    /// </param>
+    public void UseCompleting(bool completing, IReadOnlyList<ProfileMessage>? inForce = null)
+    {
+        var messages = completing ? inForce : null;
+        if (_completing == completing && ReferenceEquals(_completingInForce, messages))
+        {
+            return;
+        }
+
+        _completing = completing;
+        _completingInForce = messages;
+        _draft = null;
+        _draftAtMessage = -1;
+    }
+
+    /// <summary>
+    /// True when a draft may be put to the player as a completion of the profile in force: it
+    /// brings the job, and every other message it declares is the message that profile already
+    /// declares, name for name and byte for byte.
+    ///
+    /// The comparison is the one a share code is checked with, over the JSON each message is
+    /// written as, so nothing - an opcode, a length, a learned offset, a selector value - can
+    /// differ unnoticed. A draft that names the match differently is a replacement, not a
+    /// completion: confirming it would swap out a match message that works today for one the
+    /// player was never asked about, and 职业未知 is the lesser harm.
+    /// </summary>
+    /// <param name="draft">Draft just derived.</param>
+    private bool Completes(CalibrationDraft? draft)
+    {
+        if (!_completing || _completingInForce is not { } inForce || draft is null ||
+            draft.Status != CalibrationDraftStatus.Ready ||
+            !draft.Messages.Any(message => string.Equals(message.Name, CalibratedShape.JobName, StringComparison.Ordinal)))
+        {
+            return false;
+        }
+
+        var proposed = draft.Messages
+            .Where(message => !string.Equals(message.Name, CalibratedShape.JobName, StringComparison.Ordinal))
+            .ToArray();
+        // Neither side may carry a message the other lacks: one the draft dropped would be
+        // written out of the profile by the confirmation, which is a loss, not a completion.
+        if (proposed.Length != inForce.Count)
+        {
+            return false;
+        }
+
+        return proposed.All(message => inForce.Any(current =>
+            string.Equals(current.Name, message.Name, StringComparison.Ordinal) &&
+            string.Equals(
+                CalibratedProfileDocument.Message(current).ToJsonString(),
+                CalibratedProfileDocument.Message(message).ToJsonString(),
+                StringComparison.Ordinal)));
+    }
+
     /// <summary>Feeds one decoded message to the observer, when observing.</summary>
     /// <param name="message">Decoded message.</param>
     public void Accept(DecodedMessage message)
@@ -425,7 +502,8 @@ public sealed class CalibrationCoordinator
             _draft = CalibrationDraft.Derive(snapshot, _template, _rejections, _roulettes);
             _draftAtMessage = snapshot.MessagesSeen;
             var brings = _draft.Messages.Any(message => _provisionalLacks.Contains(message.Name));
-            _state = StateFor(_draft.Status, _draft.MatchSource, _provisional, _retaining, brings);
+            _state = StateFor(
+                _draft.Status, _draft.MatchSource, _provisional, _retaining, brings, _completing, Completes(_draft));
         }
 
         return _draft;
@@ -437,10 +515,16 @@ public sealed class CalibrationCoordinator
     /// <param name="provisional">A queue-inferred profile is in force and recording.</param>
     /// <param name="retaining">A shared profile is in force and still being watched.</param>
     /// <param name="brings">The draft declares an optional message the profile in force lacks.</param>
+    /// <param name="completing">A finished local profile without the job is in force and recording.</param>
+    /// <param name="completes">That profile can take this draft's job without changing anything else.</param>
     internal static CalibrationState StateFor(
         CalibrationDraftStatus status, CalibrationMatchSource source, bool provisional, bool retaining,
-        bool brings = false) => status switch
+        bool brings = false, bool completing = false, bool completes = false) => status switch
     {
+        // A finished profile is already recording, so nothing here is urgent and nothing is
+        // shown (Snapshot reports IDLE for every state but READY). Only a draft that adds the
+        // job and leaves the rest alone is worth a question.
+        _ when completing => completes ? CalibrationState.Ready : CalibrationState.Observing,
         CalibrationDraftStatus.Ready when provisional && source == CalibrationMatchSource.QueueRequest && brings
             => CalibrationState.Ready,
         // A provisional profile is already in force, so re-proposing the same inferred
@@ -503,9 +587,24 @@ public sealed class CalibrationCoordinator
                 "完整记录一次进本和出本之后校准就结束；在那之前软件会继续在后台核对，对不上会自动撤下并改回本机校准。",
             };
         }
+        else if (_completing && _state == CalibrationState.Ready)
+        {
+            // The card's READY headline counts the lines to check and says recording can start
+            // afterwards; here recording never stopped, so this line has to say what is really
+            // on offer before the player reads the timeline.
+            blockers = new[]
+            {
+                "这份校准可以补上职业了：核对下面的时间线后，之后的记录会自动带上职业。",
+            };
+        }
 
         return new CalibrationStatusSnapshot(
-            _state == CalibrationState.Idle && Armed ? CalibrationState.Waiting : _state,
+            // A finished profile that is quietly looking for the job reports IDLE, so the card
+            // stays off the page: the player is recording, nothing is wrong, and there is
+            // nothing for them to do until the job can actually be added.
+            _completing && _state != CalibrationState.Ready
+                ? CalibrationState.Idle
+                : _state == CalibrationState.Idle && Armed ? CalibrationState.Waiting : _state,
             _build,
             _template?.Source.ProfileId,
             draft?.Progress,
@@ -675,6 +774,8 @@ public sealed class CalibrationCoordinator
 
         _observer = null;
         _retaining = false;
+        _completing = false;
+        _completingInForce = null;
         _state = CalibrationState.Done;
     }
 

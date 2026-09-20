@@ -51,10 +51,10 @@ public sealed class LocalProfileWithdrawalTests : IDisposable
         return services with
         {
             ReloadSelect = select is null ? services.ReloadSelect : () => select,
-            RetireLocalProfile = (region, build) =>
+            RetireLocalProfile = (region, build, suffix) =>
             {
                 _retired.Add((region, build));
-                retire(region, build);
+                retire(region, build, suffix);
             },
         };
     }
@@ -237,7 +237,7 @@ public sealed class LocalProfileWithdrawalTests : IDisposable
         WriteLocalProfile(CalibrationTrafficCases.Announcement);
         var services = _bed.Services(fetch: false) with
         {
-            RetireLocalProfile = (_, _) => throw new IOException("the profile file is held open"),
+            RetireLocalProfile = (_, _, _) => throw new IOException("the profile file is held open"),
             ReloadSelect = () => throw new InvalidOperationException("the profile directory cannot be read"),
         };
         var pipeline = _bed.Pipeline(services);
@@ -264,7 +264,7 @@ public sealed class LocalProfileWithdrawalTests : IDisposable
         WriteLocalProfile(CalibrationTrafficCases.Announcement);
         var services = _bed.Services(fetch: false) with
         {
-            RetireLocalProfile = (_, _) => throw new IOException("the profile file is held open"),
+            RetireLocalProfile = (_, _, _) => throw new IOException("the profile file is held open"),
         };
         var pipeline = _bed.Pipeline(services);
         pipeline.Refresh(Bed.Game());

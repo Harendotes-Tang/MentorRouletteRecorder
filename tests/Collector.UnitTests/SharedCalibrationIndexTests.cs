@@ -30,18 +30,31 @@ public sealed class SharedCalibrationIndexTests
         string build = Build,
         bool revoked = false,
         string matchSource = "ANNOUNCEMENT",
-        string? commit = null) => new()
+        string? commit = null,
+        bool conflicting = false)
     {
-        ["region"] = region,
-        ["game_build"] = build,
-        ["code_sha256"] = sha,
-        ["match_source"] = matchSource,
-        ["submitters"] = submitters,
-        ["first_published_at"] = published,
-        ["path"] = region.ToLowerInvariant() + "/" + build + "/" + (sha.Length >= 12 ? sha[..12] : sha) + ".mrc",
-        ["commit"] = commit ?? Commit(),
-        ["revoked"] = revoked,
-    };
+        var entry = new JsonObject
+        {
+            ["region"] = region,
+            ["game_build"] = build,
+            ["code_sha256"] = sha,
+            ["match_source"] = matchSource,
+            ["submitters"] = submitters,
+            ["first_published_at"] = published,
+            ["path"] = region.ToLowerInvariant() + "/" + build + "/" + (sha.Length >= 12 ? sha[..12] : sha) + ".mrc",
+            ["commit"] = commit ?? Commit(),
+            ["revoked"] = revoked,
+        };
+
+        // The publisher writes the key only when it is true, so an index without conflicts is byte-for-byte
+        // what it always was (plan §18.6).
+        if (conflicting)
+        {
+            entry["conflicting"] = true;
+        }
+
+        return entry;
+    }
 
     internal static byte[] Index(params JsonNode[] entries) => Encoding.UTF8.GetBytes(new JsonObject
     {

@@ -241,7 +241,9 @@ IBM Plex Mono 随程序分发，许可为 SIL OFL 1.1。字体文件位于 `src/
 
 * 校准卡片（`calibrationCard`，含共享校准一节，见 4.4.1、4.4.2）：`calibration.state != IDLE` 时出现。
 * 协议档案（`protocolProfileCard`，紧凑面板）：正在使用本机校准或共享校准的档案、
-  可以「分享给其他玩家」（`protocolShareHint` / `protocolShareButton`），
+  可以「分享给其他玩家」（`protocolShareHint` / `protocolShareButton`）、
+  「重新校准」（`protocolRecalibrateButton`，仅本机校准）或
+  「恢复上一份本机校准」（`protocolRestoreButton`，仅在有被停用的档案待恢复时），
   或游戏正在运行而档案不是 `VERIFIED`（校准卡片存在时由校准卡片解释）时出现。
   普通用户看到的标题是「正在使用本机校准出来的档案」「当前游戏版本没有可用档案」一类语句，
   **不出现档案编号与状态令牌**；维护者在 `VERIFIED` 时看到「已就绪：`<profile_id>`」。
@@ -430,7 +432,8 @@ QtTest `MentorRecorderCapturePage`（`tests/Desktop.Tests/CapturePageTests.cpp`�
 | `VERIFYING`，候选中有 `provenance = PUBLISHED` 的 | 找到共享校准，登录时自动核实，通过就开始记录。 | 导入校准码、不用共享的，我自己校准 |
 | `VERIFYING`，未被拒绝的候选全为 `provenance = IMPORTED` | 已导入校准码，登录并排一次本、核实通过后启用。 | 导入校准码、不用共享的，我自己校准 |
 | `VERIFYING`，候选未报告 `provenance`（1.1.0 之前的采集服务） | 找到共享校准，登录或排本时自动核实。（候选全是手动导入的：已导入校准码，……） | 导入校准码、不用共享的，我自己校准 |
-| `AWAITING_CONSENT` | 共享校准核实通过了，还需要你同意一次才能开始记录。橙框内说明代价 | 同意，开始记录、不用共享的，我自己校准 |
+| `VERIFYING`，且 `profile_status = VERIFIED`（已有档案在记录，1.4.0 起会出现） | 找到更准的共享校准，正在本机核实；当前记录照常生成。（候选全为 `IMPORTED`：已导入校准码，正在本机核实；当前记录照常生成。）另加一行灰字：现在的记录不受影响；核实通过后会自动换用更准的那一份，之前生成的记录不会改动。 | 导入校准码、不用共享的，我自己校准 |
+| `AWAITING_CONSENT` | 共享校准核实通过了，还需要你同意一次才能开始记录。橙框内说明代价，末句另给第三条出路：「手上有其他玩家发来的校准码的话，也可以先点「导入校准码」。」 | 同意，开始记录（橙框内，与 `sharedConsentImportButton` 并排）、导入校准码、不用共享的，我自己校准 |
 | `VERIFIED`，或 `profile_origin = SHARED_CALIBRATION` | 已使用其他玩家分享的校准（本机已核实）。 | 不用共享的，我自己校准 |
 | 同上，且 `audit_pending = true` | 已使用其他玩家分享的校准（登录时已在本机核实）。另加一行灰字：排本和进本还在核对中，照常游戏即可；万一对不上，会自动改回本机校准，这期间生成的记录会标记待复核。 | 不用共享的，我自己校准 |
 | `REJECTED` | 共享校准与本机流量对不上，已改为本机校准。 | 立即检查、导入校准码 |
@@ -451,8 +454,39 @@ QtTest `MentorRecorderCapturePage`（`tests/Desktop.Tests/CapturePageTests.cpp`�
 同一屏内不应出现两个功能相同的按钮。
 「导入校准码」不随之迁移，因为采集服务只在校准进行中才接受导入。
 
-* 「立即检查」与「导入校准码」只在本机仍处于校准（`WAITING` / `OBSERVING`）、
-  且没有共享档案正在记录时出现。`last_refusal`、候选的 `sha12`、`criteria` 与 `last_index_attempts`
+**「重新校准」也出现在协议档案卡上**（`protocolRecalibrateButton`，次要按钮），
+条件是 `profile_status = VERIFIED` 且 `profile_origin = LOCAL_CALIBRATION`——
+本机档案生效后校准卡片消失，「清空进度并重新观察」与「导入校准码」随之不可达，
+怀疑本机认错了报文、或拿到了更好的校准码的玩家此前无路可走。
+点击先打开确认框（`protocolRecalibrateDialog`，沿用 `DialogFrame`）：
+标题「重新校准这一版游戏？」，正文「现在这份本机校准会停用（文件会保留，不会删除），
+软件回到观察状态：期间不会生成记录，直到重新校准完成，或导入了其他玩家的校准码。之前的记录不受影响。」，
+按钮 **取消** 与 **停用并重新校准**（`protocolRecalibrateConfirm`）。
+确认后发送 `DiscardCalibration` 并带上 `retire_local_profile = true`，随即重读一次捕获状态。
+`App.currentRunState` 为 `MENTOR_MATCHED` 或 `ENTERED_DUTY` 时按钮禁用，
+旁边给一行灰字「副本进行中，结束后再试」——停用档案会把这一把按停止捕获收尾。
+共享档案由「不用共享的，我自己校准」停用，随包档案与「没有档案」都不出现此按钮。
+行为见 [protocol-profile-format.md](protocol-profile-format.md) §11.6。
+
+**「恢复上一份本机校准」**（`protocolRestoreButton`，同一行、同一张卡）是它的撤销：
+`calibration.retired_local_profile_available` 为真时出现，即被停用的那份档案还在磁盘上、
+且当前没有本机档案生效。它与「重新校准」互斥——一个要求有本机档案生效，另一个要求没有——
+同屏只会出现其中之一。确认框（`protocolRestoreDialog`）标题「恢复上一份本机校准？」，
+正文「软件会停用现在这份校准，换回你上次停用的那一份本机校准，并立刻用它记录。之前的记录不受影响。」，
+按钮 **取消** 与 **恢复**（`protocolRestoreConfirm`），确认后发送
+`DiscardCalibration` 并带上 `restore_local_profile = true`，随即重读一次捕获状态。
+副本进行中时同样禁用，并复用「重新校准」那一行灰字。
+停用之后校准卡片会重新出现，若不把这条退路算进协议档案卡的可见条件，整张卡会被隐藏、
+按钮也就不可达，因此 `profileCardVisible` 把它一并计入。
+采集服务拒绝时（没有可恢复的、同名档案已存在、恢复后无法通过校验），它给的中文句子
+原样显示在卡片的 `protocolCalibrationError` 一行——此时校准卡片未必在场，这是唯一的说明位置。
+
+* 「立即检查」只在本机仍处于校准（`WAITING` / `OBSERVING`）、
+  且没有共享档案正在记录时出现。「导入校准码」条件相同，但**包括**征求同意（`AWAITING_CONSENT`）
+  这一状态：采集服务从未在该阶段拒绝导入，此前只是卡片把按钮藏了起来，
+  于是「同意这份按排本推断的校准」与「这个版本不再用共享校准」成了仅有的两个答案，
+  手里拿着更好的校准码的玩家反而无从导入。该状态下按钮由橙框内的
+  `sharedConsentImportButton` 承担，`sharedImportButton` 让位，同屏不出现两个同名按钮。`last_refusal`、候选的 `sha12`、`criteria` 与 `last_index_attempts`
   都不显示在卡片上，它们属于脱敏诊断报告的内容。
 * **共享档案正在记录**：在共享档案完整记录一次进出副本之前，采集服务保持校准布防，
   `calibration.state` 仍为 `OBSERVING`。此时卡片小标题改为「共享校准」，
@@ -836,6 +870,8 @@ MockBackend 回 `{passed: true, detail: "ok", checked_at_utc: 现在}`。
 已确认版本 3 的用户不会因此被再次拦截。
 更新检查并入第 5 条时**再次**提升了版本号：它默认开启，且没有单独的确认框，
 因此每一位既有用户在升级之后都会再看到一次该页。
+「联网一」写明在用的共享校准或按排本推断的校准会被再次核对时，版本号提升至 5：
+此前的文案写的是「已经有可用档案时不会联网」，与新的行为不符（§8.2）。
 
 必须先打开「我已阅读并理解」开关，「我已了解」按钮才可用。
 确认结果写入 `AppSettings` 的 `ui/disclosure_acknowledged_version` 与 `ui/disclosure_acknowledged_at`。

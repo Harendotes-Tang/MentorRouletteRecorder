@@ -101,6 +101,7 @@ void SharedCalibrationController::refreshFromCaptureStatus(const QVariantMap &ca
     const QString state = calibration.value(QStringLiteral("state")).toString();
     next.calibrationState = state.isEmpty() ? QStringLiteral("IDLE") : state;
     next.profileOrigin = capture.value(QStringLiteral("profile_origin")).toString();
+    next.profileStatus = capture.value(QStringLiteral("profile_status")).toString();
 
     if (next == m_inputs)
         return;
@@ -117,6 +118,13 @@ bool SharedCalibrationController::calibrating() const
 bool SharedCalibrationController::inUse() const
 {
     return m_inputs.profileOrigin == QLatin1String("SHARED_CALIBRATION");
+}
+
+bool SharedCalibrationController::recordingAlready() const
+{
+    // Keyed on the profile status, like the banner and the chain panel: whatever wrote the profile in
+    // force, a VERIFIED one records, and a candidate being checked underneath it would only replace it.
+    return m_inputs.profileStatus == QLatin1String("VERIFIED");
 }
 
 QString SharedCalibrationController::view() const
@@ -154,6 +162,14 @@ QString SharedCalibrationController::headline() const
     if (current == QLatin1String("fetching"))
         return tr("正在获取其他玩家的共享校准，本机校准照常进行。");
     if (current == QLatin1String("verifying")) {
+        // Something records already - this machine's own queue-inferred calibration, or a shared one -
+        // and the candidate would replace it rather than start recording. Since 1.4.0 the index is read
+        // in exactly that situation, so the promise below would be false here.
+        if (recordingAlready()) {
+            return m_inputs.provenance == QLatin1String("imported")
+                ? tr("已导入校准码，正在本机核实；当前记录照常生成。")
+                : tr("找到更准的共享校准，正在本机核实；当前记录照常生成。");
+        }
         // §18.3: a code an index lists binds at the login burst, so it is a matter of
         // logging in; a pasted code no index knows waits for one queue and one duty as
         // well. Without a provenance (an older Collector) neither promise can be made,
@@ -189,8 +205,11 @@ QString SharedCalibrationController::headline() const
 QString SharedCalibrationController::detail() const
 {
     const QString current = view();
-    if (current == QLatin1String("verifying"))
+    if (current == QLatin1String("verifying")) {
+        if (recordingAlready())
+            return tr("现在的记录不受影响；核实通过后会自动换用更准的那一份，之前生成的记录不会改动。");
         return tr("核实通过才会开始记录，期间照常游戏即可；对不上就继续本机校准，已经攒下的进度不受影响。");
+    }
     if (current == QLatin1String("verified")) {
         // Grey, not orange: nothing is wrong, and the player has nothing to do about it.
         return m_inputs.auditPending
@@ -224,8 +243,13 @@ bool SharedCalibrationController::canCheck() const
 
 bool SharedCalibrationController::canImport() const
 {
-    return m_inputs.available && calibrating() && !m_inputs.userRejected && !inUse()
-        && view() != QLatin1String("consent");
+    // The consent view is where importing matters most, not least. A downloaded
+    // queue-inferred code that passed verification parks the card there, and the two
+    // answers on offer are "bind this weaker code" and "refuse every shared code until
+    // 重新观察" - after which the same code is downloaded again. A player holding a
+    // friend's better code had no way in at all. The Collector never refused an import
+    // in this phase (SharedCalibrationSession.Import); only this card did.
+    return m_inputs.available && calibrating() && !m_inputs.userRejected && !inUse();
 }
 
 bool SharedCalibrationController::canReject() const
@@ -247,8 +271,12 @@ bool SharedCalibrationController::canShare() const
 
 QString SharedCalibrationController::consentText()
 {
+    // The last sentence is the third answer. Without it the box reads as a choice between
+    // accepting this code and giving up on shared calibration for the build, which is what
+    // left a player with a better code in hand stuck between the two.
     return tr("这份校准没有认出服务器发出的「匹配成功」报文，所以会%1：记录里的匹配时间是你申请排本的时间，"
-              "取消排队不会留下记录。本机校准遇到同样的情况也是这样记录的。同意一次，这个游戏版本就不再问。")
+              "取消排队不会留下记录。本机校准遇到同样的情况也是这样记录的。同意一次，这个游戏版本就不再问。"
+              "手上有其他玩家发来的校准码的话，也可以先点「导入校准码」。")
         .arg(CalibrationController::queueInferenceText());
 }
 

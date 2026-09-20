@@ -95,7 +95,9 @@ ColumnLayout {
                 wrapMode: Text.WordWrap
             }
 
-            RowLayout {
+            // 两个答案并排：同意这份按排本推断的校准，或者先导入手上更好的校准码。
+            // 用 Flow 而非 RowLayout，卡片窄时换行而不是把按钮挤出卡片。
+            Flow {
                 Layout.fillWidth: true
                 spacing: 8
 
@@ -107,7 +109,13 @@ ColumnLayout {
                     onClicked: section.shared.acceptQueueInference()
                 }
 
-                Item { Layout.fillWidth: true }
+                AppButton {
+                    objectName: "sharedConsentImportButton"
+                    visible: !!section.shared && section.shared.canImport
+                    text: qsTr("导入校准码")
+                    enabled: !!section.shared && !section.shared.busy
+                    onClicked: importDialog.openDialog()
+                }
             }
         }
     }
@@ -150,7 +158,8 @@ ColumnLayout {
 
         AppButton {
             objectName: "sharedImportButton"
-            visible: !!section.shared && section.shared.canImport
+            // 征求同意时由同意框里的那个按钮承担，避免同屏出现两个一样的按钮。
+            visible: !!section.shared && section.shared.canImport && section.view !== "consent"
             text: qsTr("导入校准码")
             enabled: !!section.shared && !section.shared.busy
             onClicked: importDialog.openDialog()

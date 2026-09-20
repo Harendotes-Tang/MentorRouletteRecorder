@@ -45,6 +45,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 . (Join-Path $PSScriptRoot 'package-runtime.ps1')
+. (Join-Path $PSScriptRoot 'package-version.ps1')
 
 try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false } catch { }
 
@@ -68,14 +69,17 @@ $OutputRoot = if ([System.IO.Path]::IsPathRooted($OutputDir)) { $OutputDir } els
 # Collector assembly from it, the root CMakeLists.txt reads it for the Desktop VERSIONINFO
 # resource and the --version compile definition, and the staging directory, the zip,
 # BUILD-METADATA.json and ISCC's /DAppVersion are all derived from it.
+#
+# Two shapes come out of it and both are used below. $Version is the full string a person
+# reads and may carry a prerelease suffix (1.4.0-beta.1); $VersionNumeric is the three
+# numbers alone, which is all a Windows version resource can hold. Read-ProductVersion and
+# the comparison helpers live in package-version.ps1 so they can be self-tested
+# (tools/package-verification/test_package_version.py).
 $PropsPath = Join-Path $RepoRoot 'Directory.Build.props'
-$Version = ([xml](Get-Content -LiteralPath $PropsPath -Raw)).Project.PropertyGroup |
-    ForEach-Object { $_.Version } | Where-Object { $_ } | Select-Object -First 1
-if (-not $Version) { throw '无法从 Directory.Build.props 读取 <Version>' }
-$Version = $Version.Trim()
-if ($Version -notmatch '^\d+\.\d+\.\d+$') {
-    throw ("Directory.Build.props 的 <Version> 不是 x.y.z: {0}" -f $Version)
-}
+$ProductVersion = Read-ProductVersion -PropsPath $PropsPath
+$Version = $ProductVersion.Full
+$VersionNumeric = $ProductVersion.Prefix
+$IsPrerelease = $ProductVersion.Prerelease
 
 # The artifact name carries the version so that a stale tree from an older version cannot
 # survive a repackage run without -Force and be shipped as the new release.
@@ -423,57 +427,56 @@ function Assert-NoLocalPathLeak([string]$TargetDir) {
     Write-Host ("  产物中不含本机源码路径（{0}）。" -f $needleRoot) -ForegroundColor Green
 }
 
-function Get-NormalizedVersion([string]$Value) {
-    # FileVersion resources are four-part ("0.2.2.0"); Directory.Build.props is three-part.
-    # Compare on major.minor.patch so the two shapes are commensurable.
-    if (-not $Value) { return $null }
-    $match = [regex]::Match($Value.Trim(), '^\s*(\d+)\.(\d+)\.(\d+)')
-    if (-not $match.Success) { return $null }
-    return ('{0}.{1}.{2}' -f $match.Groups[1].Value, $match.Groups[2].Value, $match.Groups[3].Value)
-}
-
-function Get-TopChangelogVersion([string]$Path) {
-    if (-not (Test-Path -LiteralPath $Path)) { return $null }
-    foreach ($line in Get-Content -LiteralPath $Path -Encoding UTF8) {
-        $match = [regex]::Match($line, '^##\s*\[(\d+\.\d+\.\d+)\]')
-        if ($match.Success) { return $match.Groups[1].Value }
-    }
-    return $null
-}
-
 function Assert-StagedVersion([string]$TargetDir) {
-    # Every place a version can be read off this release - both VERSIONINFO resources,
-    # BUILD-METADATA.json and the top CHANGELOG section - must agree with
-    # Directory.Build.props.
-    $expected = Get-NormalizedVersion $Version
+    # Every place a version can be read off this release must agree with
+    # Directory.Build.props, in the shape that place is able to carry:
+    #
+    #   FileVersion      a Win32 VERSIONINFO resource: four numbers, no suffix. Compared
+    #                    against the numeric part.
+    #   ProductVersion   a string field (the Collector's comes from InformationalVersion,
+    #                    the Desktop's from app.rc.in). Compared against the full version,
+    #                    so a test build that lost its -beta.N on the way into a binary is
+    #                    caught here rather than by a user who cannot tell the two apart.
+    #   BUILD-METADATA   the full version, plus `prerelease` saying what that shape means.
+    #   CHANGELOG.md     [Unreleased] while this is a prerelease, "## [x.y.z]" for a release.
     $observed = [ordered]@{}
+    $mismatched = @()
 
     foreach ($exe in 'MentorRecorder.Collector.exe', 'MentorRecorder.Desktop.exe') {
         $path = Join-Path $TargetDir $exe
         Assert-File $path '缺少可执行文件'
-        $observed[$exe] = Get-NormalizedVersion (Get-Item -LiteralPath $path).VersionInfo.FileVersion
+        $info = (Get-Item -LiteralPath $path).VersionInfo
+        $observed["$exe (FileVersion)"] = @((Get-NormalizedVersion $info.FileVersion), $VersionNumeric)
+        $observed["$exe (ProductVersion)"] = @((Get-FullVersion $info.ProductVersion), $Version)
     }
 
     $metadataPath = Join-Path $TargetDir 'BUILD-METADATA.json'
     Assert-File $metadataPath '缺少 BUILD-METADATA.json'
-    $observed['BUILD-METADATA.json'] =
-        Get-NormalizedVersion ((Get-Content -LiteralPath $metadataPath -Raw -Encoding UTF8) | ConvertFrom-Json).version
+    $metadata = (Get-Content -LiteralPath $metadataPath -Raw -Encoding UTF8) | ConvertFrom-Json
+    $observed['BUILD-METADATA.json'] = @((Get-FullVersion $metadata.version), $Version)
+    $observed['BUILD-METADATA.json (prerelease)'] =
+        @([string][bool]$metadata.prerelease, [string]$IsPrerelease)
 
-    $observed['CHANGELOG.md'] = Get-NormalizedVersion (Get-TopChangelogVersion $ChangelogPath)
-
-    $mismatched = @()
     foreach ($key in $observed.Keys) {
-        $value = $observed[$key]
-        Write-Host ("  {0,-28} {1}" -f $key, $(if ($value) { $value } else { '(读不到 / unreadable)' }))
-        if ($value -ne $expected) { $mismatched += $key }
+        $value = $observed[$key][0]
+        $expected = $observed[$key][1]
+        Write-Host ("  {0,-44} {1}" -f $key, $(if ($value) { $value } else { '(读不到 / unreadable)' }))
+        if ($value -ne $expected) { $mismatched += ("{0}（应为 {1}）" -f $key, $expected) }
     }
+
+    # The CHANGELOG rule is not an equality, so it is reported on its own line.
+    $heading = Get-TopChangelogHeading $ChangelogPath
+    Write-Host ("  {0,-44} {1}" -f 'CHANGELOG.md', $(if ($heading) { "[$heading]" } else { '(读不到 / unreadable)' }))
+    $refusal = Get-ChangelogTopRefusal -Heading $heading -Version $Version
+    if ($refusal) { $mismatched += $refusal }
 
     if ($mismatched.Count -gt 0) {
-        throw ("版本不一致：Directory.Build.props 是 {0}，但以下不是:`n{1}" -f
-            $expected, ($mismatched -join [Environment]::NewLine))
+        throw ("版本不一致：Directory.Build.props 是 {0}，但:`n{1}" -f
+            $Version, (($mismatched | ForEach-Object { '  - ' + $_ }) -join [Environment]::NewLine))
     }
 
-    Write-Host ("  全部与 Directory.Build.props 一致（{0}）。" -f $expected) -ForegroundColor Green
+    Write-Host ("  全部与 Directory.Build.props 一致（{0}{1}）。" -f
+        $Version, $(if ($IsPrerelease) { '，先行版' } else { '' })) -ForegroundColor Green
 }
 
 function Get-ChangelogSection([string]$Text, [string]$Version) {
@@ -517,6 +520,8 @@ function Assert-ReleasedChangelogSectionsUnchanged {
     try {
     [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false
     foreach ($tag in $tags) {
+        # Release tags only. A vX.Y.Z-beta.N tag marks a test build, whose entries are still
+        # under [Unreleased] and are expected to keep changing until the release is cut.
         if ($tag -notmatch '^v(\d+\.\d+\.\d+)$') { continue }
         $version = $Matches[1]
         $current = Get-ChangelogSection $working $version
@@ -745,6 +750,12 @@ if ($sourceDirty) {
 if ($SkipVerify) {
     $distributionBlockers += '按 -SkipVerify 跳过了验证关卡'
 }
+if ($IsPrerelease) {
+    # A beta is a test build by definition: the number says the work is not released yet,
+    # so the artifact must never be offered as one. Packaging still succeeds - producing
+    # the test build is the whole point - but the claim is false and says why.
+    $distributionBlockers += ("版本 {0} 是先行版（测试包），按定义不作为正式发布分发" -f $Version)
+}
 $publicDistributionReady = $distributionBlockers.Count -eq 0
 
 Write-Host ("  live_capture_status              = {0}  (打包二进制中的编译期常量)" -f $liveCaptureStatus)
@@ -757,6 +768,9 @@ foreach ($blocker in $distributionBlockers) {
 [ordered]@{
     product = 'MentorRecorder'
     version = $Version
+    # True when `version` carries a prerelease suffix (1.4.0-beta.1): a test build, never
+    # published as "latest". A reader that cannot parse the suffix can read this instead.
+    prerelease = $IsPrerelease
     configuration = $Configuration
     runtime = 'win-x64'
     framework_dependent = $false
@@ -895,7 +909,7 @@ if ($Verify) {
         # Directory.Build.props) is still needed by the installer step below.
         $versionBanner = Invoke-Unpacked $collector @('--version') @(0) 'collector-version'
         $bannerMatch = [regex]::Match($versionBanner.Trim(),
-            '^MentorRecorder\.Collector (\d+\.\d+\.\d+) \(ipc v\d+\)$')
+            '^MentorRecorder\.Collector (\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?) \(ipc v\d+\)$')
         if (-not $bannerMatch.Success -or $bannerMatch.Groups[1].Value -ne $Version) {
             throw ("--version 横幅与 Directory.Build.props 的 {0} 不一致: {1}" -f $Version, $versionBanner.Trim())
         }
@@ -1007,7 +1021,11 @@ if (-not $NoInstaller) {
     } else {
         Assert-File $InstallerScript '缺少安装器脚本'
         if (Test-Path -LiteralPath $InstallerPath) { Remove-IfExists $InstallerPath }
-        $isccArgs = @('/Q', ("/DAppVersion={0}" -f $Version), ("/DStageDir={0}" -f $StageDir), ("/DOutputDir={0}" -f $OutputRoot), $InstallerScript)
+        # Two defines, because the two cannot be the same on a prerelease: AppVersion is what
+        # the user sees in "Apps & features" and in the wizard, AppVersionNumeric is the
+        # setup executable's own VERSIONINFO resource, which only holds numbers.
+        $isccArgs = @('/Q', ("/DAppVersion={0}" -f $Version), ("/DAppVersionNumeric={0}" -f $VersionNumeric),
+            ("/DStageDir={0}" -f $StageDir), ("/DOutputDir={0}" -f $OutputRoot), $InstallerScript)
         Write-Host ("  ISCC {0}" -f ($isccArgs -join ' '))
         & $Iscc @isccArgs
         if ($LASTEXITCODE -ne 0) {
@@ -1026,8 +1044,15 @@ Write-Host ("发布目录: {0}" -f $StageDir) -ForegroundColor Green
 Write-Host ("ZIP: {0}" -f $ZipPath) -ForegroundColor Green
 Write-Host ("ZIP SHA256: {0}" -f $ZipHashPath) -ForegroundColor Green
 if ($Iscc -and -not $NoInstaller) { Write-Host ("安装器: {0}" -f $InstallerPath) -ForegroundColor Green }
+Write-Host ("VERSION                   = {0}{1}" -f
+    $Version, $(if ($IsPrerelease) { '  (先行版 / prerelease)' } else { '' })) -ForegroundColor Green
 Write-Host ("PUBLIC_DISTRIBUTION_READY = {0}" -f $publicDistributionReady.ToString().ToLowerInvariant()) `
     -ForegroundColor $(if ($publicDistributionReady) { 'Green' } else { 'Yellow' })
+# Repeated at the end, not only where it was computed: this is the line a maintainer reads
+# after a long packaging run, and "false" without its reason invites guessing.
+foreach ($blocker in $distributionBlockers) {
+    Write-Host ("    - {0}" -f $blocker) -ForegroundColor Yellow
+}
 Write-Host ("LIVE_CAPTURE_STATUS       = {0}" -f $liveCaptureStatus) -ForegroundColor Green
 Write-Host ("PACKAGED_PROFILE_STATUS   = {0}" -f $packagedProfileStatus) -ForegroundColor Green
 

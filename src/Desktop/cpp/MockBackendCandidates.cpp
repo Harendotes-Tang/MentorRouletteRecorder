@@ -302,6 +302,8 @@ QJsonObject MockBackend::calibrationStatus() const
                          {QStringLiteral("blockers"), QJsonArray()},
                          {QStringLiteral("progress"), QJsonValue::Null},
                          {QStringLiteral("events"), QJsonArray()}};
+        idle.insert(QStringLiteral("retired_local_profile_available"),
+                    m_retiredLocalProfileAvailable);
         if (!m_sharedState.isEmpty())
             idle.insert(QStringLiteral("shared"), sharedCalibrationStatus());
         return idle;
@@ -393,6 +395,8 @@ QJsonObject MockBackend::calibrationStatus() const
     calibration.insert(QStringLiteral("blockers"), blockers);
     calibration.insert(QStringLiteral("progress"), progress);
     calibration.insert(QStringLiteral("events"), events);
+    calibration.insert(QStringLiteral("retired_local_profile_available"),
+                       m_retiredLocalProfileAvailable);
     if (!m_sharedState.isEmpty())
         calibration.insert(QStringLiteral("shared"), sharedCalibrationStatus());
     return calibration;
