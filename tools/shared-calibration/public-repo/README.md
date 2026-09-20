@@ -94,7 +94,7 @@ jsDelivr 最多约 12 小时。jsDelivr 的缓存无法自助清除，因此 Act
 
 ## 数据与隐私
 
-- `submissions.json` 记录提交账号的 GitHub 数字编号，仅用于执行「每个账号每个版本一份」的规则；该编号在对应的 Issue 上本就是公开的。
+- `submissions.json` 记录提交账号的 GitHub 数字编号，以及该账号此前被替换掉的校准码的校验值，仅用于执行「每个账号每个版本同时只保留一份有效校准码」的规则；该编号在对应的 Issue 上本就是公开的。
   该文件不会被软件下载，`index.json` 中不含任何账号信息。
 - Action 只使用 GitHub 提供的默认 `GITHUB_TOKEN`，不需要任何其他密钥。
 
