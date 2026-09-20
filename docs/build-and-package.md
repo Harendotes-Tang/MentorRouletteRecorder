@@ -42,29 +42,62 @@ dotnet test  MentorRecorder.sln -c Release
 
 ### 版本号的唯一来源 / One source of truth for the version
 
-`Directory.Build.props` 的 `<Version>` 是**唯一**可以手写版本号的位置。其余五处全部由它派生，不得出现第二个字面量：
+`Directory.Build.props` 中的两行是**唯一**可以手写版本号的位置：
 
-| 位置 | 版本来源 |
-|---|---|
-| Collector 程序集（`FileVersion` / `AssemblyVersion`） | MSBuild 直接使用 `<Version>` |
-| 根 `CMakeLists.txt` 的 `project(... VERSION ...)` | `file(STRINGS)` 读 `Directory.Build.props` |
-| Desktop 的 Windows 版本资源（资源管理器“详细信息”） | `src/Desktop/resources/app/app.rc.in` → `configure_file` → `build/src/Desktop/app.rc` |
-| `MentorRecorder.Desktop.exe --version` | 编译定义 `MR_APP_VERSION`（`src/Desktop/CMakeLists.txt`） |
-| `BUILD-METADATA.json`、产物目录 / zip 名、安装器 `/DAppVersion` | `scripts/package.ps1` 读 `Directory.Build.props` |
+| 属性 | 含义 | 取值 |
+|---|---|---|
+| `VersionPrefix` | 发布号，始终是三段纯数字 | 如 `1.4.0` |
+| `VersionSuffix` | 先行版标签；正式版留空 | 如 `beta.1` |
 
-`scripts/package.ps1` 在装配完成后核对四处版本号：Collector 与 Desktop 两个可执行文件的
-`FileVersion`、`BUILD-METADATA.json` 的 `version`、`CHANGELOG.md` 最上方的 `## [x.y.z]`。
-任一处不一致即判定打包失败。该断言的由来是 0.2.2：当时 `app.rc` 中保留了独立的版本字面量，
-导致桌面端在资源管理器中显示为 0.2.1。
+二者合成本次构建的完整版本号：留空时为 `1.4.0`，填写时为 `1.4.0-beta.1`。
+交给使用者试用的测试包必须带后缀，正式发布时才把后缀清空，
+以免一个发布号被一个并未发布的构建占用（详见
+[release-checklist.md](release-checklist.md) 第 9 节）。
+
+其余各处全部由这两行派生，不得出现第二个字面量。注意哪些位置只能容纳数字：
+Windows 版本资源的 `FILEVERSION` / `PRODUCTVERSION` 是四段数字，放不下任何后缀。
+
+| 位置 | 形状 | 版本来源 |
+|---|---|---|
+| Collector 程序集的 `AssemblyVersion` / `FileVersion` | 纯数字 | MSBuild 使用 `$(VersionPrefix).0` |
+| Collector 程序集的 `InformationalVersion`（即资源中的 `ProductVersion`）、`--version` 横幅 | 完整 | MSBuild 使用 `$(Version)` |
+| 根 `CMakeLists.txt` 的 `project(... VERSION ...)` | 纯数字 | `file(STRINGS)` 读 `VersionPrefix` |
+| Desktop 版本资源的数字字段与 `FileVersion` 字符串 | 纯数字 | `app.rc.in` 中的 `@MR_VERSION@` |
+| Desktop 版本资源的 `ProductVersion` 字符串 | 完整 | `app.rc.in` 中的 `@MR_VERSION_FULL@` |
+| 标题栏与「关于」页显示的版本、`MentorRecorder.Desktop.exe --version` | 完整 | 编译定义 `MR_APP_VERSION`（取 `MR_VERSION_FULL`） |
+| `BUILD-METADATA.json` 的 `version`、产物目录 / zip / 安装器文件名、`ISCC /DAppVersion` | 完整 | `scripts/package.ps1` 读 `Directory.Build.props` |
+| 安装器自身版本资源 `ISCC /DAppVersionNumeric` | 纯数字 | 同上，取 `VersionPrefix` |
+
+根 `CMakeLists.txt` 与桌面端的版本测试用**逐行正则**读这两个属性，取第一条匹配的行，
+因此 `Directory.Build.props` 的注释里不得再出现带尖括号的这两个元素名——被注释掉的示例
+会悄悄成为实际编译进桌面端的版本号。
+
+`scripts/package.ps1` 在装配完成后核对每一处版本号，并按上表区分形状：两个可执行文件的
+`FileVersion` 与数字部分比较，`ProductVersion` 与完整版本号比较，`BUILD-METADATA.json` 的
+`version` 与完整版本号比较、`prerelease` 与是否带后缀比较，`CHANGELOG.md` 最上方的段落按下述
+规则核对。任一处不一致即判定打包失败。该断言的由来是 0.2.2：当时 `app.rc` 中保留了独立的
+版本字面量，导致桌面端在资源管理器中显示为 0.2.1。
+
+**CHANGELOG 顶部段落**：当前版本是先行版时，最上方必须是 `## [Unreleased]`——测试包是从尚未
+发布的工作中切出来的，它携带的条目仍属于未发布内容；当前版本是正式版时，最上方必须是
+`## [x.y.z]` 且与版本号一致。
 
 **发布规则**：已经打过 tag 的 CHANGELOG 段落不得再修改。同一步中的
 `Assert-ReleasedChangelogSectionsUnchanged` 会针对每个 `vX.Y.Z` tag，将工作区
 `CHANGELOG.md` 中的 `## [X.Y.Z]` 段落与 `git show <tag>:CHANGELOG.md` 中的同名段落逐字
 比较，不一致则打包失败；找不到 git 或当前目录不是仓库时跳过该检查并给出提示。已发布段落
-记录的是对应 tag 中的内容，tag 之后的改动一律写入 `[Unreleased]` 或下一个版本。该关卡的
-由来见 `reviews/2026-09-08/fix-status.md`（内部工作文档，不随仓库分发）的 H-9。
+记录的是对应 tag 中的内容，tag 之后的改动一律写入 `[Unreleased]` 或下一个版本。
+`vX.Y.Z-beta.N` 形式的先行版 tag 不参与该比较：它标记的是测试包，其条目还在 `[Unreleased]`
+中，本来就会继续改动。该关卡的由来见 `reviews/2026-09-08/fix-status.md`
+（内部工作文档，不随仓库分发）的 H-9。
 
-`installer/MentorRecorder.iss` 未提供版本号的默认值。手工调用必须写明 `ISCC.exe /DAppVersion=<version> installer\MentorRecorder.iss`，否则预处理器报错。
+上述纯函数（读取版本号、归一化两种形状、判定 CHANGELOG 顶部段落）位于
+`scripts/package-version.ps1`，由 `scripts/package.ps1` 点源引入，并由
+`tools/package-verification/test_package_version.py` 逐条自测；该自测由
+`scripts/run-python-tool-tests.ps1` 自动发现，`verify.ps1` 的「工具自测」关卡会运行它。
+
+`installer/MentorRecorder.iss` 未提供版本号的默认值。手工调用必须写明 `ISCC.exe /DAppVersion=<version> installer\MentorRecorder.iss`，否则预处理器报错；
+未另行指定 `/DAppVersionNumeric` 时，安装器自身的版本资源取 `AppVersion` 中第一个连字符之前的部分。
 
 `Directory.Build.targets` 中的 `StripInjectionPayloadFromOutput` 目标会将
 Machina.FFXIV 包中附带的原生注入载荷 `deucalion-*.dll` 从所有构建输出中删除
@@ -438,7 +471,8 @@ pwsh -File scripts/package.ps1 -Force -Verify   # 再解包运行一次，证明
    （在线语音只播放 WAV，只需要 Windows 多媒体后端，见 [third-party-licenses.md](third-party-licenses.md) §3）。
 4. 若 `windeployqt` 未补齐 MinGW 运行时，则显式复制 `libgcc_s_seh-1.dll`、`libstdc++-6.dll`、`libwinpthread-1.dll`。
 5. 显式补入 `platforms\qoffscreen.dll`，保证发布包中的 `--screenshot` 离屏验收入口可运行。
-6. 输出 `MentorRecorder-<version>-win-x64\`（Debug 配置为 `MentorRecorder-<version>-debug-win-x64\`）、同名 `.zip` 与 `.zip.sha256`。默认拒绝覆盖，只有显式指定 `-Force` 才替换同名产物。目录名包含版本号是有意设计：早期命名不含版本，未加 `-Force` 的重新打包会让上一个版本的目录原样留在原地。
+6. 输出 `MentorRecorder-<version>-win-x64\`（Debug 配置为 `MentorRecorder-<version>-debug-win-x64\`）、同名 `.zip` 与 `.zip.sha256`。默认拒绝覆盖，只有显式指定 `-Force` 才替换同名产物。目录名包含版本号是有意设计：早期命名不含版本，未加 `-Force` 的重新打包会让上一个版本的目录原样留在原地。`<version>` 是完整版本号，先行版因此得到 `MentorRecorder-1.4.0-beta.1-win-x64\` 与 `MentorRecorder-1.4.0-beta.1-setup.exe`，与正式版的产物不会重名。
+   先行版的 `public_distribution_ready` 恒为 `false`，`public_distribution_blockers` 中写明「版本 … 是先行版（测试包），按定义不作为正式发布分发」；打包本身照常成功，因为产出测试包正是此时的目的。
 7. synthetic profile 保留在开发与测试构建目录中，不进入发布包；发布包只安装真实区域目录中的档案与 fail-closed 占位。
 8. 对暂存目录执行三组断言：`Assert-NoForbiddenPayload`（禁止内容）、`Assert-MultimediaLayout`
    （`multimedia\` 只有 `windowsmediaplugin.dll`，任何位置都没有 FFmpeg）与 `Assert-RequiredContent`（必需文件）。

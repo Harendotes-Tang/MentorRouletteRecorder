@@ -11,6 +11,8 @@
 > python tools/static-boundary-check/check.py               # 静态硬边界
 > python tools/static-boundary-check/selftest.py            # 检查器的反向自测
 > ```
+>
+> 分支模型、测试包（`X.Y.Z-beta.N`）与正式发布各自的操作步骤见第 9 节。
 
 ## 0. 本次验收记录 / This run
 
@@ -346,3 +348,77 @@ Get-Content <解包目录>\BUILD-METADATA.json | ConvertFrom-Json |
   分辨率与三档缩放的截图路径。
 - 出现布局破裂：记录页面或对话框、缩放档位与具体现象，修改 `src/Desktop/qml/Theme.qml`
   与对应页面后重新执行本节。**在此之前，第 16 项必须保持 PARTIAL，不得标注 PASS。**
+
+## 9. 分支模型与版本号 / Branches and versions
+
+本节规定测试包与正式发布如何区分，以及各自的操作步骤。它的由来是 1.2.2、1.2.3、1.2.4 与
+1.3.0：这四个发布号都被本机测试包占用，从未单独发布，最终只能在 1.3.1 的段落中补记一句
+说明。
+
+### 9.1 两条长期分支
+
+| 分支 | 内容 | 规则 |
+|---|---|---|
+| `main` | 只包含已发布的提交 | 每个发布提交都带一个 `vX.Y.Z` tag；不在其上直接开发 |
+| `dev` | 集成分支 | 功能分支与工作区（worktree）合入此处；测试包从此处切出 |
+
+功能分支与工作区一律以 `dev` 为基线，并合回 `dev`；Pull Request 的目标分支是 `dev`
+（见 [CONTRIBUTING.md](../CONTRIBUTING.md)）。CI 对 `main` 与 `dev` 的推送、以及以二者为
+目标的 Pull Request 执行同一道 `scripts/verify.ps1` 关卡。
+
+### 9.2 测试包用先行版号
+
+交给使用者试用的构建一律是 `X.Y.Z-beta.N`，其中 `X.Y.Z` 是它将要成为的那个发布号，
+`N` 从 1 开始逐次递增。这样的构建：
+
+- 可以作为 GitHub 的**预发布**（pre-release）发布，tag 形如 `vX.Y.Z-beta.N`，打在 `dev` 上；
+- **绝不**标记为 latest。更新检查读取的是 `releases/latest/download/BUILD-METADATA.json`，
+  GitHub 的 latest 会跳过预发布，正式版用户因此不会被引向测试包；
+- `BUILD-METADATA.json` 中 `version` 为完整版本号、`prerelease` 为 `true`，
+  `public_distribution_ready` 恒为 `false`（第 7 节）。
+
+更新检查的判定规则：`X.Y.Z-beta.N` 比 `X.Y.Z` 旧，比任何更低的发布号新；
+`beta.10` 比 `beta.9` 新（按数字比较，不按文本）。因此运行 `1.4.0-beta.2` 的机器会被告知
+`1.4.0` 可用，而不会被 `1.3.9` 打扰；运行正式版的机器在任何情况下都不会被引向先行版。
+
+### 9.3 切一个测试包
+
+```powershell
+git switch dev                                    # 测试包只从 dev 切出
+# Directory.Build.props: VersionPrefix = 1.4.0, VersionSuffix = beta.1
+git commit -am "chore(release): 1.4.0-beta.1"
+pwsh -NoProfile -File scripts/verify.ps1
+pwsh -NoProfile -File scripts/package.ps1 -Force -Verify
+git tag v1.4.0-beta.1                             # 可选：仅当需要作为预发布分发时
+```
+
+`CHANGELOG.md` 此时最上方必须仍是 `## [Unreleased]`：测试包携带的条目尚未发布。
+打包脚本会核对这一点。下一个测试包把 `VersionSuffix` 改为 `beta.2`，依此类推。
+
+### 9.4 切一个正式发布
+
+```powershell
+git switch dev
+# Directory.Build.props: VersionSuffix 清空（VersionPrefix 保持 1.4.0）
+# CHANGELOG.md: 把 [Unreleased] 改写为 [1.4.0] - 2026-09-20，并在其上新建空的 [Unreleased]
+git commit -am "chore(release): 1.4.0"
+pwsh -NoProfile -File scripts/verify.ps1          # 不带 -SkipGate / -TestFilter 的完整运行
+pwsh -NoProfile -File scripts/package.ps1 -Force -Verify
+git switch main
+git merge --ff-only dev                           # 快进合并
+git tag v1.4.0
+```
+
+合并方式固定为**快进**（`--ff-only`）：这样 `main` 上的每一个提交都与 CI 在 `dev` 上逐一
+验证过的提交完全相同，不会引入任何从未被验证过的合并树。快进失败即说明 `main` 上有 `dev`
+没有的提交，应当先查清，而不是改用合并提交掩盖。
+
+发布页需附带五个资产（见第 2 节「发布页必须附带」与打包输出）：
+
+1. `MentorRecorder-1.4.0-win-x64.zip`
+2. `MentorRecorder-1.4.0-win-x64.zip.sha256`
+3. `MentorRecorder-1.4.0-setup.exe`
+4. `MentorRecorder-1.4.0-setup.exe.sha256`
+5. `BUILD-METADATA.json`（独立资产，更新检查读取的就是它）
+
+正式发布不得勾选 pre-release；测试包必须勾选。
