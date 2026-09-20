@@ -206,6 +206,24 @@ private Q_SLOTS:
         QCOMPARE(changes.value(QStringLiteral("note")).toString(), QStringLiteral("ok"));
     }
 
+    void aCorrectionIsRefusedOnceTheSelectionIsNoLongerTheRunTheDialogShowed()
+    {
+        ControlledBackend backend;
+        mr::HistoryController history(&backend);
+        history.selectRun(run(QStringLiteral("B")));
+        QSignalSpy failed(&history, &mr::HistoryController::mutationFailed);
+        history.correctSelectedRun({{QStringLiteral("job_id"), 34}}, QStringLiteral("reason"),
+                                   QStringLiteral("A"));
+        QCOMPARE(backend.count(QStringLiteral("CorrectRun")), 0);
+        QCOMPARE(failed.count(), 1);
+        QCOMPARE(failed.first().first().toString(), QStringLiteral("ERR_SELECTION_CHANGED"));
+
+        history.correctSelectedRun({{QStringLiteral("job_id"), 34}}, QStringLiteral("reason"),
+                                   QStringLiteral("B"));
+        QCOMPARE(backend.last(QStringLiteral("CorrectRun")).payload.value(QStringLiteral("run_id")).toString(),
+                 QStringLiteral("B"));
+    }
+
     void pendingReviewFallbackAndSingleConflictRetry()
     {
         ControlledBackend backend;

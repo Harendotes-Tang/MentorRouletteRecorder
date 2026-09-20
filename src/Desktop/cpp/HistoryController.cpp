@@ -311,10 +311,16 @@ void HistoryController::createManualRun(const QVariantMap &fields, const QString
         });
 }
 
-void HistoryController::correctSelectedRun(const QVariantMap &changes, const QString &reason)
+void HistoryController::correctSelectedRun(const QVariantMap &changes, const QString &reason,
+                                           const QString &runId)
 {
     if (!m_backend || m_selectedRun.isEmpty())
         return;
+    if (!runId.isEmpty() && runId != m_selectedRun.value(QStringLiteral("run_id")).toString()) {
+        Q_EMIT mutationFailed(QStringLiteral("ERR_SELECTION_CHANGED"),
+                              QString::fromUtf8("选中的记录已经变了，未保存任何修改。请关闭后重新打开要修正的记录。"));
+        return;
+    }
     if (reason.trimmed().isEmpty()) {
         Q_EMIT mutationFailed(QStringLiteral("ERR_REASON_REQUIRED"),
                               QString::fromUtf8("必须填写修正原因。"));

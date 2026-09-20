@@ -465,7 +465,8 @@ public Q_SLOTS:
     void showPendingReview();
 
     void createManualRun(const QVariantMap &fields, const QString &reason);
-    void correctSelectedRun(const QVariantMap &changes, const QString &reason);
+    void correctSelectedRun(const QVariantMap &changes, const QString &reason,
+                            const QString &runId = QString());
     void softDeleteSelectedRun(const QString &reason);
     void restoreSelectedRun(const QString &reason);
     /// Undo the newest revision of the selected run through UndoRevision.

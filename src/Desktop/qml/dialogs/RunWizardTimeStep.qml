@@ -29,9 +29,15 @@ ColumnLayout {
             FieldLabel { text: qsTr("日期") }
             // The calendar behind the icon, or a typed yyyy-MM-dd (DateField).
             DateField {
+                id: matchedDateField
                 objectName: "matchedDateField"
                 Layout.fillWidth: true
-                text: step.wizard.matchedDate
+                Binding {
+                    target: matchedDateField
+                    property: "text"
+                    value: step.wizard.matchedDate
+                    restoreMode: Binding.RestoreNone
+                }
                 color: RunForm.isValidDate(text) ? Theme.textPrimary : Theme.red
                 onTextChanged: step.wizard.setMatchedDate(text)
             }
@@ -48,9 +54,15 @@ ColumnLayout {
             }
             // Digits typed as 2130 become 21:30; the clock icon opens the wheels (TimeField).
             TimeField {
+                id: matchedTimeField
                 objectName: "matchedTimeField"
                 Layout.fillWidth: true
-                text: step.wizard.matchedTime
+                Binding {
+                    target: matchedTimeField
+                    property: "text"
+                    value: step.wizard.matchedTime
+                    restoreMode: Binding.RestoreNone
+                }
                 onTextChanged: step.wizard.matchedTime = text
             }
         }
@@ -61,9 +73,15 @@ ColumnLayout {
             spacing: 4
             FieldLabel { text: qsTr("进本时间") }
             TimeField {
+                id: enteredTimeField
                 objectName: "enteredTimeField"
                 Layout.fillWidth: true
-                text: step.wizard.enteredTime
+                Binding {
+                    target: enteredTimeField
+                    property: "text"
+                    value: step.wizard.enteredTime
+                    restoreMode: Binding.RestoreNone
+                }
                 onTextChanged: step.wizard.enteredTime = text
             }
         }
@@ -74,9 +92,15 @@ ColumnLayout {
             spacing: 4
             FieldLabel { text: qsTr("结束时间") }
             TimeField {
+                id: endedTimeField
                 objectName: "endedTimeField"
                 Layout.fillWidth: true
-                text: step.wizard.endedTime
+                Binding {
+                    target: endedTimeField
+                    property: "text"
+                    value: step.wizard.endedTime
+                    restoreMode: Binding.RestoreNone
+                }
                 onTextChanged: step.wizard.endedTime = text
             }
         }
@@ -100,9 +124,15 @@ ColumnLayout {
             spacing: 4
             FieldLabel { text: qsTr("进本日期") }
             DateField {
+                id: enteredDateField
                 objectName: "enteredDateField"
                 Layout.fillWidth: true
-                text: step.wizard.enteredDate
+                Binding {
+                    target: enteredDateField
+                    property: "text"
+                    value: step.wizard.enteredDate
+                    restoreMode: Binding.RestoreNone
+                }
                 color: !step.wizard.enteredTime.trim() || RunForm.isValidDate(text)
                        ? Theme.textPrimary : Theme.red
                 onTextChanged: step.wizard.enteredDate = text
@@ -116,9 +146,15 @@ ColumnLayout {
             spacing: 4
             FieldLabel { text: qsTr("结束日期") }
             DateField {
+                id: endedDateField
                 objectName: "endedDateField"
                 Layout.fillWidth: true
-                text: step.wizard.endedDate
+                Binding {
+                    target: endedDateField
+                    property: "text"
+                    value: step.wizard.endedDate
+                    restoreMode: Binding.RestoreNone
+                }
                 color: !step.wizard.endedTime.trim() || RunForm.isValidDate(text)
                        ? Theme.textPrimary : Theme.red
                 onTextChanged: step.wizard.endedDate = text

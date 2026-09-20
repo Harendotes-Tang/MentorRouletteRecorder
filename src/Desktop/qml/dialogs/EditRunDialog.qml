@@ -721,6 +721,9 @@ Dialog {
 
         const changes = { }
         for (const key in fields) {
+            // An untouched empty note is "" here and null in the record: not a change.
+            if (key === "note" && !fields.note && !runData.note)
+                continue
             if (JSON.stringify(fields[key]) !== JSON.stringify(runData[key]))
                 changes[key] = fields[key]
         }

@@ -114,6 +114,8 @@ struct DialogFixture {
     QQmlEngine engine;
     std::unique_ptr<QObject> root;
     QString errors;
+    /// Puts a history-row stand-in (a TapHandler) under the dialog and counts its taps.
+    bool backgroundTapProbe = false;
 
     bool create(bool reduceMotion = true)
     {
@@ -124,13 +126,19 @@ struct DialogFixture {
         engine.rootContext()->setContextProperty(QStringLiteral("RunForm"), &validator);
         engine.rootContext()->setContextProperty(QStringLiteral("ReduceMotion"), reduceMotion);
         QQmlComponent component(&engine);
-        component.setData(R"(import QtQuick
+        QByteArray source = R"(import QtQuick
 import QtQuick.Controls
 import MentorRecorder
 ApplicationWindow {
     width: 900; height: 800; visible: true
+    property int backgroundTaps: 0
+    PROBE
     EditRunDialog { objectName: "edit" }
-})", QUrl());
+})";
+        source.replace("PROBE", backgroundTapProbe
+            ? "Rectangle { anchors.fill: parent; TapHandler { onTapped: backgroundTaps += 1 } }"
+            : "");
+        component.setData(source, QUrl());
         root.reset(component.create());
         for (const auto &error : component.errors())
             errors += error.toString() + QLatin1Char('\n');
@@ -686,6 +694,51 @@ private Q_SLOTS:
         QCOMPARE(fixture.dialog()->property("endedDate").toString(), day);
         QVERIFY(!fixture.dialog()->property("dayFieldsVisible").toBool());
         QVERIFY(asList(fixture.dialog()->property("diffRows")).isEmpty());
+    }
+
+    void timeFieldsFollowTheRunTheDialogWasReopenedFor()
+    {
+        // Leaving a TimeField canonicalizes its text. That write must not cut the field off
+        // from the dialog: reopened for run B, it has to show B's times, not run A's.
+        DialogFixture fixture;
+        QVERIFY2(fixture.create(), qPrintable(fixture.errors));
+        QVERIFY(fixture.openForRun(run(QStringLiteral("run-a"), 70, 19, QStringLiteral("COMPLETED"))));
+        QVERIFY(fixture.goToStep(3));
+        const QString enteredA = fixture.dialog()->property("enteredTime").toString();
+        QVERIFY(!enteredA.isEmpty());
+        QVERIFY(fixture.click(QStringLiteral("enteredTimeField")));
+        QVERIFY(fixture.click(QStringLiteral("endedTimeField")));
+        QVERIFY(fixture.click(QStringLiteral("matchedTimeField")));
+        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "close"));
+
+        auto value = run(QStringLiteral("run-b"), 70, 0, QStringLiteral("CANCELLED_BEFORE_ENTRY"));
+        value.insert(QStringLiteral("duty_name"), QStringLiteral("伊库拉尔堡垒"));
+        value.insert(QStringLiteral("job_id"), QVariant());
+        value.insert(QStringLiteral("entered_at_utc"), QVariant());
+        value.insert(QStringLiteral("ended_at_utc"), QVariant());
+        QVERIFY(fixture.openForRun(value));
+        QVERIFY(fixture.goToStep(3));
+        QCOMPARE(fixture.dialog()->property("enteredTime").toString(), QString());
+        QCOMPARE(fixture.item(QStringLiteral("enteredTimeField"))->property("text").toString(), QString());
+        QCOMPARE(fixture.item(QStringLiteral("endedTimeField"))->property("text").toString(), QString());
+        QVERIFY(asList(fixture.dialog()->property("diffRows")).isEmpty());
+    }
+
+    void aClickInsideTheDialogNeverReachesTheRowBeneathIt()
+    {
+        // The history rows sit under the modal dialog and listen with a TapHandler, as the
+        // dialog's own chips do. A pick in the dialog must not also tap the row behind it:
+        // that re-selects another run, and the correction is then saved onto that run.
+        DialogFixture fixture;
+        fixture.backgroundTapProbe = true;
+        QVERIFY2(fixture.create(), qPrintable(fixture.errors));
+        QVERIFY(fixture.openForRun(run(QStringLiteral("run-a"), 70, 19, QStringLiteral("COMPLETED"))));
+        QVERIFY(fixture.goToStep(2));
+        QVERIFY(fixture.click(QStringLiteral("jobPick_21")));
+        QCOMPARE(fixture.dialog()->property("jobIndex").toInt(), 2);
+        QVERIFY(fixture.click(QStringLiteral("prevStepButton")));
+        QVERIFY(fixture.click(QStringLiteral("resultPick_INTERRUPTED")));
+        QCOMPARE(fixture.root->property("backgroundTaps").toInt(), 0);
     }
 
     void dutyFiltersNarrowByPartyLevelDifficultyAndSearch()

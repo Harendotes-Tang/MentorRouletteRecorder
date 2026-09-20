@@ -1711,9 +1711,10 @@ void AppController::createManualRun(const QVariantMap &fields, const QString &re
     return m_history->createManualRun(fields, reason);
 }
 
-void AppController::correctSelectedRun(const QVariantMap &changes, const QString &reason)
+void AppController::correctSelectedRun(const QVariantMap &changes, const QString &reason,
+                                       const QString &runId)
 {
-    return m_history->correctSelectedRun(changes, reason);
+    return m_history->correctSelectedRun(changes, reason, runId);
 }
 
 void AppController::resolveRunResult(const QString &runId, int revision,

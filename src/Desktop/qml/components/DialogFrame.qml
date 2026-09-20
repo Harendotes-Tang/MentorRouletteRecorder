@@ -26,6 +26,15 @@ Rectangle {
         }
     }
 
+    // The dialog's chips, cards and rows listen with TapHandlers, which take only a passive
+    // grab and leave the press unaccepted, so it kept travelling down to the page behind the
+    // modal dialog: a history row under it was re-selected mid-edit and the correction was
+    // saved onto that run. This handler accepts the press, which ends the delivery here.
+    TapHandler {
+        acceptedButtons: Qt.AllButtons
+        gesturePolicy: TapHandler.ReleaseWithinBounds
+    }
+
     Rectangle {
         anchors.left: parent.left
         anchors.right: parent.right

@@ -881,7 +881,7 @@ ApplicationWindow {
             App.createManualRun(fields, reason)
         }
         onCorrectRequested: function(changes, reason) {
-            App.correctSelectedRun(changes, reason)
+            App.correctSelectedRun(changes, reason, editDialog.runData ? editDialog.runData.run_id : "")
         }
     }
 
