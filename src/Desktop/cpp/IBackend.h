@@ -137,10 +137,14 @@ public:
     BackendReply *confirmCalibration(const QJsonArray &verdicts);
     /// Throws away this session's calibration evidence and observes again.
     /// \a retireLocalProfile is 重新校准: it also stops using the profile this
-    /// machine calibrated, whose file is renamed rather than deleted. The field
-    /// is optional in $defs/DiscardCalibrationRequest and is put on the wire
+    /// machine calibrated, whose file is renamed rather than deleted.
+    /// \a restoreLocalProfile is 恢复上一份本机校准, the undo of that: it puts the
+    /// retired profile back and records with it again. The two are mutually
+    /// exclusive and the Collector refuses a request carrying both. Both fields
+    /// are optional in $defs/DiscardCalibrationRequest and are put on the wire
     /// only when true, so an unchanged 重新观察 keeps sending an empty payload.
-    BackendReply *discardCalibration(bool retireLocalProfile = false);
+    BackendReply *discardCalibration(bool retireLocalProfile = false,
+                                     bool restoreLocalProfile = false);
 
     // -- 共享校准 -----------------
     /// The share code of the local calibration in force. Refused with

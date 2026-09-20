@@ -241,8 +241,9 @@ IBM Plex Mono 随程序分发，许可为 SIL OFL 1.1。字体文件位于 `src/
 
 * 校准卡片（`calibrationCard`，含共享校准一节，见 4.4.1、4.4.2）：`calibration.state != IDLE` 时出现。
 * 协议档案（`protocolProfileCard`，紧凑面板）：正在使用本机校准或共享校准的档案、
-  可以「分享给其他玩家」（`protocolShareHint` / `protocolShareButton`）或
-  「重新校准」（`protocolRecalibrateButton`，仅本机校准），
+  可以「分享给其他玩家」（`protocolShareHint` / `protocolShareButton`）、
+  「重新校准」（`protocolRecalibrateButton`，仅本机校准）或
+  「恢复上一份本机校准」（`protocolRestoreButton`，仅在有被停用的档案待恢复时），
   或游戏正在运行而档案不是 `VERIFIED`（校准卡片存在时由校准卡片解释）时出现。
   普通用户看到的标题是「正在使用本机校准出来的档案」「当前游戏版本没有可用档案」一类语句，
   **不出现档案编号与状态令牌**；维护者在 `VERIFIED` 时看到「已就绪：`<profile_id>`」。
@@ -452,6 +453,19 @@ QtTest `MentorRecorderCapturePage`（`tests/Desktop.Tests/CapturePageTests.cpp`�
 旁边给一行灰字「副本进行中，结束后再试」——停用档案会把这一把按停止捕获收尾。
 共享档案由「不用共享的，我自己校准」停用，随包档案与「没有档案」都不出现此按钮。
 行为见 [protocol-profile-format.md](protocol-profile-format.md) §11.6。
+
+**「恢复上一份本机校准」**（`protocolRestoreButton`，同一行、同一张卡）是它的撤销：
+`calibration.retired_local_profile_available` 为真时出现，即被停用的那份档案还在磁盘上、
+且当前没有本机档案生效。它与「重新校准」互斥——一个要求有本机档案生效，另一个要求没有——
+同屏只会出现其中之一。确认框（`protocolRestoreDialog`）标题「恢复上一份本机校准？」，
+正文「软件会停用现在这份校准，换回你上次停用的那一份本机校准，并立刻用它记录。之前的记录不受影响。」，
+按钮 **取消** 与 **恢复**（`protocolRestoreConfirm`），确认后发送
+`DiscardCalibration` 并带上 `restore_local_profile = true`，随即重读一次捕获状态。
+副本进行中时同样禁用，并复用「重新校准」那一行灰字。
+停用之后校准卡片会重新出现，若不把这条退路算进协议档案卡的可见条件，整张卡会被隐藏、
+按钮也就不可达，因此 `profileCardVisible` 把它一并计入。
+采集服务拒绝时（没有可恢复的、同名档案已存在、恢复后无法通过校验），它给的中文句子
+原样显示在卡片的 `protocolCalibrationError` 一行——此时校准卡片未必在场，这是唯一的说明位置。
 
 * 「立即检查」只在本机仍处于校准（`WAITING` / `OBSERVING`）、
   且没有共享档案正在记录时出现。「导入校准码」条件相同，但**包括**征求同意（`AWAITING_CONSENT`）

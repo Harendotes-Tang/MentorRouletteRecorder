@@ -1,3 +1,5 @@
+using MentorRecorder.Collector.Contracts.Errors;
+using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Domain.StateMachine;
 using MentorRecorder.Collector.Protocol.Calibration;
 using MentorRecorder.Collector.Protocol.Profiles;
@@ -28,10 +30,30 @@ public sealed partial class LiveProtocolPipeline
     /// 重新校准 existed, and remains what the contract's absent field means.
     /// </summary>
     /// <param name="retireLocalProfile">True to also retire a local profile in force.</param>
-    public CalibrationStatusSnapshot DiscardCalibration(bool retireLocalProfile = false)
+    /// <param name="restoreLocalProfile">
+    /// True to put the retired local profile back instead: the rollback, which is not a discard
+    /// at all and therefore keeps the evidence and the shared bookkeeping exactly as they are.
+    /// The two flags are opposites; the IPC handler refuses a request carrying both.
+    /// </param>
+    public CalibrationStatusSnapshot DiscardCalibration(
+        bool retireLocalProfile = false, bool restoreLocalProfile = false)
     {
         lock (_gate)
         {
+            if (restoreLocalProfile)
+            {
+                // Nothing of the plain discard runs: the player is putting a calibration back,
+                // not asking to forget one. Throws when it cannot be done, so the desktop can
+                // print the reason instead of quietly changing nothing.
+                RestoreRetiredLocalProfile();
+                NotifyCalibrationChanged();
+                return _calibration.Snapshot() with
+                {
+                    Shared = _shared.Snapshot(),
+                    RetiredLocalProfileAvailable = RetiredLocalProfileAvailable(),
+                };
+            }
+
             if (retireLocalProfile)
             {
                 // Before the discard: retiring re-arms calibration for the build, and the discard
@@ -47,8 +69,133 @@ public sealed partial class LiveProtocolPipeline
             // 重新观察 also forgets which shared calibrations this build's traffic contradicted.
             _shared.OnDiscard();
             NotifyCalibrationChanged();
-            return _calibration.Snapshot() with { Shared = _shared.Snapshot() };
+            return _calibration.Snapshot() with
+            {
+                Shared = _shared.Snapshot(),
+                RetiredLocalProfileAvailable = RetiredLocalProfileAvailable(),
+            };
         }
+    }
+
+    /// <summary>
+    /// Whether 恢复上一份本机校准 has anything to offer: a retired profile is on disk for the
+    /// running build and no local profile is in force.
+    ///
+    /// Answered on demand, where the status snapshot is built, rather than cached: it is one
+    /// <c>File.Exists</c> per status read, the reads are request-driven (GetCaptureStatus, the
+    /// desktop's two-second recording poll, the diagnostics report) and never on the capture
+    /// thread's message path, and a cache would have to be invalidated by things outside this
+    /// process - a file the player moved back by hand is exactly the case this feature exists to
+    /// replace. Never throws; an unreadable directory answers "no rollback".
+    /// </summary>
+    private bool RetiredLocalProfileAvailable()
+    {
+        if (_selection is { IsUsable: true, Origin: ProfileOrigin.Local } ||
+            RollbackBuild() is not { } target)
+        {
+            return false;
+        }
+
+        try
+        {
+            return _calibrationServices.HasRetiredLocalProfile(target.Region, target.GameBuild);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>The region and build a rollback would apply to, or null while the build is unknown.</summary>
+    private (Region Region, string GameBuild)? RollbackBuild()
+    {
+        var build = _selection.GameBuild ?? _game.GameBuild;
+        return string.IsNullOrWhiteSpace(build) ? null : (_selection.Region, build);
+    }
+
+    /// <summary>
+    /// 恢复上一份本机校准: the undo of <see cref="RetireLocalProfileInForce"/>.
+    ///
+    /// Whatever records now - a shared profile the player bound after retiring, a shipped one,
+    /// nothing at all - stops, the retired file comes back under its own name, and the reloaded
+    /// catalogue selects it because a local profile outranks a shared one. The shared session is
+    /// not told to withdraw anything: once the selection is no longer its profile, its own
+    /// reconciliation lets the binding go (<c>ReconcileBound</c>), which unregisters the
+    /// candidate without marking the code contradicted, without recording a refusal, and without
+    /// flagging a single record. Nothing accused that code; it was simply outranked.
+    ///
+    /// Throws <see cref="CollectorException"/> rather than changing nothing in silence: every
+    /// refusal here is something the player asked for and did not get.
+    /// </summary>
+    private void RestoreRetiredLocalProfile()
+    {
+        if (RollbackBuild() is not { } target)
+        {
+            throw new CollectorException(
+                ErrorCodes.CalibrationNotReady, "还不知道游戏版本，暂时无法恢复上一份本机校准。");
+        }
+
+        var profileId = LocalProfileWriter.ProfileIdFor(target.Region, target.GameBuild);
+        var restored = false;
+        try
+        {
+            restored = _calibrationServices.RestoreLocalProfile(target.Region, target.GameBuild);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        {
+            // The seam promises not to throw; a caller that broke that promise still gets an
+            // answer the player can read rather than a failed request with no explanation.
+            restored = false;
+        }
+
+        if (!restored)
+        {
+            throw new CollectorException(
+                ErrorCodes.CalibrationNotReady,
+                "没有可以恢复的本机校准：上一份可能已经被新的校准覆盖，或者文件不在了。");
+        }
+
+        // Retiring put the id here so a file that could not be renamed was never bound again.
+        // The file is back under its own name now, and it is the profile the player asked for.
+        _withdrawnLocalProfiles.Remove(profileId);
+        if ((_boundProfileId ?? _selection.Profile?.ProfileId) is { } inForce)
+        {
+            UnbindProfile(inForce);
+        }
+
+        if (ReloadedSelect() is { } select)
+        {
+            ReselectAfterProfileChange(select);
+        }
+
+        if (_selection is { IsUsable: true, Origin: ProfileOrigin.Local, Profile: { } profile } &&
+            string.Equals(profile.ProfileId, profileId, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        // It came back and the loader would not have it - written by a version whose output this
+        // one no longer accepts, or damaged on disk. Leaving it in the directory would mean every
+        // selection from now on refuses the same file, so it goes back into retirement and the
+        // player is told the one thing that helps.
+        try
+        {
+            _calibrationServices.RetireLocalProfile(
+                target.Region, target.GameBuild, LocalProfileFiles.RetiredByRequestSuffix);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        {
+            // Then it stays where it is; ReloadedSelect below still refuses it by id.
+        }
+
+        _withdrawnLocalProfiles.Add(profileId);
+        if (ReloadedSelect() is { } reselect)
+        {
+            ReselectAfterProfileChange(reselect);
+        }
+
+        throw new CollectorException(
+            ErrorCodes.CalibrationNotReady, "上一份本机校准已经无法使用，请重新校准。");
     }
 
     /// <summary>

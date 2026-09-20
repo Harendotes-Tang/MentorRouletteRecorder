@@ -1028,7 +1028,8 @@
         "blockers": { "type": "array", "maxItems": 16, "items": { "type": "string", "maxLength": 400 } },
         "progress": { "oneOf": [{ "$ref": "#/$defs/CalibrationProgress" }, { "type": "null" }] },
         "events": { "type": "array", "maxItems": 256, "items": { "$ref": "#/$defs/CalibrationEvent" } },
-        "shared": { "$ref": "#/$defs/SharedCalibrationStatus", "description": "Shared calibration for the running client. Optional: a Collector from before shared calibration does not send it, and a Desktop that does not know it ignores it." }
+        "shared": { "$ref": "#/$defs/SharedCalibrationStatus", "description": "Shared calibration for the running client. Optional: a Collector from before shared calibration does not send it, and a Desktop that does not know it ignores it." },
+        "retired_local_profile_available": { "type": "boolean", "description": "True when a local profile the player retired through 重新校准 is still on disk for the running build and no local profile is in force, so 恢复上一份本机校准 (DiscardCalibration.restore_local_profile) has something to put back. Optional: a Collector before this field does not send it, and its absence means “no rollback”. A profile the traffic disproved never counts." }
       }
     },
     "SharedCalibrationPhase": {
@@ -1127,7 +1128,8 @@
       "additionalProperties": false,
       "description": "重新观察：丢弃本次会话已积累的校准证据，重新开始观察。空载荷仍然合法。",
       "properties": {
-        "retire_local_profile": { "type": "boolean", "default": false, "description": "重新校准：true 时，若当前生效的是本机校准出来的档案（profile_origin = LOCAL_CALIBRATION），则先停用它：文件改名保留（不删除），正在进行的记录按停止捕获收尾，校准重新开始观察。它生成的记录不会被标为待复核，它所认的报文也不会被拒绝：是玩家要求重新校准，而不是流量证伪了它。缺省为 false，即只重新观察；当前生效的不是本机校准档案时，true 与 false 等价。" }
+        "retire_local_profile": { "type": "boolean", "default": false, "description": "重新校准：true 时，若当前生效的是本机校准出来的档案（profile_origin = LOCAL_CALIBRATION），则先停用它：文件改名保留（不删除），正在进行的记录按停止捕获收尾，校准重新开始观察。它生成的记录不会被标为待复核，它所认的报文也不会被拒绝：是玩家要求重新校准，而不是流量证伪了它。缺省为 false，即只重新观察；当前生效的不是本机校准档案时，true 与 false 等价。" },
+        "restore_local_profile": { "type": "boolean", "default": false, "description": "恢复上一份本机校准：把 `retire_local_profile` 停用的那份档案（`<profile_id>.json.retired`）改回 `.json` 并立即用它记录，同时放开当前生效的档案（包括正在使用的共享校准；共享校准只是被让位，不计作被证伪，其校准码不被拒绝，已生成的记录也不标待复核）。不会丢弃校准证据。流量证伪后自动撤下的档案（`.json.contradicted`）永远不可恢复。无可恢复、同名档案已存在、或恢复后无法通过档案校验时答 ERR_CALIBRATION_NOT_READY 并带上可直接展示的中文说明。与 `retire_local_profile` 互斥，同时为真答 ERR_BAD_REQUEST。" }
       }
     },
     "ConfirmCalibrationRequest": {

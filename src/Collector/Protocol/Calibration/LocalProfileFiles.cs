@@ -69,4 +69,61 @@ public static class LocalProfileFiles
             return false;
         }
     }
+
+    /// <summary>
+    /// Puts back the profile the player retired through 重新校准, by renaming it to <c>.json</c>
+    /// again. False - never an exception - when there is nothing to put back, when a profile for
+    /// the same build is already in the directory, or when the file system refused.
+    ///
+    /// Only <see cref="RetiredByRequestSuffix"/> is ever looked at. A profile the machine's own
+    /// traffic disproved (<see cref="RetiredSuffix"/>) is not a rollback the player may ask for:
+    /// nobody chose to put it away, and it would read the same wrong message again tomorrow.
+    ///
+    /// The rename is refused rather than forced when a <c>.json</c> exists, because that file is
+    /// a calibration the player confirmed since; silently overwriting it would lose the newer
+    /// answer to bring back the older one.
+    /// </summary>
+    /// <param name="root">Local profile directory.</param>
+    /// <param name="region">CN or GLOBAL.</param>
+    /// <param name="gameBuild">Client build.</param>
+    public static bool Restore(string root, Region region, string gameBuild)
+    {
+        try
+        {
+            var path = PathFor(root, region, gameBuild);
+            var retired = path + RetiredByRequestSuffix;
+            if (!File.Exists(retired) || File.Exists(path))
+            {
+                return false;
+            }
+
+            File.Move(retired, path);
+            return true;
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// True when <see cref="Restore"/> has something to do: a retired profile for this build is
+    /// on disk and nothing occupies the name it would come back under. Never throws; an
+    /// unreadable directory answers "no rollback" rather than offering one that cannot happen.
+    /// </summary>
+    /// <param name="root">Local profile directory.</param>
+    /// <param name="region">CN or GLOBAL.</param>
+    /// <param name="gameBuild">Client build.</param>
+    public static bool HasRetired(string root, Region region, string gameBuild)
+    {
+        try
+        {
+            var path = PathFor(root, region, gameBuild);
+            return File.Exists(path + RetiredByRequestSuffix) && !File.Exists(path);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        {
+            return false;
+        }
+    }
 }

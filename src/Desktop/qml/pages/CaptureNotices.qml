@@ -35,6 +35,10 @@ ColumnLayout {
     // 我自己校准」停用，随包档案不是本机的猜测，没有档案时也无从停用。
     readonly property bool offersRecalibrate: notices.profileStatus === "VERIFIED"
                                               && notices.profileOrigin === "LOCAL_CALIBRATION"
+    // 「重新校准」的退路：上次停用的那份本机校准还在磁盘上。采集服务只在没有本机档案
+    // 生效时报 true，因此这两个按钮天然互斥，这里再显式排除一次。
+    readonly property bool offersRestore: !!App.calibration && App.calibration.retiredLocalProfileAvailable
+                                          && !notices.offersRecalibrate
     // 停用档案会把正在进行的记录按停止捕获收尾，等于让玩家白打这一把。
     readonly property bool runInFlight: App.currentRunState === "MENTOR_MATCHED"
                                         || App.currentRunState === "ENTERED_DUTY"
@@ -43,8 +47,10 @@ ColumnLayout {
     readonly property bool profileProblem: App.ffxivRunning && notices.profileStatus.length > 0
                                            && notices.profileStatus !== "VERIFIED"
                                            && !notices.calibrationCardVisible
+    // 停用本机校准之后校准卡片会重新出现，于是 profileProblem 为假；若不把退路算进来，
+    // 协议档案卡就会整张隐藏，「恢复上一份本机校准」也随之不可达——正是本功能要堵的洞。
     readonly property bool profileCardVisible: notices.offersShare || notices.calibratedProfile
-                                               || notices.profileProblem
+                                               || notices.profileProblem || notices.offersRestore
     readonly property bool silentVisible: App.captureMidstreamSuspected || App.captureSilent
                                           || App.recording.silent
 
@@ -204,10 +210,11 @@ ColumnLayout {
 
         // 本机校准的档案认错了报文时，这里是唯一的退路：停用它，软件回到观察状态，
         // 之后可以重新校准，也可以导入其他玩家的校准码。
+        // 停用之后，同一行改为提供反向的退路：把上次停用的那一份换回来。
         RowLayout {
             Layout.fillWidth: true
             Layout.topMargin: 2
-            visible: notices.offersRecalibrate
+            visible: notices.offersRecalibrate || notices.offersRestore
             spacing: 16
 
             Text {
@@ -224,12 +231,36 @@ ColumnLayout {
             Item { Layout.fillWidth: true; visible: !notices.runInFlight }
 
             AppButton {
+                objectName: "protocolRestoreButton"
+                visible: notices.offersRestore
+                text: qsTr("恢复上一份本机校准")
+                enabled: !notices.runInFlight
+                         && (!App.calibration || !App.calibration.busy)
+                onClicked: restoreDialog.open()
+            }
+
+            AppButton {
                 objectName: "protocolRecalibrateButton"
+                visible: notices.offersRecalibrate
                 text: qsTr("重新校准")
                 enabled: !notices.runInFlight
                          && (!App.calibration || !App.calibration.busy)
                 onClicked: recalibrateDialog.open()
             }
+        }
+
+        // 采集服务拒绝时，它给的句子本身就是写给玩家看的，原样显示。
+        // 校准卡片此时可能并不在场，这一行是唯一能说明原因的地方。
+        Text {
+            objectName: "protocolCalibrationError"
+            Layout.fillWidth: true
+            visible: (notices.offersRecalibrate || notices.offersRestore)
+                     && !!App.calibration && App.calibration.error.length > 0
+            text: App.calibration ? App.calibration.error : ""
+            textFormat: Text.PlainText
+            color: Theme.orangeText
+            font.pixelSize: Theme.fs(12)
+            wrapMode: Text.WordWrap
         }
     }
 
@@ -286,6 +317,64 @@ ColumnLayout {
                     onClicked: {
                         App.calibration.recalibrate()
                         recalibrateDialog.close()
+                    }
+                }
+            }
+        }
+    }
+
+    // 换回上次停用的那一份，同样先说清楚会发生什么。
+    Dialog {
+        id: restoreDialog
+        objectName: "protocolRestoreDialog"
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        modal: true
+        Overlay.modal: Rectangle { color: Theme.modalScrim(restoreDialog.palette.shadow) }
+        width: 460
+        padding: 20
+        closePolicy: Popup.CloseOnEscape
+
+        background: DialogFrame {}
+
+        contentItem: ColumnLayout {
+            spacing: 12
+
+            HeadingLabel {
+                Layout.fillWidth: true
+                text: qsTr("恢复上一份本机校准？")
+                font.pixelSize: Theme.dialogTitleSize(20)
+            }
+
+            Text {
+                Layout.fillWidth: true
+                text: qsTr("软件会停用现在这份校准，换回你上次停用的那一份本机校准，并立刻用它记录。"
+                           + "之前的记录不受影响。")
+                textFormat: Text.PlainText
+                color: Theme.textSecondary
+                font.pixelSize: Theme.fs(12)
+                wrapMode: Text.WordWrap
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
+
+                Item { Layout.fillWidth: true }
+
+                AppButton {
+                    text: qsTr("取消")
+                    onClicked: restoreDialog.close()
+                }
+
+                AppButton {
+                    objectName: "protocolRestoreConfirm"
+                    variant: "primary"
+                    text: qsTr("恢复")
+                    enabled: !!App.calibration && !App.calibration.busy
+                    onClicked: {
+                        App.calibration.restoreLocalProfile()
+                        restoreDialog.close()
                     }
                 }
             }

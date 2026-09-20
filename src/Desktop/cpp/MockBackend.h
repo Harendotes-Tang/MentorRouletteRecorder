@@ -107,9 +107,18 @@ public:
     QJsonObject lastCaptureSettingsUpdate() const { return m_lastCaptureSettingsUpdate; }
 
     /// DiscardCalibration requests received, and the payload of the last one, so
-    /// a test can tell 重新观察 from 重新校准 by what actually went on the wire.
+    /// a test can tell 重新观察 from 重新校准 from 恢复上一份本机校准 by what
+    /// actually went on the wire.
     int discardCalibrationCount() const { return m_discardCalibrationCount; }
     QJsonObject lastDiscardCalibration() const { return m_lastDiscardCalibration; }
+
+    /// Pretend a local profile the player retired is still on disk, so the
+    /// rollback is offered. Synthetic: this backend has no profile directory.
+    void setRetiredLocalProfileAvailable(bool available)
+    {
+        m_retiredLocalProfileAvailable = available;
+    }
+    bool retiredLocalProfileAvailable() const { return m_retiredLocalProfileAvailable; }
 
     /// Simulate the live-validated failure mode of
     /// docs/live-validation-guide.md section 6: capture was started after the
@@ -261,6 +270,7 @@ private:
     QJsonObject m_lastCaptureSettingsUpdate;
     int m_discardCalibrationCount = 0;
     QJsonObject m_lastDiscardCalibration;
+    bool m_retiredLocalProfileAvailable = false;
     /// Monotonic $defs/LiveEvent.sequence handed to every emitted event.
     qint64 m_liveSequence = 0;
     QString m_recordingFixture;

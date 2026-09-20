@@ -841,7 +841,11 @@ public sealed partial class LiveProtocolPipeline :
     {
         lock (_gate)
         {
-            return _calibration.Snapshot() with { Shared = _shared.Snapshot() };
+            return _calibration.Snapshot() with
+            {
+                Shared = _shared.Snapshot(),
+                RetiredLocalProfileAvailable = RetiredLocalProfileAvailable(),
+            };
         }
     }
 

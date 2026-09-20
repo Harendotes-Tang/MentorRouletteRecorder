@@ -107,26 +107,64 @@ QJsonObject sharedNone()
 }
 
 /// Answers the two status reads with one hand-written capture status; everything else is empty.
+/// DiscardCalibration is recorded, and can be made to fail, so the rollback's refusal path can
+/// be read exactly as the player would read it.
 class CaptureBackend final : public mr::IBackend
 {
 public:
     QJsonObject capture;
+    QJsonObject currentRun;
+    QList<QJsonObject> discards;
+    QString discardErrorCode;
+    QString discardErrorMessage;
 
     QString backendName() const override { return QStringLiteral("mock"); }
     bool isConnected() const override { return true; }
 
-    mr::BackendReply *request(const QString &type, const QJsonObject & = {}) override
+    mr::BackendReply *request(const QString &type, const QJsonObject &payload = {}) override
     {
         auto *reply = new mr::BackendReply(type, type, this);
         if (type == QLatin1String("GetStatus"))
             reply->succeed({{QStringLiteral("capture"), capture}});
         else if (type == QLatin1String("GetCaptureStatus"))
             reply->succeed(capture);
-        else
+        else if (type == QLatin1String("GetCurrentRun"))
+            reply->succeed(currentRun);
+        else if (type == QLatin1String("DiscardCalibration")) {
+            discards.append(payload);
+            if (discardErrorCode.isEmpty())
+                reply->succeed({{QStringLiteral("state"), QStringLiteral("IDLE")}});
+            else
+                reply->fail(discardErrorCode, discardErrorMessage);
+        } else
             reply->succeed({});
         return reply;
     }
 };
+
+/// A capture status with a calibration object, so the rollback's three inputs - the profile in
+/// force, whether a retired one waits, and whether a duty is in flight - can each be set alone.
+/// \a origin empty means no profile is in force, which is what retiring leaves behind.
+QJsonObject captureWithRollback(const QString &origin, bool retiredAvailable,
+                                const QString &calibrationState = QStringLiteral("OBSERVING"))
+{
+    QJsonObject calibration{{QStringLiteral("state"), calibrationState},
+                            {QStringLiteral("blockers"), QJsonArray{}},
+                            {QStringLiteral("events"), QJsonArray{}},
+                            {QStringLiteral("retired_local_profile_available"), retiredAvailable},
+                            {QStringLiteral("shared"), sharedNone()}};
+    QJsonObject capture{{QStringLiteral("ffxiv_running"), true},
+                        {QStringLiteral("state"), QStringLiteral("RUNNING")},
+                        {QStringLiteral("game_build"), QStringLiteral("2026.09.01.0000.0000")},
+                        {QStringLiteral("region"), QStringLiteral("CN")},
+                        {QStringLiteral("profile_status"),
+                         origin.isEmpty() ? QStringLiteral("UNSUPPORTED_BUILD")
+                                          : QStringLiteral("VERIFIED")},
+                        {QStringLiteral("calibration"), calibration}};
+    if (!origin.isEmpty())
+        capture.insert(QStringLiteral("profile_origin"), origin);
+    return capture;
+}
 
 /// One card on a backend, torn down in dependency order.
 struct CardScene
@@ -693,6 +731,123 @@ private Q_SLOTS:
         QStringList texts;
         collectVisibleText(scene.item(QStringLiteral("protocolProfileCard")), texts);
         verifyPlayerCopy(texts);
+    }
+
+    // -- 协议档案 card: 恢复上一份本机校准 ------------------------------------
+
+    void theRollbackIsOfferedOnlyWhenARetiredProfileIsWaiting_data()
+    {
+        QTest::addColumn<QString>("origin");
+        QTest::addColumn<bool>("retiredAvailable");
+        QTest::addColumn<bool>("rollback");
+        QTest::addColumn<bool>("recalibrate");
+
+        // Straight after 重新校准: nothing records, the retired file waits.
+        QTest::newRow("retired") << QString() << true << true << false;
+        // Her own calibration is back in force: the rollback is spent, 重新校准 returns.
+        QTest::newRow("local-in-force") << "LOCAL_CALIBRATION" << false << false << true;
+        // Nothing was ever retired, so there is nothing to put back.
+        QTest::newRow("nothing-retired") << QString() << false << false << false;
+        // A shared profile records after the retirement; the way back is still open.
+        QTest::newRow("shared-took-over") << "SHARED_CALIBRATION" << true << true << false;
+    }
+
+    void theRollbackIsOfferedOnlyWhenARetiredProfileIsWaiting()
+    {
+        QFETCH(QString, origin);
+        QFETCH(bool, retiredAvailable);
+        QFETCH(bool, rollback);
+        QFETCH(bool, recalibrate);
+
+        auto fake = std::make_unique<CaptureBackend>();
+        fake->capture = captureWithRollback(origin, retiredAvailable);
+        PageScene scene;
+        auto *source = fake.get();
+        scene.other = std::move(fake);
+        QVERIFY(scene.openOn(source, 1180));
+        QTRY_COMPARE(scene.app->calibration()->retiredLocalProfileAvailable(), retiredAvailable);
+
+        QCOMPARE(scene.shows(QStringLiteral("protocolRestoreButton")), rollback);
+        QCOMPARE(scene.shows(QStringLiteral("protocolRecalibrateButton")), recalibrate);
+        // The two are opposites and must never share a screen.
+        QVERIFY(!(rollback && recalibrate));
+
+        if (rollback) {
+            QStringList texts;
+            collectVisibleText(scene.item(QStringLiteral("protocolProfileCard")), texts);
+            verifyPlayerCopy(texts);
+        }
+    }
+
+    void theRollbackDialogAsksFirstAndThenSendsTheFlag()
+    {
+        auto fake = std::make_unique<CaptureBackend>();
+        fake->capture = captureWithRollback(QString(), true);
+        PageScene scene;
+        auto *source = fake.get();
+        scene.other = std::move(fake);
+        QVERIFY(scene.openOn(source, 1180));
+        QTRY_VERIFY(scene.shows(QStringLiteral("protocolRestoreButton")));
+        QVERIFY(scene.item(QStringLiteral("protocolRestoreButton"))->property("enabled").toBool());
+
+        auto *dialog = scene.root->findChild<QObject *>(QStringLiteral("protocolRestoreDialog"));
+        QVERIFY(dialog);
+        QVERIFY(!dialog->property("visible").toBool());
+        QVERIFY(QMetaObject::invokeMethod(scene.item(QStringLiteral("protocolRestoreButton")), "clicked"));
+        QTRY_VERIFY(dialog->property("visible").toBool());
+        QVERIFY(source->discards.isEmpty());
+
+        auto *confirm = dialog->findChild<QQuickItem *>(QStringLiteral("protocolRestoreConfirm"));
+        QVERIFY(confirm);
+        QVERIFY(QMetaObject::invokeMethod(confirm, "clicked"));
+
+        QTRY_COMPARE(source->discards.size(), 1);
+        const QJsonObject sent = source->discards.constFirst();
+        QVERIFY(sent.value(QStringLiteral("restore_local_profile")).toBool());
+        // Never both: the Collector answers ERR_BAD_REQUEST for a request carrying the pair.
+        QVERIFY(!sent.contains(QStringLiteral("retire_local_profile")));
+    }
+
+    void aRefusedRollbackShowsTheCollectorsOwnSentence()
+    {
+        auto fake = std::make_unique<CaptureBackend>();
+        fake->capture = captureWithRollback(QString(), true);
+        fake->discardErrorCode = QStringLiteral("ERR_CALIBRATION_NOT_READY");
+        fake->discardErrorMessage = QString::fromUtf8("上一份本机校准已经无法使用，请重新校准。");
+        PageScene scene;
+        auto *source = fake.get();
+        scene.other = std::move(fake);
+        QVERIFY(scene.openOn(source, 1180));
+        QTRY_VERIFY(scene.shows(QStringLiteral("protocolRestoreButton")));
+
+        scene.app->calibration()->restoreLocalProfile();
+
+        QTRY_VERIFY(scene.shows(QStringLiteral("protocolCalibrationError")));
+        QCOMPARE(scene.item(QStringLiteral("protocolCalibrationError"))->property("text").toString(),
+                 source->discardErrorMessage);
+        // The error token itself never reaches the page.
+        QStringList texts;
+        collectVisibleText(scene.item(QStringLiteral("protocolProfileCard")), texts);
+        verifyPlayerCopy(texts);
+    }
+
+    void theRollbackWaitsForTheDutyToEnd()
+    {
+        // Putting the old profile back closes the run in flight, exactly as retiring does.
+        auto fake = std::make_unique<CaptureBackend>();
+        fake->capture = captureWithRollback(QString(), true);
+        fake->currentRun = QJsonObject{{QStringLiteral("state"), QStringLiteral("ENTERED_DUTY")}};
+        PageScene scene;
+        auto *source = fake.get();
+        scene.other = std::move(fake);
+        QVERIFY(scene.openOn(source, 1180));
+        QTRY_COMPARE(scene.app->currentRunState(), QStringLiteral("ENTERED_DUTY"));
+        QTRY_VERIFY(scene.shows(QStringLiteral("protocolRestoreButton")));
+
+        QVERIFY(!scene.item(QStringLiteral("protocolRestoreButton"))->property("enabled").toBool());
+        QTRY_VERIFY(scene.shows(QStringLiteral("protocolRecalibrateHint")));
+        QCOMPARE(scene.item(QStringLiteral("protocolRecalibrateHint"))->property("text").toString(),
+                 QString::fromUtf8("副本进行中，结束后再试"));
     }
 
     void onlyALocalCalibrationIsOfferedForSharing_data()

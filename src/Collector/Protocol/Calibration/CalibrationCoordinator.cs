@@ -94,6 +94,14 @@ public sealed record CalibrationStatusSnapshot(
     /// <summary>Shared calibration for the running client; none by default.</summary>
     public SharedCalibrationSnapshot Shared { get; init; } = SharedCalibrationSnapshot.None;
 
+    /// <summary>
+    /// True when a local profile the player retired through 重新校准 is waiting on disk for this
+    /// build and nothing occupies the name it would come back under - that is, when the desktop
+    /// may offer 恢复上一份本机校准. Decided by the pipeline, which knows where the profiles live;
+    /// this record only carries it.
+    /// </summary>
+    public bool RetiredLocalProfileAvailable { get; init; }
+
     /// <summary>Nothing is being calibrated.</summary>
     public static CalibrationStatusSnapshot Idle { get; } = new(
         CalibrationState.Idle, null, null, null, Array.Empty<string>(), Array.Empty<CalibrationEvent>(), null, null);
