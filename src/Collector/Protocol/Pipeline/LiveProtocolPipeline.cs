@@ -76,6 +76,13 @@ public sealed partial class LiveProtocolPipeline :
     /// </summary>
     private bool _sharedIdleAgain;
 
+    /// <summary>
+    /// Id of a shared profile that was selected while the profile it outranks could not be taken out of
+    /// the running session - a run was under way, or a queue request was parked. Settled after the first
+    /// message that leaves the machine between runs (<c>SettleOwedSharedSwap</c>); never outlives the session.
+    /// </summary>
+    private string? _sharedSwapOwed;
+
     /// <summary>Raised under the pipeline lock whenever calibration changes state.</summary>
     public event Action<CalibrationState>? CalibrationChanged;
 
@@ -418,6 +425,8 @@ public sealed partial class LiveProtocolPipeline :
             _parser = null;
             _processor = null;
             _boundProfileId = null;
+            _sharedSwapOwed = null;
+            _sharedIdleAgain = false;
             ForgetPopWatch();
             _sessionCarried = carried;
             _candidateObserver = _candidateEnabled && _candidateProfile is { } candidate
@@ -548,6 +557,8 @@ public sealed partial class LiveProtocolPipeline :
                 _sharedIdleAgain = false;
                 _shared.Evaluate();
             }
+
+            SettleOwedSharedSwap();
         }
     }
 
@@ -616,6 +627,7 @@ public sealed partial class LiveProtocolPipeline :
             {
                 _active = false;
                 _sessionId = null;
+                _sharedSwapOwed = null;
                 _candidateObserver?.Flush();
                 _candidateObserver = null;
                 _calibration.Stop();
@@ -642,7 +654,21 @@ public sealed partial class LiveProtocolPipeline :
     /// </summary>
     private TimeSpan LifecycleMono() => _lastMessageMono ?? _sessionTimer?.Elapsed ?? TimeSpan.Zero;
 
-    private void ApplyAndPublish(Action action)
+    /// <summary>
+    /// How old a replayed match may be and still be announced as the popup on the player's screen. Staged
+    /// events are handed over in one go when a shared calibration binds, so a popup from before the loading
+    /// screen would otherwise be spoken at entry time, seconds late and back to back with the entry.
+    /// </summary>
+    public static readonly TimeSpan FreshMatchAge = TimeSpan.FromSeconds(5);
+
+    /// <summary>Applies one step to the state machine and publishes what it changed.</summary>
+    /// <param name="action">The step to apply.</param>
+    /// <param name="replayed">
+    /// True when the step replays something that happened a while ago. A MENTOR_MATCHED it causes is
+    /// published without a match source: the desktop speaks only for an explicit server match, and a popup
+    /// that old is history, not news. Everything else about the event, and every record, is unchanged.
+    /// </param>
+    private void ApplyAndPublish(Action action, bool replayed = false)
     {
         var machine = _processor!.Machine;
         var beforeState = machine.State;
@@ -680,7 +706,7 @@ public sealed partial class LiveProtocolPipeline :
             // state it publishes stays inferred, because every other state still is.
             var observed = afterState == RunState.MentorMatched && machine.MatchObserved;
             _liveEvents.PublishState(afterState, afterId is null ? null : _runs.Get(afterId),
-                machine.MatchFromQueue && !observed,
+                replayed && afterState == RunState.MentorMatched ? null : machine.MatchFromQueue && !observed,
                 afterState == RunState.MentorMatched ? machine.MatchOffers : null);
         }
 

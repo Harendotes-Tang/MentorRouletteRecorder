@@ -51,6 +51,9 @@ internal sealed class SharedCalibrationTestBed : IDisposable
 
     public Func<string, string?> Environment { get; set; } = _ => null;
 
+    /// <summary>Runs before each catalogue reload, off the pipeline's gate; a test holds a bind open with it.</summary>
+    public Action? BeforeReload { get; set; }
+
     public static CalibrationTemplate Template => CalibrationObserverTests.Template();
 
     public static string TemplateSha => Template.Source.ProfileSha256;
@@ -86,7 +89,11 @@ internal sealed class SharedCalibrationTestBed : IDisposable
     {
         var services = new CalibrationServices(
                 _ => Template,
-                DiskSelect,
+                () =>
+                {
+                    BeforeReload?.Invoke();
+                    return DiskSelect();
+                },
                 (draft, template, build, now) => LocalProfileWriter.Write(draft, template, build, now, LocalRoot))
             .WithSharedProfilesIn(SharedRoot);
         if (!fetch)

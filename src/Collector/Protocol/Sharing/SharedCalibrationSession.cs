@@ -301,6 +301,20 @@ internal sealed partial class SharedCalibrationSession
         return true;
     }
 
+    /// <summary>
+    /// The profile in use was selected while the one it outranks was mid-run or queued, and has only now
+    /// taken over the running session: what it records dates from here.
+    /// </summary>
+    /// <param name="profileId">Profile that began recording.</param>
+    /// <param name="atUtc">When the parser was rebuilt over it.</param>
+    public void OnBoundLater(string profileId, DateTimeOffset atUtc)
+    {
+        if (_bound is { BoundAtUtc: null } bound && string.Equals(bound.ProfileId, profileId, StringComparison.Ordinal))
+        {
+            bound.BoundAtUtc = atUtc;
+        }
+    }
+
     /// <summary>The service is stopping: cancel the download and claim nothing more.</summary>
     public void Stop()
     {
@@ -731,7 +745,8 @@ internal sealed partial class SharedCalibrationSession
 
         public CalibrationMatchSource? MatchSource { get; set; }
 
-        public DateTimeOffset? BoundAtUtc { get; init; }
+        /// <summary>When it began recording in this process; null while it is selected but not yet recording.</summary>
+        public DateTimeOffset? BoundAtUtc { get; set; }
 
         public SharedVerification? Verification { get; set; }
 
