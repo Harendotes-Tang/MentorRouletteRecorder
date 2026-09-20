@@ -134,7 +134,7 @@ public sealed partial class LiveProtocolPipeline
         NotifyCalibrationChanged();
     }
 
-    private void UseCalibrationRole(bool upgrading, bool retaining)
+    private void UseCalibrationRole(bool upgrading, bool retaining, bool completing = false)
     {
         _calibration.UseProvisional(
             upgrading,
@@ -146,6 +146,9 @@ public sealed partial class LiveProtocolPipeline
                     .Where(name => profile.Message(name) is null)
                     .ToHashSet(StringComparer.Ordinal));
         _calibration.UseRetention(retaining && !upgrading);
+        // The messages a completing draft has to reproduce exactly come from the profile in
+        // force itself, not from anything this process remembers writing.
+        _calibration.UseCompleting(completing, completing ? _selection.Profile?.Messages : null);
     }
 
     private bool HasFinishedRun(string profileId)

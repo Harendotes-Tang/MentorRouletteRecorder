@@ -733,7 +733,7 @@
         { "if": { "properties": { "message_type": { "const": "ReviewCandidateObservation" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/ReviewCandidateObservationRequest" } } } },
         { "if": { "properties": { "message_type": { "const": "ExportCandidateEvidence" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/ExportCandidateEvidenceRequest" } } } },
         { "if": { "properties": { "message_type": { "const": "ConfirmCalibration" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/ConfirmCalibrationRequest" } } } },
-        { "if": { "properties": { "message_type": { "const": "DiscardCalibration" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/EmptyPayload" } } } },
+        { "if": { "properties": { "message_type": { "const": "DiscardCalibration" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/DiscardCalibrationRequest" } } } },
         { "if": { "properties": { "message_type": { "enum": ["GetCalibrationShareCode", "CheckSharedCalibration", "AcceptSharedQueueInference", "RejectSharedCalibration"] } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/EmptyPayload" } } } },
         { "if": { "properties": { "message_type": { "const": "ImportCalibrationCode" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/ImportCalibrationCodeRequest" } } } },
         { "if": { "properties": { "message_type": { "const": "StartCaptureValidation" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/StartCaptureValidationRequest" } } } },
@@ -1120,6 +1120,14 @@
       "description": "A share code the player pasted (导入校准码). Decoded and checked without any network and whatever shared_calibration_enabled says; one that fits is verified against local traffic exactly like a downloaded one.",
       "properties": {
         "code": { "type": "string", "maxLength": 65536, "description": "Pasted text; surrounding whitespace is ignored. Over 4096 characters after trimming answers MALFORMED without being decoded." }
+      }
+    },
+    "DiscardCalibrationRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "重新观察：丢弃本次会话已积累的校准证据，重新开始观察。空载荷仍然合法。",
+      "properties": {
+        "retire_local_profile": { "type": "boolean", "default": false, "description": "重新校准：true 时，若当前生效的是本机校准出来的档案（profile_origin = LOCAL_CALIBRATION），则先停用它：文件改名保留（不删除），正在进行的记录按停止捕获收尾，校准重新开始观察。它生成的记录不会被标为待复核，它所认的报文也不会被拒绝：是玩家要求重新校准，而不是流量证伪了它。缺省为 false，即只重新观察；当前生效的不是本机校准档案时，true 与 false 等价。" }
       }
     },
     "ConfirmCalibrationRequest": {

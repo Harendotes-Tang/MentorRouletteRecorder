@@ -63,17 +63,22 @@ public static class CalibrationHandlers
         };
     }
 
-    /// <summary>Handles <c>DiscardCalibration</c>.</summary>
+    /// <summary>
+    /// Handles <c>DiscardCalibration</c>: 重新观察, and with <c>retire_local_profile</c> the
+    /// 重新校准 that also puts the local profile in force away. The field is optional and its
+    /// absence is the behaviour the message always had.
+    /// </summary>
     /// <param name="host">Collector host.</param>
     /// <param name="reader">Request payload.</param>
     public static JsonObject Discard(CollectorHost host, PayloadReader reader)
     {
         ArgumentNullException.ThrowIfNull(host);
         ArgumentNullException.ThrowIfNull(reader);
-        reader.RequireEmpty();
+        reader.RejectUnknown("retire_local_profile");
+        var retire = reader.Bool("retire_local_profile") ?? false;
         var pipeline = host.LiveProtocol ?? throw new CollectorException(
             ErrorCodes.CalibrationNotReady, "本进程没有运行协议管线，无法校准。");
-        var snapshot = pipeline.DiscardCalibration();
+        var snapshot = pipeline.DiscardCalibration(retire);
         return new JsonObject
         {
             ["state"] = CalibrationWire.State(snapshot.State),

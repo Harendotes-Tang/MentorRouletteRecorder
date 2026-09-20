@@ -1631,6 +1631,8 @@ BackendReply *MockBackend::request(const QString &messageType, const QJsonObject
     } else if (messageType == QLatin1String("ConfirmCalibration")) {
         result = applyCalibrationVerdicts(payload, &errorCode, &errorMessage);
     } else if (messageType == QLatin1String("DiscardCalibration")) {
+        ++m_discardCalibrationCount;
+        m_lastDiscardCalibration = payload;
         if (m_calibrationState.isEmpty()) {
             errorCode = QStringLiteral("ERR_CALIBRATION_NOT_READY");
             errorMessage = QString::fromUtf8("当前没有正在进行的本机校准。");

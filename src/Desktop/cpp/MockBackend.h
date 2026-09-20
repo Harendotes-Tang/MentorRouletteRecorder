@@ -106,6 +106,11 @@ public:
     /// test can pin what a switch actually put on the wire.
     QJsonObject lastCaptureSettingsUpdate() const { return m_lastCaptureSettingsUpdate; }
 
+    /// DiscardCalibration requests received, and the payload of the last one, so
+    /// a test can tell 重新观察 from 重新校准 by what actually went on the wire.
+    int discardCalibrationCount() const { return m_discardCalibrationCount; }
+    QJsonObject lastDiscardCalibration() const { return m_lastDiscardCalibration; }
+
     /// Simulate the live-validated failure mode of
     /// docs/live-validation-guide.md section 6: capture was started after the
     /// client had already logged in, so nothing decodes and the Collector says
@@ -254,6 +259,8 @@ private:
     bool m_midstreamSuspected = false;
     bool m_updateAvailable = false;
     QJsonObject m_lastCaptureSettingsUpdate;
+    int m_discardCalibrationCount = 0;
+    QJsonObject m_lastDiscardCalibration;
     /// Monotonic $defs/LiveEvent.sequence handed to every emitted event.
     qint64 m_liveSequence = 0;
     QString m_recordingFixture;

@@ -92,15 +92,22 @@ public Q_SLOTS:
     /// require confirmation are sent, in timeline order.
     void confirm(const QVariantMap &verdicts);
     void discard();
+    /// 重新校准: the same request, asking the Collector to stop using the profile
+    /// this machine calibrated as well. The file is kept, renamed; the records it
+    /// already made are left exactly as they are.
+    void recalibrate();
 
 Q_SIGNALS:
     void changed();
     void confirmed(const QString &profileId, bool boundInSession);
     void rejected(const QString &message);
+    /// The profile in force changed, so the capture status has to be re-read.
+    void refreshRequested();
 
 private:
     void publish(const QString &state, const QString &gameBuild, const QStringList &blockers,
                  const QVariantMap &progress, const QVariantList &events, bool provisional);
+    void sendDiscard(bool retireLocalProfile);
 
     QPointer<IBackend> m_backend;
     SharedCalibrationController *m_shared = nullptr;

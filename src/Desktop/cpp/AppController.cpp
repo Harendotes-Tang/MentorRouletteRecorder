@@ -116,6 +116,10 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
         if (m_recording)
             m_recording->refresh();
     });
+    // 重新校准 stopped the profile that was recording; which profile is in force now, and
+    // whether the calibration card comes back, are the Collector's to say.
+    connect(m_calibration, &CalibrationController::refreshRequested, this,
+            &AppController::rereadCaptureStatus);
     // 共享校准: every answer is a toast, and a request that changed shared state is
     // followed by one capture-status read so the card does not wait for the next poll.
     connect(m_calibration->shared(), &SharedCalibrationController::notice, this,

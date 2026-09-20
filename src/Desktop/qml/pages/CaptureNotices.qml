@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls
 import QtQuick.Layouts
 import MentorRecorder
 
@@ -29,6 +30,14 @@ ColumnLayout {
                                         && !notices.calibrationCardVisible
     readonly property bool calibratedProfile: notices.profileStatus === "VERIFIED"
         && (notices.profileOrigin === "LOCAL_CALIBRATION" || notices.profileOrigin === "SHARED_CALIBRATION")
+    // 本机校准出来的档案生效后，校准卡片连同「清空进度并重新观察」「导入校准码」一起消失，
+    // 玩家再无入口可用。「重新校准」只在这种情况下出现：别人分享的校准由「不用共享的，
+    // 我自己校准」停用，随包档案不是本机的猜测，没有档案时也无从停用。
+    readonly property bool offersRecalibrate: notices.profileStatus === "VERIFIED"
+                                              && notices.profileOrigin === "LOCAL_CALIBRATION"
+    // 停用档案会把正在进行的记录按停止捕获收尾，等于让玩家白打这一把。
+    readonly property bool runInFlight: App.currentRunState === "MENTOR_MATCHED"
+                                        || App.currentRunState === "ENTERED_DUTY"
     // A known, non-verified profile while the game runs is the reason nothing is
     // recorded. While calibration runs its own card explains that instead.
     readonly property bool profileProblem: App.ffxivRunning && notices.profileStatus.length > 0
@@ -190,6 +199,95 @@ ColumnLayout {
                 text: qsTr("分享给其他玩家")
                 enabled: !!notices.sharedCalibration && !notices.sharedCalibration.busy
                 onClicked: notices.sharedCalibration.share()
+            }
+        }
+
+        // 本机校准的档案认错了报文时，这里是唯一的退路：停用它，软件回到观察状态，
+        // 之后可以重新校准，也可以导入其他玩家的校准码。
+        RowLayout {
+            Layout.fillWidth: true
+            Layout.topMargin: 2
+            visible: notices.offersRecalibrate
+            spacing: 16
+
+            Text {
+                objectName: "protocolRecalibrateHint"
+                Layout.fillWidth: true
+                visible: notices.runInFlight
+                text: qsTr("副本进行中，结束后再试")
+                textFormat: Text.PlainText
+                color: Theme.textSecondary
+                font.pixelSize: Theme.fs(12)
+                wrapMode: Text.WordWrap
+            }
+
+            Item { Layout.fillWidth: true; visible: !notices.runInFlight }
+
+            AppButton {
+                objectName: "protocolRecalibrateButton"
+                text: qsTr("重新校准")
+                enabled: !notices.runInFlight
+                         && (!App.calibration || !App.calibration.busy)
+                onClicked: recalibrateDialog.open()
+            }
+        }
+    }
+
+    // 停用一份还在记录的档案，先把代价说清楚再问一次。
+    Dialog {
+        id: recalibrateDialog
+        objectName: "protocolRecalibrateDialog"
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        modal: true
+        Overlay.modal: Rectangle { color: Theme.modalScrim(recalibrateDialog.palette.shadow) }
+        width: 460
+        padding: 20
+        closePolicy: Popup.CloseOnEscape
+
+        background: DialogFrame {}
+
+        contentItem: ColumnLayout {
+            spacing: 12
+
+            HeadingLabel {
+                Layout.fillWidth: true
+                text: qsTr("重新校准这一版游戏？")
+                font.pixelSize: Theme.dialogTitleSize(20)
+            }
+
+            Text {
+                Layout.fillWidth: true
+                text: qsTr("现在这份本机校准会停用（文件会保留，不会删除），软件回到观察状态："
+                           + "期间不会生成记录，直到重新校准完成，或导入了其他玩家的校准码。"
+                           + "之前的记录不受影响。")
+                textFormat: Text.PlainText
+                color: Theme.textSecondary
+                font.pixelSize: Theme.fs(12)
+                wrapMode: Text.WordWrap
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
+
+                Item { Layout.fillWidth: true }
+
+                AppButton {
+                    text: qsTr("取消")
+                    onClicked: recalibrateDialog.close()
+                }
+
+                AppButton {
+                    objectName: "protocolRecalibrateConfirm"
+                    variant: "primary"
+                    text: qsTr("停用并重新校准")
+                    enabled: !!App.calibration && !App.calibration.busy
+                    onClicked: {
+                        App.calibration.recalibrate()
+                        recalibrateDialog.close()
+                    }
+                }
             }
         }
     }

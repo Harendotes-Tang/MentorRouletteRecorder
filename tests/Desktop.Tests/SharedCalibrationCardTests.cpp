@@ -357,6 +357,54 @@ private Q_SLOTS:
         verifyPlayerCopy(texts);
     }
 
+    void theConsentViewStillOffersImporting()
+    {
+        // A real machine: the player retired her local profile so she could import the code a
+        // friend had sent her. The client downloaded the published queue-inferred code first,
+        // it passed verification, and the card went to the consent view - where the import
+        // button was hidden. Consenting binds that weaker code and hides the button for good;
+        // refusing blocks every import until 重新观察, after which the same code arrives again.
+        // There was no way in, and the Collector had never refused the import - only this card.
+        CardScene scene;
+        QVERIFY(scene.open(QStringLiteral("consent"), 760));
+        QTRY_COMPARE(scene.shared()->view(), QStringLiteral("consent"));
+        QVERIFY(scene.shared()->canImport());
+
+        auto *button = scene.item(QStringLiteral("sharedConsentImportButton"));
+        QVERIFY(button);
+        QTRY_VERIFY(button->isVisible());
+        QVERIFY(button->property("enabled").toBool());
+        // One import button on screen, never two: the Flow's own steps aside here.
+        QVERIFY(!scene.item(QStringLiteral("sharedImportButton"))->isVisible());
+
+        QVERIFY(scene.item(QStringLiteral("sharedConsentText"))->property("text").toString().contains(
+            QString::fromUtf8("导入校准码")));
+
+        auto *dialog = scene.dialog("importDialog");
+        QVERIFY(dialog);
+        QVERIFY(!dialog->property("visible").toBool());
+        QVERIFY(QMetaObject::invokeMethod(button, "clicked"));
+        QTRY_VERIFY(dialog->property("visible").toBool());
+    }
+
+    /// The consent box's own buttons must wrap inside a narrow card like every other row.
+    void theConsentBoxWrapsInsteadOfOverflowingANarrowCard()
+    {
+        CardScene scene;
+        QVERIFY(scene.open(QStringLiteral("consent"), 340));
+        QTRY_VERIFY(scene.item(QStringLiteral("sharedConsentImportButton"))->isVisible());
+        QTest::qWait(50);
+        for (const QString &name : {QStringLiteral("sharedAcceptButton"),
+                                    QStringLiteral("sharedConsentImportButton")}) {
+            auto *button = scene.item(name);
+            QVERIFY2(button && button->isVisible(), qPrintable(name));
+            const QPointF at = button->mapToItem(scene.card, QPointF(0, 0));
+            QVERIFY2(at.x() >= 0 && at.x() + button->width() <= scene.card->width() + 0.5,
+                     qPrintable(QStringLiteral("%1 overflows: x=%2 w=%3 card=%4")
+                                    .arg(name).arg(at.x()).arg(button->width()).arg(scene.card->width())));
+        }
+    }
+
     void aRecordingSharedProfileReplacesTheCalibratingCard()
     {
         CardScene scene;
@@ -589,6 +637,64 @@ private Q_SLOTS:
         QVERIFY(restarted.app->toastMessage().contains(QString::fromUtf8("已在系统浏览器中打开")));
     }
 
+    // -- 协议档案 card: 重新校准 ---------------------------------------------
+
+    void theProtocolCardOffersRecalibrationForALocalProfile()
+    {
+        // The player whose own machine calibrated the wrong message. Once the local profile
+        // binds, the calibration card is gone and with it 清空进度并重新观察 and 导入校准码,
+        // so until now the only way back was renaming a file in Explorer.
+        PageScene scene;
+        // No duty in flight: the mock's own default is one, and retiring the profile would
+        // close it (recalibrationWaitsForTheDutyToEnd pins that case).
+        scene.backend->setLiveMode(mr::MockBackend::LiveMode::None);
+        QVERIFY(scene.open(QStringLiteral("idle"), QStringLiteral("share")));
+        QTRY_VERIFY(scene.shows(QStringLiteral("protocolRecalibrateButton")));
+        QVERIFY(!scene.shows(QStringLiteral("calibrationCard")));
+        QTRY_COMPARE(scene.app->currentRunState(), QStringLiteral("IDLE"));
+        QVERIFY(scene.item(QStringLiteral("protocolRecalibrateButton"))->property("enabled").toBool());
+        QVERIFY(!scene.shows(QStringLiteral("protocolRecalibrateHint")));
+
+        auto *dialog = scene.root->findChild<QObject *>(QStringLiteral("protocolRecalibrateDialog"));
+        QVERIFY(dialog);
+        QVERIFY(!dialog->property("visible").toBool());
+        QCOMPARE(scene.backend->discardCalibrationCount(), 0);
+
+        // Opening it sends nothing: the player is told what stopping the profile costs before
+        // anything at all happens to it.
+        QVERIFY(QMetaObject::invokeMethod(scene.item(QStringLiteral("protocolRecalibrateButton")), "clicked"));
+        QTRY_VERIFY(dialog->property("visible").toBool());
+        QCOMPARE(scene.backend->discardCalibrationCount(), 0);
+
+        auto *confirm = dialog->findChild<QQuickItem *>(QStringLiteral("protocolRecalibrateConfirm"));
+        QVERIFY(confirm);
+        QVERIFY(QMetaObject::invokeMethod(confirm, "clicked"));
+
+        QTRY_COMPARE(scene.backend->discardCalibrationCount(), 1);
+        QVERIFY(scene.backend->lastDiscardCalibration()
+                    .value(QStringLiteral("retire_local_profile")).toBool());
+    }
+
+    void recalibrationWaitsForTheDutyToEnd()
+    {
+        // Retiring the profile closes the run in flight the way a stopped capture does, which
+        // would cost the player the duty they are sitting in. The button says so and waits.
+        PageScene scene;
+        scene.backend->setLiveMode(mr::MockBackend::LiveMode::Matched);
+        QVERIFY(scene.open(QStringLiteral("idle"), QStringLiteral("share")));
+        QTRY_COMPARE(scene.app->currentRunState(), QStringLiteral("MENTOR_MATCHED"));
+        QTRY_VERIFY(scene.shows(QStringLiteral("protocolRecalibrateButton")));
+
+        QVERIFY(!scene.item(QStringLiteral("protocolRecalibrateButton"))->property("enabled").toBool());
+        QTRY_VERIFY(scene.shows(QStringLiteral("protocolRecalibrateHint")));
+        QCOMPARE(scene.item(QStringLiteral("protocolRecalibrateHint"))->property("text").toString(),
+                 QString::fromUtf8("副本进行中，结束后再试"));
+
+        QStringList texts;
+        collectVisibleText(scene.item(QStringLiteral("protocolProfileCard")), texts);
+        verifyPlayerCopy(texts);
+    }
+
     void onlyALocalCalibrationIsOfferedForSharing_data()
     {
         QTest::addColumn<QString>("origin");
@@ -625,6 +731,10 @@ private Q_SLOTS:
         QVERIFY(!scene.shared()->canShare());
         QVERIFY(!scene.shows(QStringLiteral("protocolShareButton")));
         QVERIFY(!scene.shows(QStringLiteral("protocolShareHint")));
+        // 重新校准 retracts this machine's own guess. Someone else's calibration is stopped
+        // through 不用共享的，我自己校准, the shipped profile is not ours to retract, and with
+        // no profile in force there is nothing to stop using.
+        QVERIFY(!scene.shows(QStringLiteral("protocolRecalibrateButton")));
     }
 };
 

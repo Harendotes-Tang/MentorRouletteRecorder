@@ -998,27 +998,11 @@ public sealed partial class LiveProtocolPipeline :
             _calibration.MarkDone(written.ProfileId, bound ? _calibrationBoundAt : null, provisional);
             // The role is read off the profile in force, and that profile has just changed: one
             // that gained the job must stop being offered the job.
-            var (_, upgrading, retaining) = CalibrationRoles();
-            UseCalibrationRole(upgrading, retaining);
+            var (_, upgrading, retaining, completing) = CalibrationRoles();
+            UseCalibrationRole(upgrading, retaining, completing);
             _shared.Sync();
             NotifyCalibrationChanged();
             return new CalibrationConfirmation(written.ProfileId, written.Path, bound);
-        }
-    }
-
-    /// <summary>Throws away the evidence of the running session and observes again.</summary>
-    public CalibrationStatusSnapshot DiscardCalibration()
-    {
-        lock (_gate)
-        {
-            // 重新观察 has to survive a restart, or the next launch would hand the player back
-            // exactly what they asked the software to forget.
-            ForgetCalibrationEvidence();
-            _calibration.Discard(_active ? _sessionId : null);
-            // 重新观察 also forgets which shared calibrations this build's traffic contradicted.
-            _shared.OnDiscard();
-            NotifyCalibrationChanged();
-            return _calibration.Snapshot() with { Shared = _shared.Snapshot() };
         }
     }
 
@@ -1048,7 +1032,7 @@ public sealed partial class LiveProtocolPipeline :
             return;
         }
 
-        var (eligible, upgrading, retaining) = CalibrationRoles();
+        var (eligible, upgrading, retaining, completing) = CalibrationRoles();
         if (!eligible)
         {
             _calibration.Disarm();
@@ -1057,20 +1041,11 @@ public sealed partial class LiveProtocolPipeline :
 
         if (_calibration.Armed && string.Equals(_calibration.GameBuild, _game.GameBuild, StringComparison.Ordinal))
         {
-            UseCalibrationRole(upgrading, retaining);
+            UseCalibrationRole(upgrading, retaining, completing);
             return;
         }
 
-        CalibrationTemplate? template;
-        try
-        {
-            template = _calibrationServices.SelectTemplate(_game.Region);
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
-        {
-            template = null;
-        }
-
+        var template = SelectTemplateSafely();
         if (template is null)
         {
             _calibration.Disarm();
@@ -1078,12 +1053,25 @@ public sealed partial class LiveProtocolPipeline :
         }
 
         _calibration.Arm(template, _game.Region, _game.GameBuild);
-        UseCalibrationRole(upgrading, retaining);
+        UseCalibrationRole(upgrading, retaining, completing);
         CarryCalibrationMemory(template);
     }
 
+    /// <summary>The shipped template for the running region, or null when there is none or it cannot be read.</summary>
+    private CalibrationTemplate? SelectTemplateSafely()
+    {
+        try
+        {
+            return _calibrationServices.SelectTemplate(_game.Region);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        {
+            return null;
+        }
+    }
+
     /// <summary>Whether calibration runs beside the selection in force, and in which role. Changes nothing.</summary>
-    private (bool Eligible, bool Upgrading, bool Retaining) CalibrationRoles()
+    private (bool Eligible, bool Upgrading, bool Retaining, bool Completing) CalibrationRoles()
     {
         var calibratable = _game.Region is Region.Cn or Region.Global;
         // A provisional profile is in force and working, and is still the wrong answer: it
@@ -1106,7 +1094,20 @@ public sealed partial class LiveProtocolPipeline :
         var unknownBuild = calibratable && !_selection.IsUsable &&
             _selection.Status == ProfileCompatibilityStatus.Unsupported &&
             string.Equals(_selection.Reason, ProfileSelector.NoProfileMatchesReason, StringComparison.Ordinal);
-        return (upgrading || retaining || localProfileRefused || unknownBuild, upgrading, retaining);
+        // A local profile that reads the server's own match - so calibration is over as far as
+        // recording goes - and was written before the job rule could name the message. Nothing
+        // is wrong with it except that every record it makes says 职业未知, for the life of the
+        // build, with no card and no button left to do anything about it. Calibration stays
+        // armed beside it, silently, so a later draft can hand it the job it is missing. The
+        // template is consulted last, and only for a profile in this shape, because reading it
+        // costs a pass over the profile directory.
+        var completing = calibratable && _selection.IsUsable &&
+            _selection.Origin == ProfileOrigin.Local &&
+            _selection.Profile is { MatchFromQueue: false } settled &&
+            settled.Message(CalibratedShape.JobName) is null &&
+            (_calibration.Template ?? SelectTemplateSafely())?.PlayerJob is not null;
+        return (upgrading || retaining || completing || localProfileRefused || unknownBuild,
+            upgrading, retaining, completing);
     }
 
     /// <summary>What earlier runs left for a newly armed build: corrected roulette names and carried evidence.</summary>

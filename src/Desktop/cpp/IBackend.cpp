@@ -155,9 +155,14 @@ BackendReply *IBackend::confirmCalibration(const QJsonArray &verdicts)
     return request(QStringLiteral("ConfirmCalibration"), payload);
 }
 
-BackendReply *IBackend::discardCalibration()
+BackendReply *IBackend::discardCalibration(bool retireLocalProfile)
 {
-    return request(QStringLiteral("DiscardCalibration"));
+    // Omitted rather than sent as false: the contract's default is false, and an empty
+    // payload is what every Collector since the message existed understands.
+    if (!retireLocalProfile)
+        return request(QStringLiteral("DiscardCalibration"));
+    return request(QStringLiteral("DiscardCalibration"),
+                   QJsonObject{{QStringLiteral("retire_local_profile"), true}});
 }
 
 BackendReply *IBackend::getCalibrationShareCode()

@@ -192,17 +192,30 @@ void CalibrationController::confirm(const QVariantMap &verdicts)
 
 void CalibrationController::discard()
 {
+    sendDiscard(false);
+}
+
+void CalibrationController::recalibrate()
+{
+    sendDiscard(true);
+}
+
+void CalibrationController::sendDiscard(bool retireLocalProfile)
+{
     if (m_busy || !m_backend)
         return;
     m_busy = true;
     m_error.clear();
     Q_EMIT changed();
-    m_backend->discardCalibration()->whenDone(this,
-        [this](bool ok, const QVariantMap &result, const QString &code, const QString &message) {
+    m_backend->discardCalibration(retireLocalProfile)->whenDone(this,
+        [this, retireLocalProfile](bool ok, const QVariantMap &result, const QString &code,
+                                   const QString &message) {
         m_busy = false;
         if (!ok) {
             Q_UNUSED(code);
-            m_error = message.isEmpty() ? tr("重新观察失败，请稍后再试。") : message;
+            m_error = message.isEmpty()
+                ? (retireLocalProfile ? tr("重新校准失败，请稍后再试。") : tr("重新观察失败，请稍后再试。"))
+                : message;
             Q_EMIT changed();
             return;
         }
@@ -211,9 +224,13 @@ void CalibrationController::discard()
         const QString state = result.value(QStringLiteral("state")).toString();
         m_lastResult.clear();
         // 重新观察丢掉的是草稿，不是已经写出并生效的本机档案：provisional 保持原样。
+        // 重新校准 does stop that profile, and what is in force is not this controller's to
+        // decide: the capture status is re-read and says so.
         publish(state.isEmpty() ? m_state : state, m_gameBuild, QStringList(), QVariantMap(),
-                QVariantList(), m_provisional);
+                QVariantList(), retireLocalProfile ? false : m_provisional);
         Q_EMIT changed();
+        if (retireLocalProfile)
+            Q_EMIT refreshRequested();
     });
 }
 

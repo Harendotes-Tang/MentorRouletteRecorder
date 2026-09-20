@@ -1,5 +1,15 @@
 # IPC 契约变更记录 / IPC contract changelog
 
+## 2026-09-20 — 重新校准：`DiscardCalibration` 新增可选请求字段 `retire_local_profile`（附加）
+
+附加式变更：一个新的可选请求字段，缺省 `false` 即旧行为，旧桌面端不发它，旧采集服务按契约未声明字段拒绝。**不新增消息类型**，`$defs/MessageType` 仍为 49 个业务消息 + `Event` + `Error`。
+
+- **`DiscardCalibration` 请求载荷**（原为 `$defs/EmptyPayload`，现为 `$defs/DiscardCalibrationRequest`）新增可选布尔字段 `retire_local_profile`，缺省 `false`。
+  置 `true` 时，若当前生效的是本机校准档案（`profile_origin = LOCAL_CALIBRATION`），则先停用它：文件改名保留（后缀 `.json.retired`，不删除），
+  正在进行的记录按停止捕获收尾，校准在当前会话内重新开始观察，其后可以再次导入校准码。
+- 与流量证伪后的自动撤下不同：它生成的记录**不**标为待复核，它所认的匹配报文也**不**被拒绝——是玩家要求重新校准，而不是流量证伪了它。
+- 当前生效的不是本机校准档案（随包档案、共享校准，或未选中任何档案）时，`true` 与 `false` 等价，即仅重新观察。应答仍为 `{state}`。
+
 ## 2026-09-20 — 再次匹配也播报：`run_state_changed` 新增可选 `match_offer`（附加）
 
 附加式变更：一个新的可选字段，旧桌面端忽略它，旧采集服务不发它。**不新增消息类型**，`$defs/MessageType` 仍为 49 个业务消息 + `Event` + `Error`。

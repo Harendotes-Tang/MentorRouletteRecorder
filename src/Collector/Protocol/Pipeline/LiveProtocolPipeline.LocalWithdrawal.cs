@@ -1,6 +1,7 @@
 using MentorRecorder.Collector.Capture;
 using MentorRecorder.Collector.Domain.Events;
 using MentorRecorder.Collector.Domain.StateMachine;
+using MentorRecorder.Collector.Protocol.Calibration;
 using MentorRecorder.Collector.Protocol.Parsing;
 using MentorRecorder.Collector.Protocol.Profiles;
 
@@ -122,7 +123,7 @@ public sealed partial class LiveProtocolPipeline
             {
                 // Renamed, never deleted: it is the record of what the software believed while it
                 // was recording, and the player may well ask.
-                _calibrationServices.RetireLocalProfile(region, gameBuild);
+                _calibrationServices.RetireLocalProfile(region, gameBuild, LocalProfileFiles.RetiredSuffix);
             }
             catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
             {
