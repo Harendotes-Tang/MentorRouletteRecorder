@@ -4,6 +4,12 @@ import MentorRecorder
 import "Lucide.js" as Lucide
 
 // Shared button for `.btn` / `.btn-primary` / `.btn-secondary` / `.btn-ghost`.
+// In the game themes a filled accent plate means "selected" (SegmentedControl, the
+// wizard's cards and chips), so a primary button must not rest on one: next to a
+// secondary button it read as the chosen half of a toggle, and 通关 in the result
+// question as an answer already given. It rests as a tinted plate (accent at low alpha)
+// in a bright accent frame - heavier than a secondary button, which in harendotes is an
+// accent outline itself - and takes the solid plate only under the pointer or while pressed.
 // Classic (workbench.css): secondary is a surface button with a neutral-300
 // frame, primary a solid accent with 600 text, ghost accent text on nothing;
 // disabled is a fill plate with muted text rather than a faded button.
@@ -22,6 +28,8 @@ Button {
     readonly property real pixelRatio: Screen.devicePixelRatio > 0 ? Screen.devicePixelRatio : 1
 
     readonly property bool primary: variant === "primary"
+    // The primary plate is showing: hover or press, never at rest.
+    readonly property bool primaryFilled: primary && enabled && (down || hovered)
     readonly property bool ghost: variant === "ghost"
     // The other theme's page colours (Theme.inverseBackground/Text): the title
     // bar's 深色 / 浅色 switch.
@@ -66,7 +74,9 @@ Button {
         border.color: control.keyboardFocusVisible
                       ? (Theme.dark ? "#ffffff" : Theme.accent700)
                       : (Theme.eorzea
-                         ? (control.primary ? Theme.buttonPrimaryBorder : Theme.buttonBorder)
+                         ? (control.primary
+                            ? (control.primaryFilled ? Theme.buttonPrimaryBorder : Theme.accentStrong)
+                            : Theme.buttonBorder)
                          : (control.primary
                             ? (active ? Theme.accentStrong : Theme.accent)
                             : Theme.neutral300))
@@ -85,7 +95,7 @@ Button {
 
         function eorzeaColor() {
             if (control.primary)
-                return Theme.clear(Theme.accent)
+                return Theme.accentMuted
             if (!control.ghost)
                 return Theme.surfaceRaised
             return control.down ? Theme.fillStrong
@@ -108,7 +118,9 @@ Button {
             anchors.fill: parent
             anchors.margins: 1
             radius: Math.max(0, parent.radius - 1)
-            visible: Theme.eorzea && control.primary
+            visible: Theme.eorzea && control.primary && opacity > 0
+            opacity: control.primaryFilled ? 1 : 0
+            Behavior on opacity { NumberAnimation { duration: Theme.motionControl } }
             gradient: Gradient {
                 GradientStop { position: 0.0; color: Theme.buttonPrimaryTop }
                 GradientStop { position: 0.55; color: Theme.buttonPrimaryMid }
@@ -158,7 +170,7 @@ Button {
             return Theme.inverseText
         if (Theme.eorzea)
             return control.primary
-                   ? Theme.buttonPrimaryText
+                   ? (control.primaryFilled ? Theme.buttonPrimaryText : Theme.textPrimary)
                    : (control.ghost ? Theme.accentStrong : Theme.buttonText)
         if (control.primary)
             return "#ffffff"

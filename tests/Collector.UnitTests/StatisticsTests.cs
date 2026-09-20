@@ -27,7 +27,7 @@ public sealed class StatisticsTests
     }
 
     /// <summary>
-    /// The player looked at the dashboard in the middle of a duty: 导随总次数 6, 通关率 83.3%,
+    /// The player looked at the dashboard in the middle of a duty: 已记录次数 6, 通关率 83.3%,
     /// 未知结果 1. The run in flight is stored as UNKNOWN with no end time, and was counted as an
     /// attempt whose outcome is unknown - so every duty lowered the completion rate for as long
     /// as it lasted. A run that has not ended has no outcome yet and belongs to no statistic.

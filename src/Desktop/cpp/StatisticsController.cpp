@@ -261,7 +261,9 @@ QVariantList StatisticsController::statCards() const
     const QVariant avgDuration =
         m_dashboard.value(QStringLiteral("avg_duration_ms")).toVariant();
     return {
-        statCard(QString::fromUtf8("导随总次数"),
+        // Counts only what this software recorded; the 已有基数 typed in by hand is not in it,
+        // so the card must not read as a lifetime total.
+        statCard(QString::fromUtf8("已记录次数"),
                  QString::number(m_dashboard.value(QStringLiteral("attempt_count")).toInt())),
         statCard(QString::fromUtf8("完成次数"),
                  QString::number(m_dashboard.value(QStringLiteral("completed_count")).toInt())),
