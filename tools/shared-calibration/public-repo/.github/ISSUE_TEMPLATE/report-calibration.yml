@@ -1,0 +1,52 @@
+# 「报告校准有误」表单。玩家发现共享校准码有问题时填写。
+# 栏目标题（区服、游戏版本、现象、说明）与两个下拉的选项文字是 tools/issue.py 解析正文时找的字样，改动时两边一起改。
+# 这个表单不触发任何自动撤回：Action 只校验栏目、打标签、回复一次，Issue 保持打开，由维护者核实。
+name: 报告校准有误
+description: 共享校准码有问题时告诉维护者。不会自动撤回任何校准码，由维护者核实后处理。
+title: "[校准有误] "
+labels:
+  - calibration-report
+body:
+  - type: markdown
+    attributes:
+      value: |
+        提交后**不会自动撤回任何校准码**：维护者核实后会撤回有问题的校准码，或在此说明原因。
+
+        - 只需要区服、游戏版本与现象三项，「说明」可以留空。
+        - 不必附上校准码，维护者会按区服与客户端版本自行查对。
+        - 如果只是想更正自己提交过的校准码，不需要本表单：用软件的「分享给其他玩家」再提交一次即可，新的一份会替换旧的。
+  - type: dropdown
+    id: region
+    attributes:
+      label: 区服
+      description: 出问题的区服。
+      options:
+        - CN
+        - GLOBAL
+    validations:
+      required: true
+  - type: input
+    id: game_build
+    attributes:
+      label: 游戏版本
+      description: 软件里显示的客户端版本号，形如 2026.09.01.0000.0000。
+      placeholder: 2026.09.01.0000.0000
+    validations:
+      required: true
+  - type: dropdown
+    id: symptom
+    attributes:
+      label: 现象
+      description: 最接近的一项。
+      options:
+        - 弹窗时误报匹配
+        - 记录不到
+        - 职业或副本不对
+        - 其他
+    validations:
+      required: true
+  - type: textarea
+    id: note
+    attributes:
+      label: 说明
+      description: 可以留空。什么时候出现、出现过几次、当时在做什么。请勿粘贴报文内容或日志原文。

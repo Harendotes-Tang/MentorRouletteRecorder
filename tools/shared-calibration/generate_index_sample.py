@@ -49,7 +49,9 @@ SCENARIO = (
     ("CN", BUILD_A, 2, 2002, 21, repo_index.ADDED),
     ("CN", BUILD_A, 6, 2003, 22, repo_index.ADDED),
     ("CN", BUILD_A, 8, 1008, 23, repo_index.DUPLICATE),
-    ("CN", BUILD_A, 10, 1001, 24, repo_index.REFUSED),
+    # A second code from an account that already has one replaces it (rollback plan section 2). Account
+    # 1001 was code 1's only submitter, so code 1 is revoked here and the client must skip it.
+    ("CN", BUILD_A, 10, 1001, 24, repo_index.PUBLISHED),
     ("CN", BUILD_B, 0, 1000, 30, repo_index.PUBLISHED),
     ("GLOBAL", BUILD_A, 1, 1001, 31, repo_index.PUBLISHED),
 )

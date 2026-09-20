@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Reads a share-calibration issue, and makes anything echoed back from it harmless.
+"""Reads a share-calibration or report-calibration issue, and makes anything echoed back harmless.
 
 GitHub renders an issue form into the issue body as markdown: every field becomes a ``### <label>``
 heading followed by its value, an empty optional field becomes ``_No response_``, and a checkbox
 becomes ``- [X] <option>`` or ``- [ ] <option>``. The labels this module looks for are the ones in
-``.github/ISSUE_TEMPLATE/share-calibration.yml`` (test_public_repo_files.py keeps the two in step).
+``.github/ISSUE_TEMPLATE/share-calibration.yml`` and ``report-calibration.yml``
+(test_public_repo_files.py keeps them in step).
 
 The title and the body are untrusted: anyone can open an issue from the form and then edit the body
 into anything. So nothing is guessed. A missing or repeated section is a refusal, not a best effort;
@@ -36,9 +37,31 @@ CODE_AMBIGUOUS = "CODE_AMBIGUOUS"
 CONFIRM_MISSING = "CONFIRM_MISSING"
 CONFIRM_AMBIGUOUS = "CONFIRM_AMBIGUOUS"
 
+# The "report a wrong calibration" form. It carries no code and starts nothing automatic: the fields
+# exist so a maintainer knows where to look, so every one of them is a fixed option or a build number.
+REPORT_REGION_LABEL = "区服"
+REPORT_BUILD_LABEL = "游戏版本"
+REPORT_SYMPTOM_LABEL = "现象"
+REPORT_NOTE_LABEL = "说明"
+REPORT_TITLE_PREFIX = "[校准有误] "
+REPORT_REGIONS = ("CN", "GLOBAL")
+REPORT_SYMPTOMS = ("弹窗时误报匹配", "记录不到", "职业或副本不对", "其他")
+
+REPORT_REGION_MISSING = "REPORT_REGION_MISSING"
+REPORT_REGION_AMBIGUOUS = "REPORT_REGION_AMBIGUOUS"
+REPORT_REGION_INVALID = "REPORT_REGION_INVALID"
+REPORT_BUILD_MISSING = "REPORT_BUILD_MISSING"
+REPORT_BUILD_AMBIGUOUS = "REPORT_BUILD_AMBIGUOUS"
+REPORT_BUILD_INVALID = "REPORT_BUILD_INVALID"
+REPORT_SYMPTOM_MISSING = "REPORT_SYMPTOM_MISSING"
+REPORT_SYMPTOM_AMBIGUOUS = "REPORT_SYMPTOM_AMBIGUOUS"
+REPORT_SYMPTOM_INVALID = "REPORT_SYMPTOM_INVALID"
+
 _HEADING = re.compile(r"### (.*)")
 _CHECKED = re.compile(r"[ \t]*[-*] \[[xX]\] (.*?)[ \t]*")
 _TITLE = re.compile(r"\[共享校准\] (CN|GLOBAL) ([A-Za-z0-9][A-Za-z0-9._-]{0,127})")
+# The same client build a code carries (index.is_build); anything else is not a build the maintainer can look up.
+_REPORT_BUILD = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 
 # Rendered literally when preceded by a backslash in GitHub markdown.
 _BACKSLASH_ESCAPED = frozenset("\\`*_{}[]()+-!|<>~=&\"'$^%")
@@ -110,6 +133,60 @@ def _unfence(lines: list) -> str:
     if len(kept) >= 2 and kept[0].strip().startswith("```") and kept[-1].strip() == "```":
         kept = kept[1:-1]
     return "\n".join(kept).strip()
+
+
+@dataclass(frozen=True)
+class ReportForm:
+    """The three report values, or the reason the body could not be read as the form.
+
+    The optional 说明 is recorded as present or absent only: its text is free-form and nothing here
+    or in the reply ever needs it, so it never leaves the issue body.
+    """
+
+    region: str | None
+    game_build: str | None
+    symptom: str | None
+    has_note: bool
+    problem: str | None
+
+    @property
+    def readable(self) -> bool:
+        return self.problem is None
+
+
+# (attribute, section label, missing, ambiguous, invalid, what the form offers)
+_REPORT_FIELDS = (
+    ("region", REPORT_REGION_LABEL, REPORT_REGION_MISSING, REPORT_REGION_AMBIGUOUS, REPORT_REGION_INVALID,
+     lambda text: text in REPORT_REGIONS),
+    ("game_build", REPORT_BUILD_LABEL, REPORT_BUILD_MISSING, REPORT_BUILD_AMBIGUOUS, REPORT_BUILD_INVALID,
+     lambda text: _REPORT_BUILD.fullmatch(text) is not None),
+    ("symptom", REPORT_SYMPTOM_LABEL, REPORT_SYMPTOM_MISSING, REPORT_SYMPTOM_AMBIGUOUS, REPORT_SYMPTOM_INVALID,
+     lambda text: text in REPORT_SYMPTOMS),
+)
+
+
+def parse_report(body: Any) -> ReportForm:
+    """The three report values, from a report-calibration issue-form body; nothing is guessed."""
+    if not isinstance(body, str) or not body.strip():
+        return ReportForm(None, None, None, False, BODY_MISSING)
+    if len(body) > MAX_BODY_CHARS:
+        return ReportForm(None, None, None, False, BODY_TOO_LARGE)
+    sections = _sections(body.replace("\r\n", "\n").replace("\r", "\n"))
+    values = {}
+    for name, label, missing, ambiguous, invalid, offered in _REPORT_FIELDS:
+        found = [lines for heading, lines in sections if heading == label]
+        if len(found) > 1:
+            return ReportForm(None, None, None, False, ambiguous)
+        text = _unfence(found[0]) if found else ""
+        if not text or text == NO_RESPONSE:
+            return ReportForm(None, None, None, False, missing)
+        if not offered(text):
+            return ReportForm(None, None, None, False, invalid)
+        values[name] = text
+    has_note = any(
+        _unfence(lines) not in ("", NO_RESPONSE) for heading, lines in sections if heading == REPORT_NOTE_LABEL
+    )
+    return ReportForm(values["region"], values["game_build"], values["symptom"], has_note, None)
 
 
 def parse_title(title: Any) -> tuple | None:
