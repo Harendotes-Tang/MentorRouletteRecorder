@@ -33,6 +33,7 @@ REPO = HERE.parent.parent
 PUBLIC_DIRECTORY = HERE / "public-repo"
 RUNTIME_FILES = (
     "sharecode.py", "rebuild.py", "index.py", "issue.py", "publish.py", "publish_issue.sh", "sweep_issues.sh",
+    "report_issue.sh",
 )
 RENAMED = {"dot-gitattributes": ".gitattributes", "dot-gitignore": ".gitignore"}
 PROFILE_REGIONS = ("cn", "global")

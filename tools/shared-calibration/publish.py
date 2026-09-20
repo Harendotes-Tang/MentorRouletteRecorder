@@ -13,6 +13,11 @@ Run by tools/publish_issue.sh and tools/sweep_issues.sh, which .github/workflows
   pending        list open submissions nobody has answered yet, from `gh api --paginate` output
   wrap-event     wrap a REST issue object as an event file
   revoke         maintainer: mark a code revoked in index.json, recomputing the conflict flags
+  report         validate one "report a wrong calibration" issue, for labelling and one reply
+
+``report`` publishes nothing and revokes nothing: a report is a reason for a maintainer to look, and
+a count of reports must never be able to take a working calibration down. It only decides whether the
+form was filled in, which labels the issue gets, and what the single reply says.
 
 Untrusted input - the issue title, the body, the submitter's login - is read only from the event file
 named on the command line, never from arguments or the environment. Every decision writes result.json
@@ -42,13 +47,16 @@ import sharecode
 OWNER = "Harendotes-Tang"
 REPOSITORY = "MentorRecorder-Calibrations"
 ISSUE_FORM = "share-calibration.yml"
+REPORT_FORM = "report-calibration.yml"
 CODE_FIELD_ID = "code"
 
 SUBMISSION_LABEL = "share-calibration"
+REPORT_LABEL = "calibration-report"
 LABEL_PUBLISHED = "published"
 LABEL_REJECTED = "rejected"
 LABEL_MAINTAINER = "needs-maintainer"
 ANSWER_LABELS = frozenset({LABEL_PUBLISHED, LABEL_REJECTED, LABEL_MAINTAINER})
+REPORT_LABELS = "%s %s" % (REPORT_LABEL, LABEL_MAINTAINER)
 TEMPLATES_DIRECTORY = "templates"
 MAX_PENDING = 50
 MAX_INPUT_BYTES = 16 * 1024 * 1024
@@ -58,8 +66,9 @@ PUBLISHED = repo_index.PUBLISHED
 ADDED = repo_index.ADDED
 DUPLICATE = repo_index.DUPLICATE
 REFUSED = repo_index.REFUSED
+RECEIVED = "received"
 ERROR = "error"
-STATUSES = (SKIPPED, PUBLISHED, ADDED, DUPLICATE, REFUSED, ERROR)
+STATUSES = (SKIPPED, PUBLISHED, ADDED, DUPLICATE, REFUSED, RECEIVED, ERROR)
 CLOSE_COMPLETED = "completed"
 CLOSE_NOT_PLANNED = "not planned"
 
@@ -71,6 +80,7 @@ ACCOUNT_LOOKUP_FAILED = "ACCOUNT_LOOKUP_FAILED"
 ACCOUNT_MISMATCH = "ACCOUNT_MISMATCH"
 ACCOUNT_NOT_PERSONAL = "ACCOUNT_NOT_PERSONAL"
 NOT_CONFIRMED = "NOT_CONFIRMED"
+ALREADY_ANSWERED = "ALREADY_ANSWERED"
 TEMPLATE_UNKNOWN = "TEMPLATE_UNKNOWN"
 STRUCTURE_INVALID = "STRUCTURE_INVALID"
 TEMPLATES_BROKEN = "TEMPLATES_BROKEN"
@@ -104,8 +114,6 @@ _FORM_ADVICE = "请在软件里点「分享给其他玩家」重新打开预填�
 _REFUSALS = {
     repo_index.ACCOUNT_TOO_NEW: "提交校准码的 GitHub 账号需要注册满 30 天，这个账号还不满 30 天。满 30 天后可以重新提交，"
                                 "也可以把校准码交给注册满 30 天的玩家代为提交。",
-    repo_index.ACCOUNT_HAS_OTHER_CODE: "这个 GitHub 账号已经为 {where} 提交过另一份校准码。每个账号每个区服、每个客户端版本只能提交一份；"
-                                       "如果之前那份有误，请联系维护者。",
     repo_index.REVOKED: "完全相同的校准码之前发布过，但已被维护者撤销，不再发布。",
     repo_index.PAYLOAD_MISMATCH: "校准码里的客户端版本号无法作为仓库目录名（需要以字母或数字开头），因此无法发布。",
     repo_index.BUILD_NOT_INDEXABLE: "校准码里的客户端版本号无法作为仓库目录名（需要以字母或数字开头），因此无法发布。",
@@ -135,6 +143,8 @@ class Result:
     submitters: int | None = None
     title_mismatch: bool = False
     echo: str | None = None
+    replaced: tuple = ()
+    replaced_revoked: tuple = ()
 
     @property
     def label(self) -> str:
@@ -169,6 +179,7 @@ class Result:
             "match_source": self.match_source,
             "file": self.file,
             "submitters": self.submitters,
+            "replaced": [code[:12] for code in self.replaced],
             "label": self.label,
             "close_reason": self.close_reason,
             "code_commit_message": code_message,
@@ -192,6 +203,17 @@ def _summary(result: Result) -> list:
     ]
 
 
+_REPLACED_REVOKED = "已用这份校准码替换你此前为该版本提交的那一份（旧码已撤回）。"
+_REPLACED_KEPT = "已用这份校准码替换你此前为该版本提交的那一份（那一份仍有其他账号提交，因此继续保留）。"
+
+
+def _replacement(result: Result) -> str:
+    """How this submission replaced the account's earlier code, or an empty string when it did not."""
+    if not result.replaced:
+        return ""
+    return _REPLACED_REVOKED if result.replaced_revoked else _REPLACED_KEPT
+
+
 def _refusal_text(result: Result) -> str:
     if result.reason in _FORM_PROBLEMS:
         return _FORM_PROBLEMS[result.reason] + _FORM_ADVICE
@@ -208,12 +230,16 @@ def compose_comment(result: Result) -> str:
     if result.status == SKIPPED:
         return ""
     if result.status == PUBLISHED:
-        lines = ["**已发布。** 谢谢分享！", "", *_summary(result), "",
+        opening = ("**已发布，并%s**" % _replacement(result)) if result.replaced else "**已发布。** 谢谢分享！"
+        lines = [opening, "", *_summary(result), "",
                  "其他玩家的软件在游戏更新后会自动下载它，并先在自己的本机流量里逐条核实，核实通过才会用来记录。",
                  "下载源有缓存：raw.githubusercontent.com 几分钟内可见，jsDelivr 最多约 12 小时。", "", "本 Issue 自动关闭。"]
     elif result.status == ADDED:
         lines = ["**已计入。** 完全相同的校准码之前已经有人发布过，你的提交已计入：现在共有 %d 个 GitHub 账号提交了它，"
-                 "提交的账号越多，其他玩家的软件越优先核实它。" % result.submitters, "", *_summary(result), "", "本 Issue 自动关闭。"]
+                 "提交的账号越多，其他玩家的软件越优先核实它。" % result.submitters, "", *_summary(result), ""]
+        if result.replaced:
+            lines += [_replacement(result), ""]
+        lines += ["本 Issue 自动关闭。"]
     elif result.status == DUPLICATE:
         lines = ["**没有重复计数。** 这个 GitHub 账号之前已经提交过这份校准码。", "", *_summary(result), "", "本 Issue 自动关闭。"]
     elif result.status == REFUSED:
@@ -226,6 +252,94 @@ def compose_comment(result: Result) -> str:
         lines += ["", "提示：标题里写的区服或客户端版本与校准码不一致，已按校准码本身处理。"]
     lines += ["", "<sub>MentorRecorder 共享校准 · 自动回复</sub>"]
     return "\n".join(lines) + "\n"
+
+
+# --------------------------------------------------------------------------- a report of a wrong calibration
+
+_REPORT_RECEIVED = "**已收到。维护者核实后会撤回有问题的校准码，或在此说明原因。**"
+_REPORT_OPEN = "本 Issue 保持打开。请不要重复提交；如果还有别的线索，直接在本 Issue 下补充即可。"
+_REPORT_ADVICE = "请用「报告校准有误」表单重新提交，不要改动栏目标题；也可以直接在本 Issue 下补齐。本 Issue 保持打开。"
+_REPORT_PROBLEMS = {
+    issue_form.BODY_MISSING: "Issue 正文是空的。",
+    issue_form.BODY_TOO_LARGE: "Issue 正文太长，不是表单填出来的。",
+    issue_form.REPORT_REGION_MISSING: "没有在「区服」栏目读到内容。",
+    issue_form.REPORT_REGION_AMBIGUOUS: "正文里有不止一个「区服」栏目。",
+    issue_form.REPORT_REGION_INVALID: "「区服」栏目的内容不是表单里的选项（CN 或 GLOBAL）。",
+    issue_form.REPORT_BUILD_MISSING: "没有在「游戏版本」栏目读到内容。",
+    issue_form.REPORT_BUILD_AMBIGUOUS: "正文里有不止一个「游戏版本」栏目。",
+    issue_form.REPORT_BUILD_INVALID: "「游戏版本」栏目里的不是一个客户端版本号（形如 2026.09.01.0000.0000）。",
+    issue_form.REPORT_SYMPTOM_MISSING: "没有在「现象」栏目读到内容。",
+    issue_form.REPORT_SYMPTOM_AMBIGUOUS: "正文里有不止一个「现象」栏目。",
+    issue_form.REPORT_SYMPTOM_INVALID: "「现象」栏目的内容不是表单里的选项。",
+}
+
+
+@dataclass(frozen=True)
+class ReportResult:
+    """One decision about one report. Every field is a constant of this module or a validated option.
+
+    Nothing the reporter wrote is carried here: the region, the build and the symptom are values the
+    form offers, and the free-form 说明 is recorded only as present or absent. The reply is therefore
+    built from constants alone and can echo nothing.
+    """
+
+    status: str
+    reason: str | None = None
+    issue: int | None = None
+    region: str | None = None
+    game_build: str | None = None
+    symptom: str | None = None
+    note: bool = False
+
+    @property
+    def labels(self) -> str:
+        """The labels the shell adds, space separated. A skipped issue is not touched at all."""
+        return "" if self.status == SKIPPED else REPORT_LABELS
+
+    def to_json(self) -> dict:
+        return {
+            "status": self.status, "reason": self.reason, "issue": self.issue, "region": self.region,
+            "game_build": self.game_build, "symptom": self.symptom, "note": self.note,
+            "labels": self.labels, "comment": compose_report_comment(self),
+        }
+
+
+def compose_report_comment(result: ReportResult) -> str:
+    """The one reply posted on a report (Chinese). Empty for a skipped issue."""
+    if result.status == SKIPPED:
+        return ""
+    if result.status == RECEIVED:
+        lines = [_REPORT_RECEIVED, "", _REPORT_OPEN]
+    elif result.status == REFUSED:
+        problem = _REPORT_PROBLEMS.get(result.reason, "没有读到表单里的栏目。")
+        lines = ["**没有读全报告的内容。** " + problem, "", _REPORT_ADVICE]
+    else:
+        lines = ["**处理这个报告时遇到了仓库这边的问题**（`%s`）。" % result.reason, "",
+                 "本 Issue 保持打开，维护者会查看。"]
+    return "\n".join(lines + ["", "<sub>MentorRecorder 共享校准 · 自动回复</sub>"]) + "\n"
+
+
+def evaluate_report(event: Any) -> ReportResult:
+    """One report issue decided. Reads only the event file; publishes, revokes and closes nothing."""
+    issue = event.get("issue") if isinstance(event, dict) else None
+    if not isinstance(issue, dict) or not _positive_int(issue.get("number")):
+        return ReportResult(ERROR, EVENT_UNREADABLE)
+    number = issue["number"]
+    if "pull_request" in issue:
+        return ReportResult(SKIPPED, NOT_AN_ISSUE, issue=number)
+    if issue.get("state") != "open":
+        return ReportResult(SKIPPED, NOT_OPEN, issue=number)
+    labels = _label_names(issue)
+    if REPORT_LABEL not in labels:
+        return ReportResult(SKIPPED, NOT_LABELLED, issue=number)
+    # The report stays open, so a later edit or relabel would otherwise answer it a second time.
+    if labels & ANSWER_LABELS:
+        return ReportResult(SKIPPED, ALREADY_ANSWERED, issue=number)
+    form = issue_form.parse_report(issue.get("body"))
+    if not form.readable:
+        return ReportResult(REFUSED, form.problem, issue=number)
+    return ReportResult(RECEIVED, issue=number, region=form.region, game_build=form.game_build,
+                        symptom=form.symptom, note=form.has_note)
 
 
 # --------------------------------------------------------------------------- deciding
@@ -329,6 +443,7 @@ def _with_title(result: Result, submitted: _Issue) -> Result:
 
 def _from_outcome(number: int, outcome: repo_index.SubmissionOutcome) -> Result:
     base = _describe(Result(outcome.status, outcome.reason, outcome.detail, issue=number), outcome.payload, outcome.code_sha256)
+    base = replace(base, replaced=outcome.replaced, replaced_revoked=outcome.replaced_revoked)
     if outcome.status == REFUSED and outcome.reason in repo_index.MAINTAINER_REFUSALS:
         return replace(base, status=ERROR)
     if outcome.status == PUBLISHED:
@@ -406,7 +521,7 @@ def _with_conflicts(repo: Path, state: repo_index.Index, region: str, build: str
     return marked
 
 
-def _emit(out: str, result: Result) -> None:
+def _emit(out: str, result: Any) -> None:
     directory = Path(out)
     directory.mkdir(parents=True, exist_ok=True)
     data = result.to_json()
@@ -470,6 +585,7 @@ def command_push_failed(args: argparse.Namespace) -> int:
 _FIELD_CHECKS = {
     "status": lambda value: value in STATUSES,
     "label": lambda value: value in ("", LABEL_PUBLISHED, LABEL_REJECTED, LABEL_MAINTAINER),
+    "labels": lambda value: value in ("", REPORT_LABELS),
     "close_reason": lambda value: value in ("", CLOSE_COMPLETED, CLOSE_NOT_PLANNED),
     "file": lambda value: value == "" or _CODE_PATH.fullmatch(value) is not None,
     "code_commit_message": lambda value: value == "" or _COMMIT_MESSAGE.fullmatch(value) is not None,
@@ -562,6 +678,12 @@ def command_wrap_event(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_report(args: argparse.Namespace) -> int:
+    _, event = _load_json(args.event)
+    _emit(args.out, evaluate_report(event))
+    return 0
+
+
 def command_revoke(args: argparse.Namespace) -> int:
     repo = Path(args.repo)
     state = repo_index.load(repo)
@@ -611,6 +733,11 @@ def _parser() -> argparse.ArgumentParser:
     pending = commands.add_parser("pending")
     pending.add_argument("--issues", required=True)
     pending.set_defaults(run=command_pending)
+
+    report = commands.add_parser("report")
+    report.add_argument("--event", required=True, help="path of the GitHub issues event JSON")
+    report.add_argument("--out", required=True, help="directory for result.json and comment.md")
+    report.set_defaults(run=command_report)
 
     wrap = commands.add_parser("wrap-event")
     wrap.add_argument("--issue", required=True)

@@ -102,3 +102,9 @@ def payload(source: str = "ANNOUNCEMENT", number: int = 0, region: str = "CN", b
 def issue_body(code: str, checked: bool = True) -> str:
     """An issue body exactly as GitHub renders the share-calibration form."""
     return "### 校准码\n\n%s\n\n### 确认\n\n- [%s] 我在软件里逐条核对过校准时间线\n" % (code, "X" if checked else " ")
+
+
+def report_body(region: str = "CN", build: str = BUILD, symptom: str = "弹窗时误报匹配", note: str | None = None) -> str:
+    """An issue body exactly as GitHub renders the report-calibration form; None leaves 说明 empty."""
+    return "### 区服\n\n%s\n\n### 游戏版本\n\n%s\n\n### 现象\n\n%s\n\n### 说明\n\n%s\n" % (
+        region, build, symptom, note if note is not None else "_No response_")

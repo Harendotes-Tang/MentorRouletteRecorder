@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""tools/publish_issue.sh and tools/sweep_issues.sh, run for real against local git repositories.
+"""The three shell scripts of the Action, run for real against local git repositories.
 
 A bare repository stands in for GitHub, a stub ``gh`` records every call, and a pre-push hook in the
 runner's clone lets a "maintainer" push first, so the start-again-from-the-new-main loop runs the way
@@ -222,6 +222,43 @@ class WorkflowScriptTests(unittest.TestCase):
         self.assertFalse(any(call.startswith("issue close 13") for call in calls))
         self.assertIn("维护者会处理", self.comment(13))
         self.assertTrue((self.runner / "publish-13" / "replied").exists())
+        self.assertEqual(["seed"], [subject for _, subject in self.origin_log()])
+
+    def report(self, number, body=None, labels=("calibration-report",)) -> Path:
+        issue = {"number": number, "state": "open", "title": "[校准有误] CN " + testsupport.BUILD,
+                 "body": testsupport.report_body() if body is None else body,
+                 "labels": [{"name": name} for name in labels],
+                 "user": {"id": 6006, "login": "worried-player", "type": "User"}}
+        event = self.root / ("report-%d.json" % number)
+        event.write_text(json.dumps({"action": "opened", "issue": issue}, ensure_ascii=False), encoding="utf-8")
+        return event
+
+    def test_a_report_gets_both_labels_one_reply_and_is_left_open(self):
+        completed = self.run_bash("tools/report_issue.sh", self.report(21).as_posix())
+
+        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+        self.assertEqual(["seed"], [subject for _, subject in self.origin_log()], "a report changes no file")
+        calls = self.gh_calls()
+        for expected in ("issue edit 21 --add-label calibration-report", "issue edit 21 --add-label needs-maintainer",
+                         "label create calibration-report", "label create needs-maintainer"):
+            self.assertIn(expected, calls)
+        self.assertFalse(any(call.startswith("issue close 21") for call in calls))
+        self.assertIn("已收到。维护者核实后会撤回有问题的校准码，或在此说明原因。", self.comment(21))
+        self.assertEqual(1, self.comment(21).count("已收到"))
+
+    def test_an_answered_report_is_left_alone_and_one_that_is_not_the_form_is_still_labelled(self):
+        completed = self.run_bash("tools/report_issue.sh",
+                                  self.report(22, labels=("calibration-report", "needs-maintainer")).as_posix())
+        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+        self.assertEqual(["issue view 22 --json state --jq .state"], self.gh_calls())
+
+        completed = self.run_bash("tools/report_issue.sh", self.report(23, body="我随便写的 $(whoami)").as_posix())
+        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+        calls = self.gh_calls()
+        self.assertIn("issue edit 23 --add-label needs-maintainer", calls)
+        self.assertFalse(any(call.startswith("issue close 23") for call in calls))
+        self.assertIn("没有读全报告的内容", self.comment(23))
+        self.assertNotIn("whoami", self.comment(23))
         self.assertEqual(["seed"], [subject for _, subject in self.origin_log()])
 
 

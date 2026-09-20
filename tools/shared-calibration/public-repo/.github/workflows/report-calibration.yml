@@ -1,0 +1,59 @@
+# 「报告校准有误」的自动回复 / Answer one report of a wrong calibration.
+#
+# Maintained in the MentorRecorder repository under tools/shared-calibration/public-repo/ and copied
+# here by tools/shared-calibration/sync_public_repo.py.
+#
+# Security:
+# * The issue title and body are untrusted, and are read only by tools/publish.py, from the event
+#   file. No `run:` script contains an expression; `env:` carries only the token and the repository
+#   name. publish.py prints one line of ASCII JSON, so issue text can never begin a line of the log.
+# * This workflow publishes nothing and changes no file, so its token cannot write the repository:
+#   contents: read for the checkout, issues: write to comment and label, nothing else.
+# * A report never takes a calibration down by itself. There is no threshold and nothing automatic
+#   beyond one reply and two labels; the issue is left OPEN and a maintainer decides.
+# * Its own concurrency group. index.json is untouched here, so reports must neither queue behind
+#   publishing nor hold it up.
+# * publish.py answers an issue that already carries an answer label with `skipped`, so a relabel
+#   never produces a second reply.
+name: report-calibration
+
+on:
+  issues:
+    types: [opened, labeled]
+
+permissions:
+  contents: read
+  issues: write
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  report:
+    name: Answer a report of a wrong calibration
+    if: >-
+      github.event.issue.state == 'open' &&
+      contains(github.event.issue.labels.*.name, 'calibration-report') &&
+      (github.event.action != 'labeled' || github.event.label.name == 'calibration-report')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: report-calibration
+      cancel-in-progress: false
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v7
+        with:
+          ref: main
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Validate the report, label it and reply once
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: bash tools/report_issue.sh "$GITHUB_EVENT_PATH"
