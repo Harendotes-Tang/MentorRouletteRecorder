@@ -158,15 +158,24 @@ public sealed partial class LiveProtocolPipeline
         // Retiring put the id here so a file that could not be renamed was never bound again.
         // The file is back under its own name now, and it is the profile the player asked for.
         _withdrawnLocalProfiles.Remove(profileId);
+
+        // Read the catalogue before anything in force is touched. A directory that cannot be read
+        // just now says nothing about the file that came back, so it is no ground for condemning
+        // that file, and none for stopping whatever is recording: the restore is undone and the
+        // player asks again.
+        if (ReloadedSelect() is not { } select)
+        {
+            UndoRestore(target, profileId);
+            throw new CollectorException(
+                ErrorCodes.CalibrationNotReady, "暂时读不到校准档案，上一份本机校准还没有换回来，请稍后再试一次。");
+        }
+
         if ((_boundProfileId ?? _selection.Profile?.ProfileId) is { } inForce)
         {
             UnbindProfile(inForce);
         }
 
-        if (ReloadedSelect() is { } select)
-        {
-            ReselectAfterProfileChange(select);
-        }
+        ReselectAfterProfileChange(select);
 
         if (_selection is { IsUsable: true, Origin: ProfileOrigin.Local, Profile: { } profile } &&
             string.Equals(profile.ProfileId, profileId, StringComparison.Ordinal))
@@ -196,6 +205,29 @@ public sealed partial class LiveProtocolPipeline
 
         throw new CollectorException(
             ErrorCodes.CalibrationNotReady, "上一份本机校准已经无法使用，请重新校准。");
+    }
+
+    /// <summary>
+    /// Puts a profile that was just restored back into retirement, so a restore that could not
+    /// be completed leaves the directory as the player found it. A rename that fails leaves the
+    /// file under its own name, where the next selection takes it up - which is what was asked
+    /// for - so the id is only withheld again when the file really went back.
+    /// </summary>
+    private void UndoRestore((Region Region, string GameBuild) target, string profileId)
+    {
+        try
+        {
+            _calibrationServices.RetireLocalProfile(
+                target.Region, target.GameBuild, LocalProfileFiles.RetiredByRequestSuffix);
+            if (_calibrationServices.HasRetiredLocalProfile(target.Region, target.GameBuild))
+            {
+                _withdrawnLocalProfiles.Add(profileId);
+            }
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        {
+            // Then the file stays under its own name and the next selection takes it up.
+        }
     }
 
     /// <summary>

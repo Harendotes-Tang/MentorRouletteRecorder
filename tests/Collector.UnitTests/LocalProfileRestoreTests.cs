@@ -260,4 +260,43 @@ public sealed class LocalProfileRestoreTests : IDisposable
         Assert.False(File.Exists(ProfilePath));
         Assert.True(File.Exists(RetiredPath));
     }
+
+    /// <summary>
+    /// A catalogue that cannot be read for a moment says nothing about the file that came back.
+    /// The restore is undone rather than the profile condemned: whatever was recording keeps
+    /// recording, the retired file is the same bytes, and asking again works.
+    /// </summary>
+    [Fact]
+    public void ACatalogueThatCannotBeReadJustNowUndoesTheRestoreInsteadOfCondemningTheProfile()
+    {
+        WriteLocalProfile(CalibrationTrafficCases.Announcement);
+        var before = File.ReadAllBytes(ProfilePath);
+        var services = Services();
+        var unreadable = false;
+        var pipeline = _bed.Pipeline(services with
+        {
+            ReloadSelect = () => unreadable
+                ? throw new IOException("the profile directory is being scanned")
+                : services.ReloadSelect(),
+        });
+        pipeline.Refresh(Bed.Game());
+        pipeline.DiscardCalibration(retireLocalProfile: true);
+
+        unreadable = true;
+        var refused = Assert.Throws<CollectorException>(
+            () => pipeline.DiscardCalibration(restoreLocalProfile: true));
+
+        Assert.Equal(ErrorCodes.CalibrationNotReady, refused.Code);
+        Assert.DoesNotContain("重新校准", refused.Message, StringComparison.Ordinal);
+        Assert.False(File.Exists(ProfilePath));
+        Assert.Equal(before, File.ReadAllBytes(RetiredPath));
+        Assert.True(pipeline.CalibrationStatus().RetiredLocalProfileAvailable);
+
+        unreadable = false;
+        pipeline.DiscardCalibration(restoreLocalProfile: true);
+
+        Assert.Equal(before, File.ReadAllBytes(ProfilePath));
+        Assert.Equal(ProfileOrigin.Local, pipeline.Current.Origin);
+        Assert.Equal(ProfileStatus.Verified, pipeline.Current.Status);
+    }
 }

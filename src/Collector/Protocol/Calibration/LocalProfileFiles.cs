@@ -97,6 +97,8 @@ public static class LocalProfileFiles
                 return false;
             }
 
+            // Never overwriting: a calibration confirmed between the check above and this move
+            // makes the move throw, and the newer profile wins. The retired file is left as it was.
             File.Move(retired, path);
             return true;
         }
