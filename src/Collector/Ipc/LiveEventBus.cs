@@ -177,13 +177,22 @@ public sealed class LiveEventBus
     /// <param name="state">New state of the run in flight.</param>
     /// <param name="run">Run the state belongs to, or null when no run is in flight.</param>
     /// <param name="matchFromQueue">Match source of the bound machine; null when unknown.</param>
-    public void PublishState(RunState state, MentorRun? run = null, bool? matchFromQueue = null) =>
+    /// <param name="matchOffer">
+    /// MENTOR_MATCHED only: which offer of this run the event is about, from 1. A second event for
+    /// the same run and state with a higher number is the match popping again.
+    /// </param>
+    public void PublishState(
+        RunState state, MentorRun? run = null, bool? matchFromQueue = null, int? matchOffer = null) =>
         Publish(LiveEventKind.RunStateChanged, payload =>
         {
             payload["state"] = EnumWire<RunState>.Format(state);
             if (matchFromQueue is { } queued)
             {
                 payload["match_from_queue"] = queued;
+            }
+            if (matchOffer is { } offer)
+            {
+                payload["match_offer"] = offer;
             }
             if (run is not null)
             {

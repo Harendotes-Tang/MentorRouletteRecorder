@@ -1,5 +1,16 @@
 # IPC 契约变更记录 / IPC contract changelog
 
+## 2026-09-20 — 再次匹配也播报：`run_state_changed` 新增可选 `match_offer`（附加）
+
+附加式变更：一个新的可选字段，旧桌面端忽略它，旧采集服务不发它。**不新增消息类型**，`$defs/MessageType` 仍为 49 个业务消息 + `Event` + `Error`。
+
+- **事件载荷新增可选 `match_offer`**（整数，自 1 起）：仅出现在 `state = MENTOR_MATCHED` 的 `run_state_changed` 上，表示这是该条记录的第几次匹配。
+  有人取消后任务搜索器重新组队，匹配再次弹出时仍是同一条记录、同一个状态，此前因此不发任何事件，桌面端也就无从播报。
+  现在同一条记录内与上一次匹配相隔 10 秒及以上的再次匹配（同一次匹配连发的 3–4 条相隔不到 1 秒，不算）会再发一次 `MENTOR_MATCHED`，`match_offer` 加一；
+  桌面端的重复播报保护按「记录 + 状态 + `match_offer`」去重，因此会再播报一次，而断线重连后的重放仍然静默。
+- 行为变化（不在字段上）：匹配窗口过后再次匹配时，状态机在同一步内收尾旧记录并开启新记录，前后状态同为 `MENTOR_MATCHED`；
+  此前同样不发事件，现在记录变化也会发出 `run_state_changed`（`match_offer = 1`）。
+
 ## 2026-09-19 — 「匹配成功」报文：`CaptureStatus.last_valid_event_kind` 新增 `MATCH_ANNOUNCED`（附加）
 
 docs/plans/timed-announcement.md。全部为附加式变更：只向一个已有的枚举里加了一个取值，旧桌面端按该字段原本的约定将不认识的令牌当作「某个事件」处理，只显示时间。**不新增消息类型**，`$defs/MessageType` 仍为 49 个业务消息 + `Event` + `Error`。

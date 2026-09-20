@@ -636,6 +636,7 @@ public sealed partial class LiveProtocolPipeline :
         var beforeId = machine.CurrentRunId;
         var beforeRun = beforeId is null ? null : _runs.Get(beforeId);
         var beforeFinished = beforeRun?.EndedAtUtc is not null;
+        var beforeOffers = machine.MatchOffers;
 
         action();
         ThrowIfStorageFailed();
@@ -645,7 +646,15 @@ public sealed partial class LiveProtocolPipeline :
         UpdateRunTimer(beforeId, afterId);
 
         var changed = false;
-        if (beforeState != afterState)
+        // A match offered again - somebody withdrew and the finder re-formed the party - is the
+        // same run in the same state, so nothing would be published and the desktop would have
+        // nothing to speak for. The offer count is what changed.
+        var offeredAgain = afterState == RunState.MentorMatched && afterId == beforeId &&
+            machine.MatchOffers > beforeOffers;
+        // A pop long after the last one closes the lapsed run and opens another in one step:
+        // MENTOR_MATCHED before and after, but a different run, and just as much a new popup.
+        var anotherRun = afterState == RunState.MentorMatched && afterId is not null && afterId != beforeId;
+        if (beforeState != afterState || offeredAgain || anotherRun)
         {
             // The run travels with the state. Read after the action, so the entry event
             // carries the row as it now stands rather than the snapshot taken at the pop --
@@ -658,7 +667,8 @@ public sealed partial class LiveProtocolPipeline :
             // state it publishes stays inferred, because every other state still is.
             var observed = afterState == RunState.MentorMatched && machine.MatchObserved;
             _liveEvents.PublishState(afterState, afterId is null ? null : _runs.Get(afterId),
-                machine.MatchFromQueue && !observed);
+                machine.MatchFromQueue && !observed,
+                afterState == RunState.MentorMatched ? machine.MatchOffers : null);
         }
 
         if (beforeId is not null)

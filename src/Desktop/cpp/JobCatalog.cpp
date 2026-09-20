@@ -183,7 +183,9 @@ QString JobCatalog::roleGroup(const QVariant &jobId) const
 
 QString JobCatalog::tokenForRoleGroup(const QString &group)
 {
-    if (group == QString::fromUtf8("坦克"))     return QStringLiteral("accent");
+    // "blue", not "accent": the accent is blue only in the classic style - it is gold in 艾欧泽亚
+    // and flame orange in Harendotes, and a tank is blue in every style, as it is in the game.
+    if (group == QString::fromUtf8("坦克"))     return QStringLiteral("blue");
     if (group == QString::fromUtf8("治疗"))     return QStringLiteral("green");
     if (group == QString::fromUtf8("近战"))     return QStringLiteral("red");
     if (group == QString::fromUtf8("远程物理")) return QStringLiteral("orange");

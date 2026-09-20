@@ -13,8 +13,14 @@
 #include <utility>
 
 #ifdef Q_OS_WIN
+// MinGW's libstdc++ already defines NOMINMAX (as 1) in its os_defines.h, so defining it again
+// unguarded is a "redefined" warning on every build with that toolchain.
+#ifndef NOMINMAX
 #define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
+#endif
 #include <windows.h>
 #endif
 

@@ -47,6 +47,9 @@ public sealed record StateMachineCheckpoint(
 
     /// <summary>How many times the announced match in flight has been announced again.</summary>
     public int AnnouncedRefreshes { get; init; }
+
+    /// <summary>How many times the run in flight has been offered to the player.</summary>
+    public int MatchOffers { get; init; }
 }
 
 /// <summary>

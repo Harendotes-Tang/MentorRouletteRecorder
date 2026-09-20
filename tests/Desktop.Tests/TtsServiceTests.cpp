@@ -289,6 +289,7 @@ private Q_SLOTS:
     void appController_announcesEveryLiveTransition();
     void appController_onlyAnnouncesExplicitServerMatches_data();
     void appController_onlyAnnouncesExplicitServerMatches();
+    void appController_speaksAgainWhenTheSameMatchIsOfferedAgain();
     void appController_routesEveryContractEventKind();
     void announcementKind_mapsEveryRunState_data();
     void announcementKind_mapsEveryRunState();
@@ -508,6 +509,38 @@ void TtsServiceTests::appController_announcesEveryLiveTransition()
     backend.emitStateChanged(QStringLiteral("LEFT_OR_ABANDONED"));
     QTest::qWait(50);
     QCOMPARE(spy.count(), 0);
+}
+
+void TtsServiceTests::appController_speaksAgainWhenTheSameMatchIsOfferedAgain()
+{
+    // Reported from a real evening: the match popped and was announced, somebody withdrew, the
+    // finder re-formed the party, and the second popup was silent. The Collector now sends a
+    // second MENTOR_MATCHED for the same run with a higher match_offer; the duplicate guard,
+    // which exists for replays after a reconnect, must not mistake it for one.
+    mr::AppSettings settings;
+    settings.setTtsEnabled(true);
+    EventOnlyBackend backend;
+    mr::AppController controller(&backend, &settings);
+    QSignalSpy spoke(controller.tts(), &mr::TtsService::spoke);
+    const auto run = freshRun(QStringLiteral("offered-again"));
+    auto first = stateChangedEvent(QStringLiteral("MENTOR_MATCHED"), run);
+    first.insert(QStringLiteral("match_from_queue"), false);
+    first.insert(QStringLiteral("match_offer"), 1);
+    backend.emitEvent(first);
+    QTRY_COMPARE_WITH_TIMEOUT(spoke.count(), 1, 3000);
+
+    // A replay of the same offer stays silent.
+    backend.emitEvent(first);
+    QTest::qWait(50);
+    QCOMPARE(spoke.count(), 1);
+
+    // A new event of its own (its own event id), as the Collector sends it.
+    auto second = stateChangedEvent(QStringLiteral("MENTOR_MATCHED"), run);
+    second.insert(QStringLiteral("match_from_queue"), false);
+    second.insert(QStringLiteral("match_offer"), 2);
+    backend.emitEvent(second);
+    QTRY_COMPARE_WITH_TIMEOUT(spoke.count(), 2, 3000);
+    QCOMPARE(spoke.last().at(0).toString(), QStringLiteral("matched"));
 }
 
 void TtsServiceTests::appController_onlyAnnouncesExplicitServerMatches_data()

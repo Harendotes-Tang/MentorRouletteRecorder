@@ -713,6 +713,7 @@
         "capture_session_id": { "$ref": "#/$defs/Uuid" },
         "state": { "$ref": "#/$defs/RunState" },
         "match_from_queue": { "type": "boolean", "description": "run_state_changed: whether the bound state machine uses the client's queue request as the match. Only explicit false confirms a server match for voice announcements; absent means unknown." },
+        "match_offer": { "type": "integer", "minimum": 1, "description": "run_state_changed with state MENTOR_MATCHED: which offer of this run the event is about, from 1. The state does not change when a match pops again after somebody withdrew, so a second event for the same run and state with a higher number is a new popup, not a replay. Absent from collectors older than 1.3.2." },
         "run": { "$ref": "#/$defs/Run" },
         "capture": { "$ref": "#/$defs/CaptureStatus" },
         "profile": { "$ref": "#/$defs/ProtocolProfileStatus" },

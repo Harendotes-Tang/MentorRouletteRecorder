@@ -1,6 +1,7 @@
 #include "TestCollectorGuard.h"
 #include "AppController.h"
 #include "Formatters.h"
+#include "JobCatalog.h"
 #include "IpcFraming.h"
 #include "MockBackend.h"
 #include "RoleCatalog.h"
@@ -477,6 +478,10 @@ void DesktopTests::formatters_renderNullsAndDurations()
     finished.insert(QStringLiteral("ended_at_utc"), QStringLiteral("2026-09-19T05:01:20.000Z"));
     QVERIFY(!mr::Formatters::runInProgress(finished));
     QCOMPARE(mr::Formatters::runResultLabel(finished), QString::fromUtf8("未知"));
+    // A tank is blue in every UI style. "accent" is blue only in classic: it is gold in 艾欧泽亚 and
+    // flame orange in Harendotes, where the job statistics drew tanks in the theme's highlight colour.
+    QCOMPARE(mr::JobCatalog::tokenForRoleGroup(QString::fromUtf8("坦克")), QStringLiteral("blue"));
+    QCOMPARE(mr::Formatters::roleColorToken(QStringLiteral("TANK")), QStringLiteral("blue"));
     QVariantMap recovered = inFlight;
     recovered.insert(QStringLiteral("pending_review"), true);
     QVERIFY(!mr::Formatters::runInProgress(recovered));

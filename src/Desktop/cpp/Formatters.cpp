@@ -198,7 +198,7 @@ QString Formatters::roleLabel(const QString &code)
 
 QString Formatters::roleColorToken(const QString &code)
 {
-    if (code == QLatin1String("TANK"))   return QStringLiteral("accent");
+    if (code == QLatin1String("TANK"))   return QStringLiteral("blue");
     if (code == QLatin1String("HEALER")) return QStringLiteral("green");
     if (code == QLatin1String("DPS"))    return QStringLiteral("red");
     return QStringLiteral("neutral400");

@@ -979,7 +979,8 @@ void AppController::handleLiveEvent(const QVariantMap &event)
         // terminal state entirely when one duty pop follows another, and
         // announcing from both would say the same thing twice.
         const QJsonValue matchFromQueue = QJsonValue::fromVariant(event.value(QStringLiteral("match_from_queue")));
-        announceState(state, run, matchFromQueue.isBool() && !matchFromQueue.toBool());
+        announceState(state, run, matchFromQueue.isBool() && !matchFromQueue.toBool(),
+                      event.value(QStringLiteral("match_offer")).toInt());
         refreshDashboard();
         if (state == QLatin1String("COMPLETED"))
             maybePromptForReflection(run);
@@ -1138,7 +1139,8 @@ QVariantMap AppController::announcementValues(const QJsonObject &run) const
     return values;
 }
 
-void AppController::announceState(const QString &state, const QJsonObject &run, bool matchFromServer)
+void AppController::announceState(const QString &state, const QJsonObject &run, bool matchFromServer,
+                                  int matchOffer)
 {
     // Only the two in-progress states. Terminal states arrive here as well
     // (StateChanged publishes them when it can), but they are announced from
@@ -1152,7 +1154,10 @@ void AppController::announceState(const QString &state, const QJsonObject &run, 
     // replayed one after a reconnect would say it again a third time.
     const QString runId = run.value(QStringLiteral("run_id")).toString();
     if (!runId.isEmpty()) {
-        const QString guard = runId + QLatin1Char('|') + state;
+        // A match offered again (somebody withdrew, the finder re-formed the party) is the same
+        // run in the same state with a higher offer number: a new popup, not a replay.
+        const QString guard = runId + QLatin1Char('|') + state
+            + (matchOffer > 1 ? QLatin1Char('#') + QString::number(matchOffer) : QString());
         if (m_announcedRunStates.contains(guard))
             return;
         m_announcedRunStates.insert(guard);

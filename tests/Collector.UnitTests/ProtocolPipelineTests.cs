@@ -540,6 +540,51 @@ public sealed class ProtocolPipelineTests
         Assert.Equal(fromQueue, replayed["match_from_queue"]!.GetValue<bool>());
     }
 
+    /// <summary>
+    /// Reported from a real evening: the match popped and was announced, somebody withdrew, the
+    /// finder put the party back in the queue by itself, and when the match popped again nothing
+    /// was said. The second pop is the same run - the machine refreshes it and the state does not
+    /// change - so no state event went out and the desktop had nothing to speak for. A pop that
+    /// arrives well after the last one is a new popup on the player's screen, and says so; the
+    /// three or four copies the client sends within a second of each other are still one.
+    /// </summary>
+    [Fact]
+    public async Task AMatchOfferedAgainAfterSomeoneWithdrewIsAnnouncedAgain()
+    {
+        using var fixture = new TestDatabase();
+        EnsureSession(fixture);
+        var selection = MatchSourceSelection(fromQueue: false);
+        var bus = new LiveEventBus(fixture.Clock);
+        var pipeline = new LiveProtocolPipeline(fixture.Database, fixture.Clock, bus, _ => selection);
+        using var live = bus.Subscribe(Guid.NewGuid().ToString("D"));
+        pipeline.OnCaptureStarted(SessionId);
+
+        pipeline.Accept(PopMessage(10_000));
+        pipeline.Accept(PopMessage(10_300));
+        var first = (await DrainAsync(live)).Where(payload =>
+            payload["kind"]!.GetValue<string>() == "run_state_changed").ToArray();
+        Assert.Single(first);
+        Assert.Equal(1, first[0]["match_offer"]!.GetValue<int>());
+
+        // Inside the match window: the same run, offered a second time.
+        pipeline.Accept(PopMessage(40_000));
+        var second = Assert.Single(await DrainAsync(live), payload =>
+            payload["kind"]!.GetValue<string>() == "run_state_changed");
+        Assert.Equal("MENTOR_MATCHED", second["state"]!.GetValue<string>());
+        Assert.Equal(2, second["match_offer"]!.GetValue<int>());
+        Assert.Equal(first[0]["run"]!["run_id"]!.GetValue<string>(), second["run"]!["run_id"]!.GetValue<string>());
+        Assert.False(second["match_from_queue"]!.GetValue<bool>());
+
+        // Long after it: the machine closes the lapsed run and opens another, and the state is
+        // MENTOR_MATCHED before and after - which used to mean no event, and no voice, at all.
+        pipeline.Accept(PopMessage(400_000));
+        var third = Assert.Single(await DrainAsync(live), payload =>
+            payload["kind"]!.GetValue<string>() == "run_state_changed");
+        Assert.Equal("MENTOR_MATCHED", third["state"]!.GetValue<string>());
+        Assert.Equal(1, third["match_offer"]!.GetValue<int>());
+        Assert.NotEqual(second["run"]!["run_id"]!.GetValue<string>(), third["run"]!["run_id"]!.GetValue<string>());
+    }
+
     [Fact]
     public async Task AnUnobservedCancellationThenTeleportLeavesNoHistoryOrCurrentRun()
     {

@@ -37,6 +37,22 @@ public sealed partial class MentorRunStateMachine
     // saying so after the announcement's short window has closed (see CanEnterDuty).
     private ContentFinderPop? _announcedRequest;
     private int _announcedRefreshes;
+    private int _matchOffers;
+
+    /// <summary>
+    /// How far apart two pops of one run must be to be two popups on the player's screen. A
+    /// client sends one match as three or four messages inside a second; a match offered again
+    /// after somebody withdrew comes after the accept timer at the very least.
+    /// </summary>
+    public static readonly TimeSpan NewOfferGap = TimeSpan.FromSeconds(10);
+
+    /// <summary>
+    /// How many times the run in flight has been offered: 1 at the first pop, one more for every
+    /// later pop that is a new popup rather than a copy of the last one. Zero with no run. The
+    /// state does not change when a match is offered again, so this is what lets the host tell
+    /// the desktop that there is something new to say.
+    /// </summary>
+    public int MatchOffers => _matchOffers;
 
     /// <summary>
     /// Trail rows one announced match may earn by being announced again. A client sends the
@@ -337,6 +353,7 @@ public sealed partial class MentorRunStateMachine
         _runId = runId;
         _state = RunState.MentorMatched;
         _matchedMono = matched.Mono;
+        _matchOffers = 1;
         _entered = false;
         _enteredMono = null;
         _contentId = pop.ContentId;
@@ -578,6 +595,11 @@ public sealed partial class MentorRunStateMachine
     private TransitionResult RefreshMatch(SemanticEvent match)
     {
         var runId = _runId!;
+        if (match.Mono - _matchedMono >= NewOfferGap)
+        {
+            _matchOffers++;
+        }
+
         _matchedMono = match.Mono;
         _contentId = (match as ContentFinderPop)?.ContentId ?? _contentId;
 
@@ -766,5 +788,6 @@ public sealed partial class MentorRunStateMachine
         _matchObserved = false;
         _announcedRequest = null;
         _announcedRefreshes = 0;
+        _matchOffers = 0;
     }
 }

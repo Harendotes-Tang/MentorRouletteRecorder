@@ -601,7 +601,8 @@ private:
     /// run the announcement is about; its duty name wins over the (possibly
     /// stale) current-run card.
     QVariantMap announcementValues(const QJsonObject &run = {}) const;
-    void announceState(const QString &state, const QJsonObject &run, bool matchFromServer);
+    void announceState(const QString &state, const QJsonObject &run, bool matchFromServer,
+                       int matchOffer = 0);
     /// The terminal line for one announcement kind with no counts in it, used
     /// when the dashboard read that would have supplied them failed outright.
     static QString numberlessAnnouncement(const QString &kind);
