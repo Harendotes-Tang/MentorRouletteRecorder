@@ -111,6 +111,14 @@ public static class CalibrationWire
             ["rejected_candidates"] = shared.Candidates.Count(item => item.Status == SharedCandidateStatus.Rejected),
             ["user_rejected"] = shared.UserRejected,
             ["audit_pending"] = shared.AuditPending,
+            ["recheck"] = shared.Recheck is { } recheck
+                ? new JsonObject
+                {
+                    ["last_utc"] = UtcTimestamp.ToTextOrNull(recheck.LastUtc),
+                    ["status"] = EnumWire<SharedFetchStatus>.Format(recheck.Status),
+                    ["reason"] = EnumWire<SharedRecheckReason>.Format(recheck.Reason),
+                }
+                : null,
         };
     }
 

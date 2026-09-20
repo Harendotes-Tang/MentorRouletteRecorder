@@ -693,6 +693,7 @@ opcode 与负载字节。
 | `last_refusal` | 上一次绑定或撤下失败的原因令牌：`NOT_SELECTED`（写出后目录未选中它）、`STAGING_NOT_FOR_THIS_SESSION`、`WRITE_FAILED`、`BUILD_*`、`STALE`（写出期间状态发生变化）、`CONTRADICTED`、`REVOKED`、`REJECTED`、`USER_REJECTED`、`INTERNAL`。令牌之外的细节（异常类型、路径）只保留在本机，不写入报告 |
 | `rejected_candidates` | 因矛盾或撤销而被拒绝的校准码数量。矛盾记录跨重启保留，执行「重新观察」时清空 |
 | `user_rejected` | 用户已选择「不用共享的，我自己校准」。在执行「重新观察」之前，该区服与版本不再获取、导入或绑定任何共享校准，本机校准不受影响。该标志与矛盾记录分开存储，不计入 `rejected_candidates` |
+| `recheck` | 1.3.2 起，缺省为 null。已有档案在记录时仍读取索引的那一次：`last_utc` 为读取时刻，`status` 与 `last_fetch_status` 同一套取值，`reason` 说明为何允许读取——`SHARED_IN_USE`（在用的是其他玩家分享的校准，仓库可能已撤回它）或 `QUEUE_INFERRED_IN_USE`（在用的档案按排本推断匹配，认服务器报文的码比它更准）。随包档案或认服务器报文的本机档案在用时不读索引，该字段保持 null；已完整记录过一次且判据全部通过的非排本共享档案结束看护后校准解除布防，同样不再读取 |
 
 ## 10. 常见故障排查表
 

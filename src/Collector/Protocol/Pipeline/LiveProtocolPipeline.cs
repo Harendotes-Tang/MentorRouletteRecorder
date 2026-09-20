@@ -69,6 +69,13 @@ public sealed partial class LiveProtocolPipeline :
     private string? _boundProfileId;
     private StateMachineMemory? _sessionCarried;
 
+    /// <summary>
+    /// A run just ended inside the message being parsed, so shared calibration is owed a look the moment
+    /// that message is finished with: what it may do - withdraw a revoked profile, swap in a better one -
+    /// replaces the parser, which must never happen underneath the event being applied.
+    /// </summary>
+    private bool _sharedIdleAgain;
+
     /// <summary>Raised under the pipeline lock whenever calibration changes state.</summary>
     public event Action<CalibrationState>? CalibrationChanged;
 
@@ -535,6 +542,12 @@ public sealed partial class LiveProtocolPipeline :
             {
                 WithdrawContradictedLocalProfile();
             }
+
+            if (_sharedIdleAgain)
+            {
+                _sharedIdleAgain = false;
+                _shared.Evaluate();
+            }
         }
     }
 
@@ -695,6 +708,13 @@ public sealed partial class LiveProtocolPipeline :
                 {
                     FinishSharedRetention(updated.ProtocolProfileId!, machine.MatchFromQueue);
                 }
+
+                // The machine is between runs again, so a withdrawal or a swap held back while the run was
+                // under way may go ahead. Not here: this is inside the parser's own message, and both
+                // replace the parser. Asked for instead, and answered once the message is finished with.
+                // Calibration may already have ended here, which stops the two-second refresh from ever
+                // asking again, so the question has to be raised from this side.
+                _sharedIdleAgain = true;
             }
         }
 

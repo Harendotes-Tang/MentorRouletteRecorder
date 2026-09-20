@@ -227,6 +227,10 @@ public sealed partial class LiveProtocolPipeline
 
     bool ISharedCalibrationHost.HasFinishedSharedRun(string profileId) => HasFinishedRun(profileId);
 
+    /// <inheritdoc />
+    bool ISharedCalibrationHost.SharedRunInFlight() =>
+        _processor is { } processor && processor.Machine.State is RunState.MentorMatched or RunState.EnteredDuty;
+
     void ISharedCalibrationHost.SharedCalibrationChanged()
     {
         var signature = CalibrationSignature();
@@ -260,10 +264,24 @@ public sealed partial class LiveProtocolPipeline
             return new SharedBindResult(SharedBindOutcome.SessionChanged, "STAGING_NOT_FOR_THIS_SESSION");
         }
 
+        // A profile the reloaded catalogue outranks is already recording, and the machine is between runs:
+        // the parser is rebuilt over the better profile at once, the way a confirmed local calibration that
+        // rewrites the profile in force is rebound. Nothing is staged in this case - staging only happens
+        // while no parser is bound - and what the machine knows about the player is carried across.
+        // Mid-run this branch is not taken, and the swap waits for the next evaluation (see VerifyCandidate).
+        var swapNow = !bindNow && _active && _processor is { } recording && recording.Machine.State == RunState.Idle;
+        var carried = _processor?.Machine.Memory;
+
         _selection = selection;
         UseCalibrationRole(upgrading: profile.MatchFromQueue, retaining: true);
         var outcome = SharedBindOutcome.Selected;
-        if (bindNow && _sessionId is { } sessionId && TryUpdateSessionProfile(sessionId, profile.ProfileId, ProfileStatus.Verified))
+        if (swapNow && _sessionId is { } swapped && TryUpdateSessionProfile(swapped, profile.ProfileId, ProfileStatus.Verified))
+        {
+            BindParser(profile, swapped, JobRemembered(profile) ?? carried);
+            _calibrationBoundAt = _clock.UtcNow;
+            outcome = SharedBindOutcome.Bound;
+        }
+        else if (bindNow && _sessionId is { } sessionId && TryUpdateSessionProfile(sessionId, profile.ProfileId, ProfileStatus.Verified))
         {
             // Staged job events replay in order below, so with any staged the machine starts from the previous
             // session's memory. With none - the code arrived after login, or this build's duty bursts do not repeat

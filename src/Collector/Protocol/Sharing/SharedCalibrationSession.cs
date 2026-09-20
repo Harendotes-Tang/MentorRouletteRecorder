@@ -70,6 +70,8 @@ internal sealed partial class SharedCalibrationSession
     private (Region Region, string Build, bool Rejected)? _userRejection;
     private DateTimeOffset? _lastSentAtUtc;
     private SharedFetchStatus? _lastSentStatus;
+    private SharedRecheckRecord? _recheck;
+    private IReadOnlyList<Prepared>? _deferred;
     private int _pending;
     private TaskCompletionSource _idle = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -324,7 +326,13 @@ internal sealed partial class SharedCalibrationSession
     /// </summary>
     public void Evaluate()
     {
-        if (_stopped || (_candidates.Count == 0 && _bound is not { Proven: false, Declared: not null }) ||
+        if (_stopped)
+        {
+            return;
+        }
+
+        ReleaseDeferredWithdrawal();
+        if ((_candidates.Count == 0 && _bound is not { Proven: false, Declared: not null }) ||
             _host.SharedContext() is not { } context || _host.SharedEvidence() is not { } snapshot)
         {
             return;
@@ -339,6 +347,23 @@ internal sealed partial class SharedCalibrationSession
         {
             StartBinding(context, snapshot, chosen);
         }
+    }
+
+    /// <summary>
+    /// A revocation that arrived mid-duty takes effect now the run has ended, and the rest of the index it
+    /// came with is offered as a fresh download would offer it. Runs before anything else in
+    /// <see cref="Evaluate"/>, and whatever the candidate list holds, because a settled profile no longer
+    /// answers any of the questions below.
+    /// </summary>
+    private void ReleaseDeferredWithdrawal()
+    {
+        if (_deferred is not { } prepared || _host.SharedRunInFlight())
+        {
+            return;
+        }
+
+        _deferred = null;
+        Supersede("REVOKED", pending: prepared);
     }
 
     /// <summary>Verifies the profile in use while it is still watched. True when that withdrew it.</summary>
@@ -435,6 +460,14 @@ internal sealed partial class SharedCalibrationSession
             return false;
         }
 
+        // Replacing what is already recording waits for the machine to be between runs: a fresh state
+        // machine mid-duty would drop the run. Evaluate comes round again every couple of seconds, so the
+        // swap happens as soon as the run ends, in this same session.
+        if (context.Selection.IsUsable && _host.SharedRunInFlight())
+        {
+            return false;
+        }
+
         if (candidate.Blocked ||
             (context.StagingSessionId is { } session &&
              (candidate.Stage is not { Overflowed: false } stage || !string.Equals(stage.CaptureSessionId, session, StringComparison.Ordinal))))
@@ -510,9 +543,20 @@ internal sealed partial class SharedCalibrationSession
     }
 
     private static bool CanReplace(ProfileSelection selection, Candidate candidate) =>
+        CanReplace(selection, candidate.Prepared.Payload.MatchSource);
+
+    /// <summary>
+    /// Whether a code that names the match this way is worth having beside what is in force: everything is,
+    /// while nothing records; otherwise only a code that reads the server's own match, and only against a
+    /// profile this machine or another player produced by inferring it. A shipped profile and a local one
+    /// that already reads the match are never replaced from the index.
+    /// </summary>
+    /// <param name="selection">What is in force.</param>
+    /// <param name="match">How the code names the match.</param>
+    private static bool CanReplace(ProfileSelection selection, CalibrationMatchSource match) =>
         !selection.IsUsable ||
         (selection.Profile is { MatchFromQueue: true } && selection.Origin is ProfileOrigin.Local or ProfileOrigin.Shared &&
-         candidate.Prepared.Payload.MatchSource != CalibrationMatchSource.QueueRequest);
+         match != CalibrationMatchSource.QueueRequest);
 
     /// <summary>Structural matches per evidence key, for the written profile's provenance.</summary>
     private static IReadOnlyDictionary<string, int> Counts(CalibrationSnapshot snapshot, DeclaredCandidate declared)
@@ -561,6 +605,7 @@ internal sealed partial class SharedCalibrationSession
             AuditPending = _bound is { Proven: false, Verification.AuditPending: true },
             LastSentAtUtc = _lastSentAtUtc,
             LastSentStatus = _lastSentStatus,
+            Recheck = _recheck,
         };
     }
 
@@ -616,6 +661,9 @@ internal sealed partial class SharedCalibrationSession
         public CalibrationTemplate Template { get; }
 
         public bool Manual { get; }
+
+        /// <summary>Why it went out beside a profile already recording, or null when nothing was in force.</summary>
+        public SharedRecheckReason? Recheck { get; init; }
 
         public CancellationTokenSource Cancellation { get; } = new();
     }

@@ -251,7 +251,8 @@ public sealed class SharedCalibrationProvenanceTests : IDisposable
         Seed(TestDatabase.Run(source: RunSource.AutoNetwork, enteredAt: Bed.Confirmed.AddHours(1)) with { ProtocolProfileId = ProfileId });
         Assert.True(new RunRepository(_bed.Db.Database).AnyEnteredAndExited(ProfileId));
 
-        // The store is wired (as in the shipping assembly); with a usable profile in force nothing is fetched.
+        // The store is wired (as in the shipping assembly); a shared profile still being watched is one of the
+        // two cases in which the index is read again (docs/privacy-boundary.md §8.2), so a request does go out.
         var pipeline = _bed.Pipeline(_bed.Services());
         Assert.Equal(ProfileOrigin.Shared, pipeline.Refresh(Bed.Game()).Origin);
         await Bed.Idle(pipeline);
@@ -273,12 +274,14 @@ public sealed class SharedCalibrationProvenanceTests : IDisposable
         Assert.Equal(SharedCandidateStatus.Proven, Assert.Single(done.Shared.Candidates).Status);
         Assert.True(_bed.Store.IsSettled(Region.Cn, Bed.Build, profileSha));
 
+        // Settled, so the watch is over and calibration ends: nothing is read for this build any more.
+        var sent = _bed.Transport.Requests.Count;
         var again = _bed.Pipeline(_bed.Services());
         Assert.Equal(ProfileOrigin.Shared, again.Refresh(Bed.Game()).Origin);
         await Bed.Idle(again);
         Assert.False(again.CalibrationArmed);
         Assert.Equal(SharedCalibrationPhase.Verified, again.CalibrationStatus().Shared.Phase);
-        Assert.Empty(_bed.Transport.Requests);
+        Assert.Equal(sent, _bed.Transport.Requests.Count);
     }
 
     [Fact]

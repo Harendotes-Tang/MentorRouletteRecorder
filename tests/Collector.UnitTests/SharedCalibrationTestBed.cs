@@ -177,22 +177,33 @@ internal sealed class SharedCalibrationTestBed : IDisposable
 
     public static SharedCode Encode(ShareCodePayload payload) => new(payload, ShareCode.Encode(payload), ShareCode.Sha256(payload));
 
+    /// <summary>How one code stands in the index a test serves.</summary>
+    /// <param name="Code">The code itself, always downloadable.</param>
+    /// <param name="Revoked">True to list it as withdrawn from the repository.</param>
+    /// <param name="Conflicting">True to mark it as disagreeing with another code of the same build.</param>
+    internal sealed record Listing(SharedCode Code, bool Revoked = false, bool Conflicting = false);
+
     /// <summary>Serves an index listing the codes, and the codes, from the first source.</summary>
-    public void Publish(params SharedCode[] codes) => Serve(codes, revoked: false);
+    public void Publish(params SharedCode[] codes) => Serve(codes.Select(code => new Listing(code)).ToArray());
 
     /// <summary>Serves an index that revokes the code.</summary>
-    public void PublishRevoked(SharedCode code) => Serve(new[] { code }, revoked: true);
+    public void PublishRevoked(SharedCode code) => Serve(new[] { new Listing(code, Revoked: true) });
 
-    private void Serve(IReadOnlyList<SharedCode> codes, bool revoked)
+    /// <summary>Serves one index in which each code stands as the listing says.</summary>
+    internal void PublishListed(params Listing[] listings) => Serve(listings);
+
+    private void Serve(IReadOnlyList<Listing> codes)
     {
         var entries = codes
-            .Select(code => (JsonNode)SharedCalibrationIndexTests.Entry(
-                code.Sha, build: code.Payload.GameBuild, revoked: revoked,
-                matchSource: EnumWire<CalibrationMatchSource>.Format(code.Payload.MatchSource)))
+            .Select(listing => (JsonNode)SharedCalibrationIndexTests.Entry(
+                listing.Code.Sha, build: listing.Code.Payload.GameBuild, revoked: listing.Revoked,
+                matchSource: EnumWire<CalibrationMatchSource>.Format(listing.Code.Payload.MatchSource),
+                conflicting: listing.Conflicting))
             .ToArray();
         Transport.Serve(SharedCalibrationClient.IndexUri(SharedCalibrationSource.GithubRaw), SharedCalibrationIndexTests.Index(entries));
-        foreach (var code in codes)
+        foreach (var listing in codes)
         {
+            var code = listing.Code;
             Transport.Serve(
                 SharedCalibrationClient.CodeUri(SharedCalibrationSource.GithubRaw, SharedCalibrationIndexTests.Commit(),
                     SharedCalibrationIndex.CodePath(code.Payload.Region, code.Payload.GameBuild, code.Sha)),

@@ -144,6 +144,13 @@ public sealed record SharedCalibrationSnapshot(
 
     /// <summary>How that request ended; null when nothing was ever sent.</summary>
     public SharedFetchStatus? LastSentStatus { get; init; }
+
+    /// <summary>
+    /// The last index read that happened although a profile was already recording
+    /// (docs/privacy-boundary.md §8.2); null while none has. Diagnostics only: the card says nothing
+    /// about it, because nothing about what records changed.
+    /// </summary>
+    public SharedRecheckRecord? Recheck { get; init; }
 }
 
 /// <summary>What 不用共享的，我自己校准 (<c>RejectSharedCalibration</c>) did.</summary>

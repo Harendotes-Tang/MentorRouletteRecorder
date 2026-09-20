@@ -1,5 +1,12 @@
 # IPC 契约变更记录 / IPC contract changelog
 
+## 2026-09-20 · 共享校准在用时也读索引：`CalibrationStatus.shared` 新增 `recheck`（附加）
+
+docs/plans/shared-calibration-rollback.md §3。全部为附加式：一个新的可选对象字段与两个新的 `$defs`，缺席或为 `null` 即“未发生过”，旧桌面端忽略即可。**消息数目不变**：`$defs/MessageType` 仍为 49 个业务消息 + `Event` + `Error`。
+
+- **`$defs/SharedCalibrationStatus` 新增可选 `recheck`**（对象或 `null`）：已有档案在记录时仍读取索引的那一次。`last_utc` 为读取时刻，`status` 与 `last_fetch_status` 同一套取值（`$defs/SharedFetchStatus`），`reason` 为新枚举 `$defs/SharedRecheckReason`：`SHARED_IN_USE`（在用的是其他玩家分享的校准）与 `QUEUE_INFERRED_IN_USE`（在用的档案按排本推断匹配）。1.3.2 之前的采集服务不发送该字段。同一对象同时出现在脱敏诊断报告的 `calibration.shared` 中（docs/capture-diagnostics.md §9.6），不含地址、主机名与校准码。
+- 行为变化（不在字段上）：`CheckSharedCalibration` 在已有可用档案时不再一律答 `NOT_NEEDED`——在用的档案来自共享校准、或按排本推断匹配时答 `STARTED`。取值集合未变。
+
 ## 2026-09-20 — 重新校准与回退：`DiscardCalibration` 新增 `retire_local_profile` / `restore_local_profile`，`CalibrationStatus` 新增 `retired_local_profile_available`（附加）
 
 附加式变更：一个新的可选请求字段，缺省 `false` 即旧行为，旧桌面端不发它，旧采集服务按契约未声明字段拒绝。**不新增消息类型**，`$defs/MessageType` 仍为 49 个业务消息 + `Event` + `Error`。

@@ -1049,6 +1049,18 @@
       "description": "Which gate set a candidate is judged by (plans/shared-calibration.md §18.3). PUBLISHED: the last index this machine read lists the code (downloaded, or pasted and found there); the login burst suffices to bind, and the match and the duty entry are audited while it records. IMPORTED: pasted and unknown to every index read so far; nothing is recorded until the match and the duty entry have both been seen to behave."
     },
     "SharedFetchStatus": { "type": "string", "enum": ["OK", "DISABLED", "CANCELLED", "INDEX_UNAVAILABLE", "NONE_FOR_BUILD", "CODES_UNAVAILABLE"] },
+    "SharedRecheckReason": { "type": "string", "enum": ["SHARED_IN_USE", "QUEUE_INFERRED_IN_USE"], "description": "Why the index was read although a profile was recording: another player's calibration was in force, or one that infers the match from the player's own queue request." },
+    "SharedCalibrationRecheck": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["last_utc", "status", "reason"],
+      "description": "The last index read made beside a profile already in force. Diagnostics only; no address, host or code.",
+      "properties": {
+        "last_utc": { "$ref": "#/$defs/UtcTimestamp", "description": "When that read was claimed." },
+        "status": { "$ref": "#/$defs/SharedFetchStatus", "description": "How it ended." },
+        "reason": { "$ref": "#/$defs/SharedRecheckReason" }
+      }
+    },
     "SharedCalibrationSource": { "type": "string", "enum": ["GITHUB_RAW", "CDN_PRIMARY", "CDN_FALLBACK"], "description": "Source names, never addresses." },
     "SharedFetchOutcome": {
       "type": "string",
@@ -1111,7 +1123,8 @@
         "last_refusal": { "type": ["string", "null"], "pattern": "^[A-Z0-9_]{1,64}$", "description": "Why the last bind or withdrawal did not go through, as a short token (NOT_SELECTED, WRITE_FAILED, CONTRADICTED, REVOKED, REJECTED, USER_REJECTED, STALE...). Diagnostics only." },
         "rejected_candidates": { "type": "integer", "minimum": 0, "description": "Candidates with status REJECTED." },
         "user_rejected": { "type": "boolean", "description": "True while the player's 不用共享的，我自己校准 stands for this build: nothing shared is fetched, imported or bound until DiscardCalibration (重新观察)." },
-        "audit_pending": { "type": "boolean", "description": "True while the profile in use records with an audited criterion still waiting (§18.4): a PUBLISHED code bound at login whose match or duty entry has not yet been seen to behave. Optional: a Collector before 1.1.0 does not send it." }
+        "audit_pending": { "type": "boolean", "description": "True while the profile in use records with an audited criterion still waiting (§18.4): a PUBLISHED code bound at login whose match or duty entry has not yet been seen to behave. Optional: a Collector before 1.1.0 does not send it." },
+        "recheck": { "oneOf": [{ "$ref": "#/$defs/SharedCalibrationRecheck" }, { "type": "null" }], "description": "The last index read that happened although a profile was already recording (docs/privacy-boundary.md §8.2), or null while none has. Optional: a Collector before 1.3.2 does not send it." }
       }
     },
     "ImportCalibrationCodeRequest": {

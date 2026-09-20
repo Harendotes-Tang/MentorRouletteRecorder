@@ -23,10 +23,14 @@ internal sealed partial class SharedCalibrationSession
             return manual ? SharedCheckOutcome.Disabled : SharedCheckOutcome.NotNeeded;
         }
 
-        // The one outbound request is only for a build nothing records yet: "已经有可用档案时一次都不会发"
-        // (docs/privacy-boundary.md §8.2), manual checks included. A shared profile still being watched after
-        // binding is therefore never checked for revocation over the network.
-        if (context.Selection.IsUsable)
+        // The one outbound request is for a build nothing records yet - and, since 1.3.2, for the two
+        // profiles in force that the index can still say something about: another player's calibration,
+        // which the repository may have revoked, and one that infers the match, which a published
+        // announcement code outranks (docs/privacy-boundary.md §8.2). Beside a shipped profile or a local
+        // one that reads the match, manual checks included, nothing is sent at all.
+        var recheck = SharedRecheck.ReasonFor(
+            context.Selection.IsUsable, context.Selection.Origin, context.Selection.Profile is { MatchFromQueue: true });
+        if (context.Selection.IsUsable && recheck is null)
         {
             return SharedCheckOutcome.NotNeeded;
         }
@@ -47,7 +51,7 @@ internal sealed partial class SharedCalibrationSession
             return SharedCheckOutcome.NotNeeded;
         }
 
-        var ticket = new FetchTicket(context.Key, context.Template, manual);
+        var ticket = new FetchTicket(context.Key, context.Template, manual) { Recheck = recheck };
         _fetch = ticket;
         Schedule(() => FetchAsync(ticket));
         return SharedCheckOutcome.Started;
@@ -122,6 +126,13 @@ internal sealed partial class SharedCalibrationSession
             _lastSentStatus = result.Status;
         }
 
+        // A read beside a profile already recording is reported apart, so the diagnostics report says
+        // plainly which of the two relaxations of §8.2 this machine exercised, and how it ended.
+        if (ticket.Recheck is { } why && result is { } read)
+        {
+            _recheck = new SharedRecheckRecord(_clock.UtcNow, read.Status, why);
+        }
+
         if (_stopped || !_enabled || _key != ticket.Key || ticket.Cancellation.IsCancellationRequested ||
             IsUserRejected(ticket.Key.Region, ticket.Key.GameBuild))
         {
@@ -131,18 +142,15 @@ internal sealed partial class SharedCalibrationSession
         }
 
         _nextAutoFetchAtUtc = (sent ? _clock.UtcNow : last?.LastAttemptAtUtc ?? _clock.UtcNow) + SharedCalibrationStore.AutoFetchInterval;
-        if (result is not null && ApplyFetchResult(result))
+        if (result is not null && ApplyFetchResult(result, prepared))
         {
+            // The revocation of the code in use took the rest of that index with it, to be offered again
+            // once the withdrawal has actually happened.
+            _host.SharedCalibrationChanged();
             return;
         }
 
-        if (_bound is null)
-        {
-            foreach (var candidate in prepared)
-            {
-                Register(candidate, SharedCandidateSource.Downloaded, SharedCandidateProvenance.Published);
-            }
-        }
+        RegisterDownloaded(prepared);
 
         if (result is { IndexWasRead: true })
         {
@@ -178,8 +186,13 @@ internal sealed partial class SharedCalibrationSession
         }
     }
 
-    /// <summary>Keeps what a claimed download says and drops what its index revokes. True when that withdrew the profile in use.</summary>
-    private bool ApplyFetchResult(SharedCalibrationFetchResult result)
+    /// <summary>
+    /// Keeps what a claimed download says and drops what its index revokes, the profile in use included.
+    /// True when that revocation took charge of the rest of the index.
+    /// </summary>
+    /// <param name="result">What came back.</param>
+    /// <param name="prepared">The rest of that index, to carry on with once a withdrawal actually happens.</param>
+    private bool ApplyFetchResult(SharedCalibrationFetchResult result, IReadOnlyList<Prepared> prepared)
     {
         _lastFetchStatus = result.Status;
         _lastAttempts = result.IndexAttempts;
@@ -194,16 +207,37 @@ internal sealed partial class SharedCalibrationSession
             Drop(candidate, rejected: true);
         }
 
-        // Reachable, and kept on purpose (B2a review): a pasted code can verify and bind while an automatic download
-        // that went out before any profile was usable is still waiting, and the index that download then reads may
-        // revoke exactly that code. Nothing is sent to learn this, so docs/privacy-boundary.md §8.2 holds.
-        if (_bound is { Proven: false, Sha: { } inUse } && revoked.Contains(inUse))
+        // The whole point of reading the index beside a profile that records (plan §3): the machine still
+        // recording with a code the repository has withdrawn is the one that most needs to hear about it.
+        // Whether it is still watched or long settled makes no difference - a withdrawn code is withdrawn.
+        if (_bound is not { Sha: { } inUse } || !revoked.Contains(inUse))
         {
-            Supersede("REVOKED");
-            return true;
+            return false;
         }
 
-        return false;
+        WithdrawRevoked(prepared);
+        return true;
+    }
+
+    /// <summary>
+    /// Takes the revoked profile out of use, or arranges for that to happen once the machine is back between
+    /// runs: withdrawing mid-duty would end the run the way a stopped capture ends it, and the run is worth
+    /// more finished and flagged than cut short.
+    ///
+    /// The rest of the index waits for the withdrawal either way. A replacement is written to the very path
+    /// the withdrawal deletes, so the two must not be in flight together; the codes are offered again from
+    /// inside <see cref="Withdraw"/>, once the file is gone and the catalogue has been read afresh.
+    /// </summary>
+    /// <param name="prepared">The other codes that index offered.</param>
+    private void WithdrawRevoked(IReadOnlyList<Prepared> prepared)
+    {
+        if (_host.SharedRunInFlight())
+        {
+            _deferred = prepared;
+            return;
+        }
+
+        Supersede("REVOKED", pending: prepared);
     }
 
     private async Task<SharedCalibrationFetchResult?> FetchOrNullAsync(FetchTicket ticket)
