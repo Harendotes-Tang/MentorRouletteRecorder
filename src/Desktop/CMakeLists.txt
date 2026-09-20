@@ -37,9 +37,11 @@ target_compile_features(MentorRecorderDesktopLib PUBLIC cxx_std_20)
 
 # UpdateController prints this build's version beside the one the Collector
 # reports, and it lives in the library the unit tests link, so the definition
-# cannot be left on the executable alone.
+# cannot be left on the executable alone. The full string, suffix included: this
+# is what the title bar and the 关于 page show, and a test build must be
+# recognisable as one there (MR_VERSION_FULL, root CMakeLists.txt).
 target_compile_definitions(MentorRecorderDesktopLib
-    PRIVATE MR_APP_VERSION="${MentorRecorder_VERSION}")
+    PRIVATE MR_APP_VERSION="${MR_VERSION_FULL}")
 
 target_include_directories(MentorRecorderDesktopLib
     PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/cpp)
@@ -317,6 +319,11 @@ enable_language(RC)
 #     what Explorer's "Details" tab and the installer's version check read;
 #   * the MR_APP_VERSION compile definition, which main.cpp passes to
 #     QApplication::setApplicationVersion (the --version output).
+#
+# Two shapes, deliberately: a Windows VERSIONINFO resource has four numeric
+# fields and no room for a prerelease label, so FILEVERSION / PRODUCTVERSION and
+# the FileVersion string use the numeric MR_VERSION, while the ProductVersion
+# string - the one a person reads - carries MR_VERSION_FULL with its suffix.
 # ---------------------------------------------------------------------------
 set(MR_VERSION "${MentorRecorder_VERSION}")
 set(MR_VERSION_MAJOR "${MentorRecorder_VERSION_MAJOR}")
@@ -338,7 +345,7 @@ qt_add_executable(MentorRecorder.Desktop WIN32
     "${MR_APP_RC}")
 
 target_compile_definitions(MentorRecorder.Desktop
-    PRIVATE MR_APP_VERSION="${MR_VERSION}")
+    PRIVATE MR_APP_VERSION="${MR_VERSION_FULL}")
 
 mr_use_ascii_autogen_dir(MentorRecorder.Desktop)
 

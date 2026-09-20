@@ -216,6 +216,10 @@ Write-Head '工具自测 / Tool self-tests'
 #   * The signature finder writes the profiles the Collector loads on a real machine, and
 #     the duty-data generator writes the reference data shipped in the package. Both are
 #     Python, so neither `dotnet test` nor `ctest` reaches them.
+#   * Two of the tests under tools/package-verification/ drive PowerShell rather than
+#     Python: the packaging helpers in scripts/package-runtime.ps1 and
+#     scripts/package-version.ps1 (what a version is, and which CHANGELOG heading has to
+#     sit on top) are reached from nowhere else either.
 if (Test-GateSkipped 'tool-selftests') { }
 elseif (-not (Test-Path -LiteralPath $ToolTests)) {
     Add-Failure 'tool-selftests' ("未找到工具自测脚本: {0}" -f $ToolTests)

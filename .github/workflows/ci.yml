@@ -4,9 +4,12 @@ permissions:
   contents: read
 
 on:
+  # main carries released commits, dev is the integration branch test builds are cut from
+  # (see docs/release-checklist.md); both are verified by the same gate.
   push:
-    branches: [main]
+    branches: [main, dev]
   pull_request:
+    branches: [main, dev]
   # Push and pull-request runs filter out the Soak suite (see the verify step), so the only
   # way to run it in CI is on demand: Actions -> CI -> Run workflow -> "Run the Soak suite".
   workflow_dispatch:
@@ -19,8 +22,8 @@ on:
         type: boolean
         default: false
 
-# One run per ref. Superseded pull-request runs are cancelled; pushes to main are not, because
-# every commit on main must be verified in its own right.
+# One run per ref. Superseded pull-request runs are cancelled; pushes to main and dev are not,
+# because every commit on them must be verified in its own right.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
