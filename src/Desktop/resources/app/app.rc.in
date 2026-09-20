@@ -2,10 +2,15 @@
 //
 // TEMPLATE - src/Desktop/CMakeLists.txt runs configure_file() over this file into
 // ${CMAKE_CURRENT_BINARY_DIR}/app.rc and copies app.ico beside it. Every version
-// field below comes from Directory.Build.props/<Version> by way of the root
-// CMakeLists.txt, so Explorer's "Details" tab, MentorRecorder.Desktop.exe
-// --version and the installer can no longer disagree. Never write a literal
-// version here.
+// field below comes from Directory.Build.props (<VersionPrefix> plus the optional
+// <VersionSuffix>) by way of the root CMakeLists.txt, so Explorer's "Details" tab,
+// MentorRecorder.Desktop.exe --version and the installer can no longer disagree.
+// Never write a literal version here.
+//
+// The numeric fields and the FileVersion string use @MR_VERSION@, the three
+// numbers: a VERSIONINFO resource has nowhere to put a prerelease label. The
+// ProductVersion string, which is the one a person reads and the one
+// scripts/package.ps1 checks the full version against, uses @MR_VERSION_FULL@.
 //
 // The icon is named relatively and copied next to the generated script on
 // purpose: windres resolves it against the script's own directory, and it cannot
@@ -34,7 +39,7 @@ BEGIN
             VALUE "LegalCopyright", "GPL-3.0-or-later\0"
             VALUE "OriginalFilename", "MentorRecorder.Desktop.exe\0"
             VALUE "ProductName", "MentorRecorder\0"
-            VALUE "ProductVersion", "@MR_VERSION@\0"
+            VALUE "ProductVersion", "@MR_VERSION_FULL@\0"
         END
     END
     BLOCK "VarFileInfo"

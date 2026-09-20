@@ -14,7 +14,12 @@ public sealed class VersionTests
     public void VersionString_HasExpectedFormat()
     {
         Assert.Equal("MentorRecorder.Collector " + Program.Version + " (ipc v1)", Program.VersionString);
-        Assert.Matches(@"^\d+\.\d+\.\d+$", Program.Version);
+
+        // Three numbers, and on a test build the pre-release suffix Directory.Build.props
+        // carries in <VersionSuffix> (1.4.0-beta.1). The build metadata a local build may
+        // append after '+' is already stripped by Program.Version.
+        Assert.Matches(@"^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$", Program.Version);
+        Assert.True(Update.UpdateVersion.TryParseLocal(Program.Version, out _));
     }
 
     [Fact]
