@@ -400,7 +400,7 @@ git tag v1.4.0-beta.1                             # 可选：仅当需要作为�
 ```powershell
 git switch dev
 # Directory.Build.props: VersionSuffix 清空（VersionPrefix 保持 1.4.0）
-# CHANGELOG.md: 把 [Unreleased] 改写为 [1.4.0] - 2026-09-20，并在其上新建空的 [Unreleased]
+# CHANGELOG.md: 把 [Unreleased] 改写为 [1.4.0] - 2026-09-20，其上不留空的 [Unreleased]
 git commit -am "chore(release): 1.4.0"
 pwsh -NoProfile -File scripts/verify.ps1          # 不带 -SkipGate / -TestFilter 的完整运行
 pwsh -NoProfile -File scripts/package.ps1 -Force -Verify
@@ -408,6 +408,9 @@ git switch main
 git merge --ff-only dev                           # 快进合并
 git tag v1.4.0
 ```
+
+正式版的 `CHANGELOG.md` 最上方必须就是 `## [1.4.0]`：打包脚本取第一个 `## [..]` 标题与版本号比对，
+上面多一个空的 `[Unreleased]` 会被拒绝。下一轮的第一条变更再把 `## [Unreleased]` 加回来即可。
 
 合并方式固定为**快进**（`--ff-only`）：这样 `main` 上的每一个提交都与 CI 在 `dev` 上逐一
 验证过的提交完全相同，不会引入任何从未被验证过的合并树。快进失败即说明 `main` 上有 `dev`

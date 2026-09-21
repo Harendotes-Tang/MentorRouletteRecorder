@@ -564,10 +564,14 @@ public sealed class CalibrationCoordinator
             // Unless that upgrade is stuck. A blocked draft never unblocks by itself - an overflowed
             // table stays overflowed, and the evidence is carried from run to run - so telling the
             // player that two more roulettes will do it is a promise the software cannot keep.
+            //
+            // Party queues matter to calibration only: the mentor roulette can only be queued
+            // alone, so the player always sends that request and no mentor run is ever missed
+            // for being queued by someone else.
             blockers = draft?.Status == CalibrationDraftStatus.Blocked
                 ? new[]
                 {
-                    "已经可以正常记录导随了：目前按「你申请了哪个随机任务 + 你进了哪个副本」判定，记录不受下面这件事影响。组队排本时只有队长的电脑发出申请，所以你不是队长的那几把，这种判定方式记不到。",
+                    "已经可以正常记录导随了：目前按「你申请了哪个随机任务 + 你进了哪个副本」判定，记录不受下面这件事影响。",
                     "软件在后台找这一版真正的「匹配成功」报文，但这次积累的观察已经用不上了（多半是抓包从游戏中途开始，" +
                     "或者周围报文太多把记录表挤满了），继续打本也不会有进展。想让它重新找：先开着本软件，" +
                     "再启动游戏并登录，然后点下面的「清空进度并重新观察」，之后打两把不同的随机任务。",
@@ -576,7 +580,7 @@ public sealed class CalibrationCoordinator
                 {
                     "已经可以正常记录导随了：目前按「你申请了哪个随机任务 + 你进了哪个副本」判定。" +
                     "软件还在后台找这一版真正的「匹配成功」报文，找到后会请你再核对一次，之后判定会更准。" +
-                    "想帮忙的话，打两把不同的随机任务就够了（要自己点申请：组队排本时只有队长的电脑发出申请，所以你不是队长的那几把，这种判定方式记不到，也帮不上校准）。",
+                    "想帮忙的话，打两把不同的随机任务就够了（要自己点申请：组队排本时只有队长的电脑发出申请，你不是队长的那几把帮不上校准）。",
                 };
         }
         else if (_retaining)
