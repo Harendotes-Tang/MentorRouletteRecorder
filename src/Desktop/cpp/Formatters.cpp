@@ -254,8 +254,11 @@ const QHash<QString, QString> &captureErrorTable()
          QString::fromUtf8("当前游戏版本还没有可用的协议档案。")},
         {QStringLiteral("ERR_DB_BUSY"),
          QString::fromUtf8("本地数据库正忙，稍等一下会自动重试。")},
+        // 采集服务在启动时遇到这个码就拒绝启动，管道从不打开，这句话因而到不了界面；
+        // 留着是为了防御，措辞必须仍然属实：此时设置里的备份也用不了，只能自己去复制
+        // 数据库文件（审查 2026-09-21 第 15 条）。
         {QStringLiteral("ERR_DB_INTEGRITY"),
-         QString::fromUtf8("本地数据库校验没通过，请到设置里备份后再排查。")},
+         QString::fromUtf8("本地数据库校验没通过，采集服务无法启动。请先把数据库文件复制一份留底，再排查问题。")},
         {QStringLiteral("ERR_INTERNAL"),
          QString::fromUtf8("采集服务内部出错，已停止本次监听。")},
     };

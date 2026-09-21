@@ -61,7 +61,7 @@ public sealed class SqliteDatabase : IDisposable
         {
             connection.Open();
             ApplyPragmas(connection);
-            VerifyIntegrity(connection);
+            VerifyIntegrity(connection, fullPath);
             var version = MigrationRunner.MigrateToLatest(connection, clock);
             return new SqliteDatabase(connection, fullPath, version);
         }
@@ -84,16 +84,24 @@ public sealed class SqliteDatabase : IDisposable
         Execute(connection, "PRAGMA temp_store = MEMORY;");
     }
 
-    private static void VerifyIntegrity(SqliteConnection connection)
+    private static void VerifyIntegrity(SqliteConnection connection, string path)
     {
         using var command = connection.CreateCommand();
         command.CommandText = "PRAGMA integrity_check;";
         var result = command.ExecuteScalar() as string;
         if (!string.Equals(result, "ok", StringComparison.OrdinalIgnoreCase))
         {
+            // This is not a read-only mode, whatever the message used to claim. Throwing here ends
+            // Open before it ever returns an instance, CollectorHost passes it up unchanged, and the
+            // process exits with code 3 without opening the pipe - so BackupDatabase, which is an
+            // instance method on this class, is out of reach too (2026-09-21 full audit, finding 15).
+            // The message therefore says only what is true and what the person can act on: the
+            // software will not start, and the file is theirs to copy somewhere safe first.
             throw new CollectorException(
                 ErrorCodes.DbIntegrity,
-                "数据库完整性校验失败，已进入只读模式。请先备份数据库文件再处理。",
+                "数据库完整性校验失败，本软件无法启动。" +
+                "请先把数据库文件复制一份保存到别处，再排查问题。" +
+                $"数据库文件：{path}",
                 new Dictionary<string, object?> { ["integrity_check"] = result });
         }
     }

@@ -77,8 +77,8 @@
 | `ERR_SPEECH_NETWORK` | 其他非 2xx 状态（`details.reason = HTTP_STATUS`）、任何 3xx（`REDIRECT_REFUSED`，从不跟随）、连接或读取失败（`details.reason` 为 `NAME_RESOLUTION_ERROR`、`CONNECTION_ERROR` 之类的大写记号） | `SynthesizeSpeech` | true | 用本机语音播报，并提示一次；响应正文从不回传 |
 | `ERR_SPEECH_TIMEOUT` | 单次请求连接与读取合计超过 8 秒；或队列已满（同时一条发送中、三条等待，第五条直接失败，`details.reason = QUEUE_FULL`）；或等待超过 8 秒仍未轮到（`QUEUE_WAIT`）；或采集服务正在停止（`CANCELLED`） | `SynthesizeSpeech` | true | 该句改用本机语音播报。超出队列的句子不排队，以免播报持续滞后 |
 | `ERR_SPEECH_FORMAT` | 响应 `Content-Type` 不是 `audio/*` / `application/octet-stream`（`details.reason = CONTENT_TYPE`）、超过 5 MB（`TOO_LARGE`）、不是 RIFF/WAVE 16 位 PCM（`NOT_RIFF_WAVE`、`NOT_PCM`、`NOT_16_BIT`、`BAD_FMT`、`NO_DATA` 等），或读音写不进 `tts-cache\`（`CACHE_WRITE`） | `SynthesizeSpeech` | false | 用本机语音播报，并提示一次；这样的响应不写缓存 |
-| `ERR_DB_BUSY` | SQLite 返回 `SQLITE_BUSY` / `SQLITE_LOCKED`，且已超过重试预算 | 任意写操作；`CheckDatabaseIntegrity` | true | 稍后以相同 `request_id` 重试（幂等） |
-| `ERR_DB_INTEGRITY` | `PRAGMA integrity_check` 失败、迁移校验失败、或检测到 schema 版本高于本程序支持的版本 | 任意 | false | 进入只读/降级模式；建议先执行 `BackupDatabase` 再处理 |
+| `ERR_DB_BUSY` | SQLite 返回 `SQLITE_BUSY` / `SQLITE_LOCKED`，且已超过重试预算；或 `CheckDatabaseIntegrity` 请求到达时已有一次全库校验在执行（同时只允许一次，不排队） | 任意写操作；`CheckDatabaseIntegrity` | true | 稍后以相同 `request_id` 重试（幂等） |
+| `ERR_DB_INTEGRITY` | `PRAGMA integrity_check` 失败、迁移校验失败、或检测到 schema 版本高于本程序支持的版本 | 进程启动（不经由 IPC 返回） | false | 采集服务拒绝启动，管道不会打开，因此桌面端收不到这个码；没有只读模式，也无法调用 `BackupDatabase`。错误信息中给出数据库文件位置，先把该文件复制一份留底再排查 |
 | `ERR_EXPORT_FAILED` | 目标路径不可写、磁盘空间不足、目标已存在且 `overwrite = false`、路径穿越等 | `ExportCsv` `ExportJson` `BackupDatabase` `ExportDiagnosticsReport` | false | 让用户重新选择路径 |
 | `ERR_ALREADY_RUNNING` | 本机已有一个 Collector 在服务同一条管道：单实例租约已被占用，或管道已存在 | 进程启动（`--serve`，不经由 IPC 返回） | false | 连接正在运行的实例，不再启动新实例；进程退出码为 **4**，与本机数据故障（3）区分。仅当管道**存在且可接受连接**、占用者却连续 6 次（每次 500 ms，合计 ≥ 3 秒）不应答 `GetVersion` 探活时，退出码改为 **6**，表示占用者已无响应：应先请其停止并等待退出，必要时结束该进程（进程号记录在日志目录下的 `serve.pid`，或 `--pipe` 自定义管道对应的 `serve.<管道名>.pid`），然后重试。租约被占用但管道尚未建立或已拆除（对方正在启动或停止），以及管道实例已满（对方正在服务其他客户端），退出码仍为 **4** |
 | `ERR_INTERNAL` | 其他未归类的异常 | 任意 | false | 记录到本地诊断日志（不含报文负载），提示用户上报**手动复制**的日志 |

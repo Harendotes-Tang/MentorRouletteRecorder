@@ -164,6 +164,70 @@ public sealed class MigrationTests
             SqliteDatabase.Open(fixture.Path, fixture.Clock));
 
         Assert.Equal(ErrorCodes.DbIntegrity, error.Code);
+        AssertRefusalIsHonest(error, fixture);
+    }
+
+    [Fact]
+    public void Open_RejectsASchemaFromANewerBuild()
+    {
+        using var fixture = new TestDatabase();
+        using (var command = fixture.Database.CreateCommand())
+        {
+            command.CommandText =
+                "INSERT INTO schema_migrations (version, name, checksum, applied_at_utc) " +
+                "VALUES (9999, '9999_from_a_newer_build.sql', 'unread', '2026-09-21T00:00:00.000Z');";
+            command.ExecuteNonQuery();
+        }
+
+        fixture.Database.Dispose();
+        var error = Assert.Throws<CollectorException>(() =>
+            SqliteDatabase.Open(fixture.Path, fixture.Clock));
+
+        Assert.Equal(ErrorCodes.DbIntegrity, error.Code);
+        AssertRefusalIsHonest(error, fixture);
+    }
+
+    [Fact]
+    public void Open_RejectsACorruptedFile()
+    {
+        using var fixture = new TestDatabase();
+
+        // Land every page in the main file, then overwrite the second one with the database
+        // closed - the corruption DatabaseIntegrityCheckTests already relies on.
+        using (var command = fixture.Database.CreateCommand())
+        {
+            command.CommandText = "PRAGMA wal_checkpoint(TRUNCATE);";
+            command.ExecuteNonQuery();
+        }
+
+        fixture.Database.Dispose();
+        using (var file = new FileStream(fixture.Path, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite))
+        {
+            Assert.True(file.Length > 4096 * 2, "expected at least two pages after migration");
+            file.Position = 4096;
+            var junk = new byte[256];
+            Array.Fill(junk, (byte)0xFF);
+            file.Write(junk);
+        }
+
+        var error = Assert.Throws<CollectorException>(() =>
+            SqliteDatabase.Open(fixture.Path, fixture.Clock));
+
+        Assert.Equal(ErrorCodes.DbIntegrity, error.Code);
+        AssertRefusalIsHonest(error, fixture);
+    }
+
+    /// <summary>
+    /// Every refusal to open ends the process before the pipe is up, so the message may not
+    /// promise a read-only mode nothing implements (2026-09-21 full audit, finding 15). It has to
+    /// say the software will not start and name the file the user should copy first - that copy is
+    /// the only backup available once the built-in one is out of reach.
+    /// </summary>
+    private static void AssertRefusalIsHonest(CollectorException error, TestDatabase fixture)
+    {
+        Assert.DoesNotContain("只读模式", error.Message, StringComparison.Ordinal);
+        Assert.Contains("无法启动", error.Message, StringComparison.Ordinal);
+        Assert.Contains(System.IO.Path.GetFileName(fixture.Path), error.Message, StringComparison.Ordinal);
     }
 
     [Fact]

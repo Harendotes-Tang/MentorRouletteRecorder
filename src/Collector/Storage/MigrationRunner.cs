@@ -23,6 +23,10 @@ public sealed record MigrationScript(int Version, string Name, string Sql, strin
 /// refuse to open: a script whose recorded checksum no longer matches, a gap in the version
 /// sequence, and a database whose version is higher than this build supports. All three
 /// surface as <c>ERR_DB_INTEGRITY</c> (migrations/README.md, rules 1 and 5).
+///
+/// Refusing to open means the Collector does not start at all: there is no read-only fallback
+/// anywhere in the tree (2026-09-21 full audit, finding 15). The messages below say so, and
+/// point at the file the user should copy before touching anything.
 /// </summary>
 public static class MigrationRunner
 {
@@ -46,7 +50,7 @@ public static class MigrationRunner
         ArgumentNullException.ThrowIfNull(clock);
 
         var applied = ReadAppliedMigrations(connection);
-        VerifyHistory(applied);
+        VerifyHistory(applied, DatabaseFileHint(connection));
 
         using var transaction = connection.BeginTransaction();
         try
@@ -118,7 +122,9 @@ public static class MigrationRunner
         return applied;
     }
 
-    private static void VerifyHistory(IReadOnlyDictionary<int, (string Name, string Checksum)> applied)
+    private static void VerifyHistory(
+        IReadOnlyDictionary<int, (string Name, string Checksum)> applied,
+        string fileHint)
     {
         var known = Scripts.ToDictionary(s => s.Version);
 
@@ -128,7 +134,8 @@ public static class MigrationRunner
             {
                 throw new CollectorException(
                     ErrorCodes.DbIntegrity,
-                    "数据库的 schema 版本高于本程序支持的版本，已进入只读模式。请升级本软件。",
+                    "数据库的结构版本高于本程序支持的版本，本软件无法启动。" +
+                    "请先把数据库文件复制一份保存到别处，再升级本软件。" + fileHint,
                     new Dictionary<string, object?>
                     {
                         ["database_version"] = version,
@@ -141,7 +148,8 @@ public static class MigrationRunner
             {
                 throw new CollectorException(
                     ErrorCodes.DbIntegrity,
-                    "历史迁移脚本的校验和与记录不符，数据库可能已被篡改。请先备份再处理。",
+                    "历史迁移脚本的校验和与记录不符，数据库可能已被篡改，本软件无法启动。" +
+                    "请先把数据库文件复制一份保存到别处，再排查问题。" + fileHint,
                     new Dictionary<string, object?>
                     {
                         ["version"] = version,
@@ -150,6 +158,16 @@ public static class MigrationRunner
             }
         }
     }
+
+    /// <summary>
+    /// The sentence naming the file the user is being asked to copy. Empty for a connection with
+    /// no file behind it (an in-memory database in tests): an empty path would read worse than
+    /// none at all.
+    /// </summary>
+    private static string DatabaseFileHint(SqliteConnection connection) =>
+        string.IsNullOrWhiteSpace(connection.DataSource)
+            ? string.Empty
+            : "数据库文件：" + connection.DataSource;
 
     private static bool TableExists(SqliteConnection connection, string table)
     {

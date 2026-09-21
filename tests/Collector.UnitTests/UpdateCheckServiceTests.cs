@@ -202,6 +202,32 @@ public sealed class UpdateCheckServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task AManualCheckWhileAnotherManualOneIsInFlightWaitsForThatOne()
+    {
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var transport = new Transport { Gate = gate };
+        var service = Service(transport);
+
+        // Nothing scheduled this one: the first 立即检查 claimed it itself. While claiming the check
+        // and publishing the task to wait on were two steps, a claim could be taken with Pending
+        // still holding the previous check - null here, the first of this process - and the second
+        // call then reported 已检查 without waiting for anything, leaving its caller to read the
+        // state from before the check (2026-09-21 full audit, finding 22).
+        var first = service.CheckNowIfAllowedAsync();
+        await transport.Invoked.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.NotNull(service.Pending);
+
+        var second = service.CheckNowIfAllowedAsync();
+        Assert.False(second.IsCompleted);
+        gate.SetResult();
+
+        Assert.Equal(UpdateCheckRequestOutcome.Checked, await second.WaitAsync(TimeSpan.FromSeconds(10)));
+        Assert.Equal(Published, service.Snapshot().LatestVersion);
+        Assert.Equal(UpdateCheckRequestOutcome.Checked, await first.WaitAsync(TimeSpan.FromSeconds(10)));
+        Assert.Equal(1, transport.Calls);
+    }
+
+    [Fact]
     public async Task AClockMovedBackIsDue()
     {
         var transport = new Transport();

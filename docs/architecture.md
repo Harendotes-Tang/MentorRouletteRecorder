@@ -355,7 +355,7 @@ payload: <LiveEvent>}`。
 | 档案存在但未经证据验证 | `ProfileStatus = UNVERIFIED`，同样不用于自动记录 |
 | 关键字段缺失（如无法确定 `content_id`） | 记录 `detection_confidence` 降级，字段留 `NULL`，不猜测 |
 | 队列溢出导致事件丢失 | 该次记录标记为低置信度或 `UNKNOWN`，不补全 |
-| 数据库完整性校验失败 | `ERR_DB_INTEGRITY`，进入只读模式，先建议备份 |
+| 数据库完整性校验失败 | `ERR_DB_INTEGRITY`，采集服务拒绝启动（退出码 3，IPC 管道不会打开），错误信息给出数据库文件位置并提示先复制一份留底 |
 
 **绝不**在没有证据的情况下猜测 opcode 或结构偏移。协议档案的证据要求见
 [protocol-profile-format.md](protocol-profile-format.md)。

@@ -243,7 +243,8 @@ INDEX ix_revisions_run ON run_revisions(run_id, revision)
 
 启动时向前迁移到本程序支持的最高版本（当前为 **8**，`0008_run_duty_source.sql`；
 逐版说明见 [migrations/README.md](../migrations/README.md)）。若库中版本**高于**本程序支持的版本，
-或历史迁移 checksum 不匹配，则返回 `ERR_DB_INTEGRITY` 并进入只读模式。
+或历史迁移 checksum 不匹配，则以 `ERR_DB_INTEGRITY` 拒绝启动（进程退出码 3，IPC 管道不会打开）；
+错误信息会给出数据库文件位置，提示先把该文件复制一份留底再处理。本软件没有只读模式。
 
 ## 6. `application_settings` —— 键值设置
 

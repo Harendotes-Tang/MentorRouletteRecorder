@@ -63,7 +63,7 @@ public sealed class UpdateCheckService : IDisposable
     private string? _lastOutcome;
     private bool _checkedThisProcess;
     private volatile bool _enabled;
-    private int _inFlight;
+    private bool _inFlight;
     private Task? _pending;
     private bool _disposed;
 
@@ -104,8 +104,21 @@ public sealed class UpdateCheckService : IDisposable
     /// <summary>This process's jitter, drawn once at startup and constant afterwards.</summary>
     public TimeSpan Jitter { get; }
 
-    /// <summary>The background check in flight, or the last one that ran; null until one is scheduled.</summary>
-    internal Task? Pending => _pending;
+    /// <summary>
+    /// The check in flight - scheduled or asked for - or the last one that ran; null until the
+    /// first is claimed. Claim and publication happen in one locked step, so a caller that loses
+    /// the claim always finds the task belonging to the check that won it.
+    /// </summary>
+    internal Task? Pending
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _pending;
+            }
+        }
+    }
 
     /// <summary>
     /// The state <c>GetStatus</c> reports, answered from the cache, and a check scheduled when one is
@@ -167,8 +180,8 @@ public sealed class UpdateCheckService : IDisposable
 
     /// <summary>
     /// 立即检查 (<c>CheckUpdateNow</c>): the user asked, so the daily throttle does not apply; the setting and
-    /// the kill switch still do, and nothing is sent under either. A scheduled check already in flight is
-    /// waited for rather than doubled. Returns once the cache holds the answer.
+    /// the kill switch still do, and nothing is sent under either. A check already in flight, scheduled or
+    /// asked for, is waited for rather than doubled. Returns once the cache holds the answer.
     /// </summary>
     /// <param name="cancellationToken">The connection's token.</param>
     public async Task<UpdateCheckRequestOutcome> CheckNowIfAllowedAsync(CancellationToken cancellationToken = default)
@@ -183,9 +196,9 @@ public sealed class UpdateCheckService : IDisposable
             return UpdateCheckRequestOutcome.Disabled;
         }
 
-        if (Interlocked.CompareExchange(ref _inFlight, 1, 0) != 0)
+        if (TryClaim() is not { } claim)
         {
-            if (_pending is { } pending)
+            if (Pending is { } pending)
             {
                 try
                 {
@@ -211,7 +224,7 @@ public sealed class UpdateCheckService : IDisposable
         }
         finally
         {
-            Interlocked.Exchange(ref _inFlight, 0);
+            Release(claim);
         }
 
         return UpdateCheckRequestOutcome.Checked;
@@ -245,8 +258,12 @@ public sealed class UpdateCheckService : IDisposable
 
     private void Schedule()
     {
-        if (_disposed || !_enabled || !IsDue(_clock.UtcNow) ||
-            Interlocked.CompareExchange(ref _inFlight, 1, 0) != 0)
+        if (_disposed || !_enabled || !IsDue(_clock.UtcNow))
+        {
+            return;
+        }
+
+        if (TryClaim() is not { } claim)
         {
             return;
         }
@@ -256,7 +273,7 @@ public sealed class UpdateCheckService : IDisposable
             _checkedThisProcess = true;
         }
 
-        _pending = Task.Run(async () =>
+        _ = Task.Run(async () =>
         {
             try
             {
@@ -269,9 +286,44 @@ public sealed class UpdateCheckService : IDisposable
             }
             finally
             {
-                Interlocked.Exchange(ref _inFlight, 0);
+                Release(claim);
             }
         });
+    }
+
+    // Claiming the one check that may be in flight and publishing the task other callers wait on
+    // are the same locked step. While they were two steps (2026-09-21 full audit, finding 22), a
+    // request that arrived in between found the claim taken and _pending still holding the
+    // previous check - null on the very first one - so it reported "checked" without waiting for
+    // the check just claimed, and the snapshot it went on to read was the one from before it.
+    // Null when a check is already claimed: that caller waits on Pending instead.
+    private TaskCompletionSource? TryClaim()
+    {
+        lock (_gate)
+        {
+            if (_inFlight)
+            {
+                return null;
+            }
+
+            _inFlight = true;
+            var claim = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            _pending = claim.Task;
+            return claim;
+        }
+    }
+
+    // Frees the claim first, then wakes the waiters, so a waiter resumes with the outcome already
+    // recorded - the only reason it waited. The claim never carries a failure: the check that took
+    // it swallows and records its own, and a waiter reads the cache rather than a result.
+    private void Release(TaskCompletionSource claim)
+    {
+        lock (_gate)
+        {
+            _inFlight = false;
+        }
+
+        claim.TrySetResult();
     }
 
     private bool IsDue(DateTimeOffset now)
