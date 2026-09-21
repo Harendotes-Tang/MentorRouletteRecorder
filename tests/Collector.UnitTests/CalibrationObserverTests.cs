@@ -638,6 +638,33 @@ public sealed class CalibrationObserverTests
         Assert.Contains(draft.Blockers, blocker => blocker.Contains("上限", StringComparison.Ordinal));
     }
 
+    /// <summary>
+    /// A marker table that overflowed knows nothing about a position it never got a row for,
+    /// and an unknown is not an agreement. That consistency check is the only thing standing
+    /// between this path and a multiplexed opcode - the 1.2.1 accident, where the learned pop
+    /// also fired at the retainer bell, invented a 匹配成功 and lost the real run - so once the
+    /// tables have overflowed anywhere in the session, a candidate the scan never recorded
+    /// cannot be locked on its roulette echoes alone (2026-09-21 full-audit finding 8).
+    /// </summary>
+    [Fact]
+    public void AnOverflowedMarkerTableNoLongerVouchesForAnAnnouncement()
+    {
+        var template = Template();
+        var observed = CalibrationTrafficCases.Observe(
+            CalibrationTrafficCases.Traffic(CalibrationTrafficCases.Announcement));
+        // No position recorded for the candidate. With the tables still inside their limits
+        // that is the traffic's own silence and the announcement is locked as before, so the
+        // only thing separating the two assertions below is the overflow itself.
+        var unrecorded = observed with { Markers = Array.Empty<MarkerCandidate>() };
+
+        Assert.Equal(
+            CalibrationMatchSource.Announcement,
+            CalibrationDraft.Derive(unrecorded, template).MatchSource);
+        Assert.NotEqual(
+            CalibrationMatchSource.Announcement,
+            CalibrationDraft.Derive(unrecorded with { MarkerOverflow = 1 }, template).MatchSource);
+    }
+
     [Fact]
     public void ObserverIgnoresOtherSessionsAndKeepsNoPayload()
     {

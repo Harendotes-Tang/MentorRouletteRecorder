@@ -258,6 +258,91 @@ public sealed class CalibrationPipelineTests : IDisposable
     }
 
     /// <summary>
+    /// The two-minute evidence save must leave both the delivery thread and the pipeline lock
+    /// alone. Serialising a whole snapshot and moving the file takes real time. Done on the
+    /// delivery thread it stalls delivery itself, and the queue feeding it is bounded, so the
+    /// session drops the very messages calibration needs; done under the lock it also stalls
+    /// every IPC status read. Both stalls hit exactly while calibration needed the traffic
+    /// most (2026-09-21 full-audit finding 7).
+    /// </summary>
+    [Fact]
+    public async Task ThePeriodicEvidenceSaveLeavesTheDeliveryThreadAndTheLockAlone()
+    {
+        using var db = new TestDatabase();
+        var template = CalibrationObserverTests.Template();
+        using var writing = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        // The saves the observed evening triggers on its own pass straight through; only the
+        // one after it is held open, so the test measures exactly the write it set up.
+        var hold = false;
+        var services = Services(template) with
+        {
+            SaveEvidence = (_, _, _, _) =>
+            {
+                if (hold)
+                {
+                    writing.Set();
+                    release.Wait(TimeSpan.FromSeconds(10));
+                }
+
+                return true;
+            },
+        };
+
+        var pipeline = new LiveProtocolPipeline(
+            db.Database, db.Clock, new LiveEventBus(db.Clock), NoProfile, null, services);
+        pipeline.Refresh(NewBuild);
+        var sessionId = OpenSession(db);
+        pipeline.OnCaptureStarted(sessionId);
+        Feed(pipeline, sessionId, CalibrationObserverTests.Session1());
+        Assert.Equal(CalibrationState.Ready, pipeline.CalibrationStatus().State);
+
+        hold = true;
+        // Both throttles are measured on the capture source's own clock, so one message
+        // stamped well past the interval is all it takes to make the save due.
+        var saving = Task.Run(() => Feed(pipeline, sessionId, new[]
+        {
+            CalibrationObserverTests.Message(MessageDirection.Inbound, 0xD002, new byte[40], 1_800_000),
+        }));
+        try
+        {
+            Assert.True(writing.Wait(TimeSpan.FromSeconds(10)), "the periodic save never started");
+            // Accept() runs on the queue's single delivery thread, and that queue is bounded:
+            // a write done there would still have Feed blocked here, with the session dropping
+            // the messages calibration is trying to learn from. Releasing the lock alone would
+            // leave this assertion failing.
+            await Finishes(saving, "the delivery thread was held for the whole evidence write");
+            // What the desktop asks for every two seconds while the card is on screen.
+            var status = Task.Run(pipeline.CalibrationStatus);
+            await Finishes(status, "the pipeline lock was held for the whole evidence write");
+            Assert.Equal(CalibrationState.Ready, (await status).State);
+        }
+        finally
+        {
+            release.Set();
+        }
+    }
+
+    /// <summary>
+    /// Fails with <paramref name="because"/> rather than a bare timeout when <paramref name="task"/>
+    /// is still running. Awaited, not waited on: a blocking wait in a test can deadlock, and the
+    /// analyser refuses it (xUnit1031).
+    /// </summary>
+    /// <param name="task">Task that should already be finishing.</param>
+    /// <param name="because">What being stuck would mean.</param>
+    private static async Task Finishes(Task task, string because)
+    {
+        try
+        {
+            await task.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        catch (TimeoutException)
+        {
+            Assert.Fail(because);
+        }
+    }
+
+    /// <summary>
     /// The 2026-09-01 CN client end to end: nothing in the traffic announces a match, so the
     /// player's own queue request stands in for it, the session starts recording with it, and
     /// calibration keeps running underneath so the real announcement can still replace it.

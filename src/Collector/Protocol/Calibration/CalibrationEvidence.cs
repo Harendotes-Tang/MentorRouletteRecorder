@@ -286,7 +286,11 @@ public sealed record CalibrationSnapshot(
 
     /// <summary>
     /// Positions dropped because the marker table was full. Unlike <see cref="OverflowCount"/>
-    /// this only weakens the marker scan, so it is reported and never blocks anything.
+    /// it never adds a blocker to the draft, so calibration as a whole carries on. It does make
+    /// one decision refuse, though: a candidate announcement with no marker evidence of its own
+    /// is not locked by value while this is non-zero, because its silence may be the table's
+    /// rather than the traffic's, and an unknown must not pass for agreement - that check is
+    /// the only guard on that path against a multiplexed opcode (audit 2026-09-21, finding 8).
     /// </summary>
     public int MarkerOverflow { get; init; }
 

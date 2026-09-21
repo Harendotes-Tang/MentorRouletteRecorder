@@ -64,6 +64,44 @@ public sealed partial class LiveProtocolPipeline :
     private DateTimeOffset? _calibrationBoundAt;
     private TimeSpan _calibrationLastDerive;
     private TimeSpan _calibrationLastSave;
+
+    /// <summary>
+    /// Serialises every write and delete of the evidence file. The periodic save does its
+    /// disk work with <see cref="_gate"/> released, so without this two writers could both
+    /// read "the file on disk is poorer than mine", and the later File.Move rather than the
+    /// richer snapshot would win - defeating the store's own refusal to trade an evening of
+    /// evidence for a minute of it. Only ever taken after <see cref="_gate"/>, never before
+    /// it, so the two orders cannot cross.
+    /// </summary>
+    private readonly object _evidenceGate = new();
+
+    /// <summary>
+    /// Evidence frozen under the lock and still owed a write outside it, with the generation
+    /// it was frozen in. Staged and flushed within one <see cref="Accept"/> call.
+    /// </summary>
+    private (Region Region, string Build, string TemplateSha256, CalibrationSnapshot Evidence, int Generation)?
+        _calibrationSavePending;
+
+    /// <summary>
+    /// True from the moment a periodic save is staged until its write is done with. A second
+    /// tick does not start a second write of the same evidence.
+    /// </summary>
+    private bool _calibrationSaveInFlight;
+
+    /// <summary>
+    /// The periodic save's write, running off the delivery thread. Kept so that stopping the
+    /// capture can wait for it: the file the next session reads has to be the one this
+    /// session meant to leave behind.
+    /// </summary>
+    private Task _calibrationFlush = Task.CompletedTask;
+
+    /// <summary>
+    /// How long stopping waits for a save that is still in the air. Bounded on purpose: a
+    /// disk that has stopped answering must not hold the Collector's shutdown, and what the
+    /// write would have left behind only saves the next session some observing.
+    /// </summary>
+    private static readonly TimeSpan EvidenceFlushShutdownWait = TimeSpan.FromSeconds(5);
+
     private string _calibrationSignature = string.Empty;
     private readonly SharedCalibrationSession _shared;
     private string? _boundProfileId;
@@ -507,58 +545,70 @@ public sealed partial class LiveProtocolPipeline :
     {
         ArgumentNullException.ThrowIfNull(message);
 
-        lock (_gate)
+        try
         {
-            if (!_active || !string.Equals(message.CaptureSessionId, _sessionId, StringComparison.Ordinal))
+            lock (_gate)
             {
-                return;
-            }
+                if (!_active || !string.Equals(message.CaptureSessionId, _sessionId, StringComparison.Ordinal))
+                {
+                    return;
+                }
 
-            // Durations are measured against readings taken by the capture source's own
-            // stopwatch, so the last one observed is what a lifecycle event must be stamped
-            // with (see LifecycleMono).
-            _lastMessageMono = message.Mono;
-            _candidateObserver?.Accept(message);
-            _calibration.Accept(message);
-            if (_parser is null || _processor is null)
-            {
-                // Staged before verification runs, so the message that completes a pass is in the stage.
-                _shared.Stage(message);
-            }
+                // Durations are measured against readings taken by the capture source's own
+                // stopwatch, so the last one observed is what a lifecycle event must be stamped
+                // with (see LifecycleMono).
+                _lastMessageMono = message.Mono;
+                _candidateObserver?.Accept(message);
+                _calibration.Accept(message);
+                if (_parser is null || _processor is null)
+                {
+                    // Staged before verification runs, so the message that completes a pass is in the stage.
+                    _shared.Stage(message);
+                }
 
-            MaybeRefreshCalibration(message.Mono);
-            if (_parser is null || _processor is null)
-            {
-                _counting.Accept(message);
-                return;
-            }
+                MaybeRefreshCalibration(message.Mono);
+                if (_parser is null || _processor is null)
+                {
+                    _counting.Accept(message);
+                    return;
+                }
 
-            // A durable write failure is latched until teardown. Do not let queued messages
-            // advance the state machine after the first missing observation while the
-            // controller's asynchronous fault path is stopping the source.
-            ThrowIfStorageFailed();
-            var beforeFailed = _parser.GetParserStats().ParseFailed;
-            ApplyAndPublish(() => _parser.Accept(message));
-            var afterStats = _parser.GetParserStats();
-            if (afterStats.ParseFailed > beforeFailed && afterStats.RecentErrors.Count > 0)
-            {
-                PersistParserError(afterStats.RecentErrors[^1]);
-            }
+                // A durable write failure is latched until teardown. Do not let queued messages
+                // advance the state machine after the first missing observation while the
+                // controller's asynchronous fault path is stopping the source.
+                ThrowIfStorageFailed();
+                var beforeFailed = _parser.GetParserStats().ParseFailed;
+                ApplyAndPublish(() => _parser.Accept(message));
+                var afterStats = _parser.GetParserStats();
+                if (afterStats.ParseFailed > beforeFailed && afterStats.RecentErrors.Count > 0)
+                {
+                    PersistParserError(afterStats.RecentErrors[^1]);
+                }
 
-            // Only once the parser is done with the message: withdrawing replaces the parser and
-            // the state machine, which must not happen underneath the event being applied.
-            if (_popWatch is { Contradicted: true })
-            {
-                WithdrawContradictedLocalProfile();
-            }
+                // Only once the parser is done with the message: withdrawing replaces the parser and
+                // the state machine, which must not happen underneath the event being applied.
+                if (_popWatch is { Contradicted: true })
+                {
+                    WithdrawContradictedLocalProfile();
+                }
 
-            if (_sharedIdleAgain)
-            {
-                _sharedIdleAgain = false;
-                _shared.Evaluate();
-            }
+                if (_sharedIdleAgain)
+                {
+                    _sharedIdleAgain = false;
+                    _shared.Evaluate();
+                }
 
-            SettleOwedSharedSwap();
+                SettleOwedSharedSwap();
+            }
+        }
+        finally
+        {
+            // The periodic evidence save is frozen under the lock (StageCalibrationEvidence)
+            // and handed to a pool thread here. In a finally because a message that throws its
+            // way out - a latched storage failure, a parser fault - must not leave a staged
+            // snapshot behind and the in-flight flag set, which would stop every later save
+            // for the rest of the session.
+            StartCalibrationFlush();
         }
     }
 
@@ -611,6 +661,7 @@ public sealed partial class LiveProtocolPipeline :
     /// <inheritdoc />
     public void OnCaptureStopped(string captureSessionId, CaptureEndReason reason)
     {
+        WaitForCalibrationFlush();
         lock (_gate)
         {
             try
@@ -1227,9 +1278,22 @@ public sealed partial class LiveProtocolPipeline :
             return;
         }
 
+        DeleteCalibrationEvidence(_game.Region, build);
+    }
+
+    /// <summary>Removes one evidence file. Failure is never allowed to matter.</summary>
+    /// <param name="region">Region the file belongs to.</param>
+    /// <param name="build">Client build the file belongs to.</param>
+    private void DeleteCalibrationEvidence(Region region, string build)
+    {
         try
         {
-            _calibrationServices.DeleteEvidence(_game.Region, build);
+            // Behind the same gate as the writes: a delete that lands between another
+            // writer's "is the file richer than mine" and its File.Move would be undone by it.
+            lock (_evidenceGate)
+            {
+                _calibrationServices.DeleteEvidence(region, build);
+            }
         }
         catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
         {
@@ -1245,12 +1309,142 @@ public sealed partial class LiveProtocolPipeline :
             return;
         }
 
+        WriteCalibrationEvidence(_game.Region, build, template.Source.ProfileSha256, evidence);
+    }
+
+    /// <summary>Writes one frozen snapshot. Failure is never allowed to matter.</summary>
+    /// <param name="region">Region the evidence belongs to.</param>
+    /// <param name="build">Client build the evidence belongs to.</param>
+    /// <param name="templateSha256">Hash of the template it was collected under.</param>
+    /// <param name="evidence">Frozen snapshot to write.</param>
+    /// <returns>True when the file was written.</returns>
+    private bool WriteCalibrationEvidence(
+        Region region, string build, string templateSha256, CalibrationSnapshot evidence)
+    {
         try
         {
-            _calibrationServices.SaveEvidence(_game.Region, build, template.Source.ProfileSha256, evidence);
+            lock (_evidenceGate)
+            {
+                return _calibrationServices.SaveEvidence(region, build, templateSha256, evidence);
+            }
         }
         catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
         {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Freezes the evidence for the periodic save and leaves the disk work to
+    /// <see cref="FlushCalibrationEvidence"/>, which runs with <see cref="_gate"/> released.
+    ///
+    /// Serialising a whole snapshot - thousands of entries at the table limits - and then
+    /// writing and moving the file used to happen with the lock held, on the message path.
+    /// That lock is what the delivery thread and the IPC status reads share, so every two
+    /// minutes the save stalled exactly the traffic calibration most needs to keep seeing,
+    /// and a full queue drops messages (2026-09-21 full-audit finding 7). The snapshot is
+    /// frozen, so nothing a later message does can change what is being written.
+    /// </summary>
+    /// <param name="mono">Reading on the capture source's clock this tick was throttled against.</param>
+    private void StageCalibrationEvidence(TimeSpan mono)
+    {
+        if (_calibrationSaveInFlight)
+        {
+            // One is already between the lock and the disk. _calibrationLastSave is left
+            // alone on purpose: the next derive tick, two seconds away, tries again rather
+            // than the session waiting out another whole interval.
+            return;
+        }
+
+        if (_calibration.Template is not { } template || _calibration.GameBuild is not { } build ||
+            _calibration.Evidence() is not { } evidence)
+        {
+            return;
+        }
+
+        _calibrationLastSave = mono;
+        _calibrationSaveInFlight = true;
+        _calibrationSavePending =
+            (_game.Region, build, template.Source.ProfileSha256, evidence, _calibration.Generation);
+    }
+
+    /// <summary>
+    /// Hands what <see cref="StageCalibrationEvidence"/> froze to a pool thread.
+    ///
+    /// <see cref="Accept"/> runs on <c>DecodedMessageQueue</c>'s single delivery thread.
+    /// Serialising a table of thousands of entries and writing it there would stall delivery
+    /// for as long as the disk takes, and the queue it feeds is bounded: it fills, and the
+    /// session drops the very messages the calibration is trying to learn from. Releasing the
+    /// lock was not enough on its own - the write had to leave this thread altogether
+    /// (audit 2026-09-21, finding 7).
+    ///
+    /// The staged snapshot is read and cleared here, on the same thread that staged it, so
+    /// the field is never touched from two threads. <see cref="_calibrationSaveInFlight"/>
+    /// stays true until the write is done with, so there is at most one of these in the air.
+    /// </summary>
+    private void StartCalibrationFlush()
+    {
+        if (_calibrationSavePending is not { } pending)
+        {
+            return;
+        }
+
+        _calibrationSavePending = null;
+        Volatile.Write(ref _calibrationFlush, Task.Run(() => FlushCalibrationEvidence(pending)));
+    }
+
+    /// <summary>
+    /// Waits, briefly, for a periodic save that is still in the air.
+    ///
+    /// Called before the stop path takes the lock, for two reasons: the flush itself takes
+    /// the lock at the end, so waiting under it would deadlock; and waiting first puts this
+    /// session's last write before the save the stop path does, rather than letting a late
+    /// flush land on top of it.
+    /// </summary>
+    private void WaitForCalibrationFlush()
+    {
+        try
+        {
+            Volatile.Read(ref _calibrationFlush).Wait(EvidenceFlushShutdownWait);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        {
+            // The write's own failures are already swallowed inside it; this only sees a
+            // cancellation or a fault escaping the task, and neither is worth failing a stop.
+        }
+    }
+
+    /// <summary>
+    /// Writes what <see cref="StageCalibrationEvidence"/> froze, off the delivery thread and
+    /// outside the lock, and then puts right whatever releasing the lock allowed.
+    ///
+    /// The same shape as <see cref="ConfirmCalibration"/>: slow disk work outside the lock,
+    /// the lock taken again afterwards and the generation compared. A 重新观察 or a
+    /// confirmation that landed while the file was being written has already said what
+    /// belongs on disk, and what was just written belongs to the generation before it. The
+    /// repair deletes that file first - the store refuses to write a poorer snapshot over a
+    /// richer one, and after 重新观察 the poorer one is precisely what now belongs there - and
+    /// then lets the current state write itself. It holds the lock across a write, which is
+    /// what this whole change exists to avoid, but only in the millisecond-wide race, and
+    /// what ends up on disk has to be what the player asked for.
+    /// </summary>
+    /// <param name="pending">Evidence frozen under the lock, with the generation it came from.</param>
+    private void FlushCalibrationEvidence(
+        (Region Region, string Build, string TemplateSha256, CalibrationSnapshot Evidence, int Generation) pending)
+    {
+        var written = WriteCalibrationEvidence(
+            pending.Region, pending.Build, pending.TemplateSha256, pending.Evidence);
+        lock (_gate)
+        {
+            _calibrationSaveInFlight = false;
+            if (!written || (_calibration.Generation == pending.Generation && _calibration.Armed &&
+                string.Equals(_calibration.GameBuild, pending.Build, StringComparison.Ordinal)))
+            {
+                return;
+            }
+
+            DeleteCalibrationEvidence(pending.Region, pending.Build);
+            SaveCalibrationEvidence();
         }
     }
 
@@ -1269,8 +1463,7 @@ public sealed partial class LiveProtocolPipeline :
         _calibrationLastDerive = mono;
         if (mono - _calibrationLastSave >= CalibrationSaveInterval)
         {
-            _calibrationLastSave = mono;
-            SaveCalibrationEvidence();
+            StageCalibrationEvidence(mono);
         }
 
         // On the same captured-time throttle as the draft: verification reads a full snapshot.

@@ -699,22 +699,32 @@ public sealed partial record CalibrationDraft(
     }
 
     /// <summary>
-    /// True when the marker scan saw this shape, while a queue stood, carry something other than
-    /// the queued roulette at the template's roulette offset. A shape the scan never looked at
-    /// has contradicted nothing and is left to the other tests.
+    /// True when this shape may not be locked as the announcement: the marker scan saw it,
+    /// while a queue stood, carry something other than the queued roulette at the template's
+    /// roulette offset -- or the scan cannot answer for it at all. A shape the scan simply
+    /// never looked at has contradicted nothing and is left to the other tests.
     ///
     /// One stray sighting is not a contradiction: the evidence is carried from run to run, so a
     /// single odd message would bar the true announcement for good, while a list disagrees on
-    /// every row but one each time it is sent. And when the position table overflowed before this
-    /// position ever got a row, its silence is the table's, not the traffic's.
+    /// every row but one each time it is sent.
+    ///
+    /// But a position that never got a row while the marker tables were overflowing is not
+    /// silence from the traffic, it is silence from the tables, and that is an unknown rather
+    /// than an agreement. This test is the only guard this path has against a multiplexed
+    /// opcode -- the 1.2.1 accident, where the learned pop also fired at the retainer bell and
+    /// produced a false 匹配成功 while the real run was lost -- so an unknown is refused. Reading
+    /// it as agreement let one overflow anywhere in the session wave through every later
+    /// candidate the scan happened not to record, on RouletteEchoHits alone, without the
+    /// stronger tests LockMarker applies (2026-09-21 full-audit finding 8). Refusing costs
+    /// the player nothing they cannot get back: LockMarker and then the queue inference
+    /// still stand behind this path.
     /// </summary>
     /// <param name="snapshot">Frozen observations.</param>
     /// <param name="template">Template lending the roulette offset.</param>
     /// <param name="shape">Candidate announcement.</param>
     private static bool Disagrees(CalibrationSnapshot snapshot, CalibrationTemplate template, MessageKey shape)
     {
-        if (template.Pop.Field("roulette_id") is not { } field ||
-            !snapshot.MarkerShapeTotals.TryGetValue((shape.Opcode, shape.Length), out var total))
+        if (template.Pop.Field("roulette_id") is not { } field)
         {
             return false;
         }
@@ -722,6 +732,14 @@ public sealed partial record CalibrationDraft(
         var agreed = snapshot.Markers.FirstOrDefault(marker =>
             marker.Opcode == shape.Opcode && marker.Length == shape.Length && marker.Offset == field.Offset)?.Hits ?? 0;
         if (agreed == 0 && snapshot.MarkerOverflow > 0)
+        {
+            return true;
+        }
+
+        // Checked after the overflow test on purpose: with a table that overflowed, a shape
+        // missing from the totals is one more position the scan could not take, not one it
+        // looked at and found nothing against.
+        if (!snapshot.MarkerShapeTotals.TryGetValue((shape.Opcode, shape.Length), out var total))
         {
             return false;
         }
