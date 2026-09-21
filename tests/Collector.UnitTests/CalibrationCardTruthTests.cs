@@ -62,6 +62,29 @@ public sealed class CalibrationCardTruthTests
         Assert.Contains(status.Blockers, text => text.Contains("已经可以正常记录导随了", StringComparison.Ordinal));
         Assert.Contains(status.Blockers, text => text.Contains("重新观察", StringComparison.Ordinal));
         Assert.DoesNotContain(status.Blockers, text => text.Contains("打两把不同的随机任务就够了", StringComparison.Ordinal));
+        Assert.DoesNotContain(status.Blockers, text => text.Contains("记不到", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// The card beside a recording profile that is still looking for the announcement. It used to
+    /// warn that runs where the player was not the party leader would not be recorded, but the
+    /// mentor roulette can only be queued alone: the player always sends that request, so no
+    /// mentor run is ever missed that way. Party queues still matter to calibration, which learns
+    /// from other roulettes too, and the card keeps saying so.
+    /// </summary>
+    [Fact]
+    public void AnUpgradeStillLookingNeverSaysAMentorRunIsMissedForAPartyQueue()
+    {
+        var coordinator = new CalibrationCoordinator();
+        coordinator.Arm(CalibrationObserverTests.Template(), Region.Cn, CalibrationTrafficCases.Build);
+        coordinator.UseProvisional(true);
+        coordinator.Begin("calibration-session");
+
+        var status = coordinator.Snapshot();
+
+        Assert.Contains(status.Blockers, text => text.Contains("打两把不同的随机任务就够了", StringComparison.Ordinal));
+        Assert.Contains(status.Blockers, text => text.Contains("帮不上校准", StringComparison.Ordinal));
+        Assert.DoesNotContain(status.Blockers, text => text.Contains("记不到", StringComparison.Ordinal));
     }
 
     /// <summary>
