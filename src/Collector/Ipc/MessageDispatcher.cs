@@ -20,6 +20,17 @@ public sealed class MessageDispatcher
 {
     private readonly CollectorHost _host;
 
+    /// <summary>
+    /// 1 while a full-database scan is running, 0 otherwise.
+    ///
+    /// <c>CheckDatabaseIntegrity</c> opens a read-only connection of its own and reads every
+    /// page of the file. Nothing bounded how many of those could run at once: the connection's
+    /// deferred list has no length either, so a client could start one pass over the file per
+    /// request. The other deferred message that costs something, <c>SynthesizeSpeech</c>, has
+    /// had a queue and a refusal of its own since it shipped (2026-09-21 review finding 14).
+    /// </summary>
+    private int _integrityCheckInFlight;
+
     /// <summary>Creates a dispatcher over a host.</summary>
     /// <param name="host">Open collector host.</param>
     public MessageDispatcher(CollectorHost host)
@@ -138,16 +149,61 @@ public sealed class MessageDispatcher
         {
             "SynthesizeSpeech" => SpeechHandlers.SynthesizeAsync(
                 _host, new PayloadReader(request.Payload), cancellationToken),
-            // A full read of the database file, seconds on a large one: answered off this
-            // connection's thread so the status polls queued behind it are not held up. It takes
-            // no database gate either (SqliteDatabase.CheckIntegrity), so capture goes on.
-            "CheckDatabaseIntegrity" => Task.Run(
-                () => SpeechHandlers.CheckDatabaseIntegrity(_host, new PayloadReader(request.Payload)),
-                cancellationToken),
+            "CheckDatabaseIntegrity" => CheckDatabaseIntegrityAsync(request, cancellationToken),
             "CheckUpdateNow" => UpdateHandlers.CheckNowAsync(_host, new PayloadReader(request.Payload), cancellationToken),
             _ => Task.FromResult(Dispatch(request)),
         };
     }
+
+    /// <summary>
+    /// Answers <c>CheckDatabaseIntegrity</c> off this connection's thread, one scan at a time.
+    ///
+    /// A full read of the database file, seconds on a large one: answered off this connection's
+    /// thread so the status polls queued behind it are not held up. It takes no database gate
+    /// either (SqliteDatabase.CheckIntegrity), so capture goes on.
+    ///
+    /// A request that arrives while a scan is running is refused, not queued: a queue would let
+    /// a client stack up passes over the whole file, and the answer it is waiting for is the one
+    /// already being computed. <c>ERR_DB_BUSY</c> is the code the check already answers with
+    /// when the file is locked elsewhere, and it is retryable, so a client that wants the answer
+    /// can simply ask again (2026-09-21 review finding 14).
+    /// </summary>
+    /// <param name="request">Decoded request.</param>
+    /// <param name="cancellationToken">The connection's token.</param>
+    private Task<JsonObject> CheckDatabaseIntegrityAsync(IpcRequest request, CancellationToken cancellationToken)
+    {
+        if (!TryBeginIntegrityCheck())
+        {
+            throw new CollectorException(
+                ErrorCodes.DbBusy, "数据库校验正在进行，请等待本次校验结束后再试。", retryable: true);
+        }
+
+        // The token is checked inside the work rather than given to Task.Run: a task that is
+        // cancelled before it starts never runs its body, and the slot would stay taken for the
+        // life of the process.
+        return Task.Run(() =>
+        {
+            try
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                return SpeechHandlers.CheckDatabaseIntegrity(_host, new PayloadReader(request.Payload));
+            }
+            finally
+            {
+                EndIntegrityCheck();
+            }
+        });
+    }
+
+    /// <summary>
+    /// Takes the single scan slot, or returns false when a scan is already running. Internal so
+    /// a test can hold the slot without a database big enough to scan slowly.
+    /// </summary>
+    internal bool TryBeginIntegrityCheck() =>
+        Interlocked.CompareExchange(ref _integrityCheckInFlight, 1, 0) == 0;
+
+    /// <summary>Gives the scan slot back. Internal for the same reason.</summary>
+    internal void EndIntegrityCheck() => Volatile.Write(ref _integrityCheckInFlight, 0);
 
     /// <summary>The refusal for a message type the contract does not declare.</summary>
     /// <param name="messageType">Message type received.</param>

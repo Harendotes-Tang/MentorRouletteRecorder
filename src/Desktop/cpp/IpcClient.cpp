@@ -30,6 +30,15 @@ bool isLongRunning(const QString &messageType)
         QStringLiteral("ExportJson"),
         QStringLiteral("ExportDiagnosticsReport"),
         QStringLiteral("ExportCandidateEvidence"),
+        // PRAGMA integrity_check reads the whole database file, which is why
+        // the Collector answers it off the connection's read loop
+        // (MessageDispatcher.AsynchronousMessageTypes). Its duration grows with
+        // the user's history exactly like an export's, so it belongs here
+        // rather than getting a named constant: the two constants below exist
+        // because their deadline comes from a budget the Collector documents (a
+        // queue slot, one HTTP request), not from the size of the database
+        // (2026-09-21 review finding 2).
+        QStringLiteral("CheckDatabaseIntegrity"),
         // Not queries: an accepted calibration validates and atomically writes
         // a profile file, then re-reads the whole profile directory, and both
         // calibration verdicts wait on the same coordinator as that write.

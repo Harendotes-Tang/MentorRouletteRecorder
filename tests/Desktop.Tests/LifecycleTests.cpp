@@ -241,6 +241,7 @@ private Q_SLOTS:
     void aFailedRequestFromADestroyedBackendNeverReachesAController();
 
     void exportsAndBackupsGetTheirOwnDeadline();
+    void everyAnswerTheCollectorDefersGetsAnExtendedDeadline();
 
     void disclosureAcknowledgementPersists();
     void raisingTheDisclosureVersionInvalidatesTheAcknowledgement();
@@ -938,6 +939,41 @@ void LifecycleTests::exportsAndBackupsGetTheirOwnDeadline()
     QCOMPARE(mr::IpcClient::timeoutForMessageType(QStringLiteral("ExportCsv"), 50),
              mr::IpcClient::kLongRequestTimeoutMs);
     QCOMPARE(mr::IpcClient::timeoutForMessageType(QStringLiteral("GetStatus"), 50), 50);
+}
+
+/// The two ends must agree on which answers take a while.
+///
+/// The Collector answers exactly three message types off the connection's read
+/// loop (MessageDispatcher.AsynchronousMessageTypes: SynthesizeSpeech,
+/// CheckDatabaseIntegrity, CheckUpdateNow) because each waits on something
+/// slower than a query. Every one of them therefore needs a deadline longer
+/// than a status poll's; CheckDatabaseIntegrity did not have one, so a large
+/// database reported "Collector 未在超时时间内响应。" while the scan was still
+/// running and about to succeed (2026-09-21 review finding 2).
+///
+/// The list is repeated here on purpose: a fourth deferred message type on the
+/// Collector side must fail this test until the Desktop has given it a deadline
+/// too.
+void LifecycleTests::everyAnswerTheCollectorDefersGetsAnExtendedDeadline()
+{
+    const int ordinary = mr::IpcClient::kDefaultRequestTimeoutMs;
+    const QStringList deferred{QStringLiteral("SynthesizeSpeech"),
+                               QStringLiteral("CheckDatabaseIntegrity"),
+                               QStringLiteral("CheckUpdateNow")};
+    for (const QString &type : deferred) {
+        QVERIFY2(mr::IpcClient::timeoutForMessageType(type, ordinary) > ordinary,
+                 qPrintable(type + QStringLiteral(" shares the ordinary deadline")));
+    }
+
+    // A scan of the whole file is bounded by the size of the database, not by a
+    // budget the Collector documents, so it takes the export deadline.
+    QCOMPARE(
+        mr::IpcClient::timeoutForMessageType(QStringLiteral("CheckDatabaseIntegrity"), ordinary),
+        mr::IpcClient::kLongRequestTimeoutMs);
+
+    // And like the exports, it must not be shortened with the ordinary requests.
+    QCOMPARE(mr::IpcClient::timeoutForMessageType(QStringLiteral("CheckDatabaseIntegrity"), 50),
+             mr::IpcClient::kLongRequestTimeoutMs);
 }
 
 void LifecycleTests::disclosureAcknowledgementPersists()

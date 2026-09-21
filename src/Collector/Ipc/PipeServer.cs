@@ -38,6 +38,29 @@ public sealed class PipeServer : IAsyncDisposable
     /// <summary>Accept failures in a row before the server gives up and reports the fault.</summary>
     public const int MaxConsecutiveAcceptFailures = 10;
 
+    /// <summary>
+    /// How long a connection may go without a single byte in either direction before it is
+    /// closed.
+    ///
+    /// This is not a privilege boundary. The ACL grants the current user's SID alone, so
+    /// whoever can open the pipe could also end this process or delete the database outright.
+    /// What the deadline buys is robustness: a client that connects and then freezes -- a
+    /// wedged Desktop, a process stopped at a breakpoint, a tool that forgot to close -- holds
+    /// one of <see cref="MaxConcurrentConnections"/> instances for as long as it lives, and
+    /// because a full pipe is treated as backpressure rather than a fault (see above), eight
+    /// of them lock the real Desktop out in silence (2026-09-21 review finding 3).
+    ///
+    /// Three minutes, not the half minute an idle deadline usually gets, because every
+    /// legitimate silence has to fit inside it. A live-events subscriber sends nothing at all
+    /// after its subscription and may ask for a heartbeat as slow as 60 s
+    /// (<see cref="PipeConnection"/> accepts 1000-60000 ms); the heartbeat itself is a write
+    /// on this same connection, so the deadline is refreshed from the server's side while the
+    /// client stays quiet. A synchronous export holds the read loop for the length of the
+    /// export, and the Desktop gives up on any request after 120 s anyway. Anything still
+    /// waiting after three silent minutes has already been abandoned at the other end.
+    /// </summary>
+    public static readonly TimeSpan DefaultIdleTimeout = TimeSpan.FromMinutes(3);
+
     /// <summary>Win32 <c>ERROR_PIPE_BUSY</c>: every instance of the pipe is in use.</summary>
     private const int ErrorPipeBusy = 231;
 
@@ -63,6 +86,7 @@ public sealed class PipeServer : IAsyncDisposable
 
     private readonly MessageDispatcher _dispatcher;
     private readonly string _pipeName;
+    private readonly TimeSpan _idleTimeout;
     private readonly Action<string, Exception?>? _log;
     private readonly CancellationTokenSource _stopping = new();
     private readonly List<Task> _workers = new();
@@ -74,16 +98,29 @@ public sealed class PipeServer : IAsyncDisposable
     /// <param name="dispatcher">Dispatcher answering requests.</param>
     /// <param name="pipeName">Bare pipe name; the current user's name when null.</param>
     /// <param name="log">Optional diagnostic sink; never receives payloads.</param>
-    public PipeServer(MessageDispatcher dispatcher, string? pipeName = null, Action<string, Exception?>? log = null)
+    /// <param name="idleTimeout">
+    /// Overrides <see cref="DefaultIdleTimeout"/>; the tests use it to reach the deadline
+    /// without waiting minutes for it.
+    /// </param>
+    public PipeServer(
+        MessageDispatcher dispatcher,
+        string? pipeName = null,
+        Action<string, Exception?>? log = null,
+        TimeSpan? idleTimeout = null)
     {
         ArgumentNullException.ThrowIfNull(dispatcher);
         _dispatcher = dispatcher;
         _pipeName = string.IsNullOrWhiteSpace(pipeName) ? PipeNaming.CurrentUserPipeName() : pipeName;
+        _idleTimeout = idleTimeout ?? DefaultIdleTimeout;
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(_idleTimeout, TimeSpan.Zero, nameof(idleTimeout));
         _log = log;
     }
 
     /// <summary>Bare pipe name this server listens on.</summary>
     public string PipeName => _pipeName;
+
+    /// <summary>How long a connection may stay silent before it is closed.</summary>
+    public TimeSpan IdleTimeout => _idleTimeout;
 
     /// <summary>Number of connections accepted since start.</summary>
     public int AcceptedCount => Volatile.Read(ref _accepted);
@@ -286,7 +323,11 @@ public sealed class PipeServer : IAsyncDisposable
     {
         Interlocked.Increment(ref _active);
         using var connectionScope = CancellationTokenSource.CreateLinkedTokenSource(serverToken);
-        var connection = new PipeConnection(stream, _dispatcher, _log);
+
+        // The connection never sees the pipe stream directly: it reads through the idle
+        // deadline, so a peer that stops talking cannot keep this instance for itself.
+        var connection = new PipeConnection(
+            new IdleTimeoutStream(stream, _idleTimeout, _log), _dispatcher, _log);
         try
         {
             await connection.ServeAsync(connectionScope.Token).ConfigureAwait(false);
@@ -402,4 +443,143 @@ public sealed class FrameChannel
             _writeGate.Release();
         }
     }
+}
+
+/// <summary>
+/// One connection's stream, with a deadline on silence.
+///
+/// A read waits at most <see cref="PipeServer.DefaultIdleTimeout"/> (or the value the server
+/// was built with) counted from the last byte that moved in <em>either</em> direction, and
+/// then fails the read the way a peer that went away does. The budget is shared with the
+/// writes on purpose: a live-events subscriber legitimately never sends anything after its
+/// subscription, and the heartbeat this process writes to it is what proves the connection is
+/// still in use (2026-09-21 review finding 3).
+///
+/// A frame that arrives in pieces refreshes the budget with every piece, so the deadline
+/// measures silence rather than the time a slow frame takes to arrive.
+/// </summary>
+internal sealed class IdleTimeoutStream : Stream
+{
+    private readonly Stream _inner;
+    private readonly TimeSpan _idleTimeout;
+    private readonly Action<string, Exception?>? _log;
+    private long _lastActivityMs = Environment.TickCount64;
+
+    /// <summary>Wraps a connected stream.</summary>
+    /// <param name="inner">The connection's stream; this type never disposes it.</param>
+    /// <param name="idleTimeout">Silence allowed before a read fails.</param>
+    /// <param name="log">Optional diagnostic sink; never receives payloads.</param>
+    public IdleTimeoutStream(Stream inner, TimeSpan idleTimeout, Action<string, Exception?>? log = null)
+    {
+        ArgumentNullException.ThrowIfNull(inner);
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(idleTimeout, TimeSpan.Zero);
+        _inner = inner;
+        _idleTimeout = idleTimeout;
+        _log = log;
+    }
+
+    /// <inheritdoc />
+    public override bool CanRead => _inner.CanRead;
+
+    /// <inheritdoc />
+    public override bool CanSeek => false;
+
+    /// <inheritdoc />
+    public override bool CanWrite => _inner.CanWrite;
+
+    /// <inheritdoc />
+    public override long Length => throw new NotSupportedException();
+
+    /// <inheritdoc />
+    public override long Position
+    {
+        get => throw new NotSupportedException();
+        set => throw new NotSupportedException();
+    }
+
+    /// <inheritdoc />
+    public override async ValueTask<int> ReadAsync(
+        Memory<byte> buffer, CancellationToken cancellationToken = default)
+    {
+        while (true)
+        {
+            var remaining = Remaining();
+            if (remaining <= TimeSpan.Zero)
+            {
+                // Closed, not answered: there is nobody on the other end to answer to, and an
+                // error envelope would go into the same silence. The caller sees what it sees
+                // when a peer disconnects, and the log line says which of the two happened.
+                _log?.Invoke("closing a pipe connection that went quiet past the idle deadline", null);
+                throw new IOException("the pipe connection was idle past its deadline");
+            }
+
+            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            deadline.CancelAfter(remaining);
+
+            int read;
+            try
+            {
+                read = await _inner.ReadAsync(buffer, deadline.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                // The deadline fired while this read was parked. A write may have happened in
+                // the meantime -- a heartbeat, a deferred answer -- so the budget is measured
+                // again rather than assumed spent, and only a genuinely silent connection
+                // reaches the throw above.
+                continue;
+            }
+
+            if (read > 0)
+            {
+                Touch();
+            }
+
+            return read;
+        }
+    }
+
+    /// <inheritdoc />
+    public override Task<int> ReadAsync(
+        byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
+        ReadAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();
+
+    /// <inheritdoc />
+    public override async ValueTask WriteAsync(
+        ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
+    {
+        await _inner.WriteAsync(buffer, cancellationToken).ConfigureAwait(false);
+        Touch();
+    }
+
+    /// <inheritdoc />
+    public override Task WriteAsync(
+        byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
+        WriteAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();
+
+    /// <inheritdoc />
+    public override Task FlushAsync(CancellationToken cancellationToken) =>
+        _inner.FlushAsync(cancellationToken);
+
+    /// <inheritdoc />
+    public override void Flush() => _inner.Flush();
+
+    /// <inheritdoc />
+    public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+    /// <inheritdoc />
+    public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+    /// <inheritdoc />
+    public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+
+    /// <inheritdoc />
+    public override void SetLength(long value) => throw new NotSupportedException();
+
+    /// <summary>Records that a byte moved, which starts the budget again.</summary>
+    private void Touch() => Interlocked.Exchange(ref _lastActivityMs, Environment.TickCount64);
+
+    /// <summary>What is left of the budget since the last byte in either direction.</summary>
+    private TimeSpan Remaining() =>
+        _idleTimeout - TimeSpan.FromMilliseconds(Environment.TickCount64 - Interlocked.Read(ref _lastActivityMs));
 }
