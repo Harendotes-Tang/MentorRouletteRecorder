@@ -666,9 +666,25 @@ def _is_pending(item: Any) -> bool:
 
 
 def command_pending(args: argparse.Namespace) -> int:
+    # This used to read the whole file, the one input that escaped the MAX_INPUT_BYTES cap
+    # _load_json applies to every other one. sweep_issues.sh hands it the `gh api --paginate`
+    # listing of every open share-calibration issue, bodies included (65536 characters each), so
+    # a patch day - or someone opening maximum-length issues on purpose - can grow open.json to
+    # hundreds of megabytes and drag the sweep job into its 60 minute timeout. Reading one byte
+    # past the cap is enough to tell that it is over it, without holding the rest in memory.
     try:
-        values = list(_json_values(Path(args.issues).read_text(encoding="utf-8")))
-    except (OSError, ValueError) as error:
+        with Path(args.issues).open("rb") as handle:
+            data = handle.read(MAX_INPUT_BYTES + 1)
+    except OSError as error:
+        raise UsageError("cannot read the issue list: " + type(error).__name__) from error
+    # An oversized listing is a repository-side problem a maintainer has to look at, not
+    # something to quietly truncate into a short pending list: stop, and let the sweep job fail.
+    if len(data) > MAX_INPUT_BYTES:
+        raise UsageError("the issue list is over the %d byte limit; a maintainer has to look at "
+                         "the open share-calibration issues" % MAX_INPUT_BYTES)
+    try:
+        values = list(_json_values(data.decode("utf-8")))
+    except (UnicodeDecodeError, ValueError) as error:
         raise UsageError("cannot read the issue list: " + type(error).__name__) from error
     numbers = set()
     for value in values:

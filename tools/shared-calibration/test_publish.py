@@ -457,6 +457,19 @@ class HelperCommandTests(PublishTestCase):
         with contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(2, self.call("pending", "--issues", path)[0])
 
+    def test_pending_refuses_an_issue_list_over_the_input_cap(self):
+        """An open.json past MAX_INPUT_BYTES stops the sweep instead of being read into memory."""
+        path = self.root / "open.json"
+        # Valid JSON either way - what decides the answer is the size alone, so a padded empty
+        # list that would otherwise print nothing and exit 0 is the sharpest case.
+        path.write_bytes(b"[]" + b" " * (publish.MAX_INPUT_BYTES - 2))
+        self.assertEqual((0, ""), self.call("pending", "--issues", path))
+        path.write_bytes(b"[]" + b" " * (publish.MAX_INPUT_BYTES - 1))
+        errors = io.StringIO()
+        with contextlib.redirect_stderr(errors):
+            self.assertEqual((2, ""), self.call("pending", "--issues", path))
+        self.assertIn(str(publish.MAX_INPUT_BYTES), errors.getvalue())
+
     def test_wrap_event_turns_a_rest_issue_into_an_event(self):
         source, target = self.root / "issue.json", self.root / "wrapped.json"
         source.write_text(json.dumps(self.issue()["issue"]), encoding="utf-8")

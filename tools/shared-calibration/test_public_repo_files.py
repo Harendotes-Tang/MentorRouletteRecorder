@@ -54,6 +54,33 @@ def run_scripts(text: str) -> list:
     return scripts
 
 
+USES = re.compile(r"uses:\s*(?P<action>[^\s@]+)@(?P<reference>\S+)(?P<rest>.*)$")
+
+
+def action_pins(text: str) -> list:
+    """Every ``uses:`` in a workflow as (action, reference, trailing comment)."""
+    matches = (USES.search(line) for line in text.splitlines())
+    return [(m.group("action"), m.group("reference"), m.group("rest").strip()) for m in matches if m]
+
+
+def assert_every_action_is_pinned(case, text: str, label: str) -> set:
+    """Every action is referenced by commit id, with the release in a trailing comment.
+
+    A tag can be moved to another commit - and jurplel/install-qt-action@v4, which the main CI
+    used to reference, was not a tag at all but a branch, which moves on every push. The publish
+    job here holds contents: write and everything it writes is downloaded by every installed
+    client, so only a commit id states what will actually run. The version stays in the comment
+    so an upgrade remains readable in a diff; Dependabot proposes it as a commit bump.
+    """
+    pins = action_pins(text)
+    case.assertTrue(pins, label)
+    for action, reference, comment in pins:
+        with case.subTest(label + " " + action):
+            case.assertRegex(reference, r"^[0-9a-f]{40}$")
+            case.assertRegex(comment, r"^#\s*v\d")
+    return {"%s@%s" % (action, reference) for action, reference, _ in pins}
+
+
 def csharp_constant(path, name: str):
     match = re.search(r"\bconst\s+(?:int|string)\s+%s\s*=\s*(.+?);" % re.escape(name), path.read_text(encoding="utf-8"))
     if match is None:
@@ -114,10 +141,14 @@ class WorkflowSecurityTests(unittest.TestCase):
                          "github.event.label.name == 'share-calibration'"):
             self.assertIn(fragment, condition)
 
-    def test_actions_are_pinned_like_the_main_ci(self):
-        used = set(re.findall(r"uses:\s*(\S+)", self.text))
-        self.assertTrue(used)
-        self.assertLessEqual(used, set(re.findall(r"uses:\s*(\S+)", CI.read_text(encoding="utf-8"))))
+    def test_actions_are_pinned_to_a_commit_id_and_taken_from_the_main_ci_set(self):
+        used = assert_every_action_is_pinned(self, self.text, "publish-calibration.yml")
+        # The main CI is the other half of the same rule: it builds the releases, and it runs the
+        # one third-party action in either repository.
+        available = assert_every_action_is_pinned(self, CI.read_text(encoding="utf-8"), "ci.yml")
+        # Same commit ids, not merely the same action names: a public repository whose workflow
+        # ran a different build of an action than the one the maintainer verified is the point.
+        self.assertLessEqual(used, available)
 
     def test_the_scripts_are_strict_and_safe_against_being_replaced_while_they_run(self):
         for name in SCRIPTS:
@@ -183,10 +214,10 @@ class ReportWorkflowSecurityTests(unittest.TestCase):
                          "contains(github.event.issue.labels.*.name, '%s')" % publish.REPORT_LABEL):
             self.assertIn(fragment, condition)
 
-    def test_actions_are_pinned_like_the_main_ci(self):
-        used = set(re.findall(r"uses:\s*(\S+)", self.text))
-        self.assertTrue(used)
-        self.assertLessEqual(used, set(re.findall(r"uses:\s*(\S+)", CI.read_text(encoding="utf-8"))))
+    def test_actions_are_pinned_to_a_commit_id_and_taken_from_the_main_ci_set(self):
+        used = assert_every_action_is_pinned(self, self.text, "report-calibration.yml")
+        available = assert_every_action_is_pinned(self, CI.read_text(encoding="utf-8"), "ci.yml")
+        self.assertLessEqual(used, available)
 
     def test_it_revokes_nothing_and_closes_nothing(self):
         for forbidden in ("revoke", "issue close", "git push", "--reason"):

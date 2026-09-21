@@ -14,6 +14,10 @@
 # * Both jobs share one concurrency group (set on the jobs, so an event whose job is skipped never
 #   takes part) and a running job is never cancelled, so two submissions never race on index.json.
 #   A push that still loses a race (a maintainer pushed) is redone from the new main.
+# * Every `uses:` is pinned to a commit id, with the release in the trailing comment. A tag can be
+#   moved to another commit, so a mutable reference lets a third-party action change under a job
+#   that holds this repository's token - and everything published here is downloaded by every
+#   installed client. Dependabot still proposes upgrades, now as a reviewable commit bump.
 # * GitHub keeps only ONE pending job per concurrency group and cancels older pending ones. During a
 #   burst some submission jobs therefore never start; the scheduled sweep answers every open
 #   submission that is still unanswered.
@@ -49,13 +53,13 @@ jobs:
       cancel-in-progress: false
     steps:
       - name: Check out main
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           ref: main
           fetch-depth: 0
 
       - name: Set up Python
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: "3.12"
 
@@ -88,13 +92,13 @@ jobs:
       cancel-in-progress: false
     steps:
       - name: Check out main
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           ref: main
           fetch-depth: 0
 
       - name: Set up Python
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: "3.12"
 

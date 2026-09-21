@@ -19,7 +19,8 @@
     QtTest 与 ctest 均记为通过，桌面端↔真实 Collector 的集成通路因此可能从未
     被执行。脚本用 `--output-junit` 抓取每个用例的输出，逐条核对跳过数。
 
-    默认先执行完整构建；-NoBuild 要求 build/ 已由同一配置生成。
+    默认先执行完整构建；-NoBuild 要求 build/ 与 .NET 测试程序集（bin\x64\<配置>\）
+    均已由同一配置生成，找不到程序集时直接判失败。
     -Python 额外运行 tools/ 下的 Python 自测（`dotnet test` 与 `ctest` 不覆盖）。
     结果文件写入 artifacts/test-results/。
     退出码：0 表示全部通过；1 表示任一闸门失败。
@@ -209,6 +210,12 @@ else {
             $testArgs = @(
                 $project.FullName
                 '-c'; $Configuration
+                # Directory.Build.props declares <Platforms>x64</Platforms> and build.ps1 writes
+                # bin\x64\<Configuration>\...; `dotnet test <project.csproj>` without this
+                # resolves the default platform and reads bin\<Configuration> instead. Both
+                # trees exist on disk, so the mismatch is silent: -NoBuild after a build.ps1
+                # would run whatever an older plain `dotnet test` left behind (review finding 5).
+                '-p:Platform=x64'
                 '--logger'; "trx;LogFileName=$trxName"
                 '--logger'; 'console;verbosity=minimal'
                 '--results-directory'; $ResultsRoot
@@ -219,6 +226,29 @@ else {
                 $testArgs += '-p:NuGetAudit=false'
             }
             if ($Filter) { $testArgs += @('--filter', $Filter) }
+
+            # -NoBuild trusts a build that happened earlier, possibly in another shell. The TRX
+            # counters below prove the tests ran, never that they ran on current code, so the
+            # one thing this script can still establish is that the assembly the run will load
+            # exists under the platform-specific output tree pinned above. A gate must not be
+            # able to report green over a tree nobody ever built (review finding 5). The file
+            # name is the project name because every test project sets AssemblyName to it.
+            if ($NoBuild) {
+                $expectedRoot = Join-Path $project.DirectoryName ("bin\x64\{0}" -f $Configuration)
+                $assembly = $null
+                if (Test-Path -LiteralPath $expectedRoot) {
+                    $assembly = Get-ChildItem -LiteralPath $expectedRoot -Recurse -File `
+                        -Filter "$name.dll" | Select-Object -First 1
+                }
+                if (-not $assembly) {
+                    Write-Host ("  找不到已构建的测试程序集: {0}\**\{1}.dll" -f $expectedRoot, $name) `
+                        -ForegroundColor Red
+                    Write-Host '  -NoBuild 要求先以同一配置完成构建；无法证明测试跑的是当前代码，按失败处理。' `
+                        -ForegroundColor Red
+                    $code = 1
+                    continue
+                }
+            }
 
             & dotnet test @testArgs
             $runExit = $LASTEXITCODE

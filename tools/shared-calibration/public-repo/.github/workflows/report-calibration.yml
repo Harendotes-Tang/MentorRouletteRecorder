@@ -13,6 +13,10 @@
 #   beyond one reply and two labels; the issue is left OPEN and a maintainer decides.
 # * Its own concurrency group. index.json is untouched here, so reports must neither queue behind
 #   publishing nor hold it up.
+# * Every `uses:` is pinned to a commit id, with the release in the trailing comment. A tag can be
+#   moved to another commit, so a mutable reference lets a third-party action change under a job
+#   that holds this repository's token - and everything published here is downloaded by every
+#   installed client. Dependabot still proposes upgrades, now as a reviewable commit bump.
 # * publish.py answers an issue that already carries an answer label with `skipped`, so a relabel
 #   never produces a second reply.
 name: report-calibration
@@ -43,12 +47,12 @@ jobs:
       cancel-in-progress: false
     steps:
       - name: Check out main
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           ref: main
 
       - name: Set up Python
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: "3.12"
 

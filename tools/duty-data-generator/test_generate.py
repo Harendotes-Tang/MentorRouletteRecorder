@@ -10,9 +10,11 @@ run in CI on a machine with no outbound access at all.
 from __future__ import annotations
 
 import io
+import itertools
 import json
 import os
 import sys
+import tempfile
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -108,6 +110,63 @@ class BuildRowsTests(unittest.TestCase):
 
         self.assertEqual(sorted(row["content_id"] for row in duties),
                          [row["content_id"] for row in duties])
+
+
+class FetchEnglishRowsTests(unittest.TestCase):
+    """The paging loop, with a fake XIVAPI: it must never hand back a half-read sheet.
+
+    The other tests build english_rows by hand and never touch this path, which is exactly how a
+    silent truncation could ship: a data/duties/*.json short of entries only shows up as a duty
+    the Collector cannot name.
+    """
+
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory(prefix="duty-data-test-")
+        self.addCleanup(directory.cleanup)
+        self.raw_dir = directory.name
+        self.addCleanup(setattr, generate, "http_get", generate.http_get)
+
+    def serve(self, rows_on_page):
+        """Replace the module's HTTP call with pages of rows_on_page(page_number) rows."""
+        self.requests = []
+        row_ids = itertools.count(1)
+
+        def fake_get(url, timeout=60):
+            self.requests.append(url)
+            rows = [{"row_id": next(row_ids), "fields": {}}
+                    for _ in range(rows_on_page(len(self.requests)))]
+            return json.dumps({"version": "sample-version", "rows": rows}).encode("utf-8")
+
+        generate.http_get = fake_get
+
+    def test_a_short_last_page_ends_the_paging_and_returns_every_row(self):
+        self.serve(lambda page: generate.XIVAPI_PAGE_SIZE if page == 1 else 3)
+
+        rows, urls, digest, api_version = generate.fetch_english_rows(self.raw_dir)
+
+        self.assertEqual(generate.XIVAPI_PAGE_SIZE + 3, len(rows))
+        self.assertEqual(2, len(urls))
+        self.assertEqual("sample-version", api_version)
+        self.assertEqual(64, len(digest))
+
+    def test_an_empty_page_ends_the_paging(self):
+        self.serve(lambda page: generate.XIVAPI_PAGE_SIZE if page == 1 else 0)
+
+        rows, urls, _, _ = generate.fetch_english_rows(self.raw_dir)
+
+        self.assertEqual(generate.XIVAPI_PAGE_SIZE, len(rows))
+        self.assertEqual(2, len(urls))
+
+    def test_a_full_last_allowed_page_fails_instead_of_returning_a_truncated_sheet(self):
+        self.serve(lambda page: generate.XIVAPI_PAGE_SIZE)
+
+        with self.assertRaises(ValueError) as caught:
+            generate.fetch_english_rows(self.raw_dir)
+
+        self.assertEqual(generate.XIVAPI_MAX_PAGES, len(self.requests))
+        self.assertIn("XIVAPI_MAX_PAGES", str(caught.exception))
+        # ValueError is what main() and add_party_size_to_files() already catch: both print the
+        # failure and return 1 without writing a data/duties file.
 
 
 class BuildDocumentTests(unittest.TestCase):

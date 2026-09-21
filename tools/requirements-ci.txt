@@ -1,0 +1,9 @@
+# Python packages the CI workflow installs by hand. They live in a requirements file so that
+# Dependabot (.github/dependabot.yml) tracks their versions and security advisories: a version
+# written inline in a `pip install` line is invisible to it.
+#
+# Both are the PE parsing dependencies of tools/oodle-signature-finder, which reads the game
+# executable offline on a maintainer's machine. Nothing in src/ imports them and nothing ships
+# them; they are needed only to run that tool's own tests.
+capstone==5.0.9
+pefile==2024.8.26

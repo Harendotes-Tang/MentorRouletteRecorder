@@ -141,6 +141,18 @@ def fetch_english_rows(raw_dir: str, game_version: str | None = None):
         after = int(page_rows[-1]["row_id"])
         if len(page_rows) < XIVAPI_PAGE_SIZE:
             break
+    else:
+        # Reached only when the last allowed page still came back full, i.e. the sheet is
+        # provably longer than XIVAPI_MAX_PAGES x XIVAPI_PAGE_SIZE rows. The loop used to fall
+        # out of range() here without a word, and everything downstream treated the truncated
+        # result as the whole sheet: a data/duties/*.json missing entries would ship with the
+        # release, and the only symptom is a player seeing a duty named as the unknown one.
+        raise ValueError(
+            "ContentFinderCondition 分页已达到上限"
+            "（%d 页 x %d 条），第 %d 页仍是满页，"
+            "说明数据还没取完；请调大 XIVAPI_MAX_PAGES "
+            "后重新生成。"
+            % (XIVAPI_MAX_PAGES, XIVAPI_PAGE_SIZE, XIVAPI_MAX_PAGES))
 
     blob = b"".join(pages)
     path = os.path.join(raw_dir, "xivapi_contentfindercondition.json")
