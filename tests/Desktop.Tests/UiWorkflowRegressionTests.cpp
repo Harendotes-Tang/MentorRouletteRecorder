@@ -53,7 +53,8 @@ public:
         ++counts[type];
         lastPayloads.insert(type, payload);
         auto *reply = new mr::BackendReply(QString::number(++serial), type, this);
-        if (type == QLatin1String("SetRunReflection") || type == QLatin1String("CorrectRun")) {
+        if (type == QLatin1String("SetRunReflection") || type == QLatin1String("CorrectRun")
+            || holdTypes.contains(type)) {
             pending.append({type, payload, reply});
         } else if (failures.contains(type)) {
             const QString code = failures.value(type);
@@ -91,6 +92,21 @@ public:
                                    {QStringLiteral("run"), run},
                                    {QStringLiteral("revision"), 2},
                                    {QStringLiteral("audit_event_id"), QStringLiteral("fixture audit")}});
+            return true;
+        }
+        return false;
+    }
+
+    /// 额外挂起的消息类型，回应时机交给测试决定，用 release() 放行。
+    QStringList holdTypes;
+
+    /// 让 \a type 最早的一条挂起请求以 \a answer 成功返回。
+    bool release(const QString &type, const QJsonObject &answer)
+    {
+        for (int index = 0; index < pending.size(); ++index) {
+            if (pending[index].type != type || !pending[index].reply)
+                continue;
+            pending.takeAt(index).reply->succeed(answer);
             return true;
         }
         return false;
@@ -339,6 +355,58 @@ ApplicationWindow {
     }
 };
 
+/// 总览页与两个校准对话框的最小场景：它们各自都有「请求在途时能不能关窗、迟到
+/// 的回应还算不算数」这一问，放在一处便于对照。
+struct ShellScene {
+    mr::AppSettings settings;
+    WorkflowBackend backend;
+    mr::AppController controller{&backend, nullptr};
+    mr::Formatters formatters;
+    mr::JobCatalog jobs;
+    mr::RoleCatalog roles;
+    QQmlEngine engine;
+    std::unique_ptr<QObject> root;
+    QString errors;
+
+    bool create()
+    {
+        const auto context = engine.rootContext();
+        context->setContextProperty(QStringLiteral("App"), &controller);
+        context->setContextProperty(QStringLiteral("Fmt"), &formatters);
+        context->setContextProperty(QStringLiteral("Jobs"), &jobs);
+        context->setContextProperty(QStringLiteral("Roles"), &roles);
+        context->setContextProperty(QStringLiteral("Settings"), &settings);
+        context->setContextProperty(QStringLiteral("ReduceMotion"), true);
+        QQmlComponent component(&engine);
+        component.setData(R"(import QtQuick
+import QtQuick.Controls
+import MentorRecorder
+ApplicationWindow {
+    width: 1100; height: 900; visible: true
+    DashboardPage { objectName: "dashboard"; anchors.fill: parent }
+    // 两个对话框自带 objectName（calibrationDialog / sharedImportDialog），
+    // 此处不再覆盖，测试按它们自己的名字查找。
+    CalibrationDialog { }
+    ImportCalibrationCodeDialog { }
+})", QUrl());
+        root.reset(component.create());
+        for (const auto &error : component.errors())
+            errors += error.toString() + QLatin1Char('\n');
+        return root != nullptr;
+    }
+
+    QQuickWindow *window() const { return qobject_cast<QQuickWindow *>(root.get()); }
+    QObject *named(const QString &name) const
+    {
+        return root ? root->findChild<QObject *>(name) : nullptr;
+    }
+    QQuickItem *item(const QString &name) const
+    {
+        auto *scene = window();
+        return scene ? SettingsFixture::find(scene->contentItem(), name) : nullptr;
+    }
+};
+
 } // namespace
 
 class UiWorkflowRegressionTests : public QObject
@@ -357,6 +425,8 @@ private Q_SLOTS:
     void pendingReflectionLocksEscapeAndRunSelection();
     void ordinaryReflectionSaveStillWaitsForItsReply();
     void unrelatedReflectionReplyDoesNotCloseAnIdleDialog();
+    void quickReviewButtonsRefuseASecondClickWhileTheFirstIsOut();
+    void calibrationDialogsLockWhileBusyAndDropAnEarlierReply();
     void historyMirrorsEveryFilterAndClearsStaleControls();
     void externalHistoryFilterCancelsPendingDebounce();
     void mockCorrectionAcknowledgesOnlyExplicitOutcome_data();
@@ -381,8 +451,12 @@ void UiWorkflowRegressionTests::initTestCase()
     QVERIFY(QDir(qmlRoot).exists());
     qmlRegisterSingletonType(QUrl::fromLocalFile(qmlRoot + QStringLiteral("/Theme.qml")),
                              "MentorRecorder", 1, 0, "Theme");
-    for (const auto &directory : {QStringLiteral("/components"), QStringLiteral("/dialogs"),
-                                  QStringLiteral("/pages")}) {
+    // charts/ is registered too: DashboardPage draws its trend with TrendChart, which lives
+    // there. TrendChart only instantiates the QtGraphs variant when the GraphsAvailable
+    // context property says so, and no scene here sets it, so the hand-drawn fallback is what
+    // these tests render.
+    for (const auto &directory : {QStringLiteral("/charts"), QStringLiteral("/components"),
+                                  QStringLiteral("/dialogs"), QStringLiteral("/pages")}) {
         for (const auto &file : QDir(qmlRoot + directory).entryList({QStringLiteral("*.qml")}, QDir::Files)) {
             const QByteArray name = file.chopped(4).toUtf8();
             qmlRegisterType(QUrl::fromLocalFile(qmlRoot + directory + QLatin1Char('/') + file),
@@ -621,6 +695,120 @@ void UiWorkflowRegressionTests::unrelatedReflectionReplyDoesNotCloseAnIdleDialog
     QVERIFY(fixture.dialog()->property("visible").toBool());
     QVERIFY(fixture.dialog()->property("errorText").toString().isEmpty());
     QCOMPARE(fixture.textArea()->property("text").toString(), QStringLiteral("unsent draft"));
+}
+
+// 审查第 10 条：总览页的「通关 / 未通关」快速处理按钮此前没有任何在途保护。
+// 连点会发出第二条内容完全相同的修正，它命中修订冲突后被自动重发，于是审计里
+// 多出一条用户从未要求过的重复修订。
+void UiWorkflowRegressionTests::quickReviewButtonsRefuseASecondClickWhileTheFirstIsOut()
+{
+    ShellScene scene;
+    QVERIFY2(scene.create(), qPrintable(scene.errors));
+    scene.backend.answers.insert(QStringLiteral("GetDashboardStats"),
+                                 QJsonObject{{QStringLiteral("unfinished_pending_review"), 1}});
+    scene.backend.answers.insert(
+        QStringLiteral("QueryRuns"),
+        QJsonObject{{QStringLiteral("items"),
+                     QJsonArray{QJsonObject{{QStringLiteral("run_id"), QStringLiteral("pending-run")},
+                                            {QStringLiteral("revision"), 1},
+                                            {QStringLiteral("duty_name"), QStringLiteral("fixture duty")}}}}});
+    scene.controller.refreshDashboard();
+    QTRY_COMPARE(scene.controller.pendingReviewRun().value(QStringLiteral("run_id")).toString(),
+                 QStringLiteral("pending-run"));
+
+    auto *completed = scene.item(QStringLiteral("pendingReviewCompletedButton"));
+    auto *left = scene.item(QStringLiteral("pendingReviewLeftButton"));
+    QVERIFY(completed);
+    QVERIFY(left);
+    QTRY_VERIFY(completed->property("enabled").toBool());
+
+    QVERIFY(QMetaObject::invokeMethod(completed, "clicked"));
+    QCOMPARE(scene.backend.counts.value(QStringLiteral("CorrectRun")), 1);
+    // 回应还没到：两个按钮一起禁用，第二次点击也不再送出请求。
+    QVERIFY(!completed->property("enabled").toBool());
+    QVERIFY(!left->property("enabled").toBool());
+    QVERIFY(QMetaObject::invokeMethod(completed, "clicked"));
+    QVERIFY(QMetaObject::invokeMethod(left, "clicked"));
+    QCOMPARE(scene.backend.counts.value(QStringLiteral("CorrectRun")), 1);
+
+    // 采集服务接受之后才重新可用。
+    QVERIFY(scene.backend.finish(QStringLiteral("CorrectRun"), true));
+    QTRY_VERIFY(completed->property("enabled").toBool());
+    QVERIFY(left->property("enabled").toBool());
+}
+
+// 审查第 9 条：核对与导入校准码两个对话框与第 4 条同源——确认按钮用 busy 禁用
+// 了，Esc 没有；回调又只问「窗口开着吗」，重开之后这一问照样成立，于是上一次
+// 提交的回应会落在新一次的窗口上。
+void UiWorkflowRegressionTests::calibrationDialogsLockWhileBusyAndDropAnEarlierReply()
+{
+    ShellScene scene;
+    QVERIFY2(scene.create(), qPrintable(scene.errors));
+    // 两条请求的回应时机由测试拿住，"迟到"才是可重现的。
+    scene.backend.holdTypes << QStringLiteral("ConfirmCalibration")
+                            << QStringLiteral("ImportCalibrationCode");
+    auto *calibration = scene.controller.calibration();
+    QVERIFY(calibration);
+
+    const QJsonObject timeline{
+        {QStringLiteral("state"), QStringLiteral("READY")},
+        {QStringLiteral("game_build"), QStringLiteral("2026.09.01.0000.0000")},
+        {QStringLiteral("events"),
+         QJsonArray{QJsonObject{{QStringLiteral("event_id"), QStringLiteral("pop-1")},
+                                {QStringLiteral("kind"), QStringLiteral("pop")},
+                                {QStringLiteral("at_utc"), QStringLiteral("2026-09-10T12:00:00.000Z")},
+                                {QStringLiteral("t_ms"), 120000.0},
+                                {QStringLiteral("label"), QString::fromUtf8("匹配弹窗：练级迷宫")},
+                                {QStringLiteral("requires_confirmation"), true}}}}};
+    auto *dialog = scene.named(QStringLiteral("calibrationDialog"));
+    QVERIFY(dialog);
+    QVERIFY(QMetaObject::invokeMethod(dialog, "openDialog"));
+    QTRY_VERIFY(dialog->property("visible").toBool());
+    // 时间线在窗口已经打开之后才喂进去：启动时的一次状态读取会把校准重置回
+    // 「没在校准」，等窗口稳定再喂，事件才不会在提交前被清空。
+    calibration->refreshFromCaptureStatus(
+        QJsonObject{{QStringLiteral("calibration"), timeline}}.toVariantMap());
+    QCOMPARE(calibration->confirmCount(), 1);
+    const int closeOnEscape = dialog->property("closePolicy").toInt();
+    QVERIFY(QMetaObject::invokeMethod(dialog, "setVerdict",
+                                      Q_ARG(QVariant, QVariant(QStringLiteral("pop-1"))),
+                                      Q_ARG(QVariant, QVariant(QStringLiteral("CORRECT"))),
+                                      Q_ARG(QVariant, QVariant(QString()))));
+    QVERIFY(QMetaObject::invokeMethod(dialog, "submit"));
+    QVERIFY(calibration->busy());
+
+    // 请求在途：Esc 关不掉。
+    QVERIFY(dialog->property("closePolicy").toInt() != closeOnEscape);
+    QTest::keyClick(scene.window(), Qt::Key_Escape);
+    QVERIFY(dialog->property("visible").toBool());
+
+    // 窗口仍被关掉并重新打开，这是另一轮核对；上一轮的回应此刻才到。
+    QVERIFY(QMetaObject::invokeMethod(dialog, "close"));
+    QVERIFY(QMetaObject::invokeMethod(dialog, "openDialog"));
+    QTRY_VERIFY(dialog->property("visible").toBool());
+    QVERIFY(scene.backend.release(QStringLiteral("ConfirmCalibration"), QJsonObject()));
+    QVERIFY(dialog->property("visible").toBool());
+
+    // 导入校准码同理：迟到的说明不能写进重开后的窗口。
+    QVERIFY(QMetaObject::invokeMethod(dialog, "close"));
+    QTRY_VERIFY(!dialog->property("visible").toBool());
+    auto *importDialog = scene.named(QStringLiteral("sharedImportDialog"));
+    QVERIFY(importDialog);
+    QVERIFY(QMetaObject::invokeMethod(importDialog, "openDialog"));
+    QTRY_VERIFY(importDialog->property("visible").toBool());
+    const int importCloseOnEscape = importDialog->property("closePolicy").toInt();
+    importDialog->setProperty("code", QStringLiteral("fixture-code"));
+    QVERIFY(QMetaObject::invokeMethod(importDialog, "submit"));
+    QVERIFY(calibration->shared()->busy());
+    QVERIFY(importDialog->property("closePolicy").toInt() != importCloseOnEscape);
+    QTest::keyClick(scene.window(), Qt::Key_Escape);
+    QVERIFY(importDialog->property("visible").toBool());
+
+    QVERIFY(QMetaObject::invokeMethod(importDialog, "close"));
+    QVERIFY(QMetaObject::invokeMethod(importDialog, "openDialog"));
+    QTRY_VERIFY(importDialog->property("visible").toBool());
+    QVERIFY(scene.backend.release(QStringLiteral("ImportCalibrationCode"), QJsonObject()));
+    QVERIFY(importDialog->property("messageText").toString().isEmpty());
 }
 
 void UiWorkflowRegressionTests::historyMirrorsEveryFilterAndClearsStaleControls()

@@ -16,6 +16,12 @@ Dialog {
     // 每次都整体替换，绑定才会重算。
     property var verdicts: ({})
     property string noticeText: ""
+    // 每次打开自增，提交时记下当时的值：核对请求一旦上路就收不回来，回应到达时
+    // 若窗口已经关掉或被重新打开，这条回应属于上一轮核对，必须丢弃，不能把新开
+    // 的窗口关掉（审查第 9 条，与第 4 条同源）。
+    property int openGeneration: 0
+    property int submittedGeneration: 0
+    readonly property bool busy: !!dialog.controller && dialog.controller.busy
 
     // 玩家点"错"后用于指认这一把实际排的随机任务。
     //
@@ -57,13 +63,17 @@ Dialog {
     // 时间线在内部滚动，底部两个按钮始终可见。
     height: Math.min(implicitHeight, (dialog.parent ? dialog.parent.height : implicitHeight) - 32)
     padding: 20
-    closePolicy: Popup.CloseOnEscape
+    // 请求在途时不接受 Esc，也不接受点击窗口外关闭——"核对并启用"按钮早就用
+    // busy 禁用了，键盘这一路此前被漏掉。
+    closePolicy: dialog.busy ? Popup.NoAutoClose : Popup.CloseOnEscape
 
     background: DialogFrame {}
 
     function openDialog() {
         dialog.verdicts = ({})
         dialog.noticeText = ""
+        ++dialog.openGeneration
+        dialog.submittedGeneration = 0
         timelineView.contentY = 0
         dialog.open()
     }
@@ -80,17 +90,28 @@ Dialog {
         if (!dialog.allAnswered)
             return
         dialog.noticeText = ""
+        dialog.submittedGeneration = dialog.openGeneration
         dialog.controller.confirm(dialog.verdicts)
+    }
+
+    /// 刚到的回应是否仍属于眼前这一轮核对。
+    function ownsReply() {
+        return dialog.visible && dialog.submittedGeneration > 0
+               && dialog.submittedGeneration === dialog.openGeneration
     }
 
     Connections {
         target: dialog.controller
 
         function onConfirmed(profileId, boundInSession) {
+            if (!dialog.ownsReply())
+                return
             dialog.noticeText = ""
             dialog.close()
         }
         function onRejected(message) {
+            if (!dialog.ownsReply())
+                return
             // 关闭前先留下说明：同一句话会继续显示在捕获页的卡片上。
             dialog.noticeText = message
             dialog.close()
@@ -272,7 +293,7 @@ Dialog {
                 objectName: "calibrationDialogConfirm"
                 variant: "primary"
                 text: qsTr("核对并启用")
-                enabled: dialog.allAnswered && !!dialog.controller && !dialog.controller.busy
+                enabled: dialog.allAnswered && !!dialog.controller && !dialog.busy
                 onClicked: dialog.submit()
             }
         }

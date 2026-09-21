@@ -23,6 +23,20 @@ Dialog {
     /// True between "save" and the backend's answer; the buttons disable so a
     /// second click cannot send the same correction twice.
     property bool submitting: false
+    /// 这一次提交的身份，发出请求时记下，回应回来时重新核对。请求一旦上路就
+    /// 收不回来：保存期间窗口被关掉、随即为另一条记录重新打开后，迟到的回应
+    /// 既不能把新表单静默关掉、丢掉用户刚输入的内容，也不能把上一次的错误提
+    /// 示显示在里面（审查第 4 条）。请求发出时载荷已经正确，所以这条回应从不
+    /// 会把修改写到别的记录上，损害只在界面这一层。
+    /// 记录 id 与流水号各取一半：前者认得出回应说的是哪条记录，后者使同一条
+    /// 记录前后两次打开也各不相同，两次提交因而不会互相认领。
+    property string submissionTicket: ""
+    /// 每次打开自增，使前后两次打开得到不同的 submissionTicket。
+    property int openSerial: 0
+    /// 眼前这张表单此刻的身份。
+    readonly property string currentTicket:
+        (editMode ? "run:" + (runData && runData.run_id ? runData.run_id : "")
+                  : "new:") + ":" + openSerial
 
     /// 1 结果, 2 副本与职业, 3 时间与原因.
     property int currentStep: 1
@@ -53,7 +67,13 @@ Dialog {
     modal: true
     width: Math.min(720, overlayWidth - 40)
     height: Math.min(680, overlayHeight - 32)
-    closePolicy: Popup.CloseOnEscape
+    // 提交未完成时不接受 Esc，也不接受点击窗口外关闭：各按钮早就用 submitting
+    // 禁用了，唯独键盘这一路此前被漏掉，于是保护只做了一半（审查第 4 条）。
+    // 连同「取消」「保存」的 enabled 一起，这条使得请求在途时没有任何途径关掉
+    // 本窗口——submissionTicket 的核对因而只是第二道防线。若日后新增了别的关闭
+    // 途径，请一并确认迟到的回应仍会被 ownsReply 挡住：采集服务的回应只带记录
+    // id，不带这是第几次提交，同一条记录连着提交两次时它分辨不出先后。
+    closePolicy: submitting ? Popup.NoAutoClose : Popup.CloseOnEscape
     padding: 0
 
     /// Kept for callers and tests: set when a result needs an entry time. The
@@ -620,6 +640,8 @@ Dialog {
         errorCode = ""
         externalErrorText = ""
         submitting = false
+        ++openSerial
+        submissionTicket = ""
         estimatedEntry = false
         showTimeDetails = true
         resetWizard()
@@ -650,6 +672,8 @@ Dialog {
         errorCode = ""
         externalErrorText = ""
         submitting = false
+        ++openSerial
+        submissionTicket = ""
         estimatedEntry = false
         showTimeDetails = false
         resetWizard()
@@ -715,6 +739,7 @@ Dialog {
             // a Collector refusal (ERR_TIME_ORDER, ERR_REASON_REQUIRED …) has
             // to land in this form, not only in a toast that replaces it.
             submitting = true
+            submissionTicket = currentTicket
             createRequested(fields, reasonText.trim())
             return
         }
@@ -739,20 +764,49 @@ Dialog {
         }
 
         submitting = true
+        submissionTicket = currentTicket
         correctRequested(changes, reasonText.trim())
     }
 
-    /// Called by the shell once the mutation was accepted.
-    function acceptSubmission() {
+    /// True when a reply that just arrived belongs to the submission this form
+    /// is still waiting for. \a runId is the run the reply names, or "" when it
+    /// carries none - mutationFailed carries no run id at all.
+    function ownsReply(runId) {
+        if (!visible || !submitting || submissionTicket.length === 0
+            || submissionTicket !== currentTicket)
+            return false
+        // 修正的回应带着记录 id；补录的 id 由采集服务新生成，无从预先核对。
+        if (editMode && runId && runId.length > 0
+            && runId !== (runData && runData.run_id ? runData.run_id : ""))
+            return false
+        return true
+    }
+
+    /// Called by the shell once the mutation was accepted. Returns false and
+    /// changes nothing when the reply belongs to an earlier submission, so the
+    /// shell can skip the rest of its own handling as well.
+    function acceptSubmission(runId) {
+        if (!ownsReply(runId ? runId : ""))
+            return false
         submitting = false
+        submissionTicket = ""
         close()
+        return true
     }
 
     onExternalErrorTextChanged: {
-        if (externalErrorText.length > 0) {
-            errorText = externalErrorText
-            submitting = false
-        }
+        if (externalErrorText.length === 0)
+            return
+        const text = externalErrorText
+        const mine = ownsReply("")
+        // 读完就清空，这个属性因而是一只"收件箱"：下一条内容相同的失败也会触发
+        // 这里，而属于上一次提交的那条到此为止。
+        externalErrorText = ""
+        if (!mine)
+            return
+        errorText = text
+        submitting = false
+        submissionTicket = ""
     }
 
     /// Every field the validator and the Collector can refuse - reason, dates,

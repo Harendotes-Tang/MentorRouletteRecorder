@@ -85,7 +85,7 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
         // seconds ago. Adopting it while the user's own edit is still waiting
         // out the debounce, or is on the wire, snaps the switch back.
         if (!m_pendingCaptureSettings.isEmpty() || m_captureSettingsTimer.isActive()
-            || m_captureSettingsInFlight) {
+            || m_captureSettingsWritesInFlight > 0) {
             return;
         }
         m_captureSettings = QJsonObject::fromVariantMap(settings);
@@ -604,12 +604,13 @@ void AppController::flushCaptureSettings()
     const QJsonObject changes = m_pendingCaptureSettings;
     m_pendingCaptureSettings = QJsonObject();
     const auto candidateGeneration = m_candidateSettingsGeneration;
-    m_captureSettingsInFlight = true;
+    ++m_captureSettingsWritesInFlight;
 
     m_backend->updateCaptureSettings(changes)->whenDone(
-        this, [this, candidateGeneration](bool ok, const QVariantMap &payload, const QString &code,
-                     const QString &message) {
-            m_captureSettingsInFlight = false;
+        this, [this, candidateGeneration, changes](bool ok, const QVariantMap &payload,
+                     const QString &code, const QString &message) {
+            if (m_captureSettingsWritesInFlight > 0)
+                --m_captureSettingsWritesInFlight;
             if (!ok) {
                 m_captureSettingsError =
                     message.isEmpty() ? tr("保存捕获设置失败：%1").arg(code) : message;
@@ -627,6 +628,17 @@ void AppController::flushCaptureSettings()
                 for (const auto *name : {"candidate_validation_enabled", "research_payload_opcodes"}) {
                     const auto key = QString::fromLatin1(name);
                     if (m_captureSettings.contains(key)) confirmed.insert(key, m_captureSettings.value(key));
+                }
+            }
+            // Another write is still outstanding, or a newer edit is waiting out
+            // the debounce: this reply describes the Collector as it was before
+            // those, so only the fields this write itself sent may be adopted.
+            // Taking the whole object would bounce the switch the user moved
+            // second back to its old value (审查第 11 条).
+            if (m_captureSettingsWritesInFlight > 0 || !m_pendingCaptureSettings.isEmpty()) {
+                for (auto it = confirmed.begin(); it != confirmed.end(); ++it) {
+                    if (!changes.contains(it.key()) && m_captureSettings.contains(it.key()))
+                        *it = m_captureSettings.value(it.key());
                 }
             }
             m_captureSettings = confirmed;

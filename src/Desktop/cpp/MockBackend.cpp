@@ -749,12 +749,21 @@ QJsonObject MockBackend::captureStatus() const
     // Undeclared opcodes: the bulk of ordinary traffic, counted but not failed
     // (contracts/CHANGELOG.md entry 18).
     status.insert(QStringLiteral("ignored_count"), running && !candidateEnabled ? 904841 : 0);
+    // A run that is matched but not yet entered has the match announcement as its
+    // most recent valid event (contracts/CHANGELOG.md 2026-09-19), so that fixture
+    // is the one that exercises MATCH_ANNOUNCED offline; every other fixture keeps
+    // the settled duty result. Before this the mock reported DUTY_RESULT always and
+    // no screenshot or test ever reached the new token (2026-09-21 audit, finding 20).
+    const bool announced = m_liveMode == LiveMode::Matched;
     status.insert(QStringLiteral("last_valid_event_at_utc"),
-                  running && !candidateEnabled ? QJsonValue(isoUtc(m_now.addSecs(-128)))
-                                               : QJsonValue(QJsonValue::Null));
+                  running && !candidateEnabled
+                          ? QJsonValue(isoUtc(m_now.addSecs(announced ? -95 : -128)))
+                          : QJsonValue(QJsonValue::Null));
     status.insert(QStringLiteral("last_valid_event_kind"),
-                  running && !candidateEnabled ? QJsonValue(QStringLiteral("DUTY_RESULT"))
-                                               : QJsonValue(QJsonValue::Null));
+                  running && !candidateEnabled
+                          ? QJsonValue(announced ? QStringLiteral("MATCH_ANNOUNCED")
+                                                 : QStringLiteral("DUTY_RESULT"))
+                          : QJsonValue(QJsonValue::Null));
     // Oodle disclosure fields: which signature table the decoder is using, and
     // whether the profile behind it has been verified. Never invented as
     // "verified" - this backend has never seen a real packet.

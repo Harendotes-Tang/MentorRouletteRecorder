@@ -15,7 +15,12 @@ public:
     bool isConnected() const override { return connected; }
     bool connected = true, failSettings = false, failWrite = false, failStop = false;
     bool holdStatus = false, holdStop = false, drainStop = false;
+    // 保留 UpdateCaptureSettings 的回应，使两次设置写入能够同时在途，回应顺序
+    // 由测试决定。
+    bool holdWrites = false;
     mr::BackendReply *held = nullptr;
+    QList<mr::BackendReply *> heldWrites;
+    QList<QJsonObject> heldWritePayloads;
     QJsonObject settings{{"follow_game", true}, {"candidate_validation_enabled", true},
                          {"research_payload_opcodes", QJsonArray{17, 29}}};
     QJsonObject validation{{"active", false}, {"state", "IDLE"}};
@@ -26,6 +31,13 @@ public:
     QList<QJsonObject> writes;
     QStringList calls;
     void reconnect() { connected = false; emit connectionChanged(); connected = true; emit connectionChanged(); }
+    /// 让第 \a index 条被保留的写入返回，携带采集服务此刻的完整设置——真实回应
+    /// 同样是全量的，晚一条写入的改动并不在其中。
+    void completeWrite(int index) {
+        const QJsonObject p = heldWritePayloads.at(index);
+        for (auto i = p.begin(); i != p.end(); ++i) settings.insert(i.key(), i.value());
+        heldWrites.at(index)->succeed(settings);
+    }
     mr::BackendReply *request(const QString &type, const QJsonObject &p = {}) override {
         calls.append(type);
         auto *r = new mr::BackendReply(QString::number(calls.size()), type, this);
@@ -33,6 +45,7 @@ public:
             if (failSettings) r->fail("ERR_TEST", "settings unavailable"); else r->succeed(settings);
         } else if (type == QLatin1String("UpdateCaptureSettings")) {
             writes.append(p);
+            if (holdWrites) { heldWrites.append(r); heldWritePayloads.append(p); return r; }
             if (failWrite) r->fail("ERR_TEST", "write refused");
             else { for (auto i = p.begin(); i != p.end(); ++i) settings.insert(i.key(), i.value()); r->succeed(settings); }
         } else if (type == QLatin1String("GetCaptureValidationStatus")) r->succeed(validation);
@@ -274,6 +287,42 @@ private slots:
         b.settings["autostart"] = false;
         app.recording()->refresh();
         QCOMPARE(app.captureSettings().value("autostart").toBool(), false);
+    }
+
+    // 第 11 条：两次设置写入重叠时，第一条回应不能代表第二条。它既不得让 2 秒
+    // 轮询的旧快照重新生效，也不得把自己那份「更早的」全量设置照单收下——两者
+    // 都会把用户刚拨的第二个开关弹回旧值。M-8 只处理了单条写入的情形。
+    void settingsPollWaitsForEveryOutstandingWriteNotJustTheFirst() {
+        RecordingBackend b;
+        b.settings["autostart"] = false;
+        b.settings["update_check_enabled"] = false;
+        mr::AppController app(&b, nullptr);
+        QCOMPARE(app.captureSettings().value("update_check_enabled").toBool(), false);
+        b.holdWrites = true;
+
+        // 两次改动各自走完 400 ms 防抖后先后上路，第一条尚未回应。
+        app.updateCaptureSetting("autostart", true);
+        QTRY_VERIFY(b.heldWrites.size() == 1);
+        app.updateCaptureSetting("update_check_enabled", true);
+        QTRY_VERIFY(b.heldWrites.size() == 2);
+
+        // 第一条回应到达。它带回的是采集服务处理它时的设置，其中第二个开关还是
+        // 旧值；第二条仍在途，故界面必须保留用户刚拨的那一下。
+        b.completeWrite(0);
+        QCOMPARE(app.captureSettings().value("autostart").toBool(), true);
+        QCOMPARE(app.captureSettings().value("update_check_enabled").toBool(), true);
+
+        // 轮询此刻带回同样过时的快照，也不得采纳。
+        app.recording()->refresh();
+        QCOMPARE(app.captureSettings().value("update_check_enabled").toBool(), true);
+
+        // 第二条回应到达，在途写入清零，轮询重新具有权威。
+        b.completeWrite(1);
+        QCOMPARE(app.captureSettings().value("update_check_enabled").toBool(), true);
+        b.holdWrites = false;
+        b.settings["update_check_enabled"] = false;
+        app.recording()->refresh();
+        QCOMPARE(app.captureSettings().value("update_check_enabled").toBool(), false);
     }
 
     // 「点重新扫描 FF14 再试」 is only accurate if the rescan re-reads everything

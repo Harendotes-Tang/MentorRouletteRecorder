@@ -354,6 +354,63 @@ private Q_SLOTS:
         QCOMPARE(fixture.selectedDutyName(), QStringLiteral("未知副本"));
     }
 
+    // 审查第 4 条。提交中的窗口此前能用 Esc 关掉——按钮都用 submitting 禁用了，
+    // 唯独键盘这一路被漏掉；而迟到的回应又不核对自己属于哪一次提交，于是它会把
+    // 用户随后为另一条记录打开、正在填的表单静默关掉。请求发出时载荷已经正确，
+    // 所以修改不会写错记录，丢的是用户刚输入的内容。
+    void aSubmissionInFlightLocksTheWindowAndOwnsOnlyItsOwnReply()
+    {
+        DialogFixture fixture;
+        QVERIFY2(fixture.create(), qPrintable(fixture.errors));
+        QVERIFY(fixture.openForRun(run(QStringLiteral("run-a"), 70, 19,
+                                       QStringLiteral("COMPLETED"))));
+        const int closeOnEscape = fixture.dialog()->property("closePolicy").toInt();
+
+        QSignalSpy corrections(fixture.dialog(), SIGNAL(correctRequested(QVariant,QString)));
+        fixture.dialog()->setProperty("noteText", QString::fromUtf8("甲的备注"));
+        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
+        QCOMPARE(corrections.count(), 1);
+        QVERIFY(fixture.dialog()->property("submitting").toBool());
+
+        // 请求在途：键盘这一路和鼠标那一路一样关不掉窗口。
+        QVERIFY(fixture.dialog()->property("closePolicy").toInt() != closeOnEscape);
+        QTest::keyClick(fixture.window(), Qt::Key_Escape);
+        QVERIFY(fixture.dialog()->property("visible").toBool());
+
+        // 窗口仍被关掉（外壳另有途径），随即为另一条记录重开并开始输入。
+        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "close"));
+        QVERIFY(fixture.openForRun(run(QStringLiteral("run-b"), 71, 21,
+                                       QStringLiteral("COMPLETED"))));
+        fixture.dialog()->setProperty("noteText", QString::fromUtf8("乙的备注"));
+
+        // 甲的失败此刻才到：乙的表单还没提交，这条提示不属于它。
+        fixture.dialog()->setProperty("externalErrorText", "ERR_TIME_ORDER (ERR_TIME_ORDER)");
+        QVERIFY(fixture.dialog()->property("errorText").toString().isEmpty());
+        QVERIFY(fixture.dialog()->property("visible").toBool());
+
+        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
+        QCOMPARE(corrections.count(), 2);
+
+        // 甲的回应此刻才到：既不能把乙的窗口关掉，也不能把甲的错误显示在里面。
+        QVariant accepted;
+        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "acceptSubmission",
+                                          Q_RETURN_ARG(QVariant, accepted),
+                                          Q_ARG(QVariant, QVariant(QStringLiteral("run-a")))));
+        QVERIFY(!accepted.toBool());
+        QVERIFY(fixture.dialog()->property("visible").toBool());
+        QCOMPARE(fixture.dialog()->property("noteText").toString(),
+                 QString::fromUtf8("乙的备注"));
+        QVERIFY(fixture.dialog()->property("submitting").toBool());
+        QVERIFY(fixture.dialog()->property("errorText").toString().isEmpty());
+
+        // 乙自己的回应照常生效。
+        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "acceptSubmission",
+                                          Q_RETURN_ARG(QVariant, accepted),
+                                          Q_ARG(QVariant, QVariant(QStringLiteral("run-b")))));
+        QVERIFY(accepted.toBool());
+        QTRY_VERIFY(!fixture.dialog()->property("visible").toBool());
+    }
+
     void aPickedValueStillReachesTheFormTheDialogWillSubmit()
     {
         // The pickers must not fight the user either: after a pick, the row stays chosen and
@@ -407,7 +464,11 @@ private Q_SLOTS:
             QVERIFY2(!changes.contains(QString::fromLatin1(key)), key);
 
         // Choosing a different duty still submits its actual id and name.
-        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "acceptSubmission"));
+        QVariant accepted;
+        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "acceptSubmission",
+                                          Q_RETURN_ARG(QVariant, accepted),
+                                          Q_ARG(QVariant, QVariant(QStringLiteral("territory-run")))));
+        QVERIFY(accepted.toBool());
         QVERIFY(fixture.openForRun(value));
         QVERIFY(fixture.goToStep(2));
         QVERIFY(fixture.click(QStringLiteral("dutyRow_71")));

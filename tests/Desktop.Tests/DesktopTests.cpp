@@ -261,6 +261,7 @@ private Q_SLOTS:
     void ipcEnvelope_readsSuccessErrorAndEventShapes();
     void ipcEnvelope_toleratesAdditiveFields();
     void formatters_renderNullsAndDurations();
+    void mockBackend_reportsTheMatchAnnouncementBeforeTheDutyIsEntered();
     void runListModel_filtersSortsAndPages();
     void jobStatsModel_roleBreakdownKeepsFixedOrder();
     void jobStatsModel_derivesRoleGroupFromTheContractFields();
@@ -509,16 +510,28 @@ void DesktopTests::formatters_renderNullsAndDurations()
     QCOMPARE(mr::Formatters::runConfidenceLabel(graded), QString::fromUtf8("高"));
 
     // 最近有效事件 on the capture page: every contract token has a Chinese name;
-    // null and a token this build does not know give nothing (time only).
+    // null and a token this build does not know give nothing (time only). The table
+    // is the whole $defs/CaptureStatus.last_valid_event_kind enum (null aside), walked
+    // token by token, so a value added to the contract cannot reach the page without a
+    // name the way MATCH_ANNOUNCED did (2026-09-21 audit, finding 20). The count is
+    // pinned beside it: this binary cannot read the schema file, so growing the enum
+    // without growing the table has to fail here.
     const QList<QPair<const char *, const char *>> kinds{
         {"CONTENT_FINDER_POP", "匹配成功"}, {"ZONE_INITIALIZATION", "进入区域"},
         {"ZONE_TERRITORY", "识别所在区域"}, {"DUTY_RESULT", "副本结算"},
         {"PLAYER_JOB", "识别职业"}, {"ZONE_LEFT", "离开副本区域"},
-        {"INSTANCE_LEFT", "退出副本"}, {"MATCH_CANCELLED", "匹配取消"}};
+        {"INSTANCE_LEFT", "退出副本"}, {"MATCH_CANCELLED", "匹配取消"},
+        {"MATCH_ANNOUNCED", "匹配成功通知"}};
+    QCOMPARE(kinds.size(), qsizetype(9));
     for (const auto &kind : kinds) {
-        QCOMPARE(mr::Formatters::eventKindLabel(QString::fromLatin1(kind.first)),
-                 QString::fromUtf8(kind.second));
+        const QString label = mr::Formatters::eventKindLabel(QString::fromLatin1(kind.first));
+        QVERIFY2(!label.isEmpty(), kind.first);
+        QCOMPARE(label, QString::fromUtf8(kind.second));
     }
+    // The queue pop and the server's announcement are two different events; a player
+    // reading the capture page must be able to tell which one the time belongs to.
+    QVERIFY(mr::Formatters::eventKindLabel(QStringLiteral("MATCH_ANNOUNCED"))
+            != mr::Formatters::eventKindLabel(QStringLiteral("CONTENT_FINDER_POP")));
     QVERIFY(mr::Formatters::eventKindLabel(QString()).isEmpty());
     QVERIFY(mr::Formatters::eventKindLabel(QStringLiteral("SOMETHING_NEW")).isEmpty());
 
@@ -532,6 +545,46 @@ void DesktopTests::formatters_renderNullsAndDurations()
     }
     QCOMPARE(mr::Formatters::parserErrorLabel(QStringLiteral("E_LEN_MISMATCH")),
              QString::fromUtf8("报文长度与档案不符，已忽略"));
+}
+
+void DesktopTests::mockBackend_reportsTheMatchAnnouncementBeforeTheDutyIsEntered()
+{
+    // The offline backend has to be able to produce every token the capture page can
+    // render, or a missing label is never seen until a player hits it live: the mock
+    // reported DUTY_RESULT in every fixture, so MATCH_ANNOUNCED was unreachable
+    // (2026-09-21 audit, finding 20). Matched-but-not-entered is where the Collector
+    // reports it, and it is the fixture `--live matched` arms for screenshots.
+    mr::MockBackend backend;
+    backend.setLiveMode(mr::MockBackend::LiveMode::Matched);
+
+    QVariantMap status;
+    backend.request(QStringLiteral("GetCaptureStatus"))
+        ->whenDone(&backend, [&status](bool ok, const QVariantMap &payload, const QString &,
+                                       const QString &) {
+            if (ok)
+                status = payload;
+        });
+    QTRY_COMPARE_WITH_TIMEOUT(status.value(QStringLiteral("last_valid_event_kind")).toString(),
+                              QStringLiteral("MATCH_ANNOUNCED"), 3000);
+    QVERIFY(!mr::Formatters::eventKindLabel(
+                 status.value(QStringLiteral("last_valid_event_kind")).toString())
+                 .isEmpty());
+    // The time is set with the kind, the way the contract requires of the Collector.
+    QVERIFY(!status.value(QStringLiteral("last_valid_event_at_utc")).toString().isEmpty());
+
+    // Every other fixture keeps the settled duty result: this changes one scenario,
+    // not the projection the rest of the capture-page tests read.
+    mr::MockBackend entered;
+    QVariantMap enteredStatus;
+    entered.request(QStringLiteral("GetCaptureStatus"))
+        ->whenDone(&entered, [&enteredStatus](bool ok, const QVariantMap &payload, const QString &,
+                                              const QString &) {
+            if (ok)
+                enteredStatus = payload;
+        });
+    QTRY_COMPARE_WITH_TIMEOUT(
+        enteredStatus.value(QStringLiteral("last_valid_event_kind")).toString(),
+        QStringLiteral("DUTY_RESULT"), 3000);
 }
 
 void DesktopTests::runListModel_filtersSortsAndPages()

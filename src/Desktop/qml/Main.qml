@@ -217,7 +217,10 @@ ApplicationWindow {
 
         function onMutationSucceeded(kind, runId, revision, auditEventId) {
             if (kind === "create" || kind === "correct") {
-                editDialog.acceptSubmission()
+                // 回应带着它属于哪一条记录，交由对话框核对后才生效：迟到的回应
+                // 不能把用户此刻正在填的另一张表单静默关掉（审查第 4 条）。
+                if (!editDialog.acceptSubmission(runId))
+                    return
                 if (kind === "create")
                     App.navigate(1)
                 return

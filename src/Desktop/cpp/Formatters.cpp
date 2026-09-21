@@ -278,6 +278,11 @@ QString Formatters::eventKindLabel(const QString &code)
 {
     // ipc-v1 $defs/CaptureStatus.last_valid_event_kind. ZONE_INITIALIZATION is
     // every zone load, not only a duty entry, so it is named for what it is.
+    // MATCH_ANNOUNCED joined the enum on 2026-09-19 (contracts/CHANGELOG.md):
+    // it is the server announcing that the match is made, not the finder message
+    // CONTENT_FINDER_POP stands for, so it is named apart from it. Without a name
+    // of its own the capture page would show the time alone (2026-09-21 audit,
+    // finding 20).
     static const QHash<QString, QString> kLabels{
         {QStringLiteral("CONTENT_FINDER_POP"), QString::fromUtf8("匹配成功")},
         {QStringLiteral("ZONE_INITIALIZATION"), QString::fromUtf8("进入区域")},
@@ -287,6 +292,7 @@ QString Formatters::eventKindLabel(const QString &code)
         {QStringLiteral("ZONE_LEFT"), QString::fromUtf8("离开副本区域")},
         {QStringLiteral("INSTANCE_LEFT"), QString::fromUtf8("退出副本")},
         {QStringLiteral("MATCH_CANCELLED"), QString::fromUtf8("匹配取消")},
+        {QStringLiteral("MATCH_ANNOUNCED"), QString::fromUtf8("匹配成功通知")},
     };
     return kLabels.value(code);
 }

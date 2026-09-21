@@ -30,6 +30,12 @@ ScrollView {
     readonly property bool pendingRunReady: !!(pendingRun && pendingRun.run_id)
     readonly property string pendingRunDuty: pendingRunReady && pendingRun.duty_name
                                              ? pendingRun.duty_name : qsTr("未知副本")
+    // 快速处理按钮发出请求后到采集服务回应为止禁用。连点会发出第二条内容完全
+    // 相同的修正请求，它命中修订冲突后会被自动重发一次，于是审计里多出一条用户
+    // 从未要求过的重复修订（审查第 10 条）。Main.qml 的 reasonDialog 早有
+    // enabled: !window.reasonSubmitting 的同样写法，这里照此办理。
+    property string resolvingRunId: ""
+    readonly property bool resolvingPendingRun: page.resolvingRunId.length > 0
 
     readonly property var reflectionSummary: (typeof App !== "undefined" && App.reflectionSummary)
                                              ? App.reflectionSummary : ({})
@@ -42,6 +48,33 @@ ScrollView {
         ? String(Number(reflectionSummary.reflection_count)) : Fmt.dash()
     readonly property string pendingReflectionCountText: reflectionSummaryLoaded
         ? String(Number(reflectionSummary.pending_completed_count)) : Fmt.dash()
+
+    // 复核结果只由用户回答，程序不代答；这里只负责把这一次回答送出去一次。
+    function resolvePendingRun(result, reason) {
+        if (!page.pendingRunReady || page.resolvingPendingRun)
+            return
+        page.resolvingRunId = page.pendingRun.run_id
+        App.resolveRunResult(page.resolvingRunId, -1, result, reason)
+    }
+
+    Connections {
+        target: typeof App !== "undefined" ? App : null
+        ignoreUnknownSignals: true
+
+        // 只认领本页送出的那一条：别处的修正不应解锁这两个按钮。成功后待复核
+        // 记录会换成下一条，按钮随之重新可用。
+        function onMutationSucceeded(kind, runId, revision, auditEventId) {
+            if (kind === "review" && runId === page.resolvingRunId)
+                page.resolvingRunId = ""
+        }
+
+        // mutationFailed 不带记录 id，无从核对；只要本页还在等回应就解锁，
+        // 让用户能够重试——按钮永远锁死比偶尔提前解锁更糟。
+        function onMutationFailed(code, message) {
+            if (page.resolvingPendingRun)
+                page.resolvingRunId = ""
+        }
+    }
 
     function backfillReflection() {
         if (!page.reflectionSummaryLoaded) {
@@ -200,19 +233,19 @@ ScrollView {
                             objectName: "pendingReviewCompletedButton"
                             variant: "primary"
                             implicitHeight: 26
+                            enabled: !page.resolvingPendingRun
                             text: qsTr("通关")
-                            onClicked: App.resolveRunResult(page.pendingRun.run_id, -1,
-                                                            "COMPLETED",
-                                                            qsTr("用户确认通关"))
+                            onClicked: page.resolvePendingRun("COMPLETED",
+                                                              qsTr("用户确认通关"))
                         }
 
                         AppButton {
                             objectName: "pendingReviewLeftButton"
                             implicitHeight: 26
+                            enabled: !page.resolvingPendingRun
                             text: qsTr("未通关")
-                            onClicked: App.resolveRunResult(page.pendingRun.run_id, -1,
-                                                            "LEFT_OR_ABANDONED",
-                                                            qsTr("用户确认未通关"))
+                            onClicked: page.resolvePendingRun("LEFT_OR_ABANDONED",
+                                                              qsTr("用户确认未通关"))
                         }
 
                         Item { Layout.fillWidth: true }
@@ -274,6 +307,9 @@ ScrollView {
 
         // linear-gradient(90deg,rgba(232,148,74,.22),rgba(232,148,74,.06))
         // over a 1 px orange frame - the panel stays readable in both themes.
+        // The tint is derived from Theme.orange rather than written out, so the
+        // light 艾欧泽亚 skin gets its own darker gilded value instead of the dark
+        // skin's (2026-09-21 audit, finding 21).
         Rectangle {
             Layout.fillWidth: true
             Layout.preferredHeight: visible ? 68 : 0
@@ -286,11 +322,15 @@ ScrollView {
                 orientation: Gradient.Horizontal
                 GradientStop {
                     position: 0.0
-                    color: Theme.eorzea ? "#38e8944a" : Theme.orangeBackground
+                    color: Theme.eorzea
+                           ? Qt.rgba(Theme.orange.r, Theme.orange.g, Theme.orange.b, 0.22)
+                           : Theme.orangeBackground
                 }
                 GradientStop {
                     position: 1.0
-                    color: Theme.eorzea ? "#0fe8944a" : Theme.orangeBackground
+                    color: Theme.eorzea
+                           ? Qt.rgba(Theme.orange.r, Theme.orange.g, Theme.orange.b, 0.06)
+                           : Theme.orangeBackground
                 }
             }
 

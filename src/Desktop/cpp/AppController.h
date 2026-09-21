@@ -728,11 +728,14 @@ private:
     bool m_firstRun = false;
     bool m_reflectionSaving = false;
     bool m_captureSettingsLoaded = false;
-    /// True while an UpdateCaptureSettings write is on the wire. The 2 s
+    /// How many UpdateCaptureSettings writes are on the wire. The 2 s
     /// automatic-recording poll returns the Collector's *previous* answer;
     /// adopting it while a write is pending or in flight makes a switch the user
-    /// just moved snap back (review finding M-8).
-    bool m_captureSettingsInFlight = false;
+    /// just moved snap back (review finding M-8). A count rather than a flag,
+    /// because two debounced writes can overlap and the first reply must not
+    /// speak for the second: clearing a flag there let the poll in while a write
+    /// was still outstanding (审查第 11 条).
+    int m_captureSettingsWritesInFlight = 0;
     bool m_captureSettingsSupported = true;
     quint64 m_candidateSettingsGeneration = 0;
 };

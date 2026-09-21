@@ -13,19 +13,30 @@ Dialog {
     readonly property var shared: App.calibration ? App.calibration.shared : null
     property alias code: codeField.text
     property string messageText: ""
+    // 每次打开自增，提交时记下当时的值：导入请求一旦上路就收不回来，回应到达时
+    // 若窗口已经关掉或被重新打开，这条回应属于上一次导入，必须丢弃，不能把说明
+    // 写进新一次的窗口里（审查第 9 条，与第 4 条同源）。只判"窗口是不是开着"
+    // 并不能回答"还是不是同一次提交"，重开之后照样成立。
+    property int openGeneration: 0
+    property int submittedGeneration: 0
+    readonly property bool busy: !!dialog.shared && dialog.shared.busy
 
     modal: true
     // Qt Basic's backdrop in eorzea, workbench's .dialog-backdrop in classic.
     Overlay.modal: Rectangle { color: Theme.modalScrim(dialog.palette.shadow) }
     width: 520
     padding: 20
-    closePolicy: Popup.CloseOnEscape
+    // 请求在途时不接受 Esc，也不接受点击窗口外关闭——"导入"按钮早就用 busy
+    // 禁用了，键盘这一路此前被漏掉。
+    closePolicy: dialog.busy ? Popup.NoAutoClose : Popup.CloseOnEscape
 
     background: DialogFrame {}
 
     function openDialog() {
         codeField.text = ""
         dialog.messageText = ""
+        ++dialog.openGeneration
+        dialog.submittedGeneration = 0
         dialog.open()
         codeField.forceActiveFocus()
     }
@@ -34,14 +45,21 @@ Dialog {
         if (!dialog.shared)
             return
         dialog.messageText = ""
+        dialog.submittedGeneration = dialog.openGeneration
         dialog.shared.importCode(codeField.text)
+    }
+
+    /// 刚到的回应是否仍属于眼前这一次导入。
+    function ownsReply() {
+        return dialog.visible && dialog.submittedGeneration > 0
+               && dialog.submittedGeneration === dialog.openGeneration
     }
 
     Connections {
         target: dialog.shared
 
         function onImportFinished(applied, message) {
-            if (!dialog.visible)
+            if (!dialog.ownsReply())
                 return
             // 导入成功时同一句话会出现在底部提示里，卡片随后显示核实进度。
             if (applied)
@@ -103,7 +121,7 @@ Dialog {
                 objectName: "sharedImportSubmit"
                 variant: "primary"
                 text: qsTr("导入")
-                enabled: codeField.text.trim().length > 0 && !!dialog.shared && !dialog.shared.busy
+                enabled: codeField.text.trim().length > 0 && !!dialog.shared && !dialog.busy
                 onClicked: dialog.submit()
             }
         }
