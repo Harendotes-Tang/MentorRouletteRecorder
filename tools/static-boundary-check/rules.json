@@ -11,6 +11,16 @@
     "relative to the repository root (the root CMakeLists.txt and the shared",
     "MSBuild files live there and would otherwise never be looked at).",
     "",
+    "'installer' and '.github' are scanned as of the 2026-09-21 audit (finding 6):",
+    "installer/MentorRecorder.iss ships with every release and runs elevated, and",
+    "the CI workflows execute third-party code, so both are exactly the kind of",
+    "file the boundary has to hold for. Their extensions '.iss' and '.isl' were",
+    "added for the same reason. Note that only the repository-root '.github' is",
+    "reached: the walk drops every dot-prefixed SUBdirectory it meets, so the",
+    "public-repository mirror under tools/shared-calibration/public-repo/.github/",
+    "stays outside the scan; it is published from this repository and reviewed",
+    "with it, and its own self-tests cover it.",
+    "",
     "Every 'pattern' is a Python regular expression matched per line.",
     "A line containing the allow_marker is skipped (use it only for",
     "boundary-enforcing code that must name a forbidden symbol).",
@@ -34,7 +44,9 @@
     "src",
     "tests",
     "tools",
-    "scripts"
+    "scripts",
+    "installer",
+    ".github"
   ],
   "exclude_dirs": [
     ".git",
@@ -61,6 +73,8 @@
     ".cxx",
     ".h",
     ".hpp",
+    ".isl",
+    ".iss",
     ".js",
     ".json",
     ".mjs",
@@ -121,6 +135,12 @@
       "category": "process-injection",
       "pattern": "\\bOpenProcess\\b|\\bNtOpenProcess\\b|\\bDebugActiveProcess\\b",
       "message": "禁止打开游戏进程句柄；只允许进程存在性检查与系统 TCP 表 / opening a handle to another process is forbidden; only process existence checks and the system TCP table are allowed"
+    },
+    {
+      "id": "INJ-008",
+      "category": "process-injection",
+      "pattern": "\\.MainModule\\b",
+      "message": "禁止使用 Process.MainModule：该属性内部以 PROCESS_QUERY_INFORMATION | PROCESS_VM_READ 打开目标进程句柄并读取其模块表，请改用内核进程表（ProcessImagePath） / Process.MainModule is forbidden: the property opens a handle to the target with PROCESS_QUERY_INFORMATION | PROCESS_VM_READ and reads its module table; use the kernel process table (ProcessImagePath) instead"
     },
     {
       "id": "DEU-001",

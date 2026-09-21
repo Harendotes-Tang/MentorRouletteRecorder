@@ -1,81 +1,39 @@
-using System.ComponentModel;
 using MentorRecorder.Collector.Capture;
 
 namespace MentorRecorder.Collector.UnitTests;
 
-public sealed class GameProcessPathTests
-{
-    [Theory]
-    [InlineData(5, true)]
-    [InlineData(299, false)]
-    [InlineData(6, false)]
-    [InlineData(87, false)]
-    public void OnlyAccessDeniedIsReportedAsAPermissionFailure(int errorCode, bool accessDenied)
-    {
-        var result = WindowsGameProcessProvider.ReadExecutablePath(() => throw new Win32Exception(errorCode));
-
-        Assert.Null(result.Path);
-        Assert.Equal(accessDenied, result.AccessDenied);
-    }
-
-    [Fact]
-    public void ReadablePathsAreReturnedWithoutAPermissionWarning()
-    {
-        const string path = @"D:\FF14\game\ffxiv_dx11.exe";
-        var result = WindowsGameProcessProvider.ReadExecutablePath(() => path);
-
-        Assert.Equal(path, result.Path);
-        Assert.False(result.AccessDenied);
-    }
-
-    [Fact]
-    public void AProcessThatExitsOrHasNoMainModuleIsNotAnAccessDeniedFailure()
-    {
-        foreach (var read in new Func<string?>[]
-        {
-            () => null,
-            () => throw new InvalidOperationException(),
-            () => throw new NotSupportedException(),
-        })
-        {
-            var result = WindowsGameProcessProvider.ReadExecutablePath(read);
-            Assert.Null(result.Path);
-            Assert.False(result.AccessDenied);
-        }
-    }
-}
-
 public sealed class GameProcessPathResolutionTests
 {
     [Fact]
-    public void TheProcessTableAnswerWinsAndNeedsNoModuleListing()
+    public void TheProcessTableAnswerIsTakenAsIs()
     {
         var result = WindowsGameProcessProvider.ResolveExecutablePath(
-            () => @"D:\最终幻想XIV\game\ffxiv_dx11.exe",
-            () => throw new Win32Exception(5));
+            () => @"D:\最终幻想XIV\game\ffxiv_dx11.exe");
 
-        Assert.Equal(@"D:\最终幻想XIV\game\ffxiv_dx11.exe", result.Path);
-        Assert.False(result.AccessDenied);
+        Assert.Equal(@"D:\最终幻想XIV\game\ffxiv_dx11.exe", result);
     }
 
+    /// <summary>
+    /// The kernel process table is the only source there is. The module listing that used to
+    /// answer here opens a handle to the game with <c>PROCESS_VM_READ</c> and reads its module
+    /// table, which docs/privacy-boundary.md section 2, rule 3b forbids and the project promises
+    /// never to do; it was deleted by the 2026-09-21 audit (finding 1). An answer the table
+    /// cannot give must therefore leave the path unknown, whatever the reason -- an empty
+    /// answer, an empty string, or a lookup that throws.
+    /// </summary>
     [Fact]
-    public void AnEmptyTableAnswerFallsBackToTheModuleListing()
+    public void AnEmptyTableAnswerLeavesThePathUnknownRatherThanOpeningTheProcess()
     {
-        foreach (var table in new Func<string?>[] { () => null, () => "", () => throw new DllNotFoundException() })
+        foreach (var table in new Func<string?>[]
         {
-            var result = WindowsGameProcessProvider.ResolveExecutablePath(table, () => @"C:\FF14\game\ffxiv_dx11.exe");
-            Assert.Equal(@"C:\FF14\game\ffxiv_dx11.exe", result.Path);
-            Assert.False(result.AccessDenied);
+            () => null,
+            () => "",
+            () => throw new DllNotFoundException(),
+            () => throw new InvalidOperationException(),
+        })
+        {
+            Assert.Null(WindowsGameProcessProvider.ResolveExecutablePath(table, "ffxiv_dx11"));
         }
-    }
-
-    [Fact]
-    public void AccessDeniedIsStillReportedWhenBothSourcesFail()
-    {
-        var result = WindowsGameProcessProvider.ResolveExecutablePath(() => null, () => throw new Win32Exception(5));
-
-        Assert.Null(result.Path);
-        Assert.True(result.AccessDenied);
     }
 
     /// <summary>
@@ -85,36 +43,21 @@ public sealed class GameProcessPathResolutionTests
     /// stranger's executable from disk (review finding L-4).
     /// </summary>
     [Fact]
-    public void ATablePathThatDoesNotMatchTheProcessNameIsDiscarded()
+    public void ATablePathThatDoesNotMatchTheProcessNameLeavesThePathUnknownRatherThanWrong()
     {
         var result = WindowsGameProcessProvider.ResolveExecutablePath(
-            () => @"C:\Windows\System32\notepad.exe",
-            () => @"D:\SdoA\FFXIV\game\ffxiv_dx11.exe",
-            "ffxiv_dx11");
+            () => @"C:\Windows\System32\notepad.exe", "ffxiv_dx11");
 
-        Assert.Equal(@"D:\SdoA\FFXIV\game\ffxiv_dx11.exe", result.Path);
-        Assert.False(result.AccessDenied);
-    }
-
-    [Fact]
-    public void AMismatchWithNoModuleListingLeavesThePathUnknownRatherThanWrong()
-    {
-        var result = WindowsGameProcessProvider.ResolveExecutablePath(
-            () => @"C:\Windows\System32\notepad.exe", () => null, "ffxiv_dx11");
-
-        Assert.Null(result.Path);
-        Assert.False(result.AccessDenied);
+        Assert.Null(result);
     }
 
     [Fact]
     public void AMatchingNameIsAcceptedWhateverItsCasingAndFolder()
     {
         var result = WindowsGameProcessProvider.ResolveExecutablePath(
-            () => @"D:\最终幻想XIV\game\FFXIV_DX11.EXE",
-            () => throw new Win32Exception(5),
-            "ffxiv_dx11");
+            () => @"D:\最终幻想XIV\game\FFXIV_DX11.EXE", "ffxiv_dx11");
 
-        Assert.Equal(@"D:\最终幻想XIV\game\FFXIV_DX11.EXE", result.Path);
+        Assert.Equal(@"D:\最终幻想XIV\game\FFXIV_DX11.EXE", result);
     }
 
     [Fact]
@@ -122,5 +65,8 @@ public sealed class GameProcessPathResolutionTests
     {
         Assert.True(WindowsGameProcessProvider.NameMatches(@"C:\anything.exe", null));
         Assert.True(WindowsGameProcessProvider.NameMatches(@"C:\anything.exe", "  "));
+        Assert.Equal(
+            @"C:\anything.exe",
+            WindowsGameProcessProvider.ResolveExecutablePath(() => @"C:\anything.exe"));
     }
 }

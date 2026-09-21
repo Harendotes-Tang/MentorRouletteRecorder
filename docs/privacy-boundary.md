@@ -24,7 +24,7 @@
 | 1 | 不做 ACT / Dalamud 插件，不以插件形态挂载到任何第三方宿主 | 人工评审 |
 | 2 | 不进行进程注入 | `INJ-*` |
 | 3 | 不调用 `ReadProcessMemory` / `WriteProcessMemory` / `VirtualAllocEx` / `CreateRemoteThread` / `SetWindowsHookEx` | `INJ-001`…`INJ-006` |
-| 3b | 不打开游戏进程句柄（`OpenProcess` / `DebugActiveProcess`）；只允许进程存在性检查、内核进程表查询（`NtQuerySystemInformation(SystemProcessIdInformation)` 读取镜像路径）与系统 TCP 表 | `INJ-007` |
+| 3b | 不打开游戏进程句柄（`OpenProcess` / `DebugActiveProcess`，以及内部会打开句柄的 `Process.MainModule`）；只允许进程存在性检查、内核进程表查询（`NtQuerySystemInformation(SystemProcessIdInformation)` 读取镜像路径）与系统 TCP 表 | `INJ-007` `INJ-008` |
 | 4 | 不发送任何数据包（`pcap_sendpacket` / `pcap_inject`），抓包严格只读 | `CAP-001` `CAP-002` |
 | 4b | 只用 Npcap/WinPCap 抓包实现，不用 raw socket 实现；不直接 P/Invoke pcap 原生库 | `CAP-003` `CAP-004` `CAP-006` |
 | 4c | 不把原始报文写成抓包文件（`pcap_dump*`） | `CAP-005` |

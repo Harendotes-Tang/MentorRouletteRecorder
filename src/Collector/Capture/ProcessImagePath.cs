@@ -5,11 +5,15 @@ namespace MentorRecorder.Collector.Capture;
 /// <summary>
 /// Reads a process's executable path without opening a handle to that process.
 ///
-/// <see cref="System.Diagnostics.Process.MainModule"/> enumerates the target's modules and so
-/// needs <c>PROCESS_QUERY_INFORMATION | PROCESS_VM_READ</c>. A client started by an elevated
-/// launcher (the CN launcher runs as administrator and the game inherits that token) denies
-/// those rights to an ordinary user process: the read fails with <c>ERROR_ACCESS_DENIED</c>,
-/// region and build stay unknown, and the profile layer fails closed.
+/// <see cref="System.Diagnostics.Process.MainModule"/> (BOUNDARY-ALLOW: named here only to say
+/// why it is not used) enumerates the target's modules and so needs
+/// <c>PROCESS_QUERY_INFORMATION | PROCESS_VM_READ</c>. That is a handle on the game, which
+/// docs/privacy-boundary.md section 2, rule 3b forbids outright, so it is not a matter of
+/// preference: rule INJ-008 of the static boundary check refuses the property anywhere in the
+/// repository, and the last fallback that still called it was deleted by the 2026-09-21 audit
+/// (finding 1). It would in any case fail on a client started by an elevated launcher (the CN
+/// launcher runs as administrator and the game inherits that token), which denies those rights
+/// to an ordinary user process.
 ///
 /// <c>NtQuerySystemInformation(SystemProcessIdInformation)</c> returns the image's NT path from
 /// the kernel's process table instead: no handle is opened, nothing inside the target is read,

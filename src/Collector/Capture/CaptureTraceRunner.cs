@@ -182,7 +182,8 @@ public static class CaptureTraceRunner
 
         using var source = svc.SourceFactory?.Invoke() ?? new MachinaCaptureSource(svc.Logger);
         var isLiveSource = string.Equals(source.Kind, LiveSourceKind, StringComparison.Ordinal);
-        // A new process can be visible before MainModule exposes its path. Starting from
+        // A new process can be visible before the kernel's process table answers with its
+        // image path (ProcessImagePath, the only source we have). Starting from
         // that partial snapshot would skip the exact-build Oodle profile and permanently
         // stamp UNKNOWN/null onto this evidence file, even when the next query is ready.
         if (isLiveSource &&

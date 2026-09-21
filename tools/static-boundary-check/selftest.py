@@ -52,6 +52,7 @@ SAMPLES: dict[str, str] = {
     "INJ-005": "        var hook = SetWindowsHookExW(WhKeyboardLl, callback, module, 0);",
     "INJ-006": "        NtWriteVirtualMemory(handle, address, buffer, size, out _);",
     "INJ-007": "        using var game = OpenProcess(ProcessVmRead, false, processId);",
+    "INJ-008": "        var path = process.MainModule?.FileName;",
     "DEU-001": "        monitor.UseDeucalion = true;",
     "DEU-002": "        var client = new DeucalionClient(processId);",
     "DEU-003": '        var payload = "deucalion-1.2.3.dll";',
@@ -104,6 +105,11 @@ PLANT_SITES: tuple[tuple[str, str], ...] = (
     ("tests/Collector.UnitTests/Sample.cs", "cs"),
     ("tools/some-tool/sample.py", "py"),
     ("scripts/sample.ps1", "ps1"),
+    # The installer ships with every release and runs elevated, and the workflows execute
+    # third-party code; both were outside every rule until the 2026-09-21 audit (finding 6).
+    ("installer/Sample.iss", "iss"),
+    ("installer/Sample.isl", "iss"),
+    (".github/workflows/sample.yml", "yml"),
     ("CMakeLists.txt", "cmake"),
     ("Directory.Build.targets", "xml"),
 )
@@ -116,6 +122,8 @@ COMMENT: dict[str, str] = {
     "ps1": "# ",
     "cmake": "# ",
     "xml": "<!-- ",
+    "iss": "; ",
+    "yml": "# ",
 }
 
 
@@ -286,6 +294,27 @@ def cases() -> Iterable[tuple[str, callable]]:
                 expect_violation(root, f"planted in {relative}", "INJ-004")
 
         yield f"{relative} is scanned", one_site
+
+    # --- the scan scope itself (audit 2026-09-21, finding 6) --------------------------
+    # The cases above prove a token planted in each location is found; this one pins the
+    # configuration that makes them reachable, so narrowing the scope again fails here
+    # instead of silently switching the boundary off for what actually ships.
+    def scan_scope_covers_what_ships() -> None:
+        configured = {str(d) for d in rules.get("scan_dirs", [])}
+        for required in ("src", "tests", "tools", "scripts", "installer", ".github"):
+            if required not in configured:
+                raise Failure(
+                    f"scan_dirs no longer covers {required!r}; it is {sorted(configured)}"
+                )
+        extensions = {str(e).lower() for e in rules.get("include_extensions", [])}
+        for suffix in (".iss", ".isl"):
+            if suffix not in extensions:
+                raise Failure(
+                    f"include_extensions no longer covers {suffix!r}, so the installer "
+                    "script would not be read"
+                )
+
+    yield "the scan still covers the installer and the workflows", scan_scope_covers_what_ships
 
     # --- path allowances -------------------------------------------------------------
     # The one outbound client is allowed by its exact repository-relative path, and the

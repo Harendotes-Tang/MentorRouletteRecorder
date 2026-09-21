@@ -239,7 +239,9 @@ void AutomaticRecordingController::project(const QVariantMap &c)
         return;
     if (profile != QLatin1String("VERIFIED")) {
         block(session + QStringLiteral("profile:") + profile, pathUnreadable
-              ? tr("无法读取游戏安装路径，区服与客户端版本未知，无法自动记录。请查看诊断，必要时以管理员身份运行本软件。")
+              // 路径取自内核进程表，本就不需要额外权限，提权对此没有帮助，
+              // 因此这里不再建议以管理员身份运行（审查 2026-09-21 第 1 条）。
+              ? tr("无法读取游戏安装路径，区服与客户端版本未知，无法自动记录。请确认游戏仍在运行，并查看诊断。")
               : tr("协议档案不匹配，无法自动记录。继续游戏不会生成自动导随记录，请查看诊断。")); return;
     }
     if (!initError.isEmpty()) {

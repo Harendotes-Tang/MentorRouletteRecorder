@@ -130,10 +130,12 @@
 采集服务按进程名查找 `ffxiv_dx11` 与 `ffxiv`（`Process.GetProcessesByName`），并取得以下信息：
 
 - **PID** 与**启动时间**。
-- **安装路径**：优先从内核进程表读取
+- **安装路径**：只从内核进程表读取
   （`NtQuerySystemInformation(SystemProcessIdInformation)`，不打开游戏进程句柄），
-  因此由启动器以管理员身份拉起的客户端同样可以读到。内核不返回结果时改用
-  `Process.MainModule`。两条途径均失败则留空，不提权、不重试、不推测。
+  因此由启动器以管理员身份拉起的客户端同样可以读到。本软件不设第二条途径：
+  凡是需要打开游戏进程句柄、读取其模块表才能得到路径的做法，都与本节末尾的边界承诺
+  相抵触，已由静态边界检查的规则挡在代码之外。内核不返回结果时，安装路径即留空，
+  不提权、不重试、不推测。
 - **区服判定**：仅依据安装路径中的关键字。`SdoA` / `Shanda` 等判为 `CN`，
   `Square Enix` / `FINAL FANTASY XIV - A Realm Reborn` 判为 `GLOBAL`，
   无法识别时为 `UNKNOWN`。
@@ -717,7 +719,7 @@ opcode 与负载字节。
 | `ERR_BAD_REQUEST`，`field = adapter_id` | 无法确定游戏流量所在网卡 | 在诊断页手动选择一张网卡 |
 | 适配器列表为空 | Npcap 服务未启动，或权限不足 | 检查 `npcap` 服务，并以管理员身份运行一次 |
 | `packets_observed` 持续为 0 | 适配器选择有误，或游戏流量经由另一张网卡（例如 VPN 虚拟网卡） | 在适配器列表中改选，并确认游戏连接所在的网卡 |
-| `profile.status = NONE`，`game.install_path_readable = false`，`region = UNKNOWN` | 无法读取游戏安装路径。0.2.1 及更早版本在客户端由管理员身份的启动器拉起时必然出现 | 升级至 0.2.2；仍无法读取时以管理员身份运行一次本软件 |
+| `profile.status = NONE`，`game.install_path_readable = false`，`region = UNKNOWN` | 无法读取游戏安装路径。0.2.1 及更早版本在客户端由管理员身份的启动器拉起时必然出现 | 升级至 0.2.2 及以上；仍无法读取时，请确认游戏仍在运行、且游戏所在磁盘已分配盘符。提权运行对此没有帮助：路径取自内核进程表，本就不需要额外权限 |
 | `packets_observed` 增长但无记录产生 | 协议档案未达到 `VERIFIED`，触发 fail-closed | 查看诊断页的 `profile_status`，此时只能手工补录 |
 | `packets_dropped` 持续增长 | CPU 占用过高，或队列容量过小 | 提高 `capture.queue_capacity`，并关闭其他抓包工具 |
 | `state = FAILED` 且 `last_error_code` 非空 | 监视器致命错误（见 §7），或适配器被拔出、禁用 | 查看日志中的 `monitor_trace`，随后重新调用 `StartCapture` |

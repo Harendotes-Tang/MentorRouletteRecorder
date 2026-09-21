@@ -8,8 +8,17 @@ namespace MentorRecorder.Collector.Capture;
 /// <param name="ProcessId">Process identifier.</param>
 /// <param name="ProcessName">Process name without extension.</param>
 /// <param name="StartedAtUtc">Process start time, when readable.</param>
-/// <param name="ExecutablePath">Main module path, when readable without elevation.</param>
-/// <param name="AccessDenied">True when the path could not be read for permission reasons.</param>
+/// <param name="ExecutablePath">
+/// Image path from the kernel's process table, or null when it did not answer. It needs no
+/// rights on the target, so whether the client was started elevated makes no difference.
+/// </param>
+/// <param name="AccessDenied">
+/// True when the provider knows the path was withheld for permission reasons. The shipped
+/// Windows provider never reports it any more: its only source is the kernel process table,
+/// which needs no rights on the target at all and therefore has no permission failure to tell
+/// apart from any other empty answer (audit 2026-09-21, finding 1). The flag stays part of the
+/// contract because the diagnosis it drives is still the right one for a provider that can.
+/// </param>
 public sealed record GameProcessCandidate(
     int ProcessId,
     string ProcessName,
@@ -206,6 +215,9 @@ public sealed class GameProcessLocator
 
         if (chosen.ExecutablePath is null)
         {
+            // Only a provider that can tell a permission failure from any other empty answer
+            // reaches the first message; the Windows one cannot, so in practice this is the
+            // second (see GameProcessCandidate.AccessDenied).
             warnings.Add(chosen.AccessDenied
                 ? "没有权限读取游戏安装路径，区服与客户端版本将保持未知；此时不会进行任何自动记录（fail-closed）。"
                 : "无法确定游戏安装路径，区服与客户端版本将保持未知；此时不会进行任何自动记录（fail-closed）。");
@@ -525,21 +537,26 @@ public sealed class WindowsGameProcessProvider : IGameProcessProvider
             // Start time needs a query handle we may not have. Not fatal.
         }
 
-        var (path, accessDenied) = ResolveExecutablePath(
-            () => ProcessImagePath.TryRead(process.Id),
-            () => process.MainModule?.FileName,
-            process.ProcessName);
-        return new GameProcessCandidate(process.Id, process.ProcessName, started, path, accessDenied);
+        // AccessDenied is false by construction: the process-table read is the only source and
+        // it cannot report a permission failure (see GameProcessCandidate.AccessDenied).
+        var path = ResolveExecutablePath(() => ProcessImagePath.TryRead(process.Id), process.ProcessName);
+        return new GameProcessCandidate(process.Id, process.ProcessName, started, path, AccessDenied: false);
     }
 
     /// <summary>
-    /// Asks the kernel's process table first (<see cref="ProcessImagePath"/>): it needs no handle
-    /// and works when the client was started by an elevated launcher, which is how the CN
-    /// launcher runs. The module listing is tried only when that yields nothing, so the
-    /// "access denied" diagnosis is still produced for the rare process neither can name.
+    /// Asks the kernel's process table (<see cref="ProcessImagePath"/>) for the executable path:
+    /// it needs no handle and works when the client was started by an elevated launcher, which
+    /// is how the CN launcher runs.
+    ///
+    /// There is deliberately no second source. The module listing that used to serve as one
+    /// opens a handle to the game with <c>PROCESS_QUERY_INFORMATION | PROCESS_VM_READ</c> and
+    /// reads the target's module table, which docs/privacy-boundary.md section 2, rule 3b
+    /// forbids outright and the project promises never to do; it was removed by the 2026-09-21
+    /// audit (finding 1), and rule INJ-008 of the static boundary check now keeps it out. A path
+    /// the table does not answer simply stays unknown, and the existing fail-closed chain
+    /// handles that: region and build stay unknown and the profile layer refuses to parse.
     /// </summary>
     /// <param name="readFromProcessTable">Kernel process-table lookup for this process id.</param>
-    /// <param name="readMainModule">Module-listing fallback for the same process.</param>
     /// <param name="processName">
     /// Process name from the same snapshot. The table lookup takes a process id and Windows
     /// reuses process ids, so between the snapshot and the read the id can belong to something
@@ -547,8 +564,8 @@ public sealed class WindowsGameProcessProvider : IGameProcessProvider
     /// therefore not this process's path, and is dropped rather than reported
     /// (review finding L-4).
     /// </param>
-    internal static (string? Path, bool AccessDenied) ResolveExecutablePath(
-        Func<string?> readFromProcessTable, Func<string?> readMainModule, string? processName = null)
+    internal static string? ResolveExecutablePath(
+        Func<string?> readFromProcessTable, string? processName = null)
     {
         string? fromTable = null;
         try
@@ -557,15 +574,15 @@ public sealed class WindowsGameProcessProvider : IGameProcessProvider
         }
         catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
         {
-            // The table lookup is best effort; the module listing below is the known fallback.
+            // The table lookup is best effort; an answer it cannot give leaves the path unknown.
         }
 
-        if (!string.IsNullOrEmpty(fromTable) && !NameMatches(fromTable, processName))
+        if (string.IsNullOrEmpty(fromTable) || !NameMatches(fromTable, processName))
         {
-            fromTable = null;
+            return null;
         }
 
-        return string.IsNullOrEmpty(fromTable) ? ReadExecutablePath(readMainModule) : (fromTable, false);
+        return fromTable;
     }
 
     /// <summary>
@@ -591,28 +608,6 @@ public sealed class WindowsGameProcessProvider : IGameProcessProvider
         catch (ArgumentException)
         {
             return false;
-        }
-    }
-
-    /// <summary>
-    /// Reads the path without treating every Windows query failure as access denied.
-    /// Module enumeration may also fail during process startup/exit or with a partial copy.
-    /// </summary>
-    internal static (string? Path, bool AccessDenied) ReadExecutablePath(Func<string?> readPath)
-    {
-        try
-        {
-            return (readPath(), false);
-        }
-        catch (Win32Exception ex)
-        {
-            // ERROR_ACCESS_DENIED is 5. ERROR_PARTIAL_COPY (299), invalid handles and
-            // process-exit races say nothing about the launcher's elevation setting.
-            return (null, ex.NativeErrorCode == 5);
-        }
-        catch (Exception ex) when (ex is InvalidOperationException or NotSupportedException)
-        {
-            return (null, false);
         }
     }
 }

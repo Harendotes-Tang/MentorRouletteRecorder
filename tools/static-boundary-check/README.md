@@ -3,7 +3,8 @@
 本工具在仓库源码中查找本项目**绝不允许出现**的标识符。本文面向需要新增规则或排查告警的
 维护者，说明扫描范围、规则组织方式与自测要求。
 
-扫描范围为 `src/`（含 `src/Desktop/qml/`）、`tests/`、`tools/`、`scripts/`，
+扫描范围为 `src/`（含 `src/Desktop/qml/`）、`tests/`、`tools/`、`scripts/`、
+`installer/`（随发布分发、以管理员身份运行的安装脚本）、`.github/`（在 CI 运行器中执行第三方代码的工作流），
 以及仓库根目录的 `CMakeLists.txt`、`Directory.Build.props`、`Directory.Build.targets`、
 `MentorRecorder.sln`，即 `rules.json` 的 `scan_files`。
 命中任意一条规则即以非零退出码结束，并逐条打印 `文件:行号`。
@@ -33,7 +34,7 @@ pwsh -File scripts/verify.ps1                          # 边界检查 + dotnet t
 
 | 分类 | 规则 | 拦截什么 |
 |---|---|---|
-| `process-injection` | `INJ-001`…`INJ-006` | `ReadProcessMemory` / `WriteProcessMemory` / `VirtualAllocEx` / `CreateRemoteThread` / `SetWindowsHookEx` 及底层注入原语 |
+| `process-injection` | `INJ-001`…`INJ-008` | `ReadProcessMemory` / `WriteProcessMemory` / `VirtualAllocEx` / `CreateRemoteThread` / `SetWindowsHookEx` 及底层注入原语；打开他进程句柄（`OpenProcess` / `DebugActiveProcess`）；内部会打开句柄读模块表的 `Process.MainModule` |
 | `injected-hook` | `DEU-001`…`DEU-003` | 启用 Deucalion 注入式钩子、引用其 API 或其原生载荷 |
 | `packet-send` | `CAP-001` `CAP-002` | `pcap_sendpacket` / `pcap_inject`（抓包必须严格只读） |
 | `capture-mode` | `CAP-003` | `NetworkMonitorType.RawSocket`（只允许 Npcap 路径，无 raw-socket 回退） |
