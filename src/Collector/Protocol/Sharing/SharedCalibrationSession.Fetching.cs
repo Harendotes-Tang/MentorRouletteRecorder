@@ -46,6 +46,17 @@ internal sealed partial class SharedCalibrationSession
             return SharedCheckOutcome.AlreadyFetching;
         }
 
+        // A check that has only just been through every source is the answer to this one as well, whatever it
+        // found: refusing it costs the player nothing, while granting it lets anything able to open the pipe keep
+        // the repository and its mirrors busy for as long as it likes (review finding 13). It gets its own
+        // outcome rather than borrowing AlreadyFetching: nothing is running here, and the desktop's line for
+        // AlreadyFetching sends the player to watch the card for a result that is never coming. Read off the
+        // monotonic clock, so a system clock moved backwards cannot stretch the gap into a lasting refusal.
+        if (manual && _lastManualCheckAt is { } previous && _clock.Elapsed - previous < ManualCheckInterval)
+        {
+            return SharedCheckOutcome.RecentlyChecked;
+        }
+
         if (!manual && _nextAutoFetchAtUtc is { } next && _clock.UtcNow < next)
         {
             return SharedCheckOutcome.NotNeeded;
@@ -53,6 +64,11 @@ internal sealed partial class SharedCalibrationSession
 
         var ticket = new FetchTicket(context.Key, context.Template, manual) { Recheck = recheck };
         _fetch = ticket;
+        if (manual)
+        {
+            _lastManualCheckAt = _clock.Elapsed;
+        }
+
         Schedule(() => FetchAsync(ticket));
         return SharedCheckOutcome.Started;
     }

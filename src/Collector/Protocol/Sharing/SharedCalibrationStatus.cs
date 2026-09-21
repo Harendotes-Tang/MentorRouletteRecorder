@@ -199,6 +199,14 @@ public enum SharedCheckOutcome
     /// <summary>One was already running.</summary>
     AlreadyFetching,
 
+    /// <summary>
+    /// A manual check ran moments ago and its answer stands for this one too. Distinct from
+    /// <see cref="AlreadyFetching"/> on purpose: nothing is running, so telling the player to
+    /// watch the card for a result would point them at one that is never coming
+    /// (audit 2026-09-21, finding 13).
+    /// </summary>
+    RecentlyChecked,
+
     /// <summary>The setting is off, or this build of the Collector has no download wired.</summary>
     Disabled,
 

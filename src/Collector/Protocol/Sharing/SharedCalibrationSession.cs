@@ -42,9 +42,27 @@ internal sealed partial class SharedCalibrationSession
     /// </summary>
     internal static readonly TimeSpan FetchingNoticeDelay = TimeSpan.FromMilliseconds(250);
 
+    /// <summary>
+    /// Shortest gap between two 立即检查 that both reach the network. Kept in memory and quite apart from the
+    /// six-hour throttle the store writes to disk: that one answers how often a build is worth asking about, this
+    /// one answers how often the button may be pressed at all. One round is up to twenty-seven requests to the
+    /// repository and its mirrors, and until now anything that could open the pipe could ask for another the
+    /// instant the last one ended, however quickly it had failed (review finding 13). Five seconds, chosen for
+    /// the player rather than against a caller in a loop: someone who watches a check fail, reads the card and
+    /// decides to try again takes longer than that, so a genuine second press is never the one refused.
+    /// </summary>
+    internal static readonly TimeSpan ManualCheckInterval = TimeSpan.FromSeconds(5);
+
     private static readonly IReadOnlyDictionary<string, int> NoCounts = new Dictionary<string, int>(StringComparer.Ordinal);
 
     private readonly object _gate;
+
+    // Serialises the two background tasks that touch <region>.<build>.shared.json - a bind writing it and a
+    // withdrawal deleting it (review finding 12). Always taken before the gate and never while the gate is held;
+    // one lock for the session rather than one per region and build, because a session answers for exactly one
+    // of them and a change of build resets it.
+    private readonly object _file = new();
+
     private readonly ISharedCalibrationHost _host;
     private readonly CalibrationServices _services;
     private readonly IClock _clock;
@@ -60,6 +78,7 @@ internal sealed partial class SharedCalibrationSession
     private FetchTicket? _fetch;
     private bool _fetchVisible;
     private DateTimeOffset? _nextAutoFetchAtUtc;
+    private TimeSpan? _lastManualCheckAt;
     private SharedFetchStatus? _lastFetchStatus;
     private IReadOnlyList<SharedSourceAttempt> _lastAttempts = Array.Empty<SharedSourceAttempt>();
     private BoundProfile? _bound;

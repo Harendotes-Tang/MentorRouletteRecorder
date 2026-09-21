@@ -89,6 +89,140 @@ public sealed class SharedCalibrationRecheckTests : IDisposable
         Assert.Equal(SharedRecheckReason.SharedInUse, pipeline.CalibrationStatus().Shared.Recheck?.Reason);
     }
 
+    /// <summary>
+    /// When a withdrawal may leave the file alone (2026-09-21 full-audit finding 12). One file serves a region
+    /// and build, so a withdrawal that waited behind a bind would otherwise delete the profile that bind had just
+    /// verified and adopted, with nothing in memory the wiser: the next catalogue scan, a restart included, would
+    /// find the build uncalibrated again. The file lock orders the two; this is the question the withdrawal then
+    /// asks. Only a hash known on both sides and different proves another document stands on the path - an
+    /// unknown must never pass for "replaced", or a contradicted profile would go on recording.
+    /// </summary>
+    [Theory]
+    [InlineData("another profile was bound meanwhile", "b-sha", "a-sha", true)]
+    [InlineData("the withdrawn profile is still the one bound", "a-sha", "a-sha", false)]
+    [InlineData("nothing is bound any more", null, "a-sha", false)]
+    [InlineData("the withdrawn profile was bound before its hash was known", "b-sha", null, false)]
+    [InlineData("neither hash is known", null, null, false)]
+    public void AWithdrawalLeavesTheFileOnlyWhenAnotherKnownProfileNowStandsThere(
+        string what, string? current, string? withdrawn, bool replaced) =>
+        Assert.True(replaced == SharedCalibrationSession.IsReplacedBy(current, withdrawn), what);
+
+    /// <summary>
+    /// The race itself (2026-09-21 full-audit finding 12), driven through the product rather than the decision
+    /// alone. A queue-inferred shared code A is in force and has recorded an evening; a published code B that
+    /// reads the match outranks it, is verified on that evening's evidence and is being bound - its document is
+    /// already written to the one path the region and build share, and the catalogue reload behind it is held
+    /// open. Right then 立即检查 reads an index that revokes A, and A's withdrawal is scheduled. Before the fix
+    /// that withdrawal deleted the path at once and took B's freshly written file with it; B was verified and
+    /// then lost, and the next catalogue scan, a restart included, found the build uncalibrated. Now the
+    /// withdrawal waits behind the bind, sees B standing on the path and leaves it. Only B's reload is held: the
+    /// hook pauses the first reload that finds a document other than A's on disk, never the withdrawal's own.
+    /// </summary>
+    [Fact]
+    public async Task AWithdrawalScheduledWhileABetterCodeIsBeingWrittenLeavesThatCodesFileInPlace()
+    {
+        var queue = _bed.CodeFromEveningA(CalibrationTrafficCases.QueueRequest);
+        SharedProfileFiles.Write(
+            SharedProfileBuilder.Build(queue.Payload, Bed.Template, Bed.Confirmed, new Dictionary<string, int>(), Bed.Confirmed),
+            _bed.SharedRoot);
+        var queueDocument = File.ReadAllBytes(_bed.SharedProfilePath);
+        var announced = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
+        _bed.Publish();
+        var pipeline = _bed.Pipeline(_bed.Services());
+        Assert.Equal(ProfileOrigin.Shared, pipeline.Refresh(Bed.Game()).Origin);
+        await Bed.Idle(pipeline);
+
+        // A records the evening. With the capture session over nothing stages, so B binds on the evidence alone.
+        _bed.Play(pipeline, TrueEvening, hour: 24);
+        await Bed.Idle(pipeline);
+        Assert.NotNull(pipeline.CalibrationStatus().Shared.ProfileId);
+
+        using var written = new SemaphoreSlim(0);
+        using var release = new ManualResetEventSlim(false);
+        var held = 0;
+        _bed.BeforeReload = () =>
+        {
+            // Runs inside the session's file lock: it reads the path and waits, and takes no lock of its own.
+            if (File.Exists(_bed.SharedProfilePath) &&
+                !File.ReadAllBytes(_bed.SharedProfilePath).AsSpan().SequenceEqual(queueDocument) &&
+                Interlocked.Exchange(ref held, 1) == 0)
+            {
+                written.Release();
+                release.Wait(TimeSpan.FromSeconds(30));
+            }
+        };
+
+        try
+        {
+            _bed.Publish(announced);
+            Assert.Equal(SharedCheckOutcome.Started, pipeline.CheckSharedCalibrationNow());
+            Assert.True(await written.WaitAsync(TimeSpan.FromSeconds(30)), "the better code was never written");
+
+            // B's document is on disk and its bind has not committed. Now the index revokes A.
+            _bed.Db.Clock.Elapsed += SharedCalibrationSession.ManualCheckInterval;
+            _bed.PublishListed(new Bed.Listing(queue, Revoked: true), new Bed.Listing(announced));
+            Assert.Equal(SharedCheckOutcome.Started, pipeline.CheckSharedCalibrationNow());
+            Assert.True(
+                SpinWait.SpinUntil(() => pipeline.CalibrationStatus().Shared.LastRefusal == "REVOKED", TimeSpan.FromSeconds(30)),
+                "the revocation of the code in use was never claimed");
+        }
+        finally
+        {
+            // Released whatever happened above, so a failure can never leave the bind parked. The withdrawal is
+            // not awaited while B is held: it waits on the lock B holds.
+            release.Set();
+        }
+
+        await Bed.Idle(pipeline);
+        _bed.BeforeReload = null;
+
+        Assert.True(File.Exists(_bed.SharedProfilePath), "the withdrawal of A deleted the file B had just written");
+        var shared = pipeline.CalibrationStatus().Shared;
+        Assert.NotNull(shared.ProfileId);
+        Assert.False(File.ReadAllBytes(_bed.SharedProfilePath).AsSpan().SequenceEqual(queueDocument));
+        Assert.Equal(announced.Sha[..12], shared.Candidates[0].Sha12);
+        Assert.Equal(SharedCandidateStatus.InUse, shared.Candidates[0].Status);
+        Assert.Contains(shared.Candidates, item => item.Sha12 == queue.Sha[..12] && item.Status == SharedCandidateStatus.Rejected);
+        Assert.Equal(ProfileOrigin.Shared, pipeline.Refresh(Bed.Game()).Origin);
+
+        // What a restart would read: B, the code that reads the match, from disk.
+        var restarted = _bed.DiskSelect()(Bed.Game());
+        Assert.Equal(ProfileOrigin.Shared, restarted.Origin);
+        Assert.False(restarted.Profile?.MatchFromQueue ?? true);
+    }
+
+    /// <summary>
+    /// 「立即检查」之间有一个最短间隔（2026-09-21 full-audit finding 13）。Before it, the only
+    /// throttle was "a download is already running", so the instant one ended - however quickly
+    /// it had failed - the next call could start another whole round: the index from up to three
+    /// sources, then each candidate code from up to three sources. Anything able to open the pipe
+    /// could keep the repository and its mirrors busy simply by asking in a loop.
+    ///
+    /// The refusal has its own outcome rather than borrowing ALREADY_FETCHING: nothing is running,
+    /// so the desktop's line for that one would send the player to watch the card for a result
+    /// that already arrived.
+    /// </summary>
+    [Fact]
+    public async Task ASecondManualCheckWithinTheIntervalDoesNotReachTheNetworkAgain()
+    {
+        var pipeline = await BoundAndStillWatched(_bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState));
+
+        Assert.Equal(SharedCheckOutcome.Started, pipeline.CheckSharedCalibrationNow());
+        await Bed.Idle(pipeline);
+        var sent = _bed.Transport.Requests.Count;
+
+        Assert.Equal(SharedCheckOutcome.RecentlyChecked, pipeline.CheckSharedCalibrationNow());
+        await Bed.Idle(pipeline);
+        Assert.Equal(sent, _bed.Transport.Requests.Count);
+
+        // Past the interval the player who really does want another look gets one. The interval is
+        // read off the monotonic clock, so moving the wall clock cannot stretch or shorten it.
+        _bed.Db.Clock.Elapsed += SharedCalibrationSession.ManualCheckInterval;
+        Assert.Equal(SharedCheckOutcome.Started, pipeline.CheckSharedCalibrationNow());
+        await Bed.Idle(pipeline);
+        Assert.True(_bed.Transport.Requests.Count > sent);
+    }
+
     // ------------------------------------------------------------------ the code in use was revoked
 
     [Fact]

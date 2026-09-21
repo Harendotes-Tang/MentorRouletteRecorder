@@ -23,29 +23,37 @@ internal sealed partial class SharedCalibrationSession
         string? profileId = null;
         string? refusal = null;
         Func<Capture.GameProcessDetection, ProfileSelection>? select = null;
-        try
-        {
-            var built = SharedProfileBuilder.Build(
-                ticket.Candidate.Prepared.Payload, ticket.Template, _clock.UtcNow, ticket.Counts, ticket.ConsentAt);
-            if (built is { Status: SharedProfileBuildStatus.Built, ProfileId: { } id })
-            {
-                _services.WriteSharedProfile(built);
-                profileId = id;
-                select = _services.ReloadSelect();
-            }
-            else
-            {
-                refusal = "BUILD_" + built.Status.ToString().ToUpperInvariant();
-            }
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException or NotSupportedException)
-        {
-            refusal = "WRITE_FAILED:" + ex.GetType().Name;
-        }
 
-        lock (_gate)
+        // The file lock is held through the commit and not only through the write: a withdrawal scheduled before
+        // this bind deletes the very path this one writes, and only an unbroken write-reload-commit lets Withdraw
+        // ask whether the document on that path is still the one it is withdrawing and get a true answer
+        // (review finding 12).
+        lock (_file)
         {
-            Commit(ticket, profileId, select, refusal);
+            try
+            {
+                var built = SharedProfileBuilder.Build(
+                    ticket.Candidate.Prepared.Payload, ticket.Template, _clock.UtcNow, ticket.Counts, ticket.ConsentAt);
+                if (built is { Status: SharedProfileBuildStatus.Built, ProfileId: { } id })
+                {
+                    _services.WriteSharedProfile(built);
+                    profileId = id;
+                    select = _services.ReloadSelect();
+                }
+                else
+                {
+                    refusal = "BUILD_" + built.Status.ToString().ToUpperInvariant();
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException or NotSupportedException)
+            {
+                refusal = "WRITE_FAILED:" + ex.GetType().Name;
+            }
+
+            lock (_gate)
+            {
+                Commit(ticket, profileId, select, refusal);
+            }
         }
     }
 
@@ -184,32 +192,70 @@ internal sealed partial class SharedCalibrationSession
 
     private void Withdraw(BoundProfile bound, IReadOnlyList<Prepared>? pending = null)
     {
-        Attempt(() =>
+        // Under the same file lock the bind takes, so that "is this still the document I withdrew?" is asked and
+        // answered with no write able to slip in between: a compare-and-delete on the file's own bytes would
+        // leave exactly that window open, and a mutex on its own would only decide which of the two goes second -
+        // whichever order it chose, a delete that ran last would still take the other profile away.
+        lock (_file)
         {
-            _services.DeleteSharedProfile(bound.Region, bound.GameBuild);
-            return true;
-        });
-        var select = Attempt(() => _services.ReloadSelect());
-        lock (_gate)
-        {
-            if (_stopped || select is null)
+            if (!Replaced(bound))
             {
-                return;
+                Attempt(() =>
+                {
+                    _services.DeleteSharedProfile(bound.Region, bound.GameBuild);
+                    return true;
+                });
             }
 
-            _host.ReselectAfterSharedChange(select);
-            Sync();
-            if (pending is { Count: > 0 })
+            var select = Attempt(() => _services.ReloadSelect());
+            lock (_gate)
             {
-                // The file is gone and the catalogue has been read again, so the next best code of the
-                // index that revoked this one may now be offered - and written to that same path.
-                RegisterDownloaded(pending);
-                Evaluate();
-            }
+                if (_stopped || select is null)
+                {
+                    return;
+                }
 
-            _host.SharedCalibrationChanged();
+                _host.ReselectAfterSharedChange(select);
+                Sync();
+                if (pending is { Count: > 0 })
+                {
+                    // The file is gone and the catalogue has been read again, so the next best code of the
+                    // index that revoked this one may now be offered - and written to that same path.
+                    RegisterDownloaded(pending);
+                    Evaluate();
+                }
+
+                _host.SharedCalibrationChanged();
+            }
         }
     }
+
+    /// <summary>
+    /// True when a bind that finished while this withdrawal waited has put a different document on the same path
+    /// and the state machine is already recording with it. One file per region and build means the withdrawal
+    /// would otherwise delete a profile verified and adopted a moment earlier with nothing in memory the wiser,
+    /// and the next catalogue scan - a restart included - would find the build uncalibrated again for no reason
+    /// (review finding 12). A document this session cannot name, a profile bound before its hash was known, is
+    /// still removed: leaving a contradicted calibration recording is the worse of the two.
+    /// </summary>
+    /// <param name="withdrawn">The profile taken out of use.</param>
+    private bool Replaced(BoundProfile withdrawn)
+    {
+        lock (_gate)
+        {
+            return IsReplacedBy(_bound?.ProfileSha256, withdrawn.ProfileSha256);
+        }
+    }
+
+    /// <summary>
+    /// The decision behind <see cref="Replaced"/>, free of the session's state so it can be pinned down on its own.
+    /// Only a hash that is known on both sides and differs proves another document now stands on the path; an
+    /// unknown on either side must not pass for "replaced", or a contradicted profile would go on recording.
+    /// </summary>
+    /// <param name="current">Hash of the profile bound now; null when none is bound or its hash is not known.</param>
+    /// <param name="withdrawn">Hash of the profile being withdrawn; null when it was bound before its hash was known.</param>
+    internal static bool IsReplacedBy(string? current, string? withdrawn) =>
+        current is not null && withdrawn is not null && !string.Equals(current, withdrawn, StringComparison.Ordinal);
 
     // ------------------------------------------------------------------ bookkeeping
 

@@ -1,5 +1,13 @@
 # IPC 契约变更记录 / IPC contract changelog
 
+## 2026-09-21 · 「立即检查」的最短间隔：`CheckSharedCalibration.outcome` 新增 `RECENTLY_CHECKED`（附加）
+
+附加式变更：一个既有枚举新增一个取值，字段与消息数目均不变。**消息数目不变**：`$defs/MessageType` 仍为 49 个业务消息 + `Event` + `Error`。
+
+- **`CheckSharedCalibration` 响应的 `outcome` 新增 `RECENTLY_CHECKED`**：手动检查此前唯一的节流是「已有下载在途」，上一轮一结束就能立刻再发起一整轮获取（索引最多 3 个源，加上每个校准码最多 3 个源乘最多 8 个候选）。现在两次手动检查之间有一个只存在于内存、不落盘的最短间隔（不影响「游戏更新后自动获取」原有的六小时节流）。间隔之内的请求答 `RECENTLY_CHECKED`。
+- 为什么不复用 `ALREADY_FETCHING`：那个取值意味着确实有一次下载正在进行，桌面端据此提示「结果会显示在校准卡片上」；而被间隔拒绝时并没有任何下载在途，上一轮的结果早已出来，沿用那句话会让人等一个不会到来的结果。
+- 1.4.0 之前的桌面端不认识这个取值，会落到它的兜底分支（提示「现在不需要获取」），不会报错；采集服务与桌面端随同一版本一起发布。
+
 ## 2026-09-20 · 共享校准在用时也读索引：`CalibrationStatus.shared` 新增 `recheck`（附加）
 
 docs/plans/shared-calibration-rollback.md §3。全部为附加式：一个新的可选对象字段与两个新的 `$defs`，缺席或为 `null` 即“未发生过”，旧桌面端忽略即可。**消息数目不变**：`$defs/MessageType` 仍为 49 个业务消息 + `Event` + `Error`。

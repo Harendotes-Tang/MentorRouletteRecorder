@@ -1505,7 +1505,7 @@
         "additionalProperties": false,
         "required": ["outcome"],
         "properties": {
-          "outcome": { "type": "string", "enum": ["STARTED", "ALREADY_FETCHING", "DISABLED", "NOT_NEEDED"], "description": "DISABLED: the setting is off or this build has no download wired. NOT_NEEDED: not calibrating, a profile already records, or the player refused shared calibration for the build - nothing is sent." }
+          "outcome": { "type": "string", "enum": ["STARTED", "ALREADY_FETCHING", "RECENTLY_CHECKED", "DISABLED", "NOT_NEEDED"], "description": "DISABLED: the setting is off or this build has no download wired. NOT_NEEDED: not calibrating, a profile already records, or the player refused shared calibration for the build - nothing is sent. RECENTLY_CHECKED: a manual check ran seconds ago and its answer stands for this one; nothing is running, so the card already shows the result." }
         }
       },
       "ImportCalibrationCode": {

@@ -337,6 +337,10 @@ void SharedCalibrationController::checkNow()
             Q_EMIT notice(tr("正在获取其他玩家分享的校准，结果会显示在校准卡片上。"));
         else if (outcome == QLatin1String("ALREADY_FETCHING"))
             Q_EMIT notice(tr("已经在获取了，结果会显示在校准卡片上。"));
+        // 刚查过：此时并没有下载在途，所以不能说「结果会显示在卡片上」——那个结果
+        // 上一次就已经出来了（审查 2026-09-21 第 13 条）。
+        else if (outcome == QLatin1String("RECENTLY_CHECKED"))
+            Q_EMIT notice(tr("刚刚检查过，稍等几秒再试。上一次的结果已经显示在校准卡片上。"));
         else if (outcome == QLatin1String("DISABLED"))
             Q_EMIT notice(tr("「游戏更新后获取其他玩家的共享校准」没有打开，可以在设置里打开；手动导入校准码不受影响。"));
         else
