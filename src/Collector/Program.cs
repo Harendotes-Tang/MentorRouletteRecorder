@@ -463,7 +463,15 @@ public static class Program
         {
             // Graceful stop: refuse the default kill so open connections get to finish.
             eventArgs.Cancel = true;
-            stopping.Cancel();
+            try
+            {
+                stopping.Cancel();
+            }
+            catch (ObjectDisposedException)
+            {
+                // Ctrl+C after the serve loop already finished and released the source: the
+                // same window the stop event and the watchdog guard against (R-11).
+            }
         };
 
         // A Collector launched by the Desktop stops when the Desktop does. The watchdog raises

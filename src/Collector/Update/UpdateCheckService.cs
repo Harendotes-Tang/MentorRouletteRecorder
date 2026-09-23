@@ -243,9 +243,11 @@ public sealed class UpdateCheckService : IDisposable
 
         _disposed = true;
         _stopping.Cancel();
+        var pending = _pending;
+        var finished = true;
         try
         {
-            _pending?.Wait(StopTimeout);
+            finished = pending is null || pending.Wait(StopTimeout);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
         {
@@ -253,7 +255,19 @@ public sealed class UpdateCheckService : IDisposable
             // stop the rest of the shutdown.
         }
 
-        _stopping.Dispose();
+        if (finished)
+        {
+            _stopping.Dispose();
+            return;
+        }
+
+        // The check is still running past the stop budget. It only ever reads the token through
+        // this source, so the source outlives it; disposing now would trade a slow check for a
+        // crash on the pool thread when it next looks at the token.
+        _ = pending!.ContinueWith(
+            static (_, state) => ((CancellationTokenSource)state!).Dispose(),
+            _stopping, CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
     }
 
     private void Schedule()

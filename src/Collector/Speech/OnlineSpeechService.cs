@@ -243,7 +243,19 @@ public sealed class OnlineSpeechService : IDisposable
 
         try
         {
-            using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _stopping.Token);
+            CancellationToken stopping;
+            try
+            {
+                stopping = _stopping.Token;
+            }
+            catch (ObjectDisposedException)
+            {
+                // Dispose ran between the entry check and here; the service is stopping and
+                // this request is refused like any other it cannot serve, not faulted.
+                throw Failure(SpeechOutcome.Disabled, null, reason: "STOPPING");
+            }
+
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, stopping);
             bool entered;
             try
             {
