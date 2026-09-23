@@ -71,6 +71,15 @@ $env:MR_DISABLE_ONLINE_SPEECH = '1'
 $env:MR_DISABLE_UPDATE_CHECK = '1'
 
 $RepoRoot   = Split-Path -Parent $PSScriptRoot
+# The tree build.ps1 / test.ps1 / package.ps1 work in; the payload scan below must look there.
+$configuredBuildDir = [Environment]::GetEnvironmentVariable('MR_BUILD_DIR')
+$BuildDir = if ([string]::IsNullOrWhiteSpace($configuredBuildDir)) {
+    Join-Path $RepoRoot 'build'
+} elseif ([System.IO.Path]::IsPathRooted($configuredBuildDir)) {
+    [System.IO.Path]::GetFullPath($configuredBuildDir)
+} else {
+    [System.IO.Path]::GetFullPath((Join-Path $RepoRoot $configuredBuildDir))
+}
 $CheckPy             = Join-Path $RepoRoot 'tools\static-boundary-check\check.py'
 $ArchitectureCheckPy = Join-Path $RepoRoot 'tools\architecture-boundary-check\check.py'
 $TestScript          = Join-Path $PSScriptRoot 'test.ps1'
@@ -451,7 +460,7 @@ $skipPayloadScan = Test-GateSkipped 'injection-payload'
 $scanRoots = @(
     Join-Path $RepoRoot 'src'
     Join-Path $RepoRoot 'tests'
-    Join-Path $RepoRoot 'build'
+    $BuildDir
     Join-Path $RepoRoot 'artifacts'
 ) | Where-Object { Test-Path -LiteralPath $_ }
 

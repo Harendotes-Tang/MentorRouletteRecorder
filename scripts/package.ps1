@@ -53,8 +53,17 @@ $RepoRoot = Split-Path -Parent $PSScriptRoot
 $VerifyScript = Join-Path $PSScriptRoot 'verify.ps1'
 $BuildScript = Join-Path $PSScriptRoot 'build.ps1'
 $CollectorProject = Join-Path $RepoRoot 'src\Collector\MentorRecorder.Collector.csproj'
-$DesktopExe = Join-Path $RepoRoot 'build\src\Desktop\MentorRecorder.Desktop.exe'
-$DesktopManifest = Join-Path $RepoRoot 'build\src\Desktop\MentorRecorder.Desktop.exe.manifest'
+# Use the same directory that build.ps1 and test.ps1 build and verify.
+$configuredBuildDir = [Environment]::GetEnvironmentVariable('MR_BUILD_DIR')
+$BuildDir = if ([string]::IsNullOrWhiteSpace($configuredBuildDir)) {
+    Join-Path $RepoRoot 'build'
+} elseif ([System.IO.Path]::IsPathRooted($configuredBuildDir)) {
+    [System.IO.Path]::GetFullPath($configuredBuildDir)
+} else {
+    [System.IO.Path]::GetFullPath((Join-Path $RepoRoot $configuredBuildDir))
+}
+$DesktopExe = Join-Path $BuildDir 'src\Desktop\MentorRecorder.Desktop.exe'
+$DesktopManifest = Join-Path $BuildDir 'src\Desktop\MentorRecorder.Desktop.exe.manifest'
 # Example defaults for the documented machine; MR_QT_PREFIX / MR_MINGW_BIN override them
 # (same variables as scripts/build.ps1).
 $QtPrefixConfigured = [Environment]::GetEnvironmentVariable('MR_QT_PREFIX')
