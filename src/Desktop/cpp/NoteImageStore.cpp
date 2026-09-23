@@ -331,4 +331,26 @@ QVariantMap NoteImageStore::commit(const QString &runId, const QStringList &adds
     return result;
 }
 
+QVariantMap NoteImageStore::addFile(const QString &runId, const QString &sourcePath)
+{
+    return commit(runId, {sourcePath}, {});
+}
+
+QVariantMap NoteImageStore::addPicked(const QString &runId)
+{
+    const QString picked = pickImage();
+    if (picked.isEmpty()) {
+        return {{QStringLiteral("ok"), true},
+                {QStringLiteral("error"), QString()},
+                {QStringLiteral("added"), QStringList()},
+                {QStringLiteral("removed"), QStringList()}};
+    }
+    return addFile(runId, picked);
+}
+
+QVariantMap NoteImageStore::removeOne(const QString &runId, const QString &path)
+{
+    return commit(runId, {}, {path});
+}
+
 } // namespace mr

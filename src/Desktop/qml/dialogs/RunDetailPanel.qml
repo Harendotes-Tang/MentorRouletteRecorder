@@ -31,6 +31,24 @@ Rectangle {
         void noteImageSerial
         return imageStore && runData && runData.run_id ? imageStore.imagesFor(runData.run_id) : []
     }
+    /// Why the last add or remove did not happen; cleared by the next one.
+    property string noteImageError: ""
+
+    /// 添加图片 straight from the panel: chooser, copy, done. No wizard, no
+    /// reason, no revision - the file is not part of the record.
+    function addNoteImage() {
+        if (!root.imageStore || !root.runData || !root.runData.run_id)
+            return
+        const result = root.imageStore.addPicked(root.runData.run_id)
+        root.noteImageError = result.ok ? "" : (result.error || "")
+    }
+
+    function removeNoteImage(row) {
+        if (!root.imageStore || !root.runData || !root.runData.run_id || !row || !row.path)
+            return
+        const result = root.imageStore.removeOne(root.runData.run_id, row.path)
+        root.noteImageError = result.ok ? "" : (result.error || "")
+    }
 
     Connections {
         target: root.imageStore
@@ -403,12 +421,14 @@ Rectangle {
                 }
             }
 
+            // 备注: the text (edited through 手动修正) and the images, which are
+            // added and removed right here.
             ColumnLayout {
                 Layout.fillWidth: true
                 Layout.margins: 16
                 Layout.topMargin: 0
                 spacing: 2
-                visible: !!root.runData.note || root.noteImages.length > 0
+                visible: !!root.runData.note || root.noteImages.length > 0 || !!root.imageStore
 
                 Text {
                     text: qsTr("备注")
@@ -427,9 +447,21 @@ Rectangle {
                     objectName: "detailNoteImages"
                     Layout.fillWidth: true
                     Layout.topMargin: 6
-                    visible: root.noteImages.length > 0
+                    visible: root.noteImages.length > 0 || !!root.imageStore
+                    editable: !!root.imageStore && !root.runData.soft_deleted
                     rows: root.noteImages
                     thumbSize: 64
+                    onAddRequested: root.addNoteImage()
+                    onRemoveRequested: function(row) { root.removeNoteImage(row) }
+                }
+                Text {
+                    objectName: "detailNoteImageError"
+                    Layout.fillWidth: true
+                    visible: root.noteImageError.length > 0
+                    text: root.noteImageError
+                    color: Theme.red
+                    font.pixelSize: Theme.fs(12)
+                    wrapMode: Text.WordWrap
                 }
             }
         }

@@ -39,6 +39,41 @@ Dialog {
     readonly property bool busy: submitting || resolving
 
     readonly property string runId: runData && runData.run_id ? runData.run_id : ""
+
+    // 备注图片, right from the diary: chosen files are copied at once into the
+    // install directory's note-images folder (NoteImageStore), independent of
+    // whether the 心得 text is saved - they are files of the run, not fields of
+    // the reflection. The same strip appears in the history detail panel.
+    readonly property var imageStore: typeof NoteImages !== "undefined" ? NoteImages : null
+    property int noteImageSerial: 0
+    readonly property var noteImages: {
+        void noteImageSerial
+        return imageStore && runId.length > 0 ? imageStore.imagesFor(runId) : []
+    }
+    property string noteImageError: ""
+
+    function addNoteImage() {
+        if (!imageStore || runId.length === 0 || busy)
+            return
+        const result = imageStore.addPicked(runId)
+        noteImageError = result.ok ? "" : (result.error || "")
+    }
+
+    function removeNoteImage(row) {
+        if (!imageStore || runId.length === 0 || busy || !row || !row.path)
+            return
+        const result = imageStore.removeOne(runId, row.path)
+        noteImageError = result.ok ? "" : (result.error || "")
+    }
+
+    Connections {
+        target: dialog.imageStore
+        ignoreUnknownSignals: true
+        function onImagesChanged(changedRunId) {
+            if (changedRunId === dialog.runId)
+                dialog.noteImageSerial += 1
+        }
+    }
     readonly property int runRevision: runData && runData.revision !== undefined
                                        ? Number(runData.revision) : -1
     readonly property bool promptEnabled: (typeof Settings !== "undefined"
@@ -99,6 +134,7 @@ Dialog {
         dialog.mood = existing && existing.mood ? existing.mood : "good"
         textArea.text = existing && existing.text ? existing.text : ""
         dialog.errorText = ""
+        dialog.noteImageError = ""
         dialog.submitting = false
         dialog.askingResult = false
         dialog.resolving = false
@@ -435,6 +471,27 @@ Dialog {
             visible: !dialog.askingResult || dialog.promptEnabled
             Layout.preferredHeight: 132
             placeholderText: qsTr("记下这次导随的感想：新人表现、机制提醒、想对自己说的话……")
+        }
+
+        NoteImageStrip {
+            objectName: "reflectionNoteImages"
+            Layout.fillWidth: true
+            visible: !!dialog.imageStore && (!dialog.askingResult || dialog.promptEnabled)
+            editable: !!dialog.imageStore && !dialog.busy
+            rows: dialog.noteImages
+            thumbSize: 64
+            onAddRequested: dialog.addNoteImage()
+            onRemoveRequested: function(row) { dialog.removeNoteImage(row) }
+        }
+
+        Text {
+            objectName: "reflectionNoteImageError"
+            Layout.fillWidth: true
+            visible: dialog.noteImageError.length > 0
+            text: dialog.noteImageError
+            color: Theme.red
+            font.pixelSize: Theme.fs(12)
+            wrapMode: Text.WordWrap
         }
 
         Text {

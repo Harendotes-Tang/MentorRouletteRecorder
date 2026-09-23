@@ -398,6 +398,35 @@ private Q_SLOTS:
         QCOMPARE(changed.count(), 4);
     }
 
+    void oneStepAddAndRemoveAreCommitsOfOne()
+    {
+        StoreFixture fixture;
+        QSignalSpy changed(&fixture.store, &mr::NoteImageStore::imagesChanged);
+        const QString shot = fixture.picture(QStringLiteral("shot.png"));
+
+        QVariantMap result = fixture.store.addFile(kRunId, shot);
+        QVERIFY2(result.value(QStringLiteral("ok")).toBool(),
+                 qPrintable(result.value(QStringLiteral("error")).toString()));
+        QCOMPARE(result.value(QStringLiteral("added")).toStringList(), QStringList{shot});
+        QCOMPARE(fixture.store.imagesFor(kRunId).size(), 1);
+        QCOMPARE(changed.count(), 1);
+
+        result = fixture.store.addFile(kRunId, QStringLiteral("Z:/nowhere/none.png"));
+        QVERIFY(!result.value(QStringLiteral("ok")).toBool());
+        QCOMPARE(fixture.store.imagesFor(kRunId).size(), 1);
+
+        const QString stored =
+            fixture.store.imagesFor(kRunId).first().toMap().value(QStringLiteral("path")).toString();
+        result = fixture.store.removeOne(kRunId, fixture.pictures.path() + QStringLiteral("/shot.png"));
+        QVERIFY(!result.value(QStringLiteral("ok")).toBool());
+        QVERIFY(QFileInfo::exists(shot));
+        result = fixture.store.removeOne(kRunId, stored);
+        QVERIFY2(result.value(QStringLiteral("ok")).toBool(),
+                 qPrintable(result.value(QStringLiteral("error")).toString()));
+        QVERIFY(fixture.store.imagesFor(kRunId).isEmpty());
+        QCOMPARE(changed.count(), 2);
+    }
+
     void aRunHoldsAtMostTwentyImages()
     {
         StoreFixture fixture;

@@ -87,6 +87,13 @@ public:
     /// removals continue. Returns {ok, error, added (source paths), removed}.
     Q_INVOKABLE QVariantMap commit(const QString &runId, const QStringList &adds,
                                    const QStringList &removes);
+    /// The one-step forms for places without a staging step (the detail panel,
+    /// the 心得 dialog): the file is copied, or deleted, right away.
+    /// {ok, error, added, removed} as commit() returns them.
+    Q_INVOKABLE QVariantMap addFile(const QString &runId, const QString &sourcePath);
+    /// pickImage() followed by addFile(); ok with nothing added when cancelled.
+    Q_INVOKABLE QVariantMap addPicked(const QString &runId);
+    Q_INVOKABLE QVariantMap removeOne(const QString &runId, const QString &path);
     /// file:/// URL for an Image source.
     Q_INVOKABLE static QString urlFor(const QString &path);
 
