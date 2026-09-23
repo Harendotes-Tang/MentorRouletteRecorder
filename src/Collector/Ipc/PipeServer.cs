@@ -457,6 +457,8 @@ public sealed class FrameChannel
 ///
 /// A frame that arrives in pieces refreshes the budget with every piece, so the deadline
 /// measures silence rather than the time a slow frame takes to arrive.
+/// Writes enforce the same budget independently: a synchronous response can hold the read
+/// loop while its peer has stopped draining the pipe.
 /// </summary>
 internal sealed class IdleTimeoutStream : Stream
 {
@@ -548,8 +550,48 @@ internal sealed class IdleTimeoutStream : Stream
     public override async ValueTask WriteAsync(
         ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
     {
-        await _inner.WriteAsync(buffer, cancellationToken).ConfigureAwait(false);
-        Touch();
+        using var writeScope = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var deadline = CancelIdleWriteAsync(writeScope);
+        try
+        {
+            await _inner.WriteAsync(buffer, writeScope.Token).ConfigureAwait(false);
+            Touch();
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new IOException("the pipe write was idle past its deadline");
+        }
+        finally
+        {
+            await writeScope.CancelAsync().ConfigureAwait(false);
+            await deadline.ConfigureAwait(false);
+        }
+    }
+
+    // A synchronous response blocks the read loop, so reads cannot police a blocked write.
+    // Cancel that one write when silence expires; never retry it, since a prefix may already
+    // have reached the peer. Activity on the other direction still refreshes the shared budget.
+    private async Task CancelIdleWriteAsync(CancellationTokenSource writeScope)
+    {
+        try
+        {
+            while (!writeScope.IsCancellationRequested)
+            {
+                var remaining = Remaining();
+                if (remaining <= TimeSpan.Zero)
+                {
+                    _log?.Invoke("closing a pipe write that went quiet past the idle deadline", null);
+                    await writeScope.CancelAsync().ConfigureAwait(false);
+                    return;
+                }
+
+                await Task.Delay(remaining, writeScope.Token).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException) when (writeScope.IsCancellationRequested)
+        {
+            // The write completed or the connection was cancelled.
+        }
     }
 
     /// <inheritdoc />

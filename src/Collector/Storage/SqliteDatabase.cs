@@ -133,6 +133,7 @@ public sealed class SqliteDatabase : IDisposable
 
         lock (_gate)
         {
+            ObjectDisposedException.ThrowIf(_disposed, this);
             try
             {
                 // BeginTransaction 本身也会因其他连接持锁而失败；与提交错误统一映射。
@@ -197,6 +198,7 @@ public sealed class SqliteDatabase : IDisposable
 
         lock (_gate)
         {
+            ObjectDisposedException.ThrowIf(_disposed, this);
             var restoreTimeout = _connection.DefaultTimeout;
             _connection.DefaultTimeout = LiveCaptureCommandTimeoutSeconds;
             SetBusyTimeout(LiveCaptureBusyTimeoutMs);
@@ -263,26 +265,43 @@ public sealed class SqliteDatabase : IDisposable
     /// check to run is a failed check carrying SQLite's own message, not an exception; a lock held
     /// elsewhere is <c>ERR_DB_BUSY</c>.
     /// </remarks>
-    public IntegrityCheckOutcome CheckIntegrity() => CheckIntegrity(OpenReadOnlyConnection);
+    /// <param name="cancellationToken">
+    /// Interrupts the scan: the caller's connection went away, or the host is stopping. SQLite
+    /// abandons the statement at its next step and the check ends as cancelled rather than as a
+    /// verdict on the file.
+    /// </param>
+    public IntegrityCheckOutcome CheckIntegrity(CancellationToken cancellationToken = default) =>
+        CheckIntegrity(OpenReadOnlyConnection, cancellationToken);
 
     /// <summary>
     /// <see cref="CheckIntegrity()"/> over a connection supplied by <paramref name="openConnection"/>,
     /// so the tests can hand it a connection that is locked or gone.
     /// </summary>
     /// <param name="openConnection">Opens the connection the check runs on; disposed after use.</param>
-    internal IntegrityCheckOutcome CheckIntegrity(Func<SqliteConnection> openConnection)
+    /// <param name="cancellationToken">See <see cref="CheckIntegrity(CancellationToken)"/>.</param>
+    internal IntegrityCheckOutcome CheckIntegrity(
+        Func<SqliteConnection> openConnection, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(openConnection);
         ObjectDisposedException.ThrowIf(_disposed, this);
+        cancellationToken.ThrowIfCancellationRequested();
         try
         {
             using var connection = openConnection();
             using var command = connection.CreateCommand();
             command.CommandText = "PRAGMA integrity_check;";
+            // SqliteCommand.Cancel is sqlite3_interrupt: the running statement fails with
+            // SQLITE_INTERRUPT at its next step instead of reading the rest of the file.
+            using var interrupt = cancellationToken.Register(
+                static state => ((SqliteCommand)state!).Cancel(), command);
             using var reader = command.ExecuteReader();
             var first = reader.Read() && !reader.IsDBNull(0) ? reader.GetString(0) : string.Empty;
             var passed = string.Equals(first, "ok", StringComparison.OrdinalIgnoreCase);
             return new IntegrityCheckOutcome(passed, passed ? "ok" : ShortDetail(first));
+        }
+        catch (SqliteException ex) when (ex.SqliteErrorCode is 9 && cancellationToken.IsCancellationRequested)
+        {
+            throw new OperationCanceledException("数据库校验已中断。", ex, cancellationToken);
         }
         catch (SqliteException ex) when (ex.SqliteErrorCode is 5 or 6)
         {
@@ -345,6 +364,7 @@ public sealed class SqliteDatabase : IDisposable
 
         lock (_gate)
         {
+            ObjectDisposedException.ThrowIf(_disposed, this);
             return work(_connection);
         }
     }
@@ -367,6 +387,7 @@ public sealed class SqliteDatabase : IDisposable
             using var pending = new AtomicExportFile(fullPath, overwrite);
             lock (_gate)
             {
+                ObjectDisposedException.ThrowIf(_disposed, this);
                 using var command = _connection.CreateCommand();
                 command.CommandText = "VACUUM INTO $target;";
                 command.Parameters.AddWithValue("$target", pending.TemporaryPath);
@@ -417,8 +438,21 @@ public sealed class SqliteDatabase : IDisposable
             return;
         }
 
-        _disposed = true;
-        _connection.Dispose();
+        // Every transaction and read runs under the gate. Taking it here means a worker that
+        // is still inside a statement - a pipe connection the server gave up draining, say -
+        // finishes before the connection goes away, instead of having it disposed under it.
+        // The parent watchdog's hard-exit deadline bounds how long that can take.
+        lock (_gate)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _disposed = true;
+            _connection.Dispose();
+        }
+
         SqliteConnection.ClearAllPools();
     }
 }

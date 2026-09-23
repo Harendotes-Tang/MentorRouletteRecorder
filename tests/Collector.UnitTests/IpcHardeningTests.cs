@@ -204,6 +204,31 @@ public sealed class IpcHardeningTests
         Assert.True(PipeServer.DefaultIdleTimeout >= TimeSpan.FromMinutes(3));
     }
 
+    [Fact]
+    public async Task ABlockedResponseWriteExpiresWithoutAConcurrentRead()
+    {
+        using var peer = new BlockedWriteStream();
+        var stream = new IdleTimeoutStream(peer, TimeSpan.FromMilliseconds(150));
+        using var safety = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await Assert.ThrowsAsync<IOException>(async () =>
+            await stream.WriteAsync(new byte[] { 1 }, safety.Token));
+        Assert.False(safety.IsCancellationRequested);
+        Assert.Equal(1, peer.WriteAttempts);
+        Assert.True(peer.WriteCancelled);
+    }
+
+    [Fact]
+    public async Task CancellingABlockedWriteKeepsTheCallersCancellation()
+    {
+        using var peer = new BlockedWriteStream();
+        var stream = new IdleTimeoutStream(peer, TimeSpan.FromSeconds(5));
+        using var cancellation = new CancellationTokenSource();
+        var writing = stream.WriteAsync(new byte[] { 1 }, cancellation.Token).AsTask();
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => writing);
+        Assert.True(peer.WriteCancelled);
+    }
+
     /// <summary>
     /// <c>CheckDatabaseIntegrity</c> reads every page of the database on a connection of its
     /// own. Nothing bounded how many of those ran at once -- neither the dispatcher nor the
@@ -251,6 +276,27 @@ public sealed class IpcHardeningTests
         Adapters = new AdapterEnumerator(new FakeAdapterProvider(), new FakeProcessTcpTable()),
         EnableFollowTimer = false,
     };
+
+    /// <summary>A peer whose full receive buffer keeps a response write pending.</summary>
+    private sealed class BlockedWriteStream : MemoryStream
+    {
+        public int WriteAttempts { get; private set; }
+        public bool WriteCancelled { get; private set; }
+
+        public override async ValueTask WriteAsync(
+            ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            WriteAttempts++;
+            try
+            {
+                await Task.Delay(Timeout.Infinite, cancellationToken);
+            }
+            finally
+            {
+                WriteCancelled = cancellationToken.IsCancellationRequested;
+            }
+        }
+    }
 
     /// <summary>A peer that connects and then never sends a byte.</summary>
     private sealed class SilentStream : Stream

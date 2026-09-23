@@ -115,12 +115,14 @@ public static class SpeechHandlers
     /// </summary>
     /// <param name="host">Collector host.</param>
     /// <param name="reader">Request payload.</param>
-    public static JsonObject CheckDatabaseIntegrity(CollectorHost host, PayloadReader reader)
+    /// <param name="cancellationToken">Interrupts the scan when the asking connection is gone.</param>
+    public static JsonObject CheckDatabaseIntegrity(
+        CollectorHost host, PayloadReader reader, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(host);
         ArgumentNullException.ThrowIfNull(reader);
         reader.RequireEmpty();
-        var outcome = host.Database.CheckIntegrity();
+        var outcome = host.Database.CheckIntegrity(cancellationToken);
         return IntegrityResponse(outcome, UtcTimestamp.Truncate(host.Clock.UtcNow));
     }
 

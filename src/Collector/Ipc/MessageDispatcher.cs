@@ -180,13 +180,16 @@ public sealed class MessageDispatcher
 
         // The token is checked inside the work rather than given to Task.Run: a task that is
         // cancelled before it starts never runs its body, and the slot would stay taken for the
-        // life of the process.
+        // life of the process. The scan itself takes the token too, so a client that leaves
+        // mid-scan releases its pipe instance and this slot instead of holding both until the
+        // whole file has been read.
         return Task.Run(() =>
         {
             try
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                return SpeechHandlers.CheckDatabaseIntegrity(_host, new PayloadReader(request.Payload));
+                return SpeechHandlers.CheckDatabaseIntegrity(
+                    _host, new PayloadReader(request.Payload), cancellationToken);
             }
             finally
             {

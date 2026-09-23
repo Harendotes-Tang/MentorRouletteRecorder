@@ -46,6 +46,50 @@ public sealed class DatabaseIntegrityCheckTests : IDisposable
     }
 
     [Fact]
+    public void ACancelledCheckNeverOpensItsConnection()
+    {
+        using var cancelled = new CancellationTokenSource();
+        cancelled.Cancel();
+        var opened = 0;
+        Assert.Throws<OperationCanceledException>(() => _database.Database.CheckIntegrity(
+            () =>
+            {
+                opened++;
+                throw new InvalidOperationException("must not open");
+            },
+            cancelled.Token));
+        Assert.Equal(0, opened);
+    }
+
+    [Fact]
+    public async Task DisposeWaitsForAStatementStillRunningOnAnotherThread()
+    {
+        // A pipe worker the server gave up draining is still inside a transaction when the
+        // host closes the database. Dispose has to let it finish, not pull the connection.
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        var worker = Task.Run(() => _database.Database.RunInTransaction(tx =>
+        {
+            entered.Set();
+            release.Wait();
+            using var command = tx.Connection!.CreateCommand();
+            command.Transaction = tx;
+            command.CommandText = "SELECT 1;";
+            return (long)command.ExecuteScalar()!;
+        }));
+        Assert.True(entered.Wait(TimeSpan.FromSeconds(10)));
+
+        var disposing = Task.Run(() => _database.Database.Dispose());
+        await Task.WhenAny(disposing, Task.Delay(TimeSpan.FromMilliseconds(300)));
+        Assert.False(disposing.IsCompleted);
+
+        release.Set();
+        Assert.Equal(1L, await worker.WaitAsync(TimeSpan.FromSeconds(10)));
+        await disposing.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Throws<ObjectDisposedException>(() => _database.Database.Read(_ => 0));
+    }
+
+    [Fact]
     public async Task TheCheckDoesNotWaitForTheWriterGate()
     {
         // Hold the database gate the way a live-capture write does.
