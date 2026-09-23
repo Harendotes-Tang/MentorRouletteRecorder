@@ -1,5 +1,6 @@
 #include "TestCollectorGuard.h"
 #include "AppController.h"
+#include "DutyCatalog.h"
 #include "Formatters.h"
 #include "JobCatalog.h"
 #include "IpcFraming.h"
@@ -258,6 +259,7 @@ class DesktopTests : public QObject
 
 private Q_SLOTS:
     void ipcFraming_roundTripsAndRejectsInvalidPayload();
+    void dutyCatalog_fillsLevelAndExpansionByTerritoryWhenContentIdIsMissing();
     void ipcEnvelope_readsSuccessErrorAndEventShapes();
     void ipcEnvelope_toleratesAdditiveFields();
     void formatters_renderNullsAndDurations();
@@ -1305,6 +1307,62 @@ void DesktopTests::runFormValidator_buildsTheBeforeAfterDiff()
 
     // Identical inputs produce no rows at all.
     QVERIFY(mr::RunFormValidator::diff(before, before).isEmpty());
+}
+
+// A run identified from its zone alone (schema 8: duty_source = TERRITORY) has
+// no content_id, so the 资料片 · 等级 line stayed empty in the history list even
+// though the catalogue knows the duty by its territory_id.
+void DesktopTests::dutyCatalog_fillsLevelAndExpansionByTerritoryWhenContentIdIsMissing()
+{
+    const auto *catalogue = mr::DutyCatalog::shared();
+    QVERIFY(catalogue->count() > 0);
+
+    // 险峻峡谷塞尔法特尔溪谷: content_id 182, territory 1113, Heavensward 60.
+    const QVariantMap byId = catalogue->lookup(182);
+    QVERIFY(!byId.isEmpty());
+    QCOMPARE(byId.value(QStringLiteral("territory_id")).toLongLong(), qint64(1113));
+
+    QVariantMap run;
+    run.insert(QStringLiteral("content_id"), QVariant::fromValue(nullptr));
+    run.insert(QStringLiteral("territory_id"), 1113);
+    run.insert(QStringLiteral("duty_name"), QString::fromUtf8("险峻峡谷塞尔法特尔溪谷"));
+    const QVariantMap enriched = catalogue->enrich(run);
+    QCOMPARE(enriched.value(QStringLiteral("duty_expansion")).toString(),
+             byId.value(QStringLiteral("duty_expansion")).toString());
+    QCOMPARE(enriched.value(QStringLiteral("duty_level")).toInt(),
+             byId.value(QStringLiteral("duty_level")).toInt());
+    // The zone never supplies an identity the record does not have.
+    QVERIFY(enriched.value(QStringLiteral("content_id")).isNull());
+    QCOMPARE(enriched.value(QStringLiteral("duty_name")).toString(),
+             QString::fromUtf8("险峻峡谷塞尔法特尔溪谷"));
+
+    // An unknown zone, or none at all, changes nothing.
+    QVERIFY(catalogue->lookupByTerritory(QVariant()).isEmpty());
+    QVERIFY(catalogue->lookupByTerritory(999999).isEmpty());
+    QVariantMap bare;
+    bare.insert(QStringLiteral("territory_id"), 999999);
+    QCOMPARE(catalogue->enrich(bare), bare);
+
+    // Zones shared by several duties only yield what all of them agree on.
+    QHash<qint64, QList<qint64>> byTerritory;
+    for (const QVariant &row : catalogue->allDuties()) {
+        const QVariantMap duty = row.toMap();
+        if (duty.contains(QStringLiteral("territory_id")))
+            byTerritory[duty.value(QStringLiteral("territory_id")).toLongLong()]
+                .append(duty.value(QStringLiteral("content_id")).toLongLong());
+    }
+    for (auto it = byTerritory.cbegin(); it != byTerritory.cend(); ++it) {
+        if (it.value().size() < 2)
+            continue;
+        const QVariantMap shared = catalogue->lookupByTerritory(it.key());
+        QVERIFY(!shared.contains(QStringLiteral("content_id")));
+        QVERIFY(!shared.contains(QStringLiteral("duty_name")));
+        for (qint64 contentId : it.value()) {
+            const QVariantMap duty = catalogue->lookup(contentId);
+            for (auto field = shared.cbegin(); field != shared.cend(); ++field)
+                QCOMPARE(duty.value(field.key()), field.value());
+        }
+    }
 }
 
 int main(int argc, char **argv)

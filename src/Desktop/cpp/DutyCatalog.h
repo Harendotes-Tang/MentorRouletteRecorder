@@ -51,6 +51,13 @@ public:
     /// versionForExpansion().
     Q_INVOKABLE QVariantMap lookup(const QVariant &contentId) const;
 
+    /// What the catalogue can say about a duty known only by its zone: the
+    /// fields on which every row with that territory_id agrees. A run recorded
+    /// from ZONE_TERRITORY carries no content_id (docs/data-model.md, schema 8),
+    /// and this is how its 资料片 · 等级 line is still filled in. Two duties that
+    /// share a zone but differ in level keep that field empty rather than guess.
+    Q_INVOKABLE QVariantMap lookupByTerritory(const QVariant &territoryId) const;
+
     /// 人数 group of a duty: 四人迷宫 4, 讨伐歼灭战 8, 团队任务 24, 行会令 and
     /// anything else 0. 大型任务 holds both 8-player raids and 24-player
     /// alliance raids; the data file's own party_size (ContentMemberType)
@@ -79,6 +86,7 @@ private:
     void load();
 
     QHash<qint64, QVariantMap> m_byContentId;
+    QHash<qint64, QList<QVariantMap>> m_byTerritoryId;
     QVariantList m_ordered;
     QString m_dataVersion;
 };

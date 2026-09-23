@@ -95,6 +95,8 @@ void DutyCatalog::load()
         row.insert(QStringLiteral("version"), versionForExpansion(expansion));
 
         m_byContentId.insert(qint64(contentId.toDouble()), row);
+        if (row.contains(QStringLiteral("territory_id")))
+            m_byTerritoryId[row.value(QStringLiteral("territory_id")).toLongLong()].append(row);
         rows.append(row);
     }
 
@@ -198,9 +200,39 @@ QVariantMap DutyCatalog::lookup(const QVariant &contentId) const
     return ok ? m_byContentId.value(key) : QVariantMap();
 }
 
+QVariantMap DutyCatalog::lookupByTerritory(const QVariant &territoryId) const
+{
+    if (!territoryId.isValid() || territoryId.isNull())
+        return {};
+    bool ok = false;
+    const qint64 key = territoryId.toLongLong(&ok);
+    if (!ok)
+        return {};
+    const QList<QVariantMap> rows = m_byTerritoryId.value(key);
+    if (rows.isEmpty())
+        return {};
+
+    QVariantMap agreed = rows.first();
+    for (int i = 1; i < rows.size(); ++i) {
+        for (auto it = agreed.begin(); it != agreed.end();) {
+            if (rows.at(i).value(it.key()) != it.value())
+                it = agreed.erase(it);
+            else
+                ++it;
+        }
+    }
+    // The identity fields are per duty, never per zone.
+    agreed.remove(QStringLiteral("content_id"));
+    if (rows.size() > 1)
+        agreed.remove(QStringLiteral("duty_name"));
+    return agreed;
+}
+
 QVariantMap DutyCatalog::enrich(const QVariantMap &run) const
 {
-    const QVariantMap row = lookup(run.value(QStringLiteral("content_id")));
+    QVariantMap row = lookup(run.value(QStringLiteral("content_id")));
+    if (row.isEmpty())
+        row = lookupByTerritory(run.value(QStringLiteral("territory_id")));
     if (row.isEmpty())
         return run;
 
