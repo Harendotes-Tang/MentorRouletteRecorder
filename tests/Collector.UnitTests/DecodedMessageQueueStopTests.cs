@@ -14,6 +14,37 @@ namespace MentorRecorder.Collector.UnitTests;
 public sealed class DecodedMessageQueueStopTests
 {
     [Fact]
+    public async Task DisposingAParkedWorkerKeepsItsWaitTokenAliveUntilItExits()
+    {
+        using var parked = new ManualResetEventSlim();
+        using var resume = new ManualResetEventSlim();
+        var queue = new DecodedMessageQueue(
+            new NullSink(), DecodedMessageQueue.DefaultCapacity, null, null, null,
+            beforeWait: () =>
+            {
+                parked.Set();
+                resume.Wait();
+            });
+        try
+        {
+            Assert.True(parked.Wait(TimeSpan.FromSeconds(5)));
+            queue.Dispose();
+            Assert.True(queue.StoppedWhileParked);
+            Assert.False(queue.Completion.IsCompleted);
+        }
+        finally
+        {
+            resume.Set();
+        }
+
+        // Before the fix, resuming here throws an unhandled ObjectDisposedException on
+        // the parser thread when it obtains Token, terminating the Collector/test process.
+        await queue.Completion.WaitAsync(TimeSpan.FromSeconds(5));
+        queue.Dispose();
+        Assert.Equal(0, queue.SinkErrorCount);
+    }
+
+    [Fact]
     public void AnIdleQueueAlwaysCountsAsStoppedEvenWithNoTimeToJoin()
     {
         var queue = new DecodedMessageQueue(new NullSink());

@@ -38,6 +38,7 @@ public sealed class DecodedMessageQueue : IDisposable
     private readonly Action<Exception>? _onSinkError;
     private readonly Action<long>? _onDropped;
     private readonly Action? _onConnectionLost;
+    private readonly Action? _beforeWait;
     private readonly CancellationTokenSource _stopping = new();
     private readonly Thread _worker;
     private readonly TaskCompletionSource _completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -83,6 +84,18 @@ public sealed class DecodedMessageQueue : IDisposable
         Action<Exception>? onSinkError = null,
         Action<long>? onDropped = null,
         Action? onConnectionLost = null)
+        : this(sink, capacity, onSinkError, onDropped, onConnectionLost, beforeWait: null)
+    {
+    }
+
+    /// <summary>Allows a test to hold the worker immediately before it obtains its wait token.</summary>
+    internal DecodedMessageQueue(
+        IDecodedMessageSink sink,
+        int capacity,
+        Action<Exception>? onSinkError,
+        Action<long>? onDropped,
+        Action? onConnectionLost,
+        Action? beforeWait)
     {
         ArgumentNullException.ThrowIfNull(sink);
 
@@ -90,6 +103,7 @@ public sealed class DecodedMessageQueue : IDisposable
         _onSinkError = onSinkError;
         _onDropped = onDropped;
         _onConnectionLost = onConnectionLost;
+        _beforeWait = beforeWait;
         Capacity = Math.Clamp(capacity, MinCapacity, MaxCapacity);
         _channel = Channel.CreateBounded<DecodedMessage>(
             new BoundedChannelOptions(Capacity)
@@ -274,6 +288,7 @@ public sealed class DecodedMessageQueue : IDisposable
             while (!_stopping.IsCancellationRequested)
             {
                 EnterStage(StageWaiting);
+                _beforeWait?.Invoke();
                 if (!reader.WaitToReadAsync(_stopping.Token).AsTask().GetAwaiter().GetResult())
                 {
                     return;
@@ -347,6 +362,11 @@ public sealed class DecodedMessageQueue : IDisposable
                 $"协议处理线程尚未退出（{Stage}，积压 {Depth}，已交付 {DeliveredCount}），保留会话资源供停止操作重试。");
         _disposed = true;
         _stopping.Cancel();
-        _stopping.Dispose();
+        // Complete may accept a parked worker before it actually exits. That worker can
+        // still obtain Token on waking, so keep the source alive until its final callback.
+        _ = _completion.Task.ContinueWith(
+            static (_, state) => ((CancellationTokenSource)state!).Dispose(),
+            _stopping, CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
     }
 }
