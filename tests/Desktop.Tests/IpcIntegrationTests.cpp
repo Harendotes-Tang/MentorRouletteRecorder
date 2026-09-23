@@ -73,7 +73,9 @@ struct Outcome {
 Outcome await(mr::BackendReply *reply, int timeoutMs = 15000)
 {
     Outcome outcome;
-    QObject::connect(reply, &mr::BackendReply::done, reply,
+    // Destroy the subscription before outcome leaves scope, including on timeout.
+    QObject subscription;
+    reply->whenDone(&subscription,
                      [&outcome](bool ok, const QVariantMap &payload, const QString &code,
                                 const QString &message) {
                          outcome.finished = true;
@@ -101,6 +103,9 @@ private Q_SLOTS:
     void initTestCase();
     void cleanupTestCase();
 
+    void awaitDisconnectsAfterTimeout();
+    void awaitReadsAlreadyFinishedReply();
+
     void getVersionMatchesTheContract();
     void queryRunsHonoursFilterAndPaging();
     void correctRunSurfacesTypedRefusals();
@@ -120,6 +125,38 @@ private:
     QString m_seededRunId;
     int m_seededRevision = 0;
 };
+
+void IpcIntegrationTests::awaitDisconnectsAfterTimeout()
+{
+    class ObservableReply : public mr::BackendReply {
+    public:
+        using mr::BackendReply::BackendReply;
+        int doneReceivers() const
+        {
+            return receivers(SIGNAL(done(bool,QVariantMap,QString,QString)));
+        }
+    };
+    QObject owner;
+    auto *reply = new ObservableReply(QStringLiteral("late"), QStringLiteral("BackupDatabase"), &owner);
+    const Outcome timedOut = await(reply, 0);
+    QVERIFY(!timedOut.finished);
+    QCOMPARE(reply->doneReceivers(), 0);
+    // A late response or stop() may still finish this request after await returns.
+    reply->fail(QStringLiteral("ERR_INTERNAL"), QStringLiteral("late completion"));
+    QVERIFY(reply->isFinished());
+}
+
+void IpcIntegrationTests::awaitReadsAlreadyFinishedReply()
+{
+    QObject owner;
+    auto *reply = new mr::BackendReply(QStringLiteral("early"), QStringLiteral("GetStatus"), &owner);
+    reply->fail(QStringLiteral("ERR_INTERNAL"), QStringLiteral("disconnected"));
+    const Outcome result = await(reply, 0);
+    QVERIFY(result.finished);
+    QVERIFY(!result.ok);
+    QCOMPARE(result.code, QStringLiteral("ERR_INTERNAL"));
+    QCOMPARE(result.message, QStringLiteral("disconnected"));
+}
 
 void IpcIntegrationTests::normalStartupRestoresFollowWithoutChangingCandidateSettings()
 {
