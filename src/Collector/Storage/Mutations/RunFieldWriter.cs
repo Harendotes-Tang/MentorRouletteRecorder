@@ -28,6 +28,7 @@ public static class RunFieldWriter
         return field switch
         {
             RunFields.ContentId => run with { ContentId = AsInt(field, value) },
+            RunAuditFields.DutyIdentity => RestoreDutyIdentity(run, field, value),
             RunFields.DutyName => run with { DutyName = AsString(field, value) },
             RunFields.DutyCategory => run with { DutyCategory = AsString(field, value) },
             RunFields.JobId => run with { JobId = AsInt(field, value) },
@@ -53,6 +54,23 @@ public static class RunFieldWriter
                 "修订记录包含无法还原的字段，已拒绝撤销以免部分还原。",
                 new Dictionary<string, object?> { ["field"] = field }),
         };
+    }
+
+    private static MentorRun RestoreDutyIdentity(MentorRun run, string field, object? value)
+    {
+        if (value is not string json)
+        {
+            throw Refuse(field);
+        }
+
+        try
+        {
+            return DutyIdentityAudit.Restore(run, json);
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            throw Refuse(field);
+        }
     }
 
     private static string? AsString(string field, object? value) => value switch

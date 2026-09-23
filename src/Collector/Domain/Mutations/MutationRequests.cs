@@ -122,6 +122,13 @@ public static class RunFields
     };
 }
 
+/// <summary>Internal audit fields, never accepted in client correction payloads.</summary>
+public static class RunAuditFields
+{
+    /// <summary>Complete content/territory/provenance tuple, encoded as a JSON string.</summary>
+    public const string DutyIdentity = "duty_identity";
+}
+
 /// <summary>Request to create a run by hand (docs/manual-correction.md section 1).</summary>
 public sealed record CreateManualRunCommand
 {

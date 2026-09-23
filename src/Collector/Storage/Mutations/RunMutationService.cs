@@ -241,6 +241,19 @@ public sealed class RunMutationService
             var target = _revisions.GetAt(command.RunId, before.Revision, tx)
                 ?? throw CollectorException.NotFound(command.RunId);
 
+            // Older duty revisions did not record their associated territory/source.
+            // The current catalog cannot reconstruct historical observed values safely.
+            // Legacy requests that resubmitted an unchanged content id left no content
+            // diff, so an implicit identity change there cannot be detected or recovered.
+            if (target.Changes.Any(change => change.Field == RunFields.ContentId) &&
+                !target.Changes.Any(change => change.Field == RunAuditFields.DutyIdentity))
+            {
+                throw new CollectorException(
+                    ErrorCodes.UndoNotAllowed,
+                    "旧版副本修订缺少区域或来源的历史值，无法安全撤销；请通过更正记录重新选择副本。",
+                    field: "expected_revision");
+            }
+
             var restored = before;
             foreach (var change in target.Changes)
             {

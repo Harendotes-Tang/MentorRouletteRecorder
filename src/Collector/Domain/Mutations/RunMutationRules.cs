@@ -119,6 +119,8 @@ public static class RunMutationRules
 
         var changes = new List<RunFieldChange>(12);
         Compare(changes, RunFields.ContentId, before.ContentId, after.ContentId);
+        Compare(changes, RunAuditFields.DutyIdentity,
+            DutyIdentityAudit.Capture(before), DutyIdentityAudit.Capture(after));
         Compare(changes, RunFields.DutyName, before.DutyName, after.DutyName);
         Compare(changes, RunFields.DutyCategory, before.DutyCategory, after.DutyCategory);
         Compare(changes, RunFields.JobId, before.JobId, after.JobId);
@@ -192,7 +194,7 @@ public static class RunMutationRules
         ArgumentNullException.ThrowIfNull(changes);
         return changes.Any(change => change.Field switch
         {
-            RunFields.ManuallyCorrected or RunFields.Note => false,
+            RunFields.ManuallyCorrected or RunFields.Note or RunAuditFields.DutyIdentity => false,
             RunFields.Result or RunFields.PendingReview or RunFields.ContributesToGoal => !wasPendingReview,
             RunFields.JobId or RunFields.JobName or RunFields.Role or RunFields.ContentId or
                 RunFields.DutyName or RunFields.DutyCategory => !IsBlank(change.OldValue),

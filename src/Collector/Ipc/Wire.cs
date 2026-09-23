@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization.Metadata;
 using MentorRecorder.Collector.Domain;
+using MentorRecorder.Collector.Domain.Mutations;
 using MentorRecorder.Collector.Domain.Queries;
 using MentorRecorder.Collector.Domain.Statistics;
 using MentorRecorder.Collector.Domain.Time;
@@ -156,6 +157,13 @@ public static class Wire
         var changes = new JsonArray();
         foreach (var change in revision.Changes)
         {
+            // The opaque restoration snapshot is storage metadata, not a user-facing
+            // change. Keep the ordinary content/name/category rows for revision display.
+            if (change.Field == RunAuditFields.DutyIdentity)
+            {
+                continue;
+            }
+
             changes.Add(new JsonObject
             {
                 ["field"] = change.Field,

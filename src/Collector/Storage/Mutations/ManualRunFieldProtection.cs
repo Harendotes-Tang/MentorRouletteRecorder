@@ -43,6 +43,7 @@ internal sealed class ManualRunFieldProtection(SqliteDatabase database)
                 TerritoryId = current.TerritoryId,
                 DutyName = current.DutyName,
                 DutyCategory = current.DutyCategory,
+                DutySource = current.DutySource,
             };
         }
 
