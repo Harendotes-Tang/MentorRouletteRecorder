@@ -378,6 +378,18 @@ public sealed partial class MentorRunStateMachine
     {
         switch (ev)
         {
+            // A lost cancellation or replacement queue breaks the association with a later
+            // duty. No entry was observed, but cancellation itself is uncertain: retain
+            // review rather than guessing, and clear the announcement's parked request too.
+            // Every game connection closing (docs/state-machine.md 3.6) is the same loss
+            // in a different form: the server-side match cannot survive it, and what the
+            // player does after relogging is fresh evidence, not this match's entry.
+            case EventSequenceGap:
+            case ConnectionLost:
+                return Finish(
+                    ev, RunState.CancelledBeforeEntry, RunResult.CancelledBeforeEntry,
+                    DetectionConfidence.Low, pendingReview: true);
+
             // Being placed back into a non-duty zone is an explicit return to idle.
             case ZoneInitialization { IsDutyInstance: false }:
                 return Finish(
@@ -473,9 +485,6 @@ public sealed partial class MentorRunStateMachine
                 return Finish(
                     ev, RunState.CancelledBeforeEntry, RunResult.CancelledBeforeEntry,
                     DetectionConfidence.Low);
-
-            case ConnectionLost:
-                return TransitionResult.Ignored(_state, _runId);
 
             case PlayerJob job:
                 return RecordJob(job);

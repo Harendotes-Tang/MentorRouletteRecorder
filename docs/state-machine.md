@@ -133,6 +133,9 @@
 2. 在档案声明的匹配有效期（默认 45 秒，可由档案覆盖）内未进入副本，且随后
    观察到新的 `CONTENT_FINDER_POP`，或观察到明确的回到 `IDLE` 的信号。
 3. 用户显式停止抓包，或进程正常退出时该记录仍处于 `MENTOR_MATCHED`。
+   同理，尚未进入副本时游戏连接全部中断（判定见 3.6），或解码队列丢失了观测
+   （`EVENT_SEQUENCE_GAP`）：取消或改排的消息可能恰在缺失的那一段之中，本次匹配与其后任何副本
+   的关联不再可信，记录以 `detection_confidence = LOW` 且 `pending_review = 1` 收尾。
 4. 档案不能区分副本区域（`is_duty_instance` 为 null）时，匹配窗口过后出现的任何
    `ZONE_INITIALIZATION`。此时匹配已失效，玩家前往了其他区域（`detection_confidence = LOW`）。
 5. 窗口**之内**收到一条 verified 的、`roulette_id` **不是**导随的

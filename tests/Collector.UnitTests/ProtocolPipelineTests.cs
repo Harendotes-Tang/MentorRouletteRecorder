@@ -109,6 +109,74 @@ public sealed class ProtocolPipelineTests
         Assert.Equal(DetectionConfidence.Low, run.DetectionConfidence);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void DroppedEventsBeforeEntryCloseTheMatchAndRequireFreshEvidence(bool fromQueue)
+    {
+        using var fixture = new TestDatabase();
+        var processor = NewProcessor(fixture, out var machine, fromQueue);
+        Feed(fixture, processor, BarePop(0));
+        if (fromQueue)
+        {
+            Feed(fixture, processor, new MatchAnnounced
+            {
+                Key = Key("MATCH_ANNOUNCED", 1_000),
+                ObservedAtUtc = Start.AddSeconds(1),
+                Mono = TimeSpan.FromSeconds(1),
+            });
+        }
+        Assert.Equal(RunState.MentorMatched, machine.State);
+        processor.OnEventsDropped(2, Start.AddSeconds(12), TimeSpan.FromSeconds(12));
+
+        var cancelled = Assert.Single(Runs(fixture, processor));
+        Assert.Equal(RunState.CancelledBeforeEntry, machine.State);
+        Assert.Equal(RunResult.CancelledBeforeEntry, cancelled.Result);
+        Assert.Equal(DetectionConfidence.Low, cancelled.DetectionConfidence);
+        Assert.True(cancelled.PendingReview);
+        Assert.Null(cancelled.EnteredAtUtc);
+
+        // A zone shortly after the gap and another past the announcement window must not
+        // reuse either the old match or the longer-lived queue behind an announcement.
+        Feed(fixture, processor,
+            Zone(20_000) with { IsDutyInstance = true }, Result(30_000, true),
+            BareZone(150_000), Zone(160_000) with { IsDutyInstance = true });
+        Assert.Single(Runs(fixture, processor));
+        Assert.Equal(RunResult.CancelledBeforeEntry, Runs(fixture, processor)[0].Result);
+
+        Feed(fixture, processor, BarePop(180_000),
+            Zone(185_000) with { IsDutyInstance = true }, Result(190_000, true));
+        Assert.Equal(2, Runs(fixture, processor).Count);
+        Assert.Single(Runs(fixture, processor), run => run.Result == RunResult.Completed);
+    }
+
+    /// <summary>
+    /// Every game connection closing while matched is the same loss as a sequence gap: the
+    /// server-side match does not survive it, so the record closes without an entry and the
+    /// zone the player lands in after relogging is not this match's duty.
+    /// </summary>
+    [Fact]
+    public void ConnectionLostBeforeEntryClosesTheMatchAndRequiresFreshEvidence()
+    {
+        using var fixture = new TestDatabase();
+        var processor = NewProcessor(fixture, out var machine);
+        Feed(fixture, processor, BarePop(0));
+        Assert.Equal(RunState.MentorMatched, machine.State);
+
+        processor.OnConnectionLost(Start.AddSeconds(12), TimeSpan.FromSeconds(12));
+
+        var cancelled = Assert.Single(Runs(fixture, processor));
+        Assert.Equal(RunState.CancelledBeforeEntry, machine.State);
+        Assert.Equal(RunResult.CancelledBeforeEntry, cancelled.Result);
+        Assert.Equal(DetectionConfidence.Low, cancelled.DetectionConfidence);
+        Assert.True(cancelled.PendingReview);
+        Assert.Null(cancelled.EnteredAtUtc);
+
+        Feed(fixture, processor, Zone(20_000) with { IsDutyInstance = true }, Result(30_000, true));
+        Assert.Single(Runs(fixture, processor));
+        Assert.Equal(RunResult.CancelledBeforeEntry, Runs(fixture, processor)[0].Result);
+    }
+
     [Fact]
     public void LifecycleCallbacksAreDistinctObservationsAndBothGetRecorded()
     {
@@ -919,13 +987,18 @@ public sealed class ProtocolPipelineTests
             DutyCatalog.Default,
             runInTransaction: runInTransaction);
 
-    private static SemanticEventProcessor NewProcessor(TestDatabase fixture, out MentorRunStateMachine machine)
+    private static SemanticEventProcessor NewProcessor(
+        TestDatabase fixture, out MentorRunStateMachine machine, bool fromQueue = false)
     {
         EnsureSession(fixture);
         var ordinal = 0;
         machine = new MentorRunStateMachine(
-            ProfileBinding.Synthetic("pipeline-test", MentorRoulette),
-            StateMachineOptions.Default,
+            ProfileBinding.Synthetic("pipeline-test", MentorRoulette) with { MatchFromQueue = fromQueue },
+            fromQueue ? StateMachineOptions.Default with
+            {
+                MatchWindow = TimeSpan.FromHours(1),
+                IsKnownDuty = territory => territory == 800_001,
+            } : StateMachineOptions.Default,
             () => SemanticEventProcessor.DeterministicId("pipeline:run:" + ordinal++));
         return new SemanticEventProcessor(
             fixture.Database,
