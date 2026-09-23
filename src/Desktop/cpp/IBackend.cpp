@@ -216,10 +216,14 @@ BackendReply *IBackend::queryRuns(const QJsonObject &filter, int page, int pageS
     return request(QStringLiteral("QueryRuns"), payload);
 }
 
-BackendReply *IBackend::getRunRevisions(const QString &runId)
+BackendReply *IBackend::getRunRevisions(const QString &runId, int page, int pageSize)
 {
     QJsonObject payload;
     payload.insert(QStringLiteral("run_id"), runId);
+    if (page > 0)
+        payload.insert(QStringLiteral("page"), page);
+    if (pageSize > 0)
+        payload.insert(QStringLiteral("page_size"), pageSize);
     return request(QStringLiteral("GetRunRevisions"), payload);
 }
 

@@ -75,9 +75,12 @@ private:
     void sendResultCorrection(const QString &runId, int expectedRevision,
                                          const QString &result, const QString &reason,
                                          int jobId, bool allowRetry);
-    void retryResultCorrectionWithFreshRevision(const QString &runId,
+    void retryResultCorrectionWithFreshRevision(const QString &runId, int staleRevision,
                                                            const QString &result,
                                                            const QString &reason, int jobId);
+    static bool revisionTouchesResult(const QVariantMap &revision, bool withJob);
+    /// Contract cap for GetRunRevisions page_size (contracts/ipc-protocol: 200).
+    static constexpr int kRevisionPageSize = 200;
     QPointer<IBackend> m_backend;
     RunListModel *m_runs;
     QJsonObject m_selectedRun;

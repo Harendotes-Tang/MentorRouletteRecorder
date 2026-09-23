@@ -167,7 +167,9 @@ public:
     // -- queries ------------------------------------------------------------
     BackendReply *queryRuns(const QJsonObject &filter, int page, int pageSize,
                             const QJsonObject &sort = {});
-    BackendReply *getRunRevisions(const QString &runId);
+    /// Without paging the Collector returns the oldest 50 revisions; callers
+    /// that need a particular slice of the chain pass page/pageSize (max 200).
+    BackendReply *getRunRevisions(const QString &runId, int page = 0, int pageSize = 0);
     /// $defs/RunEventEntry rows for one run: the sanitized opcode-level trail
     /// the Collector already writes to run_events. No payload bytes are ever
     /// carried, only a hash prefix and the parsed fields.

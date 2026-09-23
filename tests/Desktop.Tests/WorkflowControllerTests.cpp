@@ -68,6 +68,18 @@ QJsonObject revisions(int revision)
         QJsonObject{{QStringLiteral("revision"), revision}}}}};
 }
 
+/// A revision chain whose newest row changed the given fields.
+QJsonObject revisionsChanging(int revision, const QStringList &fields)
+{
+    QJsonArray changes;
+    for (const QString &field : fields)
+        changes.append(QJsonObject{{QStringLiteral("field"), field}});
+    return {{QStringLiteral("items"), QJsonArray{
+        QJsonObject{{QStringLiteral("revision"), 1}},
+        QJsonObject{{QStringLiteral("revision"), revision},
+                    {QStringLiteral("changes"), changes}}}}};
+}
+
 QJsonObject dashboard(int count)
 {
     QJsonArray buckets;
@@ -247,6 +259,108 @@ private Q_SLOTS:
         QCOMPARE(backend.count(QStringLiteral("GetRunRevisions")), 1);
         history.updatePendingReviewCount(0);
         QVERIFY(history.pendingReviewRun().isEmpty());
+    }
+
+    /// The stale dialog's answer must not overwrite a result someone else has
+    /// already recorded: the retry after a conflict only proceeds when the
+    /// intervening revisions left result, pending_review and job_id alone.
+    void conflictRetryStopsWhenAnotherPlaceAlreadyAnsweredTheResult()
+    {
+        ControlledBackend backend;
+        mr::HistoryController history(&backend);
+        history.resolveRunResult(QStringLiteral("A"), 3, QStringLiteral("COMPLETED"),
+                                 QStringLiteral("reason"));
+        QSignalSpy failed(&history, &mr::HistoryController::mutationFailed);
+        QSignalSpy revised(&history, &mr::HistoryController::runRevisionChanged);
+        backend.last(QStringLiteral("CorrectRun")).reply->fail(
+            QStringLiteral("ERR_REVISION_CONFLICT"), QStringLiteral("stale"));
+        backend.last(QStringLiteral("GetRunRevisions")).reply->succeed(
+            revisionsChanging(4, {QStringLiteral("result"), QStringLiteral("pending_review")}));
+        QCOMPARE(backend.count(QStringLiteral("CorrectRun")), 1);
+        QCOMPARE(failed.count(), 1);
+        QCOMPARE(failed.first().first().toString(), QStringLiteral("ERR_REVISION_CONFLICT"));
+        QCOMPARE(revised.count(), 1);
+        QCOMPARE(revised.first().at(1).toInt(), 4);
+
+        // A note-only correction in between is no reason to drop the answer.
+        history.resolveRunResult(QStringLiteral("A"), 4, QStringLiteral("COMPLETED"),
+                                 QStringLiteral("reason"));
+        backend.last(QStringLiteral("CorrectRun")).reply->fail(
+            QStringLiteral("ERR_REVISION_CONFLICT"), QStringLiteral("stale"));
+        backend.last(QStringLiteral("GetRunRevisions")).reply->succeed(
+            revisionsChanging(5, {QStringLiteral("note")}));
+        QCOMPARE(backend.count(QStringLiteral("CorrectRun")), 3);
+        QCOMPARE(backend.last(QStringLiteral("CorrectRun")).payload
+                     .value(QStringLiteral("expected_revision")).toInt(), 5);
+        QCOMPARE(failed.count(), 1);
+
+        // job_id only matters when this answer carries a job of its own.
+        history.resolveRunResult(QStringLiteral("A"), 5, QStringLiteral("COMPLETED"),
+                                 QStringLiteral("reason"));
+        backend.last(QStringLiteral("CorrectRun")).reply->fail(
+            QStringLiteral("ERR_REVISION_CONFLICT"), QStringLiteral("stale"));
+        backend.last(QStringLiteral("GetRunRevisions")).reply->succeed(
+            revisionsChanging(6, {QStringLiteral("job_id")}));
+        QCOMPARE(backend.count(QStringLiteral("CorrectRun")), 5);
+        history.resolveRunResult(QStringLiteral("A"), 6, QStringLiteral("COMPLETED"),
+                                 QStringLiteral("reason"), 19);
+        backend.last(QStringLiteral("CorrectRun")).reply->fail(
+            QStringLiteral("ERR_REVISION_CONFLICT"), QStringLiteral("stale"));
+        backend.last(QStringLiteral("GetRunRevisions")).reply->succeed(
+            revisionsChanging(7, {QStringLiteral("job_id")}));
+        QCOMPARE(backend.count(QStringLiteral("CorrectRun")), 6);
+        QCOMPARE(failed.count(), 2);
+    }
+
+    /// GetRunRevisions pages oldest-first, 50 rows by default. The retry must ask
+    /// for the page holding the revisions after the stale one, take the current
+    /// revision from page_info.total, and give up when the unseen revisions do
+    /// not fit on that page.
+    void conflictRetryReadsThePageAfterTheStaleRevision()
+    {
+        ControlledBackend backend;
+        mr::HistoryController history(&backend);
+        QSignalSpy failed(&history, &mr::HistoryController::mutationFailed);
+        QSignalSpy revised(&history, &mr::HistoryController::runRevisionChanged);
+
+        history.resolveRunResult(QStringLiteral("A"), 250, QStringLiteral("COMPLETED"),
+                                 QStringLiteral("reason"));
+        backend.last(QStringLiteral("CorrectRun")).reply->fail(
+            QStringLiteral("ERR_REVISION_CONFLICT"), QStringLiteral("stale"));
+        auto request = backend.last(QStringLiteral("GetRunRevisions")).payload;
+        QCOMPARE(request.value(QStringLiteral("page")).toInt(), 2);
+        QCOMPARE(request.value(QStringLiteral("page_size")).toInt(), 200);
+        QJsonObject page{{QStringLiteral("items"), QJsonArray{
+                              QJsonObject{{QStringLiteral("revision"), 201}},
+                              QJsonObject{{QStringLiteral("revision"), 251},
+                                          {QStringLiteral("changes"), QJsonArray{
+                                               QJsonObject{{QStringLiteral("field"), QStringLiteral("note")}}}}}}},
+                         {QStringLiteral("page_info"),
+                          QJsonObject{{QStringLiteral("page"), 2},
+                                      {QStringLiteral("page_size"), 200},
+                                      {QStringLiteral("total"), 251}}}};
+        backend.last(QStringLiteral("GetRunRevisions")).reply->succeed(page);
+        QCOMPARE(backend.count(QStringLiteral("CorrectRun")), 2);
+        QCOMPARE(backend.last(QStringLiteral("CorrectRun")).payload
+                     .value(QStringLiteral("expected_revision")).toInt(), 251);
+        QCOMPARE(failed.count(), 0);
+
+        // The chain grew past the requested page: the current revision is only
+        // known from total, what changed is not, so nothing is retried.
+        history.resolveRunResult(QStringLiteral("A"), 3, QStringLiteral("COMPLETED"),
+                                 QStringLiteral("reason"));
+        backend.last(QStringLiteral("CorrectRun")).reply->fail(
+            QStringLiteral("ERR_REVISION_CONFLICT"), QStringLiteral("stale"));
+        QCOMPARE(backend.last(QStringLiteral("GetRunRevisions")).payload
+                     .value(QStringLiteral("page")).toInt(), 1);
+        backend.last(QStringLiteral("GetRunRevisions")).reply->succeed(
+            {{QStringLiteral("items"), QJsonArray{QJsonObject{{QStringLiteral("revision"), 200}}}},
+             {QStringLiteral("page_info"), QJsonObject{{QStringLiteral("page"), 1},
+                                                       {QStringLiteral("page_size"), 200},
+                                                       {QStringLiteral("total"), 205}}}});
+        QCOMPARE(backend.count(QStringLiteral("CorrectRun")), 3);
+        QCOMPARE(failed.count(), 1);
+        QCOMPARE(revised.last().at(1).toInt(), 205);
     }
 
     void synchronousMutationAndEventFailureAreObservedOnce()

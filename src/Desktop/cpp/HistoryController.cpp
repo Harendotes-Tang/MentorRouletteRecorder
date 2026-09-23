@@ -394,7 +394,7 @@ void HistoryController::sendResultCorrection(const QString &runId, int expectedR
     if (!reply)
         return;
 
-    reply->whenDone(this, [this, runId, result, reason, jobId, keepSelection](
+    reply->whenDone(this, [this, runId, expectedRevision, result, reason, jobId, keepSelection](
                               bool ok, const QVariantMap &payload, const QString &code,
                               const QString &message) {
         if (ok) {
@@ -402,12 +402,15 @@ void HistoryController::sendResultCorrection(const QString &runId, int expectedR
             return;
         }
         // The revision the dialog was handed by run_finished is stale because
-        // something else corrected the run first. That is not a conflict the
-        // user can resolve - the answer they gave is still the answer - so the
-        // current revision is read back and the same correction is sent once
-        // more with it.
+        // something else corrected the run first. When that correction touched
+        // unrelated fields (a note, the times), the answer the user gave is
+        // still the answer, so the current revision is read back and the same
+        // correction is sent once more with it. When it touched the very fields
+        // this dialog is about to write, retrying would overwrite a decision
+        // someone already made; the contract leaves that to the user.
         if (code == QLatin1String("ERR_REVISION_CONFLICT")) {
-            retryResultCorrectionWithFreshRevision(runId, result, reason, jobId);
+            retryResultCorrectionWithFreshRevision(runId, expectedRevision, result, reason,
+                                                   jobId);
             return;
         }
         Q_EMIT mutationFailed(code, message);
@@ -416,36 +419,86 @@ void HistoryController::sendResultCorrection(const QString &runId, int expectedR
 }
 
 void HistoryController::retryResultCorrectionWithFreshRevision(const QString &runId,
+                                                           int staleRevision,
                                                            const QString &result,
                                                            const QString &reason, int jobId)
 {
     if (!m_backend)
         return;
-    m_backend->getRunRevisions(runId)->whenDone(
-        this, [this, runId, result, reason, jobId](bool ok, const QVariantMap &payload,
-                                            const QString &code, const QString &message) {
+    // The chain is append-only, ascending, one row per revision, and the
+    // Collector pages it oldest-first (50 rows unless told otherwise). Ask for
+    // the largest page that starts at or before the revision this dialog saw,
+    // so the rows it never saw are the ones that come back.
+    const int page = qMax(0, staleRevision) / kRevisionPageSize + 1;
+    m_backend->getRunRevisions(runId, page, kRevisionPageSize)->whenDone(
+        this, [this, runId, staleRevision, result, reason, jobId, page](
+                  bool ok, const QVariantMap &payload, const QString &code,
+                  const QString &message) {
             if (!ok) {
                 Q_EMIT mutationFailed(code, message);
                 Q_EMIT toastRequested(message.isEmpty() ? code : message);
                 return;
             }
-            // The newest revision in the chain is the run's current revision:
-            // the chain is append-only and every change adds exactly one row.
-            int newest = 0;
+            const QString reopen =
+                QString::fromUtf8("这条记录刚刚被改动过，请重新打开后再确认。");
+            // The newest revision in the chain is the run's current revision;
+            // page_info.total names it even when it lies beyond this page.
+            // Along the way, look at what the revisions this dialog never saw
+            // actually changed.
+            int newest = payload.value(QStringLiteral("page_info")).toMap()
+                             .value(QStringLiteral("total")).toInt();
+            bool overlaps = false;
             const QVariantList items = payload.value(QStringLiteral("items")).toList();
-            for (const QVariant &value : items)
-                newest = qMax(newest, value.toMap().value(QStringLiteral("revision")).toInt());
+            for (const QVariant &value : items) {
+                const QVariantMap revision = value.toMap();
+                const int number = revision.value(QStringLiteral("revision")).toInt();
+                newest = qMax(newest, number);
+                if (number > staleRevision && revisionTouchesResult(revision, jobId > 0))
+                    overlaps = true;
+            }
             if (newest <= 0) {
-                Q_EMIT mutationFailed(
-                    QStringLiteral("ERR_REVISION_CONFLICT"),
-                    QString::fromUtf8("这条记录刚刚被改动过，请重新打开后再确认。"));
+                Q_EMIT mutationFailed(QStringLiteral("ERR_REVISION_CONFLICT"), reopen);
                 return;
             }
-            // The dialog is holding the stale number too; tell it before the
-            // retry, so a manual retry after a second conflict also works.
+            if (newest > page * kRevisionPageSize) {
+                // More than a page of revisions landed since the dialog opened.
+                // What they changed is unknown here, so nothing is retried.
+                Q_EMIT runRevisionChanged(runId, newest);
+                Q_EMIT mutationFailed(QStringLiteral("ERR_REVISION_CONFLICT"), reopen);
+                Q_EMIT toastRequested(reopen);
+                return;
+            }
+            // The dialog is holding the stale number too; tell it first, so a
+            // deliberate retry by the user carries the current revision.
             Q_EMIT runRevisionChanged(runId, newest);
+            if (overlaps) {
+                // Another place has already answered for this run. Whoever
+                // wrote first wins (docs/manual-correction.md section 3); the
+                // user sees the record as it is now and decides again.
+                const QString text = QString::fromUtf8(
+                    "这条记录的结果刚刚已在别处确认过，本次没有改动。请查看当前记录后再决定。");
+                Q_EMIT mutationFailed(QStringLiteral("ERR_REVISION_CONFLICT"), text);
+                Q_EMIT toastRequested(text);
+                return;
+            }
             sendResultCorrection(runId, newest, result, reason, jobId, /*allowRetry=*/false);
         });
+}
+
+bool HistoryController::revisionTouchesResult(const QVariantMap &revision, bool withJob)
+{
+    // A result correction writes `result`, implicitly clears `pending_review`
+    // and may set `job_id`; a revision that changed any of those already made
+    // the decision this dialog is about to make.
+    const QVariantList changes = revision.value(QStringLiteral("changes")).toList();
+    for (const QVariant &value : changes) {
+        const QString field = value.toMap().value(QStringLiteral("field")).toString();
+        if (field == QLatin1String("result") || field == QLatin1String("pending_review"))
+            return true;
+        if (withJob && field == QLatin1String("job_id"))
+            return true;
+    }
+    return false;
 }
 
 void HistoryController::confirmSelectedRunReview(const QString &reason)
