@@ -178,6 +178,9 @@
 `%LOCALAPPDATA%\MentorRecorder\`（或环境变量 `MR_DATA_DIR` 指定的目录）。记录保存在 `mentor_recorder.db`，
 每日自动备份位于 `backups\`，保留最近 14 份。该目录下每个文件的用途见
 [docs/privacy-boundary.md](docs/privacy-boundary.md) §9。
+备注里附上的图片是例外：它们保存在软件**安装目录**下的 `note-images\` 文件夹
+（安装器默认建议装在 `D:\MentorRecorder`），不占用系统盘，也不随导出与备份；
+环境变量 `MR_NOTE_IMAGE_DIR` 可把该文件夹改到别处。
 
 **为什么已登录时必须重新登录？**
 国服客户端登录后始终复用同一条连接，而流量解压必须从连接建立时开始跟踪。退回标题画面重新登录，无需退出游戏。

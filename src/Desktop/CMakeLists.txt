@@ -109,6 +109,8 @@ set(MR_CPP_SOURCES
     cpp/MockBackend.h
     cpp/MockBackendStats.cpp
     cpp/MockData.h
+    cpp/NoteImageStore.cpp
+    cpp/NoteImageStore.h
     cpp/PipeName.cpp
     cpp/PipeName.h
     cpp/RoleCatalog.cpp
@@ -162,6 +164,7 @@ set(MR_QML_FILES
     qml/components/JobIcon.qml
     qml/components/Lucide.js
     qml/components/NavItem.qml
+    qml/components/NoteImageStrip.qml
     qml/components/OnlineSpeechPanel.qml
     qml/components/PageHeader.qml
     qml/components/PickChip.qml

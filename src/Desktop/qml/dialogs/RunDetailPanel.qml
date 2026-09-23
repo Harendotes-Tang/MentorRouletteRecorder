@@ -23,6 +23,23 @@ Rectangle {
     signal reflectRequested()
 
     readonly property var reflection: runData && runData.reflection ? runData.reflection : null
+    // 备注图片: files under the install directory, read through NoteImageStore.
+    // Re-read whenever the store reports a change, hence the serial.
+    readonly property var imageStore: typeof NoteImages !== "undefined" ? NoteImages : null
+    property int noteImageSerial: 0
+    readonly property var noteImages: {
+        void noteImageSerial
+        return imageStore && runData && runData.run_id ? imageStore.imagesFor(runData.run_id) : []
+    }
+
+    Connections {
+        target: root.imageStore
+        ignoreUnknownSignals: true
+        function onImagesChanged(runId) {
+            if (root.runData && root.runData.run_id === runId)
+                root.noteImageSerial += 1
+        }
+    }
     readonly property bool pendingReview: !!(runData && runData.pending_review)
     // The highest revision in the list; gates the undo button below.
     readonly property int newestRevision: {
@@ -391,7 +408,7 @@ Rectangle {
                 Layout.margins: 16
                 Layout.topMargin: 0
                 spacing: 2
-                visible: !!root.runData.note
+                visible: !!root.runData.note || root.noteImages.length > 0
 
                 Text {
                     text: qsTr("备注")
@@ -400,10 +417,19 @@ Rectangle {
                 }
                 Text {
                     Layout.fillWidth: true
+                    visible: !!root.runData.note
                     text: root.runData.note || ""
                     color: Theme.textPrimary
                     font.pixelSize: Theme.fs(13)
                     wrapMode: Text.WordWrap
+                }
+                NoteImageStrip {
+                    objectName: "detailNoteImages"
+                    Layout.fillWidth: true
+                    Layout.topMargin: 6
+                    visible: root.noteImages.length > 0
+                    rows: root.noteImages
+                    thumbSize: 64
                 }
             }
         }

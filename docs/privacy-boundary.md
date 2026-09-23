@@ -560,7 +560,10 @@ Windows 可能执行代理自动发现（WPAD / PAC 脚本）；校验 TLS 证�
    两个进程都不应出现任何出站连接。
    「分享给其他玩家」打开的网页属于系统浏览器进程，不计入其中。
 2. 用 Process Explorer 检查 `MentorRecorder.Collector.exe` 没有打开游戏进程的句柄。
-3. 检查安装目录中**没有** `deucalion-*.dll`。
+3. 检查安装目录中**没有** `deucalion-*.dll`。安装目录中唯一由本软件在运行时写入的内容是
+   `note-images\`（或 `MR_NOTE_IMAGE_DIR` 指向的目录）：用户在备注里附上的图片，按记录编号分文件夹，
+   由桌面端复制自用户自己选择的文件；不经过采集服务，不进入数据库、日志、诊断报告、导出与备份，
+   可整体删除（对应记录的图片随之消失，记录本身不受影响）。
 4. 检查 `%LOCALAPPDATA%\MentorRecorder\`（或 `MR_DATA_DIR` 指向的目录）中**没有**
    `.pcap` / `.pcapng` 文件。该目录下只会出现下列内容，每一项均可删除：
 

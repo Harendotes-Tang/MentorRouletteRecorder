@@ -117,6 +117,32 @@ Dialog {
     property string errorText: ""
     property string errorCode: ""
 
+    // ------------------------------------------------------ 备注图片 --
+    // Files under the install directory (NoteImageStore), not fields of the
+    // record: the Collector never sees them and they never bump a revision.
+    // The dialog stages adds and removals and applies them only once the
+    // record itself is saved, so 取消 discards them like every other edit.
+    /// The store, or null in a harness that registers no NoteImages.
+    readonly property var imageStore: typeof NoteImages !== "undefined" ? NoteImages : null
+    /// imagesFor(run_id) at open: { path, url, name, byte_count }.
+    property var existingImages: []
+    /// Files chosen this session, not yet copied: { path, url, name, pending: true }.
+    property var pendingImageAdds: []
+    /// Absolute paths of existing images to delete on save.
+    property var removedImagePaths: []
+    /// Set once the record was accepted by the Collector. A later 保存 then
+    /// only applies the images: a second CreateManualRun would be a duplicate.
+    property string savedRunId: ""
+    readonly property bool imagesDirty: pendingImageAdds.length > 0 || removedImagePaths.length > 0
+    readonly property var noteImageRows: {
+        const rows = []
+        for (let i = 0; i < existingImages.length; ++i) {
+            if (removedImagePaths.indexOf(existingImages[i].path) < 0)
+                rows.push(existingImages[i])
+        }
+        return rows.concat(pendingImageAdds)
+    }
+
     // ------------------------------------------------ 第 2 步的筛选状态 --
     /// "" 全部, "4", "8", "24", "0" 其他 - DutyCatalog's party_size group.
     property string partyFilter: ""
@@ -633,6 +659,7 @@ Dialog {
         resultCode = "COMPLETED"
         reasonText = qsTr("补录遗漏的导随记录")
         noteText = ""
+        resetNoteImages(null)
         contributesToGoal = true
         dutyIndex = 0
         jobIndex = 0
@@ -663,6 +690,7 @@ Dialog {
         resultCode = run.result || "UNKNOWN"
         reasonText = qsTr("手动核对并修正记录")
         noteText = run.note || ""
+        resetNoteImages(run)
         contributesToGoal = !!run.contributes_to_goal
         const duties = dutyOptionList
         const retainedIndex = duties.findIndex(function(row) { return row.preservesRunDuty === true })
@@ -679,6 +707,110 @@ Dialog {
         resetWizard()
         refreshRecentDuties()
         open()
+    }
+
+    // ------------------------------------------------------ 备注图片 --
+    function resetNoteImages(run) {
+        savedRunId = ""
+        pendingImageAdds = []
+        removedImagePaths = []
+        existingImages = imageStore && run && run.run_id ? imageStore.imagesFor(run.run_id) : []
+    }
+
+    /// 添加图片: the system chooser, then stageNoteImage.
+    function pickNoteImage() {
+        if (!imageStore)
+            return
+        const path = imageStore.pickImage()
+        if (path && path.length > 0)
+            stageNoteImage(path)
+    }
+
+    /// Stages `path` for the next save. Refusals (not an image, too large,
+    /// too many) land in the step 3 banner. Returns whether it was staged.
+    function stageNoteImage(path) {
+        if (!imageStore)
+            return false
+        const look = imageStore.inspect(path)
+        if (!look.ok) {
+            errorCode = "ERR_NOTE_IMAGE"
+            errorText = look.error
+            return false
+        }
+        if (noteImageRows.length >= imageStore.maxImagesPerRun) {
+            errorCode = "ERR_NOTE_IMAGE"
+            errorText = qsTr("一条记录最多保存 %1 张图片。").arg(imageStore.maxImagesPerRun)
+            return false
+        }
+        for (let i = 0; i < pendingImageAdds.length; ++i) {
+            if (pendingImageAdds[i].path === look.path)
+                return true
+        }
+        pendingImageAdds = pendingImageAdds.concat([
+            { path: look.path, url: look.url, name: look.name, byte_count: look.byte_count, pending: true }
+        ])
+        if (errorCode === "ERR_NOTE_IMAGE") {
+            errorCode = ""
+            errorText = ""
+        }
+        return true
+    }
+
+    /// Drops a staged file, or marks an existing image for deletion on save.
+    function unstageNoteImage(row) {
+        if (!row || !row.path)
+            return
+        if (row.pending) {
+            pendingImageAdds = pendingImageAdds.filter(function(item) { return item.path !== row.path })
+            return
+        }
+        if (removedImagePaths.indexOf(row.path) < 0)
+            removedImagePaths = removedImagePaths.concat([row.path])
+    }
+
+    /// Applies the staged images to `runId`. Whatever the store accepted is
+    /// dropped from the staging lists, so a retry after a failure only sends
+    /// what is still outstanding. Returns whether everything went through.
+    function commitNoteImages(runId) {
+        if (!imagesDirty)
+            return true
+        if (!imageStore || !runId) {
+            errorCode = "ERR_NOTE_IMAGE"
+            errorText = qsTr("图片没有保存：这条记录还没有可用的编号。")
+            return false
+        }
+        const adds = pendingImageAdds.map(function(item) { return item.path })
+        const result = imageStore.commit(runId, adds, removedImagePaths)
+        const added = result.added || []
+        const removed = result.removed || []
+        pendingImageAdds = pendingImageAdds.filter(function(item) { return added.indexOf(item.path) < 0 })
+        // A removal the store could not carry out is reported once and then
+        // dropped: the image stays, and the dialog does not stay stuck on it.
+        // Removals are only skipped (not attempted) when a bad add stopped the
+        // whole call, so they are kept while an add is still outstanding.
+        removedImagePaths = pendingImageAdds.length > 0
+                            ? removedImagePaths.filter(function(path) { return removed.indexOf(path) < 0 })
+                            : []
+        if (!result.ok) {
+            errorCode = "ERR_NOTE_IMAGE"
+            errorText = result.error || qsTr("图片没有保存。")
+            return false
+        }
+        if (typeof App !== "undefined" && App && App.showToast) {
+            App.showToast(added.length > 0 && removed.length > 0
+                          ? qsTr("已添加 %1 张图片，移除 %2 张").arg(added.length).arg(removed.length)
+                          : added.length > 0 ? qsTr("已添加 %1 张图片").arg(added.length)
+                                             : qsTr("已移除 %1 张图片").arg(removed.length))
+        }
+        return true
+    }
+
+    /// The record is already saved (savedRunId): only the images are left.
+    function finishWithImages(runId) {
+        if (!commitNoteImages(runId))
+            return
+        savedRunId = ""
+        close()
     }
 
     function collectFields() {
@@ -727,7 +859,21 @@ Dialog {
     function submit() {
         if (submitting)
             return
+        // The record went through on an earlier click and only the images
+        // failed: never send the record again.
+        if (savedRunId.length > 0) {
+            finishWithImages(savedRunId)
+            return
+        }
         const verdict = RunForm.validate(formState, beforeState)
+        // An unchanged form with staged images is not "nothing to do": the
+        // images alone are applied, without a correction and without a revision.
+        if (!verdict.ok && verdict.code === "ERR_NO_CHANGES" && editMode && imagesDirty) {
+            errorCode = ""
+            errorText = ""
+            finishWithImages(runData && runData.run_id ? runData.run_id : "")
+            return
+        }
         errorCode = verdict.ok ? "" : verdict.code
         errorText = verdict.ok ? "" : verdict.message
         if (!verdict.ok)
@@ -758,6 +904,12 @@ Dialog {
                                            || fields.ended_at_utc !== runData.ended_at_utc))
             changes.duration_ms = null
         if (Object.keys(changes).length === 0) {
+            // Images alone are not a correction: nothing goes to the Collector
+            // and no revision is written, the files are simply applied.
+            if (imagesDirty) {
+                finishWithImages(runData && runData.run_id ? runData.run_id : "")
+                return
+            }
             errorCode = "ERR_NO_CHANGES"
             errorText = qsTr("没有任何字段被修改。")
             return
@@ -790,6 +942,16 @@ Dialog {
             return false
         submitting = false
         submissionTicket = ""
+        // The images follow the record. A failure keeps the dialog open with
+        // the reason, and savedRunId makes the next 保存 retry only the images.
+        const target = runId && runId.length > 0 ? runId
+                     : (runData && runData.run_id ? runData.run_id : "")
+        if (imagesDirty) {
+            savedRunId = target
+            if (!commitNoteImages(target))
+                return true
+            savedRunId = ""
+        }
         close()
         return true
     }
@@ -1082,7 +1244,8 @@ Dialog {
                 variant: "primary"
                 objectName: "saveRunButton"
                 visible: dialog.currentStep === 3
-                enabled: !dialog.submitting && (!dialog.editMode || dialog.diffRows.length > 0)
+                enabled: !dialog.submitting
+                         && (!dialog.editMode || dialog.diffRows.length > 0 || dialog.imagesDirty)
                 text: dialog.submitting
                       ? qsTr("提交中…")
                       : (dialog.editMode ? qsTr("保存为新修订") : qsTr("添加记录"))

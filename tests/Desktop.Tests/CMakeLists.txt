@@ -150,7 +150,7 @@ add_test(NAME MentorRecorderReflections
 #   predicate, per-version dismissal, the 总览 banner, the switch and the disclosure.
 foreach(MR_REVIEW_SUITE WorkflowController RunFormValidator ExportFailure UiWorkflowRegression EditRunDialogBinding
                         ReflectionDialogBinding Calibration SharedCalibration SharedCalibrationCard Speech
-                        CapturePage Motion UpdateNotice)
+                        CapturePage Motion UpdateNotice NoteImageStore)
     add_executable(MentorRecorder${MR_REVIEW_SUITE}Tests ${MR_REVIEW_SUITE}Tests.cpp)
     target_link_libraries(MentorRecorder${MR_REVIEW_SUITE}Tests PRIVATE
         MentorRecorderDesktopLib Qt6::Gui Qt6::Test)
@@ -717,6 +717,7 @@ set(MR_ALL_DESKTOP_TESTS
     MentorRecorderCapturePage
     MentorRecorderMotion
     MentorRecorderUpdateNotice
+    MentorRecorderNoteImageStore
     MentorRecorderIpcRequests
     MentorRecorderLifecycle
     MentorRecorderIpcIntegration

@@ -40,6 +40,7 @@
 #include "JobCatalog.h"
 #include "MockBackend.h"
 #include "Motion.h"
+#include "NoteImageStore.h"
 #include "RoleCatalog.h"
 #include "RunFormValidator.h"
 #include "SpeechPlayer.h"
@@ -903,6 +904,9 @@ int main(int argc, char *argv[])
     auto *jobs = new mr::JobCatalog(&app);
     auto *roles = new mr::RoleCatalog(&app);
     auto *validator = new mr::RunFormValidator(&app);
+    // 备注图片 live under the install directory (NoteImageStore.h); the
+    // screenshot harness never writes one, so no override is needed here.
+    auto *noteImages = new mr::NoteImageStore(&app);
     if (parser.isSet(themeOption))
         controller.setThemeMode(parser.value(themeOption));
 
@@ -912,6 +916,7 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty(QStringLiteral("Jobs"), jobs);
     engine.rootContext()->setContextProperty(QStringLiteral("Roles"), roles);
     engine.rootContext()->setContextProperty(QStringLiteral("RunForm"), validator);
+    engine.rootContext()->setContextProperty(QStringLiteral("NoteImages"), noteImages);
     engine.rootContext()->setContextProperty(QStringLiteral("Settings"), &settings);
     engine.rootContext()->setContextProperty(QStringLiteral("Tts"), controller.tts());
     engine.rootContext()->setContextProperty(QStringLiteral("GraphsAvailable"),

@@ -253,6 +253,21 @@ ColumnLayout {
             placeholderText: qsTr("例如：程序未运行时手动补录")
             onTextChanged: step.wizard.noteText = text
         }
+
+        // 备注图片: staged in the dialog, copied into the install directory's
+        // note-images folder only when the record is saved (EditRunDialog).
+        NoteImageStrip {
+            objectName: "noteImageStrip"
+            Layout.fillWidth: true
+            Layout.topMargin: 4
+            editable: !!step.wizard.imageStore
+            rows: step.wizard.noteImageRows
+            hintText: step.wizard.imageStore
+                      ? qsTr("图片保存在软件安装目录：%1").arg(step.wizard.imageStore.rootDirectoryNative)
+                      : ""
+            onAddRequested: step.wizard.pickNoteImage()
+            onRemoveRequested: function(row) { step.wizard.unstageNoteImage(row) }
+        }
     }
 
     // ----------------------------------------- 修改前后对比 --
