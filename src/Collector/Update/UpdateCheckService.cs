@@ -241,9 +241,23 @@ public sealed class UpdateCheckService : IDisposable
             return;
         }
 
-        _disposed = true;
+        // Closing and reading the check in flight are one locked step, paired with TryClaim: a
+        // claim taken an instant before this either publishes its task here, so it is waited
+        // for, or sees _disposed and never starts. Read unlocked, a freshly claimed task could
+        // be missed and the host would go on to close the settings store under it.
+        Task? pending;
+        lock (_gate)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _disposed = true;
+            pending = _pending;
+        }
+
         _stopping.Cancel();
-        var pending = _pending;
         var finished = true;
         try
         {
@@ -315,7 +329,7 @@ public sealed class UpdateCheckService : IDisposable
     {
         lock (_gate)
         {
-            if (_inFlight)
+            if (_inFlight || _disposed)
             {
                 return null;
             }

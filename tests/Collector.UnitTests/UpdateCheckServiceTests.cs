@@ -228,6 +228,34 @@ public sealed class UpdateCheckServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task DisposeWaitsForTheScheduledCheckAndClaimsNothingAfterwards()
+    {
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var transport = new Transport { Gate = gate };
+        var service = Service(transport);
+
+        // A scheduled check is parked inside the transport when the host stops.
+        service.Observe();
+        await transport.Invoked.WaitAsync(TimeSpan.FromSeconds(10));
+        var pending = service.Pending;
+        Assert.NotNull(pending);
+        Assert.False(pending.IsCompleted);
+
+        // Dispose reads the check in flight under the same lock that published it, cancels it,
+        // and returns only once it has run to its end - nothing of it may still be running when
+        // the host goes on to close the settings store.
+        service.Dispose();
+        Assert.True(pending.IsCompleted);
+
+        // Nothing is claimed after that, however the request arrives.
+        Assert.Equal(UpdateCheckRequestOutcome.Blocked, await service.CheckNowIfAllowedAsync());
+        service.Observe();
+        Assert.Same(pending, service.Pending);
+        Assert.Equal(1, transport.Calls);
+        gate.TrySetResult();
+    }
+
+    [Fact]
     public async Task AClockMovedBackIsDue()
     {
         var transport = new Transport();
