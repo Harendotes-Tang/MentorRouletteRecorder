@@ -50,7 +50,15 @@ NoteImageStore::NoteImageStore(QObject *parent)
 NoteImageStore::NoteImageStore(const QString &rootDirectory, QObject *parent)
     : QObject(parent)
     , m_root(QDir::cleanPath(QDir(rootDirectory).absolutePath()))
+    , m_copy([](const QString &source, const QString &target) { return QFile::copy(source, target); })
 {
+}
+
+void NoteImageStore::setCopyFunctionForTesting(CopyFunction copy)
+{
+    m_copy = copy ? std::move(copy) : CopyFunction([](const QString &source, const QString &target) {
+        return QFile::copy(source, target);
+    });
 }
 
 QString NoteImageStore::resolveRoot(const QString &overrideDirectory,
@@ -171,6 +179,19 @@ NoteImageStore::Inspection NoteImageStore::inspectFile(const QString &sourcePath
         return result;
     }
 
+    // The header's declared canvas, without decoding a pixel. A format whose
+    // header does not say (an invalid size) is left to the byte cap above.
+    const QSize declared = reader.size();
+    if (declared.isValid()
+        && qint64(declared.width()) * qint64(declared.height()) > kMaxImagePixels) {
+        result.error = chinese("图片分辨率过大（%1×%2，超过 %3 万像素），请先缩小：%4")
+                           .arg(declared.width())
+                           .arg(declared.height())
+                           .arg(kMaxImagePixels / 10000)
+                           .arg(info.fileName());
+        return result;
+    }
+
     result.ok = true;
     result.absolutePath = info.absoluteFilePath();
     result.suffix = suffix;
@@ -212,6 +233,25 @@ void NoteImageStore::pruneEmptyFolder(const QString &directory)
             .isEmpty()) {
         folder.removeRecursively();
     }
+}
+
+bool NoteImageStore::runFolderIsGenuine(const QString &directory) const
+{
+    const QFileInfo folder(directory);
+    if (!folder.exists())
+        return true;
+    if (folder.isJunction() || folder.isSymbolicLink())
+        return false;
+    // Both sides through the same resolution, so a root that itself sits on a
+    // junction (an install directory the player relocated) still agrees with
+    // its own children; only a reparse point *between* root and run folder
+    // makes the two differ.
+    const QString resolvedRoot = QFileInfo(m_root).canonicalFilePath();
+    const QString resolved = folder.canonicalFilePath();
+    if (resolvedRoot.isEmpty() || resolved.isEmpty())
+        return false;
+    const QString expected = resolvedRoot + QLatin1Char('/') + QFileInfo(directory).fileName();
+    return QDir::cleanPath(resolved).compare(QDir::cleanPath(expected), Qt::CaseInsensitive) == 0;
 }
 
 QVariantMap NoteImageStore::commit(const QString &runId, const QStringList &adds,
@@ -260,6 +300,14 @@ QVariantMap NoteImageStore::commit(const QString &runId, const QStringList &adds
         }
     }
 
+    // A run folder that resolves somewhere else is not this run's folder. Checked
+    // once for the whole call: the copies below would land there, and the
+    // removals would delete from there.
+    if (!runFolderIsGenuine(directory)) {
+        return fail(chinese("图片文件夹被重定向到了别处，已拒绝写入或删除：%1")
+                        .arg(nativePath(directory)));
+    }
+
     // Copies. One timestamp per commit, a running number per file, and a bump
     // past anything that already exists so two commits within a millisecond
     // cannot collide.
@@ -278,9 +326,13 @@ QVariantMap NoteImageStore::commit(const QString &runId, const QStringList &adds
                          .arg(inspection.suffix);
         } while (QFileInfo::exists(target));
 
-        if (!QFile::copy(inspection.absolutePath, target)) {
+        if (!m_copy(inspection.absolutePath, target)) {
+            // All-or-nothing: the copies this call made go, and the report must
+            // not name them as added, or the caller drops them from its staging
+            // list and the player loses them without a word.
             for (const QString &partial : copied)
                 QFile::remove(partial);
+            added.clear();
             pruneEmptyFolder(directory);
             return fail(chinese("无法把图片复制到安装目录：%1（请检查该目录是否可写）")
                             .arg(nativePath(directory)));
@@ -304,6 +356,16 @@ QVariantMap NoteImageStore::commit(const QString &runId, const QStringList &adds
         }
         if (!QFileInfo::exists(absolute)) {
             removed.append(path);
+            continue;
+        }
+        // The path is inside on paper; a symbolic link inside the folder would
+        // resolve elsewhere. Deleting a link only removes the link, but nothing
+        // that is not a plain file of this run is touched at all.
+        const QString resolved = QFileInfo(absolute).canonicalFilePath();
+        const QString resolvedDirectory = QFileInfo(directory).canonicalFilePath();
+        if (resolved.isEmpty() || resolvedDirectory.isEmpty()
+            || !isInside(resolvedDirectory, resolved) || isInside(resolved, resolvedDirectory)) {
+            failures.append(chinese("不是这条记录文件夹里的普通文件：%1").arg(nativePath(path)));
             continue;
         }
         // A sync client or the player may have flagged the copy read-only since;

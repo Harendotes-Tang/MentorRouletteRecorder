@@ -143,6 +143,25 @@ Dialog {
         return rows.concat(pendingImageAdds)
     }
 
+    // The folder can change under an open dialog: the 心得 dialog pops up over
+    // it after a run and adds or removes right away. Re-read the existing
+    // images then, and forget a queued removal whose file is already gone, so
+    // the strip never shows a thumbnail of a file that no longer exists and
+    // 保存 never counts a removal that has nothing left to remove.
+    Connections {
+        target: dialog.imageStore
+        ignoreUnknownSignals: true
+        function onImagesChanged(runId) {
+            if (!dialog.visible || !dialog.editMode || !dialog.runData || dialog.runData.run_id !== runId)
+                return
+            dialog.existingImages = dialog.imageStore.imagesFor(runId)
+            const present = dialog.existingImages.map(function(row) { return row.path })
+            dialog.removedImagePaths = dialog.removedImagePaths.filter(function(path) {
+                return present.indexOf(path) >= 0
+            })
+        }
+    }
+
     // ------------------------------------------------ 第 2 步的筛选状态 --
     /// "" 全部, "4", "8", "24", "0" 其他 - DutyCatalog's party_size group.
     property string partyFilter: ""

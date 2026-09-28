@@ -18,17 +18,20 @@
 #include "RunFormValidator.h"
 
 #include <QColor>
+#include <QDataStream>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QGuiApplication>
 #include <QImage>
 #include <QJSValue>
+#include <QProcess>
 #include <QQmlComponent>
 #include <QQmlContext>
 #include <QQmlEngine>
 #include <QQuickItem>
 #include <QQuickStyle>
+#include <QScopeGuard>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QTest>
@@ -453,7 +456,190 @@ private Q_SLOTS:
         QCOMPARE(fixture.store.imagesFor(kRunId).size(), mr::NoteImageStore::kMaxImagesPerRun);
     }
 
+    void aCopyThatFailsMidBatchRollsBackAndReportsNothingAdded()
+    {
+        StoreFixture fixture;
+        QSignalSpy changed(&fixture.store, &mr::NoteImageStore::imagesChanged);
+        const QString first = fixture.picture(QStringLiteral("one.png"));
+        const QString second = fixture.picture(QStringLiteral("two.png"), Qt::blue);
+
+        // The first copy lands, the second is refused by the file system.
+        int copies = 0;
+        fixture.store.setCopyFunctionForTesting([&copies](const QString &source, const QString &target) {
+            return ++copies == 1 && QFile::copy(source, target);
+        });
+        const QVariantMap result = fixture.store.commit(kRunId, {first, second}, {});
+        QVERIFY(!result.value(QStringLiteral("ok")).toBool());
+        QVERIFY(result.value(QStringLiteral("error")).toString().contains(QString::fromUtf8("无法把图片复制")));
+        QCOMPARE(copies, 2);
+
+        // All-or-nothing on disk, and the report says so: a caller that trusted
+        // `added` would otherwise drop the first image from its staging list
+        // although its copy was just rolled back.
+        QVERIFY(result.value(QStringLiteral("added")).toStringList().isEmpty());
+        QVERIFY(fixture.store.imagesFor(kRunId).isEmpty());
+        QVERIFY(!QDir(fixture.runDir()).exists());
+        QCOMPARE(changed.count(), 0);
+        QVERIFY(QFileInfo::exists(first));
+        QVERIFY(QFileInfo::exists(second));
+
+        // Back to the real copy, the same batch goes through.
+        fixture.store.setCopyFunctionForTesting({});
+        const QVariantMap retry = fixture.store.commit(kRunId, {first, second}, {});
+        QVERIFY2(retry.value(QStringLiteral("ok")).toBool(),
+                 qPrintable(retry.value(QStringLiteral("error")).toString()));
+        QCOMPARE(retry.value(QStringLiteral("added")).toStringList(), QStringList({first, second}));
+        QCOMPARE(fixture.store.imagesFor(kRunId).size(), 2);
+    }
+
+    void aDeclaredCanvasBeyondTheCapIsRefusedBeforeDecoding()
+    {
+        StoreFixture fixture;
+
+        // A BMP header that announces 10000 x 10000 pixels with no pixel data
+        // behind it: a few dozen bytes on disk, hundreds of megabytes decoded.
+        const QString bomb = QDir(fixture.pictures.path()).absoluteFilePath(QStringLiteral("bomb.bmp"));
+        {
+            QFile file(bomb);
+            QVERIFY(file.open(QIODevice::WriteOnly));
+            QDataStream out(&file);
+            out.setByteOrder(QDataStream::LittleEndian);
+            out.writeRawData("BM", 2);
+            out << quint32(54) << quint32(0) << quint32(54);     // file size, reserved, pixel offset
+            out << quint32(40) << qint32(10000) << qint32(10000); // info size, width, height
+            out << quint16(1) << quint16(24) << quint32(0) << quint32(0);
+            out << qint32(2835) << qint32(2835) << quint32(0) << quint32(0);
+        }
+        const QVariantMap look = fixture.store.inspect(bomb);
+        QVERIFY(!look.value(QStringLiteral("ok")).toBool());
+        QVERIFY2(look.value(QStringLiteral("error")).toString().contains(QString::fromUtf8("分辨率")),
+                 qPrintable(look.value(QStringLiteral("error")).toString()));
+
+        // Refused before any copy, so the folder never appears.
+        const QVariantMap result = fixture.store.commit(kRunId, {bomb}, {});
+        QVERIFY(!result.value(QStringLiteral("ok")).toBool());
+        QVERIFY(!QDir(fixture.runDir()).exists());
+
+        // An ordinary screenshot-sized canvas is fine (the byte cap governs it).
+        const QString shot = fixture.picture(QStringLiteral("shot.png"));
+        QVERIFY(fixture.store.inspect(shot).value(QStringLiteral("ok")).toBool());
+    }
+
+    void aRunFolderThatIsAJunctionIsNeverWrittenOrDeletedThrough()
+    {
+        StoreFixture fixture;
+        QVERIFY(QDir().mkpath(fixture.store.rootDirectory()));
+
+        // Somewhere else on the disk, with a file in it, and the run folder
+        // planted as a junction pointing there.
+        QTemporaryDir elsewhere;
+        const QString victim = QDir(elsewhere.path()).absoluteFilePath(QStringLiteral("victim.png"));
+        QVERIFY(writeImage(victim));
+        QProcess mklink;
+        mklink.start(QStringLiteral("cmd.exe"),
+                     {QStringLiteral("/c"), QStringLiteral("mklink"), QStringLiteral("/J"),
+                      QDir::toNativeSeparators(fixture.runDir()),
+                      QDir::toNativeSeparators(elsewhere.path())});
+        if (!mklink.waitForFinished(10000) || mklink.exitCode() != 0)
+            QSKIP("mklink /J is unavailable here");
+        const QFileInfo planted(fixture.runDir());
+        QVERIFY(planted.exists());
+        QVERIFY(planted.isJunction());
+        // Whatever happens below, the junction goes before the fixtures do, or
+        // QTemporaryDir would clean the target through it.
+        auto unlink = qScopeGuard([&] { QDir(fixture.store.rootDirectory()).rmdir(kRunId); });
+
+        // The file shows through the junction, and its path lies inside the run
+        // folder on paper; deleting it must still be refused.
+        const QString throughJunction = fixture.runDir() + QStringLiteral("/victim.png");
+        QVERIFY(QFileInfo::exists(throughJunction));
+        QVariantMap result = fixture.store.removeOne(kRunId, throughJunction);
+        QVERIFY(!result.value(QStringLiteral("ok")).toBool());
+        QVERIFY2(result.value(QStringLiteral("error")).toString().contains(QString::fromUtf8("重定向")),
+                 qPrintable(result.value(QStringLiteral("error")).toString()));
+        QVERIFY(QFileInfo::exists(victim));
+
+        // Nor is anything written through it.
+        const QString shot = fixture.picture(QStringLiteral("shot.png"));
+        result = fixture.store.addFile(kRunId, shot);
+        QVERIFY(!result.value(QStringLiteral("ok")).toBool());
+        QCOMPARE(QDir(elsewhere.path()).entryList(QDir::Files).size(), 1);
+        QVERIFY(planted.exists());
+    }
+
     // ------------------------------------------------------------ 向导 --
+
+    void theWizardFollowsChangesMadeElsewhereWhileOpen()
+    {
+        DialogFixture fixture;
+        QVERIFY2(fixture.create(), qPrintable(fixture.errors));
+        const QString first = fixture.files.picture(QStringLiteral("one.png"));
+        const QString second = fixture.files.picture(QStringLiteral("two.png"), Qt::blue);
+        QVERIFY(fixture.files.store.commit(kRunId, {first, second}, {}).value(QStringLiteral("ok")).toBool());
+        QVERIFY(fixture.openForRun());
+        auto *dialog = fixture.dialog();
+        QCOMPARE(fixture.rows().size(), 2);
+
+        // The 心得 dialog, popping up over the wizard, removes one: the wizard
+        // stops showing it.
+        const QString goneOne = fixture.rows().at(0).toMap().value(QStringLiteral("path")).toString();
+        const QString goneTwo = fixture.rows().at(1).toMap().value(QStringLiteral("path")).toString();
+        QVERIFY(fixture.files.store.removeOne(kRunId, goneOne).value(QStringLiteral("ok")).toBool());
+        QCOMPARE(fixture.rows().size(), 1);
+        QVERIFY(!dialog->property("imagesDirty").toBool());
+
+        // A removal queued in the wizard whose file is then deleted elsewhere is
+        // no longer a change to save.
+        QVERIFY(QMetaObject::invokeMethod(dialog, "unstageNoteImage",
+                                          Q_ARG(QVariant, QVariant(fixture.rows().first().toMap()))));
+        QVERIFY(dialog->property("imagesDirty").toBool());
+        QVERIFY(fixture.files.store.removeOne(kRunId, goneTwo).value(QStringLiteral("ok")).toBool());
+        QVERIFY(fixture.rows().isEmpty());
+        QVERIFY(!dialog->property("imagesDirty").toBool());
+
+        // Added elsewhere: shown here too, as an existing image, not a pending one.
+        QVERIFY(fixture.files.store.addFile(kRunId, first).value(QStringLiteral("ok")).toBool());
+        QCOMPARE(fixture.rows().size(), 1);
+        QVERIFY(!fixture.rows().first().toMap().value(QStringLiteral("pending")).toBool());
+
+        // A closed dialog does not follow; reopening reads the folder afresh anyway.
+        QVERIFY(QMetaObject::invokeMethod(dialog, "close"));
+        QVERIFY(fixture.files.store.addFile(kRunId, second).value(QStringLiteral("ok")).toBool());
+        QCOMPARE(fixture.rows().size(), 1);
+        QVERIFY(fixture.openForRun());
+        QCOMPARE(fixture.rows().size(), 2);
+    }
+
+    void aCopyThatFailsMidSaveKeepsEveryStagedImageInTheWizard()
+    {
+        DialogFixture fixture;
+        QVERIFY2(fixture.create(), qPrintable(fixture.errors));
+        QVERIFY(fixture.openForRun());
+        auto *dialog = fixture.dialog();
+        const QString first = fixture.files.picture(QStringLiteral("one.png"));
+        const QString second = fixture.files.picture(QStringLiteral("two.png"), Qt::blue);
+        QVERIFY(fixture.stage(first));
+        QVERIFY(fixture.stage(second));
+
+        int copies = 0;
+        fixture.files.store.setCopyFunctionForTesting([&copies](const QString &source, const QString &target) {
+            return ++copies == 1 && QFile::copy(source, target);
+        });
+        QVERIFY(fixture.submit());
+        QVERIFY(dialog->property("visible").toBool());
+        QCOMPARE(dialog->property("errorCode").toString(), QStringLiteral("ERR_NOTE_IMAGE"));
+        // Both are still staged: the first was rolled back, not saved.
+        QCOMPARE(fixture.rows().size(), 2);
+        QVERIFY(fixture.rows().at(0).toMap().value(QStringLiteral("pending")).toBool());
+        QVERIFY(fixture.rows().at(1).toMap().value(QStringLiteral("pending")).toBool());
+        QVERIFY(fixture.files.store.imagesFor(kRunId).isEmpty());
+
+        // Once the disk cooperates, 保存 again writes both.
+        fixture.files.store.setCopyFunctionForTesting({});
+        QVERIFY(fixture.submit());
+        QVERIFY(!dialog->property("visible").toBool());
+        QCOMPARE(fixture.files.store.imagesFor(kRunId).size(), 2);
+    }
 
     void wizardStagesImagesAndAppliesThemOnlyOnSave()
     {

@@ -26,6 +26,8 @@
 #include <QVariantList>
 #include <QVariantMap>
 
+#include <functional>
+
 namespace mr {
 
 class NoteImageStore : public QObject
@@ -46,6 +48,15 @@ public:
     static constexpr qint64 kMaxImageBytes = 20 * 1024 * 1024;
     /// Images per run. A note is a handful of screenshots, not an album.
     static constexpr int kMaxImagesPerRun = 20;
+    /// Pixels per image, read from the header before anything is decoded. A 4K
+    /// screenshot is 8.3 million; an 8K one 33 million. A small file that
+    /// declares a giant canvas is a decompression bomb, not a screenshot, and is
+    /// refused here rather than left to whatever the image library's own cap is.
+    static constexpr qint64 kMaxImagePixels = 50 * 1000 * 1000;
+
+    /// Copies one file; QFile::copy in production. A test replaces it to make a
+    /// copy fail after an earlier one in the same batch succeeded.
+    using CopyFunction = std::function<bool(const QString &source, const QString &target)>;
 
     /// The production store: MR_NOTE_IMAGE_DIR, else <applicationDirPath>/note-images.
     explicit NoteImageStore(QObject *parent = nullptr);
@@ -97,6 +108,9 @@ public:
     /// file:/// URL for an Image source.
     Q_INVOKABLE static QString urlFor(const QString &path);
 
+    /// Replaces the file copy used by commit(); for tests only.
+    void setCopyFunctionForTesting(CopyFunction copy);
+
 Q_SIGNALS:
     /// The folder of \a runId changed through commit().
     void imagesChanged(const QString &runId);
@@ -115,8 +129,15 @@ private:
     /// Deletes the run folder when nothing is left in it, so a run whose images
     /// were all removed leaves no empty folder behind.
     static void pruneEmptyFolder(const QString &directory);
+    /// True when the run folder at \a directory, if it exists, is a real folder
+    /// under the root as the file system resolves it. A junction or symbolic
+    /// link planted there would make every write and delete land elsewhere
+    /// while the path still looked right; nothing is written to or deleted
+    /// from such a folder.
+    bool runFolderIsGenuine(const QString &directory) const;
 
     QString m_root;
+    CopyFunction m_copy;
 };
 
 } // namespace mr
