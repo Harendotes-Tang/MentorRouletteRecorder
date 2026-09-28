@@ -787,6 +787,21 @@ ApplicationWindow {
                             id: historyPage
 
                             anchors.fill: parent
+                            // The notice floats over the page's bottom-right corner,
+                            // where the pagination row is. Whatever of the page lies
+                            // below the notice's top edge is kept clear of rows, so a
+                            // full page and its pager stay visible while it shows.
+                            reservedBottom: {
+                                if (!recordingNotice.visible)
+                                    return 0
+                                // mapFromItem is not a dependency; these are.
+                                void recordingNotice.height
+                                void historyPage.height
+                                void window.height
+                                void window.width
+                                return Math.max(0, historyPage.height
+                                                   - historyPage.mapFromItem(recordingNotice, 0, 0).y)
+                            }
                             onOpenManualRequested: window.openCreateDialog()
                             onOpenCorrectRequested: window.openCorrectDialog()
                             onOpenDeleteRequested: window.openReasonDialog("delete")

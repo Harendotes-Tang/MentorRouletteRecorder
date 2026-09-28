@@ -415,6 +415,7 @@ class UiWorkflowRegressionTests : public QObject
 
 private Q_SLOTS:
     void initTestCase();
+    void historyPageSizesItsPagesToTheWindow();
     void immediateModelFailureClearsLoadingAndOldRows();
     void reflectionFailurePreservesTextAndDoesNotConfirmResult();
     void resultFailureAfterSavedReflectionCanBeRetried();
@@ -463,6 +464,34 @@ void UiWorkflowRegressionTests::initTestCase()
                             "MentorRecorder", 1, 0, name.constData());
         }
     }
+}
+
+/// 历史记录每页行数随窗口高度：高窗口装得下多少行就取多少，矮窗口也不少于
+/// 最小行数；页面自己去抖后写入模型，模型再向后端要那一页。
+void UiWorkflowRegressionTests::historyPageSizesItsPagesToTheWindow()
+{
+    UiFixture fixture;
+    QVERIFY2(fixture.create(), qPrintable(fixture.errors));
+    auto *window = qobject_cast<QQuickWindow *>(fixture.root.get());
+    QVERIFY(window);
+    auto *runs = fixture.controller.runs();
+    const int minimum = fixture.history()->property("minimumRowsPerPage").toInt();
+    QVERIFY(minimum >= 3);
+
+    // 720 px: more than the minimum, and the page's own count is what the
+    // model was told.
+    QTRY_VERIFY_WITH_TIMEOUT(runs->pageSize() != 10, 3000);
+    const int atDefault = runs->pageSize();
+    QVERIFY2(atDefault > minimum, qPrintable(QString::number(atDefault)));
+    QCOMPARE(atDefault, fixture.history()->property("rowsThatFit").toInt());
+
+    // Taller: more rows. Very short: the minimum, never zero or negative.
+    window->setHeight(1400);
+    QTRY_VERIFY_WITH_TIMEOUT(runs->pageSize() > atDefault, 3000);
+    window->setHeight(300);
+    QTRY_COMPARE_WITH_TIMEOUT(runs->pageSize(), minimum, 3000);
+    window->setHeight(720);
+    QTRY_COMPARE_WITH_TIMEOUT(runs->pageSize(), atDefault, 3000);
 }
 
 void UiWorkflowRegressionTests::immediateModelFailureClearsLoadingAndOldRows()

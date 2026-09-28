@@ -49,11 +49,16 @@
 
 * 表格使用 `Repeater` 与 `ColumnLayout`，而非 `ListView`。表格高度由内容决定，
   既不会被固定高度截断，也不会在页面底部留下大片空白。
-* 历史记录固定每页 10 行，10 行与分页条在 800 px 高度内完整可见。
+* 历史记录每页行数随窗口高度变化（`HistoryPage.rowsThatFit`）：页头、筛选栏、表头与分页条之外
+  能放下多少 44 px 的行就取多少，最少 5 行，因此一页记录与分页条总是完整可见、不留大片空白。
+  窗口尺寸变化经 150 ms 去抖后写入 `RunListModel.pageSize`，模型保持当前页首行仍在视野内，
+  只是落到新的页号上。右下角的「无法自动记录」提示卡浮在页面之上时，`Main.qml` 把它盖住的高度
+  绑到 `HistoryPage.reservedBottom`，行数相应减少，分页条不会被它挡住。
+  列标题居中，窄列的单元格随之居中，只有「副本」列从左起排。
 * 捕获诊断页在降级模式面板或提示条出现时、以及打开维护者工具时会变高，此时页面可滚动。
 
 该模型的代价是：很长的列表（例如「全部」副本）会使页面变长，而不是在表格内部滚动。
-按本软件的数据量衡量（副本数十个、每页 10 条记录），这是恰当的取舍。
+按本软件的数据量衡量（副本数十个、历史记录每页只取窗口放得下的行数），这是恰当的取舍。
 分页由后端负责，不在视图层实现。
 
 ## 3. 字体与数字
@@ -904,7 +909,7 @@ MockBackend 回 `{passed: true, detail: "ok", checked_at_utc: 现在}`。
 | 总览：完成趋势 | `GetDashboardStats`（`trend_granularity` = day / week / month）| 桶由 Collector 按 UTC 的 `matched_at_utc` 聚合；桌面端只按本地时区标注 |
 | 总览：当前导随卡 | `GetCurrentRun` | `state` / `run` / `elapsed_ms` |
 | 侧栏状态点 · 顶栏 Collector 行 | `GetStatus` + `CollectorProcess` | FF14 / Npcap / 捕获 / Collector 生命周期 |
-| 历史记录：列表、分页、排序、搜索、筛选 | `QueryRuns`（`filter` / `page` / `page_size` / `sort`）| 默认 `sort = {matched_at_utc, desc}`，每页 10 条 |
+| 历史记录：列表、分页、排序、搜索、筛选 | `QueryRuns`（`filter` / `page` / `page_size` / `sort`）| 默认 `sort = {matched_at_utc, desc}`，`page_size` 按窗口高度计算（最少 5，见「页面布局」） |
 | 历史记录：导出 CSV / JSON | `ExportCsv` / `ExportJson` | 路径由 `QFileDialog` 选（默认「文档」）；`--export-target DIR` 可跳过对话框 |
 | 历史记录：详情面板 | 行数据 + `GetRunRevisions` | 选中即拉修正历史 |
 | 副本统计 | `GetDungeonStats` | 含 `content_id = null` 的「未知副本」行 |

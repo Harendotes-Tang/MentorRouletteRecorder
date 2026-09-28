@@ -620,6 +620,31 @@ void DesktopTests::runListModel_filtersSortsAndPages()
     model.setFilter(includeDeleted);
     QTRY_VERIFY_WITH_TIMEOUT(model.total() > 90, 3000);
     QVERIFY(model.runAt(0).contains(QStringLiteral("run_id")));
+
+    // The page size follows the window (HistoryPage.rowsThatFit). Growing or
+    // shrinking it keeps the row at the top of the current page in view rather
+    // than jumping back to page 1: page 3 of 10 starts at row 20, which sits on
+    // page 2 of 15 (rows 15-29); that page's own top row, row 15, then heads
+    // page 4 of 5.
+    // reload() marks the model loading before the request leaves, so waiting
+    // for that flag to clear is waiting for the page that was just asked for.
+    model.goToPage(3);
+    QCOMPARE(model.page(), 3);
+    QTRY_VERIFY_WITH_TIMEOUT(!model.isLoading(), 3000);
+    const QString topRow = model.runAt(0).value(QStringLiteral("run_id")).toString();
+    QVERIFY(!topRow.isEmpty());
+    model.setPageSize(15);
+    QCOMPARE(model.pageSize(), 15);
+    QCOMPARE(model.page(), 2);
+    QTRY_VERIFY_WITH_TIMEOUT(!model.isLoading(), 3000);
+    QCOMPARE(model.rowCount(), 15);
+    QCOMPARE(model.runAt(5).value(QStringLiteral("run_id")).toString(), topRow);
+    const QString row15 = model.runAt(0).value(QStringLiteral("run_id")).toString();
+    model.setPageSize(5);
+    QCOMPARE(model.page(), 4);
+    QTRY_VERIFY_WITH_TIMEOUT(!model.isLoading(), 3000);
+    QCOMPARE(model.rowCount(), 5);
+    QCOMPARE(model.runAt(0).value(QStringLiteral("run_id")).toString(), row15);
 }
 
 void DesktopTests::jobStatsModel_roleBreakdownKeepsFixedOrder()

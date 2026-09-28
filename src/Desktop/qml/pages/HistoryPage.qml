@@ -37,22 +37,52 @@ Item {
     // time-of-day appears in the detail panel only.
     readonly property int dutyColumnWidth: 228
     // Classic sets times in IBM Plex Mono, whose figures are wider than the body
-    // face's: 8 of them need 64 px to keep a gap before the next column.
-    readonly property int timeColumnWidth: Theme.eorzea ? 58 : 64
-    // The same wider mono figures: classic needs 88 px, at 78 the date touches 进本.
-    readonly property int dateColumnWidth: Theme.eorzea ? 78 : 88
+    // face's: 8 of them at 12 px need 70 px to keep a gap before the next column.
+    readonly property int timeColumnWidth: Theme.eorzea ? 64 : 70
+    // The same wider mono figures: classic needs 96 px, at 86 the date touches 进本.
+    readonly property int dateColumnWidth: Theme.eorzea ? 86 : 96
+    // Column titles sit centred over their column; the cells of the narrow
+    // columns centre too, so a title and its figures line up. 副本 is the one
+    // exception: an icon, a name and a second line read from the left.
     readonly property var columns: [
         { key: "matched_at_utc", label: qsTr("日期"), width: page.dateColumnWidth },
         { key: "entered_at_utc", label: qsTr("进本"), width: page.timeColumnWidth },
         { key: "ended_at_utc", label: qsTr("结束"), width: page.timeColumnWidth },
         { key: "duty_name", label: qsTr("副本"), width: page.dutyColumnWidth, fill: true },
-        { key: "", label: qsTr("类型"), width: 76 },
+        { key: "", label: qsTr("类型"), width: 84 },
         { key: "", label: qsTr("职业"), width: 112 },
         { key: "", label: qsTr("结果"), width: 92 },
-        { key: "duration_ms", label: qsTr("耗时"), width: 62 },
+        { key: "duration_ms", label: qsTr("耗时"), width: 66 },
         { key: "", label: qsTr("来源"), width: 60 },
-        { key: "", label: qsTr("标记"), width: 74 }
+        { key: "", label: qsTr("标记"), width: 92 }
     ]
+
+    // ---------------------------------------------------- 每页行数 --
+    // Rows per page follow the window: as many as fit between the table
+    // header and the pagination row, never fewer than a handful, so a tall
+    // window is not left three-quarters empty and a short one still pages.
+    // Pixels come from the items themselves, not from constants that would
+    // drift; the debounce keeps a window drag from issuing a QueryRuns per
+    // pixel. The model keeps the top row in view when the size changes.
+    readonly property int rowHeight: 44
+    readonly property int minimumRowsPerPage: 5
+    /// Pixels at the bottom of the page that something else is drawn over
+    /// (the shell's 无法自动记录 notice), so the pagination row is not placed
+    /// underneath it. The shell binds this; alone, the page reserves nothing.
+    property real reservedBottom: 0
+    readonly property int rowsThatFit: {
+        const fixed = pageHeader.height + filterRow.height + filterSeparator.height
+                    + tableHeader.height + pagerRow.height + contentColumn.spacing * 5
+                    + Math.max(0, page.reservedBottom)
+        return Math.max(page.minimumRowsPerPage, Math.floor((page.height - fixed) / page.rowHeight))
+    }
+    onRowsThatFitChanged: pageSizeDebounce.restart()
+
+    Timer {
+        id: pageSizeDebounce
+        interval: 150
+        onTriggered: App.runs.pageSize = page.rowsThatFit
+    }
 
     function toUtcRange(dateText, endOfDay) {
         if (!dateText || dateText.length === 0)
@@ -224,6 +254,7 @@ Item {
             spacing: 16
 
             PageHeader {
+                id: pageHeader
                 title: qsTr("历史记录")
                 subtitle: qsTr("%1 条匹配 · 第 %2 / %3 页").arg(App.runs.total)
                                                            .arg(App.runs.page)
@@ -403,6 +434,7 @@ Item {
             }
 
             Rectangle {
+                id: filterSeparator
                 Layout.fillWidth: true
                 Layout.preferredHeight: 1
                 color: Theme.border
@@ -410,8 +442,9 @@ Item {
 
             // ---------------------------------------------------- 表头 --
             Rectangle {
+                id: tableHeader
                 Layout.fillWidth: true
-                Layout.preferredHeight: 30
+                Layout.preferredHeight: 32
                 color: Theme.eorzea
                        ? (Theme.dark ? "#2e000000" : "#14785c28")
                        : "transparent"
@@ -441,12 +474,13 @@ Item {
                             text: modelData.label
                                   + (modelData.key.length > 0 && App.runs.sortField === modelData.key
                                      ? (App.runs.sortAscending ? " ↑" : " ↓") : "")
-                            // workbench `.table th`: t6, regular, text-3.
+                            horizontalAlignment: Text.AlignHCenter
+                            // workbench `.table th`: t5, regular, text-3.
                             color: Theme.eorzea
                                    ? Theme.gold
                                    : (App.runs.sortField === modelData.key && modelData.key.length > 0
                                       ? Theme.accent : Theme.textMuted)
-                            font.pixelSize: Theme.fs(11)
+                            font.pixelSize: Theme.fs(12)
                             font.weight: Theme.eorzea ? Font.Bold : Font.Normal
                             font.letterSpacing: Theme.eorzea ? 0.7 : 0
                             elide: Text.ElideRight
@@ -479,7 +513,7 @@ Item {
                         readonly property bool selected: App.selectedRun.run_id === run.run_id
 
                         Layout.fillWidth: true
-                        Layout.preferredHeight: 40
+                        Layout.preferredHeight: page.rowHeight
                         // Classic: hover is --inset-bg, the selection accent-100;
                         // `.row-c:active` shows accent-100 while pressed.
                         color: selected || rowTap.pressed
@@ -533,8 +567,9 @@ Item {
                             Text {
                                 Layout.preferredWidth: page.dateColumnWidth
                                 text: Fmt.localDate(run.matched_at_utc)
+                                horizontalAlignment: Text.AlignHCenter
                                 color: Theme.textPrimary
-                                font.pixelSize: Theme.fs(11)
+                                font.pixelSize: Theme.fs(12)
                                 font.weight: Theme.figureWeight(true)
                                 font.family: Theme.figureFamily
                                 font.features: ({ "tnum": 1 })
@@ -542,8 +577,9 @@ Item {
                             Text {
                                 Layout.preferredWidth: page.timeColumnWidth
                                 text: Fmt.localTime(run.entered_at_utc)
+                                horizontalAlignment: Text.AlignHCenter
                                 color: Theme.textPrimary
-                                font.pixelSize: Theme.fs(11)
+                                font.pixelSize: Theme.fs(12)
                                 font.family: Theme.figureFamily
                                 font.weight: Theme.figureWeight(false)
                                 font.features: ({ "tnum": 1 })
@@ -551,8 +587,9 @@ Item {
                             Text {
                                 Layout.preferredWidth: page.timeColumnWidth
                                 text: Fmt.localTime(run.ended_at_utc)
+                                horizontalAlignment: Text.AlignHCenter
                                 color: Theme.textPrimary
-                                font.pixelSize: Theme.fs(11)
+                                font.pixelSize: Theme.fs(12)
                                 font.family: Theme.figureFamily
                                 font.weight: Theme.figureWeight(false)
                                 font.features: ({ "tnum": 1 })
@@ -574,7 +611,7 @@ Item {
                                         Layout.fillWidth: true
                                         text: run.duty_name || qsTr("未知副本")
                                         color: Theme.textPrimary
-                                        font.pixelSize: Theme.fs(11)
+                                        font.pixelSize: Theme.fs(12)
                                         font.bold: true
                                         elide: Text.ElideRight
                                     }
@@ -585,7 +622,7 @@ Item {
                                                                   .arg(run.duty_level || 0)
                                               : Fmt.dash()
                                         color: Theme.textSecondary
-                                        font.pixelSize: Theme.fs(10)
+                                        font.pixelSize: Theme.fs(11)
                                         font.family: Theme.figureFamily
                                         font.weight: Theme.figureWeight(false)
                                         font.features: ({ "tnum": 1 })
@@ -595,20 +632,20 @@ Item {
                             }
 
                             Text {
-                                Layout.preferredWidth: 76
+                                Layout.preferredWidth: 84
                                 text: run.duty_category || qsTr("未识别")
+                                horizontalAlignment: Text.AlignHCenter
                                 color: Theme.textSecondary
-                                font.pixelSize: Theme.fs(11)
+                                font.pixelSize: Theme.fs(12)
                                 elide: Text.ElideRight
                             }
 
-                            RowLayout {
+                            Item {
                                 // A nested layout fills by default; only 副本
                                 // stretches, as in the header row.
                                 Layout.fillWidth: false
                                 Layout.preferredWidth: 112
                                 Layout.fillHeight: true
-                                spacing: 7
 
                                 // No room for the role glyph in 112 px, so the
                                 // role only shows up on hover.
@@ -618,13 +655,19 @@ Item {
                                 ToolTip.text: (run.job_name || qsTr("未知"))
                                               + " · " + Jobs.roleGroup(run.job_id)
 
-                                JobIcon { jobId: run.job_id; size: 22 }
-                                Text {
-                                    Layout.fillWidth: true
-                                    text: run.job_name || qsTr("未知")
-                                    color: Theme.textPrimary
-                                    font.pixelSize: Theme.fs(11)
-                                    elide: Text.ElideRight
+                                RowLayout {
+                                    anchors.centerIn: parent
+                                    width: Math.min(implicitWidth, parent.width)
+                                    spacing: 7
+
+                                    JobIcon { jobId: run.job_id; size: 22 }
+                                    Text {
+                                        Layout.maximumWidth: 112 - 22 - 7
+                                        text: run.job_name || qsTr("未知")
+                                        color: Theme.textPrimary
+                                        font.pixelSize: Theme.fs(12)
+                                        elide: Text.ElideRight
+                                    }
                                 }
                             }
 
@@ -632,8 +675,7 @@ Item {
                                 Layout.preferredWidth: 92
                                 Layout.preferredHeight: 28
                                 Tag {
-                                    anchors.left: parent.left
-                                    anchors.verticalCenter: parent.verticalCenter
+                                    anchors.centerIn: parent
                                     text: Fmt.runResultLabel(run)
                                     variant: Fmt.runInProgress(run)
                                              ? "outline" : Fmt.resultTagVariant(run.result || "UNKNOWN")
@@ -641,10 +683,11 @@ Item {
                             }
 
                             Text {
-                                Layout.preferredWidth: 62
+                                Layout.preferredWidth: 66
                                 text: Fmt.duration(run.duration_ms)
+                                horizontalAlignment: Text.AlignHCenter
                                 color: Theme.textPrimary
-                                font.pixelSize: Theme.fs(11)
+                                font.pixelSize: Theme.fs(12)
                                 font.family: Theme.figureFamily
                                 font.weight: Theme.figureWeight(false)
                                 font.features: ({ "tnum": 1 })
@@ -652,12 +695,14 @@ Item {
                             Text {
                                 Layout.preferredWidth: 60
                                 text: Fmt.sourceLabel(run.source || "AUTO_NETWORK")
+                                horizontalAlignment: Text.AlignHCenter
                                 color: Theme.textSecondary
-                                font.pixelSize: Theme.fs(11)
+                                font.pixelSize: Theme.fs(12)
                                 elide: Text.ElideRight
                             }
                             Text {
-                                Layout.preferredWidth: 74
+                                Layout.preferredWidth: 92
+                                horizontalAlignment: Text.AlignHCenter
                                 text: [run.pending_review ? qsTr("待复核") : "",
                                        // 已修正：人改过软件记下的内容。已确认：人只回答了软件
                                        // 留待复核的结局，或补上了它没认出的职业、副本。
@@ -671,7 +716,7 @@ Item {
                                       .filter(function(part) { return part.length > 0 })
                                       .join(" · ")
                                 color: Theme.orangeText
-                                font.pixelSize: Theme.fs(10)
+                                font.pixelSize: Theme.fs(11)
                                 elide: Text.ElideRight
                             }
                         }
@@ -698,6 +743,7 @@ Item {
             }
 
             RowLayout {
+                id: pagerRow
                 Layout.fillWidth: true
                 Layout.preferredHeight: 34
                 spacing: 8

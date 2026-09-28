@@ -49,8 +49,12 @@ void RunListModel::setPageSize(int pageSize)
     const int clamped = qBound(1, pageSize, 200);
     if (clamped == m_pageSize)
         return;
+    // The page size follows the window height (HistoryPage.rowsThatFit), so a
+    // resize must not throw the player back to page 1: the row at the top of
+    // the current page stays in view, on whatever page it now falls.
+    const int firstRow = (m_page - 1) * m_pageSize;
     m_pageSize = clamped;
-    m_page = 1;
+    m_page = firstRow / clamped + 1;
     Q_EMIT pagingChanged();
     reload();
 }
