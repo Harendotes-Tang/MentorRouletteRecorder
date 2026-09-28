@@ -204,7 +204,7 @@ public sealed class StatisticsRepository
     private IReadOnlyDictionary<string, int> LoadTrendCounts(
         RunFilter? filter, TrendGranularity granularity, DateTimeOffset windowStart)
     {
-        var fragment = RunFilterSql.Build(filter, forStatistics: true);
+        var fragment = RunFilterSql.Build(filter, forStatistics: true, _duties);
 
         // The bucket expression is chosen from a closed set of enum values, never composed
         // from anything a client sent; every value in the query is a bound parameter.
@@ -261,12 +261,15 @@ public sealed class StatisticsRepository
     /// <summary>
     /// Aggregates by duty identity, never by mutable display name.
     ///
-    /// The key is the observed <c>content_id</c> when the run has one and the observed
-    /// <c>territory_id</c> otherwise; capture does not back-infer a content id from a
-    /// territory (review finding M-5), so grouping on <c>content_id</c> alone would fold every
-    /// territory-identified run into one nameless "unknown duty" bucket. Territory keys live
-    /// in their own space so they cannot collide with content ids, and the wire
-    /// <c>content_id</c> of such a group stays null.
+    /// The key is the observed <c>content_id</c> when the run has one. Capture does not
+    /// back-infer a content id from a territory (review finding M-5), so a run that only saw
+    /// its zone is keyed by the one duty the reference file puts in that zone, which is the
+    /// same key the runs that did see the content id use: one duty, one row, however each
+    /// run identified it. A zone several duties share cannot say which, so those runs stay
+    /// keyed by the territory in its own key space, with a null wire <c>content_id</c>.
+    /// Grouping on <c>content_id</c> alone would fold every territory-identified run into one
+    /// nameless "unknown duty" bucket; grouping on the raw territory listed the same duty
+    /// twice.
     /// </summary>
     /// <param name="filter">Listing filter; null means no constraint.</param>
     public IReadOnlyList<DungeonStatisticsRow> GetDungeonStats(RunFilter? filter = null)
@@ -302,12 +305,25 @@ public sealed class StatisticsRepository
     }
 
     /// <summary>
-    /// Aggregation key of one run: <c>content_id</c> when observed, otherwise
-    /// <c>territory_id</c>, and (null, null) for a run with no duty identity at all.
+    /// Aggregation key of one run: <c>content_id</c> when observed, else the content id of
+    /// the one duty the observed <c>territory_id</c> hosts, else the <c>territory_id</c>
+    /// itself, and (null, null) for a run with no duty identity at all.
     /// </summary>
     /// <param name="row">Row read for the statistics.</param>
-    private static (int? ContentId, int? TerritoryId) DutyKey(StatRow row) =>
-        row.ContentId is { } contentId ? (contentId, (int?)null) : (null, row.TerritoryId);
+    private (int? ContentId, int? TerritoryId) DutyKey(StatRow row)
+    {
+        if (row.ContentId is { } contentId)
+        {
+            return (contentId, null);
+        }
+
+        if (_duties.FindUniqueByTerritory(row.TerritoryId, row.Region) is { } duty)
+        {
+            return (duty.ContentId, null);
+        }
+
+        return (null, row.TerritoryId);
+    }
 
     /// <summary>Aggregates by job id, keeping null as a visible unknown group.</summary>
     public IReadOnlyList<JobStatisticsRow> GetJobStats(RunFilter? filter = null)
@@ -335,7 +351,7 @@ public sealed class StatisticsRepository
 
     private IReadOnlyList<StatRow> LoadRows(RunFilter? filter)
     {
-        var fragment = RunFilterSql.Build(filter, forStatistics: true);
+        var fragment = RunFilterSql.Build(filter, forStatistics: true, _duties);
         return _database.Read(_ =>
         {
             using var command = _database.CreateCommand();

@@ -160,14 +160,21 @@ avg_duration_ms = AVG(duration_ms) WHERE
 
 ## 10. 副本统计 `GetDungeonStats`
 
-- **按 `content_id ?? territory_id` 聚合**，不按 `duty_name` 聚合，因为名称可能随版本或
-  语言变化。报文中带有 `content_id` 时按其聚合，仅观察到区域时按 `territory_id` 聚合。
-  两者位于**各自的键空间**内，因此一个 territory id 不可能与一个 content id 归入同一组。
+- **按副本身份聚合**，不按 `duty_name` 聚合，因为名称可能随版本或语言变化。
+  报文中带有 `content_id` 时按其聚合；仅观察到区域时，若本地副本表里该区域**只对应一个副本**
+  （`DutyCatalog.FindUniqueByTerritory`，只查该记录所属区服），就按那个副本的 `content_id` 聚合，
+  与观察到内容编号的记录归入**同一行**；该区域对应多个副本（国服 632 个区域中有 21 个）时无法断定是哪一个，
+  按 `territory_id` 聚合，且位于**独立的键空间**内，不会与任何 content id 归入同一组。
   该规则的必要性在于：自动记录不再将由 `territory_id` 反推出的 `content_id` 写入记录
   （见 [state-machine.md](state-machine.md) §3.11 与 [data-model.md](data-model.md) §1.4）。
-  若仍只按 `content_id` 聚合，仅按区域识别出的副本会全部并入"未知副本"一行。
-- 仅按区域识别出的那一组在 IPC 上仍回报 **`content_id: null`**，名称取自本地副本表
-  `DutyCatalog.FindByTerritory`，且只查询该记录所属区服。
+  若仍只按 `content_id` 聚合，仅按区域识别出的副本会全部并入"未知副本"一行；
+  若按原始 `territory_id` 聚合，同一副本会因识别方式不同而出现两行。
+- 按区域唯一反查得到的那一组在 IPC 上回报副本表给出的 **`content_id`**（这是副本表的事实，
+  不是采集观测，记录本身仍不写入）；区域对应多个副本的那一组回报 **`content_id: null`**，
+  名称取自 `DutyCatalog.FindByTerritory` 的并列打破结果。
+- 与此对应，`content_id` 筛选（`RunFilter.content_id`，用于 `QueryRuns` 与各统计的 `filter`）
+  同时命中 `content_id` 相符的记录，以及 `content_id` 为 NULL 而 `territory_id` 唯一对应该副本的记录，
+  因此从副本统计点进历史列表看到的记录集与统计行一致（`RunFilterSql.AddContentIds`）。
 - `content_id` 与 `territory_id` **均**为 NULL 的记录聚成**一行**，
   `content_id = null`，`duty_name = "未知副本"`。
 - 每行输出 `attempt_count`、`completed_count`、`completion_rate`、`avg_duration_ms`，

@@ -70,6 +70,30 @@ public sealed class ReferenceCatalogTests
     }
 
     /// <summary>
+    /// The identity lookup answers only where the territory answers alone. Territory 1036 is
+    /// 天然要害沙斯塔夏溶洞 and nothing else; 792 hosts nine stages, so as an identity it is
+    /// no answer at all, whatever name the display lookup settles on.
+    /// </summary>
+    [Fact]
+    public void DefaultDutyCatalog_TreatsOnlyAnUnsharedTerritoryAsAnIdentity()
+    {
+        var catalog = DutyCatalog.Default;
+
+        Assert.Equal(4, catalog.FindUniqueByTerritory(1036, Region.Cn)!.ContentId);
+        Assert.Null(catalog.FindUniqueByTerritory(792, Region.Cn));
+        Assert.Null(catalog.FindUniqueByTerritory(null, Region.Cn));
+        Assert.Null(catalog.FindUniqueByTerritory(7_000_001, Region.Cn));
+        Assert.Equal(4, catalog.FindUniqueByTerritory(1036, Region.Unknown)!.ContentId);
+        Assert.Null(catalog.FindUniqueByTerritory(792, Region.Unknown));
+
+        // The reverse direction feeds the content-id filter: the duty's own territory when it
+        // is unshared, nothing for a stage on a shared map.
+        Assert.Equal(new[] { 1036 }, catalog.UniqueTerritoriesOf(4));
+        Assert.Empty(catalog.UniqueTerritoriesOf(600));
+        Assert.Empty(catalog.UniqueTerritoriesOf(7_000_001));
+    }
+
+    /// <summary>
     /// Review finding L-10. A mapping from another service that happens to share a content id
     /// is not evidence about this one, so a CN record must not pick up an international name
     /// just because the CN reference file lags behind.

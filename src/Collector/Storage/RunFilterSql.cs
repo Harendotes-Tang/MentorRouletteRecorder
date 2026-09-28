@@ -4,6 +4,7 @@ using Microsoft.Data.Sqlite;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Domain.Queries;
 using MentorRecorder.Collector.Domain.Time;
+using MentorRecorder.Collector.Reference;
 
 namespace MentorRecorder.Collector.Storage;
 
@@ -49,9 +50,16 @@ public static class RunFilterSql
     /// When true, soft-deleted runs are excluded unconditionally and only confirmed mentor
     /// runs are kept, because statistics ignore <c>include_deleted</c> entirely.
     /// </param>
-    public static Fragment Build(RunFilter? filter, bool forStatistics)
+    /// <param name="duties">
+    /// Resolves each requested content id to the territories that identify it alone, so a
+    /// run that observed only such a territory (capture never back-infers the content id,
+    /// docs/data-model.md section 1.4) is still found by the duty's content id. The default
+    /// catalogue when omitted.
+    /// </param>
+    public static Fragment Build(RunFilter? filter, bool forStatistics, DutyCatalog? duties = null)
     {
         filter ??= RunFilter.Empty;
+        duties ??= DutyCatalog.Default;
         var clauses = new List<string>(12);
         var parameters = new List<KeyValuePair<string, object?>>(16);
 
@@ -88,7 +96,7 @@ public static class RunFilterSql
             parameters.Add(new("$to_utc", UtcTimestamp.ToText(to)));
         }
 
-        AddIntList(clauses, parameters, "content_id", filter.ContentIds, "cid");
+        AddContentIds(clauses, parameters, filter.ContentIds, duties);
         AddIntList(clauses, parameters, "job_id", filter.JobIds, "jid");
         AddTextList(clauses, parameters, "duty_category", filter.DutyCategories, "dcat");
         AddTextList(
@@ -146,6 +154,35 @@ public static class RunFilterSql
         {
             command.Parameters.AddWithValue(name, value ?? DBNull.Value);
         }
+    }
+
+    // content_id IN (...) alone misses the runs that identified the same duty by zone only,
+    // which is every automatic run since 1.4.0 that never saw the content id on the wire. A
+    // territory that hosts exactly one duty is that duty, so those runs are matched by it;
+    // a territory several duties share is never expanded, since it would not say which.
+    private static void AddContentIds(
+        List<string> clauses,
+        List<KeyValuePair<string, object?>> parameters,
+        IReadOnlyList<int> contentIds,
+        DutyCatalog duties)
+    {
+        if (contentIds.Count == 0)
+        {
+            return;
+        }
+
+        var byContent = new List<string>();
+        AddIntList(byContent, parameters, "content_id", contentIds, "cid");
+        var territories = contentIds.SelectMany(duties.UniqueTerritoriesOf).Distinct().ToArray();
+        if (territories.Length == 0)
+        {
+            clauses.AddRange(byContent);
+            return;
+        }
+
+        var byTerritory = new List<string>();
+        AddIntList(byTerritory, parameters, "territory_id", territories, "ctid");
+        clauses.Add($"({byContent[0]} OR (content_id IS NULL AND {byTerritory[0]}))");
     }
 
     private static void AddIntList(

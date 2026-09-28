@@ -574,6 +574,11 @@ C++ 端 `src/Desktop/cpp/{IpcFraming.h,IpcClient.cpp,IBackend.cpp}`。
     排除软删除，空桶以 `completed_count = 0` 显式出现（口径见
     docs/statistics-definitions.md §12.1）。桌面端只负责把 `start_utc` **按本地时区显示**，
     不再自行使用 `QueryRuns(page_size = 200)` 分桶，该做法在记录超过 200 条时会静默截断。
+18. **`$defs/DungeonStatsRow` 的聚合口径与 `content_id` 语义**（描述性变更，字段不变）。
+    仅按区域识别的记录，当该区域在副本表里只对应一个副本时，归入该副本的行并回报其 `content_id`
+    （此前独立成行且 `content_id: null`，同一副本因此出现两行）；区域对应多个副本时保持原样。
+    `$defs/RunFilter.content_id` 相应地同时命中 `content_id` 为 NULL 而 `territory_id` 唯一对应该副本的记录，
+    使统计行与点进去的历史列表一致（docs/statistics-definitions.md §10）。
 
 ---
 

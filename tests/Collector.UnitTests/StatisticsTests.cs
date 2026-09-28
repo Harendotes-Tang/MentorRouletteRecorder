@@ -1,4 +1,5 @@
 using MentorRecorder.Collector.Domain;
+using MentorRecorder.Collector.Domain.Queries;
 using MentorRecorder.Collector.Domain.Statistics;
 using MentorRecorder.Collector.Reference;
 using MentorRecorder.Collector.Storage.Repositories;
@@ -183,11 +184,66 @@ public sealed class StatisticsTests
         var byTerritory = Assert.Single(duties, row => row.DutyName == "天然要害沙斯塔夏溶洞");
         Assert.Equal(2, byTerritory.AttemptCount);
 
-        // The wire content_id of a territory-identified group stays null: a territory id is
-        // not a content id and must never be presented as one.
-        Assert.Null(byTerritory.ContentId);
-        Assert.Equal(1, Assert.Single(duties, row => row.DutyName == "虚景跳跳乐大挑战").AttemptCount);
+        // Territory 1036 hosts that one duty, so the group carries the duty's content id from
+        // the reference file: the same key the runs that observed it use.
+        Assert.Equal(4, byTerritory.ContentId);
+
+        // Territory 792 hosts nine stages. Which one was run is unknown, so the group is
+        // keyed by the territory and its wire content_id stays null: a territory id is not
+        // a content id and must never be presented as one.
+        var shared = Assert.Single(duties, row => row.DutyName == "虚景跳跳乐大挑战");
+        Assert.Equal(1, shared.AttemptCount);
+        Assert.Null(shared.ContentId);
         Assert.Equal(900001, Assert.Single(duties, row => row.ContentId == 900001).ContentId);
+    }
+
+    /// <summary>
+    /// The same duty identified two ways is one row. Since 1.4.0 an automatic run stores only
+    /// the territory it saw (docs/data-model.md section 1.4); a run that did observe the
+    /// content id, or was entered by hand, keyed separately, so 副本统计 listed the duty twice
+    /// with one run each.
+    /// </summary>
+    [Fact]
+    public void DungeonStats_OneRowForADutyWhetherItWasSeenByContentIdOrByTerritory()
+    {
+        using var fixture = new TestDatabase();
+        var runs = new RunRepository(fixture.Database);
+        fixture.Database.RunInTransaction(tx =>
+        {
+            runs.Insert(TestDatabase.Run(contentId: 4) with
+            {
+                Region = Region.Cn, TerritoryId = 1036, DutyName = "天然要害沙斯塔夏溶洞",
+                DutySource = DutySource.ContentId,
+            }, tx);
+            runs.Insert(TestDatabase.Run(contentId: null) with
+            {
+                Region = Region.Cn, TerritoryId = 1036, DutyName = "天然要害沙斯塔夏溶洞",
+                DutySource = DutySource.Territory,
+            }, tx);
+        });
+        var settings = new SettingsRepository(fixture.Database, fixture.Clock);
+        settings.EnsureDefaults();
+        var statistics = new StatisticsRepository(fixture.Database, settings);
+
+        var row = Assert.Single(statistics.GetDungeonStats());
+        Assert.Equal(4, row.ContentId);
+        Assert.Equal(2, row.AttemptCount);
+        Assert.Equal(2, row.CompletedCount);
+
+        // Clicking that row filters by its content id; the territory-only run must be in
+        // what comes back, in the statistics and in the listing alike.
+        var filter = new RunFilter { ContentIds = new[] { 4 } };
+        Assert.Equal(2, Assert.Single(statistics.GetDungeonStats(filter)).AttemptCount);
+        Assert.Equal(2, statistics.GetDashboard(filter).AttemptCount);
+        Assert.Equal(2, runs.Query(filter, null, 1, 50).Items.Count);
+
+        // A stage on a shared map is not found by any single stage's content id.
+        fixture.Database.RunInTransaction(tx => runs.Insert(TestDatabase.Run(contentId: null) with
+        {
+            Region = Region.Cn, TerritoryId = 792, DutyName = "虚景跳跳乐大挑战",
+            DutySource = DutySource.Territory,
+        }, tx));
+        Assert.Empty(runs.Query(new RunFilter { ContentIds = new[] { 600 } }, null, 1, 50).Items);
     }
 
     /// <summary>A territory the reference file knows still supplies the name and category.</summary>
@@ -207,7 +263,8 @@ public sealed class StatisticsTests
 
         var row = Assert.Single(new StatisticsRepository(fixture.Database, settings).GetDungeonStats());
 
-        Assert.Null(row.ContentId);
+        Assert.Equal(4, row.ContentId);
         Assert.Equal("天然要害沙斯塔夏溶洞", row.DutyName);
+        Assert.Equal("四人迷宫", row.DutyCategory);
     }
 }

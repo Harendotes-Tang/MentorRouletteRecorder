@@ -50,13 +50,14 @@ public sealed class DutyCatalog
     private const string ResourcePrefix = "MentorRecorder.Collector.Data.Duties.";
     private readonly IReadOnlyDictionary<(Region Region, int ContentId), DutyInfo> _byKey;
     private readonly IReadOnlyDictionary<(Region Region, int TerritoryId), DutyInfo> _byTerritory;
+    private readonly IReadOnlySet<(Region Region, int TerritoryId)> _sharedTerritories;
 
     private DutyCatalog(
         IReadOnlyDictionary<(Region, int), DutyInfo> byKey,
         IReadOnlyList<DutyDocument> documents)
     {
         _byKey = byKey;
-        _byTerritory = IndexByTerritory(byKey.Values);
+        (_byTerritory, _sharedTerritories) = IndexByTerritory(byKey.Values);
         Documents = documents;
     }
 
@@ -184,6 +185,54 @@ public sealed class DutyCatalog
             : null;
     }
 
+    /// <summary>
+    /// The one duty a territory hosts, or null when it hosts several (or none). Where
+    /// <see cref="FindByTerritory"/> breaks a tie to still produce a name, this refuses to:
+    /// it is for callers that treat the answer as the duty's identity, such as the
+    /// statistics grouping a territory-identified run together with the runs that observed
+    /// the content id, and an identity must not be guessed.
+    /// </summary>
+    /// <param name="territoryId">Territory id to look up.</param>
+    /// <param name="region">Region whose mapping must supply the answer.</param>
+    public DutyInfo? FindUniqueByTerritory(int? territoryId, Region region)
+    {
+        if (territoryId is not { } id)
+        {
+            return null;
+        }
+
+        if (region != Region.Unknown)
+        {
+            return _sharedTerritories.Contains((region, id)) ? null : FindByTerritory(id, region);
+        }
+
+        // UNKNOWN is the absence of a region: every installed file may answer, and they must
+        // all agree on a single duty for the answer to count as unique.
+        var candidates = _byTerritory
+            .Where(pair => pair.Key.TerritoryId == id && !_sharedTerritories.Contains(pair.Key))
+            .Select(pair => pair.Value)
+            .ToArray();
+        return candidates.Length > 0 && candidates.All(row => row.ContentId == candidates[0].ContentId)
+            && !_byTerritory.Keys.Any(key => key.TerritoryId == id && _sharedTerritories.Contains(key))
+            ? candidates[0]
+            : null;
+    }
+
+    /// <summary>
+    /// Territories that identify <paramref name="contentId"/> and nothing else, across every
+    /// installed region file. A run that observed only such a territory is a run of this duty,
+    /// which is what lets a content-id filter find it (docs/statistics-definitions.md
+    /// section 10). A territory shared by several duties is never listed.
+    /// </summary>
+    /// <param name="contentId">Content id whose territories are wanted.</param>
+    public IReadOnlyList<int> UniqueTerritoriesOf(int contentId) => _byKey.Values
+        .Where(row => row.ContentId == contentId && row.TerritoryId is { } territory
+                      && !_sharedTerritories.Contains((row.Region, territory)))
+        .Select(row => row.TerritoryId!.Value)
+        .Distinct()
+        .OrderBy(territory => territory)
+        .ToArray();
+
     /// <summary>Returns the mapped name, or <see cref="UnknownDutyName"/>.</summary>
     /// <param name="contentId">Content id to look up.</param>
     /// <param name="region">Region whose mapping is preferred.</param>
@@ -267,10 +316,13 @@ public sealed class DutyCatalog
     /// the alternative -- scanning 857 rows on every duty entry -- runs on the capture thread.
     /// </summary>
     /// <param name="rows">Every enabled mapping in the catalogue.</param>
-    private static IReadOnlyDictionary<(Region, int), DutyInfo> IndexByTerritory(
-        IEnumerable<DutyInfo> rows)
+    // The index keeps one duty per territory (lowest content id, see FindByTerritory) and
+    // remembers which territories had to choose, so identity lookups can refuse those.
+    private static (IReadOnlyDictionary<(Region, int), DutyInfo> Index, IReadOnlySet<(Region, int)> Shared)
+        IndexByTerritory(IEnumerable<DutyInfo> rows)
     {
         var index = new Dictionary<(Region, int), DutyInfo>();
+        var shared = new HashSet<(Region, int)>();
         foreach (var row in rows)
         {
             if (row.TerritoryId is not { } territoryId)
@@ -279,13 +331,24 @@ public sealed class DutyCatalog
             }
 
             var key = (row.Region, territoryId);
-            if (!index.TryGetValue(key, out var existing) || row.ContentId < existing.ContentId)
+            if (!index.TryGetValue(key, out var existing))
+            {
+                index[key] = row;
+                continue;
+            }
+
+            if (existing.ContentId != row.ContentId)
+            {
+                shared.Add(key);
+            }
+
+            if (row.ContentId < existing.ContentId)
             {
                 index[key] = row;
             }
         }
 
-        return index;
+        return (index, shared);
     }
 
     private static IEnumerable<DutyDocument> Rank(IEnumerable<DutyDocument> documents) => documents

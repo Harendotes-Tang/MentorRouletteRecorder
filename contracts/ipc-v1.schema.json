@@ -435,7 +435,7 @@
 
     "DungeonStatsRow": {
       "type": "object",
-      "description": "Aggregated by content_id. Rows whose content_id is null are grouped into a single '未知副本' row with content_id null.",
+      "description": "Aggregated by duty identity: the observed content_id, or for a run that only observed its territory, the content_id of the one duty the reference file puts in that territory (reported here although the run itself never stores it). Runs whose territory hosts several duties are grouped by territory with content_id null; runs with neither are grouped into a single '未知副本' row with content_id null.",
       "additionalProperties": false,
       "required": ["content_id", "duty_name", "attempt_count", "completed_count"],
       "properties": {
