@@ -71,7 +71,7 @@
       ==========================================================================================
     -->
     <VersionPrefix>1.5.0</VersionPrefix>
-    <VersionSuffix>beta.4</VersionSuffix>
+    <VersionSuffix>beta.5</VersionSuffix>
     <Version Condition="'$(VersionSuffix)' == ''">$(VersionPrefix)</Version>
     <Version Condition="'$(VersionSuffix)' != ''">$(VersionPrefix)-$(VersionSuffix)</Version>
     <InformationalVersion>$(Version)</InformationalVersion>
