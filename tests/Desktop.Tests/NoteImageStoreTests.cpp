@@ -326,6 +326,27 @@ private Q_SLOTS:
         QVERIFY(fixture.store.imagesFor(kRunId).isEmpty());
     }
 
+    void truncatedImageDoesNotCommitAnyChanges()
+    {
+        StoreFixture fixture;
+        const QString existing = fixture.picture(QStringLiteral("existing.png"));
+        QVERIFY(fixture.store.addFile(kRunId, existing).value(QStringLiteral("ok")).toBool());
+        const QString stored = fixture.store.imagesFor(kRunId).first().toMap()
+                                   .value(QStringLiteral("path")).toString();
+        const QString damaged = fixture.picture(QStringLiteral("truncated.png"));
+        QFile file(damaged);
+        QVERIFY(file.open(QIODevice::ReadWrite));
+        QVERIFY(file.resize(45)); // Valid PNG signature and IHDR, incomplete pixel data.
+        file.close();
+        QVERIFY(QImage(damaged).isNull());
+        QVERIFY(!fixture.store.inspect(damaged).value(QStringLiteral("ok")).toBool());
+        const QVariantMap result = fixture.store.commit(kRunId, {existing, damaged}, {stored});
+        QVERIFY(!result.value(QStringLiteral("ok")).toBool());
+        QVERIFY(QFileInfo::exists(stored));
+        QCOMPARE(fixture.store.imagesFor(kRunId).size(), 1);
+        QVERIFY(result.value(QStringLiteral("added")).toStringList().isEmpty());
+    }
+
     // ------------------------------------------------------------ 往返 --
 
     void commitCopiesListsAndRemovesInsideTheRunFolder()
@@ -793,13 +814,25 @@ private Q_SLOTS:
         QCOMPARE(fixture.files.store.imagesFor(kRunId).size(), 1);
     }
 
+    void aFailedImageSaveKeepsTheDialogOpenWithoutResendingTheRecord_data()
+    {
+        QTest::addColumn<bool>("editing");
+        QTest::newRow("create") << false;
+        QTest::newRow("correct") << true;
+    }
+
     void aFailedImageSaveKeepsTheDialogOpenWithoutResendingTheRecord()
     {
+        QFETCH(bool, editing);
         DialogFixture fixture;
         QVERIFY2(fixture.create(), qPrintable(fixture.errors));
         auto *dialog = fixture.dialog();
-        QVERIFY(QMetaObject::invokeMethod(dialog, "openForCreate"));
+        if (editing)
+            QVERIFY(fixture.openForRun());
+        else
+            QVERIFY(QMetaObject::invokeMethod(dialog, "openForCreate"));
         QSignalSpy creations(dialog, SIGNAL(createRequested(QVariant,QString)));
+        QSignalSpy corrections(dialog, SIGNAL(correctRequested(QVariant,QString)));
 
         const QString shot = fixture.files.picture(QStringLiteral("shot.png"));
         QVERIFY(fixture.stage(shot));
@@ -807,7 +840,7 @@ private Q_SLOTS:
         dialog->setProperty("enteredTime", QStringLiteral("20:05"));
         dialog->setProperty("endedTime", QStringLiteral("20:30"));
         QVERIFY(fixture.submit());
-        QCOMPARE(creations.count(), 1);
+        QCOMPARE(creations.count() + corrections.count(), 1);
 
         // The source vanished between choosing it and the Collector's answer.
         QVERIFY(QFile::remove(shot));
@@ -819,19 +852,37 @@ private Q_SLOTS:
         QCOMPARE(dialog->property("errorCode").toString(), QStringLiteral("ERR_NOTE_IMAGE"));
         QCOMPARE(dialog->property("savedRunId").toString(), kRunId);
         QVERIFY(dialog->property("imagesDirty").toBool());
+        for (const char *name : {"wizardStep1", "wizardStep2", "matchedDateField",
+                                 "matchedTimeField", "enteredTimeField", "endedTimeField",
+                                 "reasonField", "noteField", "prevStepButton"}) {
+            const auto *field = dialog->findChild<QObject *>(QLatin1String(name));
+            QVERIFY2(field, name);
+            QVERIFY2(!field->property("enabled").toBool(), name);
+        }
+        const auto *strip = dialog->findChild<QObject *>(QStringLiteral("noteImageStrip"));
+        QVERIFY(strip && strip->property("enabled").toBool());
+        QVERIFY(strip->property("editable").toBool());
+        auto *save = dialog->findChild<QObject *>(QStringLiteral("saveRunButton"));
+        QVERIFY(save && save->property("enabled").toBool());
+        QCOMPARE(save->property("text").toString(), QString::fromUtf8("重试图片"));
+        QVERIFY(QMetaObject::invokeMethod(dialog, "prevStep"));
+        QCOMPARE(dialog->property("currentStep").toInt(), 3);
 
         // A second 保存 must not create the record again; dropping the image
         // and saving once more just closes the dialog.
         QVERIFY(fixture.submit());
-        QCOMPARE(creations.count(), 1);
+        QCOMPARE(creations.count() + corrections.count(), 1);
         QVERIFY(dialog->property("visible").toBool());
         const QVariantMap pending = fixture.rows().first().toMap();
         QVERIFY(QMetaObject::invokeMethod(dialog, "unstageNoteImage", Q_ARG(QVariant, QVariant(pending))));
         QVERIFY(!dialog->property("imagesDirty").toBool());
+        QVERIFY(save->property("enabled").toBool());
         QVERIFY(fixture.submit());
-        QCOMPARE(creations.count(), 1);
+        QCOMPARE(creations.count() + corrections.count(), 1);
         QVERIFY(!dialog->property("visible").toBool());
         QVERIFY(dialog->property("savedRunId").toString().isEmpty());
+        QVERIFY(QMetaObject::invokeMethod(dialog, "openForCreate"));
+        QVERIFY(dialog->findChild<QObject *>(QStringLiteral("noteField"))->property("enabled").toBool());
     }
 };
 

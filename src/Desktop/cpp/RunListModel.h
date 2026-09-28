@@ -79,6 +79,9 @@ private:
     bool m_sortAscending = false;
     int m_page = 1;
     int m_pageSize = 10;
+    // Zero-based row selected by navigation; resizing preserves this position
+    // instead of adopting the rounded-down first row of each new page.
+    int m_anchorRow = 0;
     int m_total = 0;
     bool m_loading = false;
 };

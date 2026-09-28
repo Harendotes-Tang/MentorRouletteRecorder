@@ -133,6 +133,7 @@ Dialog {
     /// Set once the record was accepted by the Collector. A later 保存 then
     /// only applies the images: a second CreateManualRun would be a duplicate.
     property string savedRunId: ""
+    readonly property bool recordSaved: savedRunId.length > 0
     readonly property bool imagesDirty: pendingImageAdds.length > 0 || removedImagePaths.length > 0
     readonly property var noteImageRows: {
         const rows = []
@@ -505,6 +506,8 @@ Dialog {
     }
 
     function goToStep(step) {
+        if (recordSaved && step !== 3)
+            return
         const next = Math.max(1, Math.min(3, step))
         if (next === currentStep)
             return
@@ -1058,6 +1061,7 @@ Dialog {
 
             RowLayout {
                 objectName: "wizardStepBar"
+                enabled: !dialog.submitting && !dialog.recordSaved
                 Layout.fillWidth: true
                 spacing: 8
 
@@ -1180,6 +1184,7 @@ Dialog {
                 // ------------------------------------------ 第 1 步：结果 --
                 RunWizardResultStep {
                     objectName: "wizardStep1"
+                    enabled: !dialog.recordSaved
                     Layout.fillWidth: true
                     visible: dialog.currentStep === 1
                     opacity: dialog.stepProgress
@@ -1192,6 +1197,7 @@ Dialog {
                     id: dutyStep
 
                     objectName: "wizardStep2"
+                    enabled: !dialog.recordSaved
                     Layout.fillWidth: true
                     visible: dialog.currentStep === 2
                     opacity: dialog.stepProgress
@@ -1230,7 +1236,7 @@ Dialog {
 
             Text {
                 Layout.fillWidth: true
-                text: dialog.progressTitle
+                text: dialog.recordSaved ? qsTr("记录已保存，请重试图片") : dialog.progressTitle
                 color: dialog.progressDelta > 0 ? Theme.green : Theme.textSecondary
                 font.pixelSize: Theme.fs(12)
                 font.weight: Font.DemiBold
@@ -1238,7 +1244,7 @@ Dialog {
             }
 
             AppButton {
-                text: qsTr("取消")
+                text: dialog.recordSaved ? qsTr("关闭") : qsTr("取消")
                 enabled: !dialog.submitting
                 onClicked: dialog.close()
             }
@@ -1247,7 +1253,7 @@ Dialog {
                 objectName: "prevStepButton"
                 visible: dialog.currentStep > 1
                 text: qsTr("上一步")
-                enabled: !dialog.submitting
+                enabled: !dialog.submitting && !dialog.recordSaved
                 onClicked: dialog.prevStep()
             }
 
@@ -1256,6 +1262,7 @@ Dialog {
                 visible: dialog.currentStep < 3
                 variant: "primary"
                 text: qsTr("下一步")
+                enabled: !dialog.submitting && !dialog.recordSaved
                 onClicked: dialog.nextStep()
             }
 
@@ -1264,9 +1271,10 @@ Dialog {
                 objectName: "saveRunButton"
                 visible: dialog.currentStep === 3
                 enabled: !dialog.submitting
-                         && (!dialog.editMode || dialog.diffRows.length > 0 || dialog.imagesDirty)
+                         && (dialog.recordSaved || !dialog.editMode || dialog.diffRows.length > 0 || dialog.imagesDirty)
                 text: dialog.submitting
                       ? qsTr("提交中…")
+                      : dialog.recordSaved ? qsTr("重试图片")
                       : (dialog.editMode ? qsTr("保存为新修订") : qsTr("添加记录"))
                 onClicked: dialog.submit()
             }

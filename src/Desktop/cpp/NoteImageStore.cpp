@@ -6,6 +6,7 @@
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QImage>
 #include <QImageReader>
 #include <QRegularExpression>
 #include <QStandardPaths>
@@ -179,16 +180,26 @@ NoteImageStore::Inspection NoteImageStore::inspectFile(const QString &sourcePath
         return result;
     }
 
-    // The header's declared canvas, without decoding a pixel. A format whose
-    // header does not say (an invalid size) is left to the byte cap above.
+    // Check the canvas before decoding so a small compressed file cannot ask
+    // the decoder to allocate an unbounded image.
     const QSize declared = reader.size();
-    if (declared.isValid()
-        && qint64(declared.width()) * qint64(declared.height()) > kMaxImagePixels) {
+    if (!declared.isValid()) {
+        result.error = chinese("图片已损坏或无法读取：%1").arg(info.fileName());
+        return result;
+    }
+    if (qint64(declared.width()) * qint64(declared.height()) > kMaxImagePixels) {
         result.error = chinese("图片分辨率过大（%1×%2，超过 %3 万像素），请先缩小：%4")
                            .arg(declared.width())
                            .arg(declared.height())
                            .arg(kMaxImagePixels / 10000)
                            .arg(info.fileName());
+        return result;
+    }
+
+    // canRead() only recognizes a header. A truncated file can pass it while
+    // both the thumbnail and viewer fail; reject it before applying any edits.
+    if (reader.read().isNull()) {
+        result.error = chinese("图片已损坏或无法读取：%1").arg(info.fileName());
         return result;
     }
 

@@ -16,6 +16,7 @@ ColumnLayout {
     spacing: 14
 
     GridLayout {
+        enabled: !step.wizard.recordSaved
         Layout.fillWidth: true
         columns: 3
         columnSpacing: 12
@@ -163,6 +164,7 @@ ColumnLayout {
     }
 
     RowLayout {
+        enabled: !step.wizard.recordSaved
         Layout.fillWidth: true
         Layout.topMargin: -4
         spacing: 8
@@ -190,6 +192,7 @@ ColumnLayout {
     }
 
     Rectangle {
+        enabled: !step.wizard.recordSaved
         Layout.fillWidth: true
         visible: step.wizard.resultCode !== "CANCELLED_BEFORE_ENTRY" && !step.wizard.enteredTime.trim()
         implicitHeight: entryHelp.implicitHeight + 20
@@ -235,6 +238,7 @@ ColumnLayout {
         }
         StyledTextField {
             objectName: "reasonField"
+            enabled: !step.wizard.recordSaved
             Layout.fillWidth: true
             text: step.wizard.reasonText
             placeholderText: qsTr("例如：程序未运行时手动补录；网络中断但实际已通关")
@@ -248,6 +252,7 @@ ColumnLayout {
         FieldLabel { text: qsTr("备注") }
         StyledTextField {
             objectName: "noteField"
+            enabled: !step.wizard.recordSaved
             Layout.fillWidth: true
             text: step.wizard.noteText
             placeholderText: qsTr("例如：程序未运行时手动补录")

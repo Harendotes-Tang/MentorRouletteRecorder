@@ -412,15 +412,21 @@ public sealed class SemanticEventProcessor : ISemanticEventSink, ICaptureLifecyc
                 RunsUpdated++;
                 Update(enter.RunId, transaction, current =>
                 {
-                    var mapped = _duties.Find(enter.ContentId, current.Region);
+                    var contentId = enter.ContentId ?? current.ContentId;
+                    var identityChanged = contentId != current.ContentId;
+                    var mapped = _duties.Find(contentId, current.Region);
+                    // 重复匹配可以更换副本；旧标识派生出的区域和显示字段不能带入新副本。
+                    // 人工更正仍由 Update 中的字段保护合并，未知映射则清除旧的自动名称。
+                    var territoryId = enter.TerritoryId
+                        ?? (identityChanged ? mapped?.TerritoryId : current.TerritoryId);
                     return current with
                     {
-                        ContentId = enter.ContentId ?? current.ContentId,
-                        TerritoryId = enter.TerritoryId ?? current.TerritoryId,
-                        DutyName = current.DutyName ?? mapped?.LocalizedName,
-                        DutyCategory = current.DutyCategory ?? mapped?.DutyCategory,
-                        DutySource = current.DutySource ?? Provenance(
-                            enter.ContentId ?? current.ContentId, enter.TerritoryId ?? current.TerritoryId),
+                        ContentId = contentId,
+                        TerritoryId = territoryId,
+                        DutyName = identityChanged ? mapped?.LocalizedName : current.DutyName ?? mapped?.LocalizedName,
+                        DutyCategory = identityChanged ? mapped?.DutyCategory : current.DutyCategory ?? mapped?.DutyCategory,
+                        DutySource = identityChanged ? Provenance(contentId, territoryId)
+                            : current.DutySource ?? Provenance(contentId, territoryId),
                         EnteredAtUtc = enter.EnteredAtUtc,
                         UpdatedAtUtc = enter.EnteredAtUtc,
                     };

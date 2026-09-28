@@ -150,6 +150,11 @@ Type: filesandordirs; Name: "{app}\vectorimageformats"
 [Files]
 Source: "{#StageDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
+[Dirs]
+; Note images are user data stored beside the application. Grant write access only to
+; this subtree, including in Program Files; keep it when upgrading or uninstalling.
+Name: "{app}\note-images"; Permissions: users-modify; Flags: uninsneveruninstall
+
 [Icons]
 Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExe}"
 Name: "{group}\{cm:UninstallProgram,{#AppName}}"; Filename: "{uninstallexe}"

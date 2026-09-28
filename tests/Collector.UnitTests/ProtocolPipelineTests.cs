@@ -28,6 +28,52 @@ public sealed class ProtocolPipelineTests
 
     private static readonly DateTimeOffset Start = new(2026, 9, 4, 4, 0, 0, TimeSpan.Zero);
 
+    [Theory]
+    [InlineData(2, 1037, "地下灵殿塔姆·塔拉墓园", "四人迷宫")]
+    [InlineData(2, null, "地下灵殿塔姆·塔拉墓园", "四人迷宫")]
+    [InlineData(42, 214, "完成集团战训练！", "行会令")]
+    [InlineData(7_000_001, null, null, null)]
+    public void RepeatedPopChangingDutyRefreshesTheStoredIdentity(
+        int contentId, int? territoryId, string? dutyName, string? dutyCategory)
+    {
+        using var fixture = new TestDatabase();
+        var processor = NewProcessor(fixture, out _);
+        Feed(fixture, processor,
+            Pop(0) with { ContentId = 4 },
+            Pop(10_000) with { ContentId = contentId },
+            Zone(20_000) with { ContentId = contentId, TerritoryId = territoryId });
+
+        var run = Assert.Single(Runs(fixture, processor));
+        Assert.Equal(contentId, run.ContentId);
+        Assert.Equal(territoryId ?? (contentId == 2 ? 1037 : null), run.TerritoryId);
+        Assert.Equal(dutyName, run.DutyName);
+        Assert.Equal(dutyCategory, run.DutyCategory);
+        Assert.Equal(DutySource.ContentId, run.DutySource);
+        Assert.NotNull(run.EnteredAtUtc);
+    }
+
+    [Fact]
+    public void RepeatedPopChangingDutyPreservesManualIdentityCorrection()
+    {
+        using var fixture = new TestDatabase();
+        var processor = NewProcessor(fixture, out _);
+        Feed(fixture, processor, Pop(0) with { ContentId = 4 });
+        CorrectTheDuty(fixture, Assert.Single(Runs(fixture, processor)));
+        var corrected = Assert.Single(Runs(fixture, processor));
+
+        Feed(fixture, processor,
+            Pop(10_000) with { ContentId = 2 },
+            Zone(20_000) with { ContentId = 2, TerritoryId = 1037 });
+
+        var run = Assert.Single(Runs(fixture, processor));
+        Assert.Equal(corrected.ContentId, run.ContentId);
+        Assert.Equal(corrected.TerritoryId, run.TerritoryId);
+        Assert.Equal(corrected.DutyName, run.DutyName);
+        Assert.Equal(corrected.DutyCategory, run.DutyCategory);
+        Assert.Equal(corrected.DutySource, run.DutySource);
+        Assert.NotNull(run.EnteredAtUtc);
+    }
+
     [Fact]
     public void SemanticEventsBecomeACompletedRun()
     {

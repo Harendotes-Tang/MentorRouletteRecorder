@@ -265,6 +265,8 @@ private Q_SLOTS:
     void formatters_renderNullsAndDurations();
     void mockBackend_reportsTheMatchAnnouncementBeforeTheDutyIsEntered();
     void runListModel_filtersSortsAndPages();
+    void runListModel_resizeRoundTripKeepsNavigationAnchor();
+    void runListModel_clampsAnchorWhenTotalShrinks();
     void jobStatsModel_roleBreakdownKeepsFixedOrder();
     void jobStatsModel_derivesRoleGroupFromTheContractFields();
     void roleCatalog_mapsEveryRoleToAnExistingIcon();
@@ -624,8 +626,8 @@ void DesktopTests::runListModel_filtersSortsAndPages()
     // The page size follows the window (HistoryPage.rowsThatFit). Growing or
     // shrinking it keeps the row at the top of the current page in view rather
     // than jumping back to page 1: page 3 of 10 starts at row 20, which sits on
-    // page 2 of 15 (rows 15-29); that page's own top row, row 15, then heads
-    // page 4 of 5.
+    // page 2 of 15 (rows 15-29); the original anchor, row 20, then heads
+    // page 5 of 5, without accumulating rounding loss across resizes.
     // reload() marks the model loading before the request leaves, so waiting
     // for that flag to clear is waiting for the page that was just asked for.
     model.goToPage(3);
@@ -639,12 +641,89 @@ void DesktopTests::runListModel_filtersSortsAndPages()
     QTRY_VERIFY_WITH_TIMEOUT(!model.isLoading(), 3000);
     QCOMPARE(model.rowCount(), 15);
     QCOMPARE(model.runAt(5).value(QStringLiteral("run_id")).toString(), topRow);
-    const QString row15 = model.runAt(0).value(QStringLiteral("run_id")).toString();
     model.setPageSize(5);
-    QCOMPARE(model.page(), 4);
+    QCOMPARE(model.page(), 5);
     QTRY_VERIFY_WITH_TIMEOUT(!model.isLoading(), 3000);
     QCOMPARE(model.rowCount(), 5);
-    QCOMPARE(model.runAt(0).value(QStringLiteral("run_id")).toString(), row15);
+    QCOMPARE(model.runAt(0).value(QStringLiteral("run_id")).toString(), topRow);
+}
+
+void DesktopTests::runListModel_resizeRoundTripKeepsNavigationAnchor()
+{
+    mr::MockBackend backend;
+    mr::RunListModel model;
+    model.setBackend(&backend);
+    model.setFilter({{QStringLiteral("include_deleted"), true}});
+    QTRY_VERIFY_WITH_TIMEOUT(!model.isLoading(), 3000);
+    QVERIFY(model.total() > 90);
+    model.goToPage(10);
+    QTRY_VERIFY_WITH_TIMEOUT(!model.isLoading(), 3000);
+    const QString anchor = model.runAt(0).value(QStringLiteral("run_id")).toString();
+    QVERIFY(!anchor.isEmpty());
+
+    for (int cycle = 0; cycle < 3; ++cycle) {
+        model.setPageSize(11);
+        QCOMPARE(model.page(), 9);
+        QTRY_VERIFY_WITH_TIMEOUT(!model.isLoading(), 3000);
+        QCOMPARE(model.runAt(2).value(QStringLiteral("run_id")).toString(), anchor);
+        model.setPageSize(10);
+        QCOMPARE(model.page(), 10);
+        QTRY_VERIFY_WITH_TIMEOUT(!model.isLoading(), 3000);
+        QCOMPARE(model.runAt(0).value(QStringLiteral("run_id")).toString(), anchor);
+    }
+
+    model.setPageSize(11);
+    QTRY_VERIFY_WITH_TIMEOUT(!model.isLoading(), 3000);
+    model.goToPage(3); // Explicit navigation establishes row 22 as the new anchor.
+    QTRY_VERIFY_WITH_TIMEOUT(!model.isLoading(), 3000);
+    model.setPageSize(10);
+    QCOMPARE(model.page(), 3);
+    QTRY_VERIFY_WITH_TIMEOUT(!model.isLoading(), 3000);
+    model.sortBy(QStringLiteral("duty_name"));
+    QTRY_VERIFY_WITH_TIMEOUT(!model.isLoading(), 3000);
+    model.setPageSize(11);
+    QCOMPARE(model.page(), 1);
+    QTRY_VERIFY_WITH_TIMEOUT(!model.isLoading(), 3000);
+    model.goToPage(3);
+    QTRY_VERIFY_WITH_TIMEOUT(!model.isLoading(), 3000);
+    model.setFilter({});
+    QTRY_VERIFY_WITH_TIMEOUT(!model.isLoading(), 3000);
+    model.setPageSize(10);
+    QCOMPARE(model.page(), 1);
+    QTRY_VERIFY_WITH_TIMEOUT(!model.isLoading(), 3000);
+}
+
+void DesktopTests::runListModel_clampsAnchorWhenTotalShrinks()
+{
+    DeferredBackend backend;
+    backend.setAutoRespond(false);
+    mr::RunListModel model;
+    model.setBackend(&backend);
+    const auto complete = [&backend](int page, int total) {
+        backend.completeNext(QStringLiteral("QueryRuns"),
+                             {{QStringLiteral("items"), QJsonArray{}},
+                              {QStringLiteral("page_info"),
+                               QJsonObject{{QStringLiteral("page"), page},
+                                           {QStringLiteral("total"), total}}}});
+    };
+    model.reload();
+    complete(1, 100);
+    model.goToPage(10);
+    complete(10, 100);
+    model.reload();
+    complete(10, 35); // The real repository retains the requested page even when now empty.
+    model.setPageSize(7);
+    QCOMPARE(model.page(), 5); // Last surviving row (34) stays in view.
+    complete(5, 35);
+    model.setPageSize(10);
+    QCOMPARE(model.page(), 4);
+    complete(4, 35);
+
+    model.reload();
+    complete(1, 0);
+    model.setPageSize(7);
+    QCOMPARE(model.page(), 1);
+    complete(1, 0);
 }
 
 void DesktopTests::jobStatsModel_roleBreakdownKeepsFixedOrder()

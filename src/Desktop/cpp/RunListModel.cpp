@@ -50,11 +50,10 @@ void RunListModel::setPageSize(int pageSize)
     if (clamped == m_pageSize)
         return;
     // The page size follows the window height (HistoryPage.rowsThatFit), so a
-    // resize must not throw the player back to page 1: the row at the top of
-    // the current page stays in view, on whatever page it now falls.
-    const int firstRow = (m_page - 1) * m_pageSize;
+    // resize keeps the navigation anchor in view. Reusing the current page's
+    // rounded-down first row would accumulate drift on every resize.
     m_pageSize = clamped;
-    m_page = firstRow / clamped + 1;
+    m_page = m_anchorRow / clamped + 1;
     Q_EMIT pagingChanged();
     reload();
 }
@@ -63,12 +62,14 @@ void RunListModel::setFilter(const QVariantMap &filter)
 {
     m_filter = QJsonObject::fromVariantMap(filter);
     m_page = 1;
+    m_anchorRow = 0;
     reload();
 }
 
 void RunListModel::goToPage(int page)
 {
     const int clamped = qBound(1, page, pageCount());
+    m_anchorRow = (clamped - 1) * m_pageSize;
     if (clamped == m_page)
         return;
     m_page = clamped;
@@ -95,6 +96,7 @@ void RunListModel::sortBy(const QString &field)
         m_sortAscending = false;
     }
     m_page = 1;
+    m_anchorRow = 0;
     Q_EMIT sortChanged();
     reload();
 }
@@ -151,6 +153,9 @@ void RunListModel::reload()
                 for (const QJsonValue &value : items)
                     m_rows.append(value.toObject());
                 m_total = pageInfo.value(QStringLiteral("total")).toInt();
+                // A reload can observe deletions. Keep the position when it
+                // still exists, otherwise anchor to the last surviving row.
+                m_anchorRow = qBound(0, m_anchorRow, qMax(0, m_total - 1));
                 m_page = qMax(1, pageInfo.value(QStringLiteral("page")).toInt(m_page));
                 endResetModel();
                 Q_EMIT pagingChanged();
