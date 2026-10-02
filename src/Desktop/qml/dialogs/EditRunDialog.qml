@@ -315,6 +315,20 @@ Dialog {
         const source = dialog.jobOptions || []
         for (let i = 0; i < source.length; ++i)
             out.push(Object.assign({}, source[i], { option_index: out.length }))
+        // Older records can carry a job that is no longer offered for mentor
+        // roulette. Keep that record's value while editing unrelated fields;
+        // it is a separate retained choice, never a job offered for new runs.
+        const run = dialog.editMode ? dialog.runData : null
+        if (run && run.job_id > 0
+                && !source.some(function(row) { return row.job_id === run.job_id })) {
+            out.push({
+                job_id: run.job_id,
+                job_name: run.job_name || qsTr("未知"),
+                role: run.role,
+                preservesRunJob: true,
+                option_index: out.length
+            })
+        }
         return out
     }
 
@@ -390,6 +404,7 @@ Dialog {
             buckets[order[g]] = []
         }
         const other = []
+        const retained = []
         const list = dialog.jobOptionList
         for (let i = 1; i < list.length; ++i) {
             const job = list[i]
@@ -401,12 +416,19 @@ Dialog {
                 abbreviation: job.abbreviation || (hasCatalog ? Jobs.abbreviation(job.job_id) : "?"),
                 option_index: job.option_index
             }
+            if (job.preservesRunJob) {
+                entry.job_name = qsTr("%1（保留）").arg(job.job_name)
+                retained.push(entry)
+                continue
+            }
             if (buckets[group] !== undefined)
                 buckets[group].push(entry)
             else
                 other.push(entry)
         }
         const out = []
+        if (retained.length > 0)
+            out.push({ role: qsTr("原记录"), token: "neutral400", jobs: retained })
         for (let n = 0; n < named.length; ++n) {
             if (buckets[named[n]].length > 0) {
                 out.push({
@@ -840,6 +862,7 @@ Dialog {
         const preserveDuty = editMode && runData && duty && (duty.preservesRunDuty
                 || (runData.content_id != null && duty.content_id === runData.content_id))
         const job = lookupByIndex(jobOptionList, jobIndex)
+        const preserveJob = editMode && runData && job && job.preservesRunJob
         const matchedUtc = fieldUtc(matchedDate, matchedTime, "matched_at_utc")
         const enteredUtc = fieldUtc(enteredDate, enteredTime, "entered_at_utc")
         const endedUtc = fieldUtc(endedDate, endedTime, "ended_at_utc")
@@ -864,10 +887,10 @@ Dialog {
             duty_category: preserveDuty ? runData.duty_category : duty && duty.duty_category !== undefined ? duty.duty_category : null,
             duty_level: preserveDuty ? runData.duty_level : duty && duty.duty_level !== undefined ? duty.duty_level : null,
             duty_expansion: preserveDuty ? runData.duty_expansion : duty && duty.duty_expansion !== undefined ? duty.duty_expansion : null,
-            job_id: job && job.job_id !== undefined ? job.job_id : null,
-            job_name: job && job.job_id !== null && job.job_name !== undefined
+            job_id: preserveJob ? runData.job_id : job && job.job_id !== undefined ? job.job_id : null,
+            job_name: preserveJob ? runData.job_name : job && job.job_id !== null && job.job_name !== undefined
                       ? job.job_name : qsTr("未知"),
-            role: job && job.role !== undefined ? job.role : "UNKNOWN",
+            role: preserveJob ? runData.role : job && job.role !== undefined ? job.role : "UNKNOWN",
             matched_at_utc: matchedUtc,
             entered_at_utc: enteredUtc,
             ended_at_utc: endedUtc,

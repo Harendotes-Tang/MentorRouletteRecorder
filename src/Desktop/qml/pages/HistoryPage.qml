@@ -359,16 +359,20 @@ Item {
                 StyledComboBox {
                     id: categoryBox
                     width: 86
-                    model: [qsTr("类型")].concat(App.categoryOptions)
+                    model: [qsTr("全部类型")].concat(App.categoryOptions)
+                    displayText: currentIndex === 0 ? qsTr("类型") : currentText
+                    Accessible.name: qsTr("类型筛选")
                     onActivated: page.scheduleFilter()
                 }
 
                 StyledComboBox {
                     id: jobBox
                     width: 86
-                    // Battle jobs only: a roulette is never run as 刻木匠 or 剑术师.
-                    model: [{ job_id: null, job_name: qsTr("职业") }].concat(App.battleJobOptions)
+                    // The first row clears this filter; the closed field keeps its short label.
+                    model: [{ job_id: null, job_name: qsTr("全部职业") }].concat(App.battleJobOptions)
                     textRole: "job_name"
+                    displayText: currentIndex === 0 ? qsTr("职业") : currentText
+                    Accessible.name: qsTr("职业筛选")
                     onActivated: page.scheduleFilter()
                 }
 
@@ -376,7 +380,7 @@ Item {
                     id: resultBox
                     width: 86
                     model: [
-                        { value: null, label: qsTr("结果") },
+                        { value: null, label: qsTr("全部结果") },
                         { value: "COMPLETED", label: qsTr("通关") },
                         { value: "LEFT_OR_ABANDONED", label: qsTr("退出/放弃") },
                         { value: "CANCELLED_BEFORE_ENTRY", label: qsTr("进本前取消") },
@@ -385,6 +389,8 @@ Item {
                         { value: "UNKNOWN", label: qsTr("未知") }
                     ]
                     textRole: "label"
+                    displayText: currentIndex === 0 ? qsTr("结果") : currentText
+                    Accessible.name: qsTr("结果筛选")
                     onActivated: page.scheduleFilter()
                 }
 
@@ -392,12 +398,14 @@ Item {
                     id: sourceBox
                     width: 86
                     model: [
-                        { value: null, label: qsTr("来源") },
+                        { value: null, label: qsTr("全部来源") },
                         { value: "AUTO_NETWORK", label: qsTr("自动识别") },
                         { value: "MANUAL", label: qsTr("手动") },
                         { value: "IMPORT", label: qsTr("导入") }
                     ]
                     textRole: "label"
+                    displayText: currentIndex === 0 ? qsTr("来源") : currentText
+                    Accessible.name: qsTr("来源筛选")
                     onActivated: page.scheduleFilter()
                 }
 

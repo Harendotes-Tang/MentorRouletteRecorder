@@ -15,6 +15,7 @@
 #include <QJsonDocument>
 #include <QFile>
 #include <QPointer>
+#include <QSet>
 #include <QSignalSpy>
 #include <QTest>
 
@@ -271,6 +272,7 @@ private Q_SLOTS:
     void mockStatisticsPagesKeepTheSameTotalWithoutRepeatingRows();
     void jobStatsModel_derivesRoleGroupFromTheContractFields();
     void roleCatalog_mapsEveryRoleToAnExistingIcon();
+    void appController_mentorJobChoicesExcludeLimitedJobsButKeepTheirNames();
     void appController_rebuildsDutyOptionsAndHandlesCaptureFailure();
     void appController_subscribesAndRefreshesAfterDelayedBackendConnect();
     void appController_routesValidationAndBlocksDuplicateCommands();
@@ -866,6 +868,24 @@ void DesktopTests::jobStatsModel_derivesRoleGroupFromTheContractFields()
                     {QStringLiteral("role"), QStringLiteral("UNKNOWN")}}),
              QString::fromUtf8("未知"));
     QCOMPARE(group({}), QString::fromUtf8("未知"));
+}
+
+void DesktopTests::appController_mentorJobChoicesExcludeLimitedJobsButKeepTheirNames()
+{
+    mr::MockBackend backend;
+    mr::AppController controller(&backend, nullptr);
+    QSet<int> choices;
+    for (const QVariant &value : controller.battleJobOptions())
+        choices.insert(value.toMap().value(QStringLiteral("job_id")).toInt());
+
+    const QSet<int> mentorJobs = {19, 20, 21, 22, 23, 24, 25, 27, 28, 30, 31,
+                                 32, 33, 34, 35, 37, 38, 39, 40, 41, 42};
+    QCOMPARE(choices, mentorJobs);
+
+    // Old/imported records still need the complete catalogue for display.
+    const mr::JobCatalog catalogue;
+    QCOMPARE(catalogue.jobName(36), QString::fromUtf8("青魔法师"));
+    QCOMPARE(catalogue.jobName(43), QString::fromUtf8("驯兽师"));
 }
 
 void DesktopTests::appController_rebuildsDutyOptionsAndHandlesCaptureFailure()

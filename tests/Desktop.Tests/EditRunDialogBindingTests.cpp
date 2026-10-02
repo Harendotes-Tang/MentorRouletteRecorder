@@ -907,6 +907,103 @@ private Q_SLOTS:
         QCOMPARE(fixture.visibleIds().size(), 6);
     }
 
+    void editingARetiredJobPreservesItUntilThePlayerChangesIt_data()
+    {
+        QTest::addColumn<int>("retiredJobId");
+        QTest::addColumn<QString>("retiredJobName");
+        QTest::newRow("blue mage") << 36 << QStringLiteral("青魔法师");
+        QTest::newRow("beastmaster") << 43 << QStringLiteral("驯兽师");
+        QTest::newRow("unmapped historical job") << 99999 << QStringLiteral("旧职业");
+    }
+
+    void editingARetiredJobPreservesItUntilThePlayerChangesIt()
+    {
+        QFETCH(int, retiredJobId);
+        QFETCH(QString, retiredJobName);
+        DialogFixture fixture;
+        QVERIFY2(fixture.create(), qPrintable(fixture.errors));
+        auto value = run(QStringLiteral("retired-job"), 70, retiredJobId, QStringLiteral("COMPLETED"));
+        value.insert(QStringLiteral("duty_name"), QStringLiteral("伊库拉尔堡垒"));
+        value.insert(QStringLiteral("job_name"), retiredJobName);
+        value.insert(QStringLiteral("role"), QStringLiteral("DPS"));
+        QVERIFY(fixture.openForRun(value));
+
+        const auto options = asList(fixture.dialog()->property("jobOptionList"));
+        const auto retained = asMap(options.at(fixture.dialog()->property("jobIndex").toInt()));
+        QCOMPARE(retained.value(QStringLiteral("job_id")).toInt(), retiredJobId);
+        QVERIFY(retained.value(QStringLiteral("preservesRunJob")).toBool());
+        QCOMPARE(asMap(fixture.dialog()->property("formState")).value(QStringLiteral("job_name")).toString(),
+                 retiredJobName);
+        // The old value is labelled separately, not added back to an eligible role group.
+        const auto groups = asList(fixture.dialog()->property("jobGroups"));
+        QCOMPARE(asMap(groups.first()).value(QStringLiteral("role")).toString(), QStringLiteral("原记录"));
+        for (qsizetype i = 1; i < groups.size(); ++i) {
+            for (const auto &row : asList(asMap(groups.at(i)).value(QStringLiteral("jobs"))))
+                QVERIFY(asMap(row).value(QStringLiteral("job_id")).toInt() != retiredJobId);
+        }
+
+        QSignalSpy corrections(fixture.dialog(), SIGNAL(correctRequested(QVariant,QString)));
+        fixture.dialog()->setProperty("noteText", QStringLiteral("只修改备注"));
+        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
+        QCOMPARE(corrections.count(), 1);
+        const auto noteChanges = asMap(corrections.at(0).at(0));
+        QCOMPARE(noteChanges.value(QStringLiteral("note")).toString(), QStringLiteral("只修改备注"));
+        for (const auto *key : {"job_id", "job_name", "role"})
+            QVERIFY2(!noteChanges.contains(QString::fromLatin1(key)), key);
+
+        // Explicitly choosing an eligible job still changes the stored job.
+        QVERIFY(fixture.openForRun(value));
+        QVERIFY(fixture.goToStep(2));
+        QVERIFY(fixture.click(QStringLiteral("jobPick_19")));
+        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
+        QCOMPARE(corrections.count(), 2);
+        const auto jobChanges = asMap(corrections.at(1).at(0));
+        QCOMPARE(jobChanges.value(QStringLiteral("job_id")).toInt(), 19);
+        QCOMPARE(jobChanges.value(QStringLiteral("job_name")).toString(), QStringLiteral("骑士"));
+
+        // Choosing 未知 is an explicit clear, unlike an unrelated note edit.
+        QVERIFY(fixture.openForRun(value));
+        QVERIFY(fixture.goToStep(2));
+        QVERIFY(fixture.click(QStringLiteral("jobUnknownChip")));
+        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
+        QCOMPARE(corrections.count(), 3);
+        const auto clearedJob = asMap(corrections.at(2).at(0));
+        QVERIFY(clearedJob.contains(QStringLiteral("job_id")));
+        QVERIFY(clearedJob.value(QStringLiteral("job_id")).isNull());
+
+        // A reused dialog must not leak the old job into a newly created record.
+        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "openForCreate"));
+        QCOMPARE(fixture.dialog()->property("jobIndex").toInt(), 0);
+        for (const auto &row : asList(fixture.dialog()->property("jobOptionList"))) {
+            const auto option = asMap(row);
+            QVERIFY(!option.value(QStringLiteral("preservesRunJob")).toBool());
+            QVERIFY(option.value(QStringLiteral("job_id")).toInt() != retiredJobId);
+        }
+    }
+
+    void anUnknownJobCanStillBeFilledFromEligibleJobs()
+    {
+        DialogFixture fixture;
+        QVERIFY2(fixture.create(), qPrintable(fixture.errors));
+        auto value = run(QStringLiteral("unknown-job"), 70, 0, QStringLiteral("COMPLETED"));
+        value.insert(QStringLiteral("duty_name"), QStringLiteral("伊库拉尔堡垒"));
+        value.insert(QStringLiteral("job_id"), QVariant());
+        value.insert(QStringLiteral("job_name"), QStringLiteral("未知"));
+        value.insert(QStringLiteral("role"), QStringLiteral("UNKNOWN"));
+        QVERIFY(fixture.openForRun(value));
+        QCOMPARE(fixture.dialog()->property("jobIndex").toInt(), 0);
+        QCOMPARE(asList(fixture.dialog()->property("jobOptionList")).size(), 4);
+        QVERIFY(fixture.goToStep(2));
+        QVERIFY(fixture.item(QStringLiteral("jobUnknownChip"))->property("checked").toBool());
+        QVERIFY(fixture.click(QStringLiteral("jobPick_24")));
+        QSignalSpy corrections(fixture.dialog(), SIGNAL(correctRequested(QVariant,QString)));
+        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
+        QCOMPARE(corrections.count(), 1);
+        const auto changes = asMap(corrections.at(0).at(0));
+        QCOMPARE(changes.value(QStringLiteral("job_id")).toInt(), 24);
+        QCOMPARE(changes.value(QStringLiteral("job_name")).toString(), QStringLiteral("白魔法师"));
+    }
+
     void jobsAreGroupedByRoleInLegendOrder()
     {
         DialogFixture fixture;
