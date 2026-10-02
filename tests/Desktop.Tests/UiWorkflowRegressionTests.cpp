@@ -430,6 +430,8 @@ private Q_SLOTS:
     void quickReviewButtonsRefuseASecondClickWhileTheFirstIsOut();
     void calibrationDialogsLockWhileBusyAndDropAnEarlierReply();
     void historyMirrorsEveryFilterAndClearsStaleControls();
+    void historyRetainsAnUnlistedJobDrillDownUntilExplicitlyCleared_data();
+    void historyRetainsAnUnlistedJobDrillDownUntilExplicitlyCleared();
     void externalHistoryFilterCancelsPendingDebounce();
     void mockCorrectionAcknowledgesOnlyExplicitOutcome_data();
     void mockCorrectionAcknowledgesOnlyExplicitOutcome();
@@ -906,6 +908,76 @@ void UiWorkflowRegressionTests::historyMirrorsEveryFilterAndClearsStaleControls(
     QVERIFY(QMetaObject::invokeMethod(fixture.history(), "applyFilter"));
     QCOMPARE(fixture.controller.historyFilter().value(QStringLiteral("pending_review")).toBool(), true);
     QCOMPARE(fixture.controller.historyFilter().size(), 2); // pending_review plus date_field
+}
+
+void UiWorkflowRegressionTests::historyRetainsAnUnlistedJobDrillDownUntilExplicitlyCleared_data()
+{
+    QTest::addColumn<int>("jobId");
+    QTest::addColumn<QString>("jobName");
+    QTest::newRow("blue mage") << 36 << QStringLiteral("青魔法师");
+    QTest::newRow("beastmaster") << 43 << QStringLiteral("驯兽师");
+    QTest::newRow("unmapped historical job") << 99999 << QStringLiteral("未知");
+}
+
+void UiWorkflowRegressionTests::historyRetainsAnUnlistedJobDrillDownUntilExplicitlyCleared()
+{
+    QFETCH(int, jobId);
+    QFETCH(QString, jobName);
+    UiFixture fixture;
+    QVERIFY2(fixture.create(), qPrintable(fixture.errors));
+    auto *chip = fixture.history()->findChild<QObject *>(QStringLiteral("retainedJobFilterChip"));
+    auto *combo = fixture.history()->findChild<QObject *>(QStringLiteral("historyJobFilter"));
+    auto *from = fixture.history()->findChild<QObject *>(QStringLiteral("fromDateField"));
+    QVERIFY(chip);
+    QVERIFY(combo);
+    QVERIFY(from);
+
+    fixture.controller.showHistoryForJob(jobId);
+    QVERIFY(chip->property("visible").toBool());
+    QCOMPARE(chip->property("text").toString(), QStringLiteral("职业：%1").arg(jobName));
+    QCOMPARE(combo->property("currentIndex").toInt(), 0);
+    QCOMPARE(combo->property("count").toInt(), 22); // 全部 plus the 21 eligible jobs
+    // Changing another control must keep the job constraint and its visible label.
+    from->setProperty("text", QStringLiteral("2026-09-01"));
+    QTRY_VERIFY(fixture.controller.historyFilter().contains(QStringLiteral("from_utc")));
+    QCOMPARE(fixture.controller.historyFilter().value(QStringLiteral("job_id")).toList(), QVariantList{jobId});
+    QVERIFY(chip->property("visible").toBool());
+
+    QVERIFY(QMetaObject::invokeMethod(chip, "removed"));
+    QTRY_VERIFY(!fixture.controller.historyFilter().contains(QStringLiteral("job_id")));
+    QVERIFY(!chip->property("visible").toBool());
+    QVERIFY(fixture.controller.historyFilter().contains(QStringLiteral("from_utc")));
+
+    // Selecting 全部 explicitly also removes it even though index 0 was already shown.
+    fixture.controller.showHistoryForJob(jobId);
+    QVERIFY(QMetaObject::invokeMethod(combo, "activated", Q_ARG(int, 0)));
+    QTRY_VERIFY(!fixture.controller.historyFilter().contains(QStringLiteral("job_id")));
+    QVERIFY(!chip->property("visible").toBool());
+
+    fixture.controller.showHistoryForJob(jobId);
+    combo->setProperty("currentIndex", 1);
+    QVERIFY(QMetaObject::invokeMethod(combo, "activated", Q_ARG(int, 1)));
+    QTRY_COMPARE(fixture.controller.historyFilter().value(QStringLiteral("job_id")).toList(), QVariantList{19});
+    QVERIFY(!chip->property("visible").toBool());
+
+    // A different external drill-down replaces the complete filter, including the retained job.
+    fixture.controller.showHistoryForJob(jobId);
+    fixture.controller.showHistoryForContent(70);
+    QVERIFY(QMetaObject::invokeMethod(fixture.history(), "applyFilter"));
+    QVERIFY(!chip->property("visible").toBool());
+    QVERIFY(!fixture.controller.historyFilter().contains(QStringLiteral("job_id")));
+    QCOMPARE(fixture.controller.historyFilter().value(QStringLiteral("content_id")).toList(), QVariantList{70});
+    fixture.controller.showHistoryForJob(jobId);
+    fixture.controller.showHistoryForJob(21);
+    QVERIFY(QMetaObject::invokeMethod(fixture.history(), "applyFilter"));
+    QVERIFY(!chip->property("visible").toBool());
+    QCOMPARE(fixture.controller.historyFilter().value(QStringLiteral("job_id")).toList(), QVariantList{21});
+
+    fixture.controller.showHistoryForJob(jobId);
+    QVERIFY(QMetaObject::invokeMethod(fixture.history(), "resetFilter"));
+    QVERIFY(!chip->property("visible").toBool());
+    QVERIFY(QMetaObject::invokeMethod(fixture.history(), "applyFilter"));
+    QVERIFY(!fixture.controller.historyFilter().contains(QStringLiteral("job_id")));
 }
 
 void UiWorkflowRegressionTests::externalHistoryFilterCancelsPendingDebounce()

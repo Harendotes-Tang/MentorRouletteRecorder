@@ -20,6 +20,11 @@ Item {
     // A drill-down from 副本统计 arrives as a content_id; the 副本 chip below
     // mirrors it so the two never disagree about what is filtered.
     property var contentFilter: null
+    // Statistics can link to an old/imported job outside the current mentor
+    // choices. Keep that drill-down visible without adding it to the picker.
+    property var retainedJobFilter: null
+    readonly property bool hasRetainedJobFilter: retainedJobFilter !== null
+                                                && retainedJobFilter !== undefined
 
     // The chip label comes from App.dutyOptions, the list 副本统计 aggregates by.
     function dutyLabel(contentId) {
@@ -129,6 +134,8 @@ Item {
             filter.duty_category = [categoryBox.model[categoryBox.currentIndex]]
         if (jobBox.currentIndex > 0)
             filter.job_id = [jobBox.model[jobBox.currentIndex].job_id]
+        else if (page.hasRetainedJobFilter)
+            filter.job_id = [page.retainedJobFilter]
         if (resultBox.currentIndex > 0)
             filter.result = [resultBox.model[resultBox.currentIndex].value]
         if (sourceBox.currentIndex > 0)
@@ -150,6 +157,7 @@ Item {
         fromField.text = ""
         toField.text = ""
         page.contentFilter = null
+        page.retainedJobFilter = null
         categoryBox.currentIndex = 0
         jobBox.currentIndex = 0
         resultBox.currentIndex = 0
@@ -195,6 +203,7 @@ Item {
         toField.text = filter.to_utc ? Fmt.localDate(filter.to_utc) : ""
         categoryBox.currentIndex = filterIndex(categoryBox.model, "", filter.duty_category)
         jobBox.currentIndex = filterIndex(jobBox.model, "job_id", filter.job_id)
+        page.retainedJobFilter = jobBox.currentIndex === 0 ? firstFilterValue(filter.job_id) : null
         resultBox.currentIndex = filterIndex(resultBox.model, "value", filter.result)
         sourceBox.currentIndex = filterIndex(sourceBox.model, "value", filter.source)
         correctedOnly.checked = !!filter.corrected_only
@@ -367,13 +376,31 @@ Item {
 
                 StyledComboBox {
                     id: jobBox
+                    objectName: "historyJobFilter"
                     width: 86
                     // The first row clears this filter; the closed field keeps its short label.
                     model: [{ job_id: null, job_name: qsTr("全部职业") }].concat(App.battleJobOptions)
                     textRole: "job_name"
                     displayText: currentIndex === 0 ? qsTr("职业") : currentText
                     Accessible.name: qsTr("职业筛选")
-                    onActivated: page.scheduleFilter()
+                    onActivated: {
+                        page.retainedJobFilter = null
+                        page.scheduleFilter()
+                    }
+                }
+
+                Chip {
+                    objectName: "retainedJobFilterChip"
+                    visible: page.hasRetainedJobFilter
+                    height: filterRow.controlHeight
+                    text: qsTr("职业：%1").arg(Jobs.jobName(page.retainedJobFilter))
+                    checked: true
+                    removable: true
+                    Accessible.name: text
+                    onRemoved: {
+                        page.retainedJobFilter = null
+                        page.scheduleFilter()
+                    }
                 }
 
                 StyledComboBox {
