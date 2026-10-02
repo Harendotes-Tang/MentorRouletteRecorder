@@ -33,6 +33,14 @@ public static class CaptureWire
             ["npcap_version"] = snapshot.Npcap.Version,
             ["ffxiv_running"] = snapshot.Game.Running,
             ["ffxiv_process_id"] = snapshot.Game.ProcessId,
+            ["game_selection_required"] = snapshot.Game.SelectionRequired,
+            ["game_selection_reason"] = snapshot.Game.SelectionReason,
+            ["game_processes"] = new JsonArray(snapshot.Game.Processes.Select(p => (JsonNode?)new JsonObject
+            {
+                ["process_id"] = p.ProcessId,
+                ["started_at_utc"] = UtcTimestamp.ToTextOrNull(p.StartedAtUtc),
+                ["selection_token"] = p.Token,
+            }).ToArray()),
             ["game_build"] = snapshot.Game.GameBuild,
             ["region"] = EnumWire<Region>.Format(snapshot.Game.Region),
             ["profile_status"] = EnumWire<ProfileStatus>.Format(snapshot.Profile.Status),

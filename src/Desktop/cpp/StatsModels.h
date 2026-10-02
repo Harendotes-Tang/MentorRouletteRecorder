@@ -16,15 +16,14 @@ namespace mr {
 
 class IBackend;
 
-/// Common base: fetch a paged stats response, keep the items.
+/// Fetch every statistics page, then publish one complete snapshot.
 class StatsRowsModel : public QAbstractListModel
 {
     Q_OBJECT
     Q_PROPERTY(int count READ rowCountProperty NOTIFY countChanged)
     /// How many distinct rows exist server-side, not how many this page holds.
     /// Reads $defs/DungeonStats.distinct_count when the Collector sends it and
-    /// falls back to page_info.total; `count` is only the current page and is
-    /// truncated by paging and by any Top-N view.
+    /// falls back to page_info.total. Top-N is applied to the complete snapshot.
     Q_PROPERTY(int distinctCount READ distinctCount NOTIFY countChanged)
     Q_PROPERTY(int maxAttemptCount READ maxAttemptCount NOTIFY countChanged)
     Q_PROPERTY(int totalAttemptCount READ totalAttemptCount NOTIFY countChanged)
@@ -75,6 +74,11 @@ protected:
     QJsonObject m_filter;
     int m_distinctCount = 0;
     bool m_loading = false;
+
+private:
+    void loadPage(quint64 generation, int page, QList<QJsonObject> rows, int total = -1);
+    void failLoad(quint64 generation, const QString &code, const QString &message);
+    quint64 m_loadGeneration = 0;
 };
 
 class DungeonStatsModel : public StatsRowsModel

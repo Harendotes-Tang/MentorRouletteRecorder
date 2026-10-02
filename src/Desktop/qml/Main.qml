@@ -122,6 +122,7 @@ ApplicationWindow {
         return App.recording.state === "listening" ? qsTr("自动监听中")
              : App.recording.silent ? qsTr("监听中·收不到数据")
              : App.recording.state === "waiting" ? qsTr("等待游戏")
+             : App.recording.state === "choosing_game" ? qsTr("等待选择游戏")
              : App.recording.state === "calibrating" ? qsTr("校准中")
              : App.recording.state === "calibration_ready" ? qsTr("待核对")
              : App.recording.state === "calibration_blocked" ? qsTr("无法自动记录")
@@ -686,7 +687,7 @@ ApplicationWindow {
                                 // 当前场次 belong to the capture page and the dashboard's
                                 // 当前导随 card.
                                 model: [
-                                    { icon: "gamepad-2", key: qsTr("FF14"), value: App.ffxivRunning ? qsTr("运行中") : qsTr("未运行"), color: App.ffxivRunning ? Theme.green : Theme.neutral400 },
+                                    { icon: "gamepad-2", key: qsTr("FF14"), value: App.gameSelection.selectionRequired && App.gameSelection.choices.length > 0 ? qsTr("待选择") : App.ffxivRunning ? qsTr("运行中") : qsTr("未运行"), color: App.gameSelection.selectionRequired && App.gameSelection.choices.length > 0 ? Theme.orange : App.ffxivRunning ? Theme.green : Theme.neutral400 },
                                     { icon: "network", key: qsTr("Npcap"), value: App.npcapInstalled ? qsTr("就绪") : qsTr("未安装"), color: App.npcapInstalled ? Theme.green : Theme.orange },
                                     { icon: "radio", key: qsTr("捕获"), value: window.captureBadgeText(), color: window.captureBadgeColor() }
                                 ]
@@ -899,7 +900,8 @@ ApplicationWindow {
             App.createManualRun(fields, reason)
         }
         onCorrectRequested: function(changes, reason) {
-            App.correctSelectedRun(changes, reason, editDialog.runData ? editDialog.runData.run_id : "")
+            App.correctSelectedRun(changes, reason, editDialog.runData ? editDialog.runData.run_id : "",
+                                   editDialog.runData ? editDialog.runData.revision : -1)
         }
     }
 

@@ -94,12 +94,179 @@ QJsonObject dashboard(int count)
                 {QStringLiteral("granularity"), QStringLiteral("day")},
                 {QStringLiteral("buckets"), buckets}}}};
 }
+
+QJsonObject statsPage(int page, int total, int firstId = 1)
+{
+    QJsonArray items;
+    for (int i = (page - 1) * 200; i < qMin(page * 200, total); ++i)
+        items.append(QJsonObject{{QStringLiteral("content_id"), firstId + i},
+                                 {QStringLiteral("attempt_count"), 1}});
+    return {{QStringLiteral("items"), items}, {QStringLiteral("distinct_count"), total},
+            {QStringLiteral("page_info"), QJsonObject{{QStringLiteral("page"), page},
+                {QStringLiteral("page_size"), 200}, {QStringLiteral("total"), total}}}};
+}
 }
 
 class WorkflowControllerTests : public QObject
 {
     Q_OBJECT
 private Q_SLOTS:
+    void statisticsLoadsAllPagesBeforePublishingCounts()
+    {
+        ControlledBackend backend;
+        mr::StatisticsController statistics(&backend);
+        auto *model = statistics.dungeons();
+        QSignalSpy published(model, &mr::StatsRowsModel::countChanged);
+        model->reload();
+        backend.last(QStringLiteral("GetDungeonStats")).reply->succeed(statsPage(1, 401));
+        QVERIFY(model->isLoading());
+        QCOMPARE(published.count(), 0);
+        QTRY_COMPARE(backend.count(QStringLiteral("GetDungeonStats")), 2);
+        QCOMPARE(backend.last(QStringLiteral("GetDungeonStats")).payload.value("page").toInt(), 2);
+        backend.last(QStringLiteral("GetDungeonStats")).reply->succeed(statsPage(2, 401));
+        QVERIFY(model->isLoading());
+        QCOMPARE(published.count(), 0);
+        QTRY_COMPARE(backend.count(QStringLiteral("GetDungeonStats")), 3);
+        backend.last(QStringLiteral("GetDungeonStats")).reply->succeed(statsPage(3, 401));
+        QVERIFY(!model->isLoading());
+        QCOMPARE(published.count(), 1);
+        QCOMPARE(model->distinctCount(), 401);
+        QCOMPARE(model->totalAttemptCount(), 401);
+        QCOMPARE(model->topRows(0).size(), 401);
+        QCOMPARE(model->topRows(10).size(), 10);
+        QCOMPARE(statistics.dutyOptions().size(), 401);
+        QCOMPARE(model->rowAt(400).value("content_id").toInt(), 401);
+    }
+
+    void supersededStatisticsPagesAndFailuresCannotReplaceNewFilter()
+    {
+        ControlledBackend backend;
+        mr::DungeonStatsModel model;
+        model.setBackend(&backend);
+        QSignalSpy failures(&model, &mr::StatsRowsModel::loadFailed);
+        model.reload();
+        backend.last(QStringLiteral("GetDungeonStats")).reply->succeed(statsPage(1, 201));
+        QTRY_COMPARE(backend.count(QStringLiteral("GetDungeonStats")), 2);
+        auto oldPage = backend.last(QStringLiteral("GetDungeonStats")).reply;
+        model.setFilter({{QStringLiteral("content_id"), QVariantList{999}}});
+        backend.last(QStringLiteral("GetDungeonStats")).reply->succeed(statsPage(1, 1, 999));
+        oldPage->succeed(statsPage(2, 201));
+        QCOMPARE(model.rowCount(), 1);
+        QCOMPARE(model.rowAt(0).value("content_id").toInt(), 999);
+        model.reload();
+        auto oldFailure = backend.last(QStringLiteral("GetDungeonStats")).reply;
+        model.reload();
+        oldFailure->fail(QStringLiteral("ERR_TEST"), QStringLiteral("old failure"));
+        QVERIFY(model.isLoading());
+        QCOMPARE(failures.count(), 0);
+        backend.last(QStringLiteral("GetDungeonStats")).reply->succeed(statsPage(1, 1, 998));
+        QCOMPARE(model.rowAt(0).value("content_id").toInt(), 998);
+    }
+
+    void failedOrChangedStatisticsPageNeverPublishesPartialTotals_data()
+    {
+        QTest::addColumn<bool>("changed");
+        QTest::newRow("failure") << false;
+        QTest::newRow("changed-total") << true;
+    }
+
+    void failedOrChangedStatisticsPageNeverPublishesPartialTotals()
+    {
+        QFETCH(bool, changed);
+        ControlledBackend backend;
+        mr::DungeonStatsModel model;
+        model.setBackend(&backend);
+        QSignalSpy failures(&model, &mr::StatsRowsModel::loadFailed);
+        model.reload();
+        backend.last(QStringLiteral("GetDungeonStats")).reply->succeed(statsPage(1, 201));
+        QTRY_COMPARE(backend.count(QStringLiteral("GetDungeonStats")), 2);
+        if (changed)
+            backend.last(QStringLiteral("GetDungeonStats")).reply->succeed(statsPage(2, 202));
+        else
+            backend.last(QStringLiteral("GetDungeonStats")).reply->fail("ERR_TEST", "failed");
+        QVERIFY(!model.isLoading());
+        QCOMPARE(model.rowCount(), 0);
+        QCOMPARE(model.totalAttemptCount(), 0);
+        QCOMPARE(failures.count(), 1);
+    }
+
+    void anOpenFormKeepsItsRevisionWhileTheSelectedRecordRefreshes()
+    {
+        ControlledBackend backend;
+        mr::HistoryController history(&backend);
+        auto original = run(QStringLiteral("A"), 1);
+        original.insert(QStringLiteral("result"), QStringLiteral("UNKNOWN"));
+        history.selectRun(original);
+        history.adoptRunRevisionFromEvent({{"run_id", "A"}, {"revision", 2}, {"result", "COMPLETED"}});
+        QCOMPARE(history.selectedRun().value("result").toString(), QStringLiteral("COMPLETED"));
+        history.correctSelectedRun({{"result", "LEFT_OR_ABANDONED"}}, "reason", "A", 1);
+        auto correction = backend.last(QStringLiteral("CorrectRun"));
+        QCOMPARE(correction.payload.value("expected_revision").toInt(), 1);
+        QSignalSpy failed(&history, &mr::HistoryController::mutationFailed);
+        correction.reply->fail("ERR_REVISION_CONFLICT", "stale");
+        QCOMPARE(failed.count(), 1);
+        QCOMPARE(backend.count(QStringLiteral("CorrectRun")), 1);
+        // An older event must not regress the detail panel either.
+        history.adoptRunRevisionFromEvent(QJsonObject::fromVariantMap(original));
+        QCOMPARE(history.selectedRun().value("revision").toInt(), 2);
+        QCOMPARE(history.selectedRun().value("result").toString(), QStringLiteral("COMPLETED"));
+        history.clearSelection();
+        history.correctSelectedRun({{"note", "draft"}}, "reason", "A", 1);
+        QCOMPARE(failed.count(), 2);
+        QCOMPARE(failed.last().first().toString(), QStringLiteral("ERR_SELECTION_CHANGED"));
+    }
+
+    void mutationRepliesLeaveANewerSelectionAlone_data()
+    {
+        QTest::addColumn<bool>("deleting");
+        QTest::newRow("correction") << false;
+        QTest::newRow("deletion") << true;
+    }
+
+    void mutationRepliesLeaveANewerSelectionAlone()
+    {
+        QFETCH(bool, deleting);
+        ControlledBackend backend;
+        mr::HistoryController history(&backend);
+        history.selectRun(run(QStringLiteral("A")));
+        if (deleting)
+            history.softDeleteSelectedRun("reason");
+        else
+            history.correctSelectedRun({{"note", "draft"}}, "reason", "A", 2);
+        auto reply = backend.last(deleting ? "SoftDeleteRun" : "CorrectRun").reply;
+        QVERIFY(reply);
+        history.selectRun(run(QStringLiteral("B")));
+        reply->succeed({{"run_id", "A"}, {"revision", 3},
+                        {"run", QJsonObject::fromVariantMap(run(QStringLiteral("A"), 3))}});
+        QCOMPARE(history.selectedRun().value("run_id").toString(), QStringLiteral("B"));
+    }
+
+    void obsoleteHistoryQueryCannotMoveThePageOrClearTheNewRows()
+    {
+        ControlledBackend backend;
+        mr::RunListModel model;
+        model.setBackend(&backend);
+        model.reload();
+        auto oldReply = backend.last(QStringLiteral("QueryRuns")).reply;
+        model.setFilter({{"pending_review", true}});
+        const QJsonObject page{{"items", QJsonArray{QJsonObject{{"run_id", "new"}}}},
+                               {"page_info", QJsonObject{{"page", 1}, {"total", 1}}}};
+        backend.last(QStringLiteral("QueryRuns")).reply->succeed(page);
+        oldReply->succeed({{"items", QJsonArray{}}, {"page_info", QJsonObject{{"page", 9}, {"total", 90}}}});
+        QCOMPARE(model.page(), 1);
+        QCOMPARE(model.total(), 1);
+        QCOMPARE(model.runAt(0).value("run_id").toString(), QStringLiteral("new"));
+        model.reload();
+        oldReply = backend.last(QStringLiteral("QueryRuns")).reply;
+        model.reload();
+        QSignalSpy failed(&model, &mr::RunListModel::loadFailed);
+        oldReply->fail("ERR_TEST", "old failure");
+        QVERIFY(model.isLoading());
+        QCOMPARE(failed.count(), 0);
+        backend.last(QStringLiteral("QueryRuns")).reply->succeed(page);
+        QCOMPARE(model.rowCount(), 1);
+    }
+
     void statisticsAdoptionPrecedesSignalsAndCompletion()
     {
         ControlledBackend backend;

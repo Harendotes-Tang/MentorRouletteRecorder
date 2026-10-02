@@ -377,6 +377,14 @@ public sealed class ContractSchemaTests
             Assert.Equal(14, updated["log_retention_days"]!.GetValue<int>());
             Assert.Equal("CN", updated["region_override"]!.GetValue<string>());
 
+            var gameChoices = (await client.SendAsync("GetCaptureStatus")).Require()["game_processes"]!.AsArray();
+            var choice = gameChoices.Single()!;
+            var selectedGame = await client.SendAsync("SelectGameProcess", new JsonObject
+            {
+                ["process_id"] = choice["process_id"]!.DeepClone(),
+                ["selection_token"] = choice["selection_token"]!.DeepClone(),
+            });
+            Assert.True(selectedGame.Ok, selectedGame.ErrorMessage);
             var startedCapture = await client.SendAsync("StartCapture", new JsonObject());
             Assert.True(startedCapture.Ok, startedCapture.ErrorMessage);
             Assert.Equal("RUNNING", startedCapture.Require()["state"]!.GetValue<string>());

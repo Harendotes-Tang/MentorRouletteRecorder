@@ -16,6 +16,8 @@ public sealed record CaptureValidationServices
     public CaptureTraceServices Trace { get; init; } = new();
     public TimeSpan PollInterval { get; init; } = TimeSpan.FromMilliseconds(250);
     public Func<GameProcessDetection>? LocateGame { get; init; }
+    /// <summary>Rebinds only a fresh client after this validation explicitly requested a restart.</summary>
+    public Func<GameProcessDetection, GameProcessDetection>? LocateRestartedGame { get; init; }
     public string? RememberedAdapterId { get; init; }
     public Func<TimeSpan>? Elapsed { get; init; }
 
@@ -209,6 +211,10 @@ public sealed partial class CaptureValidationController : IDisposable
 
     private GameProcessDetection Locate() => _services.LocateGame?.Invoke() ?? _services.Trace.Game.Locate();
 
+    private GameProcessDetection LocateWaiting(Session session) =>
+        session.RestartFrom is { } previous && _services.LocateRestartedGame is { } restart
+            ? restart(previous) : Locate();
+
     private async Task RunAsync(Session s)
     {
         ICaptureSource? source = null;
@@ -219,7 +225,7 @@ public sealed partial class CaptureValidationController : IDisposable
         {
             while (!s.Stop.IsCancellationRequested)
             {
-                var game = Locate();
+                var game = LocateWaiting(s);
                 var adapter = Candidate(s, game);
                 if (adapter is null)
                 {
@@ -227,7 +233,7 @@ public sealed partial class CaptureValidationController : IDisposable
                     continue;
                 }
                 // Recheck the complete identity and TCP table immediately before source creation/start.
-                var checkedGame = Locate();
+                var checkedGame = LocateWaiting(s);
                 var checkedAdapter = Candidate(s, checkedGame);
                 if (checkedAdapter is null || checkedGame.ProcessId != game.ProcessId ||
                     checkedGame.StartedAtUtc != game.StartedAtUtc || checkedGame.ExecutablePath != game.ExecutablePath ||
@@ -349,6 +355,9 @@ public sealed partial class CaptureValidationController : IDisposable
 
     private CaptureAdapterView? Candidate(Session s, GameProcessDetection game)
     {
+        if (game.SelectionRequired && game.SelectionReason == "EXITED" && s.RestartFrom is not null)
+            return Wait("WAITING_RESTART", "正在等待所选游戏重新启动。若游戏已启动仍未继续，请停止验证，重新检测并选择窗口。");
+        if (game.SelectionRequired) return Wait("WAITING_GAME", "请先停止验证，在总览或捕获诊断页选择游戏窗口后再开始。");
         if (!game.Running || game.ProcessId is not > 0) return Wait("WAITING_GAME", "正在等待游戏启动。");
         if (string.IsNullOrWhiteSpace(game.ExecutablePath) || string.IsNullOrWhiteSpace(game.GameBuild))
             return Wait("WAITING_IDENTITY", "正在等待可读取的游戏路径与客户端版本。");
@@ -367,12 +376,18 @@ public sealed partial class CaptureValidationController : IDisposable
         if (selected is null || !selected.IsUp || selected.IsLoopback || !GameTcpConnectionProbe.IsUsableLocalAddress(selected.BindAddress))
             return Wait("WAITING_ADAPTER", "等待可用 IPv4 网卡；无法自动确定时，请取消并明确选择网卡。");
         s.AdapterId ??= selected.Id;
-        if (s.BlockedPids.Contains(game.ProcessId.Value)) return Wait("WAITING_RESTART", "游戏已有连接，请退出并重新启动游戏，验证将自动继续。");
+        var identity = (game.ProcessId.Value, game.StartedAtUtc);
+        if (s.BlockedClients.Contains(identity))
+        {
+            s.RestartFrom = game;
+            return Wait("WAITING_RESTART", "游戏已有连接，请退出并重新启动游戏，验证将自动继续。");
+        }
         var count = _services.Trace.TcpConnectionCounter(game.ProcessId.Value, selected.BindAddress);
         if (count is null or < 0) return Wait("WAITING_CONNECTION_CHECK", "无法确认游戏连接状态，正在等待系统查询恢复。");
         if (count > 0)
         {
-            s.BlockedPids.Add(game.ProcessId.Value);
+            s.BlockedClients.Add(identity);
+            s.RestartFrom = game;
             return Wait("WAITING_RESTART", "游戏已有连接，请退出并重新启动游戏，验证将自动继续。");
         }
         return selected;
@@ -450,7 +465,8 @@ public sealed partial class CaptureValidationController : IDisposable
         public readonly IDisposable Lease = lease;
         public readonly NpcapDetection Npcap = npcap;
         public readonly CancellationTokenSource Stop = new();
-        public readonly HashSet<int> BlockedPids = new();
+        public readonly HashSet<(int ProcessId, DateTimeOffset? StartedAtUtc)> BlockedClients = new();
+        public GameProcessDetection? RestartFrom;
         public readonly Channel<Marker> Markers = Channel.CreateBounded<Marker>(new BoundedChannelOptions(MarkerQueueCapacity)
         { FullMode = BoundedChannelFullMode.Wait, SingleReader = true, SingleWriter = false });
         public int AcceptedMarkers;

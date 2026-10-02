@@ -234,18 +234,9 @@ Dialog {
             dialog.openForResult(run)
         }
 
-        // A live run_updated, or the controller's retry after
-        // ERR_REVISION_CONFLICT, moved the record on; the next correction must
-        // carry the new revision or be refused for a revision that is only
-        // stale on screen. runData is a plain var, so a new object is assigned
-        // to make runRevision re-evaluate.
-        function onRunRevisionChanged(runId, revision) {
-            if (dialog.runId.length === 0 || runId !== dialog.runId)
-                return
-            var next = Object.assign({}, dialog.runData)
-            next.revision = revision
-            dialog.runData = next
-        }
+        // Keep the revision the player saw. The controller can retry a
+        // conflict after checking intervening changes; a revision-only live
+        // update would skip that check and overwrite an unseen result/job.
 
         function onMutationSucceeded(kind, runId, revision, auditEventId) {
             if (!dialog.visible || !dialog.resolving || dialog.waitingForReflection

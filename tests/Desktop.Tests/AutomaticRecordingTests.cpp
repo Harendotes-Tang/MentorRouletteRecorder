@@ -337,6 +337,23 @@ private slots:
         QVERIFY(b.calls.contains("GetProtocolProfileStatus"));
     }
 
+    void gameChoiceOutranksProfileAndWaitingMessages() {
+        RecordingBackend b;
+        b.capture["ffxiv_running"] = false;
+        b.capture["profile_status"] = "UNSUPPORTED_BUILD";
+        b.capture["game_selection_required"] = true;
+        b.capture["game_selection_reason"] = "MULTIPLE";
+        mr::AutomaticRecordingController recording(&b);
+        recording.refresh();
+        QCOMPARE(recording.state(), QStringLiteral("choosing_game"));
+        QVERIFY(recording.attention());
+        QVERIFY(!recording.pendingAlert());
+        QVERIFY(recording.message().contains(QString::fromUtf8("多个游戏客户端")));
+        b.capture["game_selection_reason"] = "EXITED";
+        recording.refresh();
+        QVERIFY(recording.message().contains(QString::fromUtf8("已退出")));
+    }
+
     void normalMutationIsGatedAndMaintenancePreservesFollowChoice() {
         RecordingBackend b; b.settings["follow_game"] = false;
         mr::AppController app(&b, nullptr);

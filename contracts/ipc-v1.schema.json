@@ -32,7 +32,7 @@
     "MessageType": {
       "type": "string",
       "enum": [
-        "GetVersion", "GetStatus", "GetCaptureStatus", "ListCaptureAdapters", "StartCapture",
+        "GetVersion", "GetStatus", "GetCaptureStatus", "ListCaptureAdapters", "StartCapture", "SelectGameProcess",
         "StopCapture", "GetProtocolProfileStatus", "GetCurrentRun", "QueryRuns", "GetDashboardStats",
         "GetDungeonStats", "GetJobStats", "GetResultStats", "CreateManualRun", "CorrectRun",
         "SoftDeleteRun", "RestoreRun", "GetRunRevisions", "UpdateAchievementBaseline", "ExportCsv",
@@ -503,6 +503,20 @@
         "npcap_version": { "type": ["string", "null"] },
         "ffxiv_running": { "type": "boolean" },
         "ffxiv_process_id": { "type": ["integer", "null"], "minimum": 0 },
+        "game_selection_required": { "type": "boolean" },
+        "game_selection_reason": { "enum": ["NONE", "MULTIPLE", "EXITED", "IDENTITY_UNAVAILABLE"] },
+        "game_processes": {
+          "type": "array",
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["process_id", "started_at_utc", "selection_token"],
+            "properties": {
+              "process_id": { "type": "integer", "minimum": 1 },
+              "started_at_utc": { "type": ["string", "null"] },
+              "selection_token": { "$ref": "#/$defs/Uuid" }
+            }
+          }
+        },
         "game_build": { "type": ["string", "null"] },
         "region": { "$ref": "#/$defs/Region" },
         "profile_status": { "$ref": "#/$defs/ProfileStatus" },
@@ -744,6 +758,7 @@
         { "if": { "properties": { "message_type": { "const": "GetCaptureStatus" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/EmptyPayload" } } } },
         { "if": { "properties": { "message_type": { "const": "ListCaptureAdapters" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/EmptyPayload" } } } },
         { "if": { "properties": { "message_type": { "const": "StartCapture" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/StartCaptureRequest" } } } },
+        { "if": { "properties": { "message_type": { "const": "SelectGameProcess" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/SelectGameProcessRequest" } } } },
         { "if": { "properties": { "message_type": { "const": "StopCapture" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/EmptyPayload" } } } },
         { "if": { "properties": { "message_type": { "const": "GetProtocolProfileStatus" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/EmptyPayload" } } } },
         { "if": { "properties": { "message_type": { "const": "GetCurrentRun" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/EmptyPayload" } } } },
@@ -819,6 +834,14 @@
       "if": { "properties": { "state": { "enum": ["WAITING", "RECORDING", "STOPPING"] } } },
       "then": { "properties": { "active": { "const": true } } },
       "else": { "properties": { "active": { "const": false } } }
+    },
+    "SelectGameProcessRequest": {
+      "type": "object", "additionalProperties": false,
+      "required": ["process_id", "selection_token"],
+      "properties": {
+        "process_id": { "type": "integer", "minimum": 1 },
+        "selection_token": { "$ref": "#/$defs/Uuid" }
+      }
     },
     "StartCaptureRequest": {
       "type": "object",
@@ -1379,6 +1402,7 @@
           "adapters": { "type": "array", "items": { "$ref": "#/$defs/CaptureAdapter" } }
         }
       },
+      "SelectGameProcess": { "$ref": "#/$defs/CaptureStatus" },
       "StartCapture": { "$ref": "#/$defs/CaptureStatus" }, "StopCapture": { "$ref": "#/$defs/CaptureStatus" },
       "StartCaptureValidation": { "$ref": "#/$defs/CaptureValidationStatus" },
       "GetCaptureValidationStatus": { "$ref": "#/$defs/CaptureValidationStatus" },

@@ -106,6 +106,7 @@ public sealed partial class LiveProtocolPipeline :
     private readonly SharedCalibrationSession _shared;
     private string? _boundProfileId;
     private StateMachineMemory? _sessionCarried;
+    private GameProcessDetection? _sessionGame;
 
     /// <summary>
     /// A run just ended inside the message being parsed, so shared calibration is owed a look the moment
@@ -456,10 +457,13 @@ public sealed partial class LiveProtocolPipeline :
             _lastMessageMono = null;
             _counting = new CountingSink();
 
-            // What the previous machine knew about the player -- the job, and only the job --
-            // survives a retried capture session, so the first run after an automatic restart
-            // is not recorded job-less (review finding L-8).
-            var carried = _processor?.Machine.Memory;
+            // The player's job survives a capture retry only when both sessions belong to
+            // the same live process. A different client, a reused PID, or unreadable start
+            // time must never seed its first run with another client's job.
+            var sameClient = _sessionGame is { Running: true, ProcessId: > 0, StartedAtUtc: { } started } previous &&
+                _game.Running && _game.ProcessId == previous.ProcessId && _game.StartedAtUtc == started;
+            var carried = sameClient ? _processor?.Machine.Memory : null;
+            _sessionGame = _game;
             _parser = null;
             _processor = null;
             _boundProfileId = null;
@@ -477,7 +481,7 @@ public sealed partial class LiveProtocolPipeline :
             // and the search for the server's own match message goes on underneath it.
             if (_calibration.Armed)
             {
-                _calibration.Begin(captureSessionId);
+                _calibration.Begin(captureSessionId, preservePlayerJob: sameClient);
                 _calibrationLastDerive = TimeSpan.Zero;
                 _calibrationLastSave = TimeSpan.Zero;
                 NotifyCalibrationChanged();

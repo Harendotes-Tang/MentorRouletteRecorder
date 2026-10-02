@@ -274,6 +274,7 @@ private:
     /// Monotonic $defs/LiveEvent.sequence handed to every emitted event.
     qint64 m_liveSequence = 0;
     QString m_recordingFixture;
+    int m_selectedGameProcessId = 0;
     QString m_calibrationState;
     QString m_sharedState;
     /// provider / azure_region / openai_base_url / openai_model / voice.

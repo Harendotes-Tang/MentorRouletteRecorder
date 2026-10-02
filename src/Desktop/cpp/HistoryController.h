@@ -42,10 +42,10 @@ public:
     void setHistoryFilter(const QVariantMap &filter);
     void resetHistoryFilter();
     void createManualRun(const QVariantMap &fields, const QString &reason);
-    ///  runId is the run the edit dialog was opened for; a selection that moved on since is
-    /// refused, so a correction can never be saved onto a run the dialog did not show.
+    /// The dialog supplies both the run id and the revision it actually displayed.
+    /// A live update must not silently advance that form's conflict-check baseline.
     void correctSelectedRun(const QVariantMap &changes, const QString &reason,
-                            const QString &runId = QString());
+                            const QString &runId = QString(), int expectedRevision = -1);
     void resolveRunResult(const QString &runId, int revision,
                                     const QString &result, const QString &reason, int jobId = 0);
     void confirmSelectedRunReview(const QString &reason);

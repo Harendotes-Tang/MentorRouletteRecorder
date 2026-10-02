@@ -38,6 +38,8 @@ Item {
     // with 等待游戏启动 spelled out.
     function listeningText() {
         const state = App.recording.state
+        if (state === "choosing_game")
+            return qsTr("等待选择游戏")
         if (state === "listening")
             return qsTr("自动监听中")
         if (App.recording.silent)
@@ -126,6 +128,8 @@ Item {
                 Layout.fillWidth: true
                 visible: page.npcapProblem
             }
+
+            GameSelectionPanel {}
 
             CaptureNotices {
                 Layout.fillWidth: true

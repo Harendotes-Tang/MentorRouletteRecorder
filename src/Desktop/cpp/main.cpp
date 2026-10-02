@@ -781,7 +781,7 @@ int main(int argc, char *argv[])
 
     if (parser.isSet(recordingOption) && !QStringList{QStringLiteral("waiting"),
             QStringLiteral("waiting-verified"), QStringLiteral("waiting-calibrating"),
-            QStringLiteral("checking"),
+            QStringLiteral("checking"), QStringLiteral("multiple"), QStringLiteral("multiple-exited"),
             QStringLiteral("listening"), QStringLiteral("blocked")}.contains(parser.value(recordingOption))) {
         std::fputs("invalid --mock-recording-state value\n", stderr);
         return 2;

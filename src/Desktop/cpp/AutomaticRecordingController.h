@@ -45,7 +45,7 @@ public:
             || m_state == QLatin1String("calibration_ready")
             || m_state == QLatin1String("calibration_blocked");
     }
-    bool attention() const { return blocked() || silent() || calibrating(); }
+    bool attention() const { return blocked() || silent() || calibrating() || m_state == QLatin1String("choosing_game"); }
     bool pendingAlert() const { return m_pending; }
     bool retryAvailable() const { return !m_followError.isEmpty() || !m_validationError.isEmpty(); }
     void setMaintenance(bool enabled);

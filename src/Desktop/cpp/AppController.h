@@ -29,6 +29,7 @@
 
 #include "CaptureValidationController.h"
 #include "AutomaticRecordingController.h"
+#include "GameSelectionController.h"
 #include "CalibrationController.h"
 #include "CandidateReviewController.h"
 #include "RunListModel.h"
@@ -62,6 +63,7 @@ class AppController final : public QObject, public CaptureValidationController::
     // counters on the capture page. Off for players; the mock harness turns it on.
     Q_PROPERTY(bool maintainerToolsVisible READ maintainerToolsVisible NOTIFY maintainerToolsChanged)
     Q_PROPERTY(mr::AutomaticRecordingController *recording READ recording CONSTANT)
+    Q_PROPERTY(mr::GameSelectionController *gameSelection READ gameSelection CONSTANT)
     Q_PROPERTY(int uiScale READ uiScale WRITE setUiScale NOTIFY uiScaleChanged)
 
     // -- backend ------------------------------------------------------------
@@ -266,6 +268,7 @@ public:
     }
 
     AutomaticRecordingController *recording() const { return m_recording; }
+    GameSelectionController *gameSelection() const { return m_gameSelection; }
     bool isDark() const;
     int uiScale() const;
 
@@ -466,7 +469,7 @@ public Q_SLOTS:
 
     void createManualRun(const QVariantMap &fields, const QString &reason);
     void correctSelectedRun(const QVariantMap &changes, const QString &reason,
-                            const QString &runId = QString());
+                            const QString &runId = QString(), int expectedRevision = -1);
     void softDeleteSelectedRun(const QString &reason);
     void restoreSelectedRun(const QString &reason);
     /// Undo the newest revision of the selected run through UndoRevision.
@@ -572,8 +575,8 @@ Q_SIGNALS:
     void pendingReviewRunChanged();
     /// The Collector's own revision for \a runId moved on - because a live
     /// run_updated said so, or because a CorrectRun hit ERR_REVISION_CONFLICT
-    /// and the fresh number was read back. A dialog holding \a runId must
-    /// adopt \a revision, or its next save is refused for the same reason.
+    /// and the fresh number was read back. Open forms keep their own baseline;
+    /// adopting this number alone would bypass their conflict checks.
     void runRevisionChanged(const QString &runId, int revision);
 
 private:
@@ -658,6 +661,7 @@ private:
     TtsService *m_tts = nullptr;
     CaptureValidationController *m_capture = nullptr;
     AutomaticRecordingController *m_recording = nullptr;
+    GameSelectionController *m_gameSelection = nullptr;
     ExportController *m_export = nullptr;
     CandidateReviewController *m_candidates = nullptr;
     CalibrationController *m_calibration = nullptr;

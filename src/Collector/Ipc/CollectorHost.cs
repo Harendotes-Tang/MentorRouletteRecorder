@@ -225,6 +225,8 @@ public sealed class CollectorHost : IDisposable
             host.Capture = new CaptureController(services);
             host.Validation = new CaptureValidationController(database.Path, services.Ownership, validation ?? new CaptureValidationServices
             {
+                LocateGame = host.Capture.RescanGame,
+                LocateRestartedGame = host.Capture.RescanGameAfterValidationRestart,
                 Trace = new CaptureTraceServices
                 {
                     Npcap = services.Npcap, Game = services.Game, Adapters = services.Adapters,

@@ -136,6 +136,8 @@ QJsonObject IpcBackend::buildRequestForTest(const QString &messageType,
         backend.listCaptureAdapters();
     else if (messageType == QLatin1String("StartCapture"))
         backend.startCapture(stringArg(args, "adapter_id"));
+    else if (messageType == QLatin1String("SelectGameProcess"))
+        backend.selectGameProcess(intArg(args, "process_id", 0), stringArg(args, "selection_token"));
     else if (messageType == QLatin1String("StopCapture"))
         backend.stopCapture();
     else if (messageType == QLatin1String("GetCurrentRun"))

@@ -268,6 +268,7 @@ private Q_SLOTS:
     void runListModel_resizeRoundTripKeepsNavigationAnchor();
     void runListModel_clampsAnchorWhenTotalShrinks();
     void jobStatsModel_roleBreakdownKeepsFixedOrder();
+    void mockStatisticsPagesKeepTheSameTotalWithoutRepeatingRows();
     void jobStatsModel_derivesRoleGroupFromTheContractFields();
     void roleCatalog_mapsEveryRoleToAnExistingIcon();
     void appController_rebuildsDutyOptionsAndHandlesCaptureFailure();
@@ -712,6 +713,9 @@ void DesktopTests::runListModel_clampsAnchorWhenTotalShrinks()
     complete(10, 100);
     model.reload();
     complete(10, 35); // The real repository retains the requested page even when now empty.
+    QCOMPARE(model.page(), 4); // The model immediately requests the last surviving page.
+    QVERIFY(model.isLoading());
+    complete(4, 35);
     model.setPageSize(7);
     QCOMPARE(model.page(), 5); // Last surviving row (34) stays in view.
     complete(5, 35);
@@ -721,9 +725,44 @@ void DesktopTests::runListModel_clampsAnchorWhenTotalShrinks()
 
     model.reload();
     complete(1, 0);
+    complete(1, 0); // Empty history also clamps the previous last page back to one.
     model.setPageSize(7);
     QCOMPARE(model.page(), 1);
     complete(1, 0);
+}
+
+void DesktopTests::mockStatisticsPagesKeepTheSameTotalWithoutRepeatingRows()
+{
+    mr::MockBackend backend;
+    for (const QString &type : {QStringLiteral("GetDungeonStats"), QStringLiteral("GetJobStats")}) {
+        const auto query = [&backend, &type](int page, int size, QJsonObject &answer) {
+            bool finished = false;
+            QObject context;
+            backend.request(type, {{"page", page}, {"page_size", size}})->whenDone(
+                &context, [&answer, &finished](bool ok, const QVariantMap &payload, const QString &, const QString &) {
+                    finished = true;
+                    QVERIFY(ok);
+                    answer = QJsonObject::fromVariantMap(payload);
+                });
+            QTRY_VERIFY_WITH_TIMEOUT(finished, 3000);
+        };
+        QJsonObject all;
+        query(1, 200, all);
+        const auto expected = all.value("items").toArray();
+        QVERIFY(expected.size() > 2);
+        QJsonArray collected;
+        for (int page = 1; collected.size() < expected.size(); ++page) {
+            QJsonObject response;
+            query(page, 2, response);
+            QCOMPARE(response.value("page_info").toObject().value("total").toInt(), expected.size());
+            QCOMPARE(response.value("page_info").toObject().value("page").toInt(), page);
+            const auto items = response.value("items").toArray();
+            QVERIFY(!items.isEmpty());
+            for (const auto &item : items)
+                collected.append(item);
+        }
+        QCOMPARE(collected, expected);
+    }
 }
 
 void DesktopTests::jobStatsModel_roleBreakdownKeepsFixedOrder()

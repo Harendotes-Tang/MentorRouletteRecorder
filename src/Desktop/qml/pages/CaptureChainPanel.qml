@@ -24,6 +24,8 @@ Card {
     readonly property bool maintainer: App.maintainerToolsVisible
 
     readonly property bool gameRunning: !!chain.capture.ffxiv_running
+    readonly property bool choosingGame: !!chain.capture.game_selection_required
+    readonly property int gameCount: (chain.capture.game_processes || []).length
     readonly property string npcapStatus: String(chain.npcap.status || "")
     readonly property bool npcapReady: App.npcapInstalled
                                        && (chain.npcapStatus === "" || chain.npcapStatus === "READY")
@@ -76,6 +78,10 @@ Card {
     // The first thing in the chain that stops a record, in the order the
     // chain is walked. Returns [sentence, tone]; tone is "ok", "wait" or "bad".
     function summary() {
+        if (App.validationActive && String(App.validationStatus.reason || "") === "WAITING_RESTART")
+            return [qsTr("验证正在等待所选游戏重启"), "wait"]
+        if (chain.capture.game_selection_required)
+            return [App.gameSelection.selectionMessage, "bad"]
         if (!chain.npcapReady)
             return App.npcapInstalled
                    ? [qsTr("Npcap 暂时用不了 · 按上方说明处理后点“重新检测”"), "bad"]
@@ -167,6 +173,8 @@ Card {
     }
 
     function profileValue() {
+        if (chain.choosingGame)
+            return qsTr("等待选择游戏")
         if (chain.maintainer)
             return chain.profile.profile_id || chain.capture.profile_id || qsTr("无")
         // Plain words a player can read, never an id.
@@ -193,6 +201,8 @@ Card {
     }
 
     function profileSub() {
+        if (chain.choosingGame)
+            return qsTr("选定游戏后检查对应版本")
         if (chain.maintainer)
             return qsTr("%1 · build %2").arg(App.protocolProfileStatus)
                    .arg(chain.profile.game_build || chain.capture.game_build || Fmt.dash())
@@ -213,6 +223,8 @@ Card {
     }
 
     function profileState() {
+        if (chain.choosingGame)
+            return "wait"
         if (chain.profileStatus === "" || (!chain.gameRunning && chain.buildUnknown))
             return "wait"
         return chain.profileReady ? "ok" : "bad"
@@ -225,10 +237,12 @@ Card {
     readonly property var nodes: [
         {
             key: "game", label: qsTr("FF14 进程"),
-            value: chain.gameRunning ? "ffxiv_dx11.exe" : qsTr("未运行"),
+            value: chain.choosingGame && chain.gameCount > 0 ? qsTr("待选择")
+                   : chain.gameRunning ? "ffxiv_dx11.exe" : qsTr("未运行"),
             // With the game closed the installed version is what the profile is
             // matched against, and it is the one fact worth the line.
-            sub: chain.gameRunning ? qsTr("PID %1").arg(chain.capture.ffxiv_process_id || Fmt.dash())
+            sub: chain.choosingGame && chain.gameCount > 0 ? qsTr("检测到 %1 个客户端").arg(chain.gameCount)
+                 : chain.gameRunning ? qsTr("PID %1").arg(chain.capture.ffxiv_process_id || Fmt.dash())
                  : chain.buildUnknown ? qsTr("启动游戏后自动检测")
                                       : qsTr("已安装版本 %1").arg(chain.installedVersion),
             tone: chain.gameRunning ? "ok" : "wait"

@@ -329,10 +329,15 @@ public sealed partial class CalibrationObserver
     /// tagged per session, so nothing from one session pairs with another by accident.
     /// </summary>
     /// <param name="captureSessionId">Session whose messages are accepted from now on.</param>
-    public void AdoptSession(string captureSessionId)
+    /// <param name="preservePlayerJob">False when changing clients; historical protocol evidence is still kept.</param>
+    public void AdoptSession(string captureSessionId, bool preservePlayerJob = true)
     {
         ArgumentException.ThrowIfNullOrEmpty(captureSessionId);
         _sessions.Add(captureSessionId);
+        if (!preservePlayerJob)
+        {
+            _latestJobValues.Clear();
+        }
     }
 
     /// <summary>

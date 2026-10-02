@@ -78,6 +78,12 @@ public sealed record GameProcessDetection(
     string? ExecutablePath,
     IReadOnlyList<string> Warnings)
 {
+    /// <summary>Whether recording is waiting for an explicit client choice.</summary>
+    public bool SelectionRequired { get; init; }
+    /// <summary>NONE, MULTIPLE, EXITED, or IDENTITY_UNAVAILABLE.</summary>
+    public string SelectionReason { get; init; } = "NONE";
+    /// <summary>Ephemeral choices; no paths or window titles cross IPC.</summary>
+    public IReadOnlyList<GameProcessOption> Processes { get; init; } = Array.Empty<GameProcessOption>();
     /// <summary>The "nothing is running" answer.</summary>
     public static GameProcessDetection NotRunning { get; } = new(
         false, null, null, null, Region.Unknown, null, 0, null, Array.Empty<string>());
@@ -184,11 +190,7 @@ public sealed class GameProcessLocator
     /// </summary>
     public GameProcessDetection Locate()
     {
-        var candidates = new List<GameProcessCandidate>();
-        foreach (var name in new[] { Dx11ProcessName, LegacyProcessName })
-        {
-            candidates.AddRange(Safe(name));
-        }
+        var candidates = ListCandidates();
 
         if (candidates.Count == 0)
         {
@@ -203,15 +205,25 @@ public sealed class GameProcessLocator
             .ThenBy(candidate => candidate.ProcessId)
             .First();
 
+        return Describe(chosen, candidates.Count);
+    }
+
+    /// <summary>Lists candidates without selecting or remembering an installation.</summary>
+    public IReadOnlyList<GameProcessCandidate> ListCandidates() =>
+        new[] { Dx11ProcessName, LegacyProcessName }.SelectMany(Safe)
+            .DistinctBy(candidate => candidate.ProcessId)
+            .OrderBy(candidate => candidate.StartedAtUtc ?? DateTimeOffset.MaxValue)
+            .ThenBy(candidate => candidate.ProcessId).ToArray();
+
+    /// <summary>Reads metadata for this exact candidate, including its own client build.</summary>
+    public GameProcessDetection Describe(GameProcessCandidate chosen, int instanceCount)
+    {
+
         Remember(chosen.ExecutablePath);
 
         var warnings = new List<string>();
-        if (candidates.Count > 1)
-        {
-            warnings.Add(
-                $"检测到 {candidates.Count} 个 FFXIV 进程，已选择最早启动的一个（PID {chosen.ProcessId}）。" +
-                "若观察的不是这一个，请在诊断页手动指定进程 id。");
-        }
+        if (instanceCount > 1)
+            warnings.Add($"检测到 {instanceCount} 个 FFXIV 进程。请在总览或捕获诊断页确认当前记录对象。");
 
         if (chosen.ExecutablePath is null)
         {
@@ -258,7 +270,7 @@ public sealed class GameProcessLocator
             chosen.StartedAtUtc,
             region,
             build,
-            candidates.Count,
+            instanceCount,
             chosen.ExecutablePath,
             warnings);
     }

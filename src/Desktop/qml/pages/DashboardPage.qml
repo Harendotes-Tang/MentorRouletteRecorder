@@ -106,6 +106,8 @@ ScrollView {
         // downloaded or installed by this software.
         UpdateNotice {}
 
+        GameSelectionPanel {}
+
         Flow {
             Layout.fillWidth: true
             spacing: 8

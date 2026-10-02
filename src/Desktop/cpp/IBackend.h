@@ -124,6 +124,7 @@ public:
     BackendReply *updateCaptureSettings(const QJsonObject &changes);
     BackendReply *listCaptureAdapters();
     BackendReply *startCapture(const QString &adapterId = {});
+    BackendReply *selectGameProcess(int processId, const QString &selectionToken);
     BackendReply *stopCapture();
     BackendReply *startCaptureValidation(const QString &adapterId = {});
     BackendReply *getCaptureValidationStatus();

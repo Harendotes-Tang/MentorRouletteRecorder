@@ -690,6 +690,12 @@ QJsonObject MockBackend::captureStatus() const
                                  : QJsonValue(QStringLiteral("1.79")));
     status.insert(QStringLiteral("ffxiv_running"), true);
     status.insert(QStringLiteral("ffxiv_process_id"), 18244);
+    status.insert(QStringLiteral("game_selection_required"), false);
+    status.insert(QStringLiteral("game_selection_reason"), QStringLiteral("NONE"));
+    status.insert(QStringLiteral("game_processes"), QJsonArray{QJsonObject{
+        {QStringLiteral("process_id"), 18244},
+        {QStringLiteral("started_at_utc"), QStringLiteral("2026-09-04T12:00:00.000Z")},
+        {QStringLiteral("selection_token"), QStringLiteral("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee")}}});
     status.insert(QStringLiteral("game_build"), candidateEnabled
                       ? QStringLiteral("2026.08.05.0000.0000")
                       : QStringLiteral("2026.08.12.0000.0000"));
@@ -833,6 +839,7 @@ QJsonObject MockBackend::captureStatus() const
                           ? QStringLiteral("VERIFIED") : QStringLiteral("NONE"));
         if (m_recordingFixture == QLatin1String("checking")) status.remove(QStringLiteral("profile_status"));
         if (waiting) {
+            status.insert(QStringLiteral("game_processes"), QJsonArray());
             status.insert(QStringLiteral("state"), QStringLiteral("STOPPED"));
             status.insert(QStringLiteral("ffxiv_process_id"), QJsonValue::Null);
         }
@@ -876,6 +883,25 @@ QJsonObject MockBackend::captureStatus() const
             status.insert(QStringLiteral("calibration"), waitingCalibration);
         }
         // Keep SYNTHETIC_ONLY provenance even when exercising the VERIFIED branch.
+    }
+    if (m_recordingFixture.startsWith(QLatin1String("multiple"))) {
+        auto choices = status.value(QStringLiteral("game_processes")).toArray();
+        auto second = choices.first().toObject();
+        second["process_id"] = 18245;
+        second["started_at_utc"] = QStringLiteral("2026-09-04T12:30:00.000Z");
+        second["selection_token"] = QStringLiteral("bbbbbbbb-cccc-4ddd-8eee-ffffffffffff");
+        if (m_recordingFixture == QLatin1String("multiple-exited")) choices = QJsonArray{second};
+        else choices.append(second);
+        const bool chosen = m_selectedGameProcessId > 0;
+        status["game_processes"] = choices;
+        status["game_selection_required"] = !chosen;
+        status["game_selection_reason"] = chosen ? QStringLiteral("NONE")
+            : m_recordingFixture == QLatin1String("multiple-exited") ? QStringLiteral("EXITED") : QStringLiteral("MULTIPLE");
+        status["ffxiv_process_id"] = chosen ? QJsonValue(m_selectedGameProcessId) : QJsonValue(QJsonValue::Null);
+        status["ffxiv_running"] = chosen;
+        status["state"] = chosen ? QStringLiteral("RUNNING") : QStringLiteral("IDLE");
+        status["profile_status"] = QStringLiteral("VERIFIED");
+        if (!chosen) status["capture_session_id"] = QJsonValue::Null;
     }
     return status;
 }
@@ -1625,6 +1651,21 @@ BackendReply *MockBackend::request(const QString &messageType, const QJsonObject
                           : QJsonValue(QJsonValue::Null));
         result.insert(QStringLiteral("adapters"),
                       m_npcapMissing ? QJsonArray() : QJsonArray{adapter});
+    } else if (messageType == QLatin1String("SelectGameProcess")) {
+        bool found = false;
+        for (const auto &value : captureStatus().value(QStringLiteral("game_processes")).toArray()) {
+            const auto choice = value.toObject();
+            if (choice.value(QStringLiteral("process_id")) == payload.value(QStringLiteral("process_id"))
+                && choice.value(QStringLiteral("selection_token")) == payload.value(QStringLiteral("selection_token")))
+                found = true;
+        }
+        if (!found) {
+            errorCode = QStringLiteral("ERR_FFXIV_NOT_RUNNING");
+            errorMessage = QString::fromUtf8("所选游戏已退出，请重新选择。");
+        } else {
+            m_selectedGameProcessId = payload.value(QStringLiteral("process_id")).toInt();
+            result = captureStatus();
+        }
     } else if (messageType == QLatin1String("StartCapture")) {
         if (m_npcapMissing) {
             errorCode = QStringLiteral("ERR_NPCAP_MISSING");
@@ -1764,19 +1805,25 @@ BackendReply *MockBackend::request(const QString &messageType, const QJsonObject
     } else if (messageType == QLatin1String("GetDungeonStats")
                || messageType == QLatin1String("GetJobStats")) {
         const QJsonObject filter = payload.value(QStringLiteral("filter")).toObject();
-        const QJsonArray items = messageType == QLatin1String("GetDungeonStats")
+        const QJsonArray allItems = messageType == QLatin1String("GetDungeonStats")
                                      ? dungeonStats(filter)
                                      : jobStats(filter);
+        const int page = qMax(1, payload.value(QStringLiteral("page")).toInt(1));
+        const int pageSize = qBound(1, payload.value(QStringLiteral("page_size")).toInt(50), 200);
+        QJsonArray items;
+        for (qint64 i = qint64(page - 1) * pageSize;
+             i < qMin(qint64(allItems.size()), qint64(page) * pageSize); ++i)
+            items.append(allItems.at(i));
         QJsonObject pageInfo;
-        pageInfo.insert(QStringLiteral("page"), 1);
-        pageInfo.insert(QStringLiteral("page_size"), qMax(1, int(items.size())));
-        pageInfo.insert(QStringLiteral("total"), int(items.size()));
+        pageInfo.insert(QStringLiteral("page"), page);
+        pageInfo.insert(QStringLiteral("page_size"), pageSize);
+        pageInfo.insert(QStringLiteral("total"), int(allItems.size()));
         result.insert(QStringLiteral("items"), items);
         result.insert(QStringLiteral("page_info"), pageInfo);
         if (messageType == QLatin1String("GetDungeonStats")) {
             // How many distinct duties match the filter, not how many rows this
             // page carries.
-            result.insert(QStringLiteral("distinct_count"), int(items.size()));
+            result.insert(QStringLiteral("distinct_count"), int(allItems.size()));
         }
     } else if (messageType == QLatin1String("UndoRevision")
                || messageType == QLatin1String("CreateManualRun")

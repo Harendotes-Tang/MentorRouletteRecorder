@@ -270,6 +270,55 @@ private slots:
         QVERIFY(!scene.shows(QStringLiteral("captureSilentNotice")));
     }
 
+    void maintainerSeesSelectionReasonWithoutAutomaticRecording_data()
+    {
+        QTest::addColumn<QString>("fixture");
+        QTest::addColumn<QString>("expected");
+        QTest::newRow("multiple") << QStringLiteral("multiple") << QStringLiteral("多个游戏客户端");
+        QTest::newRow("exited") << QStringLiteral("multiple-exited") << QStringLiteral("所选游戏已退出");
+    }
+
+    void maintainerSeesSelectionReasonWithoutAutomaticRecording()
+    {
+        QFETCH(QString, fixture);
+        QFETCH(QString, expected);
+        PageScene scene;
+        scene.mock->setRecordingFixture(fixture);
+        QVERIFY(scene.open(true));
+        QTRY_VERIFY(scene.app->gameSelection()->required());
+        QTRY_VERIFY(scene.text(QStringLiteral("captureChainSummary")).contains(expected));
+        QVERIFY(scene.visibleTexts().join(QLatin1Char('\n')).contains(expected));
+        QVERIFY(!scene.app->recording()->message().contains(expected));
+    }
+
+    void multipleClientsWaitForChoiceAndTheSelectedClientReachesThePage()
+    {
+        PageScene scene;
+        scene.mock->setRecordingFixture(QStringLiteral("multiple"));
+        QVERIFY(scene.open());
+        QTRY_COMPARE(scene.app->recording()->state(), QStringLiteral("choosing_game"));
+        QVERIFY(scene.shows(QStringLiteral("gameSelectionPanel")));
+        QCOMPARE(chainValue(scene, "game"), QString::fromUtf8("待选择"));
+        QCOMPARE(chainSub(scene, "game"), QString::fromUtf8("检测到 2 个客户端"));
+        QCOMPARE(chainValue(scene, "profile"), QString::fromUtf8("等待选择游戏"));
+        scene.app->gameSelection()->select(1);
+        QTRY_VERIFY(!scene.app->gameSelection()->required());
+        QTRY_COMPARE(scene.app->captureStatus().value(QStringLiteral("ffxiv_process_id")).toInt(), 18245);
+        QVERIFY(!scene.app->gameSelection()->currentLabel().isEmpty());
+    }
+
+    void validationRestartWaitDoesNotTellTheUserToChangeClients()
+    {
+        PageScene scene;
+        scene.mock->setRecordingFixture(QStringLiteral("multiple-exited"));
+        scene.mock->setValidationFixture(QStringLiteral("WAITING"));
+        QVERIFY(scene.open(true));
+        QTRY_VERIFY(scene.app->validationActive());
+        QTRY_COMPARE(scene.text(QStringLiteral("gameSelectionStatusText")), QStringLiteral("验证正在等待所选游戏重启"));
+        QCOMPARE(scene.text(QStringLiteral("captureChainSummary")), QStringLiteral("验证正在等待所选游戏重启"));
+        QVERIFY(!scene.item(QStringLiteral("pickGameWindowButton"))->isEnabled());
+    }
+
     void theChainWaitsWhileTheGameIsNotRunning()
     {
         PageScene scene;

@@ -183,6 +183,63 @@ public sealed class CalibrationPipelineTests : IDisposable
         Assert.Equal(30, run!.JobId);
     }
 
+    [Theory]
+    [InlineData(111, 0, 0, false, 30)]
+    [InlineData(222, 0, 0, false, null)]
+    [InlineData(111, 0, 1, false, null)]
+    [InlineData(111, null, null, false, null)]
+    [InlineData(111, null, 0, false, null)]
+    [InlineData(111, 0, null, false, null)]
+    [InlineData(222, 0, 0, true, 24)]
+    public void CalibrationKeepsProtocolEvidenceButSeedsOnlyTheCurrentClientsJob(
+        int nextPid, int? firstStartOffset, int? nextStartOffset, bool observeFreshJob, int? expectedJob)
+    {
+        using var db = new TestDatabase();
+        var pipeline = new LiveProtocolPipeline(
+            db.Database, db.Clock, new LiveEventBus(db.Clock), NoProfile, null,
+            Services(CalibrationObserverTests.Template()));
+        GameProcessDetection Game(int pid, int? startOffset) => NewBuild with
+        {
+            Running = true,
+            ProcessId = pid,
+            StartedAtUtc = startOffset is { } offset ? db.Clock.UtcNow.AddSeconds(offset) : null,
+        };
+        pipeline.Refresh(Game(111, firstStartOffset));
+        var first = OpenSession(db);
+        pipeline.OnCaptureStarted(first);
+        Feed(pipeline, first, CalibrationObserverTests.Session1(exitJob: 30));
+        Assert.Equal(CalibrationState.Ready, pipeline.CalibrationStatus().State);
+        pipeline.OnCaptureStopped(first, CaptureEndReason.UserStop);
+
+        pipeline.Refresh(Game(nextPid, nextStartOffset));
+        var second = OpenSession(db);
+        pipeline.OnCaptureStarted(second);
+        if (observeFreshJob)
+        {
+            Feed(pipeline, second, new[]
+            {
+                CalibrationObserverTests.Message(MessageDirection.Inbound, CalibrationObserverTests.JobOpcode,
+                    CalibrationObserverTests.Bytes(16, (0, 24)), 1_000),
+            });
+        }
+
+        // The learned message shapes survive the switch and can still be confirmed immediately.
+        var ready = pipeline.CalibrationStatus();
+        Assert.Equal(CalibrationState.Ready, ready.State);
+        Assert.True(pipeline.ConfirmCalibration(AllCorrect(ready)).BoundInSession);
+        Feed(pipeline, second, new[]
+        {
+            CalibrationObserverTests.Message(MessageDirection.Inbound, 0xC002,
+                CalibrationObserverTests.Bytes(40, (9, 3), (16, 9)), 300_000),
+        });
+        pipeline.OnCaptureStopped(second, CaptureEndReason.UserStop);
+
+        var run = Assert.Single(new RunRepository(db.Database).Query(null, null, 1, 50).Items);
+        Assert.Equal(second, run.CaptureSessionId);
+        Assert.Equal(expectedJob, run.JobId);
+        Assert.Equal(expectedJob is null ? Role.Unknown : expectedJob == 24 ? Role.Healer : Role.Dps, run.Role);
+    }
+
     /// <summary>
     /// Evidence must outlive the process. Installing a new version, or simply restarting the
     /// software, keeps what the observer has already learned instead of costing the player

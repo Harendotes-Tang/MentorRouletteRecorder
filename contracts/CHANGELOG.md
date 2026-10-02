@@ -1,5 +1,14 @@
 # IPC 契约变更记录 / IPC contract changelog
 
+## 2026-10-02 · 多开客户端选择与锁定
+
+- 新增 `SelectGameProcess`：请求带 `process_id` 和 `selection_token`，响应为 `CaptureStatus`。
+- `CaptureStatus` 增加可选字段 `game_selection_required`、`game_selection_reason` 和 `game_processes`。候选项只含进程编号、启动时间与本次服务运行中的随机选择令牌，不包含窗口标题、角色名或安装路径。
+- 令牌绑定进程编号和完整启动时间。客户端退出、编号被复用或服务重启后，旧令牌失效；选择失效客户端返回 `ERR_FFXIV_NOT_RUNNING`。启动时间不可读时暂停，不能只凭编号继续记录。
+- 切换先停止旧采集、排空队列并结束会话；仍未释放资源时拒绝切换。采集验证占用监听资源时也拒绝切换。
+- `StartCapture.process_id` 保留兼容，但必须与当前锁定的客户端一致；改变目标必须通过 `SelectGameProcess`，避免抓包目标与区服、版本、协议档案来自不同客户端。
+- 单个客户端自动锁定；首次发现多个客户端时等待选择。被选客户端退出后保持暂停，其他客户端不会自动接替。选择只保存在内存，不跨采集服务重启保存。
+
 ## 2026-09-21 · 「立即检查」的最短间隔：`CheckSharedCalibration.outcome` 新增 `RECENTLY_CHECKED`（附加）
 
 附加式变更：一个既有枚举新增一个取值，字段与消息数目均不变。**消息数目不变**：`$defs/MessageType` 仍为 49 个业务消息 + `Event` + `Error`。

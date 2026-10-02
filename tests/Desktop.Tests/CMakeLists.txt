@@ -36,6 +36,12 @@ set_target_properties(MentorRecorderAutomaticRecordingTests PROPERTIES AUTOMOC T
 mr_use_ascii_autogen_dir(MentorRecorderAutomaticRecordingTests)
 add_test(NAME MentorRecorderAutomaticRecording COMMAND MentorRecorderAutomaticRecordingTests)
 
+add_executable(MentorRecorderGameSelectionTests GameSelectionTests.cpp)
+target_link_libraries(MentorRecorderGameSelectionTests PRIVATE MentorRecorderDesktopLib Qt6::Gui Qt6::Test)
+set_target_properties(MentorRecorderGameSelectionTests PROPERTIES AUTOMOC TRUE)
+mr_use_ascii_autogen_dir(MentorRecorderGameSelectionTests)
+add_test(NAME MentorRecorderGameSelection COMMAND MentorRecorderGameSelectionTests)
+
 add_executable(MentorRecorderCandidateReviewTests CandidateReviewTests.cpp)
 target_link_libraries(MentorRecorderCandidateReviewTests PRIVATE
     MentorRecorderDesktopLib Qt6::Gui Qt6::Test)
@@ -639,6 +645,8 @@ set(MR_RECORDING_TEXT_waiting "等待游戏启动")
 set(MR_RECORDING_TEXT_checking "检查中")
 set(MR_RECORDING_TEXT_listening "自动监听中")
 set(MR_RECORDING_TEXT_blocked "无法自动记录")
+set(MR_RECORDING_TEXT_multiple "检测到多个游戏客户端")
+set(MR_RECORDING_TEXT_multiple-exited "所选游戏已退出")
 foreach(MR_RECORDING_STYLE classic eorzea)
     set(MR_ALERT_TEST MentorRecorderQmlAlertFlow_${MR_RECORDING_STYLE})
     add_test(NAME ${MR_ALERT_TEST}
@@ -648,7 +656,7 @@ foreach(MR_RECORDING_STYLE classic eorzea)
             --screenshot "${CMAKE_CURRENT_BINARY_DIR}/${MR_ALERT_TEST}.png"
             --screenshot-size 1100x720 --screenshot-delay 900)
     list(APPEND MR_RECORDING_QML_TESTS ${MR_ALERT_TEST})
-    foreach(MR_RECORDING_STATE waiting checking listening blocked)
+    foreach(MR_RECORDING_STATE waiting checking listening blocked multiple multiple-exited)
         set(MR_RECORDING_TEST MentorRecorderQmlRecording_${MR_RECORDING_STYLE}_${MR_RECORDING_STATE})
         add_test(NAME ${MR_RECORDING_TEST}
             COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
@@ -694,6 +702,7 @@ add_test(NAME MentorRecorderQmlClosedGame_dark_shared-fetching
 list(APPEND MR_RECORDING_QML_TESTS MentorRecorderQmlClosedGame_dark_shared-fetching)
 
 set(MR_ALL_DESKTOP_TESTS
+    MentorRecorderGameSelection
     ${MR_RECORDING_QML_TESTS}
     MentorRecorderAutomaticRecording
     MentorRecorderDesktopTests

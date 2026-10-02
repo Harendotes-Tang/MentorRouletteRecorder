@@ -45,7 +45,10 @@ QJsonObject argsFor(const QString &messageType)
 {
     QJsonObject args;
 
-    if (messageType == QLatin1String("StartCapture")
+    if (messageType == QLatin1String("SelectGameProcess")) {
+        args.insert(QStringLiteral("process_id"), 4321);
+        args.insert(QStringLiteral("selection_token"), QStringLiteral("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"));
+    } else if (messageType == QLatin1String("StartCapture")
         || messageType == QLatin1String("StartCaptureValidation")) {
         args.insert(QStringLiteral("adapter_id"), QStringLiteral("NPF_TEST_ADAPTER"));
     } else if (messageType == QLatin1String("AddCaptureValidationMarker")) {
@@ -211,6 +214,7 @@ QStringList allMessageTypes()
         QStringLiteral("UpdateCaptureSettings"),
         QStringLiteral("ListCaptureAdapters"),
         QStringLiteral("StartCapture"),
+        QStringLiteral("SelectGameProcess"),
         QStringLiteral("StopCapture"),
         QStringLiteral("StartCaptureValidation"),
         QStringLiteral("GetCaptureValidationStatus"),

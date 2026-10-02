@@ -419,6 +419,7 @@ private Q_SLOTS:
     void immediateModelFailureClearsLoadingAndOldRows();
     void reflectionFailurePreservesTextAndDoesNotConfirmResult();
     void resultFailureAfterSavedReflectionCanBeRetried();
+    void aLiveRevisionCannotBypassResultConflictChecks();
     void resultWithoutTextNeedsNoReflectionWrite();
     void missingJobIsSavedWithTheResultAndRetainedAfterFailure();
     void completedRunCanSupplementJobWithoutAReflection();
@@ -577,6 +578,32 @@ void UiWorkflowRegressionTests::resultFailureAfterSavedReflectionCanBeRetried()
     QCOMPARE(fixture.backend.counts.value(QStringLiteral("CorrectRun")), 2);
     QVERIFY(fixture.backend.finish(QStringLiteral("CorrectRun"), true));
     QTRY_VERIFY(!fixture.dialog()->property("visible").toBool());
+}
+
+void UiWorkflowRegressionTests::aLiveRevisionCannotBypassResultConflictChecks()
+{
+    UiFixture fixture;
+    QVERIFY2(fixture.create(), qPrintable(fixture.errors));
+    fixture.backend.holdTypes.append(QStringLiteral("GetRunRevisions"));
+    QVERIFY(fixture.openResult());
+    Q_EMIT fixture.controller.runRevisionChanged(QStringLiteral("fixture-run"), 2);
+    QVERIFY(fixture.resolve());
+    QCOMPARE(fixture.backend.pending.last().payload.value("expected_revision").toInt(), 1);
+    const auto correction = fixture.backend.pending.takeLast();
+    QCOMPARE(correction.type, QStringLiteral("CorrectRun"));
+    correction.reply->fail("ERR_REVISION_CONFLICT", "changed elsewhere");
+    QVERIFY(fixture.backend.release(QStringLiteral("GetRunRevisions"),
+        {{"items", QJsonArray{QJsonObject{{"revision", 2},
+            {"changes", QJsonArray{QJsonObject{{"field", "result"}}}}}}},
+         {"page_info", QJsonObject{{"total", 2}}}}));
+    QCOMPARE(fixture.backend.counts.value(QStringLiteral("CorrectRun")), 1);
+    QVERIFY(fixture.dialog()->property("visible").toBool());
+    QVERIFY(!fixture.dialog()->property("busy").toBool());
+    QVERIFY(!fixture.dialog()->property("errorText").toString().isEmpty());
+    // Clicking again without inspecting a fresh record must remain subject
+    // to the same conflict, rather than silently adopting the new revision.
+    QVERIFY(fixture.resolve());
+    QCOMPARE(fixture.backend.pending.last().payload.value("expected_revision").toInt(), 1);
 }
 
 void UiWorkflowRegressionTests::missingJobIsSavedWithTheResultAndRetainedAfterFailure()

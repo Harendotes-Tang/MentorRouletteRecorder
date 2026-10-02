@@ -212,6 +212,17 @@ void AutomaticRecordingController::readCapture(quint64 generation)
 
 void AutomaticRecordingController::project(const QVariantMap &c)
 {
+    if (c.value(QStringLiteral("game_selection_required")).toBool()) {
+        setPollInterval(kActivePollMs);
+        clearIncident();
+        const QString reason = c.value(QStringLiteral("game_selection_reason")).toString();
+        setState(QStringLiteral("choosing_game"), reason == QLatin1String("EXITED")
+            ? tr("所选游戏已退出，记录已暂停。请在总览或捕获诊断页重新选择游戏窗口。")
+            : reason == QLatin1String("IDENTITY_UNAVAILABLE")
+            ? tr("暂时无法确认游戏的启动时间，记录已暂停。请重新检测后选择游戏窗口。")
+            : tr("检测到多个游戏客户端，请在总览或捕获诊断页选择要记录的游戏窗口。"));
+        return;
+    }
     const QString initError = !m_followError.isEmpty() ? m_followError : m_validationError;
     if (!c.value(QStringLiteral("ffxiv_running")).toBool()) {
         // Nothing this poll reads can change while the game is not running,

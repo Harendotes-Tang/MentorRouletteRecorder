@@ -70,6 +70,8 @@ endif()
 set(MR_CPP_SOURCES
     cpp/AutomaticRecordingController.cpp
     cpp/AutomaticRecordingController.h
+    cpp/GameSelectionController.cpp
+    cpp/GameSelectionController.h
     cpp/AppController.cpp
     cpp/AppController.h
     cpp/HistoryController.cpp
@@ -204,6 +206,7 @@ set(MR_QML_FILES
     qml/dialogs/RunWizardResultStep.qml
     qml/dialogs/RunWizardTimeStep.qml
     qml/pages/CapturePage.qml
+    qml/pages/GameSelectionPanel.qml
     qml/pages/CaptureChainPanel.qml
     qml/pages/CaptureMaintainerSection.qml
     qml/pages/CaptureNotices.qml

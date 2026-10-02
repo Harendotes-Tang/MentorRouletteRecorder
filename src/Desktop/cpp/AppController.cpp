@@ -79,6 +79,17 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
     m_capture = new CaptureValidationController(this, this);
     m_capture->setBackend(backend);
     m_recording = new AutomaticRecordingController(backend, this);
+    m_gameSelection = new GameSelectionController(backend, this);
+    connect(this, &AppController::statusChanged, this,
+            [this] { m_gameSelection->observe(captureStatus()); });
+    connect(m_recording, &AutomaticRecordingController::captureObserved,
+            m_gameSelection, &GameSelectionController::observe);
+    connect(m_gameSelection, &GameSelectionController::selected, this,
+            [this](const QVariantMap &capture) {
+        m_collectorStatus.insert(QStringLiteral("capture"), QJsonObject::fromVariantMap(capture));
+        emit statusChanged();
+        m_recording->refresh();
+    });
     connect(m_recording, &AutomaticRecordingController::settingsConfirmed, this,
             [this](const QVariantMap &settings) {
         // A confirmation of what the Collector had when the poll asked, two
@@ -1239,10 +1250,8 @@ void AppController::announceFinished(const QString &state, const QJsonObject &ru
     m_tts->announce(kind, values);
 }
 
-/// Keep a revision the UI is holding in step with the Collector's own: the
-/// result dialog sends the revision run_finished handed it, and any correction
-/// landing afterwards bumps it, so that save would be refused with
-/// ERR_REVISION_CONFLICT.
+/// Refresh the selected record from a live event. Open forms keep the revision
+/// they displayed so a later save still checks for intervening changes.
 void AppController::adoptRunRevisionFromEvent(const QJsonObject &run)
 {
     return m_history->adoptRunRevisionFromEvent(run);
@@ -1675,6 +1684,11 @@ void AppController::rescanGame()
 
             const QJsonObject game =
                 m_collectorStatus.value(QStringLiteral("game")).toObject();
+            if (m_collectorStatus.value(QStringLiteral("capture")).toObject()
+                    .value(QStringLiteral("game_selection_required")).toBool()) {
+                showToast(tr("已重新扫描，请在记录对象中选择要记录的游戏窗口。"));
+                return;
+            }
             if (!game.value(QStringLiteral("running")).toBool(false)) {
                 showToast(QString::fromUtf8("已重新扫描：未找到正在运行的 FF14 进程。"));
                 return;
@@ -1724,9 +1738,9 @@ void AppController::createManualRun(const QVariantMap &fields, const QString &re
 }
 
 void AppController::correctSelectedRun(const QVariantMap &changes, const QString &reason,
-                                       const QString &runId)
+                                      const QString &runId, int expectedRevision)
 {
-    return m_history->correctSelectedRun(changes, reason, runId);
+    return m_history->correctSelectedRun(changes, reason, runId, expectedRevision);
 }
 
 void AppController::resolveRunResult(const QString &runId, int revision,

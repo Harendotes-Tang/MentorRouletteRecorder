@@ -42,7 +42,7 @@ public sealed class MessageDispatcher
     /// <summary>Every message type this build answers.</summary>
     public static IReadOnlySet<string> KnownMessageTypes { get; } = new HashSet<string>(StringComparer.Ordinal)
     {
-        "GetVersion", "GetStatus", "GetCaptureStatus", "ListCaptureAdapters", "StartCapture",
+        "GetVersion", "GetStatus", "GetCaptureStatus", "ListCaptureAdapters", "StartCapture", "SelectGameProcess",
         "StopCapture", "GetProtocolProfileStatus", "GetCurrentRun", "QueryRuns", "GetDashboardStats",
         "GetDungeonStats", "GetJobStats", "GetResultStats", "CreateManualRun", "CorrectRun",
         "SoftDeleteRun", "RestoreRun", "GetRunRevisions", "UpdateAchievementBaseline", "ExportCsv",
@@ -88,6 +88,7 @@ public sealed class MessageDispatcher
             "ListCaptureAdapters" => ListCaptureAdapters(reader),
             "GetProtocolProfileStatus" => GetProtocolProfileStatus(reader),
             "StartCapture" => StartCapture(reader),
+            "SelectGameProcess" => SelectGameProcess(reader),
             "StopCapture" => StopCapture(reader),
             "StartCaptureValidation" => StartCaptureValidation(reader),
             "GetCaptureValidationStatus" => ValidationStatus(reader, stop: false),
@@ -301,6 +302,15 @@ public sealed class MessageDispatcher
         var adapterId = reader.String("adapter_id", 400);
         var processId = reader.Int("process_id", 0);
         return CaptureWire.CaptureStatus(_host.Capture.Start(adapterId, processId));
+    }
+
+    private JsonObject SelectGameProcess(PayloadReader reader)
+    {
+        reader.RejectUnknown("process_id", "selection_token");
+        var processId = reader.Int("process_id", 1)
+            ?? throw CollectorException.BadRequest("缺少游戏进程。", "process_id");
+        return CaptureWire.CaptureStatus(_host.Capture.SelectGameProcess(
+            processId, reader.RequiredUuid("selection_token")));
     }
 
     private JsonObject StopCapture(PayloadReader reader)

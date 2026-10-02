@@ -272,7 +272,8 @@ public sealed class CalibrationCoordinator
 
     /// <summary>A capture session started on the armed build: start observing it.</summary>
     /// <param name="captureSessionId">Session whose messages will be fed.</param>
-    public void Begin(string captureSessionId)
+    /// <param name="preservePlayerJob">Whether the session belongs to the same client process.</param>
+    public void Begin(string captureSessionId, bool preservePlayerJob = true)
     {
         ArgumentException.ThrowIfNullOrEmpty(captureSessionId);
         if (_template is null || _state == CalibrationState.Done)
@@ -299,7 +300,7 @@ public sealed class CalibrationCoordinator
         }
         else
         {
-            _observer.AdoptSession(captureSessionId);
+            _observer.AdoptSession(captureSessionId, preservePlayerJob);
         }
 
         _draft = null;

@@ -277,6 +277,7 @@ public sealed class CaptureController : IDisposable
     };
 
     private readonly CaptureServices _services;
+    private readonly GameProcessSelection _gameSelection;
     private readonly IDecodedMessageSink _sink;
     private readonly IParserStats _parserStats;
     private readonly ExponentialRateEstimator _rate = new();
@@ -321,6 +322,7 @@ public sealed class CaptureController : IDisposable
     public CaptureController(CaptureServices? services = null)
     {
         _services = services ?? new CaptureServices();
+        _gameSelection = new GameProcessSelection(_services.Game);
         _faultBackoffMs = (long)_services.FaultRetryInterval.TotalMilliseconds;
         var counting = new CountingSink();
         _sink = _services.Sink ?? counting;
@@ -469,6 +471,59 @@ public sealed class CaptureController : IDisposable
     /// <summary>Re-reads the game process, bypassing the cache.</summary>
     public GameProcessDetection RescanGame() => DetectGame(force: true);
 
+    /// <summary>Allows a validation-only restart while its exclusive lease is held.</summary>
+    internal GameProcessDetection RescanGameAfterValidationRestart(GameProcessDetection previous)
+    {
+        lock (_lifecycleGate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (!_services.Ownership.IsHeld || _ownershipLease is not null)
+                return DetectGame(force: true);
+            var detection = _gameSelection.RefreshAfterValidationRestart(previous);
+            lock (_gate)
+            {
+                _game = detection;
+                _gameTakenAtMs = ProcessUptimeMs;
+            }
+            return detection;
+        }
+    }
+
+    /// <summary>Switches clients only after the old source, queue and session have stopped.</summary>
+    public CaptureDiagnosticsSnapshot SelectGameProcess(int processId, string token)
+    {
+        lock (_lifecycleGate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            _gameSelection.Validate(processId, token);
+            var current = DetectGame(force: true);
+            if (current.Running && current.ProcessId == processId)
+                return Snapshot();
+            if (_services.Ownership.IsHeld && _ownershipLease is null)
+                throw new CollectorException(ErrorCodes.CaptureAlreadyRunning,
+                    "采集验证正在使用游戏窗口，请先停止验证再切换。");
+            if (State is CaptureControllerState.Running or CaptureControllerState.Starting || _releaseFailed)
+                StopCore();
+            if (_releaseFailed || _source is not null || _queue is not null)
+                throw new CollectorException(ErrorCodes.Internal, "旧的采集尚未结束，请稍后再选择游戏窗口。");
+            // Validation can acquire ownership while StopCore releases the old session.
+            // Reserve it through selection so a validation start cannot race this switch.
+            using var selectionLease = _services.Ownership.Acquire();
+            _gameSelection.Select(processId, token);
+            lock (_gate)
+            {
+                _game = null;
+                _followRetryAtMs = -1;
+                _faultRetryAtMs = -1;
+                _adapterReevaluated = false;
+                _lastErrorCode = _lastErrorMessage = null;
+            }
+            var snapshot = Snapshot();
+            Publish(snapshot, "已选择游戏窗口，将只记录这个客户端。");
+            return snapshot;
+        }
+    }
+
     /// <summary>Re-reads Npcap, bypassing the cache.</summary>
     public NpcapDetection RescanNpcap() => DetectNpcap(force: true);
 
@@ -548,6 +603,8 @@ public sealed class CaptureController : IDisposable
         }
 
         var game = DetectGame(force: true);
+        if (game.SelectionRequired)
+            throw new CollectorException(ErrorCodes.FfxivNotRunning, "请先在总览或捕获诊断页选择要记录的游戏窗口。");
         if (!game.Running || game.ProcessId is null)
         {
             throw Refuse(
@@ -557,7 +614,9 @@ public sealed class CaptureController : IDisposable
                 retryable: true);
         }
 
-        var targetPid = processId is > 0 ? processId.Value : game.ProcessId.Value;
+        if (processId is > 0 && processId != game.ProcessId)
+            throw CollectorException.BadRequest("请先选择该游戏窗口，再开始监听。", "process_id");
+        var targetPid = game.ProcessId.Value;
         var adapters = _services.Adapters.List(targetPid, ReadSettingString(AdapterSetting));
         if (adapters.Count == 0)
         {
@@ -696,12 +755,15 @@ public sealed class CaptureController : IDisposable
     {
         try
         {
-            var running = State == CaptureControllerState.Running;
-            var game = DetectGame(force: true);
-
-            if (running)
+            bool running;
+            GameProcessDetection game;
+            // Serialize the exit decision with explicit selection, so an old poll cannot
+            // tear down a newly selected session. Health callbacks stay outside this gate.
+            lock (_lifecycleGate)
             {
-                if (!game.Running)
+                running = State == CaptureControllerState.Running;
+                game = DetectGame(force: true);
+                if (running && !game.Running)
                 {
                     lock (_gate)
                     {
@@ -714,10 +776,12 @@ public sealed class CaptureController : IDisposable
                     }
 
                     if (Teardown(CaptureEndReason.ProcessExit))
-                        Publish(Snapshot(), "游戏进程已退出，抓包已停止。");
+                        Publish(Snapshot(), "所选游戏已退出，记录已暂停。请重新选择游戏窗口。");
                     return;
                 }
-
+            }
+            if (running)
+            {
                 // A running capture is checked too: without these, it reports RUNNING and
                 // healthy for a whole session while every packet is discarded uncounted.
                 EvaluateLiveness();
@@ -1514,7 +1578,8 @@ public sealed class CaptureController : IDisposable
             }
         }
 
-        if (!_services.Game.IsRunning(gameProcessId))
+        var selected = _gameSelection.Refresh();
+        if (!selected.Running || selected.ProcessId != gameProcessId)
         {
             _services.Logger.Write(
                 LogLevel.Info, "capture", "connection_lost_game_exited", new Dictionary<string, object?>
@@ -1714,7 +1779,7 @@ public sealed class CaptureController : IDisposable
             }
         }
 
-        var detection = _services.Game.Locate();
+        var detection = _gameSelection.Refresh();
         lock (_gate)
         {
             _game = detection;

@@ -242,7 +242,7 @@ private Q_SLOTS:
         QVERIFY(fixture.dialog()->property("resultAcknowledged").toBool());
     }
 
-    void aNewRevisionFromTheControllerReachesTheDialog()
+    void liveRevisionsDoNotAdvanceTheOpenResultFormsBaseline()
     {
         DialogFixture fixture;
         QVERIFY2(fixture.create(), qPrintable(fixture.errors));
@@ -251,13 +251,16 @@ private Q_SLOTS:
                                                   QStringLiteral("水晶塔"), 3)));
         QCOMPARE(fixture.dialog()->property("runRevision").toInt(), 3);
 
-        // A live run_updated, or the controller's own retry after
-        // ERR_REVISION_CONFLICT. The next correction must carry the new number.
+        // A newer result/job may be a conflicting human decision. Only the
+        // controller's revision-chain check can authorize an automatic retry.
         Q_EMIT fixture.controller.runRevisionChanged(QStringLiteral("run-a"), 7);
-        QCOMPARE(fixture.dialog()->property("runRevision").toInt(), 7);
+        QCOMPARE(fixture.dialog()->property("runRevision").toInt(), 3);
 
         // Somebody else's run must not move this one.
         Q_EMIT fixture.controller.runRevisionChanged(QStringLiteral("run-b"), 99);
+        QCOMPARE(fixture.dialog()->property("runRevision").toInt(), 3);
+        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "close"));
+        QVERIFY(fixture.openForResult(finishedRun(QStringLiteral("run-a"), QStringLiteral("水晶塔"), 7)));
         QCOMPARE(fixture.dialog()->property("runRevision").toInt(), 7);
     }
 };

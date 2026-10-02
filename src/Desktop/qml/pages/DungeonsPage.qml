@@ -39,9 +39,8 @@ Item {
 
             PageHeader {
                 title: qsTr("副本统计")
-                // distinctCount is the server-side number of matching duties;
-                // `count` is only what this page holds, truncated by paging and
-                // by the Top-N selector above.
+                // Both counters describe the complete statistics snapshot;
+                // the Top-N selector only limits the rows drawn below.
                 subtitle: qsTr("%1 个副本 · %2 次").arg(App.dungeons.distinctCount)
                                                     .arg(App.dungeons.totalAttemptCount)
 

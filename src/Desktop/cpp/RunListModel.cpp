@@ -13,7 +13,9 @@ RunListModel::RunListModel(QObject *parent) : QAbstractListModel(parent) {}
 
 void RunListModel::setBackend(IBackend *backend)
 {
+    ++m_loadGeneration;
     m_backend = backend;
+    setLoading(false);
 }
 
 int RunListModel::rowCount(const QModelIndex &parent) const
@@ -118,6 +120,7 @@ void RunListModel::setLoading(bool loading)
 
 void RunListModel::reload()
 {
+    const quint64 generation = ++m_loadGeneration;
     if (!m_backend)
         return;
 
@@ -129,14 +132,16 @@ void RunListModel::reload()
     setLoading(true);
     BackendReply *reply = m_backend->queryRuns(m_filter, m_page, m_pageSize, sort);
     reply->whenDone(this,
-            [this](bool ok, const QVariantMap &payload,
+            [this, generation](bool ok, const QVariantMap &payload,
                    const QString &code, const QString &message) {
-                setLoading(false);
+                if (generation != m_loadGeneration)
+                    return;
                 if (!ok) {
                     beginResetModel();
                     m_rows.clear();
                     m_total = 0;
                     endResetModel();
+                    setLoading(false);
                     Q_EMIT pagingChanged();
                     Q_EMIT loadFailed(code, message);
                     return;
@@ -146,18 +151,31 @@ void RunListModel::reload()
                 const QJsonArray items = object.value(QStringLiteral("items")).toArray();
                 const QJsonObject pageInfo =
                     object.value(QStringLiteral("page_info")).toObject();
+                const int total = pageInfo.value(QStringLiteral("total")).toInt();
+                const int lastPage = qMax(1, (total + m_pageSize - 1) / m_pageSize);
+                if (m_page > lastPage) {
+                    // Deleting the last row on a page must not leave an empty
+                    // page beyond pageCount until the user resizes the window.
+                    m_total = total;
+                    m_page = lastPage;
+                    m_anchorRow = qBound(0, m_anchorRow, qMax(0, total - 1));
+                    Q_EMIT pagingChanged();
+                    reload();
+                    return;
+                }
 
                 beginResetModel();
                 m_rows.clear();
                 m_rows.reserve(items.size());
                 for (const QJsonValue &value : items)
                     m_rows.append(value.toObject());
-                m_total = pageInfo.value(QStringLiteral("total")).toInt();
+                m_total = total;
                 // A reload can observe deletions. Keep the position when it
                 // still exists, otherwise anchor to the last surviving row.
                 m_anchorRow = qBound(0, m_anchorRow, qMax(0, m_total - 1));
                 m_page = qMax(1, pageInfo.value(QStringLiteral("page")).toInt(m_page));
                 endResetModel();
+                setLoading(false);
                 Q_EMIT pagingChanged();
             });
 }

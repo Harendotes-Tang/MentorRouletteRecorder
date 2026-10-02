@@ -77,20 +77,30 @@ void HistoryController::adoptRunRevisionFromEvent(const QJsonObject &run)
     if (revision <= 0)
         return;
 
+    bool revisionAdvanced = false;
+    const auto merge = [&run, &runId, revision, &revisionAdvanced](QJsonObject &current) {
+        if (current.value(QStringLiteral("run_id")).toString() != runId
+            || current.value(QStringLiteral("revision")).toInt() > revision)
+            return false;
+        QJsonObject next = current;
+        for (auto field = run.begin(); field != run.end(); ++field)
+            next.insert(field.key(), field.value());
+        if (next == current)
+            return false;
+        revisionAdvanced |= current.value(QStringLiteral("revision")).toInt() < revision;
+        current = next;
+        return true;
+    };
     bool changed = false;
-    if (m_selectedRun.value(QStringLiteral("run_id")).toString() == runId
-        && m_selectedRun.value(QStringLiteral("revision")).toInt() != revision) {
-        m_selectedRun.insert(QStringLiteral("revision"), revision);
+    if (merge(m_selectedRun)) {
         Q_EMIT selectionChanged();
         changed = true;
     }
-    if (m_pendingReviewRun.value(QStringLiteral("run_id")).toString() == runId
-        && m_pendingReviewRun.value(QStringLiteral("revision")).toInt() != revision) {
-        m_pendingReviewRun.insert(QStringLiteral("revision"), revision);
+    if (merge(m_pendingReviewRun)) {
         Q_EMIT pendingReviewRunChanged();
         changed = true;
     }
-    if (changed)
+    if (changed && revisionAdvanced)
         Q_EMIT runRevisionChanged(runId, revision);
 }
 
@@ -244,9 +254,13 @@ void HistoryController::sendRunMutation(const QString &kind, BackendReply *reply
 void HistoryController::adoptRunMutation(const QString &kind, const QVariantMap &payload,
                                      bool keepSelection)
 {
-    if (keepSelection) {
-        m_selectedRun =
-            QJsonObject::fromVariantMap(payload.value(QStringLiteral("run")).toMap());
+    const bool stillSelected = !m_selectedRun.isEmpty()
+        && m_selectedRun.value(QStringLiteral("run_id")).toString()
+            == payload.value(QStringLiteral("run_id")).toString();
+    if (keepSelection && stillSelected
+        && payload.value(QStringLiteral("revision")).toInt()
+            >= m_selectedRun.value(QStringLiteral("revision")).toInt()) {
+        m_selectedRun = QJsonObject::fromVariantMap(payload.value(QStringLiteral("run")).toMap());
         Q_EMIT selectionChanged();
         loadRevisionsForSelection();
     }
@@ -275,7 +289,7 @@ void HistoryController::adoptRunMutation(const QString &kind, const QVariantMap 
                                payload.value(QStringLiteral("revision")).toInt())));
     }
 
-    if (!keepSelection)
+    if (!keepSelection && stillSelected)
         clearSelection();
     Q_EMIT refreshRequested();
 }
@@ -312,11 +326,12 @@ void HistoryController::createManualRun(const QVariantMap &fields, const QString
 }
 
 void HistoryController::correctSelectedRun(const QVariantMap &changes, const QString &reason,
-                                           const QString &runId)
+                                           const QString &runId, int expectedRevision)
 {
-    if (!m_backend || m_selectedRun.isEmpty())
+    if (!m_backend)
         return;
-    if (!runId.isEmpty() && runId != m_selectedRun.value(QStringLiteral("run_id")).toString()) {
+    if (m_selectedRun.isEmpty()
+        || (!runId.isEmpty() && runId != m_selectedRun.value(QStringLiteral("run_id")).toString())) {
         Q_EMIT mutationFailed(QStringLiteral("ERR_SELECTION_CHANGED"),
                               QString::fromUtf8("选中的记录已经变了，未保存任何修改。请关闭后重新打开要修正的记录。"));
         return;
@@ -330,7 +345,8 @@ void HistoryController::correctSelectedRun(const QVariantMap &changes, const QSt
     sendRunMutation(QStringLiteral("correct"),
                     m_backend->correctRun(
                         m_selectedRun.value(QStringLiteral("run_id")).toString(),
-                        m_selectedRun.value(QStringLiteral("revision")).toInt(),
+                        expectedRevision >= 0 ? expectedRevision
+                                              : m_selectedRun.value(QStringLiteral("revision")).toInt(),
                         contractRunFields(QJsonObject::fromVariantMap(changes)), reason),
                     true);
 }
@@ -468,8 +484,8 @@ void HistoryController::retryResultCorrectionWithFreshRevision(const QString &ru
                 Q_EMIT toastRequested(reopen);
                 return;
             }
-            // The dialog is holding the stale number too; tell it first, so a
-            // deliberate retry by the user carries the current revision.
+            // Publish the observed revision for read-only projections. Forms
+            // keep their baseline; only the checked retry below advances it.
             Q_EMIT runRevisionChanged(runId, newest);
             if (overlaps) {
                 // Another place has already answered for this run. Whoever

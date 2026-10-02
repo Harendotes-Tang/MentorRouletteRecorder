@@ -124,6 +124,13 @@ BackendReply *IBackend::stopCapture()
     return request(QStringLiteral("StopCapture"));
 }
 
+BackendReply *IBackend::selectGameProcess(int processId, const QString &selectionToken)
+{
+    return request(QStringLiteral("SelectGameProcess"),
+                   {{QStringLiteral("process_id"), processId},
+                    {QStringLiteral("selection_token"), selectionToken}});
+}
+
 BackendReply *IBackend::startCaptureValidation(const QString &adapterId)
 {
     QJsonObject payload;

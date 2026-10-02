@@ -84,6 +84,7 @@ private:
     int m_anchorRow = 0;
     int m_total = 0;
     bool m_loading = false;
+    quint64 m_loadGeneration = 0;
 };
 
 } // namespace mr

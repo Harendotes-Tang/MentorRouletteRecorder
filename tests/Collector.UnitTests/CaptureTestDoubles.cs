@@ -82,7 +82,7 @@ internal sealed class FakeGameProcessProvider : IGameProcessProvider
             _byName[processName] = list;
         }
 
-        list.Add(new GameProcessCandidate(processId, processName, startedAt, path, accessDenied));
+        list.Add(new GameProcessCandidate(processId, processName, startedAt ?? DateTimeOffset.UnixEpoch, path, accessDenied));
         return this;
     }
 

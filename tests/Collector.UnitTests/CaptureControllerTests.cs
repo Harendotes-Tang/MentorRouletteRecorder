@@ -374,14 +374,19 @@ public sealed class CaptureControllerTests : IDisposable
     /// "quit while inside a duty" is recorded as DISCONNECTED instead of INTERRUPTED,
     /// contradicting docs/state-machine.md section 3.6 (review finding R-2).
     /// </summary>
-    [Fact]
-    public void AClosedConnectionIsNotForwardedOnceTheGameProcessHasGone()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void AClosedConnectionIsNotForwardedOnceTheGameProcessHasGone(bool pidReused)
     {
         WithGame();
         using var controller = Build();
         controller.Start();
 
         _processes.Clear();
+        if (pidReused)
+            _processes.Add(GameProcessLocator.Dx11ProcessName, 4321, DateTimeOffset.UnixEpoch.AddMinutes(1),
+                @"D:\SdoA\FFXIV\game\ffxiv_dx11.exe");
         Source.PushConnectionClosed();
 
         // Long enough for the marker to travel the queue and be refused; the negative is what
@@ -904,12 +909,15 @@ public sealed class CaptureControllerTests : IDisposable
         Assert.Equal(ErrorCodes.Internal, controller.Snapshot().LastErrorCode);
         Assert.Single(_sources);
 
-        // The client went away: the next one deserves a capture, back-off or not.
+        // Exiting clears the fault backoff, but a new process needs a fresh choice.
         _processes.Clear();
         controller.Poll();
         Assert.Equal(CaptureControllerState.Idle, controller.State);
 
         WithGame();
+        Assert.True(controller.Snapshot().Game.SelectionRequired);
+        var next = Assert.Single(controller.Snapshot().Game.Processes);
+        controller.SelectGameProcess(next.ProcessId, next.Token);
         controller.Poll();
         Assert.Equal(CaptureControllerState.Running, controller.State);
         Assert.Equal(2, _sources.Count);
@@ -946,6 +954,172 @@ public sealed class CaptureControllerTests : IDisposable
         // A settings row is user-editable state. Nonsense in it degrades to the default, and
         // never stops capture from starting.
         Assert.Equal(DecodedMessageQueue.DefaultCapacity, controller.Start().QueueCapacity);
+    }
+
+    [Fact]
+    public void MultipleClientsWaitForAnExplicitChoice()
+    {
+        WithGame();
+        AddSecondGame();
+        using var controller = Build();
+        controller.Poll();
+        var game = controller.Snapshot().Game;
+        Assert.True(game.SelectionRequired);
+        Assert.Equal("MULTIPLE", game.SelectionReason);
+        Assert.Null(game.ProcessId);
+        Assert.Equal(0, StartCount);
+        var choice = game.Processes.Single(p => p.ProcessId == 9876);
+        controller.SelectGameProcess(choice.ProcessId, choice.Token);
+        controller.Poll();
+        Assert.Equal(9876, Source.LastOptions!.ProcessId);
+        Assert.Equal(@"D:\SdoA\Other\game\ffxiv_dx11.exe", Source.LastOptions.GameExecutablePath);
+        Assert.False(controller.Snapshot().Game.SelectionRequired);
+    }
+
+    [Fact]
+    public void OpeningAnotherClientDoesNotRetargetTheRunningSession()
+    {
+        WithGame();
+        using var controller = Build();
+        controller.Poll();
+        var session = controller.Snapshot().CaptureSessionId;
+        AddSecondGame();
+        controller.Poll();
+        Assert.Equal(session, controller.Snapshot().CaptureSessionId);
+        Assert.Equal(4321, controller.Snapshot().Game.ProcessId);
+        Assert.Equal(1, StartCount);
+    }
+
+    [Fact]
+    public void SelectedClientExitStopsEvenWhenAnotherClientRemains()
+    {
+        WithGame();
+        using var controller = Build();
+        controller.Poll();
+        _processes.Clear();
+        AddSecondGame();
+        controller.Poll();
+        controller.Poll();
+        Assert.Equal(1, StartCount);
+        Assert.Equal(1, StopCount);
+        Assert.Equal(CaptureControllerState.Idle, controller.State);
+        Assert.Equal("EXITED", controller.Snapshot().Game.SelectionReason);
+        Assert.Contains("stopped:ProcessExit", _lifecycle.Events);
+        var choice = Assert.Single(controller.Snapshot().Game.Processes);
+        controller.SelectGameProcess(choice.ProcessId, choice.Token);
+        controller.Poll();
+        Assert.Equal(2, StartCount);
+        Assert.Equal(9876, Source.LastOptions!.ProcessId);
+    }
+
+    [Fact]
+    public void ReusedPidCannotInheritTheOldSelectionOrToken()
+    {
+        WithGame();
+        using var controller = Build();
+        controller.Poll();
+        var old = Assert.Single(controller.Snapshot().Game.Processes);
+        _processes.Clear();
+        _processes.Add(GameProcessLocator.Dx11ProcessName, 4321, DateTimeOffset.UnixEpoch.AddMinutes(1),
+            @"D:\SdoA\FFXIV\game\ffxiv_dx11.exe");
+        controller.Poll();
+        Assert.Equal(1, StopCount);
+        Assert.True(controller.Snapshot().Game.SelectionRequired);
+        var error = Assert.Throws<CollectorException>(() => controller.SelectGameProcess(4321, old.Token));
+        Assert.Equal(ErrorCodes.FfxivNotRunning, error.Code);
+        Assert.Equal(1, StartCount);
+    }
+
+    [Fact]
+    public void SwitchingEndsTheOldSessionBeforeStartingTheNewOne()
+    {
+        WithGame();
+        using var controller = Build();
+        controller.Poll();
+        var oldSession = controller.Snapshot().CaptureSessionId;
+        AddSecondGame();
+        var choice = controller.Snapshot().Game.Processes.Single(p => p.ProcessId == 9876);
+        controller.SelectGameProcess(choice.ProcessId, choice.Token);
+        Assert.Equal(1, StopCount);
+        Assert.Contains("stopped:UserStop", _lifecycle.Events);
+        controller.Poll();
+        Assert.NotEqual(oldSession, controller.Snapshot().CaptureSessionId);
+        Assert.Equal(9876, Source.LastOptions!.ProcessId);
+        Assert.Equal(2, StartCount);
+    }
+
+    [Fact]
+    public void AStaleChoiceDoesNotStopAHealthyCapture()
+    {
+        WithGame();
+        using var controller = Build();
+        controller.Poll();
+        AddSecondGame();
+        var choice = controller.Snapshot().Game.Processes.Single(p => p.ProcessId == 9876);
+        _processes.Clear();
+        WithGame();
+        Assert.Throws<CollectorException>(() => controller.SelectGameProcess(choice.ProcessId, choice.Token));
+        Assert.Equal(0, StopCount);
+        Assert.Equal(4321, Source.LastOptions!.ProcessId);
+    }
+
+    [Fact]
+    public void LegacyPidOverrideCannotMixOneClientsProfileWithAnotherClientsTraffic()
+    {
+        WithGame();
+        using var controller = Build();
+        Assert.Throws<CollectorException>(() => controller.Start(processId: 9876));
+        Assert.Equal(0, StartCount);
+    }
+
+    private void AddSecondGame()
+    {
+        _processes.Add(GameProcessLocator.Dx11ProcessName, 9876, DateTimeOffset.UnixEpoch.AddMinutes(1),
+            @"D:\SdoA\Other\game\ffxiv_dx11.exe");
+        _tcp.With(9876, "192.168.31.77");
+    }
+
+    [Fact]
+    public void ValidationOwnershipPreventsChangingTheClient()
+    {
+        WithGame();
+        var services = Services();
+        using var controller = new CaptureController(services);
+        Assert.Equal(4321, controller.RescanGame().ProcessId);
+        AddSecondGame();
+        var choice = controller.Snapshot().Game.Processes.Single(p => p.ProcessId == 9876);
+        using var validation = services.Ownership.Acquire();
+        var error = Assert.Throws<CollectorException>(() => controller.SelectGameProcess(choice.ProcessId, choice.Token));
+        Assert.Equal(ErrorCodes.CaptureAlreadyRunning, error.Code);
+        Assert.Equal(4321, controller.RescanGame().ProcessId);
+    }
+
+    [Fact]
+    public async Task SwitchingCannotReuseAPipelineWhoseOldQueueHasNotStopped()
+    {
+        WithGame();
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        _sink = new LockedWaitingSink(new object(), entered, release);
+        var services = Services();
+        using var controller = new CaptureController(services);
+        controller.Start();
+        Source.PushOpcode(1);
+        try
+        {
+            Assert.True(entered.Wait(TimeSpan.FromSeconds(5)));
+            AddSecondGame();
+            var choice = controller.Snapshot().Game.Processes.Single(p => p.ProcessId == 9876);
+            var error = await Task.Run(() => Record.Exception(() =>
+                controller.SelectGameProcess(choice.ProcessId, choice.Token))).WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.IsType<CollectorException>(error);
+            Assert.True(services.Ownership.IsHeld);
+            Assert.Equal(4321, controller.RescanGame().ProcessId);
+            Assert.Equal(1, StartCount);
+        }
+        finally { release.Set(); }
+        controller.Stop();
+        Assert.False(services.Ownership.IsHeld);
     }
 
     private void WithGame(bool withTraffic = true)
