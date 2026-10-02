@@ -1012,22 +1012,63 @@ public sealed class CaptureControllerTests : IDisposable
         Assert.Equal(9876, Source.LastOptions!.ProcessId);
     }
 
-    [Fact]
-    public void ReusedPidCannotInheritTheOldSelectionOrToken()
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void ASingleRestartEndsTheOldSessionEvenWhenStatusAlreadySelectedTheNewClient(bool reusedPid, bool refreshFirst)
     {
         WithGame();
         using var controller = Build();
         controller.Poll();
         var old = Assert.Single(controller.Snapshot().Game.Processes);
+        var oldSession = controller.Snapshot().CaptureSessionId;
+        var nextPid = reusedPid ? 4321 : 4322;
         _processes.Clear();
-        _processes.Add(GameProcessLocator.Dx11ProcessName, 4321, DateTimeOffset.UnixEpoch.AddMinutes(1),
+        _processes.Add(GameProcessLocator.Dx11ProcessName, nextPid, DateTimeOffset.UnixEpoch.AddMinutes(1),
             @"D:\SdoA\FFXIV\game\ffxiv_dx11.exe");
+        _tcp.With(nextPid, "192.168.31.77");
+        if (refreshFirst) Assert.Equal(nextPid, controller.Snapshot().Game.ProcessId);
         controller.Poll();
         Assert.Equal(1, StopCount);
-        Assert.True(controller.Snapshot().Game.SelectionRequired);
+        Assert.False(controller.Snapshot().Game.SelectionRequired);
+        Assert.Equal(CaptureControllerState.Idle, controller.State);
+        Assert.Contains("stopped:ProcessExit", _lifecycle.Events);
         var error = Assert.Throws<CollectorException>(() => controller.SelectGameProcess(4321, old.Token));
         Assert.Equal(ErrorCodes.FfxivNotRunning, error.Code);
         Assert.Equal(1, StartCount);
+        controller.Poll();
+        Assert.Equal(2, StartCount);
+        Assert.Equal(nextPid, Source.LastOptions!.ProcessId);
+        Assert.NotEqual(oldSession, controller.Snapshot().CaptureSessionId);
+        Assert.Equal(new[] { "started", "stopped:ProcessExit", "started" }, _lifecycle.Events);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void AnExplicitSingleClientChoiceContinuesAfterACompleteExitWhenFollowIsEnabled(bool followEnabled)
+    {
+        _settings.SetSetting(CaptureController.FollowGameSetting, followEnabled ? "true" : "false");
+        WithGame();
+        using var controller = Build();
+        var original = Assert.Single(controller.Snapshot().Game.Processes);
+        controller.SelectGameProcess(original.ProcessId, original.Token);
+        controller.Start();
+        _processes.Clear();
+        controller.Poll();
+        Assert.Equal(1, StopCount);
+        Assert.Equal("EXITED", controller.Snapshot().Game.SelectionReason);
+        controller.Poll();
+        _processes.Add(GameProcessLocator.Dx11ProcessName, 4322, DateTimeOffset.UnixEpoch.AddMinutes(1),
+            @"D:\SdoA\FFXIV\game\ffxiv_dx11.exe");
+        _tcp.With(4322, "192.168.31.77");
+        controller.Poll();
+        Assert.False(controller.Snapshot().Game.SelectionRequired);
+        Assert.Equal(followEnabled ? 2 : 1, StartCount);
+        if (!followEnabled) controller.Start();
+        Assert.Equal(4322, Source.LastOptions!.ProcessId);
     }
 
     [Fact]

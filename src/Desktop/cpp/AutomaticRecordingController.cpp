@@ -217,7 +217,7 @@ void AutomaticRecordingController::project(const QVariantMap &c)
         clearIncident();
         const QString reason = c.value(QStringLiteral("game_selection_reason")).toString();
         setState(QStringLiteral("choosing_game"), reason == QLatin1String("EXITED")
-            ? tr("所选游戏已退出，记录已暂停。请在总览或捕获诊断页重新选择游戏窗口。")
+            ? tr("所选游戏已退出，记录已暂停。单开时重新启动同一游戏会自动接续；无法确认时请在总览或捕获诊断页重新选择游戏窗口。")
             : reason == QLatin1String("IDENTITY_UNAVAILABLE")
             ? tr("暂时无法确认游戏的启动时间，记录已暂停。请重新检测后选择游戏窗口。")
             : tr("检测到多个游戏客户端，请在总览或捕获诊断页选择要记录的游戏窗口。"));

@@ -761,9 +761,16 @@ public sealed class CaptureController : IDisposable
             // tear down a newly selected session. Health callbacks stay outside this gate.
             lock (_lifecycleGate)
             {
-                running = State == CaptureControllerState.Running;
+                CaptureRun? currentRun;
+                lock (_gate)
+                {
+                    running = _state == CaptureControllerState.Running;
+                    currentRun = _run;
+                }
                 game = DetectGame(force: true);
-                if (running && !game.Running)
+                // Detection can already have followed a restart, including a reused PID.
+                // The old source and pipeline still belong to the original incarnation.
+                if (running && currentRun?.Observes(game) != true)
                 {
                     lock (_gate)
                     {
@@ -773,10 +780,12 @@ public sealed class CaptureController : IDisposable
                         }
 
                         _state = CaptureControllerState.Stopping;
+                        _followRetryAtMs = -1;
+                        _adapterReevaluated = false;
                     }
 
                     if (Teardown(CaptureEndReason.ProcessExit))
-                        Publish(Snapshot(), "所选游戏已退出，记录已暂停。请重新选择游戏窗口。");
+                        Publish(Snapshot(), "所选游戏已退出，记录已暂停。单开时重新启动同一游戏会自动接续；无法确认时请重新选择游戏窗口。");
                     return;
                 }
             }
@@ -898,10 +907,11 @@ public sealed class CaptureController : IDisposable
             ReadQueueCapacity(),
             error => OnFault("协议处理或写库失败，抓包已停止以避免漏记。", error, generation),
             dropped => NoteDropped(dropped, generation),
-            onConnectionLost: () => DeliverConnectionLost(sessionId, processId, generation));
+            onConnectionLost: () => DeliverConnectionLost(sessionId, generation));
         var run = new CaptureRun(
             sessionId,
             startedAt,
+            game,
             adapter,
             oodle,
             source.ReadsGameExecutable || oodle == OodleMode.FfxivTcp,
@@ -1564,22 +1574,23 @@ public sealed class CaptureController : IDisposable
     /// docs/state-machine.md section 3.6 (review finding R-2).
     /// </summary>
     /// <param name="captureSessionId">Session the marker was queued for.</param>
-    /// <param name="gameProcessId">Game process this session observes.</param>
     /// <param name="generation">Session generation the marker belongs to.</param>
-    private void DeliverConnectionLost(string captureSessionId, int gameProcessId, long generation)
+    private void DeliverConnectionLost(string captureSessionId, long generation)
     {
+        CaptureRun run;
         lock (_gate)
         {
             if (_disposed || generation != _generation ||
-                _state != CaptureControllerState.Running || _run is not { } run ||
-                !string.Equals(run.CaptureSessionId, captureSessionId, StringComparison.Ordinal))
+                _state != CaptureControllerState.Running || _run is not { } current ||
+                !string.Equals(current.CaptureSessionId, captureSessionId, StringComparison.Ordinal))
             {
                 return;
             }
+            run = current;
         }
 
         var selected = _gameSelection.Refresh();
-        if (!selected.Running || selected.ProcessId != gameProcessId)
+        if (!run.Observes(selected))
         {
             _services.Logger.Write(
                 LogLevel.Info, "capture", "connection_lost_game_exited", new Dictionary<string, object?>
@@ -1998,6 +2009,7 @@ public sealed class CaptureController : IDisposable
         public CaptureRun(
             string captureSessionId,
             DateTimeOffset startedAtUtc,
+            GameProcessDetection game,
             CaptureAdapterView? adapter,
             OodleMode oodle,
             bool readsGameExecutable,
@@ -2006,6 +2018,8 @@ public sealed class CaptureController : IDisposable
         {
             CaptureSessionId = captureSessionId;
             StartedAtUtc = startedAtUtc;
+            GameProcessId = game.ProcessId;
+            GameStartedAtUtc = game.StartedAtUtc;
             Adapter = adapter;
             Oodle = oodle;
             ReadsGameExecutable = readsGameExecutable;
@@ -2020,6 +2034,13 @@ public sealed class CaptureController : IDisposable
         public string CaptureSessionId { get; }
 
         public DateTimeOffset StartedAtUtc { get; }
+
+        private int? GameProcessId { get; }
+
+        private DateTimeOffset? GameStartedAtUtc { get; }
+
+        public bool Observes(GameProcessDetection game) => game.Running &&
+            game.ProcessId == GameProcessId && game.StartedAtUtc is not null && game.StartedAtUtc == GameStartedAtUtc;
 
         public CaptureAdapterView? Adapter { get; }
 
