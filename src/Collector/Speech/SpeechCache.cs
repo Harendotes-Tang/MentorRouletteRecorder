@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using MentorRecorder.Collector.Domain.Time;
 
 namespace MentorRecorder.Collector.Speech;
@@ -64,6 +65,23 @@ public sealed class SpeechCache
         ArgumentNullException.ThrowIfNull(text);
         var material = SpeechProviderWire.Format(provider) + "|" + voice + "|" +
                        ratePercent.ToString(CultureInfo.InvariantCulture) + "|" + text;
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(material))).ToLowerInvariant();
+    }
+
+    /// <summary>Includes the synthesis target so changing an endpoint or model cannot reuse its predecessor's audio.</summary>
+    public static string KeyFor(OnlineSpeechConfig config, int ratePercent, string text)
+    {
+        ArgumentNullException.ThrowIfNull(config);
+        ArgumentNullException.ThrowIfNull(text);
+        // Only settings used by the active provider belong in the cache identity. The key
+        // itself is deliberately absent; rotating credentials does not change the sound.
+        var material = JsonSerializer.Serialize(new object?[]
+        {
+            "speech-cache-v2", SpeechProviderWire.Format(config.Provider),
+            OnlineSpeechClient.KeyBinding(config),
+            config.Provider == SpeechProvider.OpenAiCompatible ? config.OpenAiModel : null,
+            config.Voice, ratePercent, text,
+        });
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(material))).ToLowerInvariant();
     }
 

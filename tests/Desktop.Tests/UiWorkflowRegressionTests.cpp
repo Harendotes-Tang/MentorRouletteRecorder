@@ -646,6 +646,7 @@ void UiWorkflowRegressionTests::completedRunCanSupplementJobWithoutAReflection()
     QVERIFY2(fixture.create(), qPrintable(fixture.errors));
     auto value = run();
     value.insert(QStringLiteral("result"), QStringLiteral("COMPLETED"));
+    value.insert(QStringLiteral("pending_review"), true);
     QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "openForRun",
                                      Q_ARG(QVariant, QVariant(value)),
                                      Q_ARG(QVariant, QVariant(QStringLiteral("刚刚完成")))));
@@ -657,6 +658,7 @@ void UiWorkflowRegressionTests::completedRunCanSupplementJobWithoutAReflection()
     QCOMPARE(fixture.backend.counts.value(QStringLiteral("CorrectRun")), 1);
     QVERIFY(fixture.backend.pending.last().payload.value(QStringLiteral("changes")).toObject()
                 .value(QStringLiteral("job_id")).toInt() > 0);
+    QCOMPARE(fixture.backend.pending.last().payload.value(QStringLiteral("changes")).toObject().size(), 1);
     QVERIFY(fixture.backend.finish(QStringLiteral("CorrectRun"), true));
     QTRY_VERIFY(!fixture.dialog()->property("visible").toBool());
 }

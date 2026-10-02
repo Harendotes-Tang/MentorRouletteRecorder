@@ -128,6 +128,7 @@ public sealed record OodleSignatureUse(string? Source, string? ProfileId, string
 /// <param name="Handshakes">Streams opened because their TCP handshake was observed, any program.</param>
 /// <param name="GameConnections">Distinct connections the OS attributed to the game since the start.</param>
 /// <param name="GameConnectionsNow">Connections the OS attributes to the game in the latest reading.</param>
+/// <param name="DamagedGameDirections">Owned stream directions permanently abandoned after a sequence gap.</param>
 public sealed record CaptureIngressCounters(
     long RawPackets = 0,
     long DroppedNoStream = 0,
@@ -138,7 +139,8 @@ public sealed record CaptureIngressCounters(
     long AdapterDropped = 0,
     long Handshakes = 0,
     long GameConnections = 0,
-    long GameConnectionsNow = 0)
+    long GameConnectionsNow = 0,
+    long DamagedGameDirections = 0)
 {
     /// <summary>Nothing measured: the reading of a source that does not observe an adapter.</summary>
     public static CaptureIngressCounters Empty { get; } = new();

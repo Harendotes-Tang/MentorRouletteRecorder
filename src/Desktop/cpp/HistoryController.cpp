@@ -287,6 +287,9 @@ void HistoryController::adoptRunMutation(const QString &kind, const QVariantMap 
         Q_EMIT toastRequested(QString::fromUtf8("已确认复核 · 修订 %1")
                       .arg(QString::number(
                                payload.value(QStringLiteral("revision")).toInt())));
+    } else if (kind == QLatin1String("supplement_job")) {
+        Q_EMIT toastRequested(QString::fromUtf8("已补录职业 · 修订 %1")
+                      .arg(payload.value(QStringLiteral("revision")).toInt()));
     }
 
     if (!keepSelection && stillSelected)
@@ -390,6 +393,21 @@ void HistoryController::resolveRunResult(const QString &runId, int revision,
     sendResultCorrection(runId, expected, result, reason, jobId, /*allowRetry=*/true);
 }
 
+void HistoryController::supplementRunJob(const QString &runId, int revision, int jobId,
+                                         const QString &reason)
+{
+    if (!m_backend)
+        return;
+    if (runId.isEmpty() || revision < 1 || jobId <= 0 || reason.trimmed().isEmpty()) {
+        Q_EMIT mutationFailed(QStringLiteral("ERR_BAD_REQUEST"),
+                              QString::fromUtf8("记录、职业或修订信息不完整，请重新打开记录后补录。"));
+        return;
+    }
+    // No result field: supplying even its unchanged value would acknowledge
+    // the pending outcome review, which choosing a job does not do.
+    sendResultCorrection(runId, revision, {}, reason, jobId, /*allowRetry=*/true);
+}
+
 void HistoryController::sendResultCorrection(const QString &runId, int expectedRevision,
                                          const QString &result, const QString &reason,
                                          int jobId, bool allowRetry)
@@ -397,24 +415,26 @@ void HistoryController::sendResultCorrection(const QString &runId, int expectedR
     if (!m_backend)
         return;
     QJsonObject changes;
-    changes.insert(QStringLiteral("result"), result);
+    if (!result.isEmpty())
+        changes.insert(QStringLiteral("result"), result);
     if (jobId > 0)
         changes.insert(QStringLiteral("job_id"), jobId);
     const bool keepSelection =
         m_selectedRun.value(QStringLiteral("run_id")).toString() == runId;
+    const QString kind = result.isEmpty() ? QStringLiteral("supplement_job") : QStringLiteral("review");
     BackendReply *reply = m_backend->correctRun(runId, expectedRevision, changes, reason);
     if (!allowRetry) {
-        sendRunMutation(QStringLiteral("review"), reply, keepSelection);
+        sendRunMutation(kind, reply, keepSelection);
         return;
     }
     if (!reply)
         return;
 
-    reply->whenDone(this, [this, runId, expectedRevision, result, reason, jobId, keepSelection](
+    reply->whenDone(this, [this, runId, expectedRevision, result, reason, jobId, keepSelection, kind](
                               bool ok, const QVariantMap &payload, const QString &code,
                               const QString &message) {
         if (ok) {
-            adoptRunMutation(QStringLiteral("review"), payload, keepSelection);
+            adoptRunMutation(kind, payload, keepSelection);
             return;
         }
         // The revision the dialog was handed by run_finished is stale because
@@ -469,7 +489,7 @@ void HistoryController::retryResultCorrectionWithFreshRevision(const QString &ru
                 const QVariantMap revision = value.toMap();
                 const int number = revision.value(QStringLiteral("revision")).toInt();
                 newest = qMax(newest, number);
-                if (number > staleRevision && revisionTouchesResult(revision, jobId > 0))
+                if (number > staleRevision && revisionTouchesResult(revision, jobId > 0, !result.isEmpty()))
                     overlaps = true;
             }
             if (newest <= 0) {
@@ -491,8 +511,9 @@ void HistoryController::retryResultCorrectionWithFreshRevision(const QString &ru
                 // Another place has already answered for this run. Whoever
                 // wrote first wins (docs/manual-correction.md section 3); the
                 // user sees the record as it is now and decides again.
-                const QString text = QString::fromUtf8(
-                    "这条记录的结果刚刚已在别处确认过，本次没有改动。请查看当前记录后再决定。");
+                const QString text = result.isEmpty()
+                    ? QString::fromUtf8("这条记录的职业刚刚已在别处修改过，本次没有改动。请重新打开记录后再决定。")
+                    : QString::fromUtf8("这条记录的结果刚刚已在别处确认过，本次没有改动。请查看当前记录后再决定。");
                 Q_EMIT mutationFailed(QStringLiteral("ERR_REVISION_CONFLICT"), text);
                 Q_EMIT toastRequested(text);
                 return;
@@ -501,7 +522,7 @@ void HistoryController::retryResultCorrectionWithFreshRevision(const QString &ru
         });
 }
 
-bool HistoryController::revisionTouchesResult(const QVariantMap &revision, bool withJob)
+bool HistoryController::revisionTouchesResult(const QVariantMap &revision, bool withJob, bool withResult)
 {
     // A result correction writes `result`, implicitly clears `pending_review`
     // and may set `job_id`; a revision that changed any of those already made
@@ -509,7 +530,7 @@ bool HistoryController::revisionTouchesResult(const QVariantMap &revision, bool 
     const QVariantList changes = revision.value(QStringLiteral("changes")).toList();
     for (const QVariant &value : changes) {
         const QString field = value.toMap().value(QStringLiteral("field")).toString();
-        if (field == QLatin1String("result") || field == QLatin1String("pending_review"))
+        if (withResult && (field == QLatin1String("result") || field == QLatin1String("pending_review")))
             return true;
         if (withJob && field == QLatin1String("job_id"))
             return true;

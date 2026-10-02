@@ -902,8 +902,10 @@ public sealed class CaptureController : IDisposable
                 clock: _services.Clock,
                 oodleTempManifestPath: _services.OodleTempManifestPath);
         var generation = _generation;
-        var queue = new DecodedMessageQueue(
-            _sink,
+        DecodedMessageQueue? queue = null;
+        queue = new DecodedMessageQueue(
+            new HealthReportingSink(_sink,
+                () => DeliveryHealth(sessionId, source, queue?.DroppedCount ?? 0), ReportHealth),
             ReadQueueCapacity(),
             error => OnFault("协议处理或写库失败，抓包已停止以避免漏记。", error, generation),
             dropped => NoteDropped(dropped, generation),
@@ -1104,7 +1106,8 @@ public sealed class CaptureController : IDisposable
             // a correctly finished duty into EVENT_SEQUENCE_GAP (review finding H-7).
             FlushDropped(run.CaptureSessionId);
             ReportHealth(new Protocol.Calibration.CaptureSessionHealth(
-                run.CaptureSessionId, silentReason, preexisting, finalIngress.AdapterDropped));
+                run.CaptureSessionId, silentReason, preexisting, finalIngress.AdapterDropped,
+                queue?.DroppedCount ?? 0, finalIngress.DamagedGameDirections));
 
             try
             {
@@ -1825,10 +1828,20 @@ public sealed class CaptureController : IDisposable
                 return;
             }
 
-            health = new(run.CaptureSessionId, _silentReason, _preexistingConnections, ingress.AdapterDropped);
+            health = new(run.CaptureSessionId, _silentReason, _preexistingConnections, ingress.AdapterDropped,
+                _queue?.DroppedCount ?? 0, ingress.DamagedGameDirections);
         }
 
         ReportHealth(health);
+    }
+
+    private CaptureSessionHealth DeliveryHealth(string sessionId, ICaptureSource source, long dropped)
+    {
+        var ingress = ReadIngress(source);
+        CaptureSilentReason silentReason;
+        lock (_gate) silentReason = _silentReason;
+        return new CaptureSessionHealth(sessionId, silentReason, source.PreexistingTcpConnections,
+            ingress.AdapterDropped, dropped, ingress.DamagedGameDirections);
     }
 
     private void ReportHealth(Protocol.Calibration.CaptureSessionHealth health)
@@ -1992,6 +2005,29 @@ public sealed class CaptureController : IDisposable
                 (string.IsNullOrEmpty(_lastErrorMessage) ? string.Empty : " " + _lastErrorMessage));
         }
         _disposed = true;
+    }
+
+    /// <summary>
+    /// Marks lost observations before the next message can judge calibration. Polling alone
+    /// is too late: verification may run on that very message. This runs on the parser worker,
+    /// never on the capture callback, and reports only changed readings.
+    /// </summary>
+    private sealed class HealthReportingSink(
+        IDecodedMessageSink sink, Func<CaptureSessionHealth> read, Action<CaptureSessionHealth> report)
+        : IDecodedMessageSink
+    {
+        private CaptureSessionHealth? _last;
+
+        public void Accept(DecodedMessage message)
+        {
+            var health = read();
+            if (health != _last)
+            {
+                report(health);
+                _last = health;
+            }
+            sink.Accept(message);
+        }
     }
 
     /// <summary>Mutable counters of one capture session.</summary>

@@ -486,6 +486,8 @@ public Q_SLOTS:
     /// that same revision.
     void resolveRunResult(const QString &runId, int revision, const QString &result,
                           const QString &reason, int jobId = 0);
+    /// A job-only correction leaves the outcome and its review flag untouched.
+    void supplementRunJob(const QString &runId, int revision, int jobId, const QString &reason);
     void updateAchievementBaseline(int goalCount, int baselineCount, const QString &reason);
     void completeFirstRun();
     /// Persist the acknowledgement of the first-run disclosure.

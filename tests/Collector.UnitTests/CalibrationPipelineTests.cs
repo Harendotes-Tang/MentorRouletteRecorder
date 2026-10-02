@@ -150,6 +150,30 @@ public sealed class CalibrationPipelineTests : IDisposable
         Assert.Equal(RunState.EnteredDuty, pipeline.RunState);
     }
 
+    [Fact]
+    public void SwitchingRegionOnTheSameBuildRearmsCalibrationWithoutReusingEvidence()
+    {
+        using var db = new TestDatabase();
+        var cn = CalibrationObserverTests.Template();
+        var global = CalibrationTemplate.From(cn.Source with { Region = Region.Global, ProfileId = "global.template" })!;
+        var services = Services(cn) with { SelectTemplate = region => region == Region.Cn ? cn : global };
+        var pipeline = new LiveProtocolPipeline(
+            db.Database, db.Clock, new LiveEventBus(db.Clock), NoProfile, null, services);
+        pipeline.Refresh(NewBuild);
+        var first = OpenSession(db);
+        pipeline.OnCaptureStarted(first);
+        Feed(pipeline, first, CalibrationObserverTests.Session1());
+        Assert.Equal(CalibrationState.Ready, pipeline.CalibrationStatus().State);
+        pipeline.OnCaptureStopped(first, CaptureEndReason.UserStop);
+
+        pipeline.Refresh(NewBuild with { Region = Region.Global });
+
+        var status = pipeline.CalibrationStatus();
+        Assert.Equal("global.template", status.TemplateProfileId);
+        Assert.Equal(CalibrationState.Waiting, status.State);
+        Assert.Empty(status.Events);
+    }
+
     /// <summary>
     /// The job is announced at login and on zone changes, so the observer has already seen it
     /// by the time the user confirms the calibration. A pop straight after binding must carry

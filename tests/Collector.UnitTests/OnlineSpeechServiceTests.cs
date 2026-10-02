@@ -450,6 +450,55 @@ public sealed class OnlineSpeechServiceTests : IDisposable
     }
 
     [Theory]
+    [InlineData("model")]
+    [InlineData("endpoint")]
+    [InlineData("region")]
+    public async Task ChangingTheSynthesisTargetDoesNotReplayAudioFromThePreviousConfiguration(string field)
+    {
+        var transport = new FakeSpeechTransport();
+        using var service = Service(transport);
+        var original = field == "region" ? AzureUpdate() : new SpeechSettingsUpdate
+        {
+            Provider = SpeechProvider.OpenAiCompatible,
+            OpenAiBaseUrl = "https://speech.example.com/v1", OpenAiBaseUrlSpecified = true,
+            OpenAiModel = "tts-1", OpenAiModelSpecified = true,
+            Voice = "alloy", VoiceSpecified = true,
+            ApiKey = SpeechFixtures.Key,
+        };
+        service.UpdateSettings(original);
+        var request = new SpeechRequest(Text, 100, false);
+        var first = await service.SynthesizeAsync(request, default);
+        Assert.True((await service.SynthesizeAsync(request, default)).FromCache);
+        Assert.Single(transport.Requests);
+
+        service.UpdateSettings(field switch
+        {
+            "model" => new SpeechSettingsUpdate { OpenAiModel = "tts-1-hd", OpenAiModelSpecified = true },
+            "endpoint" => new SpeechSettingsUpdate
+            {
+                OpenAiBaseUrl = "https://other.example.com/v1", OpenAiBaseUrlSpecified = true,
+                ApiKey = SpeechFixtures.Key,
+            },
+            _ => new SpeechSettingsUpdate
+            {
+                AzureRegion = "westus2", AzureRegionSpecified = true, ApiKey = SpeechFixtures.Key,
+            },
+        });
+        var changed = await service.SynthesizeAsync(request, default);
+        Assert.False(changed.FromCache);
+        Assert.NotEqual(first.AudioPath, changed.AudioPath);
+        Assert.Equal(2, transport.Requests.Count);
+        Assert.True((await service.SynthesizeAsync(request, default)).FromCache);
+        Assert.Equal(2, transport.Requests.Count);
+
+        service.UpdateSettings(original);
+        var restored = await service.SynthesizeAsync(request, default);
+        Assert.True(restored.FromCache);
+        Assert.Equal(first.AudioPath, restored.AudioPath);
+        Assert.Equal(2, transport.Requests.Count);
+    }
+
+    [Theory]
     [InlineData(401, "ERR_SPEECH_AUTH")]
     [InlineData(403, "ERR_SPEECH_AUTH")]
     [InlineData(429, "ERR_SPEECH_QUOTA")]

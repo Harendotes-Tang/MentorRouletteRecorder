@@ -16,18 +16,23 @@ namespace MentorRecorder.Collector.Protocol.Calibration;
 /// <param name="SilentReason">Why the capture was silent, as the controller classified it.</param>
 /// <param name="PreexistingConnections">Game connections already open when capture started; null when unknown.</param>
 /// <param name="AdapterDropped">Packets the capture driver reported as lost.</param>
+/// <param name="DecodedMessagesDropped">Messages lost between decoding and protocol processing.</param>
+/// <param name="DamagedGameDirections">Owned TCP directions abandoned after a sequence gap.</param>
 public sealed record CaptureSessionHealth(
     string CaptureSessionId,
     CaptureSilentReason SilentReason,
     int? PreexistingConnections,
-    long AdapterDropped)
+    long AdapterDropped,
+    long DecodedMessagesDropped = 0,
+    long DamagedGameDirections = 0)
 {
     /// <summary>
     /// True when an absence in this session means something: no silent reason, no connection that
-    /// predates the capture (unknown counts as present), and no packet lost at the adapter.
+    /// predates the capture (unknown counts as present), and no loss at the adapter, TCP stream or queue.
     /// </summary>
     public bool IsHealthy =>
-        SilentReason == CaptureSilentReason.None && PreexistingConnections == 0 && AdapterDropped == 0;
+        SilentReason == CaptureSilentReason.None && PreexistingConnections == 0 && AdapterDropped == 0 &&
+        DecodedMessagesDropped == 0 && DamagedGameDirections == 0;
 
     /// <summary>
     /// Combines two readings of one session into the worse of them. A silent reason, once seen,
@@ -53,6 +58,8 @@ public sealed record CaptureSessionHealth(
             CaptureSessionId,
             SilentReason != CaptureSilentReason.None ? SilentReason : later.SilentReason,
             preexisting,
-            Math.Max(AdapterDropped, later.AdapterDropped));
+            Math.Max(AdapterDropped, later.AdapterDropped),
+            Math.Max(DecodedMessagesDropped, later.DecodedMessagesDropped),
+            Math.Max(DamagedGameDirections, later.DamagedGameDirections));
     }
 }

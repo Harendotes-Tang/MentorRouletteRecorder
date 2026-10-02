@@ -97,7 +97,7 @@ public sealed record RunFilter
     /// </summary>
     public bool? PendingReview { get; init; }
 
-    /// <summary>Case-insensitive substring matched against duty name and job name.</summary>
+    /// <summary>Case-insensitive substring matched against duty name, job name and note.</summary>
     public string? Text { get; init; }
 }
 

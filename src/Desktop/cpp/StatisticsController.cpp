@@ -93,6 +93,9 @@ void StatisticsController::requestDashboard(std::function<void(bool ok)> then)
 
 void StatisticsController::refreshTrend()
 {
+    // Switching back to cached days must also invalidate an outstanding week
+    // or month query; otherwise its late answer is shown under the day label.
+    const quint64 generation = ++m_trendGeneration;
     if (!m_backend)
         return;
 
@@ -105,8 +108,10 @@ void StatisticsController::refreshTrend()
     }
 
     m_backend->getDashboardStats({}, m_trendMode)
-        ->whenDone(this, [this](bool ok, const QVariantMap &payload, const QString &,
+        ->whenDone(this, [this, generation](bool ok, const QVariantMap &payload, const QString &,
                                 const QString &) {
+            if (generation != m_trendGeneration)
+                return;
             applyTrendSeries(ok ? QJsonObject::fromVariantMap(payload)
                                       .value(QStringLiteral("trend"))
                                       .toObject()

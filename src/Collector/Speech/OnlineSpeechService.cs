@@ -229,7 +229,7 @@ public sealed class OnlineSpeechService : IDisposable
             throw Failure(SpeechOutcome.NotConfigured, null);
         }
 
-        var cacheKey = SpeechCache.KeyFor(config.Provider, config.Voice!, request.RatePercent, request.Text);
+        var cacheKey = SpeechCache.KeyFor(config, request.RatePercent, request.Text);
         if (!request.Test && _cache.TryGet(cacheKey) is { } cached)
         {
             return new SpeechSynthesis(cached, true, config.Provider);

@@ -48,6 +48,7 @@ public:
                             const QString &runId = QString(), int expectedRevision = -1);
     void resolveRunResult(const QString &runId, int revision,
                                     const QString &result, const QString &reason, int jobId = 0);
+    void supplementRunJob(const QString &runId, int revision, int jobId, const QString &reason);
     void confirmSelectedRunReview(const QString &reason);
     void undoSelectedRunRevision(const QString &reason);
     void softDeleteSelectedRun(const QString &reason);
@@ -78,7 +79,7 @@ private:
     void retryResultCorrectionWithFreshRevision(const QString &runId, int staleRevision,
                                                            const QString &result,
                                                            const QString &reason, int jobId);
-    static bool revisionTouchesResult(const QVariantMap &revision, bool withJob);
+    static bool revisionTouchesResult(const QVariantMap &revision, bool withJob, bool withResult);
     /// Contract cap for GetRunRevisions page_size (contracts/ipc-protocol: 200).
     static constexpr int kRevisionPageSize = 200;
     QPointer<IBackend> m_backend;

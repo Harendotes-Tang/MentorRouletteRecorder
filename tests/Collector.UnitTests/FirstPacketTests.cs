@@ -303,6 +303,7 @@ public sealed class FirstPacketTests
 
         Assert.Empty(messages);
         Assert.Equal(1, buffer.Counters.StreamResets);
+        Assert.Equal(1, buffer.Counters.DamagedGameDirections);
 
         // The other direction -- the one that carries everything this software records --
         // still decodes on the same connection and the same decoder.

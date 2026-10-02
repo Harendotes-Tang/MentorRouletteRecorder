@@ -163,6 +163,18 @@ public sealed class CalibrationObserverSharedStateTests : IDisposable
         Assert.False(health.ContainsKey("never-accepted"));
     }
 
+    [Theory]
+    [InlineData(1, 0)]
+    [InlineData(0, 1)]
+    public void LossAfterTheAdapterCannotBeHealedByALaterHealthyReading(long decodedDropped, long damagedDirections)
+    {
+        var observer = Observer();
+        observer.RecordSessionHealth(new CaptureSessionHealth(
+            Session, CaptureSilentReason.None, 0, 0, decodedDropped, damagedDirections));
+        observer.RecordSessionHealth(new CaptureSessionHealth(Session, CaptureSilentReason.None, 0, 0));
+        Assert.False(observer.Snapshot().SessionHealth[Session].IsHealthy);
+    }
+
     [Fact]
     public void EveryLiveConnectionTagNamesTheCaptureSessionItBelongsTo()
     {

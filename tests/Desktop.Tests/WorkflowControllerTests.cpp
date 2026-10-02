@@ -111,6 +111,61 @@ class WorkflowControllerTests : public QObject
 {
     Q_OBJECT
 private Q_SLOTS:
+    void lateTrendRepliesCannotReplaceTheSelectedSeries_data()
+    {
+        QTest::addColumn<QString>("nextMode");
+        QTest::addColumn<bool>("oldFails");
+        for (const auto &mode : {QStringLiteral("day"), QStringLiteral("week"), QStringLiteral("month")}) {
+            QTest::newRow(qPrintable(mode + QStringLiteral("-success"))) << mode << false;
+            QTest::newRow(qPrintable(mode + QStringLiteral("-failure"))) << mode << true;
+        }
+    }
+
+    void lateTrendRepliesCannotReplaceTheSelectedSeries()
+    {
+        QFETCH(QString, nextMode);
+        QFETCH(bool, oldFails);
+        ControlledBackend backend;
+        mr::StatisticsController statistics(&backend);
+        statistics.refreshDashboard();
+        backend.last(QStringLiteral("GetDashboardStats")).reply->succeed(dashboard(10));
+        const auto dayBuckets = statistics.trendBuckets();
+        statistics.setTrendMode(QStringLiteral("week"));
+        const auto oldReply = backend.last(QStringLiteral("GetDashboardStats")).reply;
+
+        // The player either returns to cached days, selects months, or requests
+        // a fresher week snapshot before the previous query has answered.
+        if (nextMode == QStringLiteral("week"))
+            statistics.refreshTrend();
+        else
+            statistics.setTrendMode(nextMode);
+        if (nextMode != QStringLiteral("day")) {
+            backend.last(QStringLiteral("GetDashboardStats")).reply->succeed({
+                {QStringLiteral("trend"), QJsonObject{
+                    {QStringLiteral("granularity"), nextMode},
+                    {QStringLiteral("buckets"), QJsonArray{QJsonObject{
+                        {QStringLiteral("start_utc"), QStringLiteral("2026-09-01T00:00:00Z")},
+                        {QStringLiteral("completed_count"), 7}}}}}}});
+        }
+        const auto expected = statistics.trendBuckets();
+        QVERIFY(!expected.isEmpty());
+        if (nextMode == QStringLiteral("day"))
+            QCOMPARE(expected, dayBuckets);
+        else
+            QCOMPARE(expected.first().toMap().value(QStringLiteral("count")).toInt(), 7);
+
+        if (oldFails)
+            oldReply->fail(QStringLiteral("ERR_TEST"), QStringLiteral("late failure"));
+        else
+            oldReply->succeed({{QStringLiteral("trend"), QJsonObject{
+                {QStringLiteral("granularity"), QStringLiteral("week")},
+                {QStringLiteral("buckets"), QJsonArray{QJsonObject{
+                    {QStringLiteral("start_utc"), QStringLiteral("2026-09-07T00:00:00Z")},
+                    {QStringLiteral("completed_count"), 999}}}}}}});
+        QCOMPARE(statistics.trendMode(), nextMode);
+        QCOMPARE(statistics.trendBuckets(), expected);
+    }
+
     void statisticsLoadsAllPagesBeforePublishingCounts()
     {
         ControlledBackend backend;
@@ -426,6 +481,33 @@ private Q_SLOTS:
         QCOMPARE(backend.count(QStringLiteral("GetRunRevisions")), 1);
         history.updatePendingReviewCount(0);
         QVERIFY(history.pendingReviewRun().isEmpty());
+    }
+
+    void jobSupplementRetriesPastOutcomeChangesButDoesNotOverwriteAnotherJob()
+    {
+        ControlledBackend backend;
+        mr::HistoryController history(&backend);
+        QSignalSpy failed(&history, &mr::HistoryController::mutationFailed);
+        history.supplementRunJob(QStringLiteral("A"), 3, 19, QStringLiteral("补录职业"));
+        auto correction = backend.last(QStringLiteral("CorrectRun"));
+        QCOMPARE(correction.payload.value(QStringLiteral("changes")).toObject(),
+                 QJsonObject({{QStringLiteral("job_id"), 19}}));
+        correction.reply->fail(QStringLiteral("ERR_REVISION_CONFLICT"), QStringLiteral("stale"));
+        backend.last(QStringLiteral("GetRunRevisions")).reply->succeed(
+            revisionsChanging(4, {QStringLiteral("result"), QStringLiteral("pending_review")}));
+        QCOMPARE(backend.count(QStringLiteral("CorrectRun")), 2);
+        correction = backend.last(QStringLiteral("CorrectRun"));
+        QCOMPARE(correction.payload.value(QStringLiteral("expected_revision")).toInt(), 4);
+        QCOMPARE(correction.payload.value(QStringLiteral("changes")).toObject(),
+                 QJsonObject({{QStringLiteral("job_id"), 19}}));
+
+        history.supplementRunJob(QStringLiteral("A"), 4, 19, QStringLiteral("补录职业"));
+        backend.last(QStringLiteral("CorrectRun")).reply->fail(
+            QStringLiteral("ERR_REVISION_CONFLICT"), QStringLiteral("stale"));
+        backend.last(QStringLiteral("GetRunRevisions")).reply->succeed(
+            revisionsChanging(5, {QStringLiteral("job_id")}));
+        QCOMPARE(backend.count(QStringLiteral("CorrectRun")), 3);
+        QCOMPARE(failed.count(), 1);
     }
 
     /// The stale dialog's answer must not overwrite a result someone else has

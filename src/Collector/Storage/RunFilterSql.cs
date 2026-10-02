@@ -134,7 +134,7 @@ public static class RunFilterSql
         if (!string.IsNullOrWhiteSpace(filter.Text))
         {
             clauses.Add(
-                "(IFNULL(duty_name, '') LIKE $text ESCAPE '\\' OR IFNULL(job_name, '') LIKE $text ESCAPE '\\')");
+                "(IFNULL(duty_name, '') LIKE $text ESCAPE '\\' OR IFNULL(job_name, '') LIKE $text ESCAPE '\\' OR IFNULL(note, '') LIKE $text ESCAPE '\\')");
             parameters.Add(new("$text", "%" + EscapeLike(filter.Text) + "%"));
         }
 

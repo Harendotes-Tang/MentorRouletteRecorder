@@ -64,6 +64,7 @@ private:
     QVariantList m_trendBuckets;
     QVariantList m_dutyOptions;
     QString m_trendMode = QStringLiteral("day");
+    quint64 m_trendGeneration = 0;
     int m_completedLast7Days = 0;
     int m_completedLast30Days = 0;
     int m_trendWindowDays = 30;

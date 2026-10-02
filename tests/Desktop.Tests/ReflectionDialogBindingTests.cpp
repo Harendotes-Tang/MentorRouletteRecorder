@@ -7,7 +7,7 @@
 // user is in the middle of typing.
 //
 // These tests open for a run, type, let the same run arrive again and assert the
-// note survives; a different run must start empty. They also pin the
+// note survives; a different run must wait until the draft closes. They also pin the
 // acknowledgement pair: forgetting the closed half leaves the controller
 // believing a dialog is still on screen, silencing every further question for
 // the rest of the session.
@@ -87,7 +87,11 @@ import QtQuick.Controls
 import MentorRecorder
 ApplicationWindow {
     width: 900; height: 800; visible: true
-    ReflectionDialog { objectName: "reflection" }
+    ReflectionDialog { id: reflection; objectName: "reflection" }
+    Connections {
+        target: App
+        function onReflectionPromptRequested(run) { reflection.openForRun(run, "刚刚完成") }
+    }
 })",
                           QUrl());
         root.reset(component.create());
@@ -172,7 +176,13 @@ private Q_SLOTS:
                                                   QStringLiteral("水晶塔"), 3)));
         QCOMPARE(fixture.note(), QStringLiteral("新人第一次进，讲了三次分摊。"));
 
-        // A different run is a different diary entry and starts empty.
+        // A different run cannot replace an open draft either.
+        QVERIFY(fixture.openForResult(finishedRun(QStringLiteral("run-b"),
+                                                  QStringLiteral("石卫塔"), 1)));
+        QCOMPARE(fixture.note(), QStringLiteral("新人第一次进，讲了三次分摊。"));
+        QCOMPARE(fixture.dialog()->property("runId").toString(), QStringLiteral("run-a"));
+        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "close"));
+        QTRY_VERIFY(!fixture.dialog()->property("visible").toBool());
         QVERIFY(fixture.openForResult(finishedRun(QStringLiteral("run-b"),
                                                   QStringLiteral("石卫塔"), 1)));
         QCOMPARE(fixture.note(), QString());
@@ -205,8 +215,16 @@ private Q_SLOTS:
     /// an acknowledged 结果 question: otherwise a 心得 window closing tells the
     /// controller nothing and the dropped question waits for the *next* finished
     /// run, which in a session with no next run never comes.
+    void aQuestionDroppedByABusyDialogIsAskedAgainWhenItCloses_data()
+    {
+        QTest::addColumn<bool>("saving");
+        QTest::newRow("typing-a-note") << false;
+        QTest::newRow("saving-a-note") << true;
+    }
+
     void aQuestionDroppedByABusyDialogIsAskedAgainWhenItCloses()
     {
+        QFETCH(bool, saving);
         DialogFixture fixture;
         QVERIFY2(fixture.create(), qPrintable(fixture.errors));
         QSignalSpy asked(&fixture.controller,
@@ -217,14 +235,15 @@ private Q_SLOTS:
                                                QStringLiteral("邪龙坠巢"), 2),
                                    QStringLiteral("补录笔记")));
         fixture.type(QStringLiteral("路上讲了机制。"));
-        fixture.dialog()->setProperty("submitting", true);
-        QVERIFY(fixture.dialog()->property("busy").toBool());
+        fixture.dialog()->setProperty("submitting", saving);
+        QCOMPARE(fixture.dialog()->property("busy").toBool(), saving);
 
         // A duty ends. The controller asks; the busy window cannot show it.
         fixture.publishFinished(finishedRun(QStringLiteral("run-a"),
                                             QStringLiteral("水晶塔"), 3));
         QTRY_COMPARE_WITH_TIMEOUT(asked.count(), 1, 3000);
         QCOMPARE(fixture.dialog()->property("runId").toString(), QStringLiteral("run-old"));
+        QCOMPARE(fixture.note(), QStringLiteral("路上讲了机制。"));
         QVERIFY(!fixture.dialog()->property("askingResult").toBool());
 
         // The 心得 is saved and the window closes. This is the moment the
@@ -240,6 +259,36 @@ private Q_SLOTS:
         QCOMPARE(fixture.dialog()->property("runId").toString(), QStringLiteral("run-a"));
         QVERIFY(fixture.dialog()->property("askingResult").toBool());
         QVERIFY(fixture.dialog()->property("resultAcknowledged").toBool());
+    }
+
+    void aCompletionPromptCannotOverwriteAnOpenNote_data()
+    {
+        QTest::addColumn<bool>("sameRun");
+        QTest::newRow("same-run") << true;
+        QTest::newRow("another-run") << false;
+    }
+
+    void aCompletionPromptCannotOverwriteAnOpenNote()
+    {
+        QFETCH(bool, sameRun);
+        DialogFixture fixture;
+        QVERIFY2(fixture.create(), qPrintable(fixture.errors));
+        QVERIFY(fixture.openForRun(finishedRun(QStringLiteral("run-old"),
+                                               QStringLiteral("邪龙坠巢"), 2),
+                                   QStringLiteral("补录笔记")));
+        fixture.type(QStringLiteral("这段笔记还没有保存。"));
+        auto completed = finishedRun(sameRun ? QStringLiteral("run-old") : QStringLiteral("run-new"),
+                                     QStringLiteral("水晶塔"), 3);
+        completed.insert(QStringLiteral("result"), QStringLiteral("COMPLETED"));
+        completed.insert(QStringLiteral("pending_review"), false);
+        auto event = runFinishedEvent(completed);
+        event.insert(QStringLiteral("state"), QStringLiteral("COMPLETED"));
+        QSignalSpy prompts(&fixture.controller, &mr::AppController::reflectionPromptRequested);
+        Q_EMIT fixture.backend.liveEvent(event);
+        QTRY_COMPARE(prompts.count(), 1);
+        QCOMPARE(fixture.dialog()->property("runId").toString(), QStringLiteral("run-old"));
+        QCOMPARE(fixture.dialog()->property("runRevision").toInt(), 2);
+        QCOMPARE(fixture.note(), QStringLiteral("这段笔记还没有保存。"));
     }
 
     void liveRevisionsDoNotAdvanceTheOpenResultFormsBaseline()

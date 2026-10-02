@@ -336,7 +336,7 @@
         "include_deleted": { "type": "boolean", "default": false, "description": "Soft-deleted runs are excluded unless this is true. They never count towards statistics regardless." },
         "with_reflection": { "type": "boolean", "default": false, "description": "Only runs that have a reflection." },
         "pending_review": { "type": "boolean", "description": "true keeps only runs still flagged for review, false keeps only runs that are not. Omitted means no constraint; there is deliberately no default, because 'not asked for' and 'asked for false' are different queries." },
-        "text": { "type": "string", "maxLength": 200, "description": "Case-insensitive substring match over duty_name and job_name." }
+        "text": { "type": "string", "maxLength": 200, "description": "Case-insensitive substring match over duty_name, job_name and note." }
       }
     },
 

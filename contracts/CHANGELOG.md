@@ -1,5 +1,10 @@
 # IPC 契约变更记录 / IPC contract changelog
 
+## 2026-10-03 · 备注搜索与单开重启接续
+
+- `RunFilter.text` 同时匹配 `duty_name`、`job_name` 和 `note`，与历史页搜索提示一致；通配符字符仍按字面匹配。请求与响应结构不变。
+- 已选择的客户端退出后，同路径中新启动的唯一客户端可自动接续。原本已打开的其他客户端不会接替；多开或身份不明确时仍等待选择。选择仍只保存在内存。
+
 ## 2026-10-02 · 多开客户端选择与锁定
 
 - 新增 `SelectGameProcess`：请求带 `process_id` 和 `selection_token`，响应为 `CaptureStatus`。

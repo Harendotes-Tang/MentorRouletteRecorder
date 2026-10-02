@@ -1,5 +1,6 @@
 using Microsoft.Data.Sqlite;
 using MentorRecorder.Collector.Domain;
+using MentorRecorder.Collector.Domain.Queries;
 using MentorRecorder.Collector.Protocol.Pipeline;
 using MentorRecorder.Collector.Storage;
 using MentorRecorder.Collector.Storage.Repositories;
@@ -8,6 +9,28 @@ namespace MentorRecorder.Collector.UnitTests;
 
 public sealed class RepositoryTests
 {
+    [Theory]
+    [InlineData("带新人")]
+    [InlineData("50%")]
+    [InlineData("a_b")]
+    [InlineData(@"a\b")]
+    public void HistorySearchFindsNotesAndTreatsWildcardCharactersLiterally(string text)
+    {
+        using var fixture = new TestDatabase();
+        var runs = new RunRepository(fixture.Database);
+        var match = TestDatabase.Run() with { Note = "备注：" + text + "。" };
+        fixture.Database.RunInTransaction(tx =>
+        {
+            runs.Insert(match, tx);
+            runs.Insert(TestDatabase.Run() with { Note = "50 percent, axb, ab" }, tx);
+            runs.Insert(TestDatabase.Run() with { Note = null }, tx);
+        });
+
+        var page = runs.Query(new RunFilter { Text = text }, null, 1, 50);
+        Assert.Equal(1, page.Total);
+        Assert.Equal(match.RunId, Assert.Single(page.Items).RunId);
+    }
+
     [Fact]
     public void Repositories_RoundTripSessionRunEventAndRevision()
     {

@@ -123,7 +123,9 @@ Dialog {
     }
 
     function openForRun(run, kickerText) {
-        if (!run || !run.run_id || dialog.busy)
+        // Live completion prompts share this form with manually opened notes.
+        // A visible draft belongs to the player until they close or save it.
+        if (!run || !run.run_id || dialog.busy || dialog.visible)
             return
         dialog.runData = run
         dialog.jobIndex = 0
@@ -147,7 +149,9 @@ Dialog {
     // can arrive twice: text already typed for it must survive, and only a
     // different run starts over.
     function openForResult(run) {
-        if (!run || !run.run_id || dialog.busy)
+        // The controller keeps unacknowledged questions queued and reoffers
+        // them onClosed. Typing is just as important to preserve as saving.
+        if (!run || !run.run_id || dialog.busy || dialog.visible)
             return
         const sameRun = dialog.runId.length > 0 && dialog.runId === run.run_id
         dialog.runData = run
@@ -178,7 +182,7 @@ Dialog {
     function resolveWith(result, reasonText) {
         if (dialog.runId.length === 0 || dialog.busy)
             return
-        if (typeof App === "undefined" || !App.resolveRunResult) {
+        if (typeof App === "undefined" || (result.length > 0 ? !App.resolveRunResult : !App.supplementRunJob)) {
             dialog.errorText = qsTr("当前版本尚未接入结果确认接口。")
             return
         }
@@ -208,8 +212,11 @@ Dialog {
 
     function submitPendingResult() {
         dialog.waitingForReflection = false
-        App.resolveRunResult(dialog.runId, dialog.runRevision,
-                             dialog.pendingResult, dialog.pendingReason, dialog.selectedJobId)
+        if (dialog.pendingResult.length > 0)
+            App.resolveRunResult(dialog.runId, dialog.runRevision,
+                                 dialog.pendingResult, dialog.pendingReason, dialog.selectedJobId)
+        else
+            App.supplementRunJob(dialog.runId, dialog.runRevision, dialog.selectedJobId, dialog.pendingReason)
     }
 
     Connections {
@@ -240,7 +247,7 @@ Dialog {
 
         function onMutationSucceeded(kind, runId, revision, auditEventId) {
             if (!dialog.visible || !dialog.resolving || dialog.waitingForReflection
-                || kind !== "review" || runId !== dialog.runId)
+                || (kind !== "review" && kind !== "supplement_job") || runId !== dialog.runId)
                 return
             dialog.resolving = false
             dialog.close()
@@ -553,7 +560,7 @@ Dialog {
                     if (dialog.runId.length === 0)
                         return
                     if (dialog.selectedJobId > 0) {
-                        dialog.resolveWith(dialog.runData.result, qsTr("补录本次导随职业"))
+                        dialog.resolveWith("", qsTr("补录本次导随职业"))
                         return
                     }
                     if (typeof App === "undefined" || !App.saveReflection) {

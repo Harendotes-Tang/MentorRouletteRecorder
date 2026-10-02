@@ -9,6 +9,7 @@ run in CI on a machine with no outbound access at all.
 
 from __future__ import annotations
 
+import contextlib
 import io
 import itertools
 import json
@@ -16,6 +17,7 @@ import os
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SAMPLE = os.path.join(HERE, "sample")
@@ -242,6 +244,33 @@ class WithPartySizeTests(unittest.TestCase):
         twice = generate.with_party_size(once, rows, {})
 
         self.assertEqual(once["duties"], twice["duties"])
+
+    def test_cli_dry_run_reports_party_sizes_without_rewriting_existing_data(self):
+        for dry_run in (True, False):
+            with self.subTest(dry_run=dry_run), tempfile.TemporaryDirectory() as directory:
+                path = os.path.join(directory, "existing.json")
+                before = json.dumps(self.existing_document(), ensure_ascii=False).encode("utf-8")
+                with open(path, "wb") as handle:
+                    handle.write(before)
+                args = ["--add-party-size", path, "--raw-dir", directory]
+                if dry_run:
+                    args.append("--dry-run")
+                output = io.StringIO()
+                response = (load_sample_rows(), ["https://example.invalid/page"], "c" * 64,
+                            "sample-version")
+                with mock.patch.object(generate, "fetch_english_rows", return_value=response) as fetch, \
+                        contextlib.redirect_stdout(output):
+                    code = generate.main(args)
+                self.assertEqual(0, code)
+                fetch.assert_called_once_with(directory, "sample-version")
+                self.assertIn("party_size", output.getvalue())
+                with open(path, "rb") as handle:
+                    after = handle.read()
+                if dry_run:
+                    self.assertEqual(before, after)
+                    self.assertIn("dry run", output.getvalue())
+                else:
+                    self.assertEqual(24, json.loads(after)["duties"][0]["party_size"])
 
 
 class BundledDataTests(unittest.TestCase):

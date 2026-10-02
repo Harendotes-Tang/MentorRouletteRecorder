@@ -626,6 +626,11 @@ public sealed partial class LiveProtocolPipeline :
                 return;
             }
 
+            // Missing messages cannot contradict a calibration, even when the driver lost
+            // nothing. Merge this before any staging or parser work can judge the evidence.
+            _calibration.RecordSessionHealth(new CaptureSessionHealth(
+                captureSessionId, CaptureSilentReason.None, null, 0, DecodedMessagesDropped: droppedCount));
+
             if (_processor is null)
             {
                 // Nothing bound yet: the hole goes into every candidate's staging, in sequence.
@@ -1145,7 +1150,8 @@ public sealed partial class LiveProtocolPipeline :
             return;
         }
 
-        if (_calibration.Armed && string.Equals(_calibration.GameBuild, _game.GameBuild, StringComparison.Ordinal))
+        if (_calibration.Armed && _calibration.Region == _game.Region &&
+            string.Equals(_calibration.GameBuild, _game.GameBuild, StringComparison.Ordinal))
         {
             UseCalibrationRole(upgrading, retaining, completing);
             return;

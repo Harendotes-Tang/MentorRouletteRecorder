@@ -248,7 +248,7 @@ def _five_argument_train_call(window: list, index: int) -> dict | None:
         return None
 
     facts: dict = {}
-    for back in range(index - 1, max(-1, index - MAX_LOOKBACK_INSTRUCTIONS) - 1, -1):
+    for back in range(index - 1, max(0, index - MAX_LOOKBACK_INSTRUCTIONS) - 1, -1):
         instruction = window[back]
         operands = instruction.op_str.replace(" ", "")
         if instruction.mnemonic == "call":
@@ -293,7 +293,7 @@ def _guard_branch_kind(window: list, call_index: int) -> str | None:
     ``jne`` side trains UDP.  This is an independent signal from the state slot the
     pointer is loaded out of, and the two are cross-checked.
     """
-    for back in range(call_index - 1, max(-1, call_index - MAX_LOOKBACK_INSTRUCTIONS) - 1, -1):
+    for back in range(call_index - 1, max(0, call_index - MAX_LOOKBACK_INSTRUCTIONS) - 1, -1):
         instruction = window[back]
         if instruction.mnemonic != "jne":
             continue

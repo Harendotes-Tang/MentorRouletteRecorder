@@ -1757,6 +1757,11 @@ void AppController::confirmSelectedRunReview(const QString &reason)
     return m_history->confirmSelectedRunReview(reason);
 }
 
+void AppController::supplementRunJob(const QString &runId, int revision, int jobId, const QString &reason)
+{
+    return m_history->supplementRunJob(runId, revision, jobId, reason);
+}
+
 void AppController::undoSelectedRunRevision(const QString &reason)
 {
     return m_history->undoSelectedRunRevision(reason);

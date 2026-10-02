@@ -251,6 +251,38 @@ def synthetic_executable(**kwargs):
 # --------------------------------------------------------------------------------------
 
 class TrainCallLocationTests(unittest.TestCase):
+    def test_a_state_load_after_the_call_is_not_argument_setup(self):
+        image = FlatImage(bytes.fromhex(
+            "488bd3"                    # mov rdx, rbx
+            "4533c0"                    # xor r8d, r8d
+            "4533c9"                    # xor r9d, r9d
+            "c744242000001000"          # mov [rsp+0x20], 0x100000
+            "e800000000"                # call: rcx has not been established
+            "488b0f"))                  # mov rcx, [rdi], too late
+        window = find_signatures.disassemble(image, 0, len(image))
+
+        self.assertEqual("call", window[4].mnemonic)
+        self.assertIsNone(find_signatures._five_argument_train_call(window, 4))
+
+    def test_argument_setup_can_begin_at_the_first_instruction(self):
+        image = FlatImage(bytes.fromhex(
+            "488b0f488bd34533c04533c9c744242000001000e800000000"))
+        window = find_signatures.disassemble(image, 0, len(image))
+
+        found = find_signatures._five_argument_train_call(window, 5)
+
+        self.assertIsNotNone(found)
+        self.assertIs(found["state_load"], window[0])
+
+    def test_a_guard_after_the_call_cannot_classify_it(self):
+        image = FlatImage(bytes.fromhex(
+            "e800000000"                # call, before the guard
+            "4183fd01"                  # cmp r13d, 1
+            "75f5"))                    # jne back to the first instruction
+        window = find_signatures.disassemble(image, 0, len(image))
+
+        self.assertIsNone(find_signatures._guard_branch_kind(window, 0))
+
     def test_both_train_calls_are_found_and_classified_twice_over(self):
         image = FlatImage(build_image_bytes())
 

@@ -49,6 +49,7 @@ internal sealed class FirstPacketBuffer
     private int _bytes, _packets;
     private long _rawPackets, _droppedNoStream, _droppedNoSyn, _expiredStreams, _unconfirmedTuples, _streamResets;
     private long _handshakes, _gameConnections, _gameConnectionsNow;
+    private long _damagedGameDirections;
     private readonly HashSet<FirstPacketTuple> _gameSeen = new();
     private bool _stopped, _decoding;
     internal string? Failure { get; private set; }
@@ -72,7 +73,8 @@ internal sealed class FirstPacketBuffer
         Interlocked.Read(ref _streamResets),
         Handshakes: Interlocked.Read(ref _handshakes),
         GameConnections: Interlocked.Read(ref _gameConnections),
-        GameConnectionsNow: Interlocked.Read(ref _gameConnectionsNow));
+        GameConnectionsNow: Interlocked.Read(ref _gameConnectionsNow),
+        DamagedGameDirections: Interlocked.Read(ref _damagedGameDirections));
 
     /// <summary>Distinct game connections remembered before the tally stops growing.</summary>
     private const int MaxTrackedGameConnections = 256;
@@ -370,6 +372,7 @@ internal sealed class FirstPacketBuffer
         // and surfaced through silent_reason instead of silently taking the session with it.
         direction.Damaged = true;
         Interlocked.Increment(ref _streamResets);
+        Interlocked.Increment(ref _damagedGameDirections);
         for (var i = stream.Pending.Count - 1; i >= 0; i--)
         {
             if (stream.Pending[i].Frame.Inbound != inbound) continue;

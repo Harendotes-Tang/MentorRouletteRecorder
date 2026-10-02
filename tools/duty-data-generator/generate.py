@@ -320,7 +320,7 @@ def with_party_size(document, english_rows, source):
     return result
 
 
-def add_party_size_to_files(paths, raw_dir, game_version=None):
+def add_party_size_to_files(paths, raw_dir, game_version=None, *, dry_run=False):
     """--add-party-size: rewrite existing files in place. Returns a process exit code."""
     documents = []
     for path in paths:
@@ -365,6 +365,10 @@ def add_party_size_to_files(paths, raw_dir, game_version=None):
         for size, count in sorted(party_size_counts(result["duties"]).items(),
                                   key=lambda item: str(item[0])):
             print("  party_size %-5s %d" % (size, count))
+
+    if dry_run:
+        print("dry run: nothing written")
+        return 0
 
     # Written only after every file was built, so a failure leaves all of them unchanged.
     for path, result in updated:
@@ -452,7 +456,8 @@ def main(argv):
     os.makedirs(raw_dir, exist_ok=True)
 
     if args.add_party_size:
-        return add_party_size_to_files(args.add_party_size, raw_dir, args.game_version)
+        return add_party_size_to_files(args.add_party_size, raw_dir, args.game_version,
+                                       dry_run=args.dry_run)
 
     try:
         english_rows, urls, xivapi_digest, api_version = fetch_english_rows(

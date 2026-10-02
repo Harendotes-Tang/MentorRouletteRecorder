@@ -287,6 +287,21 @@ public sealed class SharedCandidateVerifierTests : IDisposable
         Assert.Equal(SharedVerdict.Wait, SharedCandidateVerifier.Verify(overflowed, Template, candidate, SharedCandidateProvenance.Imported).Verdict);
     }
 
+    [Theory]
+    [InlineData(3, 0)]
+    [InlineData(0, 1)]
+    public void MissingMessagesAfterQueueLossOrStreamDamageCannotContradictCalibration(long queueLoss, long damage)
+    {
+        var candidate = Candidate(Wrong(CodeFromEveningA(CalibrationTrafficCases.ReplyState), "zone"));
+        var observer = Watching(candidate);
+        foreach (var (session, hour) in new[] { ("loss-a", 24), ("loss-b", 48), ("loss-c", 72) })
+        {
+            Play(observer, session, hour, CalibrationTrafficCases.Traffic(CalibrationTrafficCases.ReplyState),
+                new CaptureSessionHealth(session, CaptureSilentReason.None, 0, 0, queueLoss, damage));
+        }
+        Assert.Equal(SharedVerdict.Wait, Verify(observer, candidate).Verdict);
+    }
+
     /// <summary>
     /// Evidence read back from disk has no capture health and belongs to no live session: it can
     /// make a true code pass, and however much of it there is, it cannot contradict a wrong one.
