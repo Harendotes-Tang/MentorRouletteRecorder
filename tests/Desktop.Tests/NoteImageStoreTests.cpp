@@ -749,6 +749,35 @@ private Q_SLOTS:
         QCOMPARE(fixture.files.store.imagesFor(kRunId).size(), 1);
     }
 
+    // 审查 OL-3：记录照采集服务存的样子（职能 TANK、整分钟的时间），玩家只加了一张图，
+    // 中途点过一下进本时间框又离开。此前离开时间框把 HH:mm:00 写成 HH:mm，再加上表单里
+    // 总与记录不同的 role，保存发出一条空修正，被拒为 ERR_NO_CHANGES，图片始终没存上。
+    void anImageOnlySaveSurvivesLeavingATimeField()
+    {
+        DialogFixture fixture;
+        QVERIFY2(fixture.create(), qPrintable(fixture.errors));
+        QVariantMap value = DialogFixture::run();
+        value.insert(QStringLiteral("role"), QStringLiteral("TANK"));
+        value.insert(QStringLiteral("ended_at_utc"), QStringLiteral("2026-09-04T12:59:00.000Z"));
+        value.insert(QStringLiteral("duration_ms"), 1080000);
+        auto *dialog = fixture.dialog();
+        QVERIFY(QMetaObject::invokeMethod(dialog, "openForRun", Q_ARG(QVariant, QVariant(value))));
+        QVERIFY(QMetaObject::invokeMethod(dialog, "goToStep", Q_ARG(QVariant, QVariant(3))));
+        QSignalSpy corrections(dialog, SIGNAL(correctRequested(QVariant,QString)));
+
+        QVERIFY(fixture.stage(fixture.files.picture(QStringLiteral("shot.png"))));
+        // What leaving the field does (TimeField.onEditingFinished).
+        for (const char *name : {"enteredTimeField", "endedTimeField"}) {
+            QQuickItem *field = fixture.item(QString::fromLatin1(name));
+            QVERIFY2(field, name);
+            QVERIFY(QMetaObject::invokeMethod(field, "canonicalize"));
+        }
+        QVERIFY(fixture.submit());
+        QCOMPARE(corrections.count(), 0);
+        QTRY_VERIFY(!dialog->property("visible").toBool());
+        QCOMPARE(fixture.files.store.imagesFor(kRunId).size(), 1);
+    }
+
     void imagesFollowARecordCorrectionAndAreNeverPartOfIt()
     {
         DialogFixture fixture;

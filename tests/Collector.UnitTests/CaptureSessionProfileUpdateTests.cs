@@ -100,4 +100,38 @@ public sealed class CaptureSessionProfileUpdateTests
         Assert.True(changed);
         Assert.Equal("cn.2026.09.01.local", sessions.Get(sessionId)!.ProtocolProfileId);
     }
+
+    /// <summary>
+    /// Audit 2026-10-03 OG-2. Every repository shares one SQLite connection, and every status
+    /// poll opens a transaction on it from the IPC thread. The transaction-less form used to run
+    /// straight on that connection: ADO.NET refused it while the other thread's transaction was
+    /// open, the shared bind swallowed the refusal and recorded nothing for the session, and a
+    /// confirmed calibration failed after its file was written. It must wait its turn instead.
+    /// </summary>
+    [Fact]
+    public async Task UpdateProfile_WaitsForATransactionOpenOnAnotherThreadInsteadOfFailing()
+    {
+        using var fixture = new TestDatabase();
+        var sessions = new CaptureSessionRepository(fixture.Database);
+        var sessionId = Guid.NewGuid().ToString("D");
+        fixture.Database.RunInTransaction(tx => sessions.Insert(OpenSession(sessionId, fixture.Clock), tx));
+        var timeout = TimeSpan.FromSeconds(30);
+        using var inside = new ManualResetEventSlim(false);
+        using var release = new ManualResetEventSlim(false);
+        var holder = Task.Run(() => fixture.Database.RunInTransaction(_ =>
+        {
+            inside.Set();
+            release.Wait(timeout);
+        }));
+        Assert.True(inside.Wait(timeout));
+
+        var update = Task.Run(() => sessions.UpdateProfile(sessionId, "cn.2026.09.01.local", ProfileStatus.Verified));
+        // Long enough for an unguarded statement to have run into the open transaction.
+        await Task.WhenAny(update, Task.Delay(500));
+        release.Set();
+
+        Assert.True(await update.WaitAsync(timeout));
+        await holder.WaitAsync(timeout);
+        Assert.Equal("cn.2026.09.01.local", sessions.Get(sessionId)!.ProtocolProfileId);
+    }
 }

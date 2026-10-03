@@ -100,7 +100,7 @@ public sealed class SharedCalibrationSessionReconcileTests : IDisposable
 
         void ISharedCalibrationHost.UnregisterSharedCandidate(string candidateId) => Registered.Remove(candidateId);
 
-        bool ISharedCalibrationHost.HasFinishedSharedRun(string profileId) => false;
+        bool ISharedCalibrationHost.HasFinishedSharedRun(string profileId, DateTimeOffset? sinceUtc) => false;
 
         bool ISharedCalibrationHost.SharedRunInFlight() => false;
 

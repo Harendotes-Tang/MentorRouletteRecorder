@@ -60,7 +60,12 @@ Q_SIGNALS:
     void historyFilterChanged();
     void pendingReviewRunChanged();
     void runRevisionChanged(const QString &runId, int revision);
-    void mutationFailed(const QString &code, const QString &message);
+    /// \a kind and \a runId name the request that was refused, as
+    /// mutationSucceeded names the one that was accepted; \a runId is empty for
+    /// a creation, whose record does not exist yet. \a neverSent is
+    /// BackendReply::neverSent(): the request never reached the Collector.
+    void mutationFailed(const QString &code, const QString &message, const QString &kind,
+                        const QString &runId, bool neverSent = false);
     void mutationSucceeded(const QString &kind, const QString &runId, int revision,
                            const QString &auditEventId);
     void toastRequested(const QString &message);
@@ -69,7 +74,9 @@ Q_SIGNALS:
 
 private:
     void loadRevisionsForSelection();
-    void sendRunMutation(const QString &kind, BackendReply *reply,
+    void loadRevisionPage(const QString &runId, quint64 generation, int page,
+                          QVariantList collected);
+    void sendRunMutation(const QString &kind, const QString &runId, BackendReply *reply,
                                     bool keepSelection);
     void adoptRunMutation(const QString &kind, const QVariantMap &payload,
                                      bool keepSelection);
@@ -80,9 +87,36 @@ private:
                                                            const QString &result,
                                                            const QString &reason, int jobId);
     static bool revisionTouchesResult(const QVariantMap &revision, bool withJob, bool withResult);
+
+    /// The request_id of a create or a correction whose fate is unknown - the
+    /// client stopped waiting, or the pipe dropped - and what it carried. The
+    /// Collector may have applied it all the same, so pressing 提交 again with
+    /// the same content resends it under the same id and its idempotency
+    /// answers with the first result rather than writing a second record
+    /// (review OH-2). Other content gets an id of its own: reusing this one
+    /// would be refused as ERR_IDEMPOTENCY_CONFLICT.
+    struct UnansweredMutation {
+        QString requestId;
+        QByteArray content;
+        bool inFlight = false;
+    };
+    /// The id to send \a content under, reusing \a slot's when it carried the
+    /// same content and is no longer on the wire.
+    static QString requestIdFor(UnansweredMutation &slot, const QByteArray &content);
+    /// Forget \a slot once the Collector has answered the request \a requestId:
+    /// accepted, or refused as an idempotency conflict.
+    static void settle(UnansweredMutation &slot, const QString &requestId, bool ok,
+                       const QString &code);
+    UnansweredMutation m_unansweredCreate;
+    UnansweredMutation m_unansweredCorrection;
     /// Contract cap for GetRunRevisions page_size (contracts/ipc-protocol: 200).
     static constexpr int kRevisionPageSize = 200;
+    /// Upper bound on pages read for one chain (10 000 revisions); a guard
+    /// against a Collector whose total never stops growing, not a real limit.
+    static constexpr int kMaxRevisionPages = 50;
     QPointer<IBackend> m_backend;
+    /// Bumped by every revision-list load; replies of an older load are dropped.
+    quint64 m_revisionLoadGeneration = 0;
     RunListModel *m_runs;
     QJsonObject m_selectedRun;
     QJsonObject m_historyFilter;

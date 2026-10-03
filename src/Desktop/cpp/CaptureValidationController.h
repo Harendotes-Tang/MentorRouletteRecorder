@@ -133,10 +133,13 @@ private:
     bool m_profileLoaded = false;
     bool m_profileStale = false;
     bool m_profileInFlight = false;
-    /// Consecutive transient refresh failures. Drives the backoff and the
-    /// terminal "cannot confirm" state, so a wedged Collector is not polled
-    /// forever at 1.3 requests per second.
+    /// Consecutive transient failures of the validation-status refresh and of
+    /// the profile refresh, counted apart so one answering never resets the
+    /// other. The worse of the two drives the backoff and the terminal "cannot
+    /// confirm" state, so a wedged Collector is not polled forever at 1.3
+    /// requests per second.
     int m_retryCount = 0;
+    int m_profileRetryCount = 0;
     bool m_retriesExhausted = false;
 
     quint64 m_generation = 0;

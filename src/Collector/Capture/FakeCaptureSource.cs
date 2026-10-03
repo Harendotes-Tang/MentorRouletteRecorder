@@ -204,6 +204,30 @@ public sealed class FakeCaptureSource : ICaptureSource
         observer?.OnConnectionClosed();
     }
 
+    /// <summary>
+    /// Reports that one direction of a game connection was given up, exactly as the real source
+    /// does when an owned stream's gap cannot be filled.
+    /// </summary>
+    /// <param name="connectionSuffix">The suffix <see cref="PushRaw"/> was given for that connection.</param>
+    /// <param name="direction">The direction given up.</param>
+    public void PushDirectionDamaged(ushort connectionSuffix, MessageDirection direction)
+    {
+        ICaptureSourceObserver observer;
+        string sessionId;
+        lock (_gate)
+        {
+            if (_observer is null || _options is null)
+            {
+                return;
+            }
+
+            observer = _observer;
+            sessionId = _options.CaptureSessionId;
+        }
+
+        observer.OnDirectionDamaged(ConnectionKey.From(sessionId, 0, connectionSuffix, 0, 0), direction);
+    }
+
     /// <summary>Reports a monitor fault, exactly as the real source would.</summary>
     /// <param name="reason">Short, user-facing reason.</param>
     /// <param name="error">Underlying exception, for the local log only.</param>

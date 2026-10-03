@@ -485,6 +485,9 @@ public static class SanitizedDiagnosticsReport
                 ["unconfirmed_tuples"] = snapshot.Ingress.UnconfirmedTuples,
                 ["stream_resets"] = snapshot.Ingress.StreamResets,
                 ["adapter_dropped"] = snapshot.Ingress.AdapterDropped,
+                // Game directions abandoned after a gap: one of the losses that make a session
+                // stop counting as calibration evidence, so its absence cannot go unexplained.
+                ["damaged_game_directions"] = snapshot.Ingress.DamagedGameDirections,
                 // The three that answer "did the client reconnect while we were watching".
                 // game_connections above preexisting_connections means it did, and a report
                 // that still decodes nothing is then our fault, not a late start.

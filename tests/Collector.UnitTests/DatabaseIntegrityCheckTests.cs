@@ -61,6 +61,59 @@ public sealed class DatabaseIntegrityCheckTests : IDisposable
         Assert.Equal(0, opened);
     }
 
+    /// <summary>
+    /// Audit 2026-10-03 OF-3. Cancelling while the scan runs must stop the scan, not merely be
+    /// noticed after it. A progress handler cancels the token from inside the running statement,
+    /// so the cancellation is guaranteed to land mid-scan; it returns 0 itself, so only the
+    /// cancellation can interrupt the statement.
+    /// </summary>
+    [Fact]
+    public void ACancellationDuringTheScanInterruptsIt()
+    {
+        _database.Database.RunInTransaction(transaction =>
+        {
+            using var command = transaction.Connection!.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText =
+                "CREATE TABLE scan_probe (id INTEGER PRIMARY KEY, text TEXT NOT NULL);" +
+                "CREATE INDEX scan_probe_text ON scan_probe (text);" +
+                "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 5000) " +
+                "INSERT INTO scan_probe (text) SELECT hex(randomblob(16)) FROM n;";
+            command.ExecuteNonQuery();
+        });
+
+        using var cancellation = new CancellationTokenSource();
+        var progressCalls = 0;
+        SQLitePCL.delegate_progress progress = _ =>
+        {
+            if (Interlocked.Increment(ref progressCalls) == 1)
+            {
+                cancellation.Cancel();
+            }
+
+            return 0;
+        };
+
+        Assert.Throws<OperationCanceledException>(() => _database.Database.CheckIntegrity(
+            () =>
+            {
+                var connection = new SqliteConnection(new SqliteConnectionStringBuilder
+                {
+                    DataSource = _database.Path,
+                    Mode = SqliteOpenMode.ReadOnly,
+                    Pooling = false,
+                }.ConnectionString);
+                connection.Open();
+                var sqlite = connection.Handle // BOUNDARY-ALLOW(INJ-009): SQLite's own connection handle, not a process handle
+                    ?? throw new InvalidOperationException("the connection has no SQLite handle");
+                SQLitePCL.raw.sqlite3_progress_handler(sqlite, 100, progress, null);
+                return connection;
+            },
+            cancellation.Token));
+        Assert.True(progressCalls > 0, "the scan must have been running when it was cancelled");
+        GC.KeepAlive(progress);
+    }
+
     [Fact]
     public async Task DisposeWaitsForAStatementStillRunningOnAnotherThread()
     {

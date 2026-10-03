@@ -180,7 +180,10 @@ public static class CaptureTraceRunner
             return Refuse(svc, output, AdapterRefusal);
         }
 
-        using var source = svc.SourceFactory?.Invoke() ?? new MachinaCaptureSource(svc.Logger);
+        // Registered in the managed root's manifest, which the next Collector start sweeps: a trace
+        // stopped by closing its console window leaves no copy behind (audit 2026-10-03, OB-6).
+        using var source = svc.SourceFactory?.Invoke() ?? new MachinaCaptureSource(
+            svc.Logger, oodleTempManifestPath: Storage.DatabasePaths.ResolveOodleTempManifest(null));
         var isLiveSource = string.Equals(source.Kind, LiveSourceKind, StringComparison.Ordinal);
         // A new process can be visible before the kernel's process table answers with its
         // image path (ProcessImagePath, the only source we have). Starting from
@@ -415,7 +418,7 @@ public static class CaptureTraceRunner
                 error => services.Logger.WriteError("capture", "trace_marker_input_failed", error),
                 StopForWriterFailure);
             markers.Start();
-            Wait(options, services, status, sink, queue, stopping);
+            Wait(options, services, status, sink, queue, stopping, game);
         }
         catch (Contracts.Errors.CollectorException ex)
         {
@@ -465,8 +468,13 @@ public static class CaptureTraceRunner
         TextWriter status,
         CaptureTraceSink sink,
         DecodedMessageQueue queue,
-        ManualResetEventSlim stopping)
+        ManualResetEventSlim stopping,
+        GameProcessDetection game)
     {
+        // A failed listing cannot tell, so it neither ends the trace nor goes unrecorded: only a
+        // listing that answers without this client does the former (audit 2026-10-03, CS1-X1).
+        var listingLog = new ProcessListingLog(services.Logger, "capture");
+        var locator = services.Game.WithListingObserver(listingLog.Observe);
         var deadline = options.DurationSeconds > 0
             ? TimeSpan.FromSeconds(options.DurationSeconds)
             : (TimeSpan?)null;
@@ -498,7 +506,7 @@ public static class CaptureTraceRunner
 
             lastStatus = elapsed.Elapsed;
             WriteStatus(status, sink, queue, elapsed.Elapsed);
-            if (!services.Game.Locate().Running)
+            if (game.ProcessId is int processId && !locator.IsRunning(processId, game.StartedAtUtc))
             {
                 status.WriteLine("游戏进程已退出，取证结束。");
                 status.Flush();
@@ -539,10 +547,15 @@ public static class CaptureTraceRunner
 
         if (sink.Truncated)
         {
+            // Raising the cap is advice only while there is room under what --trace-report reads.
+            var advice = sink.MaxLines < CaptureTraceSink.MaxMaxLines
+                ? string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"需要更长的取证可将 --max-lines 提高到最多 {CaptureTraceSink.MaxMaxLines}，或分多次记录。")
+                : "需要更长的取证请分多次记录。";
             output.WriteLine(string.Create(
                 CultureInfo.InvariantCulture,
-                $"  ⚠ 已达到行数上限 {sink.MaxLines}，后续消息只计数不写入。" +
-                $"需要更长的取证请提高 --max-lines，或分多次记录。"));
+                $"  ⚠ 已达到行数上限 {sink.MaxLines}，后续消息只计数不写入。{advice}"));
         }
 
         if (fault is not null)

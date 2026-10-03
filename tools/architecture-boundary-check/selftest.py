@@ -152,6 +152,196 @@ class BoundaryCheckerTests(unittest.TestCase):
                    if item["rule"] == "domain-qualified-reference"]
         self.assertEqual([3, 4, 5], sorted({item["line"] for item in matches}), report)
 
+    def test_root_namespace_types_are_non_domain_dependencies(self) -> None:
+        # MentorRecorder.Collector encloses Domain's own namespace, so its types need neither a
+        # using nor a qualifier in Domain code (audit 2026-10-03, ON2-9).
+        self.fixture.write(
+            "src/Collector/CommandLineOptions.cs",
+            "namespace MentorRecorder.Collector;\n"
+            "public enum CollectorMode { Serve }\n"
+            "public sealed record CommandLineOptions(string Db);\n",
+        )
+        self.fixture.write(
+            "src/Collector/Program.cs",
+            "namespace MentorRecorder.Collector\n{\n"
+            "    public static class Program { internal enum PipePresence { Absent } }\n}\n",
+        )
+        self.fixture.write(
+            "src/Collector/Domain/Bad.cs",
+            "namespace MentorRecorder.Collector.Domain;\nclass Bad {\n"
+            "  CommandLineOptions? Options;\n"
+            "  object Mode = CollectorMode.Serve;\n"
+            "  MentorRecorder.Collector.CommandLineOptions? Fully;\n"
+            "  object Relative = Collector.CollectorMode.Serve;\n"
+            "  string Name = nameof(Program);\n}\n",
+        )
+        code, report, stderr = self.fixture.run()
+        self.assertEqual(1, code, (report, stderr))
+        found = {(item["line"], item["dependency"]) for item in report["violations"]
+                 if item["rule"] == "domain-root-namespace-reference"}
+        self.assertEqual(
+            {(3, "CommandLineOptions"), (4, "CollectorMode"),
+             (5, "MentorRecorder.Collector.CommandLineOptions"),
+             (6, "Collector.CollectorMode"), (7, "Program")},
+            found,
+            report,
+        )
+
+    def test_global_and_parent_namespace_types_are_non_domain_dependencies(self) -> None:
+        for relative, source in (
+            ("src/Collector/Legacy.cs", "public static class Shared { }\n"),
+            ("src/Collector/Parent.cs", "namespace MentorRecorder { public static class Shared { } }\n"),
+        ):
+            with self.subTest(relative=relative):
+                self.fixture.write(relative, source)
+                self.fixture.write(
+                    "src/Collector/Domain/Bad.cs",
+                    "namespace MentorRecorder.Collector.Domain;\nclass Bad { object A = Shared.X; }\n",
+                )
+                self.assert_violation("domain-root-namespace-reference", "Shared", line=2)
+                self.fixture.root.joinpath(relative).unlink()
+
+    def test_nested_and_shadowed_root_names_are_not_dependencies(self) -> None:
+        # A type nested in a root type is reachable only through it, and a Domain type of the same
+        # name as a root type shadows it inside Domain.
+        self.fixture.write(
+            "src/Collector/Program.cs",
+            "namespace MentorRecorder.Collector;\n"
+            "public static class Program { private sealed class Helper { } }\n",
+        )
+        self.fixture.write(
+            "src/Collector/Domain/Program.cs",
+            "namespace MentorRecorder.Collector.Domain;\ninternal static class Program { }\n",
+        )
+        self.fixture.write(
+            "src/Collector/Domain/Uses.cs",
+            "namespace MentorRecorder.Collector.Domain;\n"
+            "class Uses { string Name = nameof(Program); object Helper = null; }\n",
+        )
+        code, report, stderr = self.fixture.run()
+        self.assertEqual(0, code, (report, stderr))
+
+    def test_a_nested_domain_type_does_not_shadow_a_root_type(self) -> None:
+        # Only a namespace-level Domain type shadows an enclosing one; a type nested in a Domain
+        # class is reachable only through that class (audit 2026-10-03, R2T-8).
+        self.fixture.write(
+            "src/Collector/Options.cs",
+            "namespace MentorRecorder.Collector;\npublic sealed class Options { }\n",
+        )
+        self.fixture.write(
+            "src/Collector/Domain/Holder.cs",
+            "namespace MentorRecorder.Collector.Domain;\nclass Holder { class Options { } }\n",
+        )
+        self.fixture.write(
+            "src/Collector/Domain/Uses.cs",
+            "namespace MentorRecorder.Collector.Domain;\nclass Uses { Options? Value; }\n",
+        )
+        self.assert_violation("domain-root-namespace-reference", "Options", line=2)
+
+    def test_a_domain_type_shadows_only_in_its_own_namespace_and_below(self) -> None:
+        self.fixture.write(
+            "src/Collector/Options.cs",
+            "namespace MentorRecorder.Collector;\npublic sealed class Options { }\n",
+        )
+        self.fixture.write(
+            "src/Collector/Domain/Time/Options.cs",
+            "namespace MentorRecorder.Collector.Domain.Time;\npublic sealed class Options { }\n",
+        )
+        self.fixture.write(
+            "src/Collector/Domain/Time/Below/Uses.cs",
+            "namespace MentorRecorder.Collector.Domain.Time.Below;\nclass Below { Options? Value; }\n",
+        )
+        code, report, stderr = self.fixture.run()
+        self.assertEqual(0, code, (report, stderr))
+
+        self.fixture.write(
+            "src/Collector/Domain/Events/Uses.cs",
+            "namespace MentorRecorder.Collector.Domain.Events;\nclass Sibling { Options? Value; }\n",
+        )
+        item = self.assert_violation("domain-root-namespace-reference", "Options", line=2)
+        self.assertEqual("src/Collector/Domain/Events/Uses.cs", item["file"])
+
+    def test_root_namespace_delegates_are_non_domain_dependencies(self) -> None:
+        # A namespace-level delegate is a type like any other (R2T-9).
+        self.fixture.write(
+            "src/Collector/Transports.cs",
+            "namespace MentorRecorder.Collector;\n"
+            "public delegate System.Threading.Tasks.Task<int> FetchTransport(System.Uri uri);\n"
+            "public delegate void Generic<T>(T value);\n"
+            "public delegate (int A, int B) Pair();\n"
+            "public static class Holder { public static System.Func<int, int> F = delegate (int x) "
+            "{ return x; }; }\n",
+        )
+        self.fixture.write(
+            "src/Collector/Domain/Bad.cs",
+            "namespace MentorRecorder.Collector.Domain;\nclass Bad {\n"
+            "  FetchTransport? A;\n  Generic<int>? B;\n  Pair? C;\n}\n",
+        )
+        code, report, stderr = self.fixture.run()
+        self.assertEqual(1, code, (report, stderr))
+        found = {(item["line"], item["dependency"]) for item in report["violations"]
+                 if item["rule"] == "domain-root-namespace-reference"}
+        self.assertEqual({(3, "FetchTransport"), (4, "Generic"), (5, "Pair")}, found, report)
+
+    def test_a_type_declared_in_a_domain_namespace_outside_domain_is_reported(self) -> None:
+        # Domain code names such a type with neither a using nor a qualifier (R2T-10).
+        for source in (
+            "namespace MentorRecorder.Collector.Domain;\npublic static class Sneaky { }\n",
+            "namespace MentorRecorder.Collector.Domain.Time\n{\n    public static class Sneaky { }\n}\n",
+            "namespace MentorRecorder.Collector\n{\n    namespace Domain { public static class Sneaky { } }\n}\n",
+        ):
+            with self.subTest(source=source):
+                self.fixture.write("src/Collector/Capture/Sneaky.cs", source)
+                item = self.assert_violation("domain-namespace-outside-domain", "Sneaky")
+                self.assertEqual("src/Collector/Capture/Sneaky.cs", item["file"])
+
+    def test_a_root_attribute_named_by_its_short_name_is_a_dependency(self) -> None:
+        # [RootMarker] names RootMarkerAttribute (R2T-11).
+        self.fixture.write(
+            "src/Collector/RootMarkerAttribute.cs",
+            "namespace MentorRecorder.Collector;\n"
+            "public sealed class RootMarkerAttribute : System.Attribute { }\n",
+        )
+        for usage in ("[RootMarker] class Bad { }", "[System.Serializable, RootMarker()] class Bad { }",
+                      "class Bad { [return: RootMarker] int M() => 0; }"):
+            with self.subTest(usage=usage):
+                self.fixture.write(
+                    "src/Collector/Domain/Bad.cs",
+                    "namespace MentorRecorder.Collector.Domain;\n" + usage + "\n",
+                )
+                self.assert_violation("domain-root-namespace-reference", "RootMarker", line=2)
+
+    def test_braces_split_by_conditional_compilation_fail_closed(self) -> None:
+        # A namespace or type opened differently in two #if branches cannot be followed (R2T-11).
+        self.fixture.write(
+            "src/Collector/Split.cs",
+            "#if FEATURE\nnamespace MentorRecorder.Collector.Capture {\n#else\n"
+            "namespace MentorRecorder.Collector {\n#endif\n    public static class Shared { }\n}\n",
+        )
+        code, report, _ = self.fixture.run()
+        self.assertEqual(2, code, report)
+        self.assertTrue(any("Split.cs" in error and "brace" in error for error in report["errors"]),
+                        report)
+
+    def test_unbalanced_braces_fail_closed(self) -> None:
+        self.fixture.write(
+            "src/Collector/Unbalanced.cs",
+            "namespace MentorRecorder.Collector\n{\n    public static class Shared { }\n",
+        )
+        code, report, _ = self.fixture.run()
+        self.assertEqual(2, code, report)
+        self.assertTrue(any("Unbalanced.cs" in error for error in report["errors"]), report)
+
+    def test_balanced_conditional_compilation_is_followed(self) -> None:
+        self.fixture.write(
+            "src/Collector/Conditional.cs",
+            "namespace MentorRecorder.Collector;\npublic static class Conditional\n{\n"
+            "#if DEBUG\n    public static void Trace() { }\n#else\n    public static void Trace() { }\n"
+            "#endif\n}\n",
+        )
+        code, report, stderr = self.fixture.run()
+        self.assertEqual(0, code, (report, stderr))
+
     def test_qualified_references_allow_whitespace_and_comments(self) -> None:
         self.fixture.write(
             "src/Collector/Domain/Bad.cs",

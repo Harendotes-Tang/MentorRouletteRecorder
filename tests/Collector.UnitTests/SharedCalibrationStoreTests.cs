@@ -188,6 +188,36 @@ public sealed class SharedCalibrationStoreTests : IDisposable
         Assert.Equal(code.Code, File.ReadAllText(FileOf(code)));
     }
 
+    /// <summary>
+    /// The publisher lets a new code take a file name held only by a code the repository revoked (audit 2026-10-03,
+    /// TL3-X1). A stored file holding such a code is replaced, so the new code reaches this machine; a file holding a
+    /// code that still stands keeps its name.
+    /// </summary>
+    [Fact]
+    public void AFileNameHeldByARevokedCodeIsHandedToTheCodePublishedUnderIt()
+    {
+        var revoked = Candidate(0xF001);
+        var successor = Candidate(0xF002);
+        // Two codes sharing a 12-digit prefix cannot be made to order, so the old code is put under the new one's
+        // name: exactly what the store finds on disk when the prefixes do collide.
+        Directory.CreateDirectory(Directory_);
+        File.WriteAllText(FileOf(successor), revoked.Code);
+        var listed = Fetched(SharedFetchStatus.Ok, successor);
+
+        Assert.Equal(
+            new[] { successor.CodeSha256[..12] + ":NAME_TAKEN" },
+            _store.RecordFetch(Region.Cn, Build, Template, listed, T0).Refused);
+        Assert.Equal(revoked.Code, File.ReadAllText(FileOf(successor)));
+
+        var result = _store.RecordFetch(
+            Region.Cn, Build, Template, listed with { RevokedCodeSha256s = new[] { revoked.CodeSha256 } }, T0.AddHours(1));
+
+        Assert.Equal(1, result.CodesWritten);
+        Assert.Empty(result.Refused);
+        Assert.Equal(successor.Code, File.ReadAllText(FileOf(successor)));
+        Assert.Equal(successor.CodeSha256, Assert.Single(_store.LoadCandidates(Region.Cn, Build, Template)).CodeSha256);
+    }
+
     [Fact]
     public void FilesThatAreNotWhatTheirNameSaysAreIgnoredOnLoad()
     {
@@ -458,19 +488,26 @@ public sealed class SharedCalibrationStoreTests : IDisposable
         Assert.Throws<ArgumentException>(() => _store.Publication(Region.Cn, Build, "not-a-sha"));
     }
 
-    /// <summary>Plan §18.6: the index's conflict mark survives in the state file and puts a stored code last.</summary>
+    /// <summary>
+    /// Plan §18.6: the index's conflict mark survives in the state file. It puts a stored code after an equally
+    /// attested one, never after one fewer players submitted - the order the index is downloaded in (audit
+    /// 2026-10-03, ON1-1; until then it put a marked code last whatever its submitters, and this test pinned that).
+    /// </summary>
     [Fact]
-    public void AConflictingCodeIsOfferedLastHoweverManySubmitters()
+    public void AConflictingCodeIsOfferedAfterAnEquallyAttestedCodeButNotAfterALesserOne()
     {
         var conflicting = Candidate(0xF001, submitters: 9) with { Conflicting = true };
         var lone = Candidate(0xF002, submitters: 1);
-        _store.RecordFetch(Region.Cn, Build, Template, Fetched(SharedFetchStatus.Ok, conflicting, lone), T0);
+        var tied = Candidate(0xF003, submitters: 1) with { Conflicting = true };
+        _store.RecordFetch(Region.Cn, Build, Template, Fetched(SharedFetchStatus.Ok, conflicting, tied, lone), T0);
 
         var offered = _store.LoadCandidates(Region.Cn, Build, Template);
 
-        Assert.Equal(new[] { lone.CodeSha256, conflicting.CodeSha256 }, offered.Select(candidate => candidate.CodeSha256).ToArray());
-        Assert.True(offered[1].Conflicting);
-        Assert.False(offered[0].Conflicting);
+        Assert.Equal(
+            new[] { conflicting.CodeSha256, lone.CodeSha256, tied.CodeSha256 },
+            offered.Select(candidate => candidate.CodeSha256).ToArray());
+        Assert.True(offered[0].Conflicting);
+        Assert.False(offered[1].Conflicting);
         Assert.Contains("\"conflicting\": true", File.ReadAllText(StateFile), StringComparison.Ordinal);
     }
 
@@ -495,6 +532,36 @@ public sealed class SharedCalibrationStoreTests : IDisposable
         Assert.False(_store.IsSettled(Region.Cn, Build, document));
         Assert.True(_store.IsSettled(Region.Cn, Build, other));
         Assert.Throws<ArgumentException>(() => _store.IsSettled(Region.Cn, Build, "not-a-sha"));
+    }
+
+    /// <summary>
+    /// Audit 2026-10-03, OE-2/OE-4: when a shared profile document began recording is kept with its hash and its
+    /// code, survives the other bookkeeping, and is replaced by the next document written to the build's path.
+    /// </summary>
+    [Fact]
+    public void TheBindTimeIsKeptPerProfileDocumentAndSurvivesOtherWrites()
+    {
+        var document = new string('a', 64);
+        var other = new string('b', 64);
+        var code = new string('c', 64);
+        Assert.Null(_store.BoundSince(Region.Cn, Build, document));
+
+        Assert.True(_store.RecordBound(Region.Cn, Build, document, code, T0));
+
+        Assert.Equal(T0, _store.BoundSince(Region.Cn, Build, document));
+        Assert.Null(_store.BoundSince(Region.Cn, Build, other));
+        Assert.Null(_store.BoundSince(Region.Cn, OtherBuild, document));
+        _store.RecordFetch(Region.Cn, Build, Template, Fetched(SharedFetchStatus.Ok, Candidate(0xF001)), T0.AddHours(1));
+        _store.ClearRejections(Region.Cn, Build);
+        _store.RecordSettled(Region.Cn, Build, document, T0.AddHours(1));
+        Assert.Equal(T0, _store.BoundSince(Region.Cn, Build, document));
+        Assert.Contains("\"records_from\"", File.ReadAllText(StateFile), StringComparison.Ordinal);
+
+        Assert.True(_store.RecordBound(Region.Cn, Build, other, code, T0.AddHours(2)));
+        Assert.Null(_store.BoundSince(Region.Cn, Build, document));
+        Assert.Equal(T0.AddHours(2), _store.BoundSince(Region.Cn, Build, other));
+        Assert.Throws<ArgumentException>(() => _store.BoundSince(Region.Cn, Build, "not-a-sha"));
+        Assert.Throws<ArgumentException>(() => _store.RecordBound(Region.Cn, Build, document, "not-a-sha", T0));
     }
 
     [Fact]

@@ -84,6 +84,15 @@ StyledTextField {
             color: Theme.surface
             border.width: 1
             border.color: Theme.border
+
+            // The calendar opens over the history table. The day cells listen with
+            // TapHandlers, which take only a passive grab, so a picked day also
+            // tapped the row underneath (review K-s1, the mechanism DialogFrame
+            // already stops for the dialogs). Accepting the press here ends it.
+            TapHandler {
+                acceptedButtons: Qt.AllButtons
+                gesturePolicy: TapHandler.ReleaseWithinBounds
+            }
         }
 
         contentItem: Column {
@@ -153,6 +162,7 @@ StyledTextField {
                     readonly property bool selected: {
                         const chosen = field.parse(field.text)
                         return chosen !== null && inMonth && model.day === chosen.getDate()
+                               && model.month === chosen.getMonth()
                                && model.year === chosen.getFullYear()
                     }
 

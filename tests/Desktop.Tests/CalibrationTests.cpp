@@ -692,6 +692,105 @@ ApplicationWindow {
         QCOMPARE(backend.calibrationFixture(), QStringLiteral("observing"));
     }
 
+    // CS3b-X2: ConfirmCalibration answers bound_in_session false when the new
+    // profile cannot take over right away - a run is in flight - and the dialog
+    // closed as if it had. The player is told when it does take over.
+    void aProfileThatTakesOverAfterTheCurrentRunSaysSo()
+    {
+        for (const bool bound : {false, true}) {
+            CalibrationBackend backend;
+            backend.capture.insert(QStringLiteral("calibration"), readyTimeline());
+            backend.confirmResult.insert(QStringLiteral("bound_in_session"), bound);
+            mr::AppController app(&backend, nullptr);
+            QTRY_COMPARE(app.calibration()->state(), QStringLiteral("READY"));
+
+            QQmlEngine engine;
+            engine.rootContext()->setContextProperty(QStringLiteral("App"), &app);
+            engine.rootContext()->setContextProperty(QStringLiteral("ReduceMotion"), true);
+            QQmlComponent component(&engine);
+            component.setData(R"(import QtQuick
+import QtQuick.Controls
+import MentorRecorder
+ApplicationWindow {
+    width: 720; height: 640; visible: true
+    CalibrationDialog { id: inner }
+})", QUrl());
+            std::unique_ptr<QObject> root(component.create());
+            QVERIFY2(root != nullptr, qPrintable(component.errorString()));
+            auto *dialog = root->findChild<QObject *>(QStringLiteral("calibrationDialog"));
+            QVERIFY(dialog);
+            QVERIFY(QMetaObject::invokeMethod(dialog, "openDialog"));
+            QTRY_VERIFY(dialog->property("visible").toBool());
+            for (const QString &id : {QStringLiteral("finder_request-60000"), QStringLiteral("pop-120000"),
+                                      QStringLiteral("duty_enter-124000"), QStringLiteral("duty_exit-214000")}) {
+                QVERIFY(QMetaObject::invokeMethod(dialog, "setVerdict", Q_ARG(QVariant, QVariant(id)),
+                                                  Q_ARG(QVariant, QVariant(QStringLiteral("CORRECT"))),
+                                                  Q_ARG(QVariant, QVariant(QString()))));
+            }
+            QVERIFY(QMetaObject::invokeMethod(dialog, "submit"));
+            QTRY_VERIFY(!dialog->property("visible").toBool());
+
+            const QString later = QString::fromUtf8("从下一把起按它记录");
+            if (bound) {
+                QVERIFY2(!app.toastMessage().contains(later), qPrintable(app.toastMessage()));
+            } else {
+                QVERIFY2(app.toastMessage().contains(later), qPrintable(app.toastMessage()));
+                verifyPlayerCopy(app.toastMessage());
+            }
+        }
+    }
+
+    // CS3b-X1: a READY draft beside a profile that is already recording - a
+    // queue-inferred one gaining the popup, a finished one gaining the job - is
+    // an offer to improve the records, and recording does not wait for it. The
+    // headline said 「…就能开始自动记录」 all the same.
+    void aReadyOfferBesideARecordingProfileSaysRecordingIsRunning()
+    {
+        CalibrationBackend backend;
+        QJsonObject calibration = readyTimeline();
+        calibration.insert(QStringLiteral("local_profile_id"), QStringLiteral("cn.2026.09.01.0000.0000.local"));
+        calibration.insert(QStringLiteral("blockers"), QJsonArray{QString::fromUtf8(
+            "这份校准可以补上职业了：核对下面的时间线后，之后的记录会自动带上职业；核对之前记录照常进行。")});
+        backend.capture.insert(QStringLiteral("profile_status"), QStringLiteral("VERIFIED"));
+        backend.capture.insert(QStringLiteral("calibration"), calibration);
+        mr::AppController app(&backend, nullptr);
+        QTRY_COMPARE(app.calibration()->state(), QStringLiteral("READY"));
+
+        QQmlEngine engine;
+        engine.rootContext()->setContextProperty(QStringLiteral("App"), &app);
+        engine.rootContext()->setContextProperty(QStringLiteral("ReduceMotion"), true);
+        QQmlComponent component(&engine);
+        component.setData(R"(import QtQuick
+import QtQuick.Controls
+import MentorRecorder
+ApplicationWindow {
+    width: 720; height: card.implicitHeight + 32; visible: true
+    color: Theme.surface
+    CalibrationCard { id: card; x: 16; y: 16; width: parent.width - 32; height: implicitHeight }
+})", QUrl());
+        std::unique_ptr<QObject> root(component.create());
+        QVERIFY2(root != nullptr, qPrintable(component.errorString()));
+        auto *card = qobject_cast<QQuickItem *>(root->findChild<QObject *>(QStringLiteral("calibrationCard")));
+        QVERIFY(card);
+        auto *headline = card->findChild<QObject *>(QStringLiteral("calibrationHeadline"));
+        QVERIFY(headline);
+        QTRY_VERIFY(headline->property("text").toString().contains(QString::fromUtf8("正在自动记录")));
+        const QString offer = headline->property("text").toString();
+        QVERIFY2(!offer.contains(QString::fromUtf8("就能开始自动记录")), qPrintable(offer));
+        QVERIFY2(offer.contains(QStringLiteral("4")), qPrintable(offer));
+        verifyPlayerCopy(offer);
+        auto *confirm = findVisualItem(card, QStringLiteral("calibrationConfirmButton"));
+        QVERIFY(confirm && confirm->isVisible());
+
+        // A first calibration, nothing in force: recording really starts on confirmation.
+        calibration.remove(QStringLiteral("local_profile_id"));
+        backend.capture.insert(QStringLiteral("profile_status"), QStringLiteral("UNSUPPORTED_BUILD"));
+        backend.capture.insert(QStringLiteral("calibration"), calibration);
+        app.refreshStatus();
+        QTRY_COMPARE(headline->property("text").toString(),
+                     QString::fromUtf8("校准完成，核对 4 件事就能开始自动记录。"));
+    }
+
     void cardShowsProgressBlockersAndPlayerWording()
     {
         mr::MockBackend backend;

@@ -30,6 +30,13 @@ Card {
     // 已按登录时的核实开始记录，排本与进本仍在核对（plan §18.4）：标题不得说成"本机已核实"，
     // 说明由共享校准一节的灰字给出。旧采集服务不报这一项，按"未报告"处理。
     readonly property bool sharedAuditPending: !!card.shared && card.shared.auditPending
+    // 核对请求旁边已有档案在记录（按排本推断的或已完成但缺职业的本机档案、共享档案）：
+    // 这次核对只是让之后的记录更准、更全，记录本身并不等它。采集服务在「接下来做什么」
+    // 里说明具体能补上什么（审查 CS3b-X1）。
+    readonly property var captureStatus: App.captureStatus || ({})
+    readonly property bool recordingBesideOffer: card.ready
+        && (card.sharedInUse || card.captureStatus.profile_status === "VERIFIED"
+            || !!(card.captureStatus.calibration && card.captureStatus.calibration.local_profile_id))
     // 抓包无输出时不再派发副本指示：此时打本也不会被记录，原因由本页另一张卡片说明。
     // blocked 与 silent 均表示当前无法记录，MIDSTREAM（接入已有连接）走 blocked 分支，
     // 故两者都要判断。
@@ -88,7 +95,10 @@ Card {
                 ? qsTr("已使用其他玩家分享的校准（登录时已在本机核实），正在自动记录。")
                 : qsTr("已使用其他玩家分享的校准（本机已核实），正在自动记录。")
         if (card.ready)
-            return qsTr("校准完成，核对 %1 件事就能开始自动记录。").arg(card.controller.confirmCount)
+            return card.recordingBesideOffer
+                ? qsTr("正在自动记录。核对 %1 件事后，之后的记录会更准确、更完整。")
+                      .arg(card.controller.confirmCount)
+                : qsTr("校准完成，核对 %1 件事就能开始自动记录。").arg(card.controller.confirmCount)
         if (card.blocked)
             return qsTr("本机校准无法继续，当前不会生成记录。")
         if (card.done)
@@ -258,8 +268,10 @@ Card {
                 Layout.fillWidth: true
                 text: card.blockerMessage(blockerText.modelData)
                 textFormat: Text.PlainText
-                // 共享档案正在记录时，此句说明后台仍在核对，并非故障。
-                color: card.sharedRecording ? Theme.textSecondary : Theme.orangeText
+                // 共享档案正在记录时，此句说明后台仍在核对；记录中的核对请求旁，此句说明
+                // 核对能补上什么。两者都不是故障。
+                color: card.sharedRecording || card.recordingBesideOffer ? Theme.textSecondary
+                                                                         : Theme.orangeText
                 font.pixelSize: Theme.fs(12)
                 wrapMode: Text.WordWrap
             }

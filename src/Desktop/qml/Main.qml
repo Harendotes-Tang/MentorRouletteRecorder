@@ -100,6 +100,12 @@ ApplicationWindow {
     property string reasonAction: ""
     property string reasonDialogError: ""
     property bool reasonSubmitting: false
+    // The run the 原因 dialog's request was sent for. A reply names only its
+    // kind and run (a failure not even that), so the dialog takes a success
+    // only for its own action and run, and a failure only while its request is
+    // out: a 通关 answered in 本次导随结果 meanwhile is not its reply (review
+    // OK-6 / OL-5).
+    property string reasonRunId: ""
 
     // Colour of the title bar's Collector dot; the state comes from
     // CollectorProcess through AppController.
@@ -146,8 +152,9 @@ ApplicationWindow {
         editDialog.openForRun(App.selectedRun)
     }
 
-    // Used by the dashboard's 导随心得 panel, the history detail panel and the
-    // automatic prompt after a COMPLETED run.
+    // Used by the dashboard's 导随心得 panel and the history detail panel. The
+    // automatic prompt after a COMPLETED run goes through openForPrompt, which
+    // tells the controller whether it really opened.
     function openReflection(run, kicker) {
         reflectionDialog.openForRun(run, kicker || "")
     }
@@ -195,6 +202,7 @@ ApplicationWindow {
         reasonAction = actionName
         reasonDialogError = ""
         reasonSubmitting = false
+        reasonRunId = ""
         reasonField.text = ""
         reasonDialog.title = window.reasonDialogTitle(actionName)
         reasonDialog.open()
@@ -205,15 +213,42 @@ ApplicationWindow {
 
         // Both dialogs stay open until the Collector answers, so its refusal is
         // shown in the form the user is looking at; the toast only repeats it.
-        function onMutationFailed(code, message) {
+        // A refusal names the kind and the run of the request it answers, so a
+        // form takes only its own - not one from 本次导随结果 or 设置 meanwhile
+        // (review DT3-X1).
+        function onMutationFailed(code, message, kind, runId, neverSent) {
             const text = (message && message.length > 0 ? message : code)
                          + " (" + code + ")"
-            if (reasonDialog.visible) {
+            if (reasonDialog.visible && reasonSubmitting
+                && kind === reasonAction && runId === reasonRunId) {
                 reasonDialogError = text
                 reasonSubmitting = false
-            } else if (editDialog.visible) {
+            }
+            if (editDialog.visible && (kind === "create" || kind === "correct")) {
+                // The run, the code and whether it was sent first: the wizard
+                // reads them when the text arrives.
+                editDialog.externalErrorRunId = runId || ""
+                editDialog.externalErrorCode = code
+                editDialog.externalErrorNeverSent = neverSent === true
                 editDialog.externalErrorText = text
             }
+            // The guide sends only while no other baseline save is out, and nothing
+            // else can send one while it is open: a baseline refusal now is its own.
+            // It stays open with what was typed (audit 2026-10-03, DT6-X1).
+            if (baselineDialog.saving && kind === "baseline") {
+                baselineDialog.saving = false
+                baselineDialog.errorText = text
+            }
+        }
+
+        // Only its own accepted save ends the guide, and only then is the first
+        // run answered.
+        function onBaselineSaved(goal, baseline) {
+            if (!baselineDialog.saving)
+                return
+            baselineDialog.saving = false
+            App.completeFirstRun()
+            baselineDialog.close()
         }
 
         function onMutationSucceeded(kind, runId, revision, auditEventId) {
@@ -226,6 +261,10 @@ ApplicationWindow {
                     App.navigate(1)
                 return
             }
+            // The 原因 actions answer with their own name as the kind.
+            if (!reasonDialog.visible || !reasonSubmitting
+                || kind !== reasonAction || runId !== reasonRunId)
+                return
             reasonSubmitting = false
             reasonDialog.close()
         }
@@ -237,7 +276,7 @@ ApplicationWindow {
         ignoreUnknownSignals: true
 
         function onReflectionPromptRequested(run) {
-            window.openReflection(run, qsTr("刚刚完成"))
+            reflectionDialog.openForPrompt(run, qsTr("刚刚完成"))
         }
     }
 
@@ -858,7 +897,7 @@ ApplicationWindow {
 
                         SettingsPage {
                             anchors.fill: parent
-                            onOpenBaselineRequested: baselineDialog.openDialog()
+                            onOpenBaselineRequested: baselineDialog.openDialog(true)
                             onOpenDisclosureRequested: {
                                 App.reopenDisclosure()
                                 disclosureDialog.openDialog()
@@ -890,6 +929,7 @@ ApplicationWindow {
 
     EditRunDialog {
         id: editDialog
+        objectName: "editRunDialog"
         anchors.centerIn: Overlay.overlay
         // Correcting a record needs the full duty and battle-job catalogues, not only
         // what this player has already recorded: the record worth correcting is
@@ -907,6 +947,7 @@ ApplicationWindow {
 
     ReflectionDialog {
         id: reflectionDialog
+        objectName: "reflectionDialog"
         anchors.centerIn: Overlay.overlay
     }
 
@@ -930,28 +971,37 @@ ApplicationWindow {
 
     BaselineDialog {
         id: baselineDialog
+        objectName: "baselineDialog"
         anchors.centerIn: Overlay.overlay
         goalCount: App.goalCount
         baselineCount: App.baselineCount
-        onSaved: function(baseline, reason) {
-            App.updateAchievementBaseline(goalCount, baseline, reason)
-            App.completeFirstRun()
-            close()
+        settingsLoaded: App.achievementSettingsLoaded
+        busy: App.baselineSaving
+        // The goal typed in the dialog travels with the signal: writing it into
+        // goalCount would cut that binding, and a guide reopened after 设置 · 目标
+        // changed the goal would offer, and save, the old one (review OL-1).
+        // The guide stays open until the answer (onMutationFailed / onBaselineSaved
+        // above): a save that fails must not complete the first run (DT6-X1).
+        onSaved: function(baseline, goal, reason) {
+            App.updateAchievementBaseline(goal, baseline, reason)
         }
-        onSkipped: function(reason) {
-            App.updateAchievementBaseline(goalCount, 0, reason)
-            App.completeFirstRun()
-            close()
+        onSkipped: function(goal, reason) {
+            App.updateAchievementBaseline(goal, 0, reason)
         }
     }
 
     Dialog {
         id: reasonDialog
+        objectName: "reasonDialog"
         modal: true
         Overlay.modal: Rectangle { color: Theme.modalScrim(reasonDialog.palette.shadow) }
         width: 460
         padding: 20
         anchors.centerIn: Overlay.overlay
+        // While its request is out the window cannot be dismissed, so the reply
+        // lands on the form that sent it; a stray click outside never discards a
+        // half-written reason either.
+        closePolicy: window.reasonSubmitting ? Popup.NoAutoClose : Popup.CloseOnEscape
 
         background: DialogFrame {}
 
@@ -978,6 +1028,7 @@ ApplicationWindow {
 
             StyledTextArea {
                 id: reasonField
+                objectName: "reasonField"
                 Layout.fillWidth: true
                 Layout.preferredHeight: 100
                 placeholderText: qsTr("说明这次操作的原因（必填）。")
@@ -1003,13 +1054,16 @@ ApplicationWindow {
                 Layout.fillWidth: true
 
                 AppButton {
+                    objectName: "reasonCancelButton"
                     text: qsTr("取消")
+                    enabled: !window.reasonSubmitting
                     onClicked: reasonDialog.close()
                 }
 
                 Item { Layout.fillWidth: true }
 
                 AppButton {
+                    objectName: "reasonConfirmButton"
                     variant: "primary"
                     enabled: !window.reasonSubmitting
                     text: window.reasonSubmitting
@@ -1020,6 +1074,13 @@ ApplicationWindow {
                             window.reasonDialogError = qsTr("必须填写操作原因。")
                             return
                         }
+                        // The request goes to the selected record; without one
+                        // nothing would answer and the locked window would stay.
+                        if (!App.hasSelection || !App.selectedRun.run_id) {
+                            window.reasonDialogError = qsTr("没有选中的记录，请关闭后重新选择。")
+                            return
+                        }
+                        window.reasonRunId = App.selectedRun.run_id
                         window.reasonSubmitting = true
                         const reason = reasonField.text.trim()
                         switch (window.reasonAction) {
@@ -1083,12 +1144,20 @@ ApplicationWindow {
     }
 
     Component.onCompleted: {
+        // --mock-first-run asks for the baseline question itself. A harness run
+        // has no acknowledged disclosure, so going through the first-run order
+        // below showed the disclosure instead and the question never came up
+        // (review OJ-7).
+        if (window.forceBaselineDialog && !window.forceDisclosure) {
+            baselineDialog.openDialog()
+            return
+        }
         if (window.forceDisclosure
             || (!App.disclosureAcknowledged && !suppressOnboarding)) {
             disclosureDialog.openDialog()
             return
         }
-        if (window.forceBaselineDialog || (App.firstRun && !suppressOnboarding))
+        if (App.firstRun && !suppressOnboarding)
             baselineDialog.openDialog()
     }
 }

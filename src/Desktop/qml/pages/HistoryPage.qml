@@ -118,7 +118,24 @@ Item {
         filterDebounce.restart()
     }
 
+    // True while applyFilter hands its own filter to App. The change it causes
+    // comes straight back through onHistoryFilterChanged, and mirroring it would
+    // rewrite the fields under the user's cursor (review OK-5).
+    property bool applying: false
+
+    // 开始 later than 结束: the Collector refuses the query, so it is not sent.
+    readonly property bool rangeInverted: {
+        const from = toUtcRange(fromField.text.trim(), false)
+        const to = toUtcRange(toField.text.trim(), true)
+        return from !== null && to !== null && from > to
+    }
+
     function applyFilter() {
+        // A half-typed or invalid date is neither queried nor silently left out of
+        // the query (docs/ui-design.md §4.2): its field turns red and the list keeps
+        // its last answer until the date is whole. An inverted range waits the same way.
+        if (!fromField.valid || !toField.valid || page.rangeInverted)
+            return
         const filter = { date_field: "matched_at_utc" }
         if (searchField.text.trim().length > 0)
             filter.text = searchField.text.trim()
@@ -148,7 +165,9 @@ Item {
             filter.with_reflection = true
         if (includeDeleted.checked)
             filter.include_deleted = true
+        page.applying = true
         App.setHistoryFilter(filter)
+        page.applying = false
     }
 
     function resetFilter() {
@@ -193,6 +212,10 @@ Item {
     }
 
     function syncFilter() {
+        // The controls already say what this page just sent; only a filter from
+        // elsewhere (a drill-down, 清除) is mirrored back into them.
+        if (page.applying)
+            return
         // A drill-down replaces the complete filter. Cancel a pending edit
         // debounce and mirror every control without issuing another request.
         filterDebounce.stop()
@@ -264,10 +287,14 @@ Item {
 
             PageHeader {
                 id: pageHeader
+                objectName: "historyHeader"
                 title: qsTr("历史记录")
-                subtitle: qsTr("%1 条匹配 · 第 %2 / %3 页").arg(App.runs.total)
-                                                           .arg(App.runs.page)
-                                                           .arg(App.runs.pageCount)
+                // A failed query is not "0 条匹配".
+                subtitle: App.runs.loadError.length > 0
+                          ? qsTr("读取失败")
+                          : qsTr("%1 条匹配 · 第 %2 / %3 页").arg(App.runs.total)
+                                                             .arg(App.runs.page)
+                                                             .arg(App.runs.pageCount)
 
                 AppButton { text: qsTr("导出 CSV"); iconName: "file-down"; onClicked: App.exportCsv() }
                 AppButton { text: qsTr("导出 JSON"); iconName: "file-json"; onClicked: App.exportJson() }
@@ -308,11 +335,14 @@ Item {
 
                 StyledTextField {
                     id: searchField
+                    objectName: "historySearchField"
                     // -1 keeps a sub-pixel rounding from pushing the last
                     // control of a line onto the next one.
                     width: filterRow.singleLine ? filterRow.width - filterRow.restWidth - 1
                                                 : filterRow.width - filterRow.dateWidth - 1
                     placeholderText: qsTr("搜索 副本 / 职业 / 备注")
+                    // RunFilter.text maxLength: a longer search is refused outright.
+                    maximumLength: 200
                     onTextChanged: page.scheduleFilter()
                 }
 
@@ -466,6 +496,16 @@ Item {
                     text: qsTr("清除")
                     onClicked: page.resetFilter()
                 }
+            }
+
+            Text {
+                objectName: "historyRangeHint"
+                Layout.fillWidth: true
+                visible: page.rangeInverted
+                text: qsTr("开始日期晚于结束日期，筛选未更新。")
+                textFormat: Text.PlainText
+                color: Theme.orangeText
+                font.pixelSize: Theme.fs(12)
             }
 
             Rectangle {
@@ -768,12 +808,18 @@ Item {
             }
 
             Text {
+                objectName: "historyEmptyText"
                 Layout.fillWidth: true
                 Layout.topMargin: 24
                 Layout.bottomMargin: 24
                 visible: App.runs.total === 0
-                text: qsTr("没有符合筛选条件的记录。")
-                color: Theme.textSecondary
+                // An emptied list after a refused or lost query is not "no matches".
+                text: App.runs.loadError.length > 0
+                      ? qsTr("历史记录读取失败：%1").arg(App.runs.loadError)
+                      : qsTr("没有符合筛选条件的记录。")
+                textFormat: Text.PlainText
+                wrapMode: Text.WordWrap
+                color: App.runs.loadError.length > 0 ? Theme.orangeText : Theme.textSecondary
                 font.pixelSize: Theme.fs(13)
             }
 

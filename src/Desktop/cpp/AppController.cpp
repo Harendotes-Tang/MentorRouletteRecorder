@@ -86,7 +86,7 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
             m_gameSelection, &GameSelectionController::observe);
     connect(m_gameSelection, &GameSelectionController::selected, this,
             [this](const QVariantMap &capture) {
-        m_collectorStatus.insert(QStringLiteral("capture"), QJsonObject::fromVariantMap(capture));
+        adoptCaptureAnswer(QJsonObject::fromVariantMap(capture));
         emit statusChanged();
         m_recording->refresh();
     });
@@ -180,7 +180,7 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
         m_backend->getCaptureStatus()->whenDone(this,
             [this](bool ok, const QVariantMap &payload, const QString &, const QString &) {
                 if (!ok) return;
-                m_collectorStatus.insert(QStringLiteral("capture"), QJsonObject::fromVariantMap(payload));
+                adoptCaptureAnswer(QJsonObject::fromVariantMap(payload));
                 Q_EMIT statusChanged();
             });
     });
@@ -194,23 +194,32 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
             this, &AppController::validationChanged);
     connect(m_capture, &CaptureValidationController::changed,
             this, &AppController::validationChanged);
-    connect(m_capture, &CaptureValidationController::mutationFailed,
-            this, &AppController::mutationFailed);
+    connect(m_capture, &CaptureValidationController::mutationFailed, this,
+            [this](const QString &code, const QString &message) {
+        Q_EMIT mutationFailed(code, message, QStringLiteral("validation"), QString());
+    });
     connect(m_export, &ExportController::toastRequested,
             this, &AppController::showToast);
     connect(m_export, &ExportController::integrityCheckChanged,
             this, &AppController::integrityCheckChanged);
     connect(m_export, &ExportController::backupSucceeded, this, [this] {
         if (m_settings)
-            m_settings->setLastAutoBackupDate(
-                QDate::currentDate().toString(QStringLiteral("yyyy-MM-dd")));
+            m_settings->setLastAutoBackupDate(m_today().toString(QStringLiteral("yyyy-MM-dd")));
     });
 
     connect(m_statistics, &StatisticsController::dashboardChanged, this, &AppController::dashboardChanged);
+    connect(m_statistics, &StatisticsController::achievementSettingsLoadedChanged, this,
+            &AppController::achievementSettingsLoadedChanged);
     connect(m_statistics, &StatisticsController::trendChanged, this, &AppController::trendChanged);
     connect(m_statistics, &StatisticsController::optionsChanged, this, &AppController::optionsChanged);
     connect(m_statistics, &StatisticsController::baselineFailed, this, &AppController::baselineFailed);
-    connect(m_statistics, &StatisticsController::mutationFailed, this, &AppController::mutationFailed);
+    connect(m_statistics, &StatisticsController::baselineSavingChanged, this,
+            &AppController::baselineSavingChanged);
+    connect(m_statistics, &StatisticsController::baselineSaved, this, &AppController::baselineSaved);
+    connect(m_statistics, &StatisticsController::mutationFailed, this,
+            [this](const QString &code, const QString &message) {
+        Q_EMIT mutationFailed(code, message, QStringLiteral("baseline"), QString());
+    });
     connect(m_statistics, &StatisticsController::toastRequested, this, &AppController::showToast);
     connect(m_history, &HistoryController::selectionChanged, this, &AppController::selectionChanged);
     connect(m_history, &HistoryController::runEventsChanged, this, &AppController::runEventsChanged);
@@ -271,22 +280,31 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
                         m_reusedConnectFailures = 0;
                         m_collector->requestServeLeaseTakeover();
                     }
-                } else if (!m_collector->isRunning() && !m_collector->restartPending()) {
+                } else if (!m_collector->isRunning() && !m_collector->restartPending()
+                           && !m_collector->isStartRefused()) {
                     // A second Desktop may have reused another instance's
                     // Collector; when that owner exits, the per-user serve
                     // lease lets this process take over on the next reconnect.
                     // isRunning() prevents a duplicate launch while it boots.
+                    // A Collector that refused to start (its database, its
+                    // data folder) is not launched again on every failed
+                    // connect: the reason is on screen instead (review OH-3).
                     m_collector->start();
                 }
             }
             m_collectorStatus = QJsonObject();
+            m_captureAnswerAtUtc = QDateTime();
             m_currentRun = QJsonObject();
+            m_currentRunKnown = false;
             // The live-event watermark is deliberately NOT reset here: every
             // reconnect to the same Collector replays the same events. Identity
             // comes from event_id, which is stable across that replay and
             // different for a Collector that really restarted (see
             // adoptLiveEventOnce).
             m_capture->reset();
+            // The dashboard numbers stay on screen, but the goal and baseline a
+            // save would send are unknown until the next connection re-reads them.
+            m_statistics->forgetAchievementSettings();
             m_captureSettingsLoaded = false;
             m_captureSettingsTimer.stop();
             m_pendingCaptureSettings = QJsonObject();
@@ -299,13 +317,11 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
         m_reusedConnectFailures = 0;
         m_reusedVacantRelaunch = false;
         m_backend->subscribeLiveEvents();
+        // The daily backup needs a Collector: due at start-up, when there was
+        // none yet, or on a day that began while the pipe was down, it runs
+        // once the current-run read this refresh starts has come back - not
+        // now, while a duty may still be in progress (refreshCurrentRun).
         refreshAll();
-        // The daily backup needs a Collector. Armed at start-up, when there was
-        // not one yet, it runs here - once, on the first connection.
-        if (m_autoBackupArmed) {
-            m_autoBackupArmed = false;
-            runDailyBackupIfDue();
-        }
     });
     connect(m_backend, &IBackend::liveEvent, this, &AppController::handleLiveEvent);
     if (m_collector) {
@@ -316,6 +332,10 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
             showToast(QString::fromUtf8("Collector 已退出，已自动重启（第 %1 次，退避 %2 秒）")
                           .arg(attempt)
                           .arg(double(delayMs) / 1000.0, 0, 'f', 1));
+        });
+        // The Collector's own explanation, once, in place of a restart loop.
+        connect(m_collector, &CollectorProcess::startRefused, this, [this](const QString &reason) {
+            showToast(QString::fromUtf8("Collector 无法启动：%1").arg(reason));
         });
     }
 
@@ -345,6 +365,13 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
     m_captureSettingsTimer.setInterval(kCaptureSettingsDebounceMs);
     connect(&m_captureSettingsTimer, &QTimer::timeout,
             this, &AppController::flushCaptureSettings);
+
+    // Started by the first runDailyBackupIfDue() only.
+    m_dailyBackupTimer.setInterval(kDailyBackupCheckMs);
+    connect(&m_dailyBackupTimer, &QTimer::timeout, this, &AppController::runDailyBackupIfDue);
+    m_backupAfterDutyTimer.setSingleShot(true);
+    m_backupAfterDutyTimer.setInterval(kBackupAfterDutyMs);
+    connect(&m_backupAfterDutyTimer, &QTimer::timeout, this, &AppController::runDailyBackupIfDue);
 
     m_history->runs()->setPageSize(10);
     refreshAll();
@@ -496,9 +523,14 @@ QString AppController::captureProfileStatus() const
 
 void AppController::applyFormalCaptureStatus(const QVariantMap &capture)
 {
-    m_collectorStatus.insert(QStringLiteral("capture"),
-                             QJsonObject::fromVariantMap(capture));
+    adoptCaptureAnswer(QJsonObject::fromVariantMap(capture));
     Q_EMIT statusChanged();
+}
+
+void AppController::adoptCaptureAnswer(const QJsonObject &capture)
+{
+    m_collectorStatus.insert(QStringLiteral("capture"), capture);
+    m_captureAnswerAtUtc = QDateTime::currentDateTimeUtc();
 }
 
 // ---------------------------------------------------------------------------
@@ -726,6 +758,7 @@ void AppController::refreshStatus()
         this, [this](bool ok, const QVariantMap &payload, const QString &,
                      const QString &) {
             m_collectorStatus = ok ? QJsonObject::fromVariantMap(payload) : QJsonObject();
+            m_captureAnswerAtUtc = ok ? QDateTime::currentDateTimeUtc() : QDateTime();
             Q_EMIT statusChanged();
             Q_EMIT backendChanged();
         });
@@ -748,11 +781,16 @@ void AppController::refreshCurrentRun()
         this, [this](bool ok, const QVariantMap &payload, const QString &,
                      const QString &) {
             m_currentRun = ok ? QJsonObject::fromVariantMap(payload) : QJsonObject();
+            m_currentRunKnown = ok;
             if (ok) {
                 m_currentRun.insert(QStringLiteral("_fetched_at_ms"),
                                     double(QDateTime::currentMSecsSinceEpoch()));
             }
             Q_EMIT currentRunChanged();
+            // The daily backup waits for a run to end; this is where it learns
+            // one has, or that none was going on after a (re)connect.
+            if (ok && m_dailyBackupActive)
+                runDailyBackupIfDue();
         });
 }
 
@@ -1005,9 +1043,14 @@ void AppController::handleLiveEvent(const QVariantMap &event)
         // states are spoken from run_finished instead: StateChanged can skip a
         // terminal state entirely when one duty pop follows another, and
         // announcing from both would say the same thing twice.
+        // A transition the bus replays from before this Desktop started was
+        // announced by whoever was listening then; saying it again at launch
+        // is a false 「匹配成功」 (review OH-1).
         const QJsonValue matchFromQueue = QJsonValue::fromVariant(event.value(QStringLiteral("match_from_queue")));
-        announceState(state, run, matchFromQueue.isBool() && !matchFromQueue.toBool(),
-                      event.value(QStringLiteral("match_offer")).toInt());
+        if (!emittedBeforeThisSession(event)) {
+            announceState(state, run, matchFromQueue.isBool() && !matchFromQueue.toBool(),
+                          event.value(QStringLiteral("match_offer")).toInt());
+        }
         refreshDashboard();
         if (state == QLatin1String("COMPLETED"))
             maybePromptForReflection(run);
@@ -1017,9 +1060,21 @@ void AppController::handleLiveEvent(const QVariantMap &event)
     if (kind == QLatin1String("collector_status")
         || type == QLatin1String("CaptureStatusChanged")) {
         const QVariantMap capture = event.value(QStringLiteral("capture")).toMap();
-        if (!capture.isEmpty()) {
+        // Published before the answer the shell already holds - typically
+        // while that very request was being worked on, and written to the pipe
+        // after its answer - it describes an older state and is not adopted.
+        // The re-read below brings whatever is newer.
+        const QDateTime emitted =
+            parseUtc(QJsonValue::fromVariant(event.value(QStringLiteral("emitted_at_utc"))));
+        const bool olderThanAnswer =
+            emitted.isValid() && m_captureAnswerAtUtc.isValid() && emitted < m_captureAnswerAtUtc;
+        if (!capture.isEmpty() && !olderThanAnswer) {
             m_collectorStatus.insert(QStringLiteral("capture"),
                                      QJsonObject::fromVariantMap(capture));
+            if (emitted.isValid()
+                && (!m_captureAnswerAtUtc.isValid() || emitted > m_captureAnswerAtUtc)) {
+                m_captureAnswerAtUtc = emitted;
+            }
             Q_EMIT statusChanged();
         }
         refreshStatus();
@@ -1159,10 +1214,8 @@ QVariantMap AppController::announcementValues(const QJsonObject &run) const
     }
     values.insert(QStringLiteral("duty"),
                   dutyName.isEmpty() ? QString::fromUtf8("未知副本") : dutyName);
-    const int progress = baselineCount()
-                         + m_statistics->dashboardSnapshot().value(QStringLiteral("completed_count")).toInt();
-    values.insert(QStringLiteral("progress"), progress);
-    values.insert(QStringLiteral("remaining"), qMax(0, goalCount() - progress));
+    values.insert(QStringLiteral("progress"), m_statistics->achievementProgress());
+    values.insert(QStringLiteral("remaining"), m_statistics->remainingCount());
     return values;
 }
 
@@ -1353,6 +1406,12 @@ void AppController::applySavedReflection(const QString &runId, const QVariantMap
     // 通关后弹出：a run whose 心得 was just written - or deliberately cleared -
     // must never make the prompt pop up again in this session.
     m_promptedRunIds.insert(runId);
+    for (int index = 0; index < m_queuedReflectionRuns.size(); ++index) {
+        if (m_queuedReflectionRuns.at(index).value(QStringLiteral("run_id")).toString() == runId) {
+            m_queuedReflectionRuns.removeAt(index);
+            break;
+        }
+    }
 
     m_history->runs()->reload();
     // The just-finished run is usually still the dashboard's current run when
@@ -1382,6 +1441,14 @@ bool AppController::endedDuringThisSession(const QJsonObject &run) const
     return !(ended.isValid() && m_promptCutoffUtc.isValid() && ended < m_promptCutoffUtc);
 }
 
+bool AppController::emittedBeforeThisSession(const QVariantMap &event) const
+{
+    // An event without a parseable time is left alone: nothing proves it old.
+    const QDateTime emitted =
+        parseUtc(QJsonValue::fromVariant(event.value(QStringLiteral("emitted_at_utc"))));
+    return emitted.isValid() && m_promptCutoffUtc.isValid() && emitted < m_promptCutoffUtc;
+}
+
 void AppController::maybePromptForReflection(const QJsonObject &run)
 {
     if (m_settings && !m_settings->reflectPrompt())
@@ -1389,13 +1456,72 @@ void AppController::maybePromptForReflection(const QJsonObject &run)
     const QString runId = run.value(QStringLiteral("run_id")).toString();
     if (runId.isEmpty() || m_promptedRunIds.contains(runId))
         return;
+    // The 本次导随结果 window already offered this run's 心得 fields; the
+    // correction it sent comes back as a COMPLETED run and is not a new prompt.
+    if (m_confirmedRunIds.contains(runId))
+        return;
     if (run.value(QStringLiteral("reflection")).isObject())
         return;
     if (!endedDuringThisSession(run))
         return;
+    for (const QJsonObject &queued : std::as_const(m_queuedReflectionRuns)) {
+        if (queued.value(QStringLiteral("run_id")).toString() == runId)
+            return;
+    }
 
+    // Queued, not marked prompted: the dialog drops a request it receives while
+    // it is busy with another run, and a run marked here would never be offered
+    // again (review OH-6). reflectionPromptShown() is what marks it.
+    m_queuedReflectionRuns.append(run);
+    while (m_queuedReflectionRuns.size() > kMaxQueuedReflectionRuns) {
+        m_offeredReflectionRunIds.remove(
+            m_queuedReflectionRuns.constFirst().value(QStringLiteral("run_id")).toString());
+        m_queuedReflectionRuns.removeFirst();
+    }
+    emitNextReflectionPrompt();
+}
+
+void AppController::emitNextReflectionPrompt()
+{
+    if (m_reflectionPromptBusy || m_resultConfirmationBusy)
+        return;
+    // Switched off while a prompt waited for the dialog: it is no longer wanted.
+    if (m_settings && !m_settings->reflectPrompt()) {
+        m_queuedReflectionRuns.clear();
+        m_offeredReflectionRunIds.clear();
+        return;
+    }
+    for (const QJsonObject &run : std::as_const(m_queuedReflectionRuns)) {
+        const QString runId = run.value(QStringLiteral("run_id")).toString();
+        if (m_offeredReflectionRunIds.contains(runId))
+            continue;
+        m_offeredReflectionRunIds.insert(runId);
+        Q_EMIT reflectionPromptRequested(run.toVariantMap());
+        return;
+    }
+}
+
+void AppController::reflectionPromptShown(const QString &runId)
+{
+    if (runId.isEmpty())
+        return;
+    m_reflectionPromptBusy = true;
+    for (int index = 0; index < m_queuedReflectionRuns.size(); ++index) {
+        if (m_queuedReflectionRuns.at(index).value(QStringLiteral("run_id")).toString() == runId) {
+            m_queuedReflectionRuns.removeAt(index);
+            break;
+        }
+    }
+    m_offeredReflectionRunIds.remove(runId);
     m_promptedRunIds.insert(runId);
-    Q_EMIT reflectionPromptRequested(run.toVariantMap());
+}
+
+void AppController::reflectionPromptClosed()
+{
+    m_reflectionPromptBusy = false;
+    // Whatever is still queued was dropped by the dialog while it was busy.
+    m_offeredReflectionRunIds.clear();
+    emitNextReflectionPrompt();
 }
 
 void AppController::maybeConfirmResult(const QString &state, const QJsonObject &run)
@@ -1584,11 +1710,18 @@ void AppController::resetHistoryFilter()
     return m_history->resetHistoryFilter();
 }
 
+// A statistics row without a duty or job identity (未知副本, a zone several
+// duties share, 未知职业) has no filter key: RunFilter cannot say "is null", and
+// an empty filter would open every run under that row's numbers. Such a row
+// stays where it is and says why (review OD-4).
 void AppController::showHistoryForContent(const QVariant &contentId)
 {
+    if (!contentId.isValid() || contentId.isNull()) {
+        showToast(tr("这一行的记录没有确定的副本，历史记录无法单独列出它们。"));
+        return;
+    }
     QVariantMap filter;
-    if (contentId.isValid() && !contentId.isNull())
-        filter.insert(QStringLiteral("content_id"), QVariantList{contentId});
+    filter.insert(QStringLiteral("content_id"), QVariantList{contentId});
     setHistoryFilter(filter);
     clearSelection();
     navigate(1);
@@ -1596,9 +1729,12 @@ void AppController::showHistoryForContent(const QVariant &contentId)
 
 void AppController::showHistoryForJob(const QVariant &jobId)
 {
+    if (!jobId.isValid() || jobId.isNull()) {
+        showToast(tr("这一行的记录没有识别出职业，历史记录无法单独列出它们。"));
+        return;
+    }
     QVariantMap filter;
-    if (jobId.isValid() && !jobId.isNull())
-        filter.insert(QStringLiteral("job_id"), QVariantList{jobId});
+    filter.insert(QStringLiteral("job_id"), QVariantList{jobId});
     setHistoryFilter(filter);
     clearSelection();
     navigate(1);
@@ -1644,7 +1780,8 @@ void AppController::openCaptureValidationFolder()
     if (tracePath.isEmpty()) {
         showToast(tr("当前验证状态没有 Collector 返回的取证路径。"));
         Q_EMIT mutationFailed(QStringLiteral("ERR_OUTPUT_UNAVAILABLE"),
-                              tr("当前验证状态没有 Collector 返回的取证路径。"));
+                              tr("当前验证状态没有 Collector 返回的取证路径。"),
+                              QStringLiteral("validation"), QString());
         return;
     }
     const QString directory = QFileInfo(tracePath).absolutePath();
@@ -1682,13 +1819,18 @@ void AppController::rescanGame()
                 return;
             }
             m_collectorStatus = QJsonObject::fromVariantMap(payload);
+            m_captureAnswerAtUtc = QDateTime::currentDateTimeUtc();
             Q_EMIT statusChanged();
             Q_EMIT backendChanged();
 
             const QJsonObject game =
                 m_collectorStatus.value(QStringLiteral("game")).toObject();
-            if (m_collectorStatus.value(QStringLiteral("capture")).toObject()
-                    .value(QStringLiteral("game_selection_required")).toBool()) {
+            const QJsonObject capture =
+                m_collectorStatus.value(QStringLiteral("capture")).toObject();
+            // Only a listed client can be chosen; with none listed this is the
+            // "nothing running" answer below (review OD-1).
+            if (capture.value(QStringLiteral("game_selection_required")).toBool()
+                && !capture.value(QStringLiteral("game_processes")).toArray().isEmpty()) {
                 showToast(tr("已重新扫描，请在记录对象中选择要记录的游戏窗口。"));
                 return;
             }
@@ -1884,8 +2026,7 @@ void AppController::rereadCaptureStatus()
     m_backend->getCaptureStatus()->whenDone(this,
         [this](bool ok, const QVariantMap &payload, const QString &, const QString &) {
             if (!ok) return;
-            m_collectorStatus.insert(QStringLiteral("capture"),
-                                     QJsonObject::fromVariantMap(payload));
+            adoptCaptureAnswer(QJsonObject::fromVariantMap(payload));
             Q_EMIT statusChanged();
         });
 }
@@ -1902,24 +2043,48 @@ void AppController::openNpcapWebsite()
 
 void AppController::runDailyBackupIfDue()
 {
+    // The first call - main()'s, for an interactive run - switches the daily
+    // check on for the rest of the process: every connection and every hour
+    // look at the date again (review OH-5). A tray-resident Desktop runs for
+    // days; once per process would be once per week.
+    if (!m_dailyBackupActive) {
+        m_dailyBackupActive = true;
+        m_dailyBackupTimer.start();
+    }
+    // Every current-run answer passes through here, so the end of a duty is
+    // noticed whether or not a backup is due yet: from then on the backup keeps
+    // away for kBackupAfterDutyMs, the time 本次导随结果, the 心得 prompt and the
+    // announcement need the connection for (review V4-3).
+    const QString runState = currentRunState();
+    const bool dutyInProgress = m_currentRunKnown
+        && (runState == QLatin1String("MENTOR_MATCHED") || runState == QLatin1String("ENTERED_DUTY"));
+    if (dutyInProgress) {
+        m_dutyInProgressSeen = true;
+        m_backupAfterDutyTimer.stop();
+    } else if (m_currentRunKnown && m_dutyInProgressSeen) {
+        m_dutyInProgressSeen = false;
+        m_backupAfterDutyTimer.start();
+    }
     if (!m_settings || !m_settings->autoBackup())
         return;
-    const QString today = QDate::currentDate().toString(QStringLiteral("yyyy-MM-dd"));
-    if (m_settings->lastAutoBackupDate() == today || m_autoBackupAttempted)
+    const QString today = m_today().toString(QStringLiteral("yyyy-MM-dd"));
+    if (m_settings->lastAutoBackupDate() == today || m_autoBackupAttemptedOn == today)
         return;
-    // Before the first connection - the normal case at start-up - arm instead of
-    // sending, and let connectionChanged re-run this. A request now fails with
-    // 「Collector 未连接。」, burns this session's single attempt and toasts an
-    // error on every launch.
-    if (!m_backend || !m_backend->isConnected()) {
-        m_autoBackupArmed = true;
+    // Before the first connection - the normal case at start-up - wait, and let
+    // connectionChanged re-run this. A request now fails with 「Collector 未连接。」,
+    // burns the day's attempt and toasts an error on every launch.
+    if (!m_backend || !m_backend->isConnected())
         return;
-    }
+    // Not in the middle of a duty: copying the database competes with recording
+    // it. Until the current run has been read back after a connect it is not
+    // known to be over; that reply and every later check try again. Nor right
+    // after one: m_backupAfterDutyTimer checks again when that while is over.
+    if (!m_currentRunKnown || dutyInProgress || m_backupAfterDutyTimer.isActive())
+        return;
     // The date is stamped by the backupSucceeded handler wired in the constructor, so a
-    // backup that failed or timed out is retried on the next launch instead of being
-    // recorded as done. This in-session flag only stops a persistently failing backup
-    // from toasting on every trigger.
-    m_autoBackupAttempted = true;
+    // backup that failed or timed out is not recorded as done. This flag only stops a
+    // persistently failing backup from toasting on every trigger; the next day tries again.
+    m_autoBackupAttemptedOn = today;
     backupDatabase();
 }
 

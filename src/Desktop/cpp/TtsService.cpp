@@ -35,8 +35,11 @@ TtsService::TtsService(AppSettings *settings, QObject *parent, EngineMode engine
         if (m_phase == OnlinePhase::SpeakingLocal)
             finishCurrent(false);
     });
-    if (m_settings)
+    if (m_settings) {
         connect(m_settings, &AppSettings::ttsChanged, this, &TtsService::onSettingsChanged);
+        m_announcementsEnabled = m_settings->ttsEnabled();
+        m_onlineVoice = onlineVoiceSelected();
+    }
 
     if (engineMode == EngineMode::None) {
         m_statusText = QString::fromUtf8("本机没有可用的语音引擎，播报已停用。");
@@ -48,7 +51,8 @@ TtsService::TtsService(AppSettings *settings, QObject *parent, EngineMode engine
         return;
     }
 
-    auto *engine = new QTextToSpeech(this);
+    auto *engine = engineMode == EngineMode::Mock ? new QTextToSpeech(QStringLiteral("mock"), this)
+                                                  : new QTextToSpeech(this);
     if (engine->state() == QTextToSpeech::Error) {
         m_statusText = QString::fromUtf8("语音引擎初始化失败：%1").arg(engine->errorString());
         qCWarning(lcTts) << "engine error" << engine->errorString();
@@ -86,6 +90,22 @@ TtsService::~TtsService()
 void TtsService::onSettingsChanged()
 {
     const QString before = voiceId();
+    // Announcements switched off, or the voice moved off the online service:
+    // the sentences still waiting are no longer wanted, and saying "在线语音暂
+    // 不可用" about them would blame a failure on the player's own choice
+    // (review OJ-4). The engine's own queue of announcements goes too - unless
+    // all the engine holds is a 试听 already playing, which plays on (V4-4).
+    const bool enabled = !m_settings || m_settings->ttsEnabled();
+    const bool online = onlineVoiceSelected();
+    if (m_announcementsEnabled && !enabled) {
+        dropOnline(/*includeTests=*/false);
+        if (m_engine && !m_engineHoldsOnlyTest)
+            m_engine->stop();
+    } else if (m_onlineVoice && !online) {
+        dropOnline(/*includeTests=*/true);
+    }
+    m_announcementsEnabled = enabled;
+    m_onlineVoice = online;
     applyVoiceAndLevels();
     if (m_speech && m_settings)
         m_speech->setSelectedVoice(m_settings->ttsVoice());
@@ -511,8 +531,12 @@ void TtsService::deliver(const QString &kind, const QString &text, bool force, b
     if (force || kind == QLatin1String("custom")) {
         m_engine->stop();
         m_engine->say(text);
+        m_engineHoldsOnlyTest = force;
         return;
     }
+    // Behind a 试听 still playing, too: the engine cannot drop this line alone,
+    // so from now on switching 播报 off stops everything it holds.
+    m_engineHoldsOnlyTest = false;
     m_engine->enqueue(text);
 }
 

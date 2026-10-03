@@ -19,6 +19,13 @@
 // resources/app/README.md.
 IDI_ICON1 ICON "app.ico"
 
+// The application manifest - asInvoker, long-path aware, Windows 10/11 - is
+// resource 1 of type 24 (CREATEPROCESS_MANIFEST_RESOURCE_ID, RT_MANIFEST), the
+// one Windows reads when the process starts. It is copied beside this script for
+// the same reason as the icon. Embedded, it cannot be lost on the way into a
+// package the way a side file can (review OJ-5).
+1 24 "MentorRecorder.Desktop.manifest"
+
 1 VERSIONINFO
  FILEVERSION @MR_VERSION_MAJOR@,@MR_VERSION_MINOR@,@MR_VERSION_PATCH@,0
  PRODUCTVERSION @MR_VERSION_MAJOR@,@MR_VERSION_MINOR@,@MR_VERSION_PATCH@,0

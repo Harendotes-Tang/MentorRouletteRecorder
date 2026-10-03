@@ -367,7 +367,7 @@ public sealed record CommandLineOptions(
 
     /// <summary>
     /// Parses a parent start time given either as UTC ticks -- what
-    /// <c>Process.StartTime.Ticks</c> produces, and the form the Desktop passes -- or as an
+    /// <c>Process.StartTime.Ticks</c> (BOUNDARY-ALLOW(INJ-009): names the value format only) produces, and the form the Desktop passes -- or as an
     /// ISO-8601 timestamp, which is what a person types when reproducing a launch by hand.
     ///
     /// Both are accepted because both are unambiguous. Anything else is refused rather than

@@ -122,6 +122,75 @@ public sealed class SharedCalibrationPipelineTests : IDisposable
     }
 
     /// <summary>
+    /// Audit 2026-10-03, CS3a-X1. While nothing is bound, a direction given up is staged as a gap in
+    /// sequence, as an overflow is: the duty the staging replays after the bind ends where the hole is,
+    /// at LOW and pending review, instead of being entered across it.
+    /// </summary>
+    [Fact]
+    public async Task ADirectionLostBeforeASharedBindIsReplayedAsAGapInItsPlace()
+    {
+        using var release = new ManualResetEventSlim();
+        var (pipeline, session) = await StartWithTheBindHeldAsync(release);
+        var evening = Bed.Evening().ToArray();
+        Bed.Feed(pipeline, session, Bed.Before(evening, 122_000));
+        pipeline.OnDirectionDamaged(session, "zone", Protocol.Decoded.MessageDirection.Inbound);
+        Bed.Feed(pipeline, session, Bed.From(Bed.Before(evening, 200_000), 122_000));
+
+        release.Set();
+        await Bed.Idle(pipeline);
+
+        Assert.Equal(ProfileOrigin.Shared, pipeline.Current.Origin);
+        var run = Assert.Single(RunsOf(session));
+        Assert.Equal(RunResult.CancelledBeforeEntry, run.Result);
+        Assert.Equal(DetectionConfidence.Low, run.DetectionConfidence);
+        Assert.True(run.PendingReview);
+    }
+
+    /// <summary>
+    /// Audit 2026-10-03, CS3a-X1. The duty a shared bind replays from its staging came through no parser that
+    /// could say which connection carried it. Until a connection delivers a message the bound profile parses, a
+    /// direction given up on any connection is therefore still a gap: the duty ends INTERRUPTED at LOW rather
+    /// than being followed blind.
+    /// </summary>
+    [Fact]
+    public async Task ADirectionLostRightAfterASharedBindEndsTheReplayedDutyWhicheverConnectionLostIt()
+    {
+        using var release = new ManualResetEventSlim();
+        var (pipeline, session) = await StartWithTheBindHeldAsync(release);
+        Bed.Feed(pipeline, session, Bed.Before(Bed.Evening().ToArray(), 200_000));
+        release.Set();
+        await Bed.Idle(pipeline);
+        Assert.Equal(RunState.EnteredDuty, pipeline.RunState);
+
+        pipeline.OnDirectionDamaged(session, "chat", Protocol.Decoded.MessageDirection.Inbound);
+
+        var run = Assert.Single(RunsOf(session));
+        Assert.Equal(RunResult.Interrupted, run.Result);
+        Assert.Equal(DetectionConfidence.Low, run.DetectionConfidence);
+    }
+
+    /// <summary>
+    /// A session verifying a published code whose shared profile is held at the write until the test sets
+    /// <paramref name="release"/>, so everything fed before that is staged and the bind replays all of it.
+    /// </summary>
+    private async Task<(LiveProtocolPipeline Pipeline, string Session)> StartWithTheBindHeldAsync(ManualResetEventSlim release)
+    {
+        _bed.Publish(_bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState));
+        var services = _bed.Services() with
+        {
+            WriteSharedProfile = built =>
+            {
+                Assert.True(release.Wait(TimeSpan.FromSeconds(30)));
+                return SharedProfileFiles.Write(built, _bed.SharedRoot);
+            },
+        };
+        var pipeline = _bed.Pipeline(services);
+        pipeline.Refresh(Bed.Game());
+        await Bed.Idle(pipeline);
+        return (pipeline, _bed.Start(pipeline));
+    }
+
+    /// <summary>
     /// A code pasted (or downloaded) after login stages nothing of the login burst, and on a build whose duty bursts
     /// do not repeat the job the staging holds no job at all. The observer has read the job at login, so the first
     /// record after the shared bind carries it - as it does after a local confirmation - instead of 职业未知.

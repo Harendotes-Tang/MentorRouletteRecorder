@@ -15,9 +15,12 @@ namespace MentorRecorder.Collector.Ipc;
 /// The restriction is an explicit <see cref="PipeSecurity"/> with a single allow rule rather
 /// than <see cref="PipeOptions.CurrentUserOnly"/>, because .NET refuses the two together
 /// (<c>NamedPipeServerStreamAcl.Create</c> throws when both are given) and an explicit ACL is
-/// auditable from outside the process. The client keeps
-/// <see cref="PipeOptions.CurrentUserOnly"/>, which does what the ACL cannot: it verifies that
-/// the server it just connected to is owned by this same user.
+/// auditable from outside the process. What the ACL cannot do - tell a client that the server
+/// it reached is not a pipe another local account created first under the same name - is each
+/// client's own check: the Desktop compares the pipe's owner with its own user right after
+/// connecting and drops the connection on a mismatch (IpcClient.cpp), and
+/// <see cref="PipeClient"/> opens the pipe with <see cref="PipeOptions.CurrentUserOnly"/>, which
+/// makes the same comparison.
 ///
 /// Isolation is per connection and per message. A connection that sends garbage is closed
 /// without touching the others; a message that throws is answered with an error envelope and

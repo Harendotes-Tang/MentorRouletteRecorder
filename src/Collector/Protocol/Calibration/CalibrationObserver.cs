@@ -34,8 +34,14 @@ public sealed partial class CalibrationObserver
     /// <summary>Distinct large server shapes needed inside <see cref="Window"/> to open a burst.</summary>
     public const int MinDistinctLarge = 5;
 
-    /// <summary>Connections tracked at once.</summary>
+    /// <summary>Connections tracked at once, counted over the running capture session only.</summary>
     public const int MaxConnections = 64;
+
+    /// <summary>
+    /// Connections of ended capture sessions whose session is still remembered, by tag only, for
+    /// <see cref="CalibrationSnapshot.ConnectionSessions"/>; the oldest is forgotten first.
+    /// </summary>
+    public const int MaxEndedConnections = 1024;
 
     /// <summary>Bursts kept per session.</summary>
     public const int MaxClusters = 64;
@@ -157,6 +163,8 @@ public sealed partial class CalibrationObserver
     private readonly DutyCatalog _duties;
     private readonly RouletteCatalog _roulettes;
     private readonly Dictionary<string, Connection> _connections = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> _endedConnections = new(StringComparer.Ordinal);
+    private readonly Queue<string> _endedOrder = new();
     private readonly List<FinderPairHit> _pairs = new();
     private readonly List<PopHit> _pops = new();
     private readonly List<ZoneCluster> _clusters = new();
@@ -310,8 +318,7 @@ public sealed partial class CalibrationObserver
         LastMessageAtUtc = _lastAt,
         CarriedMessages = _adoptedMessages,
         DiagnosticsOverflow = _diagnosticsOverflow,
-        ConnectionSessions = _connections.Values.ToDictionary(
-            connection => connection.Tag, connection => connection.SessionId, StringComparer.Ordinal),
+        ConnectionSessions = SessionsByConnection(),
         SessionHealth = new Dictionary<string, CaptureSessionHealth>(_health, StringComparer.Ordinal),
         Candidates = _candidates.Snapshot(),
         TimedShapes = TimedShapes(),
@@ -338,6 +345,52 @@ public sealed partial class CalibrationObserver
         {
             _latestJobValues.Clear();
         }
+
+        EndConnectionsBefore(captureSessionId);
+    }
+
+    /// <summary>
+    /// A new capture session means the earlier ones are over and their connections carry nothing
+    /// more. Each is closed exactly as <see cref="Flush"/> closes it - a load still open becomes a
+    /// burst, whatever waited counts as outside - and only its tag and session are kept. Left in
+    /// the table they counted toward <see cref="MaxConnections"/>, and twenty-odd game restarts in
+    /// one run of the Collector overflowed it and blocked the draft over nothing in the traffic
+    /// (audit 2026-10-03, OCal-6).
+    /// </summary>
+    /// <param name="captureSessionId">Session whose connections stay.</param>
+    private void EndConnectionsBefore(string captureSessionId)
+    {
+        foreach (var connection in _connections.Values
+                     .Where(connection => !string.Equals(connection.SessionId, captureSessionId, StringComparison.Ordinal))
+                     .ToArray())
+        {
+            if (connection.Open is not null)
+            {
+                CloseCluster(connection);
+            }
+
+            AgeRing(connection, long.MaxValue);
+            _connections.Remove(connection.Tag);
+            if (_endedConnections.Count >= MaxEndedConnections && _endedOrder.TryDequeue(out var oldest))
+            {
+                _endedConnections.Remove(oldest);
+            }
+
+            _endedConnections[connection.Tag] = connection.SessionId;
+            _endedOrder.Enqueue(connection.Tag);
+        }
+    }
+
+    /// <summary>Every connection's session: the running session's and those of sessions that ended.</summary>
+    private Dictionary<string, string> SessionsByConnection()
+    {
+        var sessions = new Dictionary<string, string>(_endedConnections, StringComparer.Ordinal);
+        foreach (var connection in _connections.Values)
+        {
+            sessions[connection.Tag] = connection.SessionId;
+        }
+
+        return sessions;
     }
 
     /// <summary>
@@ -954,14 +1007,21 @@ public sealed partial class CalibrationObserver
                 connection.Requests.Dequeue();
             }
 
+            // Only a candidate. The client's movement packet has this exact shape and is sent
+            // about fifty times a second, and its first byte - the low byte of a rotation - lands
+            // on a roulette id about once in twenty-five. Such a message stands as the player's
+            // queue only once a server echo answered it (Stand); until then it neither opens the
+            // marker scan, nor makes the town "seen while queueing", nor turns the real match into
+            // a reply (audit 2026-10-03, OCal-1).
             connection.Requests.Enqueue(new PendingRequest(t, opcode, requested));
-            connection.RecentRequests.Add(new PendingRequest(t, opcode, requested));
-            connection.Outstanding = new PendingRequest(t, opcode, requested);
-            ProveGameConnection(connection);
-            if (connection.RequestedRoulettes.Count < MaxRequestedRoulettes)
-            {
-                connection.RequestedRoulettes.Add(requested);
-            }
+        }
+
+        // Decided before the scans below read the queue, so the echo that confirms a request is
+        // inside its own echo window exactly as it was when the request itself set the queue.
+        var echo = FindEcho(connection, direction, payload, opcode, t, echoMax);
+        if (echo is not null)
+        {
+            Stand(connection, echo);
         }
 
         TrackRouletteEcho(connection, direction, payload, opcode, t, at, echoMax);
@@ -996,25 +1056,10 @@ public sealed partial class CalibrationObserver
 
         // "Within an echo window" is about the request this message could be answering, so
         // only requests carrying the same roulette id count, whether or not one already paired.
+        // Only requests a server echo confirmed stand here (Stand), this one's included.
         var withinEcho = connection.RecentRequests.Any(pending =>
             pending.RouletteId == echoed && t - pending.TMs >= 0 && t - pending.TMs <= echoMax);
-        // Which pending request this echo answers.
-        //
-        // The 2026-09-01 client answers one request with TWO messages on the same opcode, so a
-        // matched request must not be consumed: the second message would then pair with whatever
-        // else the client sent in the same second carrying the same small number, and because
-        // the evidence is kept on disk that one coincidence would poison every later session.
-        // The echo window is what bounds the queue instead, and an opcode pair already seen wins
-        // over one that has not, so a stray client message can form a pair of its own but never
-        // displace the real one.
-        var candidates = connection.Requests
-            .Where(pending => pending.RouletteId == echoed && t - pending.TMs >= 0 && t - pending.TMs <= echoMax)
-            .ToArray();
-        // The most recent request otherwise wins: the echo follows its request by tens of
-        // milliseconds, and the client's movement packet has the request's length, so an older
-        // pending entry is far more likely to be a coincidence than the real request.
-        var match = candidates.LastOrDefault(pending => _pairedOpcodes.Contains((opcode, pending.Opcode)))
-            ?? candidates.LastOrDefault();
+        var match = echo;
         if (match is not null)
         {
             if (_pairs.Count < MaxPairs)
@@ -1082,6 +1127,94 @@ public sealed partial class CalibrationObserver
 
         RememberPop(new PopHit(connection.Tag, opcode, echoed, t, at, withinEcho, selectors));
     }
+
+    /// <summary>
+    /// The pending request a pop-shaped server message echoes, or null.
+    ///
+    /// The 2026-09-01 client answers one request with TWO messages on the same opcode, so a
+    /// matched request must not be consumed: the second message would then pair with whatever
+    /// else the client sent in the same second carrying the same small number, and because the
+    /// evidence is kept on disk that one coincidence would poison every later session. The echo
+    /// window is what bounds the queue instead.
+    ///
+    /// Two kinds of client message are never the request, because the movement packet has the
+    /// request's shape and is sent all the time (audit 2026-10-03, OCal-1): one of an opcode seen
+    /// more often than <see cref="CalibrationDraft.MaxCandidateOccurrences"/>, the frequency at
+    /// which the draft stops believing in a request opcode too; and, once this reply opcode has a
+    /// dominant request opcode, one of any other opcode. A real match that arrives a moment after
+    /// a movement packet carrying the queued id is therefore not taken for a reply to it.
+    /// </summary>
+    /// <param name="connection">Connection the message arrived on.</param>
+    /// <param name="direction">Direction of the message.</param>
+    /// <param name="payload">Decoded payload; read now, never kept.</param>
+    /// <param name="opcode">Opcode of the message.</param>
+    /// <param name="t">Session-relative arrival time.</param>
+    /// <param name="echoMax">Echo window from the template.</param>
+    private PendingRequest? FindEcho(
+        Connection connection, PacketDirection direction, ReadOnlySpan<byte> payload, ushort opcode, long t, long echoMax)
+    {
+        var pop = _template.Pop;
+        if (direction != pop.Direction || !pop.AcceptsLength(payload.Length) ||
+            pop.Field("roulette_id") is not { } rouletteField ||
+            !FieldReader.TryRead(payload, rouletteField, out var echoed))
+        {
+            return null;
+        }
+
+        var candidates = connection.Requests
+            .Where(pending => pending.RouletteId == echoed && t - pending.TMs >= 0 && t - pending.TMs <= echoMax)
+            .Where(pending => !Chatty(pending.Opcode))
+            .ToArray();
+        if (candidates.Length == 0)
+        {
+            return null;
+        }
+
+        if (CalibrationDraft.DominantRequest(_pairs.Where(pair => pair.ReplyOpcode == opcode && !Chatty(pair.RequestOpcode)))
+            is { } dominant)
+        {
+            candidates = candidates.Where(pending => pending.Opcode == dominant).ToArray();
+        }
+
+        // An opcode pair already seen wins over one that has not; the most recent request
+        // otherwise wins, because the echo follows its request by tens of milliseconds.
+        return candidates.LastOrDefault(pending => _pairedOpcodes.Contains((opcode, pending.Opcode)))
+            ?? candidates.LastOrDefault();
+    }
+
+    /// <summary>
+    /// A request a server echo just answered becomes the player's queue: it opens the echo window,
+    /// names a roulette the player asked for, and is the queue the marker and timing scans wait
+    /// on until the next load. The second echo of the same request changes nothing, so a load
+    /// that opened between the two is not undone.
+    /// </summary>
+    /// <param name="connection">Connection the request was sent on.</param>
+    /// <param name="request">The request the echo answered.</param>
+    private void Stand(Connection connection, PendingRequest request)
+    {
+        if (connection.RecentRequests.Contains(request))
+        {
+            return;
+        }
+
+        connection.RecentRequests.Add(request);
+        if (connection.Outstanding is not { } standing || standing.TMs <= request.TMs)
+        {
+            connection.Outstanding = request;
+        }
+
+        ProveGameConnection(connection);
+        if (connection.RequestedRoulettes.Count < MaxRequestedRoulettes)
+        {
+            connection.RequestedRoulettes.Add(request.RouletteId);
+        }
+    }
+
+    /// <summary>True for a client opcode seen more often than a queue request ever is.</summary>
+    /// <param name="opcode">Client opcode.</param>
+    private bool Chatty(ushort opcode) =>
+        _opcodeCounts.TryGetValue((PacketDirection.ClientToServer, opcode), out var count) &&
+        count > CalibrationDraft.MaxCandidateOccurrences;
 
     /// <summary>
     /// Counts server messages of ANY length that carry, at the template's roulette offset, an id

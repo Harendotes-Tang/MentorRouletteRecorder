@@ -28,13 +28,19 @@ constexpr auto kVectorCode =
     "MRC1.XY_LasMwEEX_ZdbG6G3LuxKyKyG02ZRShCSPExXbMrIdaEP-vWoKpeksZjH3wZkLHO2Axq2hb6EBRpgqiS4JLUme24IC3qMzcfKxRWgEZUwWMNjFn8wc1-TzEZ62-8cX83x4OGyzf4oTNBf4jWgqRQEz9uiXmMzZ9ivO0Lzyt2sBCY8hjrljs8vRBYeptwuaKcUu9GjCN5cfyx-0uiTyr2s-WSZVdvBOeYrEaVu1zAuUXU00tcxxL1qJqqtITTWz3AkvW4XVP_1WmlLIfB93v2bwMzS0gM844p3Cr18";
 constexpr auto kVectorSha256 = "67ef1bb97e6510b4bfdc8ab049007f6b8224761b659c741108963d5e2bfe197b";
 
-QJsonObject criterion(const char *message, const char *verdict, const char *reason)
+/// \a gate is null for the fixtures that predate the graded gates: a Collector before
+/// 1.1.0 sends no criteria[].gate.
+QJsonObject criterion(const char *message, const char *verdict, const char *reason,
+                      const char *gate = nullptr)
 {
     const bool contradicted = qstrcmp(verdict, "CONTRADICTED") == 0;
-    return {{QStringLiteral("message"), QLatin1String(message)},
-            {QStringLiteral("verdict"), QLatin1String(verdict)},
-            {QStringLiteral("reason"), QString::fromUtf8(reason)},
-            {QStringLiteral("contradicting_sessions"), contradicted ? 2 : 0}};
+    QJsonObject row{{QStringLiteral("message"), QLatin1String(message)},
+                    {QStringLiteral("verdict"), QLatin1String(verdict)},
+                    {QStringLiteral("reason"), QString::fromUtf8(reason)},
+                    {QStringLiteral("contradicting_sessions"), contradicted ? 2 : 0}};
+    if (gate)
+        row.insert(QStringLiteral("gate"), QLatin1String(gate));
+    return row;
 }
 
 /// One $defs/SharedCalibrationCandidate. \a provenance is null for the fixtures that
@@ -47,15 +53,23 @@ QJsonObject candidate(const char *source, const char *status, const char *verdic
     const bool passed = qstrcmp(verdict, "PASS") == 0;
     const bool waiting = qstrcmp(verdict, "WAIT") == 0;
     // A PUBLISHED code binds on the login burst alone, so its match criterion is
-    // still being audited while it records rather than holding the bind back.
+    // still being audited while it records rather than holding the bind back. Every
+    // published fixture is one the Collector judges that way: nothing usable records,
+    // no conflict mark, no better-submitted rival (SharedCalibrationSession.GateFor).
+    // The zone marker is always required; with no provenance no gate is sent at all.
+    const char *zoneGate = provenance ? "REQUIRED" : nullptr;
+    const char *popGate = !provenance ? nullptr
+        : qstrcmp(provenance, "PUBLISHED") == 0 ? "AUDIT" : "REQUIRED";
     const QJsonArray criteria{
         criterion("ZONE_INITIALIZATION", waiting && !auditPending ? "WAIT" : "PASS",
-                  waiting && !auditPending ? "还没有见到登录时的换区。" : "登录时的换区与它声明的一致。"),
+                  waiting && !auditPending ? "还没有见到登录时的换区。" : "登录时的换区与它声明的一致。",
+                  zoneGate),
         criterion("CONTENT_FINDER_POP", auditPending ? "WAIT" : verdict,
                   auditPending ? "还在核对排本之后的匹配报文。"
                   : passed     ? "排本之后按声明的形状收到了匹配报文。"
                   : waiting    ? "还没有排过本。"
-                               : "两次抓包健康的会话里排本后都进了副本，却都没有出现它声明的匹配报文。")};
+                               : "两次抓包健康的会话里排本后都进了副本，却都没有出现它声明的匹配报文。",
+                  popGate)};
     QJsonObject row{{QStringLiteral("sha12"), QStringLiteral("67ef1bb97e65")},
                     {QStringLiteral("source"), QLatin1String(source)},
                     {QStringLiteral("match_source"), QLatin1String(matchSource)},

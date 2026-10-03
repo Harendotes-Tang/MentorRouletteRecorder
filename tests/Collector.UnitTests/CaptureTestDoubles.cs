@@ -14,6 +14,7 @@ internal sealed class FakeNpcapEnvironment : INpcapEnvironment
     private readonly HashSet<string> _files = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _keys = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<(string Key, string Value), object?> _values = new();
+    private readonly Dictionary<string, string?> _fileVersions = new(StringComparer.OrdinalIgnoreCase);
 
     public string SystemRoot { get; set; } = @"C:\Windows";
 
@@ -30,6 +31,13 @@ internal sealed class FakeNpcapEnvironment : INpcapEnvironment
     public FakeNpcapEnvironment WithKey(string subKey)
     {
         _keys.Add(subKey);
+        return this;
+    }
+
+    /// <summary>Gives one file its own version, overriding <see cref="Version"/>; null reads as unreadable.</summary>
+    public FakeNpcapEnvironment WithFileVersion(string path, string? version)
+    {
+        _fileVersions[path] = version;
         return this;
     }
 
@@ -55,7 +63,10 @@ internal sealed class FakeNpcapEnvironment : INpcapEnvironment
 
     public bool FileExists(string path) => _files.Contains(path);
 
-    public string? FileVersion(string path) => _files.Contains(path) ? Version : null;
+    public string? FileVersion(string path) =>
+        !_files.Contains(path) ? null
+        : _fileVersions.TryGetValue(path, out var version) ? version
+        : Version;
 
     public bool RegistryKeyExists(string subKey) => _keys.Contains(subKey);
 
@@ -69,12 +80,19 @@ internal sealed class FakeGameProcessProvider : IGameProcessProvider
     private readonly Dictionary<string, List<GameProcessCandidate>> _byName =
         new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// When true every listing fails, the way a process-table read that did not answer fails:
+    /// distinct from an empty list, which says no such process is running.
+    /// </summary>
+    public bool Fails { get; set; }
+
     public FakeGameProcessProvider Add(
         string processName,
         int processId,
         DateTimeOffset? startedAt = null,
         string? path = null,
-        bool accessDenied = false)
+        bool accessDenied = false,
+        bool startUnreadable = false)
     {
         if (!_byName.TryGetValue(processName, out var list))
         {
@@ -82,7 +100,8 @@ internal sealed class FakeGameProcessProvider : IGameProcessProvider
             _byName[processName] = list;
         }
 
-        list.Add(new GameProcessCandidate(processId, processName, startedAt ?? DateTimeOffset.UnixEpoch, path, accessDenied));
+        list.Add(new GameProcessCandidate(
+            processId, processName, startUnreadable ? null : startedAt ?? DateTimeOffset.UnixEpoch, path, accessDenied));
         return this;
     }
 
@@ -90,7 +109,8 @@ internal sealed class FakeGameProcessProvider : IGameProcessProvider
     public void Clear() => _byName.Clear();
 
     public IReadOnlyList<GameProcessCandidate> ByName(string processName) =>
-        _byName.TryGetValue(processName, out var list)
+        Fails ? throw new InvalidOperationException("simulated process listing failure")
+        : _byName.TryGetValue(processName, out var list)
             ? list
             : Array.Empty<GameProcessCandidate>();
 }
@@ -120,6 +140,7 @@ internal sealed class FakeAdapterProvider : IAdapterProvider
         bool isUp = true,
         bool isLoopback = false,
         bool hasDefaultRoute = false,
+        bool preferredRoute = false,
         params string[] addresses)
     {
         _adapters.Add(new AdapterInfo(
@@ -129,7 +150,8 @@ internal sealed class FakeAdapterProvider : IAdapterProvider
             isUp,
             isLoopback,
             addresses.Select(IPAddress.Parse).ToArray(),
-            hasDefaultRoute));
+            hasDefaultRoute,
+            preferredRoute));
         return this;
     }
 
@@ -141,6 +163,9 @@ internal sealed class FakeProcessTcpTable : IProcessTcpTable
 {
     private readonly Dictionary<int, List<IPAddress>> _byPid = new();
 
+    /// <summary>When set every read throws it, the way an unreadable system table does: not "no connections".</summary>
+    public Exception? Failure { get; set; }
+
     public FakeProcessTcpTable With(int processId, params string[] addresses)
     {
         _byPid[processId] = addresses.Select(IPAddress.Parse).ToList();
@@ -148,7 +173,8 @@ internal sealed class FakeProcessTcpTable : IProcessTcpTable
     }
 
     public IReadOnlyList<IPAddress> LocalAddresses(int processId) =>
-        _byPid.TryGetValue(processId, out var list) ? list : Array.Empty<IPAddress>();
+        Failure is { } failure ? throw failure
+        : _byPid.TryGetValue(processId, out var list) ? list : Array.Empty<IPAddress>();
 }
 
 /// <summary>A profile status a test declares outright.</summary>
@@ -244,6 +270,14 @@ internal sealed class RecordingLifecycleListener : ICaptureLifecycleListener
         lock (_events)
         {
             _events.Add("connection_lost");
+        }
+    }
+
+    public void OnDirectionDamaged(string captureSessionId, string connectionKey, Protocol.Decoded.MessageDirection direction)
+    {
+        lock (_events)
+        {
+            _events.Add("direction_damaged:" + connectionKey + ":" + direction);
         }
     }
 }

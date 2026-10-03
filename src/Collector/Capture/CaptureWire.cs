@@ -73,6 +73,7 @@ public static class CaptureWire
                 ["handshakes"] = snapshot.Ingress.Handshakes,
                 ["game_connections"] = snapshot.Ingress.GameConnections,
                 ["game_connections_now"] = snapshot.Ingress.GameConnectionsNow,
+                ["damaged_game_directions"] = snapshot.Ingress.DamagedGameDirections,
             },
 
             // Driver loss counts as dropped: from the user's side a packet lost in the kernel

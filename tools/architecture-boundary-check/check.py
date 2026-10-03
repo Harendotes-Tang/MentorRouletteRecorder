@@ -28,6 +28,27 @@ DOMAIN_NAMESPACE = "MentorRecorder.Collector.Domain"
 PROJECT_NAMESPACE = "MentorRecorder.Collector"
 BASE_RUNTIME_NAMESPACE_PREFIXES = ("System", "Microsoft.Win32")
 FORBIDDEN_WORKFLOW_TYPES = {"AppController", "CollectorProcess", "TtsService"}
+# Namespaces that enclose Domain's own: C# name lookup reaches their types from Domain code
+# with neither a using nor a qualifier ("" is the global namespace).
+ENCLOSING_NAMESPACES = {PROJECT_NAMESPACE, "MentorRecorder", ""}
+
+_NAMESPACE_DECLARATION = re.compile(
+    r"\bnamespace\s+(?P<name>[A-Za-z_]\w*(?:\s*\.\s*[A-Za-z_]\w*)*)\s*(?P<form>[;{])"
+)
+_TYPE_DECLARATION = re.compile(
+    r"\b(?:record\s+(?:class|struct)|class|struct|interface|enum|record)\s+(?P<name>[A-Za-z_]\w*)"
+)
+# A delegate type: the name is the identifier before the parameter list, after a return type that
+# may hold generic arguments or a tuple. An anonymous method ("delegate (int x) { ... }") has no
+# name there, and a function pointer type ("delegate* unmanaged<...>") is not a declaration.
+_DELEGATE_DECLARATION = re.compile(
+    r"\bdelegate\s+(?!\*)(?:\([^()]*\)|[^;{}=()])+?\s(?P<name>[A-Za-z_]\w*)\s*(?:<[^;{}()=]*>)?\s*\("
+)
+# Conditional-compilation directives; the braces between them are checked branch by branch.
+_CONDITIONAL_DIRECTIVE = re.compile(r"(?m)^[ \t]*#[ \t]*(?P<kind>if|elif|else|endif)\b")
+# Words a declaration pattern can land on that are never a type name ("where T : class where U").
+_NOT_TYPE_NAMES = {"where", "in", "new", "class", "struct"}
+ATTRIBUTE_SUFFIX = "Attribute"
 
 
 class LexError(ValueError):
@@ -263,6 +284,102 @@ def _mask_cpp(text: str, *, preserve_include_strings: bool = False) -> str:
     return "".join(chars)
 
 
+def _namespace_level_declarations(masked: str) -> list[tuple[str, str, int]]:
+    """(namespace, name, offset) of every type, delegate included, declared directly in a namespace.
+
+    ``masked`` is C# with comments and string text blanked. A type nested in another type is
+    left out: it is reachable only through its declaring type, which is listed.
+
+    Raises LexError when the braces cannot be followed: a ``}`` that closes nothing, a block
+    never closed, or a branch of ``#if`` / ``#elif`` / ``#else`` that opens or closes a block it
+    does not also close or open itself (the two branches would put the declarations after them
+    in different namespaces or types, and only one of them is compiled).
+    """
+    declarations = list(_NAMESPACE_DECLARATION.finditer(masked))
+    file_scoped = next(
+        (re.sub(r"\s+", "", item.group("name")) for item in declarations if item.group("form") == ";"),
+        "",
+    )
+    namespace_braces = {
+        item.end() - 1: re.sub(r"\s+", "", item.group("name"))
+        for item in declarations if item.group("form") == "{"
+    }
+    events = [(match.start(), match.group(0)) for match in re.finditer(r"[{}]", masked)]
+    events += [(match.start(), "#" + match.group("kind"))
+               for match in _CONDITIONAL_DIRECTIVE.finditer(masked)]
+    for pattern in (_TYPE_DECLARATION, _DELEGATE_DECLARATION):
+        events += [(match.start(), match.group("name")) for match in pattern.finditer(masked)
+                   if match.group("name") not in _NOT_TYPE_NAMES]
+    found: list[tuple[str, str, int]] = []
+    # One entry per open brace: the namespace it opens, or None for any other block.
+    stack: list[str | None] = []
+    # One net brace count per open #if: the branch being read must leave the blocks as it found them.
+    branches: list[int] = []
+    for offset, token in sorted(events):
+        if token in ("{", "}"):
+            if token == "{":
+                stack.append(namespace_braces.get(offset))
+            elif not stack:
+                raise LexError(f"unbalanced braces: '}}' at offset {offset} closes no block")
+            else:
+                stack.pop()
+            step = 1 if token == "{" else -1
+            branches = [count + step for count in branches]
+            if any(count < 0 for count in branches):
+                raise LexError("a brace closes a block opened outside its #if branch")
+        elif token == "#if":
+            branches.append(0)
+        elif token in ("#elif", "#else", "#endif"):
+            if not branches:
+                raise LexError(f"{token} without a matching #if")
+            if branches[-1] != 0:
+                raise LexError(f"a brace opened in an #if branch is not closed before {token}")
+            if token == "#endif":
+                branches.pop()
+            else:
+                branches[-1] = 0
+        elif all(entry is not None for entry in stack):
+            namespace = ".".join(part for part in (file_scoped, *stack) if part)
+            found.append((namespace, token, offset))
+    if branches:
+        raise LexError("#if without a matching #endif")
+    if stack:
+        raise LexError(f"unbalanced braces: {len(stack)} block(s) never closed")
+    return found
+
+
+def _namespace_level_types(masked: str) -> dict[str, set[str]]:
+    """Names of the types declared directly in a namespace, keyed by that namespace."""
+    found: dict[str, set[str]] = {}
+    for namespace, name, _ in _namespace_level_declarations(masked):
+        found.setdefault(namespace, set()).add(name)
+    return found
+
+
+def _in_domain_namespace(namespace: str) -> bool:
+    return namespace == DOMAIN_NAMESPACE or namespace.startswith(DOMAIN_NAMESPACE + ".")
+
+
+def _shadowing_types(namespaces: set[str], declared: dict[str, set[str]]) -> set[str]:
+    """Domain type names that hide an enclosing type of the same name in every one of ``namespaces``.
+
+    C# looks a simple name up in the namespace the code is in, then in each enclosing namespace
+    outwards, so a type declared directly in that namespace or one enclosing it wins over a type
+    of an outer namespace. A type of a sibling namespace, or one nested in another type, does not.
+    A file in several namespaces gets only the names that shadow in all of them.
+    """
+    shadowing: set[str] | None = None
+    for namespace in namespaces:
+        names = {
+            name
+            for owner, owned in declared.items()
+            if namespace == owner or namespace.startswith(owner + ".")
+            for name in owned
+        }
+        shadowing = names if shadowing is None else shadowing & names
+    return shadowing or set()
+
+
 def _source_files(base: Path, suffixes: set[str]) -> list[Path]:
     if not base.is_dir():
         return []
@@ -356,6 +473,12 @@ class Checker:
         )
         implementation_roots: set[str] = set()
         external_prefixes: set[str] = set()
+        # Types declared outside Domain in a namespace that encloses Domain's, and the types Domain
+        # declares directly in each of its namespaces (which shadow an enclosing one of the same
+        # name, but only for code in that namespace or below it).
+        enclosing_types: set[str] = set()
+        domain_namespace_types: dict[str, set[str]] = {}
+        domain_file_namespaces: dict[Path, set[str]] = {}
         masked_by_path: dict[Path, tuple[str, str]] = {}
         for path in all_csharp:
             text = self.read(path)
@@ -363,6 +486,7 @@ class Checker:
                 continue
             try:
                 masked = "".join(mask_csharp(text))
+                declared = _namespace_level_declarations(masked)
             except LexError as exc:
                 self.error(f"cannot tokenize {_relative(path, self.root)}: {exc}")
                 continue
@@ -371,6 +495,20 @@ class Checker:
             self.counts["collector_csharp_files"] += 1
             if path in set(domain_files):
                 self.counts["domain_files"] += 1
+                domain_file_namespaces[path] = {namespace for namespace, _, _ in declared}
+                for namespace, name, _ in declared:
+                    domain_namespace_types.setdefault(namespace, set()).add(name)
+                continue
+            for namespace, name, offset in declared:
+                if namespace in ENCLOSING_NAMESPACES:
+                    enclosing_types.add(name)
+                if _in_domain_namespace(namespace):
+                    # Domain code names this type with neither a using nor a qualifier, yet the
+                    # file is outside src/Collector/Domain and none of its dependencies is checked.
+                    self.finding(path, text, offset, "domain-namespace-outside-domain",
+                                 f"{namespace}.{name}",
+                                 "a file outside src/Collector/Domain declares a type in a Domain "
+                                 "namespace")
             for match in namespace_pattern.finditer(masked):
                 name = re.sub(r"\s+", "", match.group(1))
                 suffix = name[len(PROJECT_NAMESPACE) + 1:].split(".", 1)[0]
@@ -485,6 +623,34 @@ class Checker:
                     dependency = re.sub(r"\s+", "", match.group("dep"))
                     self.finding(path, text, match.start("dep"), "domain-qualified-reference",
                                  dependency, "Domain references a non-Domain Collector namespace")
+            visible = enclosing_types - _shadowing_types(
+                domain_file_namespaces.get(path, set()), domain_namespace_types)
+            if visible:
+                names = "|".join(re.escape(item) for item in sorted(visible))
+                enclosing_pattern = re.compile(
+                    rf"(?<![\w.])(?:global\s*::\s*)?(?:MentorRecorder\s*\.\s*)?"
+                    rf"(?:Collector\s*\.\s*)?(?:{names})\b"
+                )
+                for match in enclosing_pattern.finditer(qualified):
+                    dependency = re.sub(r"\s+", "", match.group(0))
+                    self.finding(path, text, match.start(), "domain-root-namespace-reference",
+                                 dependency,
+                                 "Domain references a non-Domain type of an enclosing namespace")
+            # [RootMarker] names RootMarkerAttribute: an attribute may drop its suffix.
+            short_names = sorted(item[:-len(ATTRIBUTE_SUFFIX)] for item in visible
+                                 if item.endswith(ATTRIBUTE_SUFFIX) and item != ATTRIBUTE_SUFFIX)
+            if short_names:
+                names = "|".join(re.escape(item) for item in short_names)
+                attribute_pattern = re.compile(
+                    rf"(?<=[\[,])\s*(?:[A-Za-z_]\w*\s*:(?!:)\s*)?"
+                    rf"(?P<dep>(?:global\s*::\s*)?(?:MentorRecorder\s*\.\s*)?"
+                    rf"(?:Collector\s*\.\s*)?(?:{names}))\s*[\](,]"
+                )
+                for match in attribute_pattern.finditer(qualified):
+                    dependency = re.sub(r"\s+", "", match.group("dep"))
+                    self.finding(path, text, match.start("dep"), "domain-root-namespace-reference",
+                                 dependency,
+                                 "Domain references a non-Domain attribute of an enclosing namespace")
 
         project_files = _source_files(collector, {".csproj"})
         for ancestor in (collector, collector.parent, self.root):

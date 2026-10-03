@@ -2,6 +2,7 @@ using MentorRecorder.Collector.Capture;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Protocol.Calibration;
 using MentorRecorder.Collector.Protocol.Decoded;
+using MentorRecorder.Collector.Protocol.Pipeline;
 using MentorRecorder.Collector.Protocol.Profiles;
 using MentorRecorder.Collector.Protocol.Sharing;
 using MentorRecorder.Collector.Storage.Repositories;
@@ -282,6 +283,128 @@ public sealed class SharedCalibrationProvenanceTests : IDisposable
         Assert.False(again.CalibrationArmed);
         Assert.Equal(SharedCalibrationPhase.Verified, again.CalibrationStatus().Shared.Phase);
         Assert.Equal(sent, _bed.Transport.Requests.Count);
+    }
+
+    /// <summary>
+    /// A code that binds on its staging records the duty it staged, matched before the bind itself. That duty is
+    /// the binding's, and is marked pending review with the rest when the code is later contradicted (audit
+    /// 2026-10-03, OE-2).
+    /// </summary>
+    [Fact]
+    public async Task ADutyReplayedFromStagingIsMarkedPendingReviewWhenTheCodeIsLaterContradicted()
+    {
+        var pipeline = _bed.Pipeline(_bed.Services(fetch: false));
+        pipeline.Refresh(Bed.Game());
+        var code = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
+        Assert.Equal(SharedCandidateProvenance.Imported, pipeline.ImportCalibrationCode(code.Code).Provenance);
+
+        // The clock reads what it would in play: the bind comes after the match it replays.
+        var evening = Bed.Evening().ToArray();
+        _bed.Db.Clock.UtcNow = evening.Max(message => message.ObservedAtUtc);
+        var session = _bed.Start(pipeline);
+        Bed.Feed(pipeline, session, Bed.Before(evening, 200_000));
+        await Bed.Idle(pipeline);
+        Assert.Equal(ProfileOrigin.Shared, pipeline.Current.Origin);
+        var replayed = Assert.Single(RunsOf(session));
+        Assert.True(replayed.CreatedAtUtc < _bed.Db.Clock.UtcNow);
+        pipeline.OnCaptureStopped(session, CaptureEndReason.UserStop);
+        await Bed.Idle(pipeline);
+
+        await Contradict(pipeline);
+
+        Assert.False(File.Exists(_bed.SharedProfilePath));
+        Assert.True(new RunRepository(_bed.Db.Database).Get(replayed.RunId)!.PendingReview);
+    }
+
+    /// <summary>
+    /// The profile id names the build, not the code: a complete duty an earlier code of the build recorded does not
+    /// prove the next one, which stays watched until it records one itself (audit 2026-10-03, OE-4).
+    /// </summary>
+    [Fact]
+    public async Task AnEarlierCodesCompleteDutyDoesNotProveTheNextCodeOfTheBuild()
+    {
+        Seed(TestDatabase.Run(source: RunSource.AutoNetwork, enteredAt: Bed.Confirmed.AddDays(-1)) with { ProtocolProfileId = ProfileId });
+        var pipeline = _bed.Pipeline(_bed.Services(fetch: false));
+        pipeline.Refresh(Bed.Game());
+        var code = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
+        Assert.Equal(SharedCandidateProvenance.Imported, pipeline.ImportCalibrationCode(code.Code).Provenance);
+
+        var evening = Bed.Evening().ToArray();
+        _bed.Db.Clock.UtcNow = evening.Max(message => message.ObservedAtUtc);
+        var session = _bed.Start(pipeline);
+        Bed.Feed(pipeline, session, Bed.Before(evening, 200_000));
+        await Bed.Idle(pipeline);
+
+        Assert.Equal(ProfileOrigin.Shared, pipeline.Current.Origin);
+        var status = pipeline.CalibrationStatus();
+        Assert.Equal(SharedCandidateStatus.InUse, Assert.Single(status.Shared.Candidates).Status);
+        Assert.NotEqual(CalibrationState.Done, status.State);
+        Assert.True(pipeline.CalibrationArmed);
+    }
+
+    /// <summary>
+    /// A code selected for the next session, with an earlier code's records already under the same profile id:
+    /// when it is revoked only what it recorded is marked, and the earlier records are left as they are - after a
+    /// restart too, because the bind time is kept with the profile document (audit 2026-10-03, OE-2).
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RevokingACodeMarksOnlyWhatItRecordedAndNotAnEarlierCodesRecords(bool restart)
+    {
+        _bed.Db.Clock.UtcNow = new DateTimeOffset(2026, 9, 9, 13, 0, 0, TimeSpan.Zero);
+        // Cut short, so it cannot prove the code below (that is the next test's question): only the marking is at stake.
+        var earlier = TestDatabase.Run(
+            result: RunResult.Interrupted, source: RunSource.AutoNetwork, enteredAt: Bed.Confirmed.AddDays(-2)) with { ProtocolProfileId = ProfileId };
+        Seed(earlier);
+        _bed.Publish();
+        var pipeline = _bed.Pipeline(_bed.Services());
+        pipeline.Refresh(Bed.Game());
+        await Bed.Idle(pipeline);
+
+        // An evening with nothing shared to verify; the code published afterwards binds on its evidence, between sessions.
+        _bed.Play(pipeline, Bed.Evening(), hour: 0);
+        await Bed.Idle(pipeline);
+        var code = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
+        _bed.Publish(code);
+        Assert.Equal(SharedCheckOutcome.Started, pipeline.CheckSharedCalibrationNow());
+        await Bed.Idle(pipeline);
+        Assert.Equal(ProfileOrigin.Shared, pipeline.Refresh(Bed.Game()).Origin);
+        Assert.Null(pipeline.CalibrationStatus().Shared.BoundAtUtc);
+
+        if (restart)
+        {
+            pipeline = _bed.Pipeline(_bed.Services());
+            Assert.Equal(ProfileOrigin.Shared, pipeline.Refresh(Bed.Game()).Origin);
+            await Bed.Idle(pipeline);
+        }
+
+        // The next evening it records a duty of its own; the evening ends inside it, so the code is still watched.
+        var session = _bed.Play(pipeline, Bed.Before(Bed.Evening(), 200_000), hour: 24);
+        await Bed.Idle(pipeline);
+        var own = Assert.Single(RunsOf(session));
+
+        _bed.PublishRevoked(code);
+        _bed.Db.Clock.Elapsed += SharedCalibrationSession.ManualCheckInterval;
+        Assert.Equal(SharedCheckOutcome.Started, pipeline.CheckSharedCalibrationNow());
+        await Bed.Idle(pipeline);
+
+        Assert.False(File.Exists(_bed.SharedProfilePath));
+        var runs = new RunRepository(_bed.Db.Database);
+        Assert.True(runs.Get(own.RunId)!.PendingReview);
+        Assert.False(runs.Get(earlier.RunId)!.PendingReview);
+    }
+
+    /// <summary>Two healthy evenings on which the declared zone marker is not what the client sends.</summary>
+    private async Task Contradict(LiveProtocolPipeline pipeline)
+    {
+        var without = CalibrationTrafficCases.Traffic(CalibrationTrafficCases.ReplyState)
+            .Select(message => message.Opcode == CalibrationTrafficCases.ZoneInit ? message with { Opcode = 0xA1F7 } : message)
+            .ToArray();
+        _bed.Play(pipeline, without, hour: 48);
+        await Bed.Idle(pipeline);
+        _bed.Play(pipeline, without, hour: 72);
+        await Bed.Idle(pipeline);
     }
 
     [Fact]

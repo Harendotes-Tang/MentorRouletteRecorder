@@ -158,7 +158,11 @@ void TtsService::cancelOnline(const QString &code)
         kept.append(queued);
     }
     m_onlineQueue = kept;
+    abandonCurrent(code);
+}
 
+void TtsService::abandonCurrent(const QString &code)
+{
     if (!m_current)
         return;
     const bool wasLocal = m_phase == OnlinePhase::SpeakingLocal;
@@ -173,6 +177,25 @@ void TtsService::cancelOnline(const QString &code)
         m_engine->stop();
     m_current.reset();
     m_phase = OnlinePhase::Idle;
+}
+
+void TtsService::dropOnline(bool includeTests)
+{
+    const QString code = QStringLiteral("DESKTOP_CANCELLED");
+    QList<Utterance> kept;
+    for (const Utterance &queued : std::as_const(m_onlineQueue)) {
+        if (queued.test && !includeTests) {
+            kept.append(queued);
+            continue;
+        }
+        if (queued.reportsTest && m_speech)
+            m_speech->noteTestResult(false, code, false);
+    }
+    m_onlineQueue = kept;
+    if (m_current && (includeTests || !m_current->test))
+        abandonCurrent(code);
+    // A 试听 that stays in line still has to be played.
+    schedulePump();
 }
 
 void TtsService::schedulePump()
@@ -294,6 +317,7 @@ void TtsService::fallBackToLocal(const QString &code)
     }
     m_localTimer.start(localSpeechBudgetMs(utterance.text));
     m_engine->say(utterance.text);
+    m_engineHoldsOnlyTest = utterance.test;
     noteLocalEngineState(int(m_engine->state()));
 }
 

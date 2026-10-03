@@ -26,25 +26,56 @@ public sealed class NpcapPacketTests
     [InlineData(3)] // Unassociable later fragment
     [InlineData(4)] // Invalid TCP data offset
     [InlineData(5)] // Reserved IP fragment flag
-    public void MalformedOrFragmentedSelectedTrafficFaultsWithoutDecoding(int corruption)
+    public void MalformedOrFragmentedSelectedTrafficIsCountedAndDroppedWithoutDecoding(int corruption)
     {
-        var packet = FirstPacketTests.Packet(false, 100, 2);
+        // Never decoded, and never the end of the capture either: the pcap filter admits every
+        // program's TCP on this address, so one fragmented frame of somebody else's must not
+        // be able to stop the recording (audit 2026-10-03, OA-1).
+        var packet = Corrupt(FirstPacketTests.Packet(false, 100, 2), corruption);
+        var created = 0;
+        var buffer = new FirstPacketBuffer(FirstPacketTests.Local, 42, _ => { created++; return new FirstPacketTests.Sink(); });
+        buffer.Offer(packet, 101);
+        buffer.Pump(new[] { FirstPacketTests.Owned() });
+        Assert.Null(buffer.Failure);
+        Assert.Equal(0, created);
+        Assert.Equal((0, 0, 0), buffer.Usage);
+        Assert.Equal(1, buffer.Counters.RawPackets);
+        Assert.Equal(1, buffer.Counters.DroppedNoStream);
+    }
+
+    [Theory]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(4)]
+    public void AnUnsafeFrameOnTheGamesOwnStreamLeavesAHoleTheDecoderIsNeverFedAcross(int corruption)
+    {
+        var sink = new FirstPacketTests.Sink();
+        var buffer = new FirstPacketBuffer(FirstPacketTests.Local, 42, _ => sink);
+        buffer.Offer(FirstPacketTests.Packet(false, 100, 2), 101);
+        buffer.Pump(new[] { FirstPacketTests.Owned() });
+        Assert.Single(sink.Packets);
+
+        buffer.Offer(Corrupt(FirstPacketTests.Packet(false, 101, 24, FirstPacketTests.Bundle(1)), corruption), 101);
+        buffer.Offer(FirstPacketTests.Packet(false, 177, 24, FirstPacketTests.Bundle(2)), 101);
+        buffer.Pump(new[] { FirstPacketTests.Owned() });
+
+        Assert.Null(buffer.Failure);
+        Assert.Single(sink.Packets);
+        Assert.Equal(1, buffer.Usage.Packets); // Waits behind the hole for the gap tolerance.
+    }
+
+    private static byte[] Corrupt(byte[] packet, int corruption)
+    {
         switch (corruption)
         {
             case 0: packet[0] = 0x41; break;
-            case 1: packet[3] = 50; break;
+            case 1: packet[3] = (byte)(packet.Length + 10); break;
             case 2: packet[6] = 0x20; break;
             case 3: packet[7] = 1; break;
             case 4: packet[32] = 0x40; break;
             case 5: packet[6] = 0x80; break;
         }
-        var created = 0;
-        var buffer = new FirstPacketBuffer(FirstPacketTests.Local, 42, _ => { created++; return new FirstPacketTests.Sink(); });
-        buffer.Offer(packet, 101);
-        buffer.Pump(new[] { FirstPacketTests.Owned() });
-        Assert.NotNull(buffer.Failure);
-        Assert.Equal(0, created);
-        Assert.Equal((0, 0, 0), buffer.Usage);
+        return packet;
     }
 
     [Theory]
@@ -135,6 +166,24 @@ public sealed class NpcapPacketTests
         // A genuine driver failure is still reported as one.
         var driver = MachinaCaptureSource.Translate(new IOException("pcap open failed"), "wifi");
         Assert.Equal(ErrorCodes.NpcapMissing, driver.Code);
+    }
+
+    /// <summary>
+    /// Audit 2026-10-03, OA-7. A start that failed for a reason that has nothing to do with the
+    /// driver -- an unsupported link type, a reader that did not come up, the Oodle setup --
+    /// must not be reported as a missing Npcap: the Desktop turns that code into "install
+    /// Npcap", which sends the player after a driver that is working.
+    /// </summary>
+    [Theory]
+    [InlineData("所选网卡的数据链路类型不受支持。")]
+    [InlineData("准备阶段网卡读取未能安全启动。")]
+    [InlineData("synthetic Oodle initialization failure")]
+    public void AStartFailureThatIsNotAboutNpcapIsNotReportedAsAMissingNpcap(string message)
+    {
+        var error = MachinaCaptureSource.Translate(new IOException(message), "wifi");
+
+        Assert.Equal(ErrorCodes.Internal, error.Code);
+        Assert.DoesNotContain("Npcap", error.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     private static CaptureStartOptions Options() => new(

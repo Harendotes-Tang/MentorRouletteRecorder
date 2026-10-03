@@ -52,29 +52,35 @@
 
 ### 2.2 进程生命周期
 
-- Desktop 启动时以子进程方式启动 Collector，可执行文件取自同一目录下的固定文件名，
-  不接受路径参数注入。命令行固定为 `--serve --parent-pid <Desktop 的 pid>`，
+- Desktop 启动时以子进程方式启动 Collector，可执行文件取自同一目录（或其 `collector\` 子目录）下的固定文件名，
+  不接受路径参数注入；环境变量 `MR_COLLECTOR_PATH` 与源码树查找只在以 `MR_DEV_COLLECTOR_DISCOVERY`
+  编译的开发构建中生效。命令行固定为 `--serve --parent-pid <Desktop 的 pid>`，
   可另带 `--parent-start-time <UTC ticks|ISO-8601>`。
 - 生产 IPC 入口由 `main.cpp` 创建 `CollectorProcess` 并显式传给 `AppController`，
   控制器先于借用的监督器析构。未提供监督器的后端不能启动、停止或接管本地 Collector；
   后端名称本身不赋予进程管理权限。
+- Desktop 每个用户只运行一个实例。它以命名互斥体 `Local\<管道名>.desktop.instance` 判断是否已有实例；
+  再次启动时置位命名事件 `Local\<管道名>.desktop.show`，使已有窗口回到前台，然后退出。截图与模拟数据运行不受此限。
 - Desktop 通过 `GetVersion` 完成握手，校验 `protocol_version == 1`；不匹配则拒绝继续。
 - Desktop 定期发送 `GetStatus` 心跳。Collector 崩溃时，Desktop 显示明确的故障态并提供重启按钮。
-- Desktop 正常退出时向 Collector 发送停止请求，超时后强制结束子进程。
+- Desktop 正常退出时先置位 Collector 的停止事件 `Local\<管道名>.stop`，最多等待 10 秒；
+  未退出再结束子进程（先 `terminate()`，0.5 秒后 `kill()`）。
 - Desktop **被强制结束**时（任务管理器、`Stop-Process -Force`、会话结束），
   上述停止请求不会发出，因此 Collector 同时监视 Desktop 的存活状态。
   `--parent-pid` 启用 `Diagnostics/ParentProcessWatchdog.cs`，
   由 `Process.GetProcessById` 与 `WaitForExitAsync` 等待父进程结束。
-  这是**进程存在性检查**，不是打开游戏进程句柄，符合
-  [privacy-boundary.md](privacy-boundary.md) 第 2 节第 3b 条。
-  源码中没有 `OpenProcess`，没有任何 P/Invoke，也不读取父进程的任何内容。
+  这会打开一个指向**桌面端进程**的句柄，用于等待其退出并读取其启动时间；它不指向游戏进程，
+  看门狗也不读取桌面端的内存、模块或命令行。源码中没有 `OpenProcess`，也没有任何 P/Invoke。
+  静态规则 `INJ-009` 禁止这类会打开进程句柄的 `Process` 成员，只按精确路径放行这个文件，
+  见 [privacy-boundary.md](privacy-boundary.md) §2.1。
 - Windows 的进程号一经释放即被重新分配，因此仅凭 pid 有可能指向一个无关进程。
   `--parent-start-time` 将 pid 与该进程的启动时刻配成一对（容差 1 秒）。
   两者不一致时，看门狗判定为**无法确认父进程**并停止后续动作，
   而**不是**判定父进程已退出。这两种判定导向相反的动作，其中只有一种是安全的：
   依据一个关于无关进程的猜测执行停止，会终止用户正在进行的记录；
   不执行任何动作，至多留下一个用户随时可以关闭的 Collector。
-  启动时刻同样只来自进程列表，不需要任何句柄。不带该参数时的行为与此前一致。
+  看门狗通过上述句柄读取启动时刻（`Process.StartTime`）；Desktop 一侧用 `GetProcessTimes(GetCurrentProcess())`
+  读取自身的创建时间并传入。不带该参数时的行为与此前一致。
   父进程结束后，看门狗触发与 Ctrl+C **完全相同**的停止路径
   （停抓包 → 按既有 lifecycle 把在途记录置为 `INTERRUPTED` → 停管道 → 释放 host），
   并以 10 秒硬退出为上限，防止某一步骤阻塞。
@@ -108,7 +114,7 @@
 | 0 | 正常结束，或按请求停止 | — |
 | 1 | `--validate-profile` 判定档案不合格 | 展示校验结果 |
 | 2 | 命令行无法解析，或档案检查无法执行 | 修正调用方式 |
-| 3 | 无法履行职责：数据库完整性、路径不可写、I/O 失败 | 提示故障，参见本机日志 |
+| 3 | 无法履行职责：数据库完整性、数据库无法打开或被其他程序锁定、路径不可写、I/O 失败；通信管道被另一个 Windows 账户（或以管理员身份运行的进程）占用 | 提示故障，参见本机日志；标准错误输出给出中文原因，桌面端直接显示 |
 | 4 | 本机已有 Collector 在服务同一条管道（`ERR_ALREADY_RUNNING`） | 连接正在运行的那一个实例 |
 | 5 | 看门狗的优雅停止超时，进程被硬性切断 | 视为异常终止并记录 |
 | 6 | 管道**存在且仍可接受连接**，但占用者连续 6 次、每次 500 ms（合计 ≥ 3 秒）都不应答 `GetVersion` 探活 | 请求其停止并等待其退出；仍不退出时结束该进程（进程号见日志目录下的 `serve.pid`）后重试 |
@@ -126,7 +132,7 @@
 |---|---|---|---|
 | 不存在 | 占用者已取得租约但尚未建立管道（正在启动），或已拆除管道但尚未释放租约（正在停止） | 不探活 | **4** |
 | 实例已被占满 | 8 个实例全部在服务其他客户端，占用者处于存活状态 | 不探活 | **4** |
-| 存在且可连 | 仅此一种情形可能是僵死实例 | 连接后发送 `GetVersion`，最多 6 次、每次 500 ms | 应答 → **4**；始终不应答 → **6** |
+| 存在且可连 | 仅此一种情形可能是僵死实例 | 连接后发送 `GetVersion`，最多 6 次、每次 500 ms | 应答 → **4**；始终不应答 → **6**；连接被拒（管道属于另一个账户或以管理员身份运行的进程）→ **3**，不再重试 |
 
 三秒的预算按"大型数据库执行 `integrity_check`、迁移与崩溃恢复"所需的时间估算。
 早先的实现只探活一次、只等待 1 秒，于是一个正在升级数据库的健康实例被判为僵死，
@@ -171,8 +177,11 @@
   **服务端**使用显式 `PipeSecurity`，**不**附加 `PipeOptions.CurrentUserOnly`：
   .NET 明确拒绝二者同时出现（`NamedPipeServerStreamAcl.Create` 会抛 `ArgumentException`）。
   显式 ACL 是二者中更强的一项，并且可以从进程外审计。
-  **客户端**保留 `PipeOptions.CurrentUserOnly`，用于完成 ACL 无法完成的检查：
-  校验刚连上的服务端确实属于同一个用户。
+  ACL 无法完成的检查由客户端负责：校验刚连上的服务端确实属于同一个用户。管道名可以预先推算，
+  同机的其他账户有可能抢先以该名字建立管道。桌面端（`IpcClient`）连上后用 `GetSecurityInfo` 读取管道句柄的
+  所有者 SID，只接受当前用户或其令牌的默认所有者（以管理员身份运行时为 Administrators 组），否则立即断开，
+  不发送任何请求（包括在线语音的密钥）。采集服务自带的 `PipeClient`（启动时探活所用）保留
+  `PipeOptions.CurrentUserOnly`，由 .NET 完成同样的核对。
 - 管道名：`"MentorRecorder." + SHA-256(UTF-8(当前用户 SID 字符串)) 前 16 字节的小写十六进制 + ".v1"`。
   两端各自实现（C# `src/Collector/Ipc/PipeNaming.cs`，C++ `src/Desktop/cpp/PipeName.cpp`），
   必须逐字节一致；`--pipe-name-only` 可打印本机的名字用于核对。
@@ -188,17 +197,17 @@
   （固定 Desktop 发出的每一条请求样本）强制，任何一方发生漂移都会导致测试失败。
 - **不存在任何 HTTP / TCP / WebSocket / gRPC 监听端口。** 由静态检查强制。
 
-### 3.1 消息一览（48 个业务消息 + `Event` + `Error`）
+### 3.1 消息一览（业务消息 + `Event` + `Error`）
 
 规范来源是契约的 `$defs/MessageType` 枚举，本表是该枚举的分组视图。
-消息数量同样不在其他位置重复声明：`tests/Collector.IntegrationTests/ContractSchema.cs`
-的 `BusinessMessageTypes` 从枚举中读出这 48 个名称（枚举减去 `Event` 与 `Error`），
+消息数量不在任何文档中声明：`tests/Collector.IntegrationTests/ContractSchema.cs`
+的 `BusinessMessageTypes` 从枚举中读出全部业务消息名称（枚举减去 `Event` 与 `Error`），
 覆盖断言据此逐条核对。
 
 | 分组 | 消息 |
 |---|---|
-| 版本与状态 | `GetVersion` `GetStatus` `GetCaptureStatus` `GetProtocolProfileStatus` |
-| 抓包控制 | `ListCaptureAdapters` `StartCapture` `StopCapture` `GetCaptureSettings` `UpdateCaptureSettings` |
+| 版本与状态 | `GetVersion` `GetStatus` `GetCaptureStatus` `GetProtocolProfileStatus` `CheckUpdateNow` |
+| 抓包控制 | `ListCaptureAdapters` `StartCapture` `StopCapture` `GetCaptureSettings` `UpdateCaptureSettings` `SelectGameProcess` |
 | 抓包验证 | `StartCaptureValidation` `GetCaptureValidationStatus` `AddCaptureValidationMarker` `StopCaptureValidation` |
 | 实时 | `GetCurrentRun` `SubscribeLiveEvents` |
 | 查询 | `QueryRuns` `GetRunRevisions` `GetRunEvents` |
@@ -244,7 +253,8 @@ payload: <LiveEvent>}`。
 **补发缓冲（replay buffer）。** 事件总线另外保留最近 **64** 条已发布事件，
 在每个新订阅建立时先按原顺序补发给它，然后才转入实时事件。
 这样做的原因是：本进程最重要的几条事件在客户端能够连接之前就已发出。
-`CollectorHost.Open` 中的崩溃恢复（把未完结记录置为 `INTERRUPTED` 并标记待复核）
+`CollectorHost.Open` 中的崩溃恢复（把已进本的未完结记录置为 `INTERRUPTED`、从未进本的记为
+`CANCELLED_BEFORE_ENTRY`，并都标记待复核）
 运行在 `PipeServer` 构造之前。在此之前 `LiveEventBus.Publish` 在无订阅者时直接返回，
 相应的 `run_updated` 与 `stats_invalidated` 不会送达任何客户端，
 桌面端只能通过重新查询获知这些变化。
@@ -268,6 +278,7 @@ payload: <LiveEvent>}`。
 | `collector_status` | `CaptureStatusChanged` | `capture`、`severity`、`message` |
 | `heartbeat` | `Heartbeat` | 无 |
 | `candidate_observed` | `CandidateObserved` | `name`、`group`、`t_ms`、`observation_id`、`capture_session_id` |
+| `calibration_changed` | `CalibrationChanged` | `calibration_state`、`ready` |
 
 `kind` 已是契约字段（`$defs/LiveEvent.kind`，必填），其粒度比 `event_type` 更细。
 `stats_invalidated` 在 `event_type` 枚举里没有独立取值，归入 `DiagnosticsMessage`，
@@ -341,7 +352,8 @@ payload: <LiveEvent>}`。
 
 - 只有在协议档案状态为 `VERIFIED` 时才解析任何字段；否则 **fail-closed**。
 - `CONTENT_FINDER_POP` 且 `roulette_id == mentor_roulette_id` 才进入 `MENTOR_MATCHED`。
-- 进程重启时未完结的记录一律标记 `INTERRUPTED_PENDING_REVIEW`，**永远不会自动判为 COMPLETED**。
+- 进程重启时未完结的记录一律收尾并标记待复核：已进本的记为 `INTERRUPTED_PENDING_REVIEW`，
+  从未进本的记为 `CANCELLED_BEFORE_ENTRY`；**永远不会自动判为 COMPLETED**。
 
 ## 6. Fail-closed 策略
 
@@ -349,13 +361,13 @@ payload: <LiveEvent>}`。
 
 | 情形 | 行为 |
 |---|---|
-| 未安装 Npcap | `ERR_NPCAP_MISSING`，显示安装指引，不下载、不内置 |
+| 未安装 Npcap | `ERR_NPCAP_MISSING`，显示安装指引；运行中的软件不下载、不内置（安装程序在缺少 Npcap 时的下载见 [privacy-boundary.md](privacy-boundary.md) §8.5） |
 | 游戏未运行 | `ERR_FFXIV_NOT_RUNNING`，不启动抓包 |
 | 客户端版本未知 / 无对应协议档案 | `ProfileStatus = UNSUPPORTED_BUILD`，`ERR_PROFILE_UNSUPPORTED`，**不解析任何报文，不写入任何记录** |
 | 档案存在但未经证据验证 | `ProfileStatus = UNVERIFIED`，同样不用于自动记录 |
 | 关键字段缺失（如无法确定 `content_id`） | 记录 `detection_confidence` 降级，字段留 `NULL`，不猜测 |
-| 队列溢出导致事件丢失 | 该次记录标记为低置信度或 `UNKNOWN`，不补全 |
-| 数据库完整性校验失败 | `ERR_DB_INTEGRITY`，采集服务拒绝启动（退出码 3，IPC 管道不会打开），错误信息给出数据库文件位置并提示先复制一份留底 |
+| 队列溢出，或一条游戏连接的某一方向被放弃（该方向本次会话交出过当前档案能解析的报文；尚无任何方向交出过时任一方向均算，见 [state-machine.md](state-machine.md) §7.5），导致事件丢失 | 进行中的记录以低置信度收尾：已进本的为 `INTERRUPTED`，尚未进本的为 `CANCELLED_BEFORE_ENTRY` 并标记待复核；不补全。被放弃方向的会话累计数与网卡丢包计数单独不结束任何记录 |
+| 数据库完整性校验失败，或数据库无法打开 | `ERR_DB_INTEGRITY`（被其他程序占用时为 `ERR_DB_BUSY`），采集服务拒绝启动（退出码 3，IPC 管道不会打开），错误信息给出数据库文件位置并提示先复制一份留底；原因同时写入本机日志（`startup/open_failed`） |
 
 **绝不**在没有证据的情况下猜测 opcode 或结构偏移。协议档案的证据要求见
 [protocol-profile-format.md](protocol-profile-format.md)。
@@ -366,7 +378,7 @@ payload: <LiveEvent>}`。
 
 | 组件 | 路径 | 职责 | 关键类型 |
 |---|---|---|---|
-| Capture | `src/Collector/Capture/` | Npcap 检测（**每次开始监听都重新枚举设备列表**）、适配器枚举、游戏进程定位、Machina 封装（**仅 WinPCap 模式**）、FFXIV 分帧、有界队列、抓包诊断、Oodle 临时副本清单与回收 | `NpcapDetector` `AdapterEnumerator` `GameProcessLocator` `MachinaCaptureSource` `FfxivFraming` `DecodedMessageQueue` `CaptureController` `CaptureDiagnostics` `CaptureCli` `OodleTempCopyCleaner` |
+| Capture | `src/Collector/Capture/` | Npcap 检测（**每次开始监听都重新枚举设备列表**）、适配器枚举、游戏进程定位（内核进程表，不打开进程句柄）、经 SharpPcap 的只读 Npcap 读取（**不使用 raw socket**）、Machina 封装（系统 TCP 表、Oodle、报文解码）、FFXIV 分帧、有界队列、抓包诊断、Oodle 临时副本清单与回收 | `NpcapDetector` `AdapterEnumerator` `GameProcessLocator` `ProcessTable` `ProcessImagePath` `NpcapPacketReader` `MachinaCaptureSource` `FfxivFraming` `DecodedMessageQueue` `CaptureController` `CaptureDiagnostics` `CaptureCli` `OodleTempCopyCleaner` |
 | Protocol / Decoded | `src/Collector/Protocol/Decoded/` | 抓包与解析之间**唯一**的交接类型 | `DecodedMessage` `IDecodedMessageSink` |
 | Protocol / Profiles | `src/Collector/Protocol/Profiles/` | 档案加载、Schema 校验、规范化哈希、目录扫描与 `AMBIGUOUS`、按 `region`+`game_build` 选档 | `ProfileLoader` `JsonSchemaValidator` `CanonicalJson` `ProfileValidationReport` `ProfileCatalog` `ProfileSelector` `ProtocolProfile` |
 | Protocol / Parsing | `src/Collector/Protocol/Parsing/` | 字节 → 语义事件，**零硬编码常量**；拒绝分类与有界错误环 | `ProfileMessageParser` `ParserError` |
@@ -378,7 +390,7 @@ payload: <LiveEvent>}`。
 | Storage | `src/Collector/Storage/` | SQLite 访问、迁移、完整性校验、仓储、append-only 修订写入 | `SqliteDatabase` `MigrationRunner` `Run*Repository` `RunMutationService` |
 | Reference | `src/Collector/Reference/` | 副本 / 职业名称映射的加载、版本选择与回退（内嵌资源） | `DutyCatalog` `JobCatalog` |
 | Replay | `src/Collector/Replay/` | 两种离线重放：语义事件固件、解码报文固件 | `ReplayFixture` `FixtureReplayRunner` `DecodedFixture` `DecodedReplayRunner` |
-| Recovery | `src/Collector/Recovery/` | 启动时扫描未完结记录 → `INTERRUPTED_PENDING_REVIEW` | `CrashRecoveryService` |
+| Recovery | `src/Collector/Recovery/` | 启动时扫描未完结记录：已进本的 → `INTERRUPTED_PENDING_REVIEW`，从未进本的 → `CANCELLED_BEFORE_ENTRY`（待复核）；并一次性改正早期版本写下的未进本却记为中断或结局未知的记录 | `CrashRecoveryService` |
 | Ipc | `src/Collector/Ipc/` | 命名管道服务端、分帧、信封编解码、消息分发、幂等、实时事件总线 | `PipeServer` `PipeNaming` `FrameCodec` `MessageDispatcher` `LiveEventBus` |
 | Capture / Validation | `src/Collector/Capture/` | 显式开启的被动验证会话：脱敏 opcode 级 trace、标记、保留策略（最近 10 次会话 / 7 天）、界面会话 2 小时上限 | `CaptureValidationController` `CaptureTraceRunner` `CaptureTraceSink` |
 | Export | `src/Collector/Export/` | CSV / JSON 导出、数据库备份与保留 | `RunExporter` `BackupService` `ExportPaths` |
@@ -392,7 +404,7 @@ Machina.FFXIV（抓包回调线程，只做搬运）
    ▼
 DecodedMessageQueue（有界，默认 4096，满则丢最旧并计数；恰好一个消费者线程）
    ▼
-LiveProtocolPipeline（会话守卫；档案选择在一次会话内冻结）
+LiveProtocolPipeline（会话守卫；会话内换用档案只在两场记录之间进行，见 state-machine.md §7.4）
    ▼
 ProfileMessageParser（档案驱动）──► SemanticEvent
    ▼

@@ -926,6 +926,203 @@ public sealed class ProtocolPipelineTests
         Assert.Single(idle);
     }
 
+    /// <summary>
+    /// Audit 2026-10-03 ODp-2, CS3a-X1. A direction of the connection that carried the match, given up
+    /// by the capture after a gap it could not fill, delivers nothing more, so the match in flight can
+    /// no longer be followed to its end - the same loss as a queue overflow (docs/state-machine.md 3.3
+    /// rule 3). It used to reach calibration only: the run sat in MENTOR_MATCHED until the game closed
+    /// and was then written off as a confident cancellation nobody was asked to check.
+    /// </summary>
+    [Fact]
+    public void ADamagedGameDirectionClosesAMatchedRunPendingReview()
+    {
+        using var fixture = new TestDatabase();
+        var pipeline = NewPipeline(fixture, new LiveEventBus(fixture.Clock));
+        pipeline.OnCaptureStarted(SessionId);
+        pipeline.OnCaptureHealth(Health());
+        pipeline.Accept(PopMessage(10_000));
+        Assert.Equal(RunState.MentorMatched, pipeline.RunState);
+
+        pipeline.OnCaptureHealth(Health(damagedDirections: 1));
+        pipeline.OnDirectionDamaged(SessionId, "synthetic-connection", MessageDirection.Inbound);
+
+        var run = Assert.Single(new RunRepository(fixture.Database).Query(null, null, 1, 50).Items);
+        Assert.Equal(RunResult.CancelledBeforeEntry, run.Result);
+        Assert.Equal(DetectionConfidence.Low, run.DetectionConfidence);
+        Assert.True(run.PendingReview);
+        Assert.Null(run.EnteredAtUtc);
+
+        // The session-wide count is calibration's reading, not another loss: the next match stands.
+        pipeline.Accept(PopMessage(400_000));
+        pipeline.OnCaptureHealth(Health(damagedDirections: 1));
+        Assert.Equal(RunState.MentorMatched, pipeline.RunState);
+        pipeline.OnCaptureStopped(SessionId, CaptureEndReason.UserStop);
+    }
+
+    /// <summary>
+    /// Audit 2026-10-03, CS3a-X1. The client keeps several connections open, and only the one the
+    /// profile's messages arrive on carries the run. A direction given up on another one - the chat
+    /// server's, say - loses nothing the run is followed by: the match stands and the duty is
+    /// entered. The session-wide count rose all the same, and it ends no run.
+    /// </summary>
+    [Fact]
+    public void ADamagedDirectionOfAConnectionThatCarriedNoProfileMessageLeavesTheRunAlone()
+    {
+        using var fixture = new TestDatabase();
+        var pipeline = NewPipeline(fixture, new LiveEventBus(fixture.Clock));
+        pipeline.OnCaptureStarted(SessionId);
+        pipeline.OnCaptureHealth(Health());
+        pipeline.Accept(PopMessage(10_000));
+
+        pipeline.OnCaptureHealth(Health(damagedDirections: 1));
+        pipeline.OnDirectionDamaged(SessionId, "chat-connection", MessageDirection.Inbound);
+        Assert.Equal(RunState.MentorMatched, pipeline.RunState);
+
+        pipeline.Accept(ZoneMessage(15_000));
+        Assert.Equal(RunState.EnteredDuty, pipeline.RunState);
+        pipeline.OnCaptureStopped(SessionId, CaptureEndReason.UserStop);
+        var run = Assert.Single(new RunRepository(fixture.Database).Query(null, null, 1, 50).Items);
+        Assert.NotNull(run.EnteredAtUtc);
+    }
+
+    /// <summary>A marker for another capture session changes nothing in this one.</summary>
+    [Fact]
+    public void ADamagedDirectionOfAnotherSessionIsIgnored()
+    {
+        using var fixture = new TestDatabase();
+        var pipeline = NewPipeline(fixture, new LiveEventBus(fixture.Clock));
+        pipeline.OnCaptureStarted(SessionId);
+        pipeline.Accept(PopMessage(10_000));
+
+        pipeline.OnDirectionDamaged(Guid.NewGuid().ToString("D"), "synthetic-connection", MessageDirection.Inbound);
+
+        Assert.Equal(RunState.MentorMatched, pipeline.RunState);
+        pipeline.OnCaptureStopped(SessionId, CaptureEndReason.UserStop);
+    }
+
+    /// <summary>
+    /// Inside a duty the damage ends the run when it is noticed, as INTERRUPTED at LOW, rather than
+    /// hours later when the game closes with a duration stretched to whatever the other connections
+    /// were still delivering.
+    /// </summary>
+    [Fact]
+    public void ADamagedGameDirectionInterruptsADutyWhenItIsNoticed()
+    {
+        using var fixture = new TestDatabase();
+        var pipeline = NewPipeline(fixture, new LiveEventBus(fixture.Clock));
+        pipeline.OnCaptureStarted(SessionId);
+        pipeline.Accept(PopMessage(10_000));
+        pipeline.Accept(ZoneMessage(15_000));
+        pipeline.Accept(JobMessage(20_000));
+        Assert.Equal(RunState.EnteredDuty, pipeline.RunState);
+
+        pipeline.OnDirectionDamaged(SessionId, "synthetic-connection", MessageDirection.Inbound);
+        pipeline.Accept(JobMessage(3_600_000));
+        pipeline.OnCaptureStopped(SessionId, CaptureEndReason.ProcessExit);
+
+        var run = Assert.Single(new RunRepository(fixture.Database).Query(null, null, 1, 50).Items);
+        Assert.Equal(RunResult.Interrupted, run.Result);
+        Assert.Equal(DetectionConfidence.Low, run.DetectionConfidence);
+        Assert.Equal(5_000, run.DurationMs);
+    }
+
+    /// <summary>
+    /// Audit 2026-10-03, V2-1. Damage is judged by direction, not only by connection. The match, the
+    /// entry and the result all arrive on the zone connection's inbound direction; its outbound
+    /// direction delivered nothing this profile parses. Giving that one up - Npcap missed a single
+    /// client segment - loses nothing the duty is followed by, so the duty stands and the result that
+    /// still arrives on the intact inbound direction completes it. It used to close the run as
+    /// INTERRUPTED at LOW, and the result was then ignored.
+    /// </summary>
+    [Fact]
+    public void AGivenUpOutboundDirectionOfTheZoneConnectionLeavesTheDutyToItsResult()
+    {
+        using var fixture = new TestDatabase();
+        var pipeline = NewPipeline(fixture, new LiveEventBus(fixture.Clock));
+        pipeline.OnCaptureStarted(SessionId);
+        pipeline.Accept(PopMessage(10_000));
+        pipeline.OnDirectionDamaged(SessionId, "synthetic-connection", MessageDirection.Outbound);
+        Assert.Equal(RunState.MentorMatched, pipeline.RunState);
+
+        pipeline.Accept(ZoneMessage(15_000));
+        pipeline.OnDirectionDamaged(SessionId, "synthetic-connection", MessageDirection.Outbound);
+        Assert.Equal(RunState.EnteredDuty, pipeline.RunState);
+
+        pipeline.Accept(Message(61443, 75_000, new byte[] { 1, 0, 0, 0 }));
+
+        var run = Assert.Single(new RunRepository(fixture.Database).Query(null, null, 1, 50).Items);
+        Assert.Equal(RunResult.Completed, run.Result);
+        Assert.False(run.PendingReview);
+        Assert.Equal(60_000, run.DurationMs);
+    }
+
+    /// <summary>
+    /// On a profile that stands the player's request in for the match, the request travels outbound:
+    /// that direction did carry a message the profile parses, so giving it up is a gap and the
+    /// parked request is let go, exactly as a queue overflow lets it go.
+    /// </summary>
+    [Fact]
+    public void AGivenUpOutboundDirectionThatCarriedTheQueueRequestStillCountsAsAGap()
+    {
+        using var fixture = new TestDatabase();
+        EnsureSession(fixture);
+        var pipeline = new LiveProtocolPipeline(fixture.Database, fixture.Clock, new LiveEventBus(fixture.Clock),
+            _ => MatchSourceSelection(fromQueue: true));
+        pipeline.OnCaptureStarted(SessionId);
+        pipeline.Accept(PopMessage(10_000) with { Direction = MessageDirection.Outbound });
+
+        pipeline.OnDirectionDamaged(SessionId, "synthetic-connection", MessageDirection.Outbound);
+        pipeline.Accept(KnownDutyZoneMessage(15_000));
+
+        Assert.Equal(RunState.Idle, pipeline.RunState);
+        Assert.Empty(new RunRepository(fixture.Database).Query(null, null, 1, 50).Items);
+    }
+
+    /// <summary>
+    /// The adapter's drop counter covers every program's traffic on the address. A drop that hit a
+    /// stream the game decodes leaves a gap that stream cannot fill and is reported as a damaged
+    /// direction; on its own the counter says nothing about the run.
+    /// </summary>
+    [Fact]
+    public void AnAdapterDropOnItsOwnLeavesTheRunAlone()
+    {
+        using var fixture = new TestDatabase();
+        var pipeline = NewPipeline(fixture, new LiveEventBus(fixture.Clock));
+        pipeline.OnCaptureStarted(SessionId);
+        pipeline.Accept(PopMessage(10_000));
+
+        pipeline.OnCaptureHealth(Health() with { AdapterDropped = 40 });
+
+        Assert.Equal(RunState.MentorMatched, pipeline.RunState);
+        pipeline.OnCaptureStopped(SessionId, CaptureEndReason.UserStop);
+    }
+
+    /// <summary>
+    /// A capture stopped by an error stopped watching while the player could still enter the duty:
+    /// a run that had not entered yet is cancelled at LOW and waits for the player, like a lost
+    /// connection. A stop the player asked for stays the confident cancellation it always was.
+    /// </summary>
+    [Theory]
+    [InlineData(CaptureEndReason.Error, true)]
+    [InlineData(CaptureEndReason.UserStop, false)]
+    public void ACaptureStoppedByAnErrorWhileMatchedEndsPendingReview(CaptureEndReason reason, bool pending)
+    {
+        using var fixture = new TestDatabase();
+        var pipeline = NewPipeline(fixture, new LiveEventBus(fixture.Clock));
+        pipeline.OnCaptureStarted(SessionId);
+        pipeline.Accept(PopMessage(10_000));
+
+        pipeline.OnCaptureStopped(SessionId, reason);
+
+        var run = Assert.Single(new RunRepository(fixture.Database).Query(null, null, 1, 50).Items);
+        Assert.Equal(RunResult.CancelledBeforeEntry, run.Result);
+        Assert.Equal(DetectionConfidence.Low, run.DetectionConfidence);
+        Assert.Equal(pending, run.PendingReview);
+    }
+
+    private static Protocol.Calibration.CaptureSessionHealth Health(long damagedDirections = 0) =>
+        new(SessionId, Capture.CaptureSilentReason.None, 0, 0, DamagedGameDirections: damagedDirections);
+
     /// <summary>A live bridge over the checked-in synthetic profile, writing to a real database.</summary>
     /// <param name="fixture">Database under test.</param>
     /// <param name="bus">Event bus the bridge publishes to.</param>

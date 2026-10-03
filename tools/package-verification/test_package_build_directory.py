@@ -3,12 +3,12 @@
 
 from __future__ import annotations
 
-import base64
 import json
 import os
 from pathlib import Path
 import shutil
 import subprocess
+import tempfile
 import unittest
 
 
@@ -17,6 +17,19 @@ REPO = Path(__file__).resolve().parents[2]
 
 def ps_literal(value):
     return "'" + str(value).replace("'", "''") + "'"
+
+
+def run_powershell(shell, script):
+    # A script file, not -EncodedCommand: endpoint protection commonly stalls or kills an
+    # encoded command, which fails this test for a reason that has nothing to do with the
+    # scripts under test. The BOM lets Windows PowerShell 5.1 read the text as UTF-8.
+    with tempfile.TemporaryDirectory(prefix="mr package script ") as directory:
+        path = Path(directory) / "probe.ps1"
+        path.write_text(script, encoding="utf-8-sig")
+        return subprocess.run(
+            [shell, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+             "-File", str(path)],
+            capture_output=True, timeout=45, check=False)
 
 
 @unittest.skipUnless(os.name == "nt", "Windows packaging paths")
@@ -63,11 +76,7 @@ foreach ($configured in @('', '  ', 'isolated build\新目录', '..\sibling buil
 }}
 ConvertTo-Json -InputObject $results -Compress
 """
-                encoded = base64.b64encode(script.encode("utf-16-le")).decode("ascii")
-                run = subprocess.run(
-                    [shell, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
-                     "-EncodedCommand", encoded],
-                    capture_output=True, timeout=45, check=False)
+                run = run_powershell(shell, script)
                 self.assertEqual(0, run.returncode, run.stderr.decode(errors="replace"))
                 for row in json.loads(run.stdout):
                     configured = row["configured"]

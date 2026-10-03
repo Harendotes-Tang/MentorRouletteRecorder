@@ -3,17 +3,19 @@
 // ---------------------------------------------------------------------------
 // This test binary may never start a real Collector.
 //
-// AppController supervises a Collector child whenever its backend calls itself
-// "ipc" and is not connected, and CollectorProcess resolves that executable by
-// walking up to six directories out of the build tree - which, in a source
-// checkout, finds the real one. Such a child gets no --db, --pipe or --log-dir,
-// so it runs against the *user's* production database, takes their per-user
-// serve lease, and outlives the test as an orphan.
+// A default-constructed CollectorProcess launches the Collector it resolves,
+// with no --db, --pipe or --log-dir: against the *user's* production database,
+// taking their per-user serve lease, outliving the test as an orphan. A release
+// build resolves only the file beside the executable - and scripts/build.ps1
+// copies a real Collector beside these tests for the integration suite - so a
+// test names its stub explicitly (CollectorProcess(path, parent)) and never
+// default-constructs a supervisor that could start.
 //
-// CTest sets MR_COLLECTOR_PATH for every Desktop test to a path that cannot
-// exist, which disables the launch (the variable is authoritative and
-// exclusive; see CollectorProcess::resolveDefaultExecutable). This provides the
-// same guarantee from inside the binary, for the .exe run directly.
+// A build compiled with MR_DEV_COLLECTOR_DISCOVERY also walks up into the source
+// tree; there MR_COLLECTOR_PATH is authoritative and exclusive (see
+// CollectorProcess::resolveDefaultExecutable), and CTest points it at a path
+// that cannot exist. This provides the same guarantee from inside the binary,
+// for the .exe run directly.
 //
 // Call it as the first statement of main().
 // ---------------------------------------------------------------------------

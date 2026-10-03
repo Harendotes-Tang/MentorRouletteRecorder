@@ -89,6 +89,20 @@ public static class RunMutationRules
     }
 
     /// <summary>
+    /// True for the shape of an automatic run still in flight: UNKNOWN, no end time, not pending
+    /// review. Every statistic leaves such a run out and the review list does not show it
+    /// (<c>RunFilterSql</c>); once the state machine has let it go and restart recovery has been
+    /// past it, nothing closes it again.
+    /// </summary>
+    /// <param name="run">Run to classify.</param>
+    public static bool ReadsAsInFlight(MentorRun run)
+    {
+        ArgumentNullException.ThrowIfNull(run);
+        return run.Source == RunSource.AutoNetwork && run.Result == RunResult.Unknown &&
+            run.EndedAtUtc is null && !run.PendingReview;
+    }
+
+    /// <summary>
     /// Duration derived from the two timestamps. This is the only place a duration is ever
     /// computed from wall-clock values, and it exists solely because a hand-entered run has
     /// no monotonic reading to subtract (docs/manual-correction.md section 6).

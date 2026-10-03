@@ -212,7 +212,11 @@ void AutomaticRecordingController::readCapture(quint64 generation)
 
 void AutomaticRecordingController::project(const QVariantMap &c)
 {
-    if (c.value(QStringLiteral("game_selection_required")).toBool()) {
+    // A choice is asked for only while there is a listed client to choose. With
+    // the only client closed (EXITED) or every client gone (MULTIPLE) the list
+    // is empty, and that is the ordinary wait for the game below (review OD-1).
+    const int listed = int(c.value(QStringLiteral("game_processes")).toList().size());
+    if (c.value(QStringLiteral("game_selection_required")).toBool() && listed > 0) {
         setPollInterval(kActivePollMs);
         clearIncident();
         const QString reason = c.value(QStringLiteral("game_selection_reason")).toString();
@@ -220,7 +224,9 @@ void AutomaticRecordingController::project(const QVariantMap &c)
             ? tr("所选游戏已退出，记录已暂停。单开时重新启动同一游戏会自动接续；无法确认时请在总览或捕获诊断页重新选择游戏窗口。")
             : reason == QLatin1String("IDENTITY_UNAVAILABLE")
             ? tr("暂时无法确认游戏的启动时间，记录已暂停。请重新检测后选择游戏窗口。")
-            : tr("检测到多个游戏客户端，请在总览或捕获诊断页选择要记录的游戏窗口。"));
+            : listed > 1
+            ? tr("检测到多个游戏客户端，请在总览或捕获诊断页选择要记录的游戏窗口。")
+            : tr("尚未确定要记录的游戏，请在总览或捕获诊断页选择要记录的游戏窗口。"));
         return;
     }
     const QString initError = !m_followError.isEmpty() ? m_followError : m_validationError;

@@ -12,14 +12,15 @@ namespace MentorRecorder.Collector.Diagnostics;
 /// serve lease, and have the next Desktop launch "reuse" a process the user cannot see.
 ///
 /// The mechanism is deliberately the weakest one that works.
-/// <see cref="Process.GetProcessById(int)"/> plus <see cref="Process.WaitForExitAsync"/> is a
-/// process <em>existence</em> check and a wait on its lifetime, which is what
-/// docs/privacy-boundary.md section 2 item 3b allows. There is no P/Invoke here, nothing in
-/// this source opens a handle to another process, nothing touches anything's memory, and
-/// nothing is read out of the parent -- not its command line, not its modules, not a byte of
-/// it. The name of the forbidden Win32 call is deliberately not written anywhere in this
-/// file: <c>tools/static-boundary-check</c> greps for it, and a rule that has to make
-/// exceptions for comments is a rule with a hole in it.
+/// <see cref="Process.GetProcessById(int)"/> plus <see cref="Process.WaitForExitAsync"/> finds
+/// the parent and waits on its lifetime, and reading its start time confirms its identity. All
+/// three open a handle to the process watched: the Desktop, this product's own process and this
+/// one's parent, never the game. docs/privacy-boundary.md section 2 item 3b forbids exactly these
+/// members on the game; section 2.1 (INJ-009) allows them here, for our own process. There is no
+/// P/Invoke here, nothing touches anything's memory, and nothing is read out of the parent but
+/// its start time -- not its command line, not its modules. The name of the forbidden Win32 call
+/// is deliberately not written anywhere in this file: <c>tools/static-boundary-check</c> greps
+/// for it, and a rule that has to make exceptions for comments is a rule with a hole in it.
 ///
 /// Shutdown is graceful first: the watchdog raises the same request Ctrl+C raises, so capture
 /// stops, the run in flight is closed through the ordinary lifecycle, the pipe server drains
@@ -176,9 +177,9 @@ public sealed class ParentProcessWatchdog : IDisposable
     /// A mismatch is treated as "unobservable" rather than as "the parent died": the two
     /// readings lead to opposite actions and only one is safe. Stopping would end a recording
     /// session on a guess about a stranger process, while doing nothing leaves the Collector
-    /// running for a user who can close it themselves. Reading the start time needs no handle
-    /// to the process's contents; it is the same process-listing fact as its existence
-    /// (docs/privacy-boundary.md section 2, item 3b).
+    /// running for a user who can close it themselves. Reading the start time opens a handle to
+    /// the parent -- the Desktop, never the game -- and reads nothing of its contents
+    /// (docs/privacy-boundary.md section 2.1, INJ-009).
     /// </summary>
     /// <param name="parent">Process found under the configured id.</param>
     private bool IsTheProcessWeWereToldAbout(Process parent)

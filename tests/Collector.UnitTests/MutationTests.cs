@@ -585,6 +585,25 @@ public sealed class MutationTests
         Assert.Equal(outcome.AuditEventId, Assert.Single(audit).AuditEventId);
     }
 
+    [Fact]
+    public void UpdateAchievementBaseline_GoalOnlyChange_AuditsTheEffectiveTimeThatWasKept()
+    {
+        using var fixture = new Fixture();
+        var effective = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        fixture.Service.UpdateAchievementBaseline(new UpdateAchievementBaselineCommand(
+            Fixture.NewId(), 2000, 1500, effective, "开始使用本软件前已完成 1500 次"));
+
+        var outcome = fixture.Service.UpdateAchievementBaseline(new UpdateAchievementBaselineCommand(
+            Fixture.NewId(), 2500, 1500, effective.AddMonths(9), "只调整目标"));
+
+        var audit = fixture.Settings.ReadBaselineAudit();
+        Assert.Equal(2, audit.Count);
+        Assert.Equal(outcome.AuditEventId, audit[1].AuditEventId);
+        Assert.Equal(2500, audit[1].GoalCount);
+        Assert.Equal(1500, audit[1].BaselineCompletedCount);
+        Assert.Equal("2026-01-01T00:00:00.000Z", audit[1].BaselineEffectiveAt);
+    }
+
     [Theory]
     [InlineData(0, 0, ErrorCodes.BadRequest)]
     [InlineData(2000, -1, ErrorCodes.BadRequest)]

@@ -140,6 +140,35 @@ ApplicationWindow {
         QCOMPARE(mr::RunFormValidator::validate(form).value("code").toString(), "ERR_BAD_REQUEST");
     }
 
+    // 审查 OI-6：备注最多 1000 字、原因最多 500 字（采集服务的上限，按 UTF-16
+    // 码元计）。超出时在本地拦下并用中文说明，而不是提交后收到
+    // 「note 超过 1000 个字符的上限」。
+    void refusesTheCollectorsNoteAndReasonLimitsLocally()
+    {
+        auto form = crossMidnightForm();
+        form["note"] = QString(1000, QChar(0x5907));
+        QVERIFY2(mr::RunFormValidator::validate(form).value("ok").toBool(),
+                 qPrintable(mr::RunFormValidator::validate(form).value("message").toString()));
+        form["note"] = QString(1001, QChar(0x5907));
+        auto verdict = mr::RunFormValidator::validate(form);
+        QVERIFY(!verdict.value("ok").toBool());
+        QCOMPARE(verdict.value("code").toString(), QStringLiteral("ERR_BAD_REQUEST"));
+        QVERIFY(verdict.value("message").toString().contains(QString::fromUtf8("备注")));
+        QVERIFY(verdict.value("message").toString().contains(QStringLiteral("1000")));
+        QVERIFY(!verdict.value("message").toString().contains(QStringLiteral("note")));
+
+        form["note"] = "";
+        form["reason"] = QString(500, QChar(0x7531));
+        QVERIFY(mr::RunFormValidator::validate(form).value("ok").toBool());
+        form["reason"] = QString(501, QChar(0x7531));
+        form["reason_label"] = QString::fromUtf8("修正原因");
+        verdict = mr::RunFormValidator::validate(form);
+        QVERIFY(!verdict.value("ok").toBool());
+        QCOMPARE(verdict.value("code").toString(), QStringLiteral("ERR_BAD_REQUEST"));
+        QVERIFY(verdict.value("message").toString().contains(QString::fromUtf8("修正原因")));
+        QVERIFY(verdict.value("message").toString().contains(QStringLiteral("500")));
+    }
+
     void dateChangesAppearInDiffAndPermitCorrection()
     {
         const auto before = crossMidnightForm();

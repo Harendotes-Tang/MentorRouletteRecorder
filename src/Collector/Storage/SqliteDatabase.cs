@@ -16,14 +16,17 @@ namespace MentorRecorder.Collector.Storage;
 public sealed class SqliteDatabase : IDisposable
 {
     private readonly SqliteConnection _connection;
+    private readonly Func<string, SqliteConnection> _openReadOnly;
     private readonly object _gate = new();
     private bool _disposed;
 
-    private SqliteDatabase(SqliteConnection connection, string path, int schemaVersion)
+    private SqliteDatabase(
+        SqliteConnection connection, string path, int schemaVersion, Func<string, SqliteConnection> openReadOnly)
     {
         _connection = connection;
         Path = path;
         SchemaVersion = schemaVersion;
+        _openReadOnly = openReadOnly;
     }
 
     /// <summary>Absolute path of the database file.</summary>
@@ -38,7 +41,16 @@ public sealed class SqliteDatabase : IDisposable
     /// </summary>
     /// <param name="path">Database file path.</param>
     /// <param name="clock">Clock used to stamp migration rows.</param>
-    public static SqliteDatabase Open(string path, IClock clock)
+    public static SqliteDatabase Open(string path, IClock clock) => Open(path, clock, openReadOnly: null);
+
+    /// <summary>
+    /// <see cref="Open(string, IClock)"/> with the read-only connection the backup and the
+    /// integrity check run on supplied by the caller, so a test can make that connection fail.
+    /// </summary>
+    /// <param name="path">Database file path.</param>
+    /// <param name="clock">Clock used to stamp migration rows.</param>
+    /// <param name="openReadOnly">Opens a read-only connection to a file; the real one when null.</param>
+    internal static SqliteDatabase Open(string path, IClock clock, Func<string, SqliteConnection>? openReadOnly)
     {
         ArgumentException.ThrowIfNullOrEmpty(path);
         ArgumentNullException.ThrowIfNull(clock);
@@ -63,13 +75,59 @@ public sealed class SqliteDatabase : IDisposable
             ApplyPragmas(connection);
             VerifyIntegrity(connection, fullPath);
             var version = MigrationRunner.MigrateToLatest(connection, clock);
-            return new SqliteDatabase(connection, fullPath, version);
+            return new SqliteDatabase(connection, fullPath, version, openReadOnly ?? OpenReadOnlyConnection);
+        }
+        catch (SqliteException ex)
+        {
+            connection.Dispose();
+            throw RefusalToOpen(ex, fullPath);
         }
         catch
         {
             connection.Dispose();
             throw;
         }
+    }
+
+    /// <summary>
+    /// The refusal to open for a failure SQLite itself reported - a file that is not a database,
+    /// one locked by another program, a folder that cannot be written. These used to leave Open as
+    /// a raw <see cref="SqliteException"/> that nothing above it caught, so the process died as an
+    /// unhandled exception instead of exiting with code 3 (audit 2026-10-03, OF-4). The sentence is
+    /// the one the person sees, so it says what is true and names the file; SQLite's own words go
+    /// to the log with the inner exception.
+    /// </summary>
+    /// <param name="ex">What SQLite raised.</param>
+    /// <param name="path">The database file.</param>
+    internal static CollectorException RefusalToOpen(SqliteException ex, string path)
+    {
+        ArgumentNullException.ThrowIfNull(ex);
+        var details = new Dictionary<string, object?> { ["sqlite_error"] = ex.SqliteErrorCode };
+        if (ex.SqliteErrorCode is 5 or 6)
+        {
+            return new CollectorException(
+                ErrorCodes.DbBusy,
+                "数据库文件正被其他程序占用，本软件无法启动。请关闭占用它的程序后重试。" +
+                $"数据库文件：{path}",
+                details,
+                retryable: true,
+                inner: ex);
+        }
+
+        var cause = ex.SqliteErrorCode switch
+        {
+            11 or 26 => "该文件已损坏，或不是本软件的数据库。",
+            8 or 14 or 23 => "无法以读写方式打开该文件，可能是没有权限或路径不可用。",
+            13 => "磁盘空间不足。",
+            _ => "读写该文件时出错。",
+        };
+        return new CollectorException(
+            ErrorCodes.DbIntegrity,
+            "无法打开数据库，本软件无法启动。" + cause +
+            "请先把数据库文件复制一份保存到别处，再排查问题。" +
+            $"数据库文件：{path}",
+            details,
+            inner: ex);
     }
 
     private static void ApplyPragmas(SqliteConnection connection)
@@ -247,7 +305,7 @@ public sealed class SqliteDatabase : IDisposable
     public const int MaxIntegrityDetailLength = 200;
 
     /// <summary>
-    /// How long the integrity check's own connection waits for a lock. In WAL mode a reader never
+    /// How long the read-only connection of the integrity check or the backup waits for a lock. In WAL mode a reader never
     /// waits for the writer, so waiting at all is the exceptional case, and one second bounds it.
     /// </summary>
     private const int IntegrityCheckTimeoutSeconds = 1;
@@ -271,7 +329,7 @@ public sealed class SqliteDatabase : IDisposable
     /// verdict on the file.
     /// </param>
     public IntegrityCheckOutcome CheckIntegrity(CancellationToken cancellationToken = default) =>
-        CheckIntegrity(OpenReadOnlyConnection, cancellationToken);
+        CheckIntegrity(() => _openReadOnly(Path), cancellationToken);
 
     /// <summary>
     /// <see cref="CheckIntegrity()"/> over a connection supplied by <paramref name="openConnection"/>,
@@ -290,10 +348,24 @@ public sealed class SqliteDatabase : IDisposable
             using var connection = openConnection();
             using var command = connection.CreateCommand();
             command.CommandText = "PRAGMA integrity_check;";
-            // SqliteCommand.Cancel is sqlite3_interrupt: the running statement fails with
+            // sqlite3_interrupt on this check's own connection: the running statement fails with
             // SQLITE_INTERRUPT at its next step instead of reading the rest of the file.
+            // SqliteCommand.Cancel cannot do this - in Microsoft.Data.Sqlite 8 it is an empty
+            // method (audit 2026-10-03, OF-3). The registration is disposed before the connection,
+            // and disposing it waits for a callback already running, so the handle is never
+            // interrupted after it has been closed. The handle read below is SQLite's own handle for
+            // this connection, not a process handle; static rule INJ-009 matches the member name
+            // alone, so that line carries an allowance pinned in tools/static-boundary-check/rules.json.
             using var interrupt = cancellationToken.Register(
-                static state => ((SqliteCommand)state!).Cancel(), command);
+                static state =>
+                {
+                    var sqlite = ((SqliteConnection)state!).Handle; // BOUNDARY-ALLOW(INJ-009): SQLite's own connection handle, not a process handle
+                    if (sqlite is not null)
+                    {
+                        SQLitePCL.raw.sqlite3_interrupt(sqlite);
+                    }
+                },
+                connection);
             using var reader = command.ExecuteReader();
             var first = reader.Read() && !reader.IsDBNull(0) ? reader.GetString(0) : string.Empty;
             var passed = string.Equals(first, "ok", StringComparison.OrdinalIgnoreCase);
@@ -314,11 +386,13 @@ public sealed class SqliteDatabase : IDisposable
         }
     }
 
-    private SqliteConnection OpenReadOnlyConnection()
+    /// <summary>Opens the read-only connection the integrity check and the backup run on.</summary>
+    /// <param name="path">Database file.</param>
+    internal static SqliteConnection OpenReadOnlyConnection(string path)
     {
         var builder = new SqliteConnectionStringBuilder
         {
-            DataSource = Path,
+            DataSource = path,
             Mode = SqliteOpenMode.ReadOnly,
             Cache = SqliteCacheMode.Private,
             Pooling = false,
@@ -374,6 +448,13 @@ public sealed class SqliteDatabase : IDisposable
     /// VACUUM INTO a temporary file, verifies it, then atomically publishes the copy.
     /// A failed write or integrity check preserves an existing destination.
     /// </summary>
+    /// <remarks>
+    /// The copy reads the whole file, so like <see cref="CheckIntegrity(CancellationToken)"/> it runs
+    /// on a read-only connection of its own and never takes <c>_gate</c>. Under the gate it stalled
+    /// every live-capture write - and with it the parser thread - for as long as the copy took
+    /// (audit 2026-10-03, OG-7). In WAL mode the copy is a consistent snapshot of what was committed
+    /// when it began, and the writer is not blocked meanwhile.
+    /// </remarks>
     /// <param name="targetPath">Destination file; must not already exist unless <paramref name="overwrite"/> is set.</param>
     /// <param name="overwrite">Whether an existing destination may be replaced.</param>
     public BackupOutcome BackupDatabase(string targetPath, bool overwrite)
@@ -385,10 +466,9 @@ public sealed class SqliteDatabase : IDisposable
         try
         {
             using var pending = new AtomicExportFile(fullPath, overwrite);
-            lock (_gate)
+            using (var connection = _openReadOnly(Path))
+            using (var command = connection.CreateCommand())
             {
-                ObjectDisposedException.ThrowIf(_disposed, this);
-                using var command = _connection.CreateCommand();
                 command.CommandText = "VACUUM INTO $target;";
                 command.Parameters.AddWithValue("$target", pending.TemporaryPath);
                 command.ExecuteNonQuery();

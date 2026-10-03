@@ -54,7 +54,8 @@ class UpdateController final : public QObject
     Q_PROPERTY(QString latestVersion READ latestVersion NOTIFY changed)
     /// This build's version, for the sentence that names both.
     Q_PROPERTY(QString currentVersion READ currentVersion CONSTANT)
-    /// The page the Collector named. Empty unless it passes \ref isReleaseUrl.
+    /// The page the Collector named. Empty unless it passes \ref isReleaseUrl,
+    /// i.e. unless it is a page of this project's GitHub repository.
     Q_PROPERTY(QString releaseUrl READ releaseUrl NOTIFY changed)
     Q_PROPERTY(QString lastCheckedAtUtc READ lastCheckedAtUtc NOTIFY changed)
     /// The banner's two sentences. Empty headline while there is nothing to say.
@@ -100,8 +101,9 @@ public:
         return m_backend && m_state.available && m_state.enabled && !m_checking;
     }
 
-    /// True only for an https://github.com/ address without credentials and on
-    /// the default port: the one kind of address this process opens.
+    /// True only for an https://github.com/Harendotes-Tang/MentorRouletteRecorder
+    /// address without credentials and on the default port: the one kind of
+    /// address this process opens.
     static bool isReleaseUrl(const QUrl &url);
 
 public Q_SLOTS:

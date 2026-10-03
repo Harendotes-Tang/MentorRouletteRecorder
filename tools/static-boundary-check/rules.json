@@ -15,15 +15,77 @@
     "installer/MentorRecorder.iss ships with every release and runs elevated, and",
     "the CI workflows execute third-party code, so both are exactly the kind of",
     "file the boundary has to hold for. Their extensions '.iss' and '.isl' were",
-    "added for the same reason. Note that only the repository-root '.github' is",
-    "reached: the walk drops every dot-prefixed SUBdirectory it meets, so the",
-    "public-repository mirror under tools/shared-calibration/public-repo/.github/",
-    "stays outside the scan; it is published from this repository and reviewed",
-    "with it, and its own self-tests cover it.",
+    "added for the same reason.",
+    "",
+    "Exclusions (audit 2026-10-03, R2T-1): 'exclude_dir_names' are skipped wherever the",
+    "walk meets them and may only name directories that never hold a source file of ours",
+    "(.git, .vs, __pycache__, node_modules). Build output, 'exclude_output_dir_names' (bin,",
+    "obj), is skipped only directly inside a directory holding a .csproj: the .NET SDK leaves",
+    "only <project>/bin and <project>/obj out of its default compile glob, so a bin/ or obj/",
+    "deeper down is compiled and is scanned (V5-7). Every other exclusion is an exact",
+    "repository-relative path in 'exclude_paths' that must exist as written and lie inside",
+    "a scan root without swallowing one. A directory called build/ or packages/ inside",
+    "src/ is therefore scanned like any other, and so is every dot-directory, including",
+    "the public-repository mirror tools/shared-calibration/public-repo/.github/. A",
+    "configured scan root, scan file or exclusion that does not exist, and a symbolic link",
+    "or junction to a directory inside a scan root, fail the run (R2T-6).",
     "",
     "Every 'pattern' is a Python regular expression matched per line.",
-    "A line containing the allow_marker is skipped (use it only for",
-    "boundary-enforcing code that must name a forbidden symbol).",
+    "A line may lift ONE rule with '<allow_marker>(<RULE-ID>): <reason>', for example",
+    "'BOUNDARY-ALLOW(INJ-008): named only to say why it is not used' (use it only for",
+    "boundary-enforcing code that must name a forbidden symbol, or for a file's single",
+    "hit that is not the forbidden thing at all). It lifts one hit of that rule on",
+    "that line and nothing else; a bare marker or one without a reason lifts nothing, a",
+    "marker naming an undeclared rule id fails the run, and every honoured marker is",
+    "listed with the text it lifted in the text and JSON output (audit 2026-10-03, ON2-5).",
+    "Every marker is pinned in 'allow_markers' by file, rule and 'match', the exact text of",
+    "the one hit it lifts, one entry per marker: an unpinned marker lifts nothing and fails",
+    "the run, as do a marker that lifts no hit on its line, a pinned marker the scan does not",
+    "find (R2T-4), and a marker whose line holds more than that one hit of its rule or",
+    "another hit in its place (V5-3), so a second call added to a marked line is reported.",
+    "",
+    "A candidate file that cannot be stat-ed or read, is over max_file_bytes or holds",
+    "NUL bytes fails the run (exit 2), as do a directory that cannot be listed and a run",
+    "that scanned nothing; an include_extensions entry must be a lower-case suffix with",
+    "its dot (ON2-6).",
+    "",
+    "INJ-009 (Process members that open a handle to their process) allows, by exact path,",
+    "only code that drives OUR OWN processes: the Collector's parent watchdog, which",
+    "waits on the Desktop and reads its start time; the integration and unit tests that",
+    "start, wait for and kill the Collector or a stand-in parent; and the scripts and one",
+    "packaging test that run child processes (dotnet, the Collector, static-analysis",
+    "tools). Shipped capture code that touches the game process is never allowed",
+    "(docs/privacy-boundary.md section 2, rule 3b). A file with a single hit that is not a",
+    "Process member at all carries a pinned line marker instead of a whole-file allowance",
+    "(R2T-5): CommandLineOptions.cs names Process.StartTime in a doc comment as the format",
+    "of --parent-start, and RecoveryEndToEndTests.cs reads ExitCode of a result record.",
+    "SqliteDatabase.cs and DatabaseIntegrityCheckTests.cs read SqliteConnection.Handle, SQLite's",
+    "own handle for a database connection, to interrupt or watch an integrity check. A per-line",
+    "pattern cannot tell that member from Process.Handle without knowing the type, and any",
+    "spelling it could key on would let a process handle through under the same spelling, so",
+    "each such line carries a pinned marker (audit 2026-10-03, CS5-X1).",
+    "INJ-008 and INJ-009 also match a member after whitespace following the dot, and in C#",
+    "property patterns and object initialisers, where the name follows '{' or ',' or starts",
+    "the line and is followed by ':', '.' or '=' (V5-2).",
+    "",
+    "installer/MentorRecorder.iss creates its Inno Setup download page on one line, which",
+    "carries a pinned NET-009 marker (V5-4; until then the whole file was allowed): when",
+    "Npcap is missing, Setup downloads the official Npcap installer (pinned version, SHA-256",
+    "checked) and starts it, because Npcap's free licence forbids bundling it; see",
+    "README.md and THIRD_PARTY_NOTICES.md. The Inno Setup patterns match a call, not the",
+    "bare name, so the stock translation file installer/ChineseSimplified.isl, which names",
+    "DownloadTemporaryFile in a section heading, needs no allowance.",
+    "",
+    "A rule entry may carry 'only_extensions': it then applies to those file types only, so",
+    "a pattern written for one language's syntax is not matched against another's prose.",
+    "NET-009/qml-remote reads QML and JavaScript only; NET-009/shell-commands reads only",
+    "script and workflow files, and matches curl, wget, iwr, irm, bitsadmin and",
+    "certutil -urlcache at command position (line start, or after ; | & ( { = @ ! a backtick",
+    "or 'run:'; also after the shell words if then do else elif while until and sudo, behind",
+    "cmd /c and Start-Process, quoted after the call operator &, and with a path in front),",
+    "outside a '#' comment and outside other quoted text, and not followed by a letter, a",
+    "digit, '.', '-' or '_', so prose, identifiers and tools that merely contain those words",
+    "do not trip it (V5-5).",
     "",
     "A rule may name the files it does not apply to. 'allow_paths' lists",
     "repository-relative, forward-slash FILE paths matched exactly (not by file",
@@ -38,7 +100,7 @@
     "client the speech host but not the CDN hosts, and the update-check client the",
     "content host but neither the CDN hosts nor the speech host."
   ],
-  "version": 3,
+  "version": 6,
   "allow_marker": "BOUNDARY-ALLOW",
   "scan_dirs": [
     "src",
@@ -48,19 +110,18 @@
     "installer",
     ".github"
   ],
-  "exclude_dirs": [
+  "exclude_dir_names": [
     ".git",
     ".vs",
-    "TestResults",
-    "Testing",
     "__pycache__",
-    "artifacts",
+    "node_modules"
+  ],
+  "exclude_output_dir_names": [
     "bin",
-    "build",
-    "node_modules",
-    "obj",
-    "packages",
-    "static-boundary-check"
+    "obj"
+  ],
+  "exclude_paths": [
+    "tools/static-boundary-check/"
   ],
   "include_extensions": [
     ".bat",
@@ -93,12 +154,44 @@
     ".yml"
   ],
   "max_file_bytes": 4194304,
+  "allow_markers": [
+    {
+      "file": "installer/MentorRecorder.iss",
+      "rule": "NET-009",
+      "match": "CreateDownloadPage("
+    },
+    {
+      "file": "src/Collector/Capture/ProcessImagePath.cs",
+      "rule": "INJ-008",
+      "match": ".MainModule"
+    },
+    {
+      "file": "src/Collector/CommandLineOptions.cs",
+      "rule": "INJ-009",
+      "match": ".StartTime"
+    },
+    {
+      "file": "src/Collector/Storage/SqliteDatabase.cs",
+      "rule": "INJ-009",
+      "match": ".Handle"
+    },
+    {
+      "file": "tests/Collector.IntegrationTests/RecoveryEndToEndTests.cs",
+      "rule": "INJ-009",
+      "match": ".ExitCode"
+    },
+    {
+      "file": "tests/Collector.UnitTests/DatabaseIntegrityCheckTests.cs",
+      "rule": "INJ-009",
+      "match": ".Handle"
+    }
+  ],
   "rules": [
     {
       "id": "INJ-001",
       "category": "process-injection",
-      "pattern": "\\bReadProcessMemory\\b",
-      "message": "读取其他进程内存被禁止 / reading another process's memory is forbidden"
+      "pattern": "ReadProcessMemory\\b|\\b(?:Nt|Zw)(?:Wow64)?ReadVirtualMemory(?:64)?\\b|\\bMiniDumpWriteDump\\b",
+      "message": "读取其他进程内存被禁止（含 Toolhelp32ReadProcessMemory、Nt/ZwReadVirtualMemory、NtWow64ReadVirtualMemory64 与转储进程内存的 MiniDumpWriteDump） / reading another process's memory is forbidden (including Toolhelp32ReadProcessMemory, Nt/ZwReadVirtualMemory, NtWow64ReadVirtualMemory64 and MiniDumpWriteDump, which dumps it)"
     },
     {
       "id": "INJ-002",
@@ -109,14 +202,14 @@
     {
       "id": "INJ-003",
       "category": "process-injection",
-      "pattern": "\\bVirtualAllocEx\\b",
-      "message": "在其他进程中分配内存被禁止 / remote memory allocation is forbidden"
+      "pattern": "\\bVirtualAllocEx(?:Numa)?\\b|\\bVirtualAlloc2\\b|\\bVirtualProtectEx\\b|\\b(?:Nt|Zw)(?:AllocateVirtualMemory(?:Ex)?|ProtectVirtualMemory)\\b",
+      "message": "在其他进程中分配内存或修改其内存保护被禁止（VirtualAllocEx、VirtualAlloc2、VirtualProtectEx、Nt/ZwAllocateVirtualMemory、Nt/ZwProtectVirtualMemory） / allocating memory in, or changing the memory protection of, another process is forbidden (VirtualAllocEx, VirtualAlloc2, VirtualProtectEx, Nt/ZwAllocateVirtualMemory, Nt/ZwProtectVirtualMemory)"
     },
     {
       "id": "INJ-004",
       "category": "process-injection",
-      "pattern": "\\bCreateRemoteThread\\b",
-      "message": "远程线程注入被禁止 / remote thread injection is forbidden"
+      "pattern": "\\bCreateRemoteThread(?:Ex)?\\b",
+      "message": "远程线程注入被禁止（CreateRemoteThread / CreateRemoteThreadEx） / remote thread injection is forbidden (CreateRemoteThread / CreateRemoteThreadEx)"
     },
     {
       "id": "INJ-005",
@@ -127,20 +220,37 @@
     {
       "id": "INJ-006",
       "category": "process-injection",
-      "pattern": "\\bNtWriteVirtualMemory\\b|\\bNtCreateThreadEx\\b|\\bQueueUserAPC\\b",
-      "message": "底层注入原语被禁止 / low-level injection primitives are forbidden"
+      "pattern": "\\b(?:Nt|Zw)(?:Wow64)?WriteVirtualMemory(?:64)?\\b|\\b(?:Nt|Zw)CreateThreadEx\\b|\\bRtlCreateUserThread\\b|\\bQueueUserAPC2?\\b|\\b(?:Nt|Zw)QueueApcThread(?:Ex2?)?\\b",
+      "message": "底层注入原语被禁止（Nt/ZwWriteVirtualMemory、Nt/ZwCreateThreadEx、RtlCreateUserThread、QueueUserAPC / QueueUserAPC2、Nt/ZwQueueApcThread） / low-level injection primitives are forbidden (Nt/ZwWriteVirtualMemory, Nt/ZwCreateThreadEx, RtlCreateUserThread, QueueUserAPC / QueueUserAPC2, Nt/ZwQueueApcThread)"
     },
     {
       "id": "INJ-007",
       "category": "process-injection",
-      "pattern": "\\bOpenProcess\\b|\\bNtOpenProcess\\b|\\bDebugActiveProcess\\b",
-      "message": "禁止打开游戏进程句柄；只允许进程存在性检查与系统 TCP 表 / opening a handle to another process is forbidden; only process existence checks and the system TCP table are allowed"
+      "pattern": "\\bOpenProcess\\b|\\b(?:Nt|Zw)OpenProcess\\b|\\bDebugActiveProcess\\b|\\bEnterDebugMode\\b|\\bGetProcessHandleFromHwnd\\b|\\b(?:Nt|Zw)GetNextProcess\\b|\\bOpenThread\\b|\\b(?:Nt|Zw)OpenThread\\b",
+      "message": "禁止打开游戏进程或其线程的句柄，或为此取得调试特权（OpenProcess、OpenThread、按窗口取进程句柄的 GetProcessHandleFromHwnd、逐个打开进程的 NtGetNextProcess、DebugActiveProcess、Process.EnterDebugMode）；只允许不打开任何进程句柄的查询：内核进程表快照（进程编号、映像名、创建时间）与单个进程的映像路径查询、系统 TCP 表、系统路由表，以及桌面端点选游戏窗口时读取前台窗口所属的进程编号 / opening a handle to another process or one of its threads, or taking the debug privilege to do so (OpenProcess, OpenThread, GetProcessHandleFromHwnd, which opens one from a window, NtGetNextProcess, which opens one process after another, DebugActiveProcess, Process.EnterDebugMode), is forbidden; only queries that open no process handle are allowed: the kernel process-table snapshot (ids, image names, creation times) and its per-process image-path lookup, the system TCP table, the system routing table, and the Desktop reading the foreground window's process id while the player picks the game window"
     },
     {
       "id": "INJ-008",
       "category": "process-injection",
-      "pattern": "\\.MainModule\\b",
-      "message": "禁止使用 Process.MainModule：该属性内部以 PROCESS_QUERY_INFORMATION | PROCESS_VM_READ 打开目标进程句柄并读取其模块表，请改用内核进程表（ProcessImagePath） / Process.MainModule is forbidden: the property opens a handle to the target with PROCESS_QUERY_INFORMATION | PROCESS_VM_READ and reads its module table; use the kernel process table (ProcessImagePath) instead"
+      "pattern": "\\.\\s*(?:MainModule|Modules)\\b|(?:^|(?<=[{,]))\\s*(?:MainModule|Modules)\\s*[.:]",
+      "message": "禁止使用 Process.MainModule / Process.Modules（含属性模式中的写法）：二者内部以 PROCESS_QUERY_INFORMATION | PROCESS_VM_READ 打开目标进程句柄并读取其模块表，请改用内核进程表（ProcessImagePath） / Process.MainModule and Process.Modules are forbidden, property patterns included: they open a handle to the target with PROCESS_QUERY_INFORMATION | PROCESS_VM_READ and read its module table; use the kernel process table (ProcessImagePath) instead"
+    },
+    {
+      "id": "INJ-009",
+      "category": "process-injection",
+      "pattern": "\\.\\s*(?:StartTime|ExitTime|SafeHandle|HasExited|ExitCode|EnableRaisingEvents|PriorityClass|PriorityBoostEnabled|ProcessorAffinity|TotalProcessorTime|UserProcessorTime|PrivilegedProcessorTime|MaxWorkingSet|MinWorkingSet|WaitForExit|WaitForExitAsync|WaitForInputIdle|Kill)\\b|\\.\\s*Handle\\b(?!\\s*\\()|\\bGetProcessById\\b|(?:^|(?<=[{,]))\\s*(?:HasExited|StartTime|ExitTime|SafeHandle|EnableRaisingEvents|PriorityClass|PriorityBoostEnabled|ProcessorAffinity|\\w*ProcessorTime|M(?:ax|in)WorkingSet|Handle|ExitCode)\\s*[.:=]",
+      "message": "禁止使用会打开目标进程句柄的 Process 成员（StartTime、HasExited、WaitForExit、Kill、Handle、GetProcessById 等，含属性模式与对象初始化器中的写法）：对游戏进程而言这就是打开它的句柄；游戏只允许进程存在性检查与内核进程表。只有驱动本软件自身进程的父进程看门狗、测试与脚本按精确路径放行 / Process members that open a handle to their process (StartTime, HasExited, WaitForExit, Kill, Handle, GetProcessById, ..., property patterns and object initialisers included) are forbidden: on the game they are a handle to the game, which may only be checked for existence and read through the kernel process table; only the parent watchdog and the tests and scripts that drive our own processes are allowed, by exact path",
+      "allow_paths": [
+        "src/Collector/Diagnostics/ParentProcessWatchdog.cs",
+        "tests/Collector.IntegrationTests/LifecycleOrphanTests.cs",
+        "tests/Collector.IntegrationTests/LifecycleProcessTests.cs",
+        "tests/Collector.UnitTests/WatchdogIdentityTests.cs",
+        "tests/Collector.UnitTests/WatchdogTests.cs",
+        "tools/package-verification/test_package_environment.py",
+        "scripts/package.ps1",
+        "scripts/static-analysis.ps1",
+        "scripts/verify.ps1"
+      ]
     },
     {
       "id": "DEU-001",
@@ -169,8 +279,8 @@
     {
       "id": "CAP-001",
       "category": "packet-send",
-      "pattern": "\\bpcap_sendpacket\\b",
-      "message": "禁止发送数据包 / sending packets is forbidden (capture is strictly passive)"
+      "pattern": "\\bpcap_sendpacket\\b|\\bpcap_sendqueue_\\w+|\\bSendPacket\\b|\\bSendQueue\\b|\\bPacketSendPackets?\\b",
+      "message": "禁止发送数据包（含 libpcap 的发送队列、Packet.dll 的 PacketSendPacket 与 SharpPcap 的 SendPacket / SendQueue） / sending packets is forbidden, including libpcap's send queue, Packet.dll's PacketSendPacket and SharpPcap's SendPacket / SendQueue (capture is strictly passive)"
     },
     {
       "id": "CAP-002",
@@ -193,14 +303,14 @@
     {
       "id": "CAP-005",
       "category": "packet-persistence",
-      "pattern": "\\bpcap_dump\\w*\\b|\\bpcap_breakloop\\b",
-      "message": "禁止把原始报文写入抓包文件 / dumping raw packets to a capture file is forbidden"
+      "pattern": "\\bpcap_dump\\w*\\b|\\bpcap_breakloop\\b|\\bCaptureFileWriterDevice\\b",
+      "message": "禁止把原始报文写入抓包文件（含 SharpPcap 的 CaptureFileWriterDevice） / dumping raw packets to a capture file is forbidden, including SharpPcap's CaptureFileWriterDevice"
     },
     {
       "id": "CAP-006",
       "category": "capture-mode",
-      "pattern": "DllImport\\s*\\(\\s*\"(?i:wpcap|packet\\.dll|npcap)",
-      "message": "禁止直接 P/Invoke pcap 原生库，抓包只经由 Machina 的 WinPCap 监视器 / no direct P/Invoke into the pcap native libraries; capture goes through Machina's WinPCap monitor only"
+      "pattern": "\\b(?:DllImport|LibraryImport|NativeLibrary\\s*\\.\\s*(?:Try)?Load|LoadLibrary(?:Ex)?[AW]?|QLibrary)\\b[^\"\\r\\n]*\"+[^\"\\r\\n]*(?i:wpcap|packet|npcap)|\\bconst\\s+string\\s+\\w+\\s*=\\s*[@$]*\"+(?:[^\"\\r\\n]*[\\\\/])?(?i:wpcap|packet)(?i:\\.dll)?\"|^\\s*[@$Lu8U]*\"+(?:[^\"\\r\\n]*[\\\\/])?(?i:wpcap|packet)(?i:\\.dll)?\"+\\s*[,)]",
+      "message": "禁止直接加载 pcap 原生库（DllImport / LibraryImport / NativeLibrary.Load / LoadLibrary / QLibrary，含库名写在常量或下一行的写法），抓包只经由 SharpPcap 的 Npcap 设备 / no direct use of the pcap native libraries (DllImport / LibraryImport / NativeLibrary.Load / LoadLibrary / QLibrary, including a library name held in a constant or written on the next line); capture goes through SharpPcap's Npcap device only"
     },
     {
       "id": "NET-001",
@@ -223,20 +333,20 @@
     {
       "id": "NET-004",
       "category": "network-listener",
-      "pattern": "\\bKestrel\\b|Microsoft\\.AspNetCore",
-      "message": "禁止内嵌 Web 服务器 / no embedded web server"
+      "pattern": "Kestrel|Microsoft\\.AspNetCore|Microsoft\\.NET\\.Sdk\\.Web\\b|\\bWebApplication\\b",
+      "message": "禁止内嵌 Web 服务器（Kestrel、UseKestrel、Microsoft.AspNetCore、Web 项目 SDK Microsoft.NET.Sdk.Web、WebApplication） / no embedded web server (Kestrel, UseKestrel, Microsoft.AspNetCore, the web project SDK Microsoft.NET.Sdk.Web, WebApplication)"
     },
     {
       "id": "NET-005",
       "category": "network-listener",
-      "pattern": "\\bQTcpServer\\b|\\bQHttpServer\\b|\\bQWebSocketServer\\b|\\bQLocalServer\\b",
+      "pattern": "\\bQTcpServer\\b|\\bQHttpServer\\b|\\bQWebSocketServer\\b|\\bQLocalServer\\b|\\bQSslServer\\b|\\bQSctpServer\\b",
       "message": "桌面端不得监听任何端口或管道，只作为命名管道客户端 / the Desktop process must not listen; it is a Named Pipe client only"
     },
     {
       "id": "NET-006",
       "category": "outbound-network",
-      "pattern": "\\bHttpClient\\b|\\bWebClient\\b|\\bQNetworkAccessManager\\b",
-      "message": "禁止外发网络请求；例外只有共享校准获取客户端、在线语音客户端与更新检查客户端（docs/privacy-boundary.md §8.2、§8.3、§8.4） / no outbound network requests; the only exceptions are the shared-calibration fetch client, the online-speech client and the update-check client (docs/privacy-boundary.md sections 8.2, 8.3 and 8.4)",
+      "pattern": "\\bHttpClient\\b|\\bWebClient\\b|\\bQNetworkAccessManager\\b|\\bQRestAccessManager\\b|\\bHttpMessageInvoker\\b|\\bSocketsHttpHandler\\b|\\bHttpClientHandler\\b|\\bWinHttp\\w+|\\bHttpWebRequest\\b|\\bFtpWebRequest\\b|\\bWebRequest\\s*(?:\\]\\s*::|\\.)\\s*Create|\\bInternet(?:Open(?:Url)?|Connect)[AW]?\\b|\\bHttp(?:OpenRequest|SendRequest)(?:Ex)?[AW]?\\b|\\bURLDownloadTo(?:Cache)?File[AW]?\\b|\\bURLOpen\\w*Stream[AW]?\\b",
+      "message": "禁止外发网络请求（HttpClient、HttpMessageInvoker、SocketsHttpHandler、WebRequest、WinHTTP、WinINet、URLDownloadToFile、QNetworkAccessManager 等 HTTP 客户端）；例外只有共享校准获取客户端、在线语音客户端与更新检查客户端（docs/privacy-boundary.md §8.2、§8.3、§8.4） / no outbound network requests (HttpClient, HttpMessageInvoker, SocketsHttpHandler, WebRequest, WinHTTP, WinINet, URLDownloadToFile, QNetworkAccessManager and the other HTTP clients); the only exceptions are the shared-calibration fetch client, the online-speech client and the update-check client (docs/privacy-boundary.md sections 8.2, 8.3 and 8.4)",
       "allow_paths": [
         "src/Collector/Protocol/Sharing/SharedCalibrationClient.cs",
         "src/Collector/Speech/OnlineSpeechClient.cs",
@@ -283,10 +393,51 @@
       ]
     },
     {
+      "id": "NET-008",
+      "category": "network-socket",
+      "pattern": "\\bTcpClient\\b|\\bUdpClient\\b|\\bSocket\\b|\\bQTcpSocket\\b|\\bQUdpSocket\\b|\\bQSslSocket\\b|\\bQAbstractSocket\\b|\\bQSctpSocket\\b|\\bQDnsLookup\\b|\\bQHostInfo\\s*::\\s*(?:lookupHost|fromName)\\b|\\bDns\\s*(?:\\]\\s*::|\\.)\\s*\\w+|\\bnew\\s+(?:[\\w.]*\\.)?Ping\\s*\\(|\\bPing\\s+\\w+\\s*=\\s*new\\b|\\bSendPingAsync\\b|\\bSmtpClient\\b|\\bQuic(?:Connection|Listener|Stream)\\b|\\bWSA(?:Startup|Socket[AW]?|Connect\\w*)\\b|\\bsocket\\s*\\(\\s*(?:socket\\.)?(?:AF|PF)_|\\b(?:getaddrinfo|gethostbyname|GetAddrInfo(?:Ex)?[AW]?)\\b",
+      "message": "禁止直接使用网络：TCP / UDP / QUIC 套接字（TcpClient、UdpClient、Socket、Winsock、Qt 套接字类）、域名解析（Dns、QHostInfo、getaddrinfo）、Ping 与 SmtpClient；既不得外连也不得监听；进程间通信只用命名管道，三个出站客户端也只经由 HTTP 客户端 / no direct network use: TCP, UDP or QUIC sockets (TcpClient, UdpClient, Socket, Winsock, the Qt socket classes), name resolution (Dns, QHostInfo, getaddrinfo), Ping and SmtpClient, neither connecting nor listening; IPC is Named Pipe only and the three outbound clients go through the HTTP client only"
+    },
+    {
+      "id": "NET-009",
+      "variant": "downloads",
+      "category": "outbound-network",
+      "pattern": "(?i:\\bInvoke-WebRequest\\b|\\bInvoke-RestMethod\\b|\\bStart-BitsTransfer\\b)|(?i:\\b(?:DownloadTemporaryFile\\w*|CreateDownloadPage)\\s*\\()|\\bXMLHttpRequest\\b|\\bsource\\s*:\\s*[\"']https?://|(?i:\\b(?:MSXML2\\.(?:Server)?XMLHTTP|Microsoft\\.XMLHTTP)\\b)|\\b(?:load|setSource)\\s*\\(\\s*(?:QUrl\\s*\\(\\s*)?(?:QStringLiteral\\s*\\(\\s*)?u?\"https?://",
+      "message": "禁止脚本、安装程序、QML 与桌面端自行下载或请求网络资源（Invoke-WebRequest、Invoke-RestMethod、BITS、Inno Setup 下载页（不分大小写）、XMLHttpRequest 与 MSXML2.XMLHTTP、远程 source、把远程地址交给 QML 引擎的 load / setSource）；唯一例外是安装程序在缺少 Npcap 时从 npcap.com 下载固定版本、校验 SHA-256 的官方安装程序，创建下载页的那一行带有登记在案的行内标记（Npcap 的免费许可证不允许随包分发，见 README.md 与 THIRD_PARTY_NOTICES.md） / scripts, the installer, QML and the Desktop must not download or request network resources themselves (Invoke-WebRequest, Invoke-RestMethod, BITS, Inno Setup download pages in any letter case, XMLHttpRequest and MSXML2.XMLHTTP, a remote source, load / setSource handing the QML engine a remote address); the one exception is the installer downloading the official Npcap installer (pinned version, SHA-256 checked) from npcap.com when Npcap is missing, whose one line creating the download page carries a pinned marker, because Npcap's free licence forbids bundling it (see README.md and THIRD_PARTY_NOTICES.md)"
+    },
+    {
+      "id": "NET-009",
+      "variant": "qml-remote",
+      "category": "outbound-network",
+      "pattern": "\\bsource\\s*=\\s*[\"']https?://|^\\s*import\\s+[\"']https?://|\\bproperty\\s+url\\s+\\w+\\s*:\\s*[\"']https?://|\\bQt\\s*\\.\\s*(?:resolvedUrl|include)\\s*\\(\\s*[\"']https?://",
+      "message": "QML 与其中的 JavaScript 不得加载远程资源（给 source 赋远程地址、import 远程模块、url 属性取远程地址、Qt.resolvedUrl / Qt.include 远程地址） / QML and its JavaScript must not load remote resources (a remote address assigned to source, an import of a remote module, a url property bound to a remote address, Qt.resolvedUrl / Qt.include of a remote address)",
+      "only_extensions": [
+        ".js",
+        ".mjs",
+        ".qml"
+      ]
+    },
+    {
+      "id": "NET-009",
+      "variant": "shell-commands",
+      "category": "outbound-network",
+      "pattern": "^(?:[^#\"'\\r\\n]|\"[^\"\\r\\n]*\"|'[^'\\r\\n]*')*?(?:^|[;|&({=@!`]|\\brun:|&\\s*[\"'](?:[^\"'\\r\\n]*[\\\\/])?)\\s*(?:(?:if|then|do|else|elif|while|until|sudo)\\s+|(?i:cmd(?:\\.exe)?\\s+/[ck])\\s+[\"']?|(?i:start-process)\\s+(?:(?i:-filepath)\\s+)?[\"']?)*(?:[^\\s\"'#;|&`]*[\\\\/])?(?i:(?:curl|wget|iwr|irm|bitsadmin)(?:\\.exe)?(?![\\w.-])|certutil(?:\\.exe)?\\b[^#\\r\\n]*[-/]urlcache\\b)",
+      "message": "脚本与工作流不得用下载命令联网（curl、wget、iwr、irm、bitsadmin、certutil -urlcache，含 if / then / do 等 shell 关键字、sudo、!、反引号、cmd /c、Start-Process、调用运算符 & 之后与带路径的写法） / scripts and workflows must not fetch network resources with download commands (curl, wget, iwr, irm, bitsadmin, certutil -urlcache, including after if / then / do and the other shell keywords, sudo, !, a backtick, cmd /c, Start-Process or the call operator &, and with a path in front)",
+      "only_extensions": [
+        ".bat",
+        ".cmd",
+        ".ps1",
+        ".psm1",
+        ".sh",
+        ".yaml",
+        ".yml"
+      ]
+    },
+    {
       "id": "AUT-001",
       "category": "game-automation",
-      "pattern": "\\bSendInput\\b|\\bkeybd_event\\b|\\bmouse_event\\b",
-      "message": "禁止任何形式的游戏自动化/模拟输入 / synthetic input and game automation are forbidden"
+      "pattern": "\\bSendInput\\b|\\bkeybd_event\\b|\\bmouse_event\\b|\\bSendKeys\\b|\\bPostMessage[AW]?\\b|\\bPostThreadMessage[AW]?\\b|\\bSendMessage(?:[AW]|Timeout[AW]?|Callback[AW]?)?\\b|\\bSendNotifyMessage[AW]?\\b|\\bCloseMainWindow\\b",
+      "message": "禁止任何形式的游戏自动化/模拟输入（含 SendKeys、向窗口投递消息的 PostMessage / SendMessage，以及向主窗口发送关闭消息的 Process.CloseMainWindow） / synthetic input and game automation are forbidden, including SendKeys, posting window messages with PostMessage / SendMessage, and Process.CloseMainWindow, which posts a close message to a process's main window"
     }
   ],
   "scan_files": [

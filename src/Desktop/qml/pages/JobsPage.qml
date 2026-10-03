@@ -30,9 +30,12 @@ Item {
         function onCountChanged() { page.reloadRows() }
     }
 
+    // The donut is painted, not bound: a theme or a style switch has to ask
+    // for the new colours (review OK-9).
     Connections {
         target: Theme
         function onDarkChanged() { donut.requestPaint() }
+        function onUiStyleChanged() { donut.requestPaint() }
     }
 
     Flickable {
@@ -52,8 +55,22 @@ Item {
             spacing: 16
 
             PageHeader {
+                objectName: "jobsHeader"
                 title: qsTr("职业统计")
-                subtitle: qsTr("未知职业 %1 次").arg(page.unknownCount)
+                subtitle: App.jobs.loadError.length > 0
+                          ? qsTr("读取失败")
+                          : qsTr("未知职业 %1 次").arg(page.unknownCount)
+            }
+
+            Text {
+                objectName: "jobsLoadError"
+                Layout.fillWidth: true
+                visible: App.jobs.loadError.length > 0
+                text: qsTr("职业统计读取失败，下方没有统计结果：%1").arg(App.jobs.loadError)
+                textFormat: Text.PlainText
+                wrapMode: Text.WordWrap
+                color: Theme.orangeText
+                font.pixelSize: Theme.fs(13)
             }
 
             RowLayout {
@@ -71,6 +88,7 @@ Item {
 
                     Canvas {
                         id: donut
+                        objectName: "jobsDonut"
 
                         Layout.preferredWidth: 200
                         Layout.preferredHeight: 200

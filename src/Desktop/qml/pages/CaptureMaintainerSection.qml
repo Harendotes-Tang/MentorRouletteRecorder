@@ -216,7 +216,9 @@ ColumnLayout {
         CapCell {
             kicker: qsTr("Npcap")
             value: section.capture.npcap_installed
-                   ? "v" + (section.capture.npcap_version || "?") : qsTr("未安装")
+                   ? (section.capture.npcap_version
+                      ? Fmt.npcapVersionLabel(section.capture.npcap_version) : "v?")
+                   : qsTr("未安装")
             sub: section.npcap.status
                  ? qsTr("%1 · WinPcap 兼容 %2 · 仅管理员 %3")
                    .arg(section.npcap.status)

@@ -29,6 +29,8 @@ NOT (source = 'AUTO_NETWORK' AND result = 'UNKNOWN' AND ended_at_utc IS NULL AND
 副本结束后（`ended_at_utc` 已写入）即正常计入，结果未知的记录仍计入尝试次数与「未知」。
 崩溃恢复交给用户复核的未结束记录（`pending_review = 1`，见 state-machine.md §3.9）**不属于**进行中：
 该次游玩已经结束，只是结果无人见证，照常计入，并继续计入 `unfinished_pending_review`。
+更正（`CorrectRun`）不能把不处于这一形态的自动记录改成这一形态（[manual-correction.md](manual-correction.md) §7），
+否则该记录会一直被当作进行中，既不计入统计也不出现在待复核中。
 
 用户提供的 `RunFilter`（时间范围、副本、职业、结果、来源、文本等）在此基础上叠加。
 
@@ -80,13 +82,38 @@ achievement_progress =
       AND result = 'COMPLETED'
       AND soft_deleted = 0
       AND confirmed_mentor
+      AND (   achievement_settings.baseline_completed_count = 0
+           OR COALESCE(ended_at_utc, entered_at_utc, matched_at_utc)
+                >= achievement_settings.baseline_effective_at)
 ```
 
-- `baseline_completed_count` 是用户自行申报的、开始使用本软件之前已完成的次数，
+- `baseline_completed_count` 是用户自行申报的、截至 `baseline_effective_at` 时游戏内已完成的次数，
   经 `UpdateAchievementBaseline` 设置。该消息必须携带 `reason`，并写入审计。
+- 基数大于 0 时，它已经包含生效时间之前结束的全部完成，因此只有**在生效时间当刻或之后结束**的
+  完成叠加在基数之上，更早结束的完成不再重复计入（`StatisticsRepository.CountedFrom`）。
+  记录缺少结束时间时依次以进本时间、匹配时间定位；这两个时间都早于真实的结束时刻，
+  因此存疑的记录宁可不计，也不重复计入。三个时间均为空的记录在基数大于 0 时不计入。
+- 基数为 0 时不包含任何完成，所有满足其余条件的完成一律计入，与生效时间无关。
+  从未填写基数的数据库即处于这一状态，用户为安装之前的日子补录的记录照常计入。
+- 基数改变时，`baseline_effective_at` 取 `UpdateAchievementBaseline` 请求中的值；桌面端每次保存成就设置
+  （首次引导、设置页「成就」）都以保存时刻作为生效时间提交。基数与已保存的相同时（只修改目标值，或重新填入同一个数），
+  保留原有的生效时间，请求中的值不被采用，因此已叠加在基数之上的完成不会因保存而退出进度。
+  存储的值、审计记录与应答中的 `baseline_effective_at` 都是实际保留的那一个。
+- 1.5.0 及更早版本在基数不变时同样采用请求中的生效时间，只修改目标或原样保存同一基数都会把它改为保存时刻；
+  按本节的口径，基数填入之后、那次保存之前结束的完成会因此退出进度。采集服务在本版本首次启动时检查一次
+  （与 [state-machine.md](state-machine.md) §3.9 的启动恢复在同一事务中，`BaselineEffectiveTimeRepair`）：
+  基数大于 0，且基数审计记录的最新一条与存储的基数和生效时间都一致时，取审计记录末尾连续记着当前基数的各条中
+  最早一条的生效时间（基数未变的保存不改动生效时间时，存储的本应就是这个时间）；它早于存储的生效时间时，生效时间改回该时间，
+  目标与基数不变，审计记录末尾追加一条写明原因的系统条目（请求标识 `system:baseline-effective-at-repair`），
+  并通知桌面端重新读取统计。基数为 0、没有审计记录、最新一条与存储值不一致、连续记着当前基数的各条一直延伸到
+  已满 100 条的审计记录开头（更早的条目可能已被裁去），或找到的时间不早于存储值时，保持原值。无论是否改动，
+  检查之后都写入设置 `achievement.baseline_effective_at_checked`，此后不再检查，按本版本规则保存的生效时间
+  不会被改动（[data-model.md](data-model.md) §4、§6）。
+- `UpdateAchievementBaseline` 校验「基数 + 已记录完成」是否超出 Int32 时，使用与本节完全相同的口径
+  （`CountContributingCompleted`），按实际保留的生效时间只计入将叠加在新基数之上的完成。
 - 记录被用户取消勾选 `contributes_to_goal` 后**不计入进度**，但**仍计入**
   `attempt_count` 与 `completed_count`，因为它仍然是一次真实的完成。
-- 成就进度**不受 `RunFilter` 的时间范围影响**，始终采用全量口径。
+- 成就进度**不受 `RunFilter` 的时间范围影响**，始终采用全量口径，只受上文基数生效时间的约束。
   仪表盘上的「本周」与「本月」卡片使用 `completed_count`，而非 `achievement_progress`。
 
 ## 5. 剩余次数 `remaining`
@@ -118,8 +145,11 @@ leave_rate = null                                                  (attempt_coun
 > 理由：掉线与程序中断并非用户主动放弃的行为，将其计入离开率会给出错误且不公平的
 > 自我评价。UI 上这三类必须各自成行，并可单独查看。
 >
-> `DISCONNECTED` 一行由真实链路产生：已投递过解码消息的游戏连接收到 FIN/RST，
-> 或从系统连接表中消失时，即产生该结果（见 [state-machine.md](state-machine.md) §3.6）。
+> `DISCONNECTED` 一行由真实链路产生：进本之后，最后一条仍在投递解码消息的游戏连接收到 FIN/RST、
+> 同一连接上出现新的握手，或在持续约 1 秒的读数中都不再出现于系统连接表，而游戏进程仍在运行时，
+> 即产生该结果（见 [state-machine.md](state-machine.md) §3.6）。仍有其他连接在投递消息时（例如只有聊天服务器的
+> 连接断开重连），不产生该结果；连接的单个方向被放弃也不产生该结果，它何时使记录按丢失观测收尾为 `INTERRUPTED`
+> 见同一文件 §3.7 与 §7.5。
 > 此前该结果没有任何生产者，该行恒为 0，掉线只会归入 `INTERRUPTED` 或 `UNKNOWN`。
 
 ## 8. 平均时长 `avg_duration_ms`
@@ -175,8 +205,12 @@ avg_duration_ms = AVG(duration_ms) WHERE
 - 与此对应，`content_id` 筛选（`RunFilter.content_id`，用于 `QueryRuns` 与各统计的 `filter`）
   同时命中 `content_id` 相符的记录，以及 `content_id` 为 NULL 而 `territory_id` 唯一对应该副本的记录，
   因此从副本统计点进历史列表看到的记录集与统计行一致（`RunFilterSql.AddContentIds`）。
+  回报 `content_id: null` 的行（「未知副本」与同一区域对应多个副本的行）没有可用于筛选的副本标识，
+  桌面端点击这类行时不跳转，只提示历史记录无法单独列出它们；职业统计中 `job_id` 为空的行同理。
 - `content_id` 与 `territory_id` **均**为 NULL 的记录聚成**一行**，
-  `content_id = null`，`duty_name = "未知副本"`。
+  `content_id = null`，`duty_name = "未知副本"`。用户把副本更正为「未知副本」时，
+  记录观测到的 `territory_id` 随之清空（撤销时恢复，见 [data-model.md](data-model.md) §1），
+  该记录因此归入这一行，不会再按区域算回原来的副本。
 - 每行输出 `attempt_count`、`completed_count`、`completion_rate`、`avg_duration_ms`，
   口径与上文完全一致，仅将候选集限制在该组之内。
 - `duty_name` 取该组下最近一次非空的名称，查不到时回退到 `data/duties/` 映射表。
@@ -210,20 +244,30 @@ avg_duration_ms = AVG(duration_ms) WHERE
 | `trend` | §12.1 |
 
 `unfinished_pending_review` 的口径是 `pending_review` 标志本身，而非
-`result = 'INTERRUPTED'`。需要用户复核的记录共有四类，其中第二类是国服的常态：
+`result = 'INTERRUPTED'`。需要用户复核的记录包括以下几类，其中档案不含 `DUTY_RESULT` 时的收尾是国服的常态：
 
-- 重启后恢复出的未完结记录（`INTERRUPTED` + `LOW`，见
-  [state-machine.md](state-machine.md) §3.9）；
+- 重启后恢复出的未完结记录（见 [state-machine.md](state-machine.md) §3.9）：已进入副本的记为
+  `INTERRUPTED` + `LOW`；从未进入副本的记为 `CANCELLED_BEFORE_ENTRY` + `LOW`，后者的
+  `entered_at_utc` 为 `NULL`，不计入 attempt。早期版本把从未进本的此类记录写成 `INTERRUPTED`
+  或 `UNKNOWN`，采集服务启动时将其一次性改记为 `CANCELLED_BEFORE_ENTRY` + `LOW` 并标为待复核；
+- 早期版本中撤销了重启收尾、或被更正为结果未知且没有结束时间的自动记录：它们被当作进行中，既不计入统计
+  也不出现在待复核中，采集服务启动时只为其加上待复核标志，结果与时间不变（见同一文件 §3.9），此后按 §0 照常计入；
 - 档案不含 `DUTY_RESULT` 时每一场副本的收尾（`UNKNOWN` + `LOW`，见同一文件 §3.10）；
+- 匹配之后、进本之前丢失了观测（解析队列溢出；或一条游戏连接有一个方向被放弃，且该方向本次会话交出过
+  当前档案能解析的报文，尚无任何方向交出过时任一方向均算，见同一文件 §7.5）、游戏连接全部断开，
+  或抓包因错误停止：按 `CANCELLED_BEFORE_ENTRY` + `LOW` 收尾（见同一文件 §3.3），同样不计入 attempt；
 - 匹配窗口内排到**其他随机任务**而按进本前取消收尾的记录
   （`CANCELLED_BEFORE_ENTRY` + `LOW`，见同一文件 §3.3 第 5 条）。该判断依赖尚无样本核对过的
   `roulette_id` 偏移，因此按 fail-safe 原则交由用户确认，而不是静默改写一场导随。
   此类记录的 `entered_at_utc` 为 `NULL`，因此**不计入 attempt**，也不进入完成率分母，
   只增加一条待复核；
 - 纯自动写入时结果为 `COMPLETED`、但进入或结束时刻缺失的记录。此类记录改记为
-  `UNKNOWN` + `LOW` 并交付复核，而不是将自相矛盾的行原样写入。
+  `UNKNOWN` + `LOW` 并交付复核，而不是将自相矛盾的行原样写入；
+- 共享校准被撤回或被本机流量证伪而撤下时，这份校准开始记录之后生成的记录；本机校准被本机流量
+  证伪而撤下时，它生成的记录。这类记录只经一条系统修订加上待复核标志，结果与其他字段不变，
+  用户已经作出决定的字段照常受人工字段保护。
 
-四类记录均由系统置 `pending_review = 1`。用户通过 `CorrectRun` 提交结果，或显式设置
+以上记录均由系统置 `pending_review = 1`。用户通过 `CorrectRun` 提交结果，或显式设置
 `pending_review=false` 之后，该记录退出计数。仅更正备注、职业或时间的记录仍保留待复核状态，
 不因 `manually_corrected = 1` 而被排除。软删除记录依旧不参与统计。
 
@@ -256,10 +300,13 @@ avg_duration_ms = AVG(duration_ms) WHERE
   也就无法相互印证。
 - **标签按本地时区显示。** 每个桶只携带 `start_utc`，桌面端将其转换为本地时间后
   取日期作为标签。客户端**不重新分桶**。
-- 该选择的代价如下。一条本地时间 09-04 23:30（UTC+8）匹配到的记录落在 UTC 的 09-04 桶中，
-  而该桶的标签在 UTC+8 下显示为 09-04 08:00 所在的那一天，同样是 09-04。
-  绝大多数时区与绝大多数时刻两者一致，仅在 UTC 日界附近的一两个小时内可能相差一天。
-  这是换取全局一致性的代价，不是缺陷。
+- 该选择的代价如下，属于已知限制。桶的标签是桶起点 `start_utc` 换算成本地时间后的日期：
+  在 UTC+8 下，UTC 的 09-04 桶覆盖本地 09-04 08:00 至 09-05 08:00，标签显示为 09-04。
+  因此本地时间 09-04 23:30 匹配到的记录落在标签为 09-04 的柱上，而本地 09-05 00:00 至 08:00
+  匹配到的记录仍落在 UTC 的 09-04 桶中，显示在**前一天**（09-04）的柱上。
+  对 UTC+8 的玩家而言，每天 00:00 至 08:00 匹配到的记录都计入前一天的柱；
+  其他时区按各自与 UTC 的时差同理偏移。`week` 与 `month` 粒度的桶边界同样按 UTC 划分，
+  周、月交界处存在相同的偏移。这是换取全局一致性的代价。
 
 在 2026-09-04 之前，桌面端使用 `QueryRuns(page_size = 200)` 自行拉取一页已完成记录，
 再按**本地日期**分桶。该做法在记录超过 200 条时会静默截断，趋势图开始少计，
@@ -273,7 +320,13 @@ avg_duration_ms = AVG(duration_ms) WHERE
 | 只有一条 `CANCELLED_BEFORE_ENTRY` | `attempt_count = 0`，率均为 `null`；结果分布中该桶 `count = 1`、`share = null` |
 | 一条 `COMPLETED` 但 `contributes_to_goal = 0` | `completed_count = 1`，`achievement_progress` 不增加 |
 | 一条 `COMPLETED` 被软删除 | 完全不出现在任何统计中 |
-| `baseline = 1500`，新增 3 条 `COMPLETED` | `achievement_progress = 1503`，`remaining = 497` |
+| `baseline = 1500`，3 条 `COMPLETED` 均在基数生效之后结束 | `achievement_progress = 1503`，`remaining = 497` |
+| `baseline = 1500`，3 条 `COMPLETED` 均在基数生效之前结束 | `achievement_progress = 1500`，`remaining = 500`，`completed_count = 3` |
+| `baseline = 1500`，一条 `COMPLETED` 在生效之前进本、之后结束 | 计入，`achievement_progress = 1501` |
+| `baseline = 1500`，两条 `COMPLETED` 缺结束时间，进本时间分别在生效前后 | 只计入后者，`achievement_progress = 1501` |
+| `baseline = 0`，2 条 `COMPLETED`（不论何时结束） | 全部计入，`achievement_progress = 2` |
+| `baseline = 1500`，一条 `COMPLETED` 在生效之后结束（进度 1501）；之后只把目标改为 2500，或原样重存 1500，请求带较晚的生效时间 | 生效时间不变，`achievement_progress = 1501`，`remaining = goal_count − 1501` |
+| `baseline = 1500`，一条 `COMPLETED` 在生效之后结束；之后把基数改为 1510，请求的生效时间晚于该完成 | 生效时间更新为请求中的值，`achievement_progress = 1510`；此后结束的完成照常叠加 |
 | `baseline` 大于 `goal_count` | `remaining = 0`（不为负） |
 | `COMPLETED` 但 `duration_ms IS NULL` | 计入 `completed_count`，**不**计入 `avg_duration_ms` |
 | 5 条尝试：3 完成 / 1 离开 / 1 掉线 | `completion_rate = 0.6`，`leave_rate = 0.2`，掉线单独成行为 0.2，两者不相加为 0.4 |

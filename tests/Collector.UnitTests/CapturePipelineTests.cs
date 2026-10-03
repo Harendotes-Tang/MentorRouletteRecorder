@@ -382,6 +382,50 @@ public sealed class CapturePipelineTests
         finally { release.Set(); }
     }
 
+    /// <summary>
+    /// Audit 2026-10-03, CS3a-X1. A direction-damaged marker keeps its place behind the messages
+    /// queued before it, as the connection-lost marker does, and hands its listener the connection
+    /// key and the direction. It never reaches the sink and is not counted as a delivered message.
+    /// </summary>
+    [Fact]
+    public void ADirectionDamagedMarkerIsDeliveredInOrderWithItsConnectionAndDirection()
+    {
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        var order = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        using var queue = new DecodedMessageQueue(
+            new OrderSink(order, entered, release),
+            DecodedMessageQueue.MinCapacity,
+            onDirectionDamaged: (key, direction) => order.Enqueue("damaged " + key + " " + direction));
+        try
+        {
+            queue.Offer(Message(1));
+            Assert.True(entered.Wait(TimeSpan.FromSeconds(5)));
+            queue.Offer(Message(2));
+            Assert.True(queue.OfferDirectionDamaged("connection-a", MessageDirection.Outbound));
+        }
+        finally { release.Set(); }
+
+        Assert.True(queue.Complete(TimeSpan.FromSeconds(5)));
+        Assert.Equal(new[] { "1", "2", "damaged connection-a Outbound" }, order);
+        Assert.Equal(2, queue.DeliveredCount);
+        Assert.Equal(0, queue.DroppedCount);
+    }
+
+    /// <summary>Records what reached it, holding the first message until released.</summary>
+    private sealed class OrderSink(
+        System.Collections.Concurrent.ConcurrentQueue<string> order,
+        ManualResetEventSlim entered,
+        ManualResetEventSlim release) : IDecodedMessageSink
+    {
+        public void Accept(DecodedMessage message)
+        {
+            order.Enqueue(message.Opcode.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            entered.Set();
+            if (message.Opcode == 1) release.Wait();
+        }
+    }
+
     private sealed class SignallingSink(ManualResetEventSlim entered, ManualResetEventSlim release) : IDecodedMessageSink
     {
         public void Accept(DecodedMessage message) { entered.Set(); release.Wait(); }

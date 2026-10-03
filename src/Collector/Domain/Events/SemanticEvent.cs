@@ -132,6 +132,12 @@ public sealed record CaptureStopped : SemanticEvent
     /// <summary>True when the game process itself went away rather than the capture.</summary>
     public bool GameExited { get; init; }
 
+    /// <summary>
+    /// True when capture stopped because of an error rather than because anybody asked: it
+    /// stopped watching while the game went on, so whatever followed was not seen.
+    /// </summary>
+    public bool Faulted { get; init; }
+
     /// <inheritdoc />
     public override string EventType => "CAPTURE_STOPPED";
 }

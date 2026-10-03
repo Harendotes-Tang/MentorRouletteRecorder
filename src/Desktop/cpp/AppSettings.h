@@ -67,6 +67,13 @@ public:
     /// Absolute path of the INI file.
     static QString filePath();
 
+    /// True when a run of this program must keep away from the player's own
+    /// settings, backup date and note images: a screenshot, or any run on the
+    /// deterministic mock backend, whose fake backup and fixture runs would
+    /// otherwise land in the real files (review OH-7). main() then puts
+    /// QStandardPaths into test mode before the first AppSettings exists.
+    static bool isHarnessRun(bool screenshotMode, const QString &backend);
+
     /// "dark", "light" or "system".
     QString themeMode() const;
     void setThemeMode(const QString &mode);

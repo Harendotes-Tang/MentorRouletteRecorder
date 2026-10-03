@@ -19,6 +19,7 @@ internal sealed class FirstPacketMonitor : IMachinaMonitor
     private Action<string>? _fault;
     private Action<TCPConnection, long, byte[], bool>? _message;
     private Action? _connectionClosed;
+    private Action<TCPConnection, bool>? _directionDamaged;
 
     /// <summary>
     /// Connections that produced at least one decoded message.
@@ -32,6 +33,13 @@ internal sealed class FirstPacketMonitor : IMachinaMonitor
 
     /// <summary>Upper bound on connections remembered as having delivered messages.</summary>
     internal const int MaxTrackedConnections = 256;
+
+    /// <summary>
+    /// Consecutive unreadable connection tables tolerated before the capture faults: about a
+    /// second at the decode cadence, the same span a decoding stream must stay unlisted before
+    /// it counts as ended.
+    /// </summary>
+    internal const int MaxFailedConnectionReadings = 20;
     private Thread? _readThread, _decodeThread;
     private int _faulted;
     private bool _disposed;
@@ -43,12 +51,13 @@ internal sealed class FirstPacketMonitor : IMachinaMonitor
         Action<TCPConnection, long, byte[], bool> message, Action<string> fault,
         INpcapPacketReader? reader = null, Func<IReadOnlyCollection<TCPConnection>>? connections = null,
         Action? initialize = null, TimeSpan? joinTimeout = null, OodleTempCopyCleaner? cleaner = null,
-        Action? connectionClosed = null)
+        Action? connectionClosed = null, Action<TCPConnection, bool>? directionDamaged = null)
     {
         _cleaner = cleaner ?? new OodleTempCopyCleaner();
         if (cleaner is null) _cleaner.Arm(options.GameExecutablePath);
         _reader = reader ?? new NpcapPacketReader(options);
         _message = message; _fault = fault; _connectionClosed = connectionClosed;
+        _directionDamaged = directionDamaged;
         _joinTimeout = joinTimeout ?? TimeSpan.FromSeconds(5);
         var localIP = options.BindAddress is { } ip && ip.GetAddressBytes().Length == 4
             ? BinaryPrimitives.ReadUInt32LittleEndian(ip.GetAddressBytes())
@@ -61,7 +70,7 @@ internal sealed class FirstPacketMonitor : IMachinaMonitor
                 // very next pump is still known to have produced something.
                 if (_delivered.Count < MaxTrackedConnections) _delivered.Add(Identify(connection));
                 Volatile.Read(ref _message)?.Invoke(connection, epoch, bytes, inbound);
-            }), ownedStreamEnded: OnOwnedStreamEnded);
+            }), ownedStreamEnded: OnOwnedStreamEnded, directionDamaged: OnDirectionDamaged);
         _connections = connections ?? (() =>
         {
             // Fresh list avoids Machina's per-tuple socket lifecycle and stale removed rows.
@@ -125,11 +134,27 @@ internal sealed class FirstPacketMonitor : IMachinaMonitor
 
     private void DecodeLoop()
     {
+        var failedReadings = 0;
         try
         {
             while (!_cancel.IsCancellationRequested)
             {
-                _buffer.Pump(_connections());
+                IReadOnlyCollection<TCPConnection> owned;
+                try
+                {
+                    owned = _connections();
+                    failedReadings = 0;
+                }
+                catch (Exception) when (++failedReadings < MaxFailedConnectionReadings)
+                {
+                    // Machina 2.3.1.3 throws when GetExtendedTcpTable fails. One such reading
+                    // says nothing about the game's connections, so this tick neither grants nor
+                    // ends anything; faulting here ended the duty in flight and restarted the
+                    // capture mid-connection (audit 2026-10-03, OA-3).
+                    _cancel.Token.WaitHandle.WaitOne(50);
+                    continue;
+                }
+                _buffer.Pump(owned);
                 if (_buffer.Failure is { } failure) { Fault(failure); return; }
                 _cancel.Token.WaitHandle.WaitOne(50);
             }
@@ -158,6 +183,19 @@ internal sealed class FirstPacketMonitor : IMachinaMonitor
         Volatile.Read(ref _connectionClosed)?.Invoke();
     }
 
+    /// <summary>
+    /// One direction of an owned stream was given up for good. Every one is reported, with its
+    /// connection: whether the loss touches a run depends on what that connection carried, which
+    /// only the parser knows (audit 2026-10-03, CS3a-X1).
+    /// </summary>
+    /// <param name="connection">Connection the buffer was decoding.</param>
+    /// <param name="inbound">True when the server-to-client direction was given up.</param>
+    private void OnDirectionDamaged(TCPConnection connection, bool inbound)
+    {
+        if (_cancel.IsCancellationRequested) return;
+        Volatile.Read(ref _directionDamaged)?.Invoke(connection, inbound);
+    }
+
     private void Fault(string reason)
     {
         _cancel.Cancel();
@@ -179,6 +217,7 @@ internal sealed class FirstPacketMonitor : IMachinaMonitor
         Volatile.Write(ref _message, null);
         Volatile.Write(ref _fault, null);
         Volatile.Write(ref _connectionClosed, null);
+        Volatile.Write(ref _directionDamaged, null);
     }
     public void Dispose()
     {

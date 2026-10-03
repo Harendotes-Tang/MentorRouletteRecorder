@@ -56,6 +56,21 @@ Window {
     DateField { objectName: "field"; x: 20; y: 20; width: 118 }
 })";
 
+// The history page's case: the calendar opens over the table, whose rows listen
+// with a TapHandler (HistoryPage's row selection).
+const QByteArray kSceneOverRows = R"(import QtQuick
+import QtQuick.Window
+import MentorRecorder
+Window {
+    width: 480; height: 360; visible: true
+    property int rowTaps: 0
+    Rectangle {
+        anchors.fill: parent
+        TapHandler { onTapped: rowTaps += 1 }
+    }
+    DateField { objectName: "field"; x: 20; y: 20; width: 118 }
+})";
+
 /// Repeater delegates (the month grid's day cells) hang off the visual tree
 /// only, so findChild() over QObject children cannot see them.
 QQuickItem *findItem(QQuickItem *root, const QString &name)
@@ -97,6 +112,8 @@ private slots:
     void theCalendarOpensOnTheFieldsOwnMonth();
     void pickingADayWritesItAsText();
     void theArrowsTurnThePagesAcrossAYearEnd();
+    void onlyTheChosenDayOfItsOwnMonthIsHighlighted();
+    void aClickInTheCalendarNeverReachesTheRowBeneathIt();
 };
 
 void DateFieldTests::initTestCase()
@@ -217,6 +234,60 @@ void DateFieldTests::theArrowsTurnThePagesAcrossAYearEnd()
     QQuickItem *label = field->findChild<QQuickItem *>(QStringLiteral("calendarMonthLabel"));
     QVERIFY(label);
     QCOMPARE(label->property("text").toString(), QString::fromUtf8("2026 年 11 月"));
+}
+
+// 审查 OL-9：选中格只比较了日与年，翻到同一年的其他月份，同一个日号也被高亮。
+void DateFieldTests::onlyTheChosenDayOfItsOwnMonthIsHighlighted()
+{
+    Scene scene;
+    QVERIFY2(scene.create(kScene), qPrintable(scene.errors));
+    QQuickItem *field = scene.field();
+    field->setProperty("text", QStringLiteral("2026-09-17"));
+    QVERIFY(QMetaObject::invokeMethod(field, "openCalendar"));
+    QTRY_VERIFY(field->property("calendarOpen").toBool());
+    QVERIFY(dayCell(field, 17)->property("selected").toBool());
+
+    QVERIFY(QMetaObject::invokeMethod(field, "shiftMonth", Q_ARG(QVariant, 1)));
+    QTest::qWait(30);
+    QTRY_VERIFY(dayCell(field, 17));
+    QVERIFY(!dayCell(field, 17)->property("selected").toBool());
+    QVERIFY(QMetaObject::invokeMethod(field, "shiftMonth", Q_ARG(QVariant, -2)));
+    QTest::qWait(30);
+    QTRY_VERIFY(dayCell(field, 17));
+    QVERIFY(!dayCell(field, 17)->property("selected").toBool());
+    QVERIFY(QMetaObject::invokeMethod(field, "shiftMonth", Q_ARG(QVariant, 1)));
+    QTRY_VERIFY(dayCell(field, 17) && dayCell(field, 17)->property("selected").toBool());
+}
+
+// 嫌疑 K-s1：日历是非模态弹层，日格只用被动抓取的 TapHandler，背景也不接收按下，
+// 一次点选可能同时落到下面历史表格的行上（与 a1d5c06 修过的对话框同一机理）。
+void DateFieldTests::aClickInTheCalendarNeverReachesTheRowBeneathIt()
+{
+    Scene scene;
+    QVERIFY2(scene.create(kSceneOverRows), qPrintable(scene.errors));
+    QQuickWindow *window = scene.window();
+    QVERIFY(QTest::qWaitForWindowExposed(window));
+    QQuickItem *field = scene.field();
+    field->setProperty("text", QStringLiteral("2026-09-17"));
+    QVERIFY(QMetaObject::invokeMethod(field, "openCalendar"));
+    QTRY_VERIFY(field->property("calendarOpen").toBool());
+
+    // The month label: a gap in the calendar with nothing of its own to press.
+    QQuickItem *label = field->findChild<QQuickItem *>(QStringLiteral("calendarMonthLabel"));
+    QVERIFY(label);
+    QTRY_VERIFY(label->width() > 0 && label->isVisible());
+    clickItem(window, label);
+    QTest::qWait(50);
+    QVERIFY(field->property("calendarOpen").toBool());
+    QCOMPARE(scene.root->property("rowTaps").toInt(), 0);
+
+    // A day: it is picked, and nothing underneath is.
+    QQuickItem *day3 = dayCell(field, 3);
+    QVERIFY(day3);
+    clickItem(window, day3);
+    QTRY_COMPARE(field->property("text").toString(), QStringLiteral("2026-09-03"));
+    QTest::qWait(50);
+    QCOMPARE(scene.root->property("rowTaps").toInt(), 0);
 }
 
 int main(int argc, char *argv[])

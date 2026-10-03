@@ -307,6 +307,9 @@ public sealed class CaptureController : IDisposable
     private bool _adapterReevaluated;
     private IDisposable? _ownershipLease;
     private bool _releaseFailed;
+
+    /// <summary>Why the teardown that could not release everything was started; its retry ends the session so.</summary>
+    private CaptureEndReason _releaseReason = CaptureEndReason.Error;
     private long _generation;
     private long _pendingDropped;
     private int _dropFlushScheduled;
@@ -385,6 +388,14 @@ public sealed class CaptureController : IDisposable
             if (npcap.Status != NpcapStatus.Ready)
             {
                 warnings.Add(npcap.Guidance);
+            }
+
+            // Somebody else holds the capture lease, and the only other holder is a validation
+            // session. Automatic recording waits for it without a refusal of its own, so without
+            // this sentence nothing says why nothing is recorded (audit 2026-10-03, OA-8).
+            if (_ownershipLease is null && _services.Ownership.IsHeld)
+            {
+                warnings.Add("正在进行采集验证，验证期间不会自动记录。如需恢复记录，请在捕获诊断页停止验证。");
             }
 
             if (state == CaptureControllerState.Running
@@ -489,15 +500,26 @@ public sealed class CaptureController : IDisposable
         }
     }
 
-    /// <summary>Switches clients only after the old source, queue and session have stopped.</summary>
+    /// <summary>
+    /// Switches clients only after the old source, queue and session have stopped.
+    ///
+    /// Every step that can refuse runs before the old capture is stopped. Once it is stopped,
+    /// the choice is committed unconditionally: a failure after that point would strand the
+    /// old client stopped but still selected, and the next poll would quietly re-attach to it
+    /// mid-connection, where nothing can be decoded. A chosen client that exited during the
+    /// stop is therefore reported as exited, with a fresh choice asked for; a validation that
+    /// took the capture in that instant follows the committed choice.
+    /// </summary>
     public CaptureDiagnosticsSnapshot SelectGameProcess(int processId, string token)
     {
         lock (_lifecycleGate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
-            _gameSelection.Validate(processId, token);
+            var chosen = _gameSelection.Validate(processId, token);
             var current = DetectGame(force: true);
-            if (current.Running && current.ProcessId == processId)
+            // Choosing the client already chosen changes nothing -- unless a release is still
+            // pending, which this request then finishes instead of ignoring the click.
+            if (current.Running && current.ProcessId == processId && !_releaseFailed)
                 return Snapshot();
             if (_services.Ownership.IsHeld && _ownershipLease is null)
                 throw new CollectorException(ErrorCodes.CaptureAlreadyRunning,
@@ -506,10 +528,7 @@ public sealed class CaptureController : IDisposable
                 StopCore();
             if (_releaseFailed || _source is not null || _queue is not null)
                 throw new CollectorException(ErrorCodes.Internal, "旧的采集尚未结束，请稍后再选择游戏窗口。");
-            // Validation can acquire ownership while StopCore releases the old session.
-            // Reserve it through selection so a validation start cannot race this switch.
-            using var selectionLease = _services.Ownership.Acquire();
-            _gameSelection.Select(processId, token);
+            _gameSelection.Commit(chosen);
             lock (_gate)
             {
                 _game = null;
@@ -518,9 +537,15 @@ public sealed class CaptureController : IDisposable
                 _adapterReevaluated = false;
                 _lastErrorCode = _lastErrorMessage = null;
             }
+            // Read only: a listing that fails here counts as "still running".
+            var stillRunning = _services.Game.IsRunning(chosen.ProcessId, chosen.StartedAtUtc);
             var snapshot = Snapshot();
-            Publish(snapshot, "已选择游戏窗口，将只记录这个客户端。");
-            return snapshot;
+            Publish(snapshot, stillRunning
+                ? "已选择游戏窗口，将只记录这个客户端。"
+                : "所选游戏已退出，记录已暂停。请重新选择游戏窗口。");
+            return stillRunning
+                ? snapshot
+                : throw new CollectorException(ErrorCodes.FfxivNotRunning, "所选游戏已退出或重新启动，请重新选择游戏窗口。");
         }
     }
 
@@ -603,8 +628,12 @@ public sealed class CaptureController : IDisposable
         }
 
         var game = DetectGame(force: true);
+        // Asked only while a client is listed to choose from; with none listed the ordinary
+        // refusal below applies. Retryable like it: the same request succeeds once the user
+        // has chosen. Not recorded as the last error, which would read "no game is running".
         if (game.SelectionRequired)
-            throw new CollectorException(ErrorCodes.FfxivNotRunning, "请先在总览或捕获诊断页选择要记录的游戏窗口。");
+            throw new CollectorException(ErrorCodes.FfxivNotRunning, "请先在总览或捕获诊断页选择要记录的游戏窗口。",
+                new Dictionary<string, object?> { ["capture"] = "IDLE" }, retryable: true);
         if (!game.Running || game.ProcessId is null)
         {
             throw Refuse(
@@ -800,6 +829,8 @@ public sealed class CaptureController : IDisposable
                 return;
             }
 
+            RetryRelease();
+
             // A fault must not be terminal for the lifetime of the process: following only
             // from Idle would mean one transient driver failure costs capture until a restart.
             if (State == CaptureControllerState.Faulted)
@@ -909,7 +940,8 @@ public sealed class CaptureController : IDisposable
             ReadQueueCapacity(),
             error => OnFault("协议处理或写库失败，抓包已停止以避免漏记。", error, generation),
             dropped => NoteDropped(dropped, generation),
-            onConnectionLost: () => DeliverConnectionLost(sessionId, generation));
+            onConnectionLost: () => DeliverConnectionLost(sessionId, generation),
+            onDirectionDamaged: (key, direction) => DeliverDirectionDamaged(sessionId, generation, key, direction));
         var run = new CaptureRun(
             sessionId,
             startedAt,
@@ -995,6 +1027,7 @@ public sealed class CaptureController : IDisposable
             lock (_gate)
             {
                 _releaseFailed = !released || !queueStopped;
+                _releaseReason = CaptureEndReason.Error;
                 _source = released ? null : source;
                 _queue = queueStopped ? null : queue;
                 _run = queueStopped ? null : run;
@@ -1059,6 +1092,13 @@ public sealed class CaptureController : IDisposable
         lock (_lifecycleGate) return TeardownCore(reason);
     }
 
+    /// <param name="reason">
+    /// Why this teardown runs. A teardown that finishes a release an earlier one could not complete
+    /// still ends the session for that earlier reason: the user's stop, a new client choice or
+    /// shutting down only completed the release, and a fault must not be recorded as a stop the
+    /// player asked for (audit 2026-10-03, V2-4). The controller state that follows is this
+    /// teardown's own.
+    /// </param>
     private bool TeardownCore(CaptureEndReason reason)
     {
         ICaptureSource? source;
@@ -1066,6 +1106,7 @@ public sealed class CaptureController : IDisposable
         CaptureRun? run;
         CaptureSilentReason silentReason;
         int? preexisting;
+        CaptureEndReason ended;
         lock (_gate)
         {
             source = _source;
@@ -1073,6 +1114,7 @@ public sealed class CaptureController : IDisposable
             run = _run;
             silentReason = _silentReason;
             preexisting = _preexistingConnections;
+            ended = _releaseFailed ? _releaseReason : reason;
             _source = null;
             _queue = null;
         }
@@ -1090,6 +1132,7 @@ public sealed class CaptureController : IDisposable
                 _source = released ? null : source;
                 _queue = queue;
                 _releaseFailed = true;
+                _releaseReason = ended;
                 _state = CaptureControllerState.Faulted;
                 _lastErrorCode = ErrorCodes.Internal;
                 _lastErrorMessage =
@@ -1111,7 +1154,7 @@ public sealed class CaptureController : IDisposable
 
             try
             {
-                _services.Lifecycle.OnCaptureStopped(run.CaptureSessionId, reason);
+                _services.Lifecycle.OnCaptureStopped(run.CaptureSessionId, ended);
             }
             catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
             {
@@ -1119,7 +1162,7 @@ public sealed class CaptureController : IDisposable
             }
             finally
             {
-                CloseSessionRow(run, reason);
+                CloseSessionRow(run, ended);
             }
         }
 
@@ -1127,6 +1170,7 @@ public sealed class CaptureController : IDisposable
         {
             _run = null;
             _releaseFailed = !released;
+            _releaseReason = ended;
             _source = released ? null : source;
             if (released) { _ownershipLease?.Dispose(); _ownershipLease = null; }
             else
@@ -1151,7 +1195,7 @@ public sealed class CaptureController : IDisposable
 
         _services.Logger.Write(LogLevel.Info, "capture", "session_closed", new Dictionary<string, object?>
         {
-            ["reason"] = EnumWire<CaptureEndReason>.Format(reason),
+            ["reason"] = EnumWire<CaptureEndReason>.Format(ended),
             ["packets_observed"] = run?.PacketsObserved ?? 0,
             ["messages_decoded"] = run?.MessagesDecoded ?? 0,
             ["decode_errors"] = run?.DecodeErrors ?? 0,
@@ -1234,8 +1278,11 @@ public sealed class CaptureController : IDisposable
         // stream at all, and only a connection that showed one SYN and not the other lands
         // in DroppedNoSyn. Both mean the same thing -- no handshake was observed -- so both
         // count, and the sample has to be big enough that ordinary background chatter on the
-        // same local address cannot produce this verdict on its own.
-        if (ingress.AllDroppedBeforeDecode && ingress.RawPackets >= MidstreamRejectionThreshold)
+        // same local address cannot produce this verdict on its own. And the game has to hold
+        // a connection at all: before login every frame is another program's, and those are
+        // dropped for want of a handshake too (audit 2026-10-03, OA-6).
+        if (ingress.AllDroppedBeforeDecode && ingress.RawPackets >= MidstreamRejectionThreshold &&
+            (ingress.GameConnectionsNow > 0 || preexisting > 0))
         {
             return CaptureSilentReason.Midstream;
         }
@@ -1273,6 +1320,7 @@ public sealed class CaptureController : IDisposable
         CaptureRun run;
         CaptureSilentReason reason;
         int? preexisting;
+        long queueDropped;
         var ingress = IngressCounters(); // Outside _gate: see the note in Snapshot.
         lock (_gate)
         {
@@ -1291,6 +1339,7 @@ public sealed class CaptureController : IDisposable
             run = current;
             reason = _silentReason;
             preexisting = _preexistingConnections;
+            queueDropped = _queue?.DroppedCount ?? 0;
         }
 
         _services.Logger.Write(LogLevel.Info, "capture", "ingress_stats", new Dictionary<string, object?>
@@ -1302,6 +1351,10 @@ public sealed class CaptureController : IDisposable
             ["unconfirmed_tuples"] = ingress.UnconfirmedTuples,
             ["stream_resets"] = ingress.StreamResets,
             ["adapter_dropped"] = ingress.AdapterDropped,
+            // The other two losses that make a session stop counting as calibration evidence
+            // (CaptureSessionHealth.IsHealthy); without them the log cannot say why.
+            ["damaged_game_directions"] = ingress.DamagedGameDirections,
+            ["queue_dropped"] = queueDropped,
             ["packets_observed"] = run.PacketsObserved,
             ["messages_decoded"] = run.MessagesDecoded,
             ["ipc_decoded"] = run.IpcMessagesDecoded,
@@ -1345,6 +1398,40 @@ public sealed class CaptureController : IDisposable
         });
         if (Teardown(CaptureEndReason.Unknown))
             Publish(Snapshot(), "所选网卡上没有看到游戏流量，正在重新选择网卡后重试。");
+    }
+
+    /// <summary>
+    /// Finishes a stop that could not release everything: the parser was still inside the sink
+    /// when its drain budget ran out, or the source's threads had not left yet. The teardown
+    /// keeps what it could not release and is safe to repeat, so the follow poll repeats it
+    /// until queue, source and ownership lease are all gone, after which the ordinary fault
+    /// recovery runs. Before, only an explicit stop retried it -- a maintainer-only control --
+    /// and recording stayed failed until the software was restarted (audit 2026-10-03, OA-2).
+    ///
+    /// Each attempt holds the lifecycle gate for as long as the teardown waits, so it is only
+    /// made when it can succeed: not while the parser is visibly still inside the sink, and
+    /// for a source no more often than the fault back-off.
+    /// </summary>
+    private void RetryRelease()
+    {
+        lock (_lifecycleGate)
+        {
+            CaptureEndReason reason;
+            lock (_gate)
+            {
+                if (_disposed || !_releaseFailed || _state != CaptureControllerState.Faulted ||
+                    _queue is { Completion.IsCompleted: false } ||
+                    (_source is not null && ProcessUptimeMs < _faultRetryAtMs))
+                {
+                    return;
+                }
+
+                reason = _releaseReason;
+            }
+
+            if (TeardownCore(reason))
+                Publish(Snapshot(), "未能及时结束的上一次采集已完成收尾。");
+        }
     }
 
     /// <summary>
@@ -1574,7 +1661,9 @@ public sealed class CaptureController : IDisposable
     /// leaves the OS connection table well before the one-second follow poll notices the
     /// process is gone, so without this check an ordinary "quit while inside a duty" is
     /// recorded as DISCONNECTED instead of INTERRUPTED, contradicting
-    /// docs/state-machine.md section 3.6 (review finding R-2).
+    /// docs/state-machine.md section 3.6 (review finding R-2). The check only reads the
+    /// process list -- the selection is the poll's to change, not this parser thread's -- and
+    /// a listing that fails counts as "alive", as that section requires.
     /// </summary>
     /// <param name="captureSessionId">Session the marker was queued for.</param>
     /// <param name="generation">Session generation the marker belongs to.</param>
@@ -1592,8 +1681,7 @@ public sealed class CaptureController : IDisposable
             run = current;
         }
 
-        var selected = _gameSelection.Refresh();
-        if (!run.Observes(selected))
+        if (!run.StillListed(_services.Game))
         {
             _services.Logger.Write(
                 LogLevel.Info, "capture", "connection_lost_game_exited", new Dictionary<string, object?>
@@ -1610,6 +1698,62 @@ public sealed class CaptureController : IDisposable
         catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
         {
             _services.Logger.WriteError("capture", "lifecycle_connection_lost_failed", ex);
+        }
+    }
+
+    /// <summary>
+    /// One direction of a game connection was given up after a gap it could not fill. Queued like
+    /// the connection-lost marker, for the same reason: the listener decides from what that
+    /// connection delivered whether a run lost anything, so the report must not overtake what it
+    /// delivered (audit 2026-10-03, CS3a-X1).
+    /// </summary>
+    /// <param name="queue">Queue of the reporting session; the marker keeps its place in it.</param>
+    /// <param name="generation">Session generation the reporting observer belongs to.</param>
+    /// <param name="connectionKey">Opaque key of the connection, as on its decoded messages.</param>
+    /// <param name="direction">The direction given up.</param>
+    private void OnDirectionDamaged(
+        DecodedMessageQueue queue, long generation, string connectionKey, MessageDirection direction)
+    {
+        lock (_gate)
+        {
+            if (_disposed || generation != _generation)
+            {
+                return;
+            }
+        }
+
+        queue.OfferDirectionDamaged(connectionKey, direction);
+    }
+
+    /// <summary>
+    /// The queued direction-damaged marker reached the front of the queue; runs on the parser
+    /// thread, like <see cref="DeliverConnectionLost"/>. Nothing ended, so the game process is not
+    /// consulted.
+    /// </summary>
+    /// <param name="captureSessionId">Session the marker was queued for.</param>
+    /// <param name="generation">Session generation the marker belongs to.</param>
+    /// <param name="connectionKey">Opaque key of the connection, as on its decoded messages.</param>
+    /// <param name="direction">The direction given up.</param>
+    private void DeliverDirectionDamaged(
+        string captureSessionId, long generation, string connectionKey, MessageDirection direction)
+    {
+        lock (_gate)
+        {
+            if (_disposed || generation != _generation ||
+                _state != CaptureControllerState.Running || _run is not { } current ||
+                !string.Equals(current.CaptureSessionId, captureSessionId, StringComparison.Ordinal))
+            {
+                return;
+            }
+        }
+
+        try
+        {
+            _services.Lifecycle.OnDirectionDamaged(captureSessionId, connectionKey, direction);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        {
+            _services.Logger.WriteError("capture", "lifecycle_direction_damaged_failed", ex);
         }
     }
 
@@ -2078,6 +2222,10 @@ public sealed class CaptureController : IDisposable
         public bool Observes(GameProcessDetection game) => game.Running &&
             game.ProcessId == GameProcessId && game.StartedAtUtc is not null && game.StartedAtUtc == GameStartedAtUtc;
 
+        /// <summary>Whether the observed incarnation is still listed; a failed listing says yes.</summary>
+        public bool StillListed(GameProcessLocator locator) =>
+            GameProcessId is not { } processId || locator.IsRunning(processId, GameStartedAtUtc);
+
         public CaptureAdapterView? Adapter { get; }
 
         public OodleMode Oodle { get; }
@@ -2161,5 +2309,8 @@ public sealed class CaptureController : IDisposable
         public void OnFault(string reason, Exception? error) => _controller.OnFault(reason, error, _generation);
 
         public void OnConnectionClosed() => _controller.OnConnectionLost(_queue, _generation);
+
+        public void OnDirectionDamaged(string connectionKey, MessageDirection direction) =>
+            _controller.OnDirectionDamaged(_queue, _generation, connectionKey, direction);
     }
 }

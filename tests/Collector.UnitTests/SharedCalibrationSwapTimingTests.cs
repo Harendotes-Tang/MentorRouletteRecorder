@@ -1,11 +1,13 @@
 using System.Text.Json.Nodes;
 using MentorRecorder.Collector.Capture;
 using MentorRecorder.Collector.Domain;
+using MentorRecorder.Collector.Domain.Time;
 using MentorRecorder.Collector.Ipc;
 using MentorRecorder.Collector.Protocol.Calibration;
 using MentorRecorder.Collector.Protocol.Decoded;
 using MentorRecorder.Collector.Protocol.Pipeline;
 using MentorRecorder.Collector.Protocol.Profiles;
+using MentorRecorder.Collector.Protocol.Sharing;
 using MentorRecorder.Collector.Storage.Repositories;
 using Bed = MentorRecorder.Collector.UnitTests.SharedCalibrationTestBed;
 
@@ -150,6 +152,43 @@ public sealed class SharedCalibrationSwapTimingTests : IDisposable
         AssertNeverFlagged(runs);
         // Owed, not forgotten: it took over the moment that run ended, in this same session.
         Assert.NotNull(pipeline.CalibrationStatus().Shared.BoundAtUtc);
+    }
+
+    /// <summary>
+    /// Audit 2026-10-03, V3-3. Every code of a build records under one profile id, so a code's own runs are told
+    /// apart by when it began recording, and that moment is kept with its document. A code selected while the
+    /// profile in force still held the player's run is owed the swap; capture stopped before it came due, so the
+    /// swap went with the session and the code records from the next one. Its runs therefore date from the stop.
+    /// The moment its file was written was kept instead, and everything the other profile recorded between the
+    /// two was later taken for this code's own: marked pending review when the code was withdrawn, and counted
+    /// as its proving duty across a restart.
+    /// </summary>
+    [Fact]
+    public async Task ACodeWhoseSwapWasStillOwedWhenCaptureStoppedRecordsFromTheStop()
+    {
+        var pipeline = QueueInferredLocalWithBetterCodePublished();
+        await Bed.Idle(pipeline);
+        var evening = ReportedEvening();
+        var session = _bed.Start(pipeline);
+        await FeedSettling(pipeline, session, Bed.Before(evening, 214_000));
+        using var release = new ManualResetEventSlim(false);
+        _bed.BeforeReload = () => release.Wait(TimeSpan.FromSeconds(30));
+        Bed.Feed(pipeline, session, Bed.From(Bed.Before(evening, 250_000), 214_000));
+        release.Set();
+        await Bed.Idle(pipeline);
+        _bed.BeforeReload = null;
+        Assert.Equal(ProfileOrigin.Shared, pipeline.Current.Origin);
+        Assert.Null(pipeline.CalibrationStatus().Shared.BoundAtUtc);
+        var document = ProfileLoader.Load(_bed.SharedProfilePath).ProfileSha256;
+        Assert.NotNull(_bed.Store.BoundSince(Region.Cn, Bed.Build, document));
+
+        _bed.Db.Clock.UtcNow += TimeSpan.FromHours(2);
+        pipeline.OnCaptureStopped(session, CaptureEndReason.UserStop);
+        await Bed.Idle(pipeline);
+
+        Assert.Equal(
+            UtcTimestamp.Truncate(_bed.Db.Clock.UtcNow - SharedBindResult.ClockAllowance),
+            _bed.Store.BoundSince(Region.Cn, Bed.Build, document));
     }
 
     /// <summary>

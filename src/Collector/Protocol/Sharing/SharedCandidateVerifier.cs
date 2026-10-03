@@ -130,7 +130,12 @@ public static class SharedCandidateVerifier
     /// <param name="snapshot">Observer snapshot, with session health and the candidate's counts.</param>
     /// <param name="template">Template the candidate was built through.</param>
     /// <param name="candidate">Candidate to judge.</param>
-    /// <param name="provenance">Where the code came from; decides which criteria gate binding (plan §18.3).</param>
+    /// <param name="provenance">
+    /// Which criteria gate binding (plan §18.3): <see cref="SharedCandidateProvenance.Published"/> for a code that may
+    /// bind on the login burst, <see cref="SharedCandidateProvenance.Imported"/> for one that must see everything first -
+    /// a code no index knows, and since audit 2026-10-03 (ON1-1) also a published one that would displace a usable
+    /// calibration, carries the conflict mark or is outranked by submitters.
+    /// </param>
     public static SharedVerification Verify(
         CalibrationSnapshot snapshot, CalibrationTemplate template, DeclaredCandidate candidate, SharedCandidateProvenance provenance)
     {

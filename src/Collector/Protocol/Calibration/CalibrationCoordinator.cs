@@ -124,6 +124,14 @@ public sealed class CalibrationCoordinator
     private CalibrationSnapshot? _carried;
     private string? _carriedSource;
     private CalibrationRejections _rejections = CalibrationRejections.None;
+
+    /// <summary>
+    /// Pop opcodes the traffic itself disproved (<see cref="RejectPopOpcode"/>). Also in
+    /// <see cref="_rejections"/>; kept apart because 重新观察 forgets what the player rejected but not
+    /// what the traffic proved.
+    /// </summary>
+    private readonly HashSet<ushort> _disproved = new();
+
     private CalibrationDraft? _draft;
     private int _draftAtMessage = -1;
     private CalibrationState _state = CalibrationState.Idle;
@@ -253,6 +261,7 @@ public sealed class CalibrationCoordinator
         _build = null;
         _observer = null;
         _rejections = CalibrationRejections.None;
+        _disproved.Clear();
         _draft = null;
         _draftAtMessage = -1;
         _state = CalibrationState.Idle;
@@ -569,7 +578,13 @@ public sealed class CalibrationCoordinator
             // Party queues matter to calibration only: the mentor roulette can only be queued
             // alone, so the player always sends that request and no mentor run is ever missed
             // for being queued by someone else.
-            blockers = draft?.Status == CalibrationDraftStatus.Blocked
+            //
+            // And unless the search has found something: then the card asks the player to check a
+            // timeline, and "still looking, will ask you once found" under that question contradicts
+            // it (audit 2026-10-03, OCal-9).
+            blockers = _state == CalibrationState.Ready && draft is not null
+                ? ProvisionalOffer(draft)
+                : draft?.Status == CalibrationDraftStatus.Blocked
                 ? new[]
                 {
                     "已经可以正常记录导随了：目前按「你申请了哪个随机任务 + 你进了哪个副本」判定，记录不受下面这件事影响。",
@@ -624,6 +639,38 @@ public sealed class CalibrationCoordinator
     }
 
     /// <summary>
+    /// The line a ready draft beside a recording, queue-inferred profile is put to the player with.
+    /// The card's READY headline says recording can start once the lines are checked; here it never
+    /// stopped, so the line says what confirming brings and that nothing waits on it.
+    /// </summary>
+    /// <param name="draft">The ready draft.</param>
+    private string[] ProvisionalOffer(CalibrationDraft draft)
+    {
+        if (draft.MatchSource != CalibrationMatchSource.QueueRequest)
+        {
+            return new[]
+            {
+                "软件找到了这一版真正的「匹配成功」报文：核对下面的时间线后，改为按这条报文判定，判定会更准；核对之前记录照常进行。",
+            };
+        }
+
+        bool Brings(string name) => _provisionalLacks.Contains(name) &&
+            draft.Messages.Any(message => string.Equals(message.Name, name, StringComparison.Ordinal));
+        var job = Brings(CalibratedShape.JobName);
+        var announced = Brings(CalibratedShape.AnnouncedName);
+        return new[]
+        {
+            job && announced
+                ? "这份校准可以补上职业，也能认出匹配弹窗了：核对下面的时间线后，之后的记录会自动带上职业，" +
+                  "匹配弹窗一出现就知道匹配成功，不必等到进本；核对之前记录照常进行。"
+                : job
+                    ? "这份校准可以补上职业了：核对下面的时间线后，之后的记录会自动带上职业；核对之前记录照常进行。"
+                    : "这份校准可以认出匹配弹窗了：核对下面的时间线后，匹配弹窗一出现就知道匹配成功，不必等到进本；" +
+                      "核对之前记录照常进行。",
+        };
+    }
+
+    /// <summary>
     /// Checks the user's verdicts against the current draft. Returns the draft when every
     /// event that needs confirmation was marked correct; records the rejection and returns
     /// null when any was marked wrong. Missing verdicts are a bad request.
@@ -652,7 +699,7 @@ public sealed class CalibrationCoordinator
                 new Dictionary<string, object?> { ["state"] = _state.ToString().ToUpperInvariant() });
         }
 
-        var wrongKinds = new HashSet<string>(StringComparer.Ordinal);
+        var wrong = new List<CalibrationEvent>();
         var corrected = new List<RouletteRenaming>();
         foreach (var item in draft.Events.Where(item => item.RequiresConfirmation))
         {
@@ -663,7 +710,7 @@ public sealed class CalibrationCoordinator
 
             if (verdict.IsWrong)
             {
-                wrongKinds.Add(item.Kind);
+                wrong.Add(item);
                 continue;
             }
 
@@ -686,45 +733,84 @@ public sealed class CalibrationCoordinator
 
         renamings = corrected;
 
-        if (wrongKinds.Count == 0)
+        if (wrong.Count == 0)
         {
             return draft;
         }
 
-        // Only the candidate the wrong line was built on is excluded: a wrong pop says nothing
-        // about the zone marker, and the other way round.
-        var pops = new HashSet<ushort>(_rejections.PopOpcodes);
-        var zones = new HashSet<MessageKey>(_rejections.ZoneKeys);
-        var timed = new HashSet<ushort>(_rejections.TimedOpcodes);
-        // On a draft that recognised the announcement by its timing, every "匹配弹窗" line came
-        // from that announcement - the queue request has its own lines - so a wrong one costs
-        // the announcement and leaves the request, and the recording that rests on it, alone.
-        var timedWrong = draft.TimedAnnouncement is not null && wrongKinds.Contains("pop");
-        if (timedWrong && draft.TimedAnnouncement is { } announced)
-        {
-            timed.Add(announced.Shape.Opcode);
-        }
-
-        var popWrong = wrongKinds.Contains("finder_request") || (wrongKinds.Contains("pop") && !timedWrong);
-        var zoneWrong = wrongKinds.Contains("duty_enter") || wrongKinds.Contains("duty_exit");
-        foreach (var message in draft.Messages)
-        {
-            if (popWrong && message.Name == "CONTENT_FINDER_POP")
-            {
-                pops.Add(message.Opcode);
-            }
-            else if (zoneWrong && message.Name == "ZONE_INITIALIZATION" && message.ExpectedLength is { } length)
-            {
-                zones.Add(new MessageKey(message.Direction, message.Opcode, length));
-            }
-        }
-
-        _rejections = new CalibrationRejections(pops, zones) { TimedOpcodes = timed };
+        _rejections = Rejecting(draft, wrong);
         _draft = null;
         _draftAtMessage = -1;
         _state = CalibrationState.Observing;
         _generation++;
         return null;
+    }
+
+    /// <summary>
+    /// The rejections a set of wrong lines adds: each line costs the candidate it was built on and
+    /// nothing else (audit 2026-10-03, OCal-2).
+    ///
+    /// A 排本 line is about the request/echo pairs it stood for. A 进入副本 or 离开副本 line is about
+    /// that burst being the duty this match led to - when the match was inferred from a queue
+    /// request, the line says so - and never about the zone marker, which takes far more than one
+    /// burst to name: rejecting the marker over it blocked the draft with "需要新版本的软件". A 匹配
+    /// 弹窗 line is about the message that announced the match: the timed announcement, the reply's
+    /// "matched" state - not the reply opcode, which still answers every request - or the
+    /// announcement found as a message of its own.
+    /// </summary>
+    /// <param name="draft">The draft the lines came from.</param>
+    /// <param name="wrong">Lines marked wrong.</param>
+    private CalibrationRejections Rejecting(CalibrationDraft draft, IReadOnlyList<CalibrationEvent> wrong)
+    {
+        var pops = new HashSet<ushort>(_rejections.PopOpcodes);
+        var timed = new HashSet<ushort>(_rejections.TimedOpcodes);
+        var states = new List<(ushort Opcode, IReadOnlyList<CalibrationSelectorReading> Selectors)>(_rejections.MatchStates);
+        var requests = new HashSet<DateTimeOffset>(_rejections.Requests);
+        var entries = new HashSet<DateTimeOffset>(_rejections.Entries);
+        var exits = new HashSet<DateTimeOffset>(_rejections.Exits);
+        var pop = draft.Messages.FirstOrDefault(message => message.Name == CalibratedShape.PopName);
+        foreach (var line in wrong)
+        {
+            switch (line.Kind)
+            {
+                case "finder_request":
+                    requests.Add(line.AtUtc);
+                    break;
+                case "duty_enter":
+                    entries.Add(line.AtUtc);
+                    break;
+                case "duty_exit":
+                    exits.Add(line.AtUtc);
+                    break;
+                // On a draft that recognised the announcement by its timing, every "匹配弹窗" line
+                // came from that announcement - the queue request has its own lines - so a wrong
+                // one costs the announcement and leaves the request, and the recording that rests
+                // on it, alone.
+                case "pop" when draft.TimedAnnouncement is { } announced:
+                    timed.Add(announced.Shape.Opcode);
+                    break;
+                case "pop" when draft.MatchSource == CalibrationMatchSource.ReplyState && pop is not null:
+                    if (!states.Any(state => state.Opcode == pop.Opcode &&
+                            CalibrationObserver.SameSelectors(state.Selectors, draft.MatchSelectors)))
+                    {
+                        states.Add((pop.Opcode, draft.MatchSelectors));
+                    }
+
+                    break;
+                case "pop" when pop is not null:
+                    pops.Add(pop.Opcode);
+                    break;
+            }
+        }
+
+        return new CalibrationRejections(pops, _rejections.ZoneKeys)
+        {
+            TimedOpcodes = timed,
+            MatchStates = states,
+            Requests = requests,
+            Entries = entries,
+            Exits = exits,
+        };
     }
 
     /// <summary>
@@ -740,6 +826,7 @@ public sealed class CalibrationCoordinator
     /// <param name="opcode">Opcode the traffic disproved.</param>
     public void RejectPopOpcode(ushort opcode)
     {
+        _disproved.Add(opcode);
         if (_rejections.PopOpcodes.Contains(opcode))
         {
             return;
@@ -813,6 +900,9 @@ public sealed class CalibrationCoordinator
         // 重新观察 means "forget what you saw", and evidence read back from disk is exactly
         // that; leaving it to be adopted by the next observer would make the button a no-op.
         _carried = null;
+        // What the player rejected goes with it: kept, a line marked wrong outlived the button that
+        // promises a fresh start (audit 2026-10-03, OCal-2). What the traffic disproved stays.
+        _rejections = CalibrationRejections.None with { PopOpcodes = new HashSet<ushort>(_disproved) };
         if (captureSessionId is not null)
         {
             Begin(captureSessionId);

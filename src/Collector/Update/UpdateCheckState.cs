@@ -78,7 +78,10 @@ public sealed record UpdateCheckResult(
 /// on a request.
 /// </summary>
 /// <param name="Enabled">Whether <c>update.check_enabled</c> allows a check at all.</param>
-/// <param name="UpdateAvailable">True when the published version is strictly newer than this build's.</param>
+/// <param name="UpdateAvailable">
+/// True when checks are allowed and the published version is strictly newer than this build's; false whenever
+/// <paramref name="Enabled"/> is false.
+/// </param>
 /// <param name="LatestVersion">Newest published version this process knows of, or null.</param>
 /// <param name="LastCheckedAtUtc">When a check was last attempted, successfully or not.</param>
 /// <param name="LastOutcome">How that attempt ended, as an <see cref="UpdateCheckOutcome"/> token.</param>

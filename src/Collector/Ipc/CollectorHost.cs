@@ -340,7 +340,7 @@ public sealed class CollectorHost : IDisposable
         {
             Clock = provided?.Clock ?? Clock,
             Logger = logger ?? services.Logger,
-            Game = WithHostSeams(services.Game),
+            Game = WithHostSeams(services.Game, logger ?? services.Logger),
             Settings = services.Settings ?? Settings,
             Sessions = services.Sessions ?? Sessions,
             Database = services.Database ?? Database,
@@ -355,12 +355,18 @@ public sealed class CollectorHost : IDisposable
     /// Gives the locator the two things only this host can supply: the user's region override,
     /// and a place to remember where the client is installed, so the client version is known at
     /// startup rather than only once the game runs. The note sits beside this host's database,
-    /// like the Oodle manifest. A caller that supplied its own memory keeps it.
+    /// like the Oodle manifest. A caller that supplied its own memory keeps it. Every process
+    /// listing is also reported to a rate-limited log line, the only place a process table that
+    /// keeps failing to read becomes visible (audit 2026-10-03, CS1-X1).
     /// </summary>
     /// <param name="locator">Locator from the capture services.</param>
-    private GameProcessLocator WithHostSeams(GameProcessLocator locator)
+    /// <param name="logger">The capture layer's log.</param>
+    private GameProcessLocator WithHostSeams(GameProcessLocator locator, RotatingFileLogger logger)
     {
-        var located = locator.WithRegionOverride(() => CaptureSettingsStore.ReadRegionOverride(Settings));
+        var listingLog = new ProcessListingLog(logger, "capture");
+        var located = locator
+            .WithRegionOverride(() => CaptureSettingsStore.ReadRegionOverride(Settings))
+            .WithListingObserver(listingLog.Observe);
         return located.RemembersInstall
             ? located
             : located.WithInstallMemory(

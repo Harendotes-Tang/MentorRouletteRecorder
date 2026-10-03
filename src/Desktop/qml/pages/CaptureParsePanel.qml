@@ -9,8 +9,8 @@ import MentorRecorder
 // sent: without parse counters the panel says so and prints no number at all.
 // 最近有效事件 is last_valid_event_at_utc in local time plus the Chinese name of
 // last_valid_event_kind (Fmt.eventKindLabel); an unknown kind leaves the time.
-// A refusal row shows its code in mono and a Chinese sentence; maintainers also
-// read the direction, the opcode and the Collector's text.
+// A refusal row shows a Chinese sentence; maintainers read its code in mono, the
+// direction, the opcode and the Collector's text instead.
 Card {
     id: parse
     objectName: "captureParsePanel"
@@ -216,10 +216,13 @@ Card {
                         font.features: ({ "tnum": 1 })
                     }
 
+                    // The refusal code is a token: maintainers read it, a player
+                    // reads the sentence beside it (review OK-8).
                     Text {
                         Layout.preferredWidth: 140
                         Layout.alignment: Qt.AlignTop
                         Layout.topMargin: 1
+                        visible: parse.maintainer
                         text: String(failureRow.modelData.code || "")
                         textFormat: Text.PlainText
                         color: Theme.red

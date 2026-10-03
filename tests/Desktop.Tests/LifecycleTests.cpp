@@ -30,6 +30,7 @@
 #include <QSignalSpy>
 #include <QStandardPaths>
 #include <QPointer>
+#include <QProcess>
 #include <QTemporaryDir>
 #include <QTest>
 #include <QTextStream>
@@ -128,6 +129,64 @@ QString alreadyRunningProgram(const QString &directory)
     Q_UNUSED(directory)
     return QString();
 #endif
+}
+
+/// A Collector stand-in that refuses to start the way the Collector does: one
+/// line on standard error, then \a exitCode. Every launch also appends a line
+/// to runs.txt beside it, so a test can tell whether anything launched it again.
+QString refusingProgram(const QString &directory, int exitCode, const QByteArray &stderrLine)
+{
+#ifdef Q_OS_WIN
+    const QString path = QDir(directory).absoluteFilePath(QStringLiteral("refusing.cmd"));
+    QFile script(path);
+    if (!script.open(QIODevice::WriteOnly))
+        return QString();
+    script.write(QByteArrayLiteral("@echo off\r\necho run>>\"%~dp0runs.txt\"\r\n>&2 echo ")
+                 + stderrLine + QByteArrayLiteral("\r\nexit /b ")
+                 + QByteArray::number(exitCode) + QByteArrayLiteral("\r\n"));
+    script.close();
+    return path;
+#else
+    Q_UNUSED(directory)
+    Q_UNUSED(exitCode)
+    Q_UNUSED(stderrLine)
+    return QString();
+#endif
+}
+
+/// A Collector stand-in that runs until its standard input is closed and then
+/// exits with code 1 - a crash at a moment the test chooses.
+QString crashOnRequestProgram(const QString &directory)
+{
+#ifdef Q_OS_WIN
+    const QString path = QDir(directory).absoluteFilePath(QStringLiteral("crash-on-request.cmd"));
+    QFile script(path);
+    if (!script.open(QIODevice::WriteOnly))
+        return QString();
+    script.write(QByteArrayLiteral("@echo off\r\npause > nul\r\nexit /b 1\r\n"));
+    script.close();
+    return path;
+#else
+    Q_UNUSED(directory)
+    return QString();
+#endif
+}
+
+/// How many times a refusingProgram() stub in \a directory was launched.
+int launchesIn(const QString &directory)
+{
+    QFile runs(QDir(directory).absoluteFilePath(QStringLiteral("runs.txt")));
+    if (!runs.open(QIODevice::ReadOnly | QIODevice::Text))
+        return 0;
+    return int(runs.readAll().count('\n'));
+}
+
+/// Make the supervised child crash now: close the standard input its stub
+/// waits on.
+void crashChild(mr::CollectorProcess &collector)
+{
+    if (auto *process = collector.findChild<QProcess *>())
+        process->closeWriteChannel();
 }
 
 /// Write \a pid into a serve.pid file inside \a directory, the way the
@@ -239,6 +298,25 @@ private Q_SLOTS:
     void anUnresponsiveHolderExitAsksBeforeItEndsAnything();
     void aVanishedHolderJustLetsOurOwnChildTakeTheLease();
     void aFailedRequestFromADestroyedBackendNeverReachesAController();
+
+    void aReleaseBuildLaunchesOnlyTheCollectorBesideIt();
+    void theMissingStateSpeaksToPlayers();
+    void theCollectorDataDirectoryIsTheRealOneEvenInQtTestMode();
+    void aRefusedStartIsReportedInsteadOfRestarted_data();
+    void aRefusedStartIsReportedInsteadOfRestarted();
+    void exitReasonsAreTheCollectorsOwnWords_data();
+    void exitReasonsAreTheCollectorsOwnWords();
+    void aChildThatCannotBeStartedIsTriedOnceMore();
+    void aRefusedStartIsTriedAgainQuietlyUntilItSucceeds();
+    void aCollectorThatKeepsDyingAfterConnectingBacksOffFurther();
+    void aCollectorThatStayedUpStartsTheBackoffAgain();
+    void stopAsksAChildThatHasNotRecordedItsLeaseYet();
+    void stopNeverAsksTheCollectorOfAnotherHolder();
+    void theGracefulStopWaitCoversTheCollectorsOwnShutdown();
+    void theClientConnectsToAPipeThisUserServes();
+    void theClientRefusesAPipeServedByAnotherAccount();
+    void aRequestThatNeverLeftTheClientSaysSo();
+    void aMockRunNeverTouchesThePlayersSettings();
 
     void exportsAndBackupsGetTheirOwnDeadline();
     void everyAnswerTheCollectorDefersGetsAnExtendedDeadline();
@@ -478,6 +556,10 @@ void LifecycleTests::stopAsksThroughTheCollectorsStopEventBeforeKilling()
 
     mr::CollectorProcess collector(stub, nullptr);
     collector.setStopEventNameForTest(name);
+    // The stub never honours the request; the wait is shortened so the test
+    // does not sit out the whole production budget.
+    const int budgetMs = 500;
+    collector.setGracefulStopMsForTest(budgetMs);
     collector.start();
     QTRY_VERIFY_WITH_TIMEOUT(collector.isRunning(), 10000);
 
@@ -493,7 +575,7 @@ void LifecycleTests::stopAsksThroughTheCollectorsStopEventBeforeKilling()
     QCOMPARE(collector.stateToken(), QStringLiteral("stopped"));
     QVERIFY(!collector.lastStopWasGraceful());
     // ...and the whole thing stayed bounded.
-    QVERIFY2(blockedMs < mr::CollectorProcess::gracefulStopMs() + 2000,
+    QVERIFY2(blockedMs < budgetMs + 2000,
              qPrintable(QStringLiteral("stop() took %1 ms").arg(blockedMs)));
     ::CloseHandle(event);
 #endif
@@ -910,9 +992,535 @@ void LifecycleTests::aFailedRequestFromADestroyedBackendNeverReachesAController(
     QFile::remove(mr::AppSettings::filePath());
 }
 
+/// A release build starts the Collector that was installed beside it and
+/// nothing else (review OH-8): not one named by the environment, and not one
+/// found by walking up into a source tree - on an install under D:\ that walk
+/// reaches a user-writable drive root, where anybody can plant a program.
+void LifecycleTests::aReleaseBuildLaunchesOnlyTheCollectorBesideIt()
+{
+#ifdef MR_DEV_COLLECTOR_DISCOVERY
+    QSKIP("compiled with MR_DEV_COLLECTOR_DISCOVERY: a developer build, which honours the override");
+#endif
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString planted =
+        QDir(directory.path()).absoluteFilePath(QStringLiteral("planted.exe"));
+    QFile file(planted);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.close();
+
+    const QByteArray previous = qgetenv("MR_COLLECTOR_PATH");
+    qputenv("MR_COLLECTOR_PATH", QFile::encodeName(planted));
+    const QString resolved = mr::CollectorProcess::resolveDefaultExecutable();
+    qputenv("MR_COLLECTOR_PATH", previous);
+
+    QCOMPARE(QFileInfo(resolved).fileName(), QStringLiteral("MentorRecorder.Collector.exe"));
+    const QString folder = QDir::cleanPath(QFileInfo(resolved).absolutePath());
+    const QString appDir = QDir::cleanPath(QCoreApplication::applicationDirPath());
+    QVERIFY2(folder.compare(appDir, Qt::CaseInsensitive) == 0
+                 || folder.compare(appDir + QStringLiteral("/collector"), Qt::CaseInsensitive) == 0,
+             qPrintable(resolved));
+}
+
+/// The title bar shows this to players: no build script, CMake option or
+/// environment variable (review OH-8, docs/ui-design.md §4.8).
+void LifecycleTests::theMissingStateSpeaksToPlayers()
+{
+#ifdef MR_DEV_COLLECTOR_DISCOVERY
+    QSKIP("compiled with MR_DEV_COLLECTOR_DISCOVERY: a developer build names its build steps");
+#endif
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    mr::CollectorProcess collector(
+        QDir(directory.path()).absoluteFilePath(QStringLiteral("MentorRecorder.Collector.exe")),
+        nullptr);
+    QCOMPARE(collector.stateToken(), QStringLiteral("missing"));
+    const QString text = collector.statusText();
+    QVERIFY2(text.contains(QString::fromUtf8("重新安装")), qPrintable(text));
+    for (const char *developerWord : {"build.ps1", "CMake", "MR_COLLECTOR_PATH",
+                                      "MR_STAGE_COLLECTOR", "scripts/"}) {
+        QVERIFY2(!text.contains(QLatin1String(developerWord)), qPrintable(text));
+    }
+}
+
+/// QStandardPaths' test mode - which every screenshot run switches on so it
+/// cannot touch the user's desktop.ini - must not move where the Desktop looks
+/// for the Collector's serve.pid (review OH-7). The Collector writes it under
+/// the real %LOCALAPPDATA%; looking under ...\qttest made a screenshot run's
+/// quit kill a Collector holding the user's database.
+void LifecycleTests::theCollectorDataDirectoryIsTheRealOneEvenInQtTestMode()
+{
+#ifndef Q_OS_WIN
+    QSKIP("%LOCALAPPDATA% is a Windows location.");
+#else
+    QVERIFY(QStandardPaths::isTestModeEnabled());
+    const QByteArray previous = qgetenv("MR_DATA_DIR");
+    qunsetenv("MR_DATA_DIR");
+    const QString directory = mr::CollectorProcess::collectorDataDirectory();
+    if (!previous.isEmpty())
+        qputenv("MR_DATA_DIR", previous);
+
+    const QString local = qEnvironmentVariable("LOCALAPPDATA");
+    QVERIFY(!local.isEmpty());
+    QVERIFY2(!directory.contains(QStringLiteral("qttest"), Qt::CaseInsensitive),
+             qPrintable(directory));
+    QCOMPARE(QDir::cleanPath(directory).toLower(),
+             QDir::cleanPath(QDir(local).absoluteFilePath(QStringLiteral("MentorRecorder")))
+                 .toLower());
+#endif
+}
+
+void LifecycleTests::aRefusedStartIsReportedInsteadOfRestarted_data()
+{
+    QTest::addColumn<int>("exitCode");
+    QTest::addColumn<QByteArray>("stderrLine");
+    QTest::addColumn<QString>("expected");
+    // ERR_DB_INTEGRITY and friends: the database or the data folder refused
+    // the start, and a restart reads the same file again.
+    QTest::newRow("database")
+        << 3 << QByteArrayLiteral("ERR_DB_INTEGRITY: database check failed, copy the file first")
+        << QStringLiteral("database check failed, copy the file first");
+    // The command line is ours; it is the same on every restart.
+    QTest::newRow("arguments")
+        << 2 << QByteArrayLiteral("unknown option --serve")
+        << QString::fromUtf8("重新安装");
+}
+
+/// Exit codes no restart can cure stop the loop, and the Collector's own
+/// explanation reaches the player instead of 「已退出（代码 3），N 秒后重启」
+/// forever (review OH-3 / OF-1).
+void LifecycleTests::aRefusedStartIsReportedInsteadOfRestarted()
+{
+    QFETCH(int, exitCode);
+    QFETCH(QByteArray, stderrLine);
+    QFETCH(QString, expected);
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString stub = refusingProgram(directory.path(), exitCode, stderrLine);
+    if (stub.isEmpty())
+        QSKIP("No way to fake a refused start on this machine.");
+
+    mr::CollectorProcess collector(stub, nullptr);
+    QSignalSpy refused(&collector, &mr::CollectorProcess::startRefused);
+    QSignalSpy restarts(&collector, &mr::CollectorProcess::restarted);
+    collector.start();
+
+    QTRY_COMPARE_WITH_TIMEOUT(refused.count(), 1, 10000);
+    QTest::qWait(mr::CollectorProcess::minBackoffMs() * 3);
+    QCOMPARE(restarts.count(), 0);
+    QVERIFY(!collector.restartPending());
+    QVERIFY(collector.isStartRefused());
+    QCOMPARE(launchesIn(directory.path()), 1);
+    QCOMPARE(collector.stateToken(), QStringLiteral("exited"));
+    const QString message = refused.at(0).at(0).toString();
+    QVERIFY2(message.contains(expected), qPrintable(message));
+    QVERIFY2(!message.contains(QLatin1String("ERR_")), qPrintable(message));
+    QVERIFY2(collector.statusText().contains(expected), qPrintable(collector.statusText()));
+}
+
+void LifecycleTests::exitReasonsAreTheCollectorsOwnWords_data()
+{
+    QTest::addColumn<int>("exitCode");
+    QTest::addColumn<QByteArray>("stderrTail");
+    QTest::addColumn<QString>("expected");
+    QTest::newRow("collector-exception")
+        << 3
+        << QByteArray("collector v1\r\nERR_DB_INTEGRITY: "
+                      + QString::fromUtf8("数据库完整性校验失败：D:\\data\\mentor.db。请先复制一份留底。")
+                            .toUtf8()
+                      + "\r\n")
+        << QString::fromUtf8("数据库完整性校验失败：D:\\data\\mentor.db。请先复制一份留底。");
+    QTest::newRow("io-failure")
+        << 3 << QByteArray("failed: " + QString::fromUtf8("无法写入日志目录，采集服务未启动。").toUtf8())
+        << QString::fromUtf8("无法写入日志目录，采集服务未启动。");
+    QTest::newRow("silent-refusal") << 3 << QByteArray() << QString::fromUtf8("本机日志");
+    QTest::newRow("bad-arguments")
+        << 2 << QByteArrayLiteral("Unknown option.\nUsage: ...") << QString::fromUtf8("重新安装");
+}
+
+/// What the player reads after a refused start: the Collector's sentence with
+/// its error token and prefix dropped, or a sentence of ours when it said
+/// nothing usable.
+void LifecycleTests::exitReasonsAreTheCollectorsOwnWords()
+{
+    QFETCH(int, exitCode);
+    QFETCH(QByteArray, stderrTail);
+    QFETCH(QString, expected);
+    const QString reason = mr::CollectorProcess::exitExplanation(exitCode, stderrTail);
+    QVERIFY2(reason.contains(expected), qPrintable(reason));
+    QVERIFY2(!reason.contains(QLatin1String("ERR_")), qPrintable(reason));
+    QVERIFY2(!reason.startsWith(QLatin1String("failed")), qPrintable(reason));
+}
+
+/// A launch Windows refuses outright is retried once - a scanner may have held
+/// the file - and then reported rather than retried every half minute.
+void LifecycleTests::aChildThatCannotBeStartedIsTriedOnceMore()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString notAProgram =
+        QDir(directory.path()).absoluteFilePath(QStringLiteral("not-a-program.exe"));
+    QFile file(notAProgram);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write("this is not an executable");
+    file.close();
+
+    mr::CollectorProcess collector(notAProgram, nullptr);
+    QSignalSpy refused(&collector, &mr::CollectorProcess::startRefused);
+    // Both signals end up as a toast, and the later one replaces the earlier:
+    // nothing may claim 「已自动重启」 after the launch was refused.
+    QStringList order;
+    QObject::connect(&collector, &mr::CollectorProcess::restarted, &collector,
+                     [&order] { order << QStringLiteral("restarted"); });
+    QObject::connect(&collector, &mr::CollectorProcess::startRefused, &collector,
+                     [&order] { order << QStringLiteral("refused"); });
+    collector.start();
+
+    QTRY_COMPARE_WITH_TIMEOUT(refused.count(), 1, 10000);
+    QTest::qWait(mr::CollectorProcess::minBackoffMs() * 4);
+    QCOMPARE(refused.count(), 1);
+    QCOMPARE(order.last(), QStringLiteral("refused"));
+    QVERIFY(order.count(QStringLiteral("restarted")) <= 1);
+    QVERIFY(!collector.restartPending());
+    QVERIFY(collector.isStartRefused());
+}
+
+/// Exit 3 is not always permanent: the database or the log folder can be held
+/// for a while by a scanner or a backup program. A refused start is therefore
+/// tried again, minutes apart and without telling the player the same thing
+/// again, and the program records again once the cause is gone - without a
+/// restart of the Desktop.
+void LifecycleTests::aRefusedStartIsTriedAgainQuietlyUntilItSucceeds()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString stub = refusingProgram(
+        directory.path(), 3, QByteArrayLiteral("ERR_DB_BUSY: the database is held by another program"));
+    if (stub.isEmpty())
+        QSKIP("No way to fake a refused start on this machine.");
+
+    mr::CollectorProcess collector(stub, nullptr);
+    collector.setRefusedRetryMsForTest(400);
+    QSignalSpy refused(&collector, &mr::CollectorProcess::startRefused);
+    QSignalSpy restarts(&collector, &mr::CollectorProcess::restarted);
+    collector.start();
+    QTRY_COMPARE_WITH_TIMEOUT(refused.count(), 1, 10000);
+
+    // Tried again, refused again: once on screen is enough.
+    QTRY_VERIFY_WITH_TIMEOUT(launchesIn(directory.path()) >= 2, 10000);
+    QTRY_VERIFY_WITH_TIMEOUT(collector.isStartRefused(), 5000);
+    QCOMPARE(refused.count(), 1);
+    QCOMPARE(restarts.count(), 0);
+
+    // The cause goes away; the next quiet retry starts it for good.
+    QFile script(stub);
+    QVERIFY(script.open(QIODevice::WriteOnly | QIODevice::Truncate));
+    script.write(QByteArrayLiteral("@echo off\r\npause > nul\r\n"));
+    script.close();
+    QTRY_VERIFY_WITH_TIMEOUT(collector.stateToken() == QStringLiteral("running"), 10000);
+    QVERIFY(!collector.isStartRefused());
+    QCOMPARE(restarts.count(), 0);
+    collector.stop();
+}
+
+/// A Collector that crashes a few seconds after the Desktop connected to it
+/// must not be restarted every second forever: the connection is not evidence
+/// that the child is healthy, so it must not reset the backoff (review OH-3).
+void LifecycleTests::aCollectorThatKeepsDyingAfterConnectingBacksOffFurther()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString stub = crashOnRequestProgram(directory.path());
+    if (stub.isEmpty())
+        QSKIP("No crash-on-request stub available on this machine.");
+
+    mr::CollectorProcess collector(stub, nullptr);
+    QSignalSpy restarts(&collector, &mr::CollectorProcess::restarted);
+    collector.start();
+    for (int cycle = 0; cycle < 2; ++cycle) {
+        QTRY_VERIFY_WITH_TIMEOUT(collector.isRunning(), 10000);
+        // Our child serves the pipe and the Desktop connects to it...
+        collector.noteBackendConnected(true);
+        QTest::qWait(mr::CollectorProcess::shortLivedMs() + 300);
+        // ...and then it dies, taking the pipe with it.
+        crashChild(collector);
+        QTRY_COMPARE_WITH_TIMEOUT(collector.stateToken(), QStringLiteral("exited"), 10000);
+        collector.noteBackendConnected(false);
+        QTRY_COMPARE_WITH_TIMEOUT(restarts.count(), cycle + 1, 15000);
+    }
+    QVERIFY2(restarts.at(1).at(1).toInt() > restarts.at(0).at(1).toInt(),
+             qPrintable(QStringLiteral("backoff %1 ms then %2 ms")
+                            .arg(restarts.at(0).at(1).toInt())
+                            .arg(restarts.at(1).at(1).toInt())));
+    collector.stop();
+}
+
+/// A child that stayed up for a good while earns a fresh backoff: an isolated
+/// crash days later is restarted quickly again.
+void LifecycleTests::aCollectorThatStayedUpStartsTheBackoffAgain()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString stub = crashOnRequestProgram(directory.path());
+    if (stub.isEmpty())
+        QSKIP("No crash-on-request stub available on this machine.");
+
+    mr::CollectorProcess collector(stub, nullptr);
+    collector.setStableRunMsForTest(400);
+    QSignalSpy restarts(&collector, &mr::CollectorProcess::restarted);
+    collector.start();
+    for (int cycle = 0; cycle < 2; ++cycle) {
+        QTRY_VERIFY_WITH_TIMEOUT(collector.isRunning(), 10000);
+        QTest::qWait(700);
+        crashChild(collector);
+        QTRY_COMPARE_WITH_TIMEOUT(restarts.count(), cycle + 1, 15000);
+    }
+    QCOMPARE(restarts.at(0).at(1).toInt(), mr::CollectorProcess::minBackoffMs());
+    QCOMPARE(restarts.at(1).at(1).toInt(), mr::CollectorProcess::minBackoffMs());
+    collector.stop();
+}
+
+/// Quitting while our own Collector is still opening the database - before it
+/// writes serve.pid - asks it to stop like any other time, instead of killing
+/// it in the middle of a migration (review OH-9).
+void LifecycleTests::stopAsksAChildThatHasNotRecordedItsLeaseYet()
+{
+#ifndef Q_OS_WIN
+    QSKIP("The stop event is a Win32 object.");
+#else
+    QTemporaryDir data;
+    QVERIFY(data.isValid());
+    const QByteArray previous = qgetenv("MR_DATA_DIR");
+    qputenv("MR_DATA_DIR", QFile::encodeName(data.path()));
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString stub = longLivedProgram(directory.path());
+    QVERIFY(!stub.isEmpty());
+
+    const QString name = isolatedStopEventName();
+    HANDLE event = ::CreateEventW(nullptr, TRUE, FALSE,
+                                  reinterpret_cast<const wchar_t *>(name.utf16()));
+    QVERIFY(event != nullptr);
+    ::ResetEvent(event);
+
+    mr::CollectorProcess collector(stub, nullptr);
+    collector.setStopEventNameForTest(name);
+    collector.setGracefulStopMsForTest(300);
+    collector.start();
+    QTRY_VERIFY_WITH_TIMEOUT(collector.isRunning(), 10000);
+    // No serve.pid anywhere: the child has not got as far as writing one.
+    QCOMPARE(mr::CollectorProcess::readServeLeasePid(), qint64(0));
+
+    collector.stop();
+    const DWORD signalled = ::WaitForSingleObject(event, 0);
+    ::CloseHandle(event);
+    qputenv("MR_DATA_DIR", previous);
+    QCOMPARE(signalled, DWORD(WAIT_OBJECT_0));
+    QVERIFY(!collector.isRunning());
+#endif
+}
+
+/// The stop event is per user. While serve.pid names another Collector, ours is
+/// only checking that one before it exits on the lease, and the event belongs
+/// to the other one: setting it would stop the instance that is recording.
+void LifecycleTests::stopNeverAsksTheCollectorOfAnotherHolder()
+{
+#ifndef Q_OS_WIN
+    QSKIP("The stop event is a Win32 object.");
+#else
+    QTemporaryDir data;
+    QVERIFY(data.isValid());
+    const QByteArray previous = qgetenv("MR_DATA_DIR");
+    qputenv("MR_DATA_DIR", QFile::encodeName(data.path()));
+    QVERIFY(writeServePid(data.path(), 424242));
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString stub = longLivedProgram(directory.path());
+    QVERIFY(!stub.isEmpty());
+
+    const QString name = isolatedStopEventName();
+    HANDLE event = ::CreateEventW(nullptr, TRUE, FALSE,
+                                  reinterpret_cast<const wchar_t *>(name.utf16()));
+    QVERIFY(event != nullptr);
+    ::ResetEvent(event);
+
+    mr::CollectorProcess collector(stub, nullptr);
+    collector.setStopEventNameForTest(name);
+    collector.setGracefulStopMsForTest(300);
+    collector.start();
+    QTRY_VERIFY_WITH_TIMEOUT(collector.isRunning(), 10000);
+    collector.stop();
+
+    const DWORD signalled = ::WaitForSingleObject(event, 0);
+    ::CloseHandle(event);
+    qputenv("MR_DATA_DIR", previous);
+    QCOMPARE(signalled, DWORD(WAIT_TIMEOUT));
+    QVERIFY(!collector.isRunning());
+#endif
+}
+
+/// The Collector's own shutdown may legitimately take this long: the pipe
+/// drain and the calibration evidence flush wait up to five seconds each, and
+/// its watchdog cuts everything at ten. A shorter budget kills it mid-flush.
+void LifecycleTests::theGracefulStopWaitCoversTheCollectorsOwnShutdown()
+{
+    QVERIFY(mr::CollectorProcess::gracefulStopMs() >= 10000);
+}
+
+namespace {
+
+#ifdef Q_OS_WIN
+/// One instance of a named pipe, standing in for the Collector's server end so
+/// the client's owner check runs on a real pipe handle. Created by this test
+/// process, so its owner is the current user.
+struct TestPipe {
+    QString serverName;
+    HANDLE handle = INVALID_HANDLE_VALUE;
+
+    TestPipe()
+        : serverName(QStringLiteral("\\\\.\\pipe\\MentorRecorderTest.owner.%1.%2")
+                         .arg(QCoreApplication::applicationPid())
+                         .arg(QDateTime::currentMSecsSinceEpoch()))
+    {
+        handle = ::CreateNamedPipeW(reinterpret_cast<const wchar_t *>(serverName.utf16()),
+                                    PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
+                                    PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT, 1,
+                                    4096, 4096, 0, nullptr);
+    }
+    ~TestPipe()
+    {
+        if (handle != INVALID_HANDLE_VALUE)
+            ::CloseHandle(handle);
+    }
+    bool isValid() const { return handle != INVALID_HANDLE_VALUE; }
+};
+#endif
+
+} // namespace
+
+/// The real owner check on a real pipe this user created: the Desktop must
+/// still connect to its own Collector after the check was added.
+void LifecycleTests::theClientConnectsToAPipeThisUserServes()
+{
+#ifndef Q_OS_WIN
+    QSKIP("Named pipe ownership is a Windows check.");
+#else
+    TestPipe pipe;
+    QVERIFY(pipe.isValid());
+    QVERIFY(mr::IpcClient::pipeOwnedByCurrentUser(qintptr(pipe.handle)));
+
+    mr::IpcClient client;
+    client.setServerName(pipe.serverName);
+    client.start();
+    QTRY_VERIFY_WITH_TIMEOUT(client.isConnected(), 5000);
+    QVERIFY(client.lastError().isEmpty());
+    client.stop();
+#endif
+}
+
+/// The pipe name is derived from the user's SID but is machine-global, so
+/// another local account can create it first. The client must refuse such a
+/// server before a single request - an online-speech key among them - is sent
+/// to it (review OH-4 / OF-2).
+void LifecycleTests::theClientRefusesAPipeServedByAnotherAccount()
+{
+#ifndef Q_OS_WIN
+    QSKIP("Named pipe ownership is a Windows check.");
+#else
+    TestPipe pipe;
+    QVERIFY(pipe.isValid());
+
+    mr::IpcClient client;
+    client.setServerName(pipe.serverName);
+    int checks = 0;
+    client.setServerOwnerCheckForTest([&checks](qintptr) {
+        ++checks;
+        return false;
+    });
+    bool everConnected = false;
+    QObject::connect(&client, &mr::IpcClient::connectionChanged, &client,
+                     [&client, &everConnected] { everConnected |= client.isConnected(); });
+    client.start();
+
+    QTRY_VERIFY_WITH_TIMEOUT(checks >= 1, 5000);
+    QTRY_VERIFY_WITH_TIMEOUT(!client.lastError().isEmpty(), 5000);
+    QVERIFY(!client.isConnected());
+    QVERIFY(!everConnected);
+    QVERIFY2(client.lastError().contains(QString::fromUtf8("不属于当前用户")),
+             qPrintable(client.lastError()));
+
+    // Nothing is ever written to it: a request fails locally.
+    auto *reply = new mr::BackendReply(QStringLiteral("11111111-2222-4333-8444-555555555555"),
+                                       QStringLiteral("GetVersion"), &client);
+    QString code;
+    reply->whenDone(&client, [&code](bool, const QVariantMap &, const QString &errorCode,
+                                     const QString &) { code = errorCode; });
+    client.send(reply, QStringLiteral("GetVersion"), {});
+    QCOMPARE(code, QStringLiteral("ERR_INTERNAL"));
+    client.stop();
+#endif
+}
+
+/// A request the client never wrote cannot have been applied, so the form that
+/// sent it may stay editable; one that was written and then got no answer may
+/// have been. Both fail with ERR_INTERNAL, and the reply says which it was
+/// (review V4-1).
+void LifecycleTests::aRequestThatNeverLeftTheClientSaysSo()
+{
+    {
+        // No connection: refused inside send(), nothing written.
+        mr::IpcClient client;
+        auto *reply = new mr::BackendReply(QStringLiteral("11111111-2222-4333-8444-555555555551"),
+                                           QStringLiteral("CreateManualRun"), &client);
+        const QPointer<mr::BackendReply> unsent(reply);
+        client.send(reply, QStringLiteral("CreateManualRun"), {});
+        QVERIFY(unsent && unsent->isFinished());
+        QCOMPARE(unsent->errorCode(), QStringLiteral("ERR_INTERNAL"));
+        QVERIFY(unsent->neverSent());
+    }
+#ifdef Q_OS_WIN
+    // Written to a server that never answers, then the connection closes.
+    TestPipe pipe;
+    QVERIFY(pipe.isValid());
+    mr::IpcClient client;
+    client.setServerName(pipe.serverName);
+    client.start();
+    QTRY_VERIFY_WITH_TIMEOUT(client.isConnected(), 5000);
+    auto *reply = new mr::BackendReply(QStringLiteral("11111111-2222-4333-8444-555555555552"),
+                                       QStringLiteral("CreateManualRun"), &client);
+    const QPointer<mr::BackendReply> sent(reply);
+    QString code;
+    bool neverSent = true;
+    reply->whenDone(&client, [&code, &neverSent, sent](bool, const QVariantMap &,
+                                                      const QString &errorCode, const QString &) {
+        code = errorCode;
+        neverSent = sent && sent->neverSent();
+    });
+    client.send(reply, QStringLiteral("CreateManualRun"), {});
+    QVERIFY(code.isEmpty());
+    client.stop();
+    QCOMPARE(code, QStringLiteral("ERR_INTERNAL"));
+    QVERIFY(!neverSent);
+#endif
+}
+
 /// A backup or an export walks the whole database. Sharing a status poll's
 /// deadline makes the Desktop report a failure while the Collector is still
 /// working, then discard the eventual success as an unknown request_id.
+/// Which runs keep away from the player's desktop.ini, backup date and note
+/// images (review OH-7 / OJ-1). A mock run without --screenshot used to share
+/// them: its fake backup stamped today's date, so the real daily backup was
+/// skipped, and --mock-speech rewrote the chosen voice.
+void LifecycleTests::aMockRunNeverTouchesThePlayersSettings()
+{
+    QVERIFY(mr::AppSettings::isHarnessRun(true, QStringLiteral("mock")));
+    QVERIFY(mr::AppSettings::isHarnessRun(false, QStringLiteral("mock")));
+    // A screenshot of real data still keeps the player's settings out of it.
+    QVERIFY(mr::AppSettings::isHarnessRun(true, QStringLiteral("ipc")));
+    // The program as the player runs it.
+    QVERIFY(!mr::AppSettings::isHarnessRun(false, QStringLiteral("ipc")));
+}
+
 void LifecycleTests::exportsAndBackupsGetTheirOwnDeadline()
 {
     const int ordinary = mr::IpcClient::kDefaultRequestTimeoutMs;

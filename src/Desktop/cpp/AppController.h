@@ -150,6 +150,15 @@ class AppController final : public QObject, public CaptureValidationController::
     Q_PROPERTY(int completedLast30Days READ completedLast30Days NOTIFY trendChanged)
     Q_PROPERTY(int goalCount READ goalCount NOTIFY dashboardChanged)
     Q_PROPERTY(int baselineCount READ baselineCount NOTIFY dashboardChanged)
+    /// False until a dashboard answer has been read on the current connection, and again
+    /// after a disconnect: goalCount / baselineCount are then not what is stored, and the
+    /// achievement settings are not offered for saving (audit 2026-10-03, CS7-D3).
+    Q_PROPERTY(bool achievementSettingsLoaded READ achievementSettingsLoaded
+                   NOTIFY achievementSettingsLoadedChanged)
+    /// True while an UpdateAchievementBaseline is unanswered, whoever sent it. The
+    /// first-run guide sends only when none is, and nothing else can send one while
+    /// it is open, so the next baseline answer is its own (audit 2026-10-03, DT6-X1).
+    Q_PROPERTY(bool baselineSaving READ baselineSaving NOTIFY baselineSavingChanged)
     /// $defs/DashboardStats.unfinished_pending_review: runs the crash-recovery
     /// service closed without evidence and that a human still has to confirm.
     Q_PROPERTY(int pendingReviewCount READ pendingReviewCount NOTIFY dashboardChanged)
@@ -251,9 +260,19 @@ public:
     CollectorProcess *collectorForTest() const;
 
     /// Runs that ended before this instant are history, not "刚刚完成": the
-    /// completion prompt is never offered for them. Defaults to construction
-    /// time; tests move it so fixture runs with fixed timestamps still count.
+    /// completion prompt is never offered for them, and a transition emitted
+    /// before it is never announced. Defaults to construction time; tests move
+    /// it so fixture runs with fixed timestamps still count.
     void setReflectionPromptCutoffForTest(const QDateTime &utc) { m_promptCutoffUtc = utc; }
+
+    /// Test-only: what "today" is for the daily backup.
+    void setTodayForTest(std::function<QDate()> today) { m_today = std::move(today); }
+    /// Test-only: how often the running program checks whether a new day's
+    /// backup is due (an hour otherwise).
+    void setDailyBackupCheckMsForTest(int milliseconds) { m_dailyBackupTimer.setInterval(milliseconds); }
+    /// Test-only: how long the daily backup keeps away from the end of a duty
+    /// (\ref kBackupAfterDutyMs otherwise).
+    void setBackupAfterDutyMsForTest(int milliseconds) { m_backupAfterDutyTimer.setInterval(milliseconds); }
 
     int currentPage() const { return m_currentPage; }
     QString themeMode() const { return m_themeMode; }
@@ -337,6 +356,8 @@ public:
     int completedLast30Days() const { return m_statistics->completedLast30Days(); }
     int goalCount() const;
     int baselineCount() const;
+    bool achievementSettingsLoaded() const { return m_statistics->achievementSettingsLoaded(); }
+    bool baselineSaving() const { return m_statistics->baselineSaving(); }
     int pendingReviewCount() const;
     QVariantMap pendingReviewRun() const { return m_history->pendingReviewRun(); }
 
@@ -511,10 +532,13 @@ public Q_SLOTS:
     /// calibration_changed event, or a shared-calibration request that changed
     /// state, costs. Never a run query, a statistics refresh or an announcement.
     void rereadCaptureStatus();
-    /// Run one backup per calendar day while 自动备份 is on. Called once at
-    /// start-up; a no-op when the switch is off or a backup already ran today.
-    /// With no Collector connected yet it arms itself and runs on the first
-    /// successful connection, rather than failing and marking the day attempted.
+    /// Run one backup per calendar day while 自动备份 is on. main() calls it
+    /// once at start-up for interactive runs; from then on the day is checked
+    /// again on every successful connection and every hour, so a Desktop that
+    /// stays in the tray for days still backs up daily (review OH-5). A no-op
+    /// when the switch is off or that day's backup already ran or was tried.
+    /// With no Collector connected, or a duty in progress, it waits for the
+    /// next check rather than failing and marking the day attempted.
     void runDailyBackupIfDue();
 
     /// Told by QML that the 本次导随结果 dialog really opened for \a runId; only
@@ -525,6 +549,14 @@ public Q_SLOTS:
     /// was raised while it was busy is asked now.
     Q_INVOKABLE void resultConfirmationClosed();
 
+    /// The same hand-shake for the 心得 prompt (review OH-6): told by QML that
+    /// the dialog really opened for \a runId's prompt. Only then is the run
+    /// remembered as prompted; a prompt the busy dialog dropped stays queued.
+    Q_INVOKABLE void reflectionPromptShown(const QString &runId);
+    /// Told by QML that the dialog closed, however it closed. A prompt raised
+    /// while it was busy is offered now.
+    Q_INVOKABLE void reflectionPromptClosed();
+
 Q_SIGNALS:
     void currentPageChanged();
     void themeChanged();
@@ -534,6 +566,8 @@ Q_SIGNALS:
     void statusChanged();
     void currentRunChanged();
     void dashboardChanged();
+    void achievementSettingsLoadedChanged();
+    void baselineSavingChanged();
     void trendChanged();
     void selectionChanged();
     void runEventsChanged();
@@ -549,7 +583,16 @@ Q_SIGNALS:
     void integrityCheckChanged();
     void disclosureChanged();
     void tick();
-    void mutationFailed(const QString &code, const QString &message);
+    /// A mutation was refused. \a kind names the request the way
+    /// mutationSucceeded does ("create", "correct", "delete", "restore", "undo",
+    /// "review", "supplement_job"), or "baseline" / "validation" for the two
+    /// requests that are not about a run; \a runId is the run it was for, empty
+    /// for a creation or a request about no run. A dialog takes only the refusal
+    /// of the request it sent itself (review DT3-X1). \a neverSent is true when
+    /// the request never reached the Collector, so it cannot have been applied
+    /// (BackendReply::neverSent; set for 新增 / 修正, review V4-1).
+    void mutationFailed(const QString &code, const QString &message, const QString &kind,
+                        const QString &runId, bool neverSent = false);
     /// Emitted once a mutation is accepted. \a kind is "create", "correct",
     /// "delete", "restore", "undo" or "review"; "review" covers both 确认已复核
     /// and the 本次导随结果 answer, which travel the same audited CorrectRun
@@ -561,13 +604,19 @@ Q_SIGNALS:
     /// Collector's own Chinese message next to the field instead of only in a
     /// toast that scrolls away.
     void baselineFailed(const QString &code, const QString &message);
+    /// UpdateAchievementBaseline was accepted: \a goal and \a baseline are what the
+    /// Collector stored. The first-run guide closes on it, and only then marks the
+    /// first run complete (audit 2026-10-03, DT6-X1).
+    void baselineSaved(int goal, int baseline);
 
     void reflectionsChanged();
     /// \a cleared is true when the text was empty and the reflection was removed.
     void reflectionSaved(const QString &runId, bool cleared);
     void reflectionFailed(const QString &code, const QString &message);
-    /// A run just finished and has no 心得 yet; the QML opens the dialog.
-    /// Emitted at most once per run_id and only while 通关后弹出心得窗口 is on.
+    /// A run just finished and has no 心得 yet; the QML opens the dialog and
+    /// acknowledges through \ref reflectionPromptShown. Only while 通关后弹出心得
+    /// 窗口 is on; a run is raised again only after a busy dialog closed
+    /// without acknowledging it, and never once it was acknowledged.
     void reflectionPromptRequested(const QVariantMap &run);
     /// A mentor duty just finished without an observable result (the shipping
     /// CN profile carries no DUTY_RESULT), so only the player knows whether it
@@ -589,9 +638,18 @@ private:
     /// and the toast that says which of the two things just happened.
     void applySavedReflection(const QString &runId, const QVariantMap &payload,
                               bool cleared);
-    /// Emit reflectionPromptRequested for \a run when the settings allow it,
-    /// the run has no 心得 yet and this run_id has not been offered before.
+    /// Queue reflectionPromptRequested for \a run when the settings allow it,
+    /// the run has no 心得 yet and this run_id has not been prompted before.
     void maybePromptForReflection(const QJsonObject &run);
+    /// Raise the oldest queued 心得 prompt, unless a dialog is showing one.
+    void emitNextReflectionPrompt();
+    /// True when \a event was published before this Desktop started: a replay
+    /// of something the window that was open then already saw.
+    bool emittedBeforeThisSession(const QVariantMap &event) const;
+    /// Adopt \a capture as the collector status's capture snapshot from an
+    /// answer to a request, and remember when: a status event published before
+    /// that is older than it (see handleLiveEvent).
+    void adoptCaptureAnswer(const QJsonObject &capture);
     /// Queue resultConfirmationRequested for a run that finished in
     /// UNKNOWN_FINAL_STATE during this session.
     void maybeConfirmResult(const QString &state, const QJsonObject &run);
@@ -640,11 +698,31 @@ private:
     AppSettings *m_settings = nullptr;
     /// Optional borrowed process authority, supplied only by composition.
     QPointer<CollectorProcess> m_collector;
-    /// One auto-backup attempt per session; the date itself is stamped on success.
-    bool m_autoBackupAttempted = false;
-    /// Set when a backup was due before the first connection; the first
-    /// connected connectionChanged runs it.
-    bool m_autoBackupArmed = false;
+    /// yyyy-MM-dd of the day an automatic backup was last attempted, so a
+    /// failing one is tried once a day rather than on every connection; the
+    /// date itself is stamped in the settings on success only.
+    QString m_autoBackupAttemptedOn;
+    /// The calendar day, local time. A function so a test can move midnight.
+    std::function<QDate()> m_today = [] { return QDate::currentDate(); };
+    /// Set by main()'s first runDailyBackupIfDue(): from then on every
+    /// connection and \ref m_dailyBackupTimer check the day again. Screenshots
+    /// and tests never set it, so they never write a backup.
+    bool m_dailyBackupActive = false;
+    QTimer m_dailyBackupTimer;
+    /// m_currentRun holds an answer from this connection. Cleared on
+    /// disconnect: until it is read again, a duty may be in progress.
+    bool m_currentRunKnown = false;
+    static constexpr int kDailyBackupCheckMs = 60 * 60 * 1000;
+    /// Single-shot, started when a duty is seen to have ended: until it fires
+    /// the daily backup waits (runDailyBackupIfDue), then it checks again.
+    QTimer m_backupAfterDutyTimer;
+    /// The last current-run answer the daily check saw showed a duty in progress.
+    bool m_dutyInProgressSeen = false;
+    /// The Collector answers BackupDatabase on the connection's read loop, so
+    /// for as long as the copy takes every request behind it waits: 本次导随结果,
+    /// a 心得 save and the announcement go out right after a duty ends, and the
+    /// default 8 s deadline would expire on them (review V4-3).
+    static constexpr int kBackupAfterDutyMs = 5 * 60 * 1000;
     /// Failed connects in a row while the Collector state is Reused. At
     /// \ref kReusedTakeoverAttempts the serve lease is taken over, instead of a
     /// new child being launched on every attempt.
@@ -677,8 +755,9 @@ private:
     QJsonObject m_captureSettings;
     /// Keys still waiting for the debounce timer to send them.
     QJsonObject m_pendingCaptureSettings;
-    /// run_ids the completion prompt has already been offered for, so a repeated
-    /// live event never re-opens the dialog.
+    /// run_ids whose completion prompt really opened (\ref
+    /// reflectionPromptShown) or whose 心得 was written, so a repeated live
+    /// event never re-opens the dialog.
     QSet<QString> m_promptedRunIds;
     /// run_ids whose 本次导随结果 dialog really opened. Added when QML
     /// acknowledges through \ref resultConfirmationShown, never at emit time: a
@@ -696,6 +775,20 @@ private:
     /// True between \ref resultConfirmationShown and \ref
     /// resultConfirmationClosed, i.e. while a dialog is on screen.
     bool m_resultConfirmationBusy = false;
+    /// The 心得 prompt's queue, the same shape as the result question's:
+    /// finished runs whose prompt was raised but not yet acknowledged, oldest
+    /// first and bounded; the ones raised since the dialog last closed; and
+    /// whether a prompt is on screen.
+    QList<QJsonObject> m_queuedReflectionRuns;
+    static constexpr int kMaxQueuedReflectionRuns = 16;
+    QSet<QString> m_offeredReflectionRunIds;
+    bool m_reflectionPromptBusy = false;
+    /// When the capture snapshot in m_collectorStatus last came from an answer
+    /// to a request. A collector_status event published before then describes
+    /// an older state - one published while that request was being worked on,
+    /// say in the middle of a switch to another game client - and must not
+    /// replace the answer.
+    QDateTime m_captureAnswerAtUtc;
     /// "<run_id>|<state>" pairs already announced. Survives a reconnect, so a
     /// replayed run_finished cannot speak the same run twice even though the
     /// Collector's sequence counter restarts with it.

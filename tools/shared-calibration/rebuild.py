@@ -33,7 +33,11 @@ Left to the client's local verification (not ported):
   here it is only reported as ``needs_consent``.
 * Every traffic check of ``SharedCandidateVerifier``:
   whether the opcodes really behave that way on the player's own client. Only that can catch a code
-  whose values are well formed but wrong, and the client never records from a code before it passes.
+  whose values are well formed but wrong. It is not a gate passed once: the client puts a code this
+  repository published to use no earlier than the login-time zone message verifies by structure, keeps
+  checking the queue and duty-entry messages while it records, and marks for review what a code that is
+  later contradicted recorded (docs/privacy-boundary.md section 8.2). A wrong code that passes this filter
+  can therefore record wrongly, or miss runs, until the client catches it.
 
 Standard library only. Pure apart from ``load_templates``, which reads a directory.
 """

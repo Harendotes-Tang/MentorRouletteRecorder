@@ -62,8 +62,9 @@ void StatisticsController::requestDashboard(std::function<void(bool ok)> then)
     // defined on days, so they are read off this series no matter which
     // granularity the chart happens to be showing.
     m_backend->getDashboardStats({}, QStringLiteral("day"))
-        ->whenDone(this, [this, then = std::move(then)](bool ok, const QVariantMap &payload,
-                                                        const QString &, const QString &) {
+        ->whenDone(this, [this, then = std::move(then), connection = m_connectionGeneration](
+                             bool ok, const QVariantMap &payload, const QString &,
+                             const QString &) {
             // A failed read is not evidence that the numbers changed: wiping the
             // snapshot would blank every card and make the achievement progress
             // read as "baseline + 0". The previous answer is only a moment stale.
@@ -79,6 +80,12 @@ void StatisticsController::requestDashboard(std::function<void(bool ok)> then)
                 Q_EMIT dashboardChanged();
                 Q_EMIT trendChanged();
 
+                // After dashboardChanged, so a form that refills itself on the
+                // flag already reads the new goal and baseline.
+                if (connection == m_connectionGeneration && !m_achievementSettingsLoaded) {
+                    m_achievementSettingsLoaded = true;
+                    Q_EMIT achievementSettingsLoadedChanged();
+                }
             }
             // Projections may coordinate dependent workflows before completion.
             Q_EMIT dashboardRequestFinished(ok);
@@ -111,6 +118,12 @@ void StatisticsController::refreshTrend()
         ->whenDone(this, [this, generation](bool ok, const QVariantMap &payload, const QString &,
                                 const QString &) {
             if (generation != m_trendGeneration)
+                return;
+            // A failed refresh is not evidence that the series changed: a chart
+            // already showing this granularity keeps it (review OI-1). Only a
+            // series of another granularity is dropped, so its bars are never
+            // drawn under this one's label.
+            if (!ok && m_trendSeriesGranularity == m_trendMode)
                 return;
             applyTrendSeries(ok ? QJsonObject::fromVariantMap(payload)
                                       .value(QStringLiteral("trend"))
@@ -147,6 +160,7 @@ void StatisticsController::applyTrendSeries(const QJsonObject &trend)
     // time because that is the clock the user reads
     // (docs/statistics-definitions.md section 12.1).
     const QString granularity = trend.value(QStringLiteral("granularity")).toString();
+    m_trendSeriesGranularity = granularity;
     const QString format = granularity == QLatin1String("month")
                                ? QStringLiteral("yyyy-MM")
                                : QStringLiteral("MM-dd");
@@ -194,6 +208,10 @@ void StatisticsController::rebuildDutyOptions()
     // The rows are already joined with the bundled duty catalogue by the model,
     // so duty_level / duty_expansion are filled in even though the contract
     // cannot carry them.
+    // A failed read emptied the model, but the duties did not go away: keep the
+    // options, or the history page's 副本 chip loses its name (review S2-2).
+    if (m_dungeons && !m_dungeons->loadError().isEmpty())
+        return;
     const QVariantList rows = m_dungeons ? m_dungeons->topRows(0) : QVariantList();
     QVariantList options;
     options.reserve(rows.size());
@@ -295,18 +313,59 @@ int StatisticsController::baselineCount() const
     return m_dashboard.value(QStringLiteral("baseline_completed_count")).toInt(0);
 }
 
+int StatisticsController::achievementProgress() const
+{
+    // The Collector's figure: baseline plus the COMPLETED runs that count
+    // towards the goal. baseline + completed_count would also count a run the
+    // user took off the goal (review OK-1). Before the first answer there is
+    // only the baseline, which is 0 then as well.
+    const QJsonValue progress = m_dashboard.value(QStringLiteral("achievement_progress"));
+    return progress.isDouble() ? progress.toInt() : baselineCount();
+}
+
+int StatisticsController::remainingCount() const
+{
+    const QJsonValue remaining = m_dashboard.value(QStringLiteral("remaining"));
+    return remaining.isDouble() ? remaining.toInt() : qMax(0, goalCount() - achievementProgress());
+}
+
 int StatisticsController::pendingReviewCount() const
 {
     return m_dashboard.value(QStringLiteral("unfinished_pending_review")).toInt(0);
+}
+
+void StatisticsController::forgetAchievementSettings()
+{
+    ++m_connectionGeneration;
+    if (!m_achievementSettingsLoaded)
+        return;
+    m_achievementSettingsLoaded = false;
+    Q_EMIT achievementSettingsLoadedChanged();
 }
 
 void StatisticsController::updateAchievementBaseline(int goal, int baseline, const QString &reason)
 {
     if (!m_backend)
         return;
+    if (!m_achievementSettingsLoaded) {
+        // The form was filled from defaults, not from what is stored: a goal-only
+        // save would send baseline 0, a real change, and wipe the stored baseline
+        // (audit 2026-10-03, CS7-D3). The pages do not offer 保存 in this state.
+        const QString message = QString::fromUtf8("还没有读到已保存的目标与基数，请稍候再保存。");
+        Q_EMIT baselineFailed(QStringLiteral("ERR_INTERNAL"), message);
+        Q_EMIT mutationFailed(QStringLiteral("ERR_INTERNAL"), message);
+        Q_EMIT toastRequested(message);
+        return;
+    }
+    // Counted before the request: a pipe that is down answers inside the call.
+    if (m_baselineSavesInFlight++ == 0)
+        Q_EMIT baselineSavingChanged();
     m_backend->updateAchievementBaseline(goal, baseline, reason)
         ->whenDone(this, [this](bool ok, const QVariantMap &payload, const QString &code,
                                 const QString &message) {
+            // Before the outcome, so whoever takes the answer may already send again.
+            if (--m_baselineSavesInFlight == 0)
+                Q_EMIT baselineSavingChanged();
             if (!ok) {
                 // Baseline refusals need to stay next to the field, so the
                 // settings card gets its own signal rather than only a toast.
@@ -315,14 +374,30 @@ void StatisticsController::updateAchievementBaseline(int goal, int baseline, con
                 Q_EMIT toastRequested(message.isEmpty() ? code : message);
                 return;
             }
-            Q_EMIT toastRequested(QString::fromUtf8("基数已设为 %1 · 目标 %2 · 进度 %3 · 已重算")
-                          .arg(payload.value(QStringLiteral("baseline_completed_count"))
-                                   .toInt())
-                          .arg(payload.value(QStringLiteral("goal_count")).toInt())
-                          .arg(payload.value(QStringLiteral("achievement_progress")).toInt()));
-            // The Collector publishes stats_invalidated for this change, but
-            // a refresh here keeps the page correct even without the event.
-            refreshDashboard();
+            const int savedBaseline =
+                payload.value(QStringLiteral("baseline_completed_count")).toInt();
+            const int savedGoal = payload.value(QStringLiteral("goal_count")).toInt();
+            Q_EMIT baselineSaved(savedGoal, savedBaseline);
+            // The reply carries no achievement_progress (contracts/ipc-v1.schema.json);
+            // the figure comes from the read that follows, and when that read
+            // fails the toast names none rather than a wrong one (CS7-D1). The
+            // Collector also publishes stats_invalidated for this change, but the
+            // read here keeps the page correct even without the event.
+            requestDashboard([this, savedBaseline, savedGoal](bool reread) {
+                const QJsonValue progress =
+                    m_dashboard.value(QStringLiteral("achievement_progress"));
+                if (reread && progress.isDouble()) {
+                    Q_EMIT toastRequested(
+                        QString::fromUtf8("基数已设为 %1 · 目标 %2 · 进度 %3 · 已重算")
+                            .arg(savedBaseline)
+                            .arg(savedGoal)
+                            .arg(progress.toInt()));
+                } else {
+                    Q_EMIT toastRequested(QString::fromUtf8("基数已设为 %1 · 目标 %2 · 已保存")
+                                              .arg(savedBaseline)
+                                              .arg(savedGoal));
+                }
+            });
             refreshTrend();
         });
 }

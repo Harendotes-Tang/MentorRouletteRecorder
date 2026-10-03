@@ -53,6 +53,11 @@ public:
     /// wire detail no player needs. Null and empty give an em dash; a value
     /// this build cannot split is returned unchanged rather than hidden.
     Q_INVOKABLE static QString gameVersionLabel(const QVariant &build);
+    /// CaptureStatus.npcap_version as shown: "v1.88" for a version number, and a
+    /// value that does not start with a digit as it is - the Collector reports
+    /// "libpcap 1.10.6" when it can read only the bundled library's version
+    /// (audit 2026-10-03, OB8-D1). Null and empty give an empty string.
+    Q_INVOKABLE static QString npcapVersionLabel(const QVariant &version);
 
     // -- enums --------------------------------------------------------------
     /// Chinese label for a RunResult code.
@@ -113,6 +118,22 @@ public:
     /// One old_value / new_value as text. JSON null renders as 空, never as an
     /// empty cell that could be mistaken for "unchanged".
     Q_INVOKABLE static QString revisionValue(const QVariant &value);
+    /// True for a revision field a player reads in 修正历史; identifiers and
+    /// bookkeeping (run_id, content_id, protocol_profile_id …) and any field
+    /// this build does not know are maintainer material.
+    Q_INVOKABLE static bool revisionFieldVisible(const QString &field);
+    /// revisionValue() in the player's words for \a field: result, role,
+    /// source and confidence by their Chinese labels, a duration as mm:ss.
+    Q_INVOKABLE static QString revisionFieldValue(const QString &field, const QVariant &value);
+    /// Chinese label for a $defs/RunRevision.change_kind.
+    Q_INVOKABLE static QString changeKindLabel(const QString &code);
+    /// Chinese label for a $defs/RunRevision.actor (USER / SYSTEM).
+    Q_INVOKABLE static QString revisionActorLabel(const QString &code);
+    /// Chinese name of a $defs/RunEventEntry.event_type, for every type the
+    /// Collector writes to a run's trail; 其他事件 for one this build does not know.
+    Q_INVOKABLE static QString runEventLabel(const QString &code);
+    /// Chinese description of GetStatus.oodle_mode.
+    Q_INVOKABLE static QString oodleModeLabel(const QString &code);
 
 private:
     static QDateTime parse(const QVariant &utcIso);

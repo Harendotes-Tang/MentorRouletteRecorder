@@ -14,13 +14,14 @@ not come from one of the two sources, and a Chinese name is never invented. A ro
 a Chinese name is written to the global file only; the Collector then shows it as the
 unknown duty rather than as a guess.
 
-Raw downloads are written to a scratch directory outside the repository and only their
-SHA-256 digests are recorded, so the repository never carries a redistributed copy of the
-upstream data.
+Raw downloads are written to a scratch directory outside the repository (a --raw-dir inside
+it is refused, and so is a default temporary directory - TMP/TEMP - inside it) and only their
+SHA-256 digests are recorded, so the repository never carries a
+redistributed copy of the upstream data. A dry run keeps no raw download at all.
 
 Usage:
     python tools/duty-data-generator/generate.py [--version 2026-09-04] [--out-dir data/duties]
-    python tools/duty-data-generator/generate.py --dry-run     # fetch and report, write nothing
+    python tools/duty-data-generator/generate.py --dry-run     # fetch and report, write nothing anywhere
     python tools/duty-data-generator/generate.py --add-party-size data/duties/cn.2026-09-04.json
         # add party_size to an existing file, pinned to the game version it was built from
 """
@@ -106,12 +107,31 @@ def http_get(url: str, timeout: int = 60) -> bytes:
         return response.read()
 
 
-def fetch_english_rows(raw_dir: str, game_version: str | None = None):
+def keep_raw(raw_dir: str | None, name: str, body: bytes) -> None:
+    """Save one raw download under raw_dir; with no raw_dir (a dry run) keep nothing."""
+    if raw_dir is None:
+        return
+    with open(os.path.join(raw_dir, name), "wb") as handle:
+        handle.write(body)
+
+
+def is_inside_repository(path: str) -> bool:
+    """True when path is the repository or anything below it, after resolving links and case."""
+    root = os.path.normcase(os.path.realpath(REPO))
+    target = os.path.normcase(os.path.realpath(path))
+    try:
+        return os.path.commonpath([root, target]) == root
+    except ValueError:
+        # Different drives: never inside.
+        return False
+
+
+def fetch_english_rows(raw_dir: str | None, game_version: str | None = None):
     """Page through ContentFinderCondition. Returns (rows, urls, digest, api_version).
 
     game_version pins every page to one XIVAPI game version (the key recorded as
     provenance.xivapi_game_version), so an existing data version can be rebuilt from the
-    same game data it was first built from.
+    same game data it was first built from. raw_dir None keeps no raw download.
     """
     rows = {}
     urls = []
@@ -155,18 +175,14 @@ def fetch_english_rows(raw_dir: str, game_version: str | None = None):
             % (XIVAPI_MAX_PAGES, XIVAPI_PAGE_SIZE, XIVAPI_MAX_PAGES))
 
     blob = b"".join(pages)
-    path = os.path.join(raw_dir, "xivapi_contentfindercondition.json")
-    with open(path, "wb") as handle:
-        handle.write(blob)
+    keep_raw(raw_dir, "xivapi_contentfindercondition.json", blob)
     return rows, urls, hashlib.sha256(blob).hexdigest(), api_version
 
 
-def fetch_chinese_names(raw_dir: str):
-    """Returns (names_by_row_id, url, digest)."""
+def fetch_chinese_names(raw_dir: str | None):
+    """Returns (names_by_row_id, url, digest). raw_dir None keeps no raw download."""
     body = http_get(DATAMINING_CN_CSV)
-    path = os.path.join(raw_dir, "ContentFinderCondition.cn.csv")
-    with open(path, "wb") as handle:
-        handle.write(body)
+    keep_raw(raw_dir, "ContentFinderCondition.cn.csv", body)
     return parse_cn_csv(body.decode("utf-8-sig")), DATAMINING_CN_CSV, hashlib.sha256(body).hexdigest()
 
 
@@ -441,7 +457,8 @@ def main(argv):
                         help="data version label used in the file name; defaults to today (UTC)")
     parser.add_argument("--out-dir", default=os.path.join(REPO, "data", "duties"))
     parser.add_argument("--raw-dir", default=None,
-                        help="where to keep the raw downloads; a temp directory by default")
+                        help="where to keep the raw downloads, outside the repository; a temp "
+                             "directory by default; a dry run keeps none")
     parser.add_argument("--game-version", default=None,
                         help="pin every XIVAPI request to this game version key (see "
                              "provenance.xivapi_game_version); XIVAPI's latest by default")
@@ -450,10 +467,26 @@ def main(argv):
                         help="add party_size to existing data files in place, fetched at the "
                              "game version each file records; nothing else in them changes")
     args = parser.parse_args(argv)
+    if args.raw_dir and is_inside_repository(args.raw_dir):
+        parser.error("--raw-dir %s is inside the repository; raw downloads are upstream data "
+                     "and must stay outside it" % args.raw_dir)
 
     version = args.version or datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
-    raw_dir = args.raw_dir or tempfile.mkdtemp(prefix="duty-data-")
-    os.makedirs(raw_dir, exist_ok=True)
+    if args.dry_run:
+        # Write nothing anywhere: the downloads are hashed in memory and dropped, and no
+        # scratch directory is created that would outlive the run.
+        raw_dir = None
+    elif args.raw_dir:
+        raw_dir = args.raw_dir
+        os.makedirs(raw_dir, exist_ok=True)
+    else:
+        # The default raw directory is made under the temporary directory, which TMP/TEMP
+        # choose: refuse it there too, before anything is created or fetched.
+        scratch = tempfile.gettempdir()
+        if is_inside_repository(scratch):
+            parser.error("the temporary directory %s is inside the repository; raw downloads "
+                         "are upstream data and must stay outside it (pass --raw-dir)" % scratch)
+        raw_dir = tempfile.mkdtemp(prefix="duty-data-", dir=scratch)
 
     if args.add_party_size:
         return add_party_size_to_files(args.add_party_size, raw_dir, args.game_version,
@@ -487,7 +520,7 @@ def main(argv):
     provenance = make_provenance(
         urls, {"xivapi": xivapi_digest, "cn": cn_digest}, counts, api_version)
 
-    print("raw downloads:      %s" % raw_dir)
+    print("raw downloads:      %s" % (raw_dir or "not kept (dry run)"))
     print("xivapi rows:        %d (%d request(s))" % (len(english_rows), len(urls)))
     print("datamining-cn rows: %d (1 request)" % len(chinese_names))
     print("global duties:      %d" % len(global_duties))

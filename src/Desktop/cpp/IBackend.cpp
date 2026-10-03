@@ -38,6 +38,15 @@ void BackendReply::fail(const QString &code, const QString &message, const QJson
     finish();
 }
 
+void BackendReply::failUnsent(const QString &code, const QString &message)
+{
+    if (m_finished)
+        return;
+    // Before fail(), so a handler that runs inside it already reads true.
+    m_neverSent = true;
+    fail(code, message);
+}
+
 void BackendReply::finish()
 {
     m_finished = true;
@@ -67,6 +76,13 @@ void BackendReply::whenDone(QObject *context, Handler handler)
 }
 
 IBackend::~IBackend() = default;
+
+BackendReply *IBackend::requestWithId(const QString &messageType, const QJsonObject &payload,
+                                      const QString &requestId)
+{
+    Q_UNUSED(requestId)
+    return request(messageType, payload);
+}
 
 // ---------------------------------------------------------------------------
 // Thin, typed wrappers. Keeping the payload assembly here means the two
@@ -317,22 +333,24 @@ BackendReply *IBackend::getResultStats(const QJsonObject &filter)
     return request(QStringLiteral("GetResultStats"), payload);
 }
 
-BackendReply *IBackend::createManualRun(const QJsonObject &run, const QString &reason)
+BackendReply *IBackend::createManualRun(const QJsonObject &run, const QString &reason,
+                                       const QString &requestId)
 {
     QJsonObject payload = run;
     payload.insert(QStringLiteral("reason"), reason);
-    return request(QStringLiteral("CreateManualRun"), payload);
+    return requestWithId(QStringLiteral("CreateManualRun"), payload, requestId);
 }
 
 BackendReply *IBackend::correctRun(const QString &runId, int expectedRevision,
-                                   const QJsonObject &changes, const QString &reason)
+                                   const QJsonObject &changes, const QString &reason,
+                                   const QString &requestId)
 {
     QJsonObject payload;
     payload.insert(QStringLiteral("run_id"), runId);
     payload.insert(QStringLiteral("expected_revision"), expectedRevision);
     payload.insert(QStringLiteral("changes"), changes);
     payload.insert(QStringLiteral("reason"), reason);
-    return request(QStringLiteral("CorrectRun"), payload);
+    return requestWithId(QStringLiteral("CorrectRun"), payload, requestId);
 }
 
 BackendReply *IBackend::softDeleteRun(const QString &runId, int expectedRevision,

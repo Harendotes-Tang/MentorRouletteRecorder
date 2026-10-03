@@ -19,6 +19,7 @@
 #include "IBackend.h"
 
 #include <QDateTime>
+#include <QHash>
 #include <QJsonArray>
 #include <QList>
 #include <QString>
@@ -40,6 +41,12 @@ public:
 
     BackendReply *request(const QString &messageType,
                           const QJsonObject &payload = {}) override;
+
+    /// Holds replies to \a messageType back by \a milliseconds (every type when
+    /// \a messageType is empty; 0 removes the delay). Replies otherwise arrive
+    /// on the next event-loop turn, in the order they were asked, so a test of
+    /// a late or out-of-order Collector answer sets one here.
+    void setReplyDelay(int milliseconds, const QString &messageType = {});
 
     /// Simulate a machine without the Npcap driver.
     void setNpcapMissing(bool missing);
@@ -263,6 +270,9 @@ private:
     QDateTime m_now;
     int m_goalCount = 2000;
     int m_baselineCompletedCount = 1374;
+    /// achievement_settings.baseline_effective_at (UTC). Set in the constructor to before
+    /// the dataset's first run, so every generated completion counts on top of 1374.
+    QDateTime m_baselineEffectiveAt;
     bool m_npcapMissing = false;
     bool m_capturing = true;
     bool m_midstreamSuspected = false;
@@ -284,6 +294,8 @@ private:
     QString m_dataDirectory;
     int m_speechSynthesisCount = 0;
     QString m_validationState = QStringLiteral("IDLE");
+    /// setReplyDelay(): message type ("" = every type) -> milliseconds.
+    QHash<QString, int> m_replyDelays;
     int m_validationMarkerCount = 0;
     QString m_lastValidationMarker;
     LiveMode m_liveMode = LiveMode::Entered;

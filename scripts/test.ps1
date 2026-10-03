@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+#Requires -Version 7.0
 <#
 .SYNOPSIS
     运行测试并报告真实用例数 / Run tests and report real case counts.
@@ -7,8 +7,8 @@
     枚举 tests/ 下声明 IsTestProject=true 的全部 .NET 测试项目，逐个运行并解析
     TRX 结果文件取得真实的通过/失败/跳过数量，再运行 Qt/C++ ctest。
 
-    判定只依据计数，不依据退出码：`dotnet test MentorRecorder.sln` 的解决方案里
-    只有 Collector 一个项目，不含测试项目，"0 个测试" 同样退出 0。规则：
+    判定只依据计数，不依据退出码：一个用例也没有运行的测试项目同样可能退出 0，
+    而 "0 个测试" 不是通过。规则：
       * 任一项目失败数 > 0        → 失败
       * 任一项目用例总数 = 0      → 失败（空测试不是成功）
       * 找不到测试项目            → 失败

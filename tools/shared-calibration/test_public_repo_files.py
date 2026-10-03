@@ -16,6 +16,7 @@ import index as repo_index
 import issue as issue_form
 import publish
 import sharecode
+import sync_public_repo
 
 try:
     import yaml
@@ -293,6 +294,66 @@ class IssueFormTests(unittest.TestCase):
         self.assertIn("\nblank_issues_enabled: false\n", "\n" + text)
         if yaml is not None:
             self.assertEqual({"blank_issues_enabled": False}, yaml.safe_load(text))
+
+
+# Claims the client does not make good. docs/privacy-boundary.md section 8.2 is the authority: a published
+# code is put to use once the login-time zone message verifies by structure, the queue and duty-entry
+# messages keep being checked while it records, and what a code later contradicted recorded is marked for
+# review - so a wrong code can record wrongly, or miss runs, before it is caught. Since 1.4.0 a shared
+# profile in use re-reads the index; the update check (section 8.4) is a second request that is on by
+# default; a maintainer's revocation now holds the accounts on the code; and the scripts that run in the
+# public repository's Action do push and call the GitHub API.
+FALSE_CLAIMS = (
+    "不会写出错误的记录",
+    "核实通过才会用来记录",
+    "核实通过后才生成档案",
+    "唯一出站请求",
+    "不会因索引撤销而联网检查",
+    "名额即被释放",
+    "撤销即释放名额",
+    "没有任何脚本会创建仓库、推送或调用 GitHub API",
+    "never records from a code before it passes",
+)
+
+
+def published_texts() -> dict:
+    """Everything a player or maintainer reads about what a published code does: files and replies."""
+    texts = {path.relative_to(testsupport.HERE).as_posix(): path.read_text(encoding="utf-8")
+             for path in sorted(PUBLIC.rglob("*")) if path.is_file()}
+    for name in sync_public_repo.RUNTIME_FILES + ("README.md",):
+        texts[name] = (testsupport.HERE / name).read_text(encoding="utf-8")
+    described = dict(issue=1, region="CN", game_build=testsupport.BUILD, code_sha256="a" * 64,
+                     match_source="ANNOUNCEMENT", submitters=2, file="cn/%s/aaaaaaaaaaaa.mrc" % testsupport.BUILD)
+    for status in (publish.PUBLISHED, publish.ADDED, publish.DUPLICATE):
+        texts["reply:" + status] = publish.compose_comment(publish.Result(status, **described))
+    for reason in publish._REFUSALS:
+        texts["reply:refused:" + reason] = publish.compose_comment(publish.Result(publish.REFUSED, reason, **described))
+    return texts
+
+
+class PublicClaimTests(unittest.TestCase):
+    """ON1-3: the public texts claim what the client does, and no more."""
+
+    def test_no_text_makes_a_claim_the_client_does_not_keep(self):
+        for name, text in published_texts().items():
+            for claim in FALSE_CLAIMS:
+                with self.subTest(text=name, claim=claim):
+                    self.assertNotIn(claim, text)
+
+    def test_the_texts_a_player_reads_say_that_records_can_be_marked_for_review(self):
+        texts = published_texts()
+        for name in ("public-repo/README.md", "public-repo/.github/ISSUE_TEMPLATE/share-calibration.yml",
+                     "reply:" + publish.PUBLISHED):
+            with self.subTest(name):
+                self.assertIn("换区报文", texts[name], "the one check a published code must pass before it records")
+                self.assertIn("待复核", texts[name], "what happens to records once a code is contradicted")
+
+    def test_the_maintainer_readme_names_the_action_releases_the_workflows_are_pinned_to(self):
+        readme = (testsupport.HERE / "README.md").read_text(encoding="utf-8")
+        self.assertIsNone(re.search(r"actions/[a-z-]+@v\d", readme), "the workflows reference no tag")
+        for action, _, comment in action_pins(WORKFLOW.read_text(encoding="utf-8")):
+            with self.subTest(action):
+                self.assertIn("`%s`（%s，按提交号固定）" % (action, comment.lstrip("# ").strip()), readme)
 
 
 class ClientContractTests(unittest.TestCase):

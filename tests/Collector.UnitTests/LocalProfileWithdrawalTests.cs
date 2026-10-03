@@ -6,6 +6,7 @@ using MentorRecorder.Collector.Protocol.Calibration;
 using MentorRecorder.Collector.Protocol.Decoded;
 using MentorRecorder.Collector.Protocol.Pipeline;
 using MentorRecorder.Collector.Protocol.Profiles;
+using MentorRecorder.Collector.Protocol.Sharing;
 using MentorRecorder.Collector.Storage.Repositories;
 using Bed = MentorRecorder.Collector.UnitTests.SharedCalibrationTestBed;
 
@@ -276,5 +277,97 @@ public sealed class LocalProfileWithdrawalTests : IDisposable
         Assert.NotEqual(ProfileStatus.Verified, pipeline.Current.Status);
         Assert.Equal(CalibrationState.Observing, pipeline.CalibrationStatus().State);
         pipeline.OnCaptureStopped(session, CaptureEndReason.UserStop);
+    }
+
+    /// <summary>
+    /// Audit 2026-10-03 ODp-4. The selectors shared calibration hands over are reloaded straight off
+    /// the disk. A bind the reloaded catalogue refused used to keep that selector anyway, and so did
+    /// the reselect after a shared withdrawal; either way the next selection handed back the local
+    /// profile the traffic had disproved, because its file could not be put away.
+    /// </summary>
+    [Fact]
+    public void AProfileThatCannotBePutAwayIsNotBoundAgainThroughASharedSelector()
+    {
+        WriteLocalProfile(CalibrationTrafficCases.Announcement);
+        var services = _bed.Services(fetch: false) with
+        {
+            RetireLocalProfile = (_, _, _) => throw new IOException("the profile file is held open"),
+        };
+        var pipeline = _bed.Pipeline(services);
+        pipeline.Refresh(Bed.Game());
+        var session = _bed.Start(pipeline);
+        Bed.Feed(pipeline, session, BellRows(100_000));
+        pipeline.OnCaptureStopped(session, CaptureEndReason.UserStop);
+        Assert.True(File.Exists(LocalProfileFiles.PathFor(_bed.LocalRoot, Region.Cn, Bed.Build)));
+        var host = (ISharedCalibrationHost)pipeline;
+
+        // A shared bind the reloaded catalogue does not stand behind changes nothing.
+        var refused = host.CommitSharedBind(new SharedBindRequest("cn.shared.refused", _bed.DiskSelect(), null));
+        Assert.Equal(SharedBindOutcome.NotSelected, refused.Outcome);
+        Assert.NotEqual(ProfileStatus.Verified, pipeline.Refresh(Bed.Game()).Status);
+
+        // Nor does the reselect after a shared profile was withdrawn.
+        host.ReselectAfterSharedChange(_bed.DiskSelect());
+        Assert.NotEqual(ProfileStatus.Verified, pipeline.Current.Status);
+        Assert.NotEqual(ProfileStatus.Verified, pipeline.Refresh(Bed.Game()).Status);
+    }
+
+    /// <summary>
+    /// Audit 2026-10-03 ODp-5. The machine a withdrawal takes down has read the player's job this
+    /// session; the profile bound in its place inside the same session starts from what that machine
+    /// knew, not from what the previous session carried in (nothing, on the first one).
+    /// </summary>
+    [Fact]
+    public void AProfileBoundAfterAWithdrawalKeepsTheJobReadThisSession()
+    {
+        WriteLocalProfile(CalibrationTrafficCases.Announcement);
+        var code = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
+        SharedProfileFiles.Write(
+            SharedProfileBuilder.Build(code.Payload, Bed.Template, Bed.Confirmed, new Dictionary<string, int>()),
+            _bed.SharedRoot);
+        var pipeline = _bed.Pipeline(Services());
+        Assert.Equal(ProfileOrigin.Local, pipeline.Refresh(Bed.Game()).Origin);
+        var session = _bed.Start(pipeline);
+
+        Bed.Feed(pipeline, session, CalibrationObserverTests.Cluster(5_000, 5000, job: 24));
+        Bed.Feed(pipeline, session, BellRows(100_000));
+        Assert.Equal(ProfileOrigin.Shared, pipeline.Current.Origin);
+        Assert.Equal(ProfileStatus.Verified, pipeline.Current.Status);
+
+        Bed.Feed(pipeline, session, CalibrationObserverTests.QueueAndPop(200_000, 9, 210_000));
+
+        var run = Assert.Single(RunsOf(session), item => item.ProtocolProfileId == pipeline.Current.ProfileId);
+        Assert.Equal(24, run.JobId);
+        pipeline.OnCaptureStopped(session, CaptureEndReason.UserStop);
+    }
+
+    /// <summary>
+    /// The other side of ODp-4: a local profile id names a build, not a file version, so the profile the
+    /// player calibrates afresh after a withdrawal carries the withdrawn one's id. The confirmation is the
+    /// player vouching for the new file; a later shared reselect must still find it.
+    /// </summary>
+    [Fact]
+    public void AProfileCalibratedAfreshAfterAWithdrawalSurvivesASharedReselect()
+    {
+        WriteLocalProfile(CalibrationTrafficCases.Announcement);
+        var pipeline = _bed.Pipeline(Services());
+        pipeline.Refresh(Bed.Game());
+        var session = _bed.Start(pipeline);
+        Bed.Feed(pipeline, session, BellRows(100_000));
+        pipeline.OnCaptureStopped(session, CaptureEndReason.UserStop);
+        Assert.NotEqual(ProfileStatus.Verified, pipeline.Current.Status);
+
+        _bed.Play(pipeline, CalibrationTrafficCases.Traffic(CalibrationTrafficCases.Announcement), hour: 1);
+        var offered = pipeline.CalibrationStatus();
+        Assert.Equal(CalibrationState.Ready, offered.State);
+        var confirmed = pipeline.ConfirmCalibration(offered.Events.Where(item => item.RequiresConfirmation)
+            .ToDictionary(item => item.EventId, _ => CalibrationVerdict.Correct, StringComparer.Ordinal));
+        Assert.Equal(ProfileStatus.Verified, pipeline.Current.Status);
+
+        ((ISharedCalibrationHost)pipeline).ReselectAfterSharedChange(_bed.DiskSelect());
+
+        Assert.Equal(ProfileStatus.Verified, pipeline.Current.Status);
+        Assert.Equal(confirmed.ProfileId, pipeline.Current.ProfileId);
+        Assert.Equal(ProfileOrigin.Local, pipeline.Current.Origin);
     }
 }

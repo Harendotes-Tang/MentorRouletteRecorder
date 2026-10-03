@@ -14,7 +14,8 @@
 //
 // Two rules have no dedicated code because they are shape rules, not ordering
 // rules: a non-CANCELLED_BEFORE_ENTRY result needs an entry time, and a
-// COMPLETED result needs an end time. Both report ERR_BAD_REQUEST.
+// COMPLETED result needs an end time. Both report ERR_BAD_REQUEST, as do a
+// reason over 500 characters and a note over 1000, the Collector's limits.
 //
 // This lives in C++ (not in the QML dialog) so the unit tests can drive every
 // branch without a scene graph.
@@ -36,6 +37,11 @@ class RunFormValidator : public QObject
 
 public:
     explicit RunFormValidator(QObject *parent = nullptr);
+
+    /// The Collector's limits: MutationText.MaxReasonLength and the CreateManualRun /
+    /// CorrectRun note (RequestParsers). Both count UTF-16 code units, as QString does.
+    static constexpr int kMaxReasonLength = 500;
+    static constexpr int kMaxNoteLength = 1000;
 
     /// Validate one edit form.
     ///

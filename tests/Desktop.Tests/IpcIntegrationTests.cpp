@@ -10,12 +10,10 @@
 // to the Desktop binary, so a Qt-only checkout still runs the suite.
 //
 // Exactly one Collector may exist while this runs, and it is the one below.
-// Two slots construct an AppController, whose constructor supervises a child
-// Collector of its own whenever the backend calls itself "ipc" - with no --db
-// and no --pipe, i.e. against the user's real database. MR_COLLECTOR_PATH is
-// authoritative and exclusive in CollectorProcess::resolveDefaultExecutable, so
-// tests/Desktop.Tests/CMakeLists.txt points it at a path that cannot exist.
-// main() below repeats that, for a run started by hand rather than by CTest.
+// Two slots construct an AppController; it supervises no Collector unless one
+// is handed to it, and none is here - a supervisor of its own would launch the
+// Collector beside this binary with no --db and no --pipe, i.e. against the
+// user's real database. main() below also applies TestCollectorGuard.h.
 // ---------------------------------------------------------------------------
 
 #include "TestCollectorGuard.h"

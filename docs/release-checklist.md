@@ -26,7 +26,7 @@
 | .NET 用例 | **待重测**。上次完整验收的结果为 477 总数 / 474 通过 / 0 失败 / 3 跳过。Phase 5 加固后 `DiagnosticsLogHygieneTests` 不再含跳过项，并新增了看门狗与补发缓冲用例 |
 | Qt/C++ 用例 | 11 总数 / 11 通过 / 0 失败 |
 | `LIVE_CAPTURE_STATUS` | 本表不抄录该值：应读取产物 `BUILD-METADATA.json` 中的 `live_capture_status`，或运行 `--capture-doctor --json`，判据见 §7。2026-09-07 的实测值为 `VERIFIED_POP_TO_EXIT`，即弹窗与换区已验证，通关报文仍未识别 |
-| `PUBLIC_DISTRIBUTION_READY` | 本表不抄录该值：由 `package.ps1` 按 §7 的五条前提计算，写入 `BUILD-METADATA.json`；不满足时，`public_distribution_blockers` 逐条说明原因 |
+| `PUBLIC_DISTRIBUTION_READY` | 本表不抄录该值：由 `package.ps1` 按 §7 的前提计算，写入 `BUILD-METADATA.json`；不满足时，`public_distribution_blockers` 逐条说明原因 |
 | 安装器 | `artifacts/MentorRecorder-<version>-setup.exe`（Inno Setup；self-contained；Npcap 官网下载） |
 | 产物 | `artifacts/MentorRecorder-<version>-win-x64.zip`（本次实测 63,734,750 字节） |
 | 产物 SHA256 | `46a4b5e863069958e460a7c060b92a4bfddbef0f02ab7503a880006edc0188d2` |
@@ -64,17 +64,17 @@
 | 16 | 高 DPI | `main.cpp` 设置 `HighDpiScaleFactorRoundingPolicy::PassThrough`；截图用例在 1280×800 下渲染通过 | **PARTIAL** | `src/Desktop/cpp/main.cpp:158`。**尚未**在缩放大于 100% 的真实显示器上人工核对；offscreen 截图恒为 1.0 倍。逐项步骤见第 8 节「高 DPI 人工核对」，该节待人工执行 |
 | 17 | 命名管道 ACL 只授权当前用户 | `LifecyclePipeSecurityTests`（3 项）：从真实管道句柄读 DACL，断言只有一条 Allow 规则且身份是当前用户 SID；并断言 Everyone / Authenticated Users / NETWORK / ANONYMOUS / Users / INTERACTIVE 都不在其中 | **PASS** | 集成 TRX |
 | 18 | 进程不监听任何端口 | `LifecycleProcessTests.AServingCollectorOwnsNoTcpEndpointAtAll`（真进程 + `netstat -ano`）；`verify.ps1` 第 5 步（`Get-NetTCPConnection -OwningProcess` + `netstat -ano`） | **PASS** | 集成 TRX；`verify.ps1` 输出「该进程没有任何 TCP 端点」 |
-| 19 | 不出现任何被禁 API | `python tools/static-boundary-check/check.py`（24 条规则，278 个文件）＋ `selftest.py`（53 个反向用例） | **PASS** | 见第 3 节 |
+| 19 | 不出现任何被禁 API | `python tools/static-boundary-check/check.py`（`rules.json` 中的全部规则，扫描范围见第 3 节）＋ `selftest.py`（反向用例） | **PASS** | 见第 3 节；规则数、文件数与用例数以当次输出为准 |
 | 20 | 协议档案不可用时 fail-closed（不解析、不记录） | `CaptureControllerTests.RefusesToStart_WhenTheProfileIsNotVerified`、`ProtocolDecodedReplayTests.ABuildMismatchWritesNoRunAndLeavesTheStateMachineUntouched`、`SoakBoundsTests.AFailClosedParserRefusesIndefinitelyWithoutGrowing` | **PASS** | 两个 TRX |
 | 21 | 可追溯性：记录携带协议档案与事件摘要 | 档案侧：`CaptureIpcTests.VerifiedProfileFlowsFromCaptureThroughParserIntoLiveIpcAndStorage` 断言 `protocol_profile_id` / `game_build` / `capture_session_id`。事件侧：`run_events` 表有完整轨迹，`RecoveryEndToEndTests` 直接读它 | **PASS** | 事件轨迹现已可读取：`GetRunEvents` 是契约中的一条只读消息，对应第 5 节缺口 G1，该缺口已关闭 |
-| 22 | `BUILD-METADATA.json` 的状态字段与产物本身一致，不是手写的字面量 | `package.ps1` 从产物自己的 `--capture-doctor --json` 与 `--list-profiles --json` 读出 `live_capture_status` / `packaged_verified_profile_status`，并用 `*_source` 字段写明各自的来源（前者是二进制里的编译期常量，后者是对包内档案的真实检查）；`-Verify` 解包后再问一次并断言一致，`public_distribution_ready = true` 时另查工作区是否干净、包内是否真有 VERIFIED 档案 | **PASS** | 打包产物中的 `BUILD-METADATA.json`；判据见 §7 |
-| 23 | 崩溃后重启：未完结记录变 INTERRUPTED + 待复核，重启第二次不再变化 | `RecoveryEndToEndTests.ARunLeftUnfinishedByADeadProcessComesBackAsInterruptedAndPendingReview`（真进程 → 真进程） | **PASS** | 集成 TRX |
+| 22 | `BUILD-METADATA.json` 的状态字段与产物本身一致，不是手写的字面量 | `package.ps1` 从产物自己的 `--capture-doctor --json` 与 `--list-profiles --json` 读出 `live_capture_status` / `packaged_verified_profile_status`，并用 `*_source` 字段写明各自的来源（前者是二进制里的编译期常量，后者是对包内档案的真实检查）；`-Verify` 解包后再问一次并断言一致，`public_distribution_ready = true` 时另查是否记录了 `source_commit`、git 能否读出工作区状态、工作区是否干净、包内是否真有 VERIFIED 档案 | **PASS** | 打包产物中的 `BUILD-METADATA.json`；判据见 §7 |
+| 23 | 崩溃后重启：已进入副本的未完结记录变 INTERRUPTED + 待复核（从未进本的记为 CANCELLED_BEFORE_ENTRY + 待复核），重启第二次不再变化 | `RecoveryEndToEndTests.ARunLeftUnfinishedByADeadProcessComesBackAsInterruptedAndPendingReview`（真进程 → 真进程） | **PASS** | 集成 TRX |
 | 24 | 单实例：第二个 `--serve` 非零退出，第一个继续服务 | `LifecycleProcessTests.ASecondServeIsRefusedAndTheFirstKeepsServing` | **PASS** | 集成 TRX |
 | 25 | 长时间运行不泄漏、计数自洽 | `SoakTests.AMixedStreamSustainedForTheWholeDurationLeavesEveryInvariantIntact`（默认 15 s，`MR_SOAK_MINUTES` 可延长） | **PASS** | 见第 4 节实测数字 |
 | 26 | 诊断日志不写入敏感数据、按大小滚动 | `DiagnosticsLogHygieneTests`（11 项，**0 跳过**）：profile 路径 / IPv4 / IPv6 / SID / 长十六进制串五类全部兜底脱敏，另有一项反向断言 12 位短哈希 id 不被误删 | **PASS** | 见第 6 节 |
-| 27 | 发布包不含禁止内容、含齐全许可证材料 | `package.ps1` 的 `Assert-NoForbiddenPayload` + `Assert-RequiredContent`，打包目录与**解包目录**各查一次 | **PASS** | 见第 2 节 |
+| 27 | 发布包不含禁止内容、含齐全许可证材料 | `package.ps1` 的 `Assert-NoForbiddenPayload` + `Assert-RequiredContent`，打包目录与**解包目录**各查一次；另由 `Assert-DesktopExecutable` 在暂存前与解包后核对桌面端内嵌的应用程序清单，并拒绝以开发用 Collector 查找（`MR_DEV_COLLECTOR_DISCOVERY`）编译的程序 | **PASS** | 见第 2 节 |
 | 28 | 桌面端被强杀后不留孤儿 Collector | 桌面端固定以 `--serve --parent-pid <自身 pid>` 拉起子进程；`ParentProcessWatchdog` 用 `Process.GetProcessById` + `WaitForExitAsync`（**进程存在性检查，非 `OpenProcess`**）等父进程结束，随后走与 Ctrl+C 完全相同的停止路径，10 秒硬退出兜底。`LifecycleOrphanTests`（2 项，真进程：杀掉替身父进程后断言 Collector 15 s 内退出、退出码 0、`integrity_check = ok`、无残留未关闭的抓包会话）、`WatchdogTests`（8 项）、Qt `LifecycleTests::theCollectorIsAlwaysToldOurProcessIdSoItCannotBeOrphaned` | **PASS** | 集成 TRX；ctest |
-| 29 | 已发布的 CHANGELOG 段落在打 tag 之后不被改写 | `package.ps1` 的 `Assert-ReleasedChangelogSectionsUnchanged`：对每个 `vX.Y.Z` tag，把工作区 `CHANGELOG.md` 里的 `## [X.Y.Z]` 段落与 `git show <tag>:CHANGELOG.md` 的同名段落逐字比较，不一致即打包失败。新的变更只能写进 `[Unreleased]` 或下一个版本 | **PASS** | 打包脚本；缘由见内部工作文档 `reviews/2026-09-08/fix-status.md` 第 H-9 条，该文档不随仓库分发 |
+| 29 | 已发布的 CHANGELOG 段落在打 tag 之后不被改写 | `package.ps1` 的 `Assert-ReleasedChangelogSectionsUnchanged`：对每个 `vX.Y.Z` tag，把工作区 `CHANGELOG.md` 里的 `## [X.Y.Z]` 段落与 `git show <tag>:CHANGELOG.md` 的同名段落比较，标题行（含日期）与正文逐字一致；段落被删除或标题被改名同样算作改动，任一不符即打包失败。新的变更只能写进 `[Unreleased]` 或下一个版本 | **PASS** | 打包脚本；缘由见内部工作文档 `reviews/2026-09-08/fix-status.md` 第 H-9 条，该文档不随仓库分发 |
 
 **真机验收须补充的条目**：第 16 项（高 DPI 实机缩放），以及全部与真实抓包相关的行为。
 验收机器既没有 Npcap，也没有安装游戏客户端，相关流程见
@@ -92,14 +92,19 @@ pwsh -NoProfile -File scripts/package.ps1 -Force -Verify
 
 该步骤依次断言：
 
-1. 解包目录同样通过 `Assert-NoForbiddenPayload` 与 `Assert-RequiredContent`；
+1. 解包目录同样通过 `Assert-NoForbiddenPayload` 与 `Assert-RequiredContent` 等内容断言，
+   解包出的桌面端可执行文件再通过一次 `Assert-DesktopExecutable`（内嵌应用程序清单为 `asInvoker`、
+   声明长路径与 Windows 10/11，且不是以 `MR_DEV_COLLECTOR_DISCOVERY` 编译的开发构建）；
 2. `MentorRecorder.Collector.exe --version` 退出码为 0，输出为版本横幅；
 3. `MentorRecorder.Collector.exe --capture-doctor --json` 退出码为 0 或 1（验收机器无 Npcap、无游戏客户端时，1 是**正确结果**），
-   且其报出的 `live_capture_status` 与 `BUILD-METADATA.json` 中的记录一致，
+   且其报出的 `live_capture_status` 为 `VERIFIED_POP_TO_EXIT` 并与 `BUILD-METADATA.json` 中的记录一致，
    `boundary.monitor_type = WinPCap`，`boundary.injected_hook_enabled = false`；
 4. `MentorRecorder.Desktop.exe --screenshot`（`QT_QPA_PLATFORM=offscreen`）退出码为 0，
    并产出一张大于 4 KiB 的 PNG。该步骤同时证明 Qt 运行时、QML 模块与 offscreen 平台插件均已齐备；
-5. 上述命令执行完毕后再检查一次禁止内容，确认运行过程本身没有向产物写入数据库或日志。
+   截图期间出现 QML / JavaScript 运行时警告时退出码为 10，本步随之失败；
+5. `MentorRecorder.Desktop.exe --speech-selftest <静音 WAV>` 退出码为 0，证明多媒体运行时齐备；
+   退出码 6 表示该机器没有音频输出设备，与产物无关，同样接受；
+6. 上述命令执行完毕后再检查一次禁止内容，确认运行过程本身没有向产物写入数据库或日志。
 
 本次实测输出：
 
@@ -124,7 +129,8 @@ pwsh -NoProfile -File scripts/package.ps1 -Force -Verify
 
 ### 发布包必须包含 / must contain
 
-`MentorRecorder.Collector.exe`、`MentorRecorder.Desktop.exe`、`LICENSE`、
+`MentorRecorder.Collector.exe`、`MentorRecorder.Desktop.exe`、`Qt6Multimedia.dll`、
+`multimedia/windowsmediaplugin.dll`、`LICENSE`、
 `THIRD_PARTY_NOTICES.md`、`README.md`、`SOURCE_CODE.md`、`BUILD-METADATA.json`、
 `SHA256SUMS.txt`、`docs/`（含 `privacy-boundary.md`、`third-party-licenses.md`、本文件）。
 
@@ -158,18 +164,36 @@ pwsh -NoProfile -File scripts/package.ps1 -Force -Verify
 
 ```
 python tools/static-boundary-check/check.py
-OK: no boundary violation. 278 file(s) scanned under
-    src, tests, tools, scripts, CMakeLists.txt, Directory.Build.props,
-    Directory.Build.targets, MentorRecorder.sln
+<N> allow marker(s) honoured:
+  <文件>:<行号>: [<规则编号>] <理由> (lifted 1 hit: '<命中原文>')
+OK: no boundary violation. <N> file(s) scanned under src, tests, tools, scripts,
+    installer, .github, CMakeLists.txt, Directory.Build.props, Directory.Build.targets,
+    MentorRecorder.sln.
 
 python tools/static-boundary-check/selftest.py
-OK: 53 self-test case(s) passed; the checker rejects what it must.
+OK: <N> self-test case(s) passed; the checker rejects what it must.
 ```
+
+文件数、标记数与自测用例数随仓库变化，以当次输出为准。
+
+`check.py` 只有在**完整**扫描之后才报告通过：候选文件无法读取、扫描范围内的条目缺失、
+遇到目录链接、一次没有扫描到任何文件，或例外标记登记不符时，都以退出码 `2` 失败，而不是报告通过。
+扫描范围包括随发布分发、以管理员身份运行的安装脚本（`installer/`）与 CI 工作流（`.github/`）；
+扫描的扩展名集合固定在 `rules.json` 中，由自测核对。
+
+例外标记写作 `BOUNDARY-ALLOW(<规则编号>): <理由>`，只豁免所在这一行上那一条规则的一处命中，
+且必须在 `rules.json` 的 `allow_markers` 中按“文件 + 规则编号 + 命中原文”登记后才生效；
+该行上同一规则出现第二处命中，或命中换成其他写法时，标记不生效，检查以退出码 `2` 失败。
+每次运行都在输出末尾列出全部生效的标记、理由与被豁免的命中原文，供评审逐一核查。
+细则见 [`tools/static-boundary-check/README.md`](../tools/static-boundary-check/README.md)。
 
 `selftest.py` 是**反向**测试。仅执行 `check.py` 并通过不能说明任何问题，一个永不匹配的
 检查器同样会通过。自测将每一条被禁止的标识符植入临时仓库树，要求检查器报告失败、
 命中正确的规则，并覆盖全部应当扫描的位置（`src/`、`src/Desktop/qml/`、`tests/`、`tools/`、
-`scripts/`、CMake、MSBuild），同时确认 `BOUNDARY-ALLOW` 仍然有效。
+`scripts/`、`installer/`、`.github/`、CMake、MSBuild）与全部应当扫描的扩展名；同时确认例外标记
+只豁免所写的一条规则在一行上的一处命中，且只在登记后生效，扫描不完整时以退出码 `2` 失败。
+自测还逐一删除每条规则模式中的每个分支，要求至少有一个反例因此不再被报告，
+从而保证每一种写法都有反例覆盖。
 
 该自测已发现过一处真实缺陷：`NET-003` 原为 `\bWebSocket\w*\b`，前导的 `\b` 使
 `ClientWebSocket`（.NET 实际的出站 WebSocket 类型）整体漏检。当前规则为 `WebSocket\w*`。
@@ -271,32 +295,39 @@ Get-Content <解包目录>\BUILD-METADATA.json | ConvertFrom-Json |
 | `live_capture_status` | **编译期常量**。在暂存目录中运行该产物自身的 `--capture-doctor --json`（`MR_DATA_DIR` 指向临时目录，探测不会向产物写入数据库或日志），读回编译进 `CaptureDiagnostics` 的声明。该字段证明元数据与这份二进制同源，**不**表示对这份产物做过实时抓包测量；`live_capture_status_source` 如实写明这一点 |
 | `packaged_verified_profile_status` | 该产物自身的 `--list-profiles --json`，取 `status == VERIFIED && usable` 的 `profile_id`，格式为 `VERIFIED (id1, id2)`；一份都没有时取 `NONE`。这一条是对**包内档案文件**的真实检查，记录在 `packaged_verified_profile_status_source` |
 | `source_protocol_profile_status` | [`../protocol-profiles/README.md`](../protocol-profiles/README.md) 顶部的 `PROTOCOL_PROFILE_STATUS = <状态>` 标记 |
-| `public_distribution_ready` | **计算值**，下列五条前提全部满足才为 `true`；`public_distribution_ready_source` 列出参与计算的四类输入：编译期常量、包内档案、git 工作区状态、`-SkipVerify` |
+| `public_distribution_ready` | **计算值**，下列前提全部满足才为 `true`；`public_distribution_ready_source` 列出参与计算的四类输入：编译期常量、包内档案、git 工作区状态、`-SkipVerify`（版本号是否为先行版另由 `prerelease` 字段给出） |
 | `public_distribution_blockers` | 未满足的前提，逐条列出；全部满足时为空数组 |
 
-`public_distribution_ready` 的五条前提如下，任何一条不成立即不得公开分发：
+`public_distribution_ready` 的前提如下，任何一条不成立即不得公开分发：
 
 1. 产物自身的 `--capture-doctor` 报告 `public_distribution_ready = true`（**编译期常量**）；
 2. `live_capture_status == VERIFIED_POP_TO_EXIT`（**编译期常量**）；
 3. 包内**至少有一份** `VERIFIED` 且可用的协议档案。否则按 fail-closed 规则，
    安装后的版本不会自动产生任何记录，只能手工补录；
-4. 源码工作区**干净**（`source_worktree_dirty = false`）。该条落实的是
+4. git 能够给出源码提交号（`source_commit`）并读出工作区状态，且源码工作区**干净**
+   （`source_worktree_dirty = false`）。该条落实的是
    GPL-3.0-or-later 的分发义务：本项目链接 GPLv3 的 Machina.FFXIV 与 Qt Graphs
    （见 [third-party-licenses.md](third-party-licenses.md)），任何对外分发都必须同时提供
    **与该二进制完全对应的**完整源码。工作区处于 dirty 状态时，产物按定义不满足对应源码的要求。
+   找不到 git、目录不是仓库、git 因所有权不符（dubious ownership）拒绝该仓库或命令失败时，
+   `git status` 什么也不输出，这种情况**不**被当作工作区干净：`source_commit` 与
+   `source_worktree_dirty` 记为 `null`，阻断原因中写明 git 未能回答。
    产物随包附带 `SOURCE_CODE.md` 与 `BUILD-METADATA.json` 中的 `source_commit`；
-5. 未使用 `-SkipVerify` 跳过验证关卡。
+5. 未使用 `-SkipVerify` 跳过验证关卡；
+6. 版本号不带先行版后缀。`X.Y.Z-beta.N` 的测试包按定义不作为正式发布分发（第 9.2 节），
+   打包本身照常成功。
 
 > 第 1、2 条是二进制中的声明，只要源码未改动即恒为真，因此并**不**构成这道闸门的实际约束力；
-> 真正可能与事实不符、也真正起到阻断作用的是第 3、4、5 条。
+> 真正可能与事实不符、也真正起到阻断作用的是第 3 至 6 条。
 > 阻断原因 `public_distribution_blockers` 与控制台输出对前两条均标注「编译期常量」。
 
 `package.ps1 -Verify` 会**回头核对**这份声明：解包之后再次查询产物本身，
 `live_capture_status` 与 `packaged_verified_profile_status` 必须与元数据中的记录一致。
 前者的比对证明元数据与解包出来的可执行文件出自同一次构建，即同一个常量与自身对齐，
 **不**证明抓包经过实测。若元数据声称 `public_distribution_ready = true`，
-而工作区处于 dirty 状态、包内没有 VERIFIED 档案，或 `live_capture_status` 不符，
-**打包直接失败**。与事实不符的产物无法通过这道闸门。
+而下列任一情况成立，**打包直接失败**：元数据记录的工作区为 dirty、元数据没有记录 `source_commit`、
+此时 git 无法读出工作区状态、打包之后工作区又出现了未提交改动、包内没有 VERIFIED 档案，
+或 `live_capture_status` 不符。与事实不符的产物无法通过这道闸门。
 
 ## 8. 高 DPI 人工核对 / High-DPI manual pass
 
@@ -402,7 +433,7 @@ git switch dev
 # Directory.Build.props: VersionSuffix 清空（VersionPrefix 保持 1.4.0）
 # CHANGELOG.md: 把 [Unreleased] 改写为 [1.4.0] - 2026-09-20，其上不留空的 [Unreleased]
 git commit -am "chore(release): 1.4.0"
-pwsh -NoProfile -File scripts/verify.ps1          # 不带 -SkipGate / -TestFilter 的完整运行
+pwsh -NoProfile -File scripts/verify.ps1          # 不带 -SkipGate / -TestFilter / -NoBuild 的完整运行
 pwsh -NoProfile -File scripts/package.ps1 -Force -Verify
 git switch main
 git merge --ff-only dev                           # 快进合并

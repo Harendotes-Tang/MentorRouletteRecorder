@@ -83,7 +83,14 @@ QString IpcBackend::connectionDetail() const
 
 BackendReply *IpcBackend::request(const QString &messageType, const QJsonObject &payload)
 {
-    auto *reply = new BackendReply(ipc::newRequestId(), messageType, this);
+    return requestWithId(messageType, payload, QString());
+}
+
+BackendReply *IpcBackend::requestWithId(const QString &messageType, const QJsonObject &payload,
+                                        const QString &requestId)
+{
+    auto *reply = new BackendReply(requestId.isEmpty() ? ipc::newRequestId() : requestId,
+                                   messageType, this);
     m_client->send(reply, messageType, payload);
     return reply;
 }

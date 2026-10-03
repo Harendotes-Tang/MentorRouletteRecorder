@@ -1,5 +1,35 @@
 # IPC 契约变更记录 / IPC contract changelog
 
+## 2026-10-03 · 请求字段与契约对齐、存储与启动拒绝的约定修正
+
+删除一个从未生效的可选请求字段，`GetResultStats` 改用自己的请求定义，其余是既有字段的取值规则、错误约定与说明文字。不新增消息类型，消息数目不变。
+
+- **`ExportCsv` / `ExportJson` 删除可选字段 `include_revisions`**：它在契约中声明，却从未起作用，导出从不包含修订记录。现在它与其他未声明字段一样答 `ERR_BAD_REQUEST`。桌面端从未发送过它。
+- **`GetResultStats` 的载荷改为 `$defs/ResultStatsRequest`**，只有 `filter`。此前它与 `GetDashboardStats` 共用 `$defs/StatsRequest`，契约允许 `trend_granularity`，而采集服务一直拒绝；现在两边一致。
+- 信封或载荷任意一层的对象内字段名重复，答 `ERR_BAD_REQUEST`，按可读出的 `request_id` 应答，连接保持可用。此前信封内重复会让该请求得不到应答，载荷内重复答 `ERR_INTERNAL`。
+- `UndoRevision` 新增 `ERR_UNDO_NOT_ALLOWED` 情形：撤销程序写下的修订（`actor = SYSTEM`）会让记录回到“进行中”（自动记录、`UNKNOWN`、没有结束时间、不在待复核），或没有进入时间却不是进本前取消时，拒绝且不写入任何内容。此前撤销重启收尾的修订会让记录永久从统计与待复核中消失。判断有误时用 `CorrectRun` 更正。
+- `CorrectRun` 把 `content_id` 显式设为 `null`（未知副本）时，记录观测到的区域 `territory_id` 一并清空，统计、`RunFilter.content_ids` 与副本名称不再把它归回原副本；`UndoRevision` 照旧恢复两者。请求与响应结构不变。
+- `GetDashboardStats.achievement_progress` / `remaining`：成就基数大于 0 时，结束时间早于 `baseline_effective_at` 的完成记录不再叠加在基数上（基数已包含它们）；缺结束时间的按进入时间、再按匹配时间判断，都没有的不叠加。基数为 0 时全部计入。`UpdateAchievementBaseline` 的上限校验采用同一口径。字段与类型不变。
+- `UpdateAchievementBaseline`：`baseline_completed_count` 与已保存的基数相同时（只改目标，或重新填入同一个数），保留已保存的 `baseline_effective_at`，不采用请求中的时间；只有基数改变时才以请求中的时间为生效时间。响应中的 `baseline_effective_at` 与审计记录都是实际保存的值。此前每次保存都换成请求中的时间，而桌面端每次发送的都是保存时刻，加上前一条的口径，只修改目标就会让基数生效之后记录的完成从进度中消失。请求与响应结构不变。
+- `CaptureStatus.npcap_version`（以及诊断报告与取证文件头里的 Npcap 版本）改为 Npcap 自身的版本，取自 `Packet.dll`；此前报告的是其中 libpcap 的版本（例如 Npcap 1.88 报为 1.10.6）。只读得到 libpcap 版本时写作 `libpcap 1.10.6`。
+- `CheckDatabaseIntegrity` 的说明更正：它在自己的只读连接上进行，不经过数据库锁，不会让采集写入等待；请求所在连接断开或采集服务停止时中途停止，不给应答。`BackupDatabase` 同样改在独立的只读连接上复制，备份期间采集写入不再等待。
+- 进程启动（不经由 IPC）：SQLite 在打开数据库时报告的错误（不是数据库文件、文件损坏、无法读写、磁盘已满）映射为 `ERR_DB_INTEGRITY`，文件被其他程序锁定映射为 `ERR_DB_BUSY`，退出码均为 3，不再以未处理异常结束进程。所有拒绝打开数据库的原因同时写入本机日志 `startup/open_failed`。管道被另一个 Windows 账户（或以管理员身份运行的进程）占用时退出码为 3，不再报为“已有实例无响应”（6）。
+- 补记今日其他修正中对契约可见的变化：`UpdateStatus.update_available` 在 `enabled = false` 时恒为 `false`，此前检查到的版本仍在 `latest_version` 中；`SynthesizeSpeech` 的请求所在连接断开时，正在发送与仍在排队的句子都答 `ERR_SPEECH_TIMEOUT` + `details.reason = CANCELLED`；共享校准中，其他玩家发布的校准码若会顶替本机已可用的校准、带冲突标记，或提交人数少于同一版本的另一个校准码，`SharedCalibrationCandidate.criteria[].gate` 中匹配与进本两项核对为 `REQUIRED`（此前为 `AUDIT`），需在本机核对通过才启用；候选按提交人数优先排序，冲突标记只在人数相同时靠后。
+
+## 2026-10-03 · 游戏客户端身份读取与选择状态修正
+
+附加式变更：一个新的可选计数字段，其余是既有字段的取值规则与错误约定。不新增消息类型。
+
+- `CaptureStatus.game_selection_required` 只在 `game_processes` 至少列出一个客户端时为 `true`。没有任何客户端在运行时恒为 `false`，`game_selection_reason` 仍保留原因（例如 `EXITED`）供诊断；此时 `StartCapture` 返回普通的 `ERR_FFXIV_NOT_RUNNING`（`retryable = true`），不再要求选择窗口。
+- `game_selection_reason = MULTIPLE` 在所有客户端都关闭后回到 `NONE`，此后单独启动的客户端自动锁定。`EXITED` 在没有客户端时保留，同一安装目录中单独重启的客户端仍自动接续。
+- 进程列表读取失败不再等同于“游戏已退出”：锁定保持，状态沿用上一次成功读取的结果，正在进行的采集不因此停止，同时到来的连接中断仍按掉线处理（docs/state-machine.md §3.6）。同一进程（编号与启动时间都相同）在一次漏读后重新出现时重新锁定；已锁定进程的启动时间暂时不可读时不视为退出。
+- 启动时间改为从内核进程表读取（`NtQuerySystemInformation(SystemProcessInformation)`），不再打开游戏进程句柄。`game_processes[].started_at_utc` 的取值与格式不变，schema 改为引用 `NullableUtcTimestamp`；`game_selection_reason` 补上 `"type": "string"`。
+- `selection_token` 比较不区分大小写。`SelectGameProcess` 缺少 `process_id` 时 `field` 改为 `payload.process_id`，与其他缺失字段一致。
+- `SelectGameProcess` 的所有拒绝都发生在停止旧采集之前；旧采集停止之后选择一定提交。所选客户端若在切换过程中退出，应答为 `ERR_FFXIV_NOT_RUNNING`，状态显示 `EXITED` 并等待重新选择，旧客户端不会被悄悄重新接上；同一瞬间开始的采集验证跟随新的选择。各错误码与 `retryable` 见 contracts/error-codes.md。
+- `StartCapture` 在有客户端等待选择时返回的 `ERR_FFXIV_NOT_RUNNING` 由 `retryable = false` 改为 `true`：选择之后原样重发即可成功，与该错误码的约定一致。
+- `CaptureStatus.ingress` 新增可选计数 `damaged_game_directions`：因序列缺口而放弃的游戏连接方向数。旧桌面端忽略即可。
+- 补记 2026-10-02 起的含义变化：`ffxiv_running` / `ffxiv_process_id` 只描述已锁定的客户端，等待选择时为 `false` / `null`，候选客户端只出现在 `game_processes` 中；`StartCapture.process_id` 只能等于已锁定的客户端。
+
 ## 2026-10-03 · 备注搜索与单开重启接续
 
 - `RunFilter.text` 同时匹配 `duty_name`、`job_name` 和 `note`，与历史页搜索提示一致；通配符字符仍按字面匹配。请求与响应结构不变。

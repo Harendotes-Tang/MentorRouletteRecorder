@@ -88,6 +88,40 @@ public sealed class CalibrationCardTruthTests
     }
 
     /// <summary>
+    /// Audit 2026-10-03, OCal-9. Beside a recording profile the card asked the player to check a
+    /// timeline under a line saying the software was still looking and would ask them to check
+    /// once it found something - which is what it was doing right then. A ready upgrade says what
+    /// confirming it brings, and that recording carries on meanwhile.
+    /// </summary>
+    [Theory]
+    [InlineData(CalibrationTrafficCases.QueueRequestAnnounced, "MATCH_ANNOUNCED", "匹配弹窗")]
+    [InlineData(CalibrationTrafficCases.QueueRequest, "PLAYER_JOB", "职业")]
+    [InlineData(CalibrationTrafficCases.MarkerOffset, "PLAYER_JOB", "真正的「匹配成功」报文")]
+    public void AnUpgradeReadyToCheckSaysWhatConfirmingItBrings(string traffic, string lacking, string brings)
+    {
+        var coordinator = new CalibrationCoordinator();
+        coordinator.Arm(CalibrationObserverTests.Template(), Region.Cn, CalibrationTrafficCases.Build);
+        coordinator.UseProvisional(true, "cn.2026.09.01.0000.0000.local", new HashSet<string> { lacking });
+        coordinator.Begin("calibration-session");
+        foreach (var message in CalibrationTrafficCases.Traffic(traffic)
+            .Concat(CalibrationObserverTests.Noise(470_000, 490_000))
+            .OrderBy(message => message.Mono))
+        {
+            coordinator.Accept(message);
+        }
+
+        var status = coordinator.Snapshot();
+
+        Assert.Equal(CalibrationState.Ready, status.State);
+        Assert.DoesNotContain(status.Blockers, text => text.Contains("找到后会请你再核对", StringComparison.Ordinal));
+        Assert.DoesNotContain(status.Blockers, text => text.Contains("打两把不同的随机任务", StringComparison.Ordinal));
+        Assert.Contains(status.Blockers, text => text.Contains("核对下面的时间线", StringComparison.Ordinal) &&
+                                                 text.Contains(brings, StringComparison.Ordinal));
+        Assert.Contains(status.Blockers, text => text.Contains("记录照常", StringComparison.Ordinal));
+        Assert.All(status.Blockers, text => Assert.DoesNotContain("0x", text, StringComparison.Ordinal));
+    }
+
+    /// <summary>
     /// The desktop tells "a profile is recording while the search goes on" from the profile id on
     /// the status. That id used to be set only by the confirmation itself, so after a restart, or
     /// after 清空进度并重新观察, the card fell back to "正在重新校准…期间不会生成记录" above a

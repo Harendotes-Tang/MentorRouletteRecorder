@@ -4,8 +4,10 @@
 // Supervises the Collector child process.
 //
 // The executable name is fixed and resolved next to our own binary; no path
-// ever comes from a setting, an argument or a message. The only exception is
-// the test-only constructor overload below.
+// ever comes from a setting, an argument, a message or the environment. The
+// only exceptions are the test-only constructor overload below and a build
+// compiled with MR_DEV_COLLECTOR_DISCOVERY, which also honours
+// MR_COLLECTOR_PATH and finds the Collector in a source checkout.
 //
 // The child is always launched with "--serve --parent-pid <our pid>": stop()
 // handles the orderly exit, but nothing runs on a hard kill, so the Collector
@@ -31,7 +33,9 @@
 //               on an older Collector, \ref noteBackendConnected plus a short
 //               lifetime is the fallback guess.
 //   Exited    - the child stopped on its own; a restart is scheduled with an
-//               exponential backoff unless the stop was requested by us.
+//               exponential backoff unless the stop was requested by us, or
+//               the child refused to start for a reason no restart can cure
+//               (\ref isStartRefused).
 //   Stopped   - we asked it to stop; no restart is scheduled.
 // ---------------------------------------------------------------------------
 
@@ -68,7 +72,9 @@ public:
     Q_ENUM(State)
 
     explicit CollectorProcess(QObject *parent = nullptr);
-    /// Resolve the Collector executable (env override, beside the exe, dev tree).
+    /// Resolve the Collector executable: beside the exe, or in its collector/
+    /// folder. Only an MR_DEV_COLLECTOR_DISCOVERY build also honours
+    /// MR_COLLECTOR_PATH and the build output of a source checkout.
     static QString resolveDefaultExecutable();
     /// Test-only overload: supervises \a executablePath instead of the fixed
     /// sibling binary, so the restart backoff can be exercised against a stub.
@@ -101,6 +107,18 @@ public:
     /// Below this lifetime an exit is read as "another instance already serves
     /// the pipe" rather than as a crash worth restarting immediately.
     static constexpr int shortLivedMs() { return 1500; }
+    /// A child that stayed up at least this long starts the backoff afresh
+    /// when it exits. A connection alone does not: a Collector that crashes a
+    /// few seconds after every start must not be restarted every second.
+    static constexpr int stableRunMs() { return 60000; }
+
+    /// The Collector's exit code for a command line it cannot parse. The
+    /// command line is ours and the same on every restart.
+    static constexpr int kBadArgumentsExitCode = 2;
+    /// The Collector's exit code for "cannot do its job": the database failed
+    /// its integrity check or a migration, or the data folder is unusable.
+    /// Read before the pipe opens, a restart meets the same file again.
+    static constexpr int kCannotServeExitCode = 3;
 
     /// The Collector's exit code for ERR_ALREADY_RUNNING: it refused to serve
     /// because another instance of it already holds the per-user serve lease.
@@ -189,8 +207,35 @@ public:
     void setTakeoverTimingsForTest(int holderGrace, int politeKillGrace);
 
     /// How long stop() waits for the child to honour the graceful stop request
-    /// before it falls back to terminate()/kill().
-    static constexpr int gracefulStopMs() { return 3000; }
+    /// before it falls back to terminate()/kill(). The Collector's own shutdown
+    /// may wait up to five seconds for the pipe to drain and five more for the
+    /// calibration evidence to flush, and its watchdog ends it at ten; less
+    /// than that kills it in the middle of a write.
+    static constexpr int gracefulStopMs() { return 10000; }
+    /// Test-only: shorten that wait so a stub that ignores the request does
+    /// not hold a test for the whole budget.
+    void setGracefulStopMsForTest(int milliseconds) { m_gracefulStopMs = milliseconds; }
+    /// Test-only: replaces \ref stableRunMs.
+    void setStableRunMsForTest(int milliseconds) { m_stableRunMs = milliseconds; }
+    /// Test-only: replaces \ref refusedRetryMs.
+    void setRefusedRetryMsForTest(int milliseconds) { m_refusedRetryTimer.setInterval(milliseconds); }
+
+    /// True once the child refused to start in a way the restart loop cannot
+    /// cure: \ref kBadArgumentsExitCode, \ref kCannotServeExitCode before it
+    /// ever served the pipe, or Windows refusing the launch twice in a row.
+    /// Neither the backoff nor the owner's reconnect loop restarts it then.
+    /// Only a \ref kCannotServeExitCode refusal - a database or folder another
+    /// program may be holding for a while - is tried again, quietly, every
+    /// \ref refusedRetryMs; an explicit start() always tries at once.
+    bool isStartRefused() const { return m_startRefused; }
+    static constexpr int refusedRetryMs() { return 5 * 60 * 1000; }
+    /// The sentence a player reads for a refused start with \a exitCode: the
+    /// last line the child wrote to its standard error, without the error
+    /// token or "failed:" in front of it, or a sentence of ours when there is
+    /// nothing usable. \a stderrTail is UTF-8, which the Collector writes.
+    static QString exitExplanation(int exitCode, const QByteArray &stderrTail);
+    /// How much of the child's standard error is kept for that sentence.
+    static constexpr int kStderrTailBytes = 4096;
 
     /// Name of the Collector's graceful-stop event for \a pipeName:
     /// "Local\<pipeName>.stop". Empty when \a pipeName is empty.
@@ -204,16 +249,21 @@ public:
     static QString currentStopEventName();
     /// Test-only: use \a name instead of \ref currentStopEventName, so a test
     /// can create and observe its own event rather than the one a Collector
-    /// serving the user's real pipe is waiting on. Setting it also lifts the
-    /// ownership check below, which a test has no way to satisfy.
+    /// serving the user's real pipe is waiting on. It also lifts the check
+    /// that the child is a Collector at all, which a stub never is; the
+    /// serve.pid check in \ref childHoldsServeLease still applies.
     void setStopEventNameForTest(const QString &name) { m_stopEventName = name; }
 
-    /// True when serve.pid names our own child, i.e. our child is the instance
-    /// that currently holds the per-user serve lease.
+    /// True when our own child is running and no serve.pid names another
+    /// process - i.e. our child is the instance that holds, or is about to
+    /// hold, the per-user serve lease.
     ///
-    /// The stop event is per user, not per process: a second Desktop whose own
-    /// child exited on the lease must never set it on the way out, or quitting
-    /// the second window would stop the first window's Collector.
+    /// The Collector writes serve.pid only once it serves, after the database
+    /// checks and migrations, so a missing file is our child still starting.
+    /// A file naming another process means another Collector holds the lease
+    /// and ours is only checking on it before it exits: the stop event is per
+    /// user, not per process, and setting it then would stop the instance that
+    /// is recording.
     bool childHoldsServeLease() const;
 
     /// True when the last stop() reached the child through its stop event
@@ -221,7 +271,10 @@ public:
     bool lastStopWasGraceful() const { return m_lastStopWasGraceful; }
 
     /// Where the Collector keeps its data: MR_DATA_DIR when set, otherwise
-    /// %LOCALAPPDATA%\MentorRecorder (mirrors Storage/DatabasePaths.cs).
+    /// %LOCALAPPDATA%\MentorRecorder (mirrors Storage/DatabasePaths.cs). Read
+    /// from Windows itself, never through QStandardPaths: its test mode, which
+    /// a screenshot run switches on, would move the answer under ...\qttest
+    /// while the Collector keeps writing to the real folder.
     static QString collectorDataDirectory();
     /// The serve.pid file the lease holder writes, or an empty string when no
     /// such file exists. Looked for in the data directory and in its logs/
@@ -274,12 +327,19 @@ Q_SIGNALS:
     /// a finished Chinese sentence for the toast; \a ok says whether the
     /// stalled holder was actually cleared.
     void leaseTakeover(bool ok, const QString &message);
+    /// The child refused to start for a reason no restart can cure.
+    void startRefused(const QString &message);
 
 private:
     void wireProcess();
     void setState(State state, const QString &detail = {});
     void onFinished(int exitCode, QProcess::ExitStatus status);
     void scheduleRestart();
+    /// Stop the restart loop after a start it cannot cure, and say why - once
+    /// per reason. \a retryLater arms the quiet retry.
+    void refuseStart(const QString &reason, bool retryLater);
+    /// Keep the last \ref kStderrTailBytes of what the child wrote to stderr.
+    void collectStderr();
     /// Set the Collector's stop event, if it exists. False when there is no
     /// such event, which is what an older Collector looks like.
     /// \a requireOwnership refuses unless \ref childHoldsServeLease.
@@ -315,6 +375,8 @@ private:
 
     QProcess *m_process = nullptr;
     QTimer m_restartTimer;
+    /// The quiet retry after a refused exit 3 (\ref refusedRetryMs).
+    QTimer m_refusedRetryTimer;
     QString m_executablePath;
     QString m_detail;
     qint64 m_startedAtMs = 0;
@@ -359,6 +421,21 @@ private:
     bool m_freshHolderReported = false;
     int m_holderGraceMs = holderGraceMs();
     int m_politeKillGraceMs = politeKillGraceMs();
+    int m_gracefulStopMs = gracefulStopMs();
+    int m_stableRunMs = stableRunMs();
+    bool m_startRefused = false;
+    /// The pipe was connected while the current child ran: it got as far as
+    /// serving, so an exit 3 later is a fault of a running Collector, worth a
+    /// restart, rather than a refused start.
+    bool m_childServed = false;
+    /// Windows refused to launch the child this many times in a row.
+    int m_failedLaunches = 0;
+    /// The end of the current child's standard error.
+    QByteArray m_stderrTail;
+    /// The reason last reported through \ref startRefused, so a quiet retry
+    /// refused for the same reason says nothing new. Cleared once a child
+    /// serves.
+    QString m_lastRefusal;
     /// Empty in the shipping build; a test answers the tools from here.
     ToolRunner m_toolRunner;
 };

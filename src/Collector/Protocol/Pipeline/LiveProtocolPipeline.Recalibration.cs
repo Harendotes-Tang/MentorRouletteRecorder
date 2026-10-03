@@ -118,7 +118,9 @@ public sealed partial class LiveProtocolPipeline
     ///
     /// Whatever records now - a shared profile the player bound after retiring, a shipped one,
     /// nothing at all - stops, the retired file comes back under its own name, and the reloaded
-    /// catalogue selects it because a local profile outranks a shared one. The shared session is
+    /// catalogue selects it because a local profile outranks a shared one of the same kind. When
+    /// the catalogue ranks what records above it instead, that stays undisturbed and the file
+    /// stays back, and the player is told so (<see cref="OutrankedAnswer"/>). The shared session is
     /// not told to withdraw anything: once the selection is no longer its profile, its own
     /// reconciliation lets the binding go (<c>ReconcileBound</c>), which unregisters the
     /// candidate without marking the code contradicted, without recording a refusal, and without
@@ -170,7 +172,12 @@ public sealed partial class LiveProtocolPipeline
                 ErrorCodes.CalibrationNotReady, "暂时读不到校准档案，上一份本机校准还没有换回来，请稍后再试一次。");
         }
 
-        if ((_boundProfileId ?? _selection.Profile?.ProfileId) is { } inForce)
+        // Nor is what records stopped when the reloaded catalogue keeps it anyway: closing a run in
+        // flight to bind the very same profile again would cost the player that run for nothing.
+        var keeps = SafeSelect(select, _game) is { IsUsable: true, Profile: { } kept } &&
+            !string.Equals(kept.ProfileId, profileId, StringComparison.Ordinal) ? kept.ProfileId : null;
+        if ((_boundProfileId ?? _selection.Profile?.ProfileId) is { } inForce &&
+            !string.Equals(inForce, keeps, StringComparison.Ordinal))
         {
             UnbindProfile(inForce);
         }
@@ -181,6 +188,16 @@ public sealed partial class LiveProtocolPipeline
             string.Equals(profile.ProfileId, profileId, StringComparison.Ordinal))
         {
             return;
+        }
+
+        // It came back and loads, but the catalogue ranks what is in use above it (§11.2 of
+        // docs/protocol-profile-format.md): a queue-inferred profile beside one that reads the
+        // server's match, or a shipped profile of the same kind. That is not a broken file. It stays
+        // where it is - shadowed, it refuses nothing and takes over if the other one ever goes -
+        // and the player is told what happened instead of being told to calibrate again.
+        if (OutrankedAnswer(target, profileId) is { } outranked)
+        {
+            throw new CollectorException(ErrorCodes.CalibrationNotReady, outranked);
         }
 
         // It came back and the loader would not have it - written by a version whose output this
@@ -205,6 +222,47 @@ public sealed partial class LiveProtocolPipeline
 
         throw new CollectorException(
             ErrorCodes.CalibrationNotReady, "上一份本机校准已经无法使用，请重新校准。");
+    }
+
+    /// <summary>
+    /// What the player is told when the restored file loads and could record, but the catalogue
+    /// selected another profile for the build: outranked, which §11.2 allows in two ways only -
+    /// reading the server's match beats inferring it from the queue, and a shipped profile beats
+    /// one of ours of the same kind. Null when the file is not usable after all, or nothing usable
+    /// is in force instead.
+    /// </summary>
+    /// <param name="target">Region and build the restore applied to.</param>
+    /// <param name="profileId">Id of the restored profile.</param>
+    private string? OutrankedAnswer((Region Region, string GameBuild) target, string profileId)
+    {
+        if (_selection is not { IsUsable: true, Profile: { } inUse } ||
+            string.Equals(inUse.ProfileId, profileId, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        ProtocolProfile? restored;
+        try
+        {
+            restored = _calibrationServices.LoadLocalProfile(target.Region, target.GameBuild);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        {
+            restored = null;
+        }
+
+        if (restored is null || !restored.ToBinding().IsUsable ||
+            !string.Equals(restored.ProfileId, profileId, StringComparison.Ordinal) ||
+            !string.Equals(restored.GameBuild, target.GameBuild, StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        return restored.MatchFromQueue && !inUse.MatchFromQueue
+            ? "上一份本机校准已经放回，但它是按排本推断匹配的，现在用的校准能直接认出匹配通知，所以继续用现在这份记录。"
+            : _selection.Origin == ProfileOrigin.Shipped
+                ? "上一份本机校准已经放回，但这一版游戏已有随软件附带的档案，所以继续用它记录。"
+                : "上一份本机校准已经放回，但这一版游戏另有一份优先使用的校准，所以继续用它记录。";
     }
 
     /// <summary>

@@ -154,6 +154,29 @@ public sealed class IpcCodecTests
         Assert.Equal(peekedId, IpcEnvelope.TryPeekRequestId(body));
     }
 
+    /// <summary>
+    /// Audit 2026-10-03 OF-7. A key repeated in the envelope or anywhere in the payload is a request whose
+    /// meaning depends on which copy a reader takes. It is refused as a bad request before any handler runs,
+    /// and the refusal is still answered against the request id when that is unambiguous.
+    /// </summary>
+    [Theory]
+    [InlineData("\"message_type\":\"ImportCalibrationCode\"",
+        "\"message_type\":\"ImportCalibrationCode\",\"message_type\":\"GetVersion\"", ImportRequestId)]
+    [InlineData("{\"code\":\"MRC1.x\"}", "{\"code\":\"MRC1.x\",\"code\":\"MRC1.y\"}", ImportRequestId)]
+    [InlineData("{\"code\":\"MRC1.x\"}", "{\"code\":\"MRC1.x\",\"nested\":{\"a\":1,\"a\":2}}", ImportRequestId)]
+    [InlineData("\"request_id\":\"" + ImportRequestId + "\"",
+        "\"request_id\":\"" + ImportRequestId + "\",\"request_id\":\"00000000-0000-4000-8000-000000000002\"", null)]
+    public void ParseRequest_RefusesARepeatedKeyAsABadRequest(string anchor, string replacement, string? peekedId)
+    {
+        Assert.Contains(anchor, ImportEnvelope, StringComparison.Ordinal);
+        var body = Encoding.UTF8.GetBytes(ImportEnvelope.Replace(anchor, replacement, StringComparison.Ordinal));
+
+        var error = Assert.Throws<CollectorException>(() => IpcEnvelope.ParseRequest(body));
+
+        Assert.Equal(ErrorCodes.BadRequest, error.Code);
+        Assert.Equal(peekedId, IpcEnvelope.TryPeekRequestId(body));
+    }
+
     [Fact]
     public void ParseRequest_RefusesBytesThatAreNotUtf8InsideAString()
     {

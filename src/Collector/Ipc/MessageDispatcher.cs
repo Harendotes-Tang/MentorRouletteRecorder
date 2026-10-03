@@ -307,8 +307,7 @@ public sealed class MessageDispatcher
     private JsonObject SelectGameProcess(PayloadReader reader)
     {
         reader.RejectUnknown("process_id", "selection_token");
-        var processId = reader.Int("process_id", 1)
-            ?? throw CollectorException.BadRequest("缺少游戏进程。", "process_id");
+        var processId = reader.RequiredInt("process_id", 1);
         return CaptureWire.CaptureStatus(_host.Capture.SelectGameProcess(
             processId, reader.RequiredUuid("selection_token")));
     }
@@ -537,11 +536,13 @@ public sealed class MessageDispatcher
 
     private JsonObject Export(PayloadReader reader, bool csv)
     {
-        reader.RejectUnknown("target_path", "filter", "include_revisions", "overwrite");
+        // include_revisions was declared and then discarded: no export ever carried revisions. It
+        // is no longer part of the contract and is refused like any other undeclared field
+        // (audit 2026-10-03, OF-7).
+        reader.RejectUnknown("target_path", "filter", "overwrite");
         var targetPath = reader.RequiredString("target_path", 32000);
         var filter = RequestParsers.Filter(reader.Object("filter"));
         var overwrite = reader.Bool("overwrite") ?? false;
-        _ = reader.Bool("include_revisions");
 
         var outcome = csv
             ? _host.Exporter.ExportCsv(targetPath, filter, overwrite)

@@ -42,6 +42,11 @@ QString AppSettings::filePath()
     return QDir(settingsDirectory()).absoluteFilePath(QStringLiteral("desktop.ini"));
 }
 
+bool AppSettings::isHarnessRun(bool screenshotMode, const QString &backend)
+{
+    return screenshotMode || backend == QLatin1String("mock");
+}
+
 AppSettings::AppSettings(QObject *parent)
     : QObject(parent)
     , m_settings(filePath(), QSettings::IniFormat)

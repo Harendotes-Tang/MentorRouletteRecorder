@@ -170,6 +170,110 @@ trap {{ [Console]::Error.WriteLine($_.Exception.Message + "`n" + $_.ScriptStackT
         self.assertIn("Unreleased", observed[0])
         self.assertIn("1.4.0", observed[1])
 
+    # ------------------------------------------------- released sections
+
+    RELEASED = (
+        "# 变更记录 / Changelog\n\n"
+        "## [1.5.0] - 2026-10-03\n\n### 修复\n- 新条目\n\n"
+        "## [1.4.0] - 2026-09-21\n\n### 新增\n- 备注图片\n- 自动更新检查\n\n"
+        "## [1.3.1] - 2026-09-19\n\n### 变更\n- older\n"
+    )
+
+    def released_change(self, tagged, working, version="1.4.0"):
+        # The texts travel through files so CR and LF reach PowerShell byte for byte: the
+        # tagged blob arrives LF-only from git, the working copy is CRLF.
+        with tempfile.TemporaryDirectory(prefix="mr changelog ") as directory:
+            tagged_path = Path(directory) / "tagged.md"
+            working_path = Path(directory) / "working.md"
+            tagged_path.write_bytes(tagged.encode("utf-8"))
+            working_path.write_bytes(working.encode("utf-8"))
+            return self.run_helpers(
+                f"$tagged = [IO.File]::ReadAllText({ps_literal(tagged_path)}, [Text.Encoding]::UTF8)\n"
+                f"$working = [IO.File]::ReadAllText({ps_literal(working_path)}, [Text.Encoding]::UTF8)\n"
+                f"ConvertTo-Json -Compress -InputObject (Get-ReleasedChangelogSectionChange "
+                f"-Tagged $tagged -Working $working -Version {ps_literal(version)})")
+
+    def test_an_unchanged_released_section_passes_across_line_endings(self):
+        working = self.RELEASED.replace("\n", "\r\n")
+        self.assertIsNone(self.released_change(self.RELEASED, working))
+        # PowerShell splits git's output on a lone CR as well; a lone CR in the working copy
+        # must therefore read the same as a line break.
+        self.assertIsNone(self.released_change(
+            self.RELEASED, working.replace("- 备注图片\r\n", "- 备注图片\r")))
+
+    def test_a_changed_released_body_is_refused(self):
+        working = self.RELEASED.replace("- 自动更新检查", "- 自动更新检查（补写）")
+        self.assertIsNotNone(self.released_change(self.RELEASED, working))
+
+    def test_a_changed_released_heading_is_refused(self):
+        working = self.RELEASED.replace("## [1.4.0] - 2026-09-21", "## [1.4.0] - 2026-09-22")
+        self.assertIsNotNone(self.released_change(self.RELEASED, working))
+
+    def test_a_deleted_or_renamed_released_section_is_refused(self):
+        start = self.RELEASED.index("## [1.4.0]")
+        end = self.RELEASED.index("## [1.3.1]")
+        for working in (self.RELEASED[:start] + self.RELEASED[end:],
+                        self.RELEASED.replace("## [1.4.0]", "## [1.4.1]")):
+            with self.subTest(working=working[start:start + 30]):
+                self.assertIsNotNone(self.released_change(self.RELEASED, working))
+
+    def test_a_tag_without_that_section_has_nothing_to_protect(self):
+        start = self.RELEASED.index("## [1.4.0]")
+        end = self.RELEASED.index("## [1.3.1]")
+        tagged = self.RELEASED[:start] + self.RELEASED[end:]
+        self.assertIsNone(self.released_change(tagged, self.RELEASED))
+
+    # ------------------------------------------------------ source tree
+
+    def source_state(self, repository, path_prefix=None, path_only=None):
+        if path_only is not None:
+            path = f"$env:PATH = {ps_literal(path_only)}\n"
+        elif path_prefix is not None:
+            path = f"$env:PATH = {ps_literal(path_prefix)} + ';' + $env:PATH\n"
+        else:
+            path = ""
+        return self.run_helpers(
+            path + f"Get-SourceTreeState -RepoRoot {ps_literal(repository)} | ConvertTo-Json -Compress")
+
+    def make_repository(self, directory):
+        repository = Path(directory) / "repo"
+        repository.mkdir()
+        for arguments in (["init", "-q"], ["commit", "-q", "--allow-empty", "-m", "initial"]):
+            subprocess.run(
+                ["git", "-c", "user.name=package test", "-c",
+                 "user.email=package-test@example.invalid", "-c", "commit.gpgsign=false",
+                 *arguments], cwd=repository, check=True, capture_output=True)
+        return repository
+
+    @unittest.skipUnless(shutil.which("git"), "git is required")
+    def test_a_committed_tree_reports_its_commit_and_cleanliness(self):
+        with tempfile.TemporaryDirectory(prefix="mr source ") as directory:
+            repository = self.make_repository(directory)
+            clean = self.source_state(repository)
+            self.assertRegex(clean["Commit"], r"^[0-9a-f]{40}$")
+            self.assertIs(False, clean["Dirty"])
+            self.assertIsNone(clean["Problem"])
+            (repository / "untracked.txt").write_text("x", encoding="utf-8")
+            self.assertIs(True, self.source_state(repository)["Dirty"])
+
+    @unittest.skipUnless(shutil.which("git"), "git is required")
+    def test_a_failing_or_missing_git_is_a_problem_not_a_clean_tree(self):
+        with tempfile.TemporaryDirectory(prefix="mr source ") as directory:
+            repository = self.make_repository(directory)
+            shim = Path(directory) / "failing-git"
+            shim.mkdir()
+            # "dubious ownership" and "not a git repository" both look like this.
+            (shim / "git.cmd").write_bytes(
+                b"@echo off\r\necho fatal: detected dubious ownership 1>&2\r\nexit /b 128\r\n")
+            empty = Path(directory) / "no-git"
+            empty.mkdir()
+            for label, state in (("exit 128", self.source_state(repository, path_prefix=shim)),
+                                 ("missing", self.source_state(repository, path_only=empty))):
+                with self.subTest(git=label):
+                    self.assertIsNone(state["Commit"])
+                    self.assertIsNone(state["Dirty"])
+                    self.assertTrue(state["Problem"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -32,6 +32,18 @@ public static class CalibrationEvidenceStore
     /// <summary>Layout version of the file; anything else is discarded.</summary>
     public const int SchemaVersion = 1;
 
+    /// <summary>
+    /// The rule the observer used to decide which client message was the player's queue request.
+    /// Before this stamp every client message of the request's shape whose first byte was a
+    /// roulette id stood as the queue - the movement packet included, fifty times a second - so
+    /// every table that hangs off the queue (the timed pops and their echo flags, the roulette-echo
+    /// hits, the marker scan, the timing tables) was gathered against a queue that kept changing,
+    /// and can block a draft for good (audit 2026-10-03, OCal-1). A file with an older rule is still
+    /// adopted: its zone loads, counts and request/echo pairs are sound, and they are the slow part
+    /// of an evening. Only what the queue decided starts over.
+    /// </summary>
+    public const int QueueRule = 1;
+
     /// <summary>Production directory: <c>calibration</c> under the managed data root.</summary>
     public static string RootPath => Path.Combine(DatabasePaths.RootDirectory, DirectoryName);
 
@@ -82,11 +94,17 @@ public static class CalibrationEvidenceStore
                 return "OTHER_BUILD";
             }
 
-            return string.Equals(Text(node, "template_sha256"), templateSha256, StringComparison.Ordinal)
-                ? "OK"
-                : "OTHER_TEMPLATE";
+            if (!string.Equals(Text(node, "template_sha256"), templateSha256, StringComparison.Ordinal))
+            {
+                return "OTHER_TEMPLATE";
+            }
+
+            // Carried, but without the tables gathered under the old queue rule.
+            return Int32(node, "queue_rule") >= QueueRule ? "OK" : "OLD_QUEUE_RULE";
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException
+            or FormatException or OverflowException or InvalidOperationException or KeyNotFoundException
+            or ArgumentException)
         {
             return "UNREADABLE";
         }
@@ -124,8 +142,10 @@ public static class CalibrationEvidenceStore
             return Read(node);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException
-            or FormatException or OverflowException or InvalidOperationException or KeyNotFoundException)
+            or FormatException or OverflowException or InvalidOperationException or KeyNotFoundException
+            or ArgumentException)
         {
+            // ArgumentException: a table that names one key twice, which the dictionaries refuse.
             return null;
         }
     }
@@ -153,7 +173,12 @@ public static class CalibrationEvidenceStore
         //
         // Discarding is not affected: 重新观察 deletes the file first, so the next save has
         // nothing to be poorer than.
-        if (StoredMessages(path) > snapshot.MessagesSeen)
+        //
+        // Only a file Load would hand back can be richer. One written under another layout, build
+        // or template, or one that cannot be read at all, is evidence for nothing this observer will
+        // ever hold, and counting against it refused every save under a new template until one
+        // session out-counted the old file (audit 2026-10-03, OCal-5).
+        if (Load(root, region, gameBuild, templateSha256) is { } stored && stored.MessagesSeen > snapshot.MessagesSeen)
         {
             return false;
         }
@@ -188,29 +213,6 @@ public static class CalibrationEvidenceStore
     }
 
     /// <summary>
-    /// How many messages the file at this path claims, or -1 when there is no readable file.
-    /// Reads the one number, not the whole snapshot.
-    /// </summary>
-    /// <param name="path">Full path of the evidence file.</param>
-    private static int StoredMessages(string path)
-    {
-        try
-        {
-            if (!File.Exists(path))
-            {
-                return -1;
-            }
-
-            using var document = JsonDocument.Parse(File.ReadAllText(path));
-            return Int32(document.RootElement, "messages_seen");
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
-        {
-            return -1;
-        }
-    }
-
-    /// <summary>
     /// Removes the file for a build. Used when the player throws the evidence away and when a
     /// profile has been written, so neither decision is quietly undone by the next restart.
     /// </summary>
@@ -239,6 +241,7 @@ public static class CalibrationEvidenceStore
         CalibrationSnapshot snapshot, Region region, string gameBuild, string templateSha256) => new()
     {
         ["schema_version"] = SchemaVersion,
+        ["queue_rule"] = QueueRule,
         ["region"] = EnumWire<Region>.Format(region),
         ["game_build"] = gameBuild,
         ["template_sha256"] = templateSha256,
@@ -468,7 +471,7 @@ public static class CalibrationEvidenceStore
                 .ToDictionary(job => job.Opcode, job => job.Count),
         }).ToArray();
 
-        return new CalibrationSnapshot(
+        var snapshot = new CalibrationSnapshot(
             Text(node, "capture_session_id") ?? string.Empty,
             Items(node, "pairs").Select(item => new FinderPairHit(
                 Text(item, "tag") ?? string.Empty, (ushort)Int32(item, "request"), (ushort)Int32(item, "reply"),
@@ -527,7 +530,29 @@ public static class CalibrationEvidenceStore
             FirstMessageAtUtc = AtOrNull(node, "first_at"),
             LastMessageAtUtc = AtOrNull(node, "last_at"),
         };
+
+        return Int32(node, "queue_rule") >= QueueRule ? snapshot : WithoutQueueTables(snapshot);
     }
+
+    /// <summary>
+    /// A snapshot gathered under an older queue rule (<see cref="QueueRule"/>) without the tables
+    /// that hang off the queue: the timed pops and their echo flags, the roulette-echo hits, the
+    /// marker scan and the timing tables, overflow counters included. Zone loads, counts and
+    /// request/echo pairs stay, and the next queue starts the rest again.
+    /// </summary>
+    /// <param name="snapshot">Snapshot as read.</param>
+    private static CalibrationSnapshot WithoutQueueTables(CalibrationSnapshot snapshot) => snapshot with
+    {
+        Pops = System.Array.Empty<PopHit>(),
+        RouletteEchoes = new Dictionary<(ushort, int), int>(),
+        RouletteEchoHits = System.Array.Empty<RouletteEchoHit>(),
+        Markers = System.Array.Empty<MarkerCandidate>(),
+        MarkerShapeTotals = new Dictionary<(ushort, int), int>(),
+        MarkerOverflow = 0,
+        TimedShapes = System.Array.Empty<TimedShape>(),
+        TimedDead = System.Array.Empty<(ushort, int)>(),
+        TimingOverflow = 0,
+    };
 
     private static IReadOnlyList<TimedSighting> Sightings(JsonElement node, string name) =>
         Items(node, name).Select(item => new TimedSighting(

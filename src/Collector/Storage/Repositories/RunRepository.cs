@@ -273,10 +273,13 @@ public sealed class RunRepository
     /// True when some run recorded under <paramref name="protocolProfileId"/> entered a duty and ended
     /// with its exit observed - not interrupted, disconnected or cancelled before entry. One half of
     /// what ends the watch on a shared profile (the other is that nothing is left to audit, plan §18.4);
-    /// reading it from the table lets that survive a restart.
+    /// reading it from the table lets that survive a restart. Every shared code of a build records under
+    /// the same profile id, so <paramref name="sinceUtc"/> narrows it to what one binding recorded, by the
+    /// same creation time <see cref="FindRecordedUnder"/> uses (audit 2026-10-03, OE-4).
     /// </summary>
     /// <param name="protocolProfileId">Profile id written on the runs.</param>
-    public bool AnyEnteredAndExited(string protocolProfileId)
+    /// <param name="sinceUtc">Earliest creation time to count, or null for all.</param>
+    public bool AnyEnteredAndExited(string protocolProfileId, DateTimeOffset? sinceUtc = null)
     {
         ArgumentException.ThrowIfNullOrEmpty(protocolProfileId);
         return _database.Read(_ =>
@@ -285,8 +288,10 @@ public sealed class RunRepository
             command.CommandText =
                 "SELECT EXISTS(SELECT 1 FROM mentor_runs WHERE protocol_profile_id = $profile AND soft_deleted = 0 " +
                 "AND entered_at_utc IS NOT NULL AND ended_at_utc IS NOT NULL " +
-                "AND result NOT IN ($interrupted, $disconnected, $cancelled));";
+                "AND result NOT IN ($interrupted, $disconnected, $cancelled) " +
+                "AND ($since IS NULL OR created_at_utc >= $since));";
             command.Parameters.AddWithValue("$profile", protocolProfileId);
+            command.Parameters.AddWithValue("$since", sinceUtc is { } since ? UtcTimestamp.ToText(since) : DBNull.Value);
             command.Parameters.AddWithValue("$interrupted", EnumWire<RunResult>.Format(RunResult.Interrupted));
             command.Parameters.AddWithValue("$disconnected", EnumWire<RunResult>.Format(RunResult.Disconnected));
             command.Parameters.AddWithValue("$cancelled", EnumWire<RunResult>.Format(RunResult.CancelledBeforeEntry));

@@ -18,6 +18,7 @@
 #include <QPointer>
 #include <QQmlEngine>
 #include <QString>
+#include <QTimer>
 #include <QVariantList>
 #include <QVariantMap>
 
@@ -115,6 +116,14 @@ public:
     /// TtsService reports how a 测试 sentence went.
     void noteTestResult(bool ok, const QString &code, bool spokenOnline);
 
+    /// A GetSpeechSettings the Collector could not answer (not a refusal) is
+    /// asked again after this pause, doubled each time up to
+    /// kSettingsRetryMaxMs, until it is answered or the connection goes.
+    static constexpr int kSettingsRetryFirstMs = 2000;
+    static constexpr int kSettingsRetryMaxMs = 60000;
+    /// Test seam: the first pause.
+    void setSettingsRetryDelayMs(int milliseconds);
+
 public Q_SLOTS:
     void refresh();
     /// 保存: the keys of \a fields that UpdateSpeechSettings knows are sent as
@@ -142,8 +151,12 @@ private:
     /// True for an answer that says the request itself is wrong, as opposed to
     /// one the Collector could not take right now.
     static bool isRefusal(const QString &code);
+    void scheduleSettingsRetry();
 
     QPointer<IBackend> m_backend;
+    QTimer m_settingsRetry;
+    int m_settingsRetryFirstMs = kSettingsRetryFirstMs;
+    int m_settingsRetryDelayMs = kSettingsRetryFirstMs;
     QJsonObject m_settings;
     QString m_provider = QStringLiteral("none");
     QVariantList m_azureVoices;

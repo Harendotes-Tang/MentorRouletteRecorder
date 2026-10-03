@@ -9,6 +9,10 @@ public sealed record GameProcessOption(int ProcessId, DateTimeOffset? StartedAtU
 /// Pins one process incarnation. A sole newly started client from the same installation may
 /// continue an exited selection; an existing peer or ambiguous restart never does. Choices
 /// expire with their incarnation, and this state is never persisted.
+///
+/// A process listing that fails is not "the client exited": the pin and the previous answer
+/// stand until a listing succeeds (docs/state-machine.md 3.6). A choice is required only while
+/// there is a client to choose; with none listed the reason is kept for diagnostics alone.
 /// </summary>
 internal sealed class GameProcessSelection(GameProcessLocator locator)
 {
@@ -20,6 +24,7 @@ internal sealed class GameProcessSelection(GameProcessLocator locator)
     private bool _restartAmbiguous;
     private bool _restartReplacementsAmbiguous;
     private string _reason = "NONE";
+    private GameProcessDetection? _last;
 
     public GameProcessDetection Refresh()
     {
@@ -47,7 +52,7 @@ internal sealed class GameProcessSelection(GameProcessLocator locator)
             {
                 // Once ambiguous, require an explicit choice even if one later disappears.
                 _reason = "MULTIPLE";
-                return current with { SelectionReason = _reason };
+                return _last = current with { SelectionReason = _reason };
             }
             if (replacements.Length != 1) return current;
             var replacement = replacements[0].Candidate;
@@ -63,7 +68,9 @@ internal sealed class GameProcessSelection(GameProcessLocator locator)
         lock (_gate)
         {
             RefreshCore();
-            if (!_choices.TryGetValue(processId, out var choice) || choice.Token != token)
+            // The contract's Uuid pattern accepts either letter case; the token is the same.
+            if (!_choices.TryGetValue(processId, out var choice) ||
+                !string.Equals(choice.Token, token, StringComparison.OrdinalIgnoreCase))
                 throw new CollectorException(ErrorCodes.FfxivNotRunning,
                     "所选游戏已退出或重新启动，请重新选择游戏窗口。");
             if (choice.Candidate.StartedAtUtc is null)
@@ -81,18 +88,55 @@ internal sealed class GameProcessSelection(GameProcessLocator locator)
         }
     }
 
+    /// <summary>
+    /// Pins a candidate <see cref="Validate"/> returned earlier, without listing again. Cannot
+    /// fail: a caller that has already stopped the old capture must be able to commit the
+    /// choice. Should the client have exited meanwhile, the next refresh reports it EXITED
+    /// like any selected client that exits, with the other clients as existing peers.
+    /// </summary>
+    public void Commit(GameProcessCandidate chosen)
+    {
+        lock (_gate)
+        {
+            Pin(chosen);
+        }
+    }
+
     private GameProcessDetection RefreshCore()
     {
-        var candidates = locator.ListCandidates();
+        // A listing that failed says nothing about the clients. Keep the pin and repeat the
+        // last answer instead of reading "no game" into it (docs/state-machine.md 3.6).
+        if (locator.ListCandidates() is not { } candidates)
+            return _last ?? Project(GameProcessDetection.NotRunning, _choices.Count);
         _choices = candidates.ToDictionary(c => c.ProcessId, c =>
             (c, _choices.TryGetValue(c.ProcessId, out var old) && (Same(old.Candidate, c)
                 || old.Candidate.StartedAtUtc is null && c.StartedAtUtc is null)
                 ? old.Token : Guid.NewGuid().ToString("D")));
-        if (_selected is { } selected && !candidates.Any(c => Same(c, selected)))
+        if (_selected is { } selected && !candidates.Any(c => StillSelected(c, selected)))
         {
             _restartFrom = selected;
             _selected = null;
             _reason = "EXITED";
+        }
+        // A peer whose start time was never readable is known only by its process id; once
+        // that id leaves the listing, a later process reusing it is somebody else.
+        _existingPeers.RemoveWhere(peer => peer.StartedAtUtc is null &&
+            !candidates.Any(candidate => candidate.ProcessId == peer.ProcessId));
+        if (_selected is null && candidates.Count == 0)
+        {
+            // Nothing is left to be ambiguous about. An exited selection keeps the client it
+            // came from, so a sole restart of the same installation still continues.
+            if (_reason == "MULTIPLE") _reason = "NONE";
+            _restartAmbiguous = false;
+            _restartReplacementsAmbiguous = false;
+            _existingPeers.Clear();
+        }
+        if (_selected is null && _reason == "EXITED" &&
+            _restartFrom is { } exited && candidates.FirstOrDefault(c => Same(c, exited)) is { } same)
+        {
+            // The very incarnation that was selected is listed again: one listing missed it,
+            // it never exited.
+            Pin(same);
         }
         if (_selected is null && _reason == "EXITED")
         {
@@ -123,26 +167,35 @@ internal sealed class GameProcessSelection(GameProcessLocator locator)
             else _reason = candidates.Count > 1 ? "MULTIPLE"
                 : candidates.Count == 1 ? "IDENTITY_UNAVAILABLE" : "NONE";
         }
+        GameProcessCandidate? observed = null;
         if (_selected is { } pinned)
         {
-            var observed = candidates.First(c => Same(c, pinned));
+            // A start time that is momentarily unreadable on the pinned process id does not
+            // make it another process: it keeps the identity it was pinned with.
+            observed = candidates.First(c => StillSelected(c, pinned)) with { StartedAtUtc = pinned.StartedAtUtc };
             // A client can expose its path only after startup. Remember the last confirmed
             // path for this incarnation without replacing it with a transient unreadable one.
             if (!string.IsNullOrWhiteSpace(observed.ExecutablePath)) _selected = observed;
             RememberPeers(pinned);
         }
-        var game = _selected is { } current
-            ? locator.Describe(candidates.First(c => Same(c, current)), candidates.Count)
-            : candidates.Count == 0 ? locator.Locate() : GameProcessDetection.NotRunning;
-        return game with
-        {
-            InstanceCount = candidates.Count,
-            SelectionRequired = _reason != "NONE",
-            SelectionReason = _reason,
-            Processes = _choices.Values.Select(c => new GameProcessOption(
-                c.Candidate.ProcessId, c.Candidate.StartedAtUtc, c.Token)).ToArray(),
-        };
+        // With nothing selected, only the remembered installation is described: listing again
+        // here could find a client this listing did not, and call it running with no choice.
+        var game = observed is not null
+            ? locator.Describe(observed, candidates.Count)
+            : candidates.Count == 0 ? locator.FromRememberedInstall() : GameProcessDetection.NotRunning;
+        return _last = Project(game, candidates.Count);
     }
+
+    /// <summary>Adds the selection state to a detection.</summary>
+    private GameProcessDetection Project(GameProcessDetection game, int count) => game with
+    {
+        InstanceCount = count,
+        // A choice is asked for only while there is a client to choose.
+        SelectionRequired = _reason != "NONE" && _choices.Count > 0,
+        SelectionReason = _reason,
+        Processes = _choices.Values.Select(c => new GameProcessOption(
+            c.Candidate.ProcessId, c.Candidate.StartedAtUtc, c.Token)).ToArray(),
+    };
 
     private void Pin(GameProcessCandidate candidate)
     {
@@ -152,6 +205,8 @@ internal sealed class GameProcessSelection(GameProcessLocator locator)
         _restartReplacementsAmbiguous = false;
         _existingPeers.Clear();
         _reason = "NONE";
+        // The last answer described the previous state; a failed listing must not repeat it.
+        _last = null;
         RememberPeers(candidate);
     }
 
@@ -162,10 +217,14 @@ internal sealed class GameProcessSelection(GameProcessLocator locator)
     private void RememberPeers(GameProcessCandidate selected)
     {
         foreach (var (candidate, _) in _choices.Values)
-            if (!Same(candidate, selected))
+            if (!StillSelected(candidate, selected))
                 _existingPeers.Add((candidate.ProcessId, candidate.StartedAtUtc));
     }
 
     private static bool Same(GameProcessCandidate a, GameProcessCandidate b) =>
         a.ProcessId == b.ProcessId && a.StartedAtUtc is not null && a.StartedAtUtc == b.StartedAtUtc;
+
+    /// <summary>The selected incarnation, or its process id listed with no readable start time.</summary>
+    private static bool StillSelected(GameProcessCandidate candidate, GameProcessCandidate selected) =>
+        Same(candidate, selected) || candidate.ProcessId == selected.ProcessId && candidate.StartedAtUtc is null;
 }

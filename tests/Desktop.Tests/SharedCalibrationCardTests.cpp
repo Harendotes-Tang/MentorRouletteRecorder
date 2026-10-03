@@ -113,10 +113,13 @@ class CaptureBackend final : public mr::IBackend
 {
 public:
     QJsonObject capture;
+    /// When set, what the capture status says once a DiscardCalibration has been answered.
+    QJsonObject captureAfterDiscard;
     QJsonObject currentRun;
     QList<QJsonObject> discards;
     QString discardErrorCode;
     QString discardErrorMessage;
+    int captureStatusReads = 0;
 
     QString backendName() const override { return QStringLiteral("mock"); }
     bool isConnected() const override { return true; }
@@ -126,12 +129,15 @@ public:
         auto *reply = new mr::BackendReply(type, type, this);
         if (type == QLatin1String("GetStatus"))
             reply->succeed({{QStringLiteral("capture"), capture}});
-        else if (type == QLatin1String("GetCaptureStatus"))
+        else if (type == QLatin1String("GetCaptureStatus")) {
+            ++captureStatusReads;
             reply->succeed(capture);
-        else if (type == QLatin1String("GetCurrentRun"))
+        } else if (type == QLatin1String("GetCurrentRun"))
             reply->succeed(currentRun);
         else if (type == QLatin1String("DiscardCalibration")) {
             discards.append(payload);
+            if (!captureAfterDiscard.isEmpty())
+                capture = captureAfterDiscard;
             if (discardErrorCode.isEmpty())
                 reply->succeed({{QStringLiteral("state"), QStringLiteral("IDLE")}});
             else
@@ -829,6 +835,59 @@ private Q_SLOTS:
         QStringList texts;
         collectVisibleText(scene.item(QStringLiteral("protocolProfileCard")), texts);
         verifyPlayerCopy(texts);
+    }
+
+    // CS8-D1：恢复的那份本机校准放回来了，但这一版游戏另有排在它前面的档案，所以采集服务
+    // 继续用那一份记录，并以 ERR_CALIBRATION_NOT_READY 说明。这不是失败：文件已经放回，
+    // 退路随之没了。页面此前把这句话当错误显示，而且拒绝之后不重读状态，「恢复上一份
+    // 本机校准」一直挂着。
+    void anOutrankedRollbackIsReportedAsInformationAndTheOfferGoes()
+    {
+        const QString answer = QString::fromUtf8(
+            "上一份本机校准已经放回，但这一版游戏已有随软件附带的档案，所以继续用它记录。");
+        auto fake = std::make_unique<CaptureBackend>();
+        // The game is closed (the installed build is known), so the recording poll is slow
+        // and cannot stand in for the re-read the answer must cause.
+        fake->capture = captureWithRollback(QStringLiteral("SHIPPED"), true, QStringLiteral("IDLE"));
+        fake->capture.insert(QStringLiteral("ffxiv_running"), false);
+        fake->captureAfterDiscard =
+            captureWithRollback(QStringLiteral("SHIPPED"), false, QStringLiteral("IDLE"));
+        fake->captureAfterDiscard.insert(QStringLiteral("ffxiv_running"), false);
+        fake->discardErrorCode = QStringLiteral("ERR_CALIBRATION_NOT_READY");
+        fake->discardErrorMessage = answer;
+        PageScene scene;
+        auto *source = fake.get();
+        scene.other = std::move(fake);
+        QVERIFY(scene.openOn(source, 1180));
+        QTRY_VERIFY(scene.shows(QStringLiteral("protocolRestoreButton")));
+        const int reads = source->captureStatusReads;
+
+        scene.app->calibration()->restoreLocalProfile();
+        QCOMPARE(source->discards.size(), 1);
+
+        // The status is read again after the answer, and the spent offer goes.
+        QTRY_VERIFY(source->captureStatusReads > reads);
+        QTRY_VERIFY(!scene.shows(QStringLiteral("protocolRestoreButton")));
+        // The answer stays on the page as information, in the Collector's own words.
+        QVERIFY(scene.app->calibration()->error().isEmpty());
+        QVERIFY(!scene.shows(QStringLiteral("protocolCalibrationError")));
+        QVERIFY(scene.shows(QStringLiteral("protocolProfileCard")));
+        QVERIFY(scene.shows(QStringLiteral("protocolCalibrationNotice")));
+        auto *notice = scene.item(QStringLiteral("protocolCalibrationNotice"));
+        QCOMPARE(notice->property("text").toString(), answer);
+        QCOMPARE(notice->property("color"),
+                 scene.item(QStringLiteral("protocolProfileExplanation"))->property("color"));
+        QStringList texts;
+        collectVisibleText(scene.item(QStringLiteral("protocolProfileCard")), texts);
+        verifyPlayerCopy(texts);
+
+        // It speaks of the profile in force on this build; once another build is in force
+        // it would no longer be true, and it goes.
+        QJsonObject patched = source->capture;
+        patched.insert(QStringLiteral("game_build"), QStringLiteral("2026.10.01.0000.0000"));
+        source->capture = patched;
+        scene.app->rereadCaptureStatus();
+        QTRY_VERIFY(!scene.shows(QStringLiteral("protocolCalibrationNotice")));
     }
 
     void theRollbackWaitsForTheDutyToEnd()

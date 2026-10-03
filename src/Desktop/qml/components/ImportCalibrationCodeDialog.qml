@@ -113,7 +113,11 @@ Dialog {
             Item { Layout.fillWidth: true }
 
             AppButton {
+                objectName: "sharedImportCancel"
                 text: qsTr("取消")
+                // Closing mid-request would drop the refusal reason, which only
+                // this window is told (importFinished) - review OL-10.
+                enabled: !dialog.busy
                 onClicked: dialog.close()
             }
 

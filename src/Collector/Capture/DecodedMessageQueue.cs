@@ -38,6 +38,7 @@ public sealed class DecodedMessageQueue : IDisposable
     private readonly Action<Exception>? _onSinkError;
     private readonly Action<long>? _onDropped;
     private readonly Action? _onConnectionLost;
+    private readonly Action<string, MessageDirection>? _onDirectionDamaged;
     private readonly Action? _beforeWait;
     private readonly CancellationTokenSource _stopping = new();
     private readonly Thread _worker;
@@ -54,6 +55,7 @@ public sealed class DecodedMessageQueue : IDisposable
     private const string StageStarting = "starting";
     private const string StageWaiting = "waiting";
     private const string StageConnectionLost = "connection-lost";
+    private const string StageDirectionDamaged = "direction-damaged";
     private const string StageExited = "exited";
 
     /// <summary>Creates a queue and starts its parser thread.</summary>
@@ -78,13 +80,20 @@ public sealed class DecodedMessageQueue : IDisposable
     /// arrives after the run was closed as DISCONNECTED, turning a cleared duty into a lost one
     /// (review finding R-4).
     /// </param>
+    /// <param name="onDirectionDamaged">
+    /// Called from the parser thread, with the connection key and the direction, when a
+    /// direction-damaged marker reaches the front of the queue: behind every message that
+    /// connection delivered before the direction was given up, for the same reason as
+    /// <paramref name="onConnectionLost"/> (audit 2026-10-03, CS3a-X1).
+    /// </param>
     public DecodedMessageQueue(
         IDecodedMessageSink sink,
         int capacity = DefaultCapacity,
         Action<Exception>? onSinkError = null,
         Action<long>? onDropped = null,
-        Action? onConnectionLost = null)
-        : this(sink, capacity, onSinkError, onDropped, onConnectionLost, beforeWait: null)
+        Action? onConnectionLost = null,
+        Action<string, MessageDirection>? onDirectionDamaged = null)
+        : this(sink, capacity, onSinkError, onDropped, onConnectionLost, beforeWait: null, onDirectionDamaged)
     {
     }
 
@@ -95,7 +104,8 @@ public sealed class DecodedMessageQueue : IDisposable
         Action<Exception>? onSinkError,
         Action<long>? onDropped,
         Action? onConnectionLost,
-        Action? beforeWait)
+        Action? beforeWait,
+        Action<string, MessageDirection>? onDirectionDamaged = null)
     {
         ArgumentNullException.ThrowIfNull(sink);
 
@@ -103,6 +113,7 @@ public sealed class DecodedMessageQueue : IDisposable
         _onSinkError = onSinkError;
         _onDropped = onDropped;
         _onConnectionLost = onConnectionLost;
+        _onDirectionDamaged = onDirectionDamaged;
         _beforeWait = beforeWait;
         Capacity = Math.Clamp(capacity, MinCapacity, MaxCapacity);
         _channel = Channel.CreateBounded<DecodedMessage>(
@@ -133,7 +144,7 @@ public sealed class DecodedMessageQueue : IDisposable
 
     /// <summary>
     /// Where the parser thread is right now and for how long: <c>waiting</c>,
-    /// <c>delivering 0x1234</c>, <c>connection-lost</c> or <c>exited</c>, each with the
+    /// <c>delivering 0x1234</c>, <c>connection-lost</c>, <c>direction-damaged</c> or <c>exited</c>, each with the
     /// milliseconds spent there. Diagnostic only; the timeout message names the stage, which is
     /// what tells a stuck sink apart from a worker that never woke.
     /// </summary>
@@ -234,6 +245,37 @@ public sealed class DecodedMessageQueue : IDisposable
     public bool OfferConnectionLost() => !_disposed && _channel.Writer.TryWrite(ConnectionLostMarker);
 
     /// <summary>
+    /// Session id of a direction-damaged marker, compared by reference. Unlike
+    /// <see cref="ConnectionLostMarker"/> that marker carries something -- the connection key and
+    /// the direction, in the fields a message carries them in -- so each one is a message of its
+    /// own, recognised by this very string instance, which no decoded message can hold.
+    /// </summary>
+    private static readonly string DirectionDamagedTag = new string('#', 1);
+
+    /// <summary>
+    /// Offers a direction-damaged marker, so the listener is told only after everything that
+    /// connection delivered before the loss has been parsed (audit 2026-10-03, CS3a-X1). A marker
+    /// that cannot be queued is dropped silently, like the connection-lost marker.
+    /// </summary>
+    /// <param name="connectionKey">Opaque key of the connection, as on its decoded messages.</param>
+    /// <param name="direction">The direction given up.</param>
+    /// <returns>True when the marker was queued.</returns>
+    public bool OfferDirectionDamaged(string connectionKey, MessageDirection direction)
+    {
+        ArgumentNullException.ThrowIfNull(connectionKey);
+        return !_disposed && _channel.Writer.TryWrite(new DecodedMessage(
+            DirectionDamagedTag,
+            direction,
+            DateTimeOffset.UnixEpoch,
+            TimeSpan.Zero,
+            0,
+            0,
+            0,
+            ReadOnlyMemory<byte>.Empty,
+            connectionKey));
+    }
+
+    /// <summary>
     /// Counts one lost message and tells the owner at once. The callback must not block: this
     /// runs on the capture callback thread, and blocking there makes the driver drop packets
     /// nobody can count.
@@ -269,7 +311,8 @@ public sealed class DecodedMessageQueue : IDisposable
         // stage before its cancellation check, so a worker that dequeued something reads as
         // delivering (and is abandoned by that check), never as waiting.
         // "starting" (not yet in the loop) and "exited" (in its last instructions) hold nothing
-        // either; only a delivering or connection-lost stage means the sink may be running.
+        // either; only a delivering, connection-lost or direction-damaged stage means the sink may
+        // be running.
         var stage = _stage;
         if (stage == StageWaiting || stage == StageStarting || stage == StageExited)
         {
@@ -301,7 +344,9 @@ public sealed class DecodedMessageQueue : IDisposable
                     // change the moment a message is in hand.
                     EnterStage(ReferenceEquals(message, ConnectionLostMarker)
                         ? StageConnectionLost
-                        : $"delivering 0x{message.Opcode:x4}");
+                        : ReferenceEquals(message.CaptureSessionId, DirectionDamagedTag)
+                            ? StageDirectionDamaged
+                            : $"delivering 0x{message.Opcode:x4}");
                     if (_stopping.IsCancellationRequested)
                     {
                         Interlocked.Increment(ref _abandoned);
@@ -334,6 +379,12 @@ public sealed class DecodedMessageQueue : IDisposable
             if (ReferenceEquals(message, ConnectionLostMarker))
             {
                 _onConnectionLost?.Invoke();
+                return;
+            }
+
+            if (ReferenceEquals(message.CaptureSessionId, DirectionDamagedTag))
+            {
+                _onDirectionDamaged?.Invoke(message.ConnectionKey, message.Direction);
                 return;
             }
 

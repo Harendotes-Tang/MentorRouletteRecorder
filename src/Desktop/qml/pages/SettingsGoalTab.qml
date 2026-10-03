@@ -19,8 +19,17 @@ ColumnLayout {
     // Set as soon as the user types and cleared on submit, so a dashboard
     // refresh never overwrites a half-finished edit.
     property bool achievementEdited: false
+    // Until the stored goal and baseline have been read on this connection the
+    // fields hold defaults; saving them would overwrite the stored baseline
+    // (audit 2026-10-03, CS7-D3), so they can be neither edited nor saved.
+    readonly property bool settingsLoaded: App.achievementSettingsLoaded
 
-    readonly property int recordedCount: App.dashboard.completed_count || 0
+    // The Collector's achievement_progress, and the part of it this software
+    // recorded. Not completed_count: a COMPLETED run that does not count towards
+    // the goal is in that total only (review OK-1).
+    readonly property int progressCount: App.dashboard.achievement_progress !== undefined
+        ? Number(App.dashboard.achievement_progress) : App.baselineCount
+    readonly property int recordedCount: Math.max(0, tab.progressCount - App.baselineCount)
 
     Connections {
         target: App
@@ -85,6 +94,7 @@ ColumnLayout {
                 objectName: "goalField"
                 Layout.fillWidth: true
                 Layout.preferredWidth: 1
+                enabled: tab.settingsLoaded
                 text: tab.goalText
                 inputMethodHints: Qt.ImhDigitsOnly
                 validator: IntValidator { bottom: 1; top: 999999 }
@@ -99,6 +109,7 @@ ColumnLayout {
                 objectName: "baselineField"
                 Layout.fillWidth: true
                 Layout.preferredWidth: 1
+                enabled: tab.settingsLoaded
                 text: tab.baselineText
                 inputMethodHints: Qt.ImhDigitsOnly
                 validator: IntValidator { bottom: 0; top: 999999 }
@@ -108,6 +119,16 @@ ColumnLayout {
                         tab.achievementEdited = true
                 }
             }
+        }
+
+        Text {
+            objectName: "achievementSettingsWaiting"
+            Layout.fillWidth: true
+            visible: !tab.settingsLoaded
+            text: qsTr("还没有从采集服务读到已保存的目标与基数，读到之后才能修改和保存。")
+            color: Theme.textSecondary
+            font.pixelSize: Theme.fs(12)
+            wrapMode: Text.WordWrap
         }
 
         ColumnLayout {
@@ -151,7 +172,7 @@ ColumnLayout {
                     objectName: "progressFormulaFigures"
                     text: "%1 + %2 = %3".arg(App.baselineCount)
                                          .arg(tab.recordedCount)
-                                         .arg(App.baselineCount + tab.recordedCount)
+                                         .arg(tab.progressCount)
                     color: Theme.gold2
                     font.family: Theme.numFamily
                     font.weight: Theme.eorzea ? Font.Bold : Font.DemiBold
@@ -191,6 +212,7 @@ ColumnLayout {
                 objectName: "saveAchievementButton"
                 text: qsTr("保存")
                 variant: "primary"
+                enabled: tab.settingsLoaded
                 onClicked: tab.submitAchievement()
             }
         }

@@ -197,6 +197,77 @@ public sealed class CaptureControllerTests : IDisposable
         Assert.Equal("eth", controller.Start().AdapterId);
     }
 
+    /// <summary>
+    /// Audit 2026-10-03, OB-4. With two cards that both have a gateway, the one Windows routes
+    /// through is decided by the routing table, not by the order the cards are listed in.
+    /// </summary>
+    [Fact]
+    public void BeforeTheFirstConnectionTheRouteWindowsWouldTakeBeatsListingOrder()
+    {
+        WithGame(withTraffic: false);
+        _adapters.Add("eth", "Ethernet", hasDefaultRoute: true, addresses: "192.168.31.5");
+        _adapters.Add("wlan", "WLAN", hasDefaultRoute: true, preferredRoute: true, addresses: "192.168.43.9");
+        using var controller = Build();
+
+        Assert.Equal("wlan", controller.Start().AdapterId);
+    }
+
+    /// <summary>
+    /// Audit 2026-10-03, OB-4. A full-tunnel VPN or 加速器 card routes everything through itself
+    /// without a default gateway of its own; the routing table still names it.
+    /// </summary>
+    [Fact]
+    public void BeforeTheFirstConnectionATunnelWithoutAGatewayIsChosenWhenWindowsRoutesThroughIt()
+    {
+        WithGame(withTraffic: false);
+        _adapters.Add("eth", "Ethernet", hasDefaultRoute: true, addresses: "192.168.31.5");
+        _adapters.Add("tun", "Accelerator", preferredRoute: true, addresses: "10.8.0.2");
+        using var controller = Build();
+
+        Assert.Equal("tun", controller.Start().AdapterId);
+    }
+
+    /// <summary>
+    /// Audit 2026-10-03, OB-4. A connection table that cannot be read says nothing about the
+    /// game, so it is not "no connection yet": the game may well be talking on another card.
+    /// Nothing is guessed, and the follow poll asks again on its next tick.
+    /// </summary>
+    /// <summary>
+    /// The route lookup itself, on this machine: one interface at most can be the route, and
+    /// it is one that is up and has an address to bind to. A machine with no route has none.
+    /// </summary>
+    [Fact]
+    public void TheRealRouteLookupNamesAtMostOneUsableInterface()
+    {
+        var routed = SystemAdapterProvider.Instance.List().Where(adapter => adapter.PreferredRoute).ToArray();
+
+        Assert.True(routed.Length <= 1, string.Join(", ", routed.Select(adapter => adapter.FriendlyName)));
+        Assert.All(routed, adapter =>
+        {
+            Assert.True(adapter.IsUp);
+            Assert.False(adapter.IsLoopback);
+            Assert.NotEmpty(adapter.IPv4Addresses);
+        });
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)] // What Machina's ProcessTCPInfo throws when GetExtendedTcpTable fails.
+    public void AnUnreadableConnectionTableIsNotMistakenForAGameWithNoConnectionYet(bool win32)
+    {
+        WithGame(withTraffic: false);
+        _adapters.Add("eth", "Ethernet", hasDefaultRoute: true, preferredRoute: true, addresses: "192.168.31.5");
+        _tcp.Failure = win32
+            ? new System.ComponentModel.Win32Exception(122, "simulated TCP table failure")
+            : new InvalidOperationException("simulated TCP table failure");
+        using var controller = Build();
+
+        Assert.DoesNotContain(controller.RescanAdapters(), adapter => adapter.Recommended);
+        var error = Assert.Throws<CollectorException>(() => controller.Start());
+        Assert.Equal(ErrorCodes.BadRequest, error.Code);
+        Assert.Equal("adapter_id", error.Field);
+    }
+
     [Fact]
     public void RefusesToGuessAnAdapter_WhenTheGamesTrafficCannotBeLocated()
     {
@@ -433,6 +504,47 @@ public sealed class CaptureControllerTests : IDisposable
         var deadline = DateTime.UtcNow.AddSeconds(10);
         while (!_lifecycle.Events.Contains("connection_lost") && DateTime.UtcNow < deadline) Thread.Sleep(10);
         Assert.Contains("connection_lost", _lifecycle.Events);
+        controller.Stop();
+    }
+
+    /// <summary>
+    /// Audit 2026-10-03, CS3a-X1. A direction the capture gave up reaches the lifecycle listener
+    /// with the key its connection's messages carry and the direction, and only behind the
+    /// messages still queued before it: whether it is a gap depends on what that connection
+    /// delivered, so it must not overtake what it delivered.
+    /// </summary>
+    [Fact]
+    public void ADamagedDirectionIsForwardedWithItsConnectionBehindTheQueuedMessages()
+    {
+        WithGame();
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        _sink = new WaitingSink(entered, release);
+        using var controller = Build();
+        string expected;
+        try
+        {
+            var started = controller.Start();
+            expected = "direction_damaged:" + ConnectionKey.From(started.CaptureSessionId!, 0, 1, 0, 0) + ":Outbound";
+            Source.PushOpcode(1);
+            Assert.True(entered.Wait(TimeSpan.FromSeconds(5)));
+
+            // Queued behind the message the parser is still holding.
+            Source.PushOpcode(2);
+            Source.PushDirectionDamaged(1, MessageDirection.Outbound);
+
+            Thread.Sleep(200);
+            Assert.DoesNotContain(expected, _lifecycle.Events);
+        }
+        finally
+        {
+            release.Set();
+        }
+
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (!_lifecycle.Events.Contains(expected) && DateTime.UtcNow < deadline) Thread.Sleep(10);
+        Assert.Contains(expected, _lifecycle.Events);
+        Assert.Equal(CaptureControllerState.Running, controller.State);
         controller.Stop();
     }
 
@@ -909,18 +1021,255 @@ public sealed class CaptureControllerTests : IDisposable
         Assert.Equal(ErrorCodes.Internal, controller.Snapshot().LastErrorCode);
         Assert.Single(_sources);
 
-        // Exiting clears the fault backoff, but a new process needs a fresh choice.
+        // Exiting clears the fault backoff, and the sole restart of the same installation
+        // continues without a fresh choice.
         _processes.Clear();
         controller.Poll();
         Assert.Equal(CaptureControllerState.Idle, controller.State);
 
-        WithGame();
-        Assert.True(controller.Snapshot().Game.SelectionRequired);
-        var next = Assert.Single(controller.Snapshot().Game.Processes);
-        controller.SelectGameProcess(next.ProcessId, next.Token);
+        _processes.Add(GameProcessLocator.Dx11ProcessName, 4321, DateTimeOffset.UnixEpoch.AddMinutes(1),
+            @"D:\SdoA\FFXIV\game\ffxiv_dx11.exe");
+        Assert.False(controller.Snapshot().Game.SelectionRequired);
         controller.Poll();
         Assert.Equal(CaptureControllerState.Running, controller.State);
         Assert.Equal(2, _sources.Count);
+    }
+
+    [Fact]
+    public void AFailedProcessListingNeitherStopsTheCaptureNorDropsTheSelection()
+    {
+        WithGame();
+        AddSecondGame();
+        using var controller = Build();
+        var choice = controller.Snapshot().Game.Processes.Single(p => p.ProcessId == 4321);
+        controller.SelectGameProcess(choice.ProcessId, choice.Token);
+        controller.Poll();
+        var session = controller.Snapshot().CaptureSessionId;
+        Assert.Equal(CaptureControllerState.Running, controller.State);
+
+        _processes.Fails = true;
+        controller.Poll();
+        Assert.Equal(CaptureControllerState.Running, controller.State);
+        Assert.Equal(0, StopCount);
+
+        _processes.Fails = false;
+        controller.Poll();
+        Assert.Equal(CaptureControllerState.Running, controller.State);
+        Assert.Equal(session, controller.Snapshot().CaptureSessionId);
+        Assert.False(controller.Snapshot().Game.SelectionRequired);
+        Assert.Equal(1, StartCount);
+    }
+
+    [Fact]
+    public void AMomentarilyUnreadableStartTimeDoesNotStopTheCapture()
+    {
+        WithGame();
+        using var controller = Build();
+        controller.Poll();
+        Assert.Equal(CaptureControllerState.Running, controller.State);
+
+        _processes.Clear();
+        _processes.Add(GameProcessLocator.Dx11ProcessName, 4321, path: @"D:\SdoA\FFXIV\game\ffxiv_dx11.exe",
+            startUnreadable: true);
+        controller.Poll();
+
+        Assert.Equal(CaptureControllerState.Running, controller.State);
+        Assert.Equal(0, StopCount);
+    }
+
+    /// <summary>
+    /// docs/state-machine.md section 3.6: a process listing that fails counts as "the game is
+    /// still running", so a network drop that coincides with it is still DISCONNECTED.
+    /// </summary>
+    [Fact]
+    public void AConnectionLossDuringAFailedListingIsStillForwarded()
+    {
+        WithGame();
+        using var controller = Build();
+        controller.Start();
+
+        _processes.Fails = true;
+        Source.PushConnectionClosed();
+
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (!_lifecycle.Events.Contains("connection_lost") && DateTime.UtcNow < deadline) Thread.Sleep(10);
+        Assert.Contains("connection_lost", _lifecycle.Events);
+        _processes.Fails = false;
+        controller.Stop();
+    }
+
+    [Fact]
+    public void TheSameClientReturningAfterAMissedListingIsRecordedAgainWithoutAChoice()
+    {
+        WithGame();
+        AddSecondGame();
+        using var controller = Build();
+        var choice = controller.Snapshot().Game.Processes.Single(p => p.ProcessId == 4321);
+        controller.SelectGameProcess(choice.ProcessId, choice.Token);
+        controller.Poll();
+        Assert.Equal(CaptureControllerState.Running, controller.State);
+
+        _processes.Clear();
+        AddSecondGame();
+        controller.Poll();
+        Assert.Equal(1, StopCount);
+
+        _processes.Clear();
+        WithGame();
+        AddSecondGame();
+        Assert.False(controller.Snapshot().Game.SelectionRequired);
+        controller.Poll();
+        Assert.Equal(CaptureControllerState.Running, controller.State);
+        Assert.Equal(2, StartCount);
+        Assert.Equal(4321, Source.LastOptions!.ProcessId);
+    }
+
+    [Fact]
+    public void WithEveryClientClosedStartingIsTheOrdinaryRetryableRefusal()
+    {
+        WithGame();
+        using var controller = Build();
+        controller.Poll();
+        _processes.Clear();
+        controller.Poll();
+
+        var game = controller.Snapshot().Game;
+        Assert.Equal("EXITED", game.SelectionReason);
+        Assert.False(game.SelectionRequired);
+        var error = Assert.Throws<CollectorException>(() => controller.Start());
+        Assert.Equal(ErrorCodes.FfxivNotRunning, error.Code);
+        Assert.True(error.Retryable);
+        Assert.Contains("未找到正在运行", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void StartingWhileAChoiceIsPendingIsRetryableOnceTheChoiceIsMade()
+    {
+        WithGame();
+        AddSecondGame();
+        using var controller = Build();
+
+        var error = Assert.Throws<CollectorException>(() => controller.Start());
+
+        Assert.Equal(ErrorCodes.FfxivNotRunning, error.Code);
+        Assert.True(error.Retryable);
+        Assert.Equal(0, StartCount);
+    }
+
+    /// <summary>
+    /// The chosen client exits while the old capture is being stopped. The old client must not
+    /// quietly come back on the next poll (mid-connection, so undecodable): the switch the user
+    /// asked for stands, and with its target gone a new choice is asked for.
+    /// </summary>
+    [Fact]
+    public void ASwitchWhoseTargetExitsWhileTheOldCaptureStopsDoesNotResumeTheOldClient()
+    {
+        WithGame();
+        var lifecycle = new CallbackLifecycleListener();
+        using var controller = new CaptureController(Services() with { Lifecycle = lifecycle });
+        controller.Poll();
+        Assert.Equal(CaptureControllerState.Running, controller.State);
+        AddSecondGame();
+        var choice = controller.Snapshot().Game.Processes.Single(p => p.ProcessId == 9876);
+        lifecycle.OnStopped = () =>
+        {
+            _processes.Clear();
+            WithGame();
+        };
+
+        var error = Assert.Throws<CollectorException>(() => controller.SelectGameProcess(choice.ProcessId, choice.Token));
+        Assert.Equal(ErrorCodes.FfxivNotRunning, error.Code);
+        Assert.Equal(1, StopCount);
+
+        controller.Poll();
+        Assert.Equal(1, StartCount);
+        var game = controller.Snapshot().Game;
+        Assert.Equal("EXITED", game.SelectionReason);
+        Assert.True(game.SelectionRequired);
+        Assert.Equal(4321, Assert.Single(game.Processes).ProcessId);
+    }
+
+    /// <summary>
+    /// A validation session that takes the capture in the instant the old capture released it
+    /// must not leave the switch half done: the old capture is already stopped, so the choice is
+    /// committed and the validation (and every later capture) follows the new client.
+    /// </summary>
+    [Fact]
+    public void AValidationStartingWhileTheOldCaptureStopsFollowsTheNewChoice()
+    {
+        WithGame();
+        var services = Services();
+        IDisposable? validation = null;
+        var armed = false;
+        var status = new CallbackStatusListener((_, message) =>
+        {
+            if (armed && validation is null && message == "抓包已停止。")
+                validation = services.Ownership.Acquire();
+        });
+        using var controller = new CaptureController(services with { StatusListener = status });
+        controller.Poll();
+        AddSecondGame();
+        var choice = controller.Snapshot().Game.Processes.Single(p => p.ProcessId == 9876);
+
+        armed = true;
+        controller.SelectGameProcess(choice.ProcessId, choice.Token);
+
+        Assert.NotNull(validation);
+        Assert.Equal(9876, controller.RescanGame().ProcessId);
+        validation!.Dispose();
+        controller.Poll();
+        Assert.Equal(9876, Source.LastOptions!.ProcessId);
+    }
+
+    /// <summary>
+    /// The periodic ingress line is what a session that recorded nothing is diagnosed from
+    /// afterwards, so it carries every loss that makes a session stop counting as evidence.
+    /// </summary>
+    [Fact]
+    public void TheIngressLogLineCarriesDamagedDirectionsAndQueueDrops()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "MentorRecorder.IngressLog", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            long elapsedMs = 0;
+            using var logger = new Diagnostics.RotatingFileLogger(directory, _database.Clock);
+            WithGame();
+            using var controller = new CaptureController(Services() with
+            {
+                Logger = logger,
+                ProcessUptime = () => TimeSpan.FromMilliseconds(Interlocked.Read(ref elapsedMs)),
+            });
+            controller.Start();
+            Source.IngressCounters = CaptureIngressCounters.Empty with { DamagedGameDirections = 3 };
+            Interlocked.Add(ref elapsedMs, CaptureController.IngressLogIntervalMs);
+            controller.Poll();
+            controller.Stop();
+
+            var line = Assert.Single(
+                File.ReadAllLines(logger.CurrentPath),
+                text => text.Contains("\"ingress_stats\"", StringComparison.Ordinal));
+            Assert.Contains("\"damaged_game_directions\":3", line, StringComparison.Ordinal);
+            Assert.Contains("\"queue_dropped\":0", line, StringComparison.Ordinal);
+        }
+        finally
+        {
+            try { Directory.Delete(directory, recursive: true); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+    }
+
+    private sealed class CallbackLifecycleListener : ICaptureLifecycleListener
+    {
+        public Action? OnStopped { get; set; }
+        public void OnCaptureStarted(string captureSessionId) { }
+        public void OnCaptureStopped(string captureSessionId, CaptureEndReason reason) => OnStopped?.Invoke();
+    }
+
+    private sealed class CallbackStatusListener(Action<CaptureDiagnosticsSnapshot, string> callback) : ICaptureStatusListener
+    {
+        public void OnCaptureStatusChanged(CaptureDiagnosticsSnapshot snapshot, string message) => callback(snapshot, message);
     }
 
     [Fact]
@@ -1302,6 +1651,172 @@ public sealed class CaptureControllerTests : IDisposable
         }
         controller.Stop();
         Assert.False(services.Ownership.IsHeld);
+    }
+
+    /// <summary>
+    /// Audit 2026-10-03, OA-2. An automatic stop whose parser was still inside the sink keeps
+    /// the session, queue and lease rather than release them under a running parser. Only an
+    /// explicit stop -- a maintainer-only control -- used to finish it, so recording stayed
+    /// failed until the software was restarted. The follow poll finishes it instead, without
+    /// waiting out the drain budget again while the sink is still busy.
+    /// </summary>
+    [Fact]
+    public async Task AnAutomaticStopThatTimedOutIsFinishedByALaterPollAndRecordingResumes()
+    {
+        WithGame();
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        _sink = new WaitingSink(entered, release);
+        var services = Services();
+        using var controller = new CaptureController(services);
+        var started = controller.Start();
+        Source.PushOpcode(1);
+        try
+        {
+            Assert.True(entered.Wait(TimeSpan.FromSeconds(5)));
+            _processes.Clear();
+            await Task.Run(controller.Poll).WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.Equal(CaptureControllerState.Faulted, controller.State);
+            Assert.True(services.Ownership.IsHeld);
+
+            await Task.Run(controller.Poll).WaitAsync(TimeSpan.FromSeconds(1));
+            Assert.True(services.Ownership.IsHeld);
+            Assert.DoesNotContain("stopped:ProcessExit", _lifecycle.Events);
+        }
+        finally { release.Set(); }
+
+        Assert.True(SpinWait.SpinUntil(() =>
+        {
+            controller.Poll();
+            return !services.Ownership.IsHeld;
+        }, TimeSpan.FromSeconds(5)));
+        Assert.Equal(CaptureControllerState.Idle, controller.State);
+        Assert.Contains("stopped:ProcessExit", _lifecycle.Events);
+        Assert.NotNull(new CaptureSessionRepository(_database.Database).Get(started.CaptureSessionId!)!.EndedAtUtc);
+
+        _processes.Add(GameProcessLocator.Dx11ProcessName, 4321, DateTimeOffset.UnixEpoch.AddMinutes(1),
+            @"D:\SdoA\FFXIV\game\ffxiv_dx11.exe");
+        controller.Poll();
+        Assert.Equal(CaptureControllerState.Running, controller.State);
+        Assert.Equal(2, StartCount);
+    }
+
+    /// <summary>
+    /// Audit 2026-10-03, OA-2. The same for a source whose release failed: it is retried on
+    /// the fault back-off until it succeeds, and then the lease is free again.
+    /// </summary>
+    [Fact]
+    public void ASourceThatCouldNotBeReleasedIsReleasedByALaterPoll()
+    {
+        WithGame();
+        var stubborn = new StubbornSource { Stuck = true };
+        var services = Services() with { SourceFactory = () => stubborn, FaultRetryInterval = TimeSpan.Zero };
+        using var controller = new CaptureController(services);
+        controller.Start();
+
+        _processes.Clear();
+        controller.Poll();
+        Assert.Equal(CaptureControllerState.Faulted, controller.State);
+        Assert.True(services.Ownership.IsHeld);
+
+        stubborn.Stuck = false;
+        controller.Poll();
+
+        Assert.False(services.Ownership.IsHeld);
+        Assert.Equal(CaptureControllerState.Idle, controller.State);
+        Assert.Contains("stopped:ProcessExit", _lifecycle.Events);
+    }
+
+    /// <summary>
+    /// Audit 2026-10-03, OA-2 (with CS-1's note). Choosing the client that is already chosen
+    /// used to return at once even while a timed-out release was pending, so the click did
+    /// nothing. It now finishes the release, and recording resumes. The session it finishes was
+    /// ended by the fault, and is closed as such: the click only completed the release (V2-4).
+    /// </summary>
+    [Fact]
+    public async Task ChoosingTheSameClientAgainFinishesAPendingRelease()
+    {
+        WithGame();
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        _sink = new WaitingSink(entered, release);
+        var services = Services() with { FaultRetryInterval = TimeSpan.FromHours(1) };
+        using var controller = new CaptureController(services);
+        controller.Start();
+        Source.PushOpcode(1);
+        try
+        {
+            Assert.True(entered.Wait(TimeSpan.FromSeconds(5)));
+            Source.Fault("simulated monitor failure during a blocked sink");
+            Assert.True(SpinWait.SpinUntil(
+                () => controller.State == CaptureControllerState.Faulted, TimeSpan.FromSeconds(5)));
+        }
+        finally { release.Set(); }
+
+        var choice = Assert.Single(controller.Snapshot().Game.Processes);
+        await Task.Run(() => controller.SelectGameProcess(choice.ProcessId, choice.Token))
+            .WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.False(services.Ownership.IsHeld);
+        Assert.Contains("stopped:Error", _lifecycle.Events);
+        Assert.DoesNotContain("stopped:UserStop", _lifecycle.Events);
+        controller.Poll();
+        Assert.Equal(CaptureControllerState.Running, controller.State);
+        Assert.Equal(2, StartCount);
+    }
+
+    /// <summary>
+    /// Audit 2026-10-03, V2-4. A fault stopped the capture while the parser was still inside the sink,
+    /// so the release was left pending. Stopping by hand - here twice, the first attempt timing out
+    /// again - only finishes that release: the session was ended by the fault and is closed as one, so
+    /// a match the player had not entered yet waits for review rather than being written off as a
+    /// confident cancellation. The stop itself still leaves the controller stopped, not faulted.
+    /// </summary>
+    [Fact]
+    public async Task AStopThatFinishesAFaultsPendingReleaseClosesTheSessionAsTheFault()
+    {
+        WithGame();
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        _sink = new WaitingSink(entered, release);
+        var services = Services() with { FaultRetryInterval = TimeSpan.FromHours(1) };
+        using var controller = new CaptureController(services);
+        var started = controller.Start();
+        Source.PushOpcode(1);
+        try
+        {
+            Assert.True(entered.Wait(TimeSpan.FromSeconds(5)));
+            Source.Fault("simulated monitor failure during a blocked sink");
+            Assert.True(SpinWait.SpinUntil(
+                () => controller.State == CaptureControllerState.Faulted, TimeSpan.FromSeconds(5)));
+            var again = await Task.Run(() => Record.Exception(() => controller.Stop())).WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.IsType<CollectorException>(again);
+        }
+        finally { release.Set(); }
+
+        controller.Stop();
+
+        Assert.False(services.Ownership.IsHeld);
+        Assert.Contains("stopped:Error", _lifecycle.Events);
+        Assert.DoesNotContain("stopped:UserStop", _lifecycle.Events);
+        Assert.Equal(CaptureEndReason.Error,
+            new CaptureSessionRepository(_database.Database).Get(started.CaptureSessionId!)!.EndReason);
+        Assert.Equal(CaptureControllerState.Idle, controller.State);
+    }
+
+    private sealed class StubbornSource : ICaptureSource
+    {
+        public volatile bool Stuck;
+        public string Kind => "synthetic-stubborn";
+        public bool IsRunning { get; private set; }
+        public bool ReadsGameExecutable => false;
+        public void Start(CaptureStartOptions options, ICaptureSourceObserver observer) => IsRunning = true;
+        public void Stop() { }
+        public void Dispose()
+        {
+            if (Stuck) throw new TimeoutException("simulated capture thread that has not left yet");
+            IsRunning = false;
+        }
     }
 
     [Fact]

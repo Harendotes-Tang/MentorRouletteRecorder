@@ -242,6 +242,57 @@ public sealed class CalibrationObserverSafetyTests
         Assert.Equal(expected, CalibrationEvidenceSummary.From(snapshot, Template()).ZoneOnceOnly);
     }
 
+    /// <summary>
+    /// Audit 2026-10-03, OCal-6. The connection table is capped, and it used to keep the connections
+    /// of every capture session the observer ever adopted. A player who restarts the game or
+    /// switches characters twenty-odd times without restarting this software passed the cap, the
+    /// overflow was written to disk with the evidence, and the draft blocked with "这次观察到的报文
+    /// 种类超出上限" - nothing about the traffic. A new session means the earlier ones are over:
+    /// their connections are closed and set aside, and only their tags are remembered.
+    /// </summary>
+    [Fact]
+    public void ConnectionsOfSessionsThatEndedDoNotCountAgainstTheCap()
+    {
+        var observer = new CalibrationObserver(Template(), Region.Cn, "session-0");
+        const int sessions = 30;
+        string[] connections = { "lobby", "zone", "chat" };
+        Assert.True(sessions * connections.Length > CalibrationObserver.MaxConnections);
+        for (var session = 0; session < sessions; session++)
+        {
+            var id = "session-" + session;
+            if (session > 0)
+            {
+                observer.AdoptSession(id);
+            }
+
+            foreach (var connection in connections)
+            {
+                observer.Accept(Message(MessageDirection.Inbound, 0xD002, new byte[40], 1_000, connection) with
+                {
+                    CaptureSessionId = id,
+                });
+            }
+
+            if (session == 0)
+            {
+                // A load still open when the session ended without a stop of its own.
+                foreach (var message in Cluster(2_000, 5000, connection: "zone"))
+                {
+                    observer.Accept(message with { CaptureSessionId = id });
+                }
+            }
+        }
+
+        var snapshot = observer.Snapshot();
+
+        Assert.Equal(0, snapshot.OverflowCount);
+        Assert.Equal(sessions * connections.Length, snapshot.ConnectionSessions.Count);
+        Assert.Equal(sessions, snapshot.ConnectionSessions.Values.Distinct().Count());
+        Assert.Single(snapshot.Clusters);
+        Assert.DoesNotContain(CalibrationDraft.Derive(snapshot, Template()).Blockers,
+            blocker => blocker.Contains("超出上限", StringComparison.Ordinal));
+    }
+
     private static IEnumerable<DecodedMessage> FillReplyDiagnostics()
     {
         // Each earlier opcode only answers one request. None has a later matched state,

@@ -35,6 +35,7 @@
 #include <QStandardPaths>
 #include <QTemporaryDir>
 #include <QTest>
+#include <QTextToSpeech>
 #include <QTimer>
 #include <QtEndian>
 
@@ -230,7 +231,8 @@ struct SettingsGuard {
     }
 };
 
-/// A TtsService on a scripted backend with a fake player and no engine.
+/// A TtsService on a scripted backend with a fake player and no engine (or
+/// Qt's silent mock engine, for a test that watches the local voice).
 struct RoutingFixture {
     mr::AppSettings settings;
     SettingsGuard guard{settings};
@@ -243,7 +245,8 @@ struct RoutingFixture {
     QStringList toasts;
     QStringList fallbacks;
 
-    RoutingFixture()
+    explicit RoutingFixture(mr::TtsService::EngineMode engine = mr::TtsService::EngineMode::None)
+        : tts{&settings, nullptr, engine}
     {
         settings.setTtsEnabled(true);
         settings.setTtsRate(100);
@@ -320,6 +323,7 @@ private Q_SLOTS:
     void controller_clearKeyAndRefusals();
     void controller_testReportsSuccessAndFailure();
     void controller_olderCollectorHidesOnlineSpeech();
+    void controller_retriesASettingsLoadTheCollectorCouldNotAnswer();
     void controller_errorReasons_data();
     void controller_errorReasons();
     void controller_syncsTheVoiceButNeverTheService();
@@ -340,6 +344,9 @@ private Q_SLOTS:
     void routing_sendsRateTestFlagAndVolume();
     void routing_tooLongSentenceStaysLocal();
     void routing_previewInterruptsButKeepsUnheardAnnouncements();
+    void routing_switchingAnnouncementsOffDropsWaitingSentencesQuietly();
+    void routing_switchingToALocalVoiceDropsWaitingOnlineSentencesQuietly();
+    void routing_switchingAnnouncementsOffLetsATestSaidLocallyFinish();
     void voices_mergeLocalAndOnlineRows();
 
     // -- playback end detection ----------------------------------------------
@@ -596,6 +603,53 @@ void SpeechTests::controller_olderCollectorHidesOnlineSpeech()
     backend.connected = true;
     Q_EMIT backend.connectionChanged();
     QTRY_VERIFY(speech.available());
+}
+
+// Review OJ-2: one GetSpeechSettings that timed out (the client's own
+// ERR_INTERNAL) left the session without settings - no online panel, and every
+// announcement spoken locally with a toast - until the next reconnect. A
+// failure that is not a refusal is asked again, with a growing pause.
+void SpeechTests::controller_retriesASettingsLoadTheCollectorCouldNotAnswer()
+{
+    ScriptedSpeechBackend backend;
+    backend.settingsError = QStringLiteral("ERR_INTERNAL");
+    mr::SpeechController speech;
+    speech.setSettingsRetryDelayMs(20);
+    speech.setBackend(&backend);
+    const QString get = QStringLiteral("GetSpeechSettings");
+    QTRY_VERIFY(backend.countOf(get) >= 2);
+    QVERIFY(!speech.loaded());
+
+    backend.settingsError.clear();
+    QTRY_VERIFY(speech.available());
+    // Answered: nothing more is asked.
+    const int asked = backend.countOf(get);
+    QTest::qWait(200);
+    QCOMPARE(backend.countOf(get), asked);
+
+    // A refusal is an answer, not a failure to answer: not asked again.
+    ScriptedSpeechBackend older;
+    older.settingsError = QStringLiteral("ERR_UNKNOWN_MESSAGE");
+    mr::SpeechController refused;
+    refused.setSettingsRetryDelayMs(20);
+    refused.setBackend(&older);
+    QTRY_VERIFY(refused.loaded());
+    QVERIFY(!refused.supported());
+    QTest::qWait(200);
+    QCOMPARE(older.countOf(get), 1);
+
+    // Gone away: the retry stops with the connection, and a reconnect asks anew.
+    ScriptedSpeechBackend dropped;
+    dropped.settingsError = QStringLiteral("ERR_INTERNAL");
+    mr::SpeechController offline;
+    offline.setSettingsRetryDelayMs(20);
+    offline.setBackend(&dropped);
+    QTRY_VERIFY(dropped.countOf(get) >= 1);
+    dropped.connected = false;
+    Q_EMIT dropped.connectionChanged();
+    const int beforeDrop = dropped.countOf(get);
+    QTest::qWait(200);
+    QCOMPARE(dropped.countOf(get), beforeDrop);
 }
 
 void SpeechTests::controller_errorReasons_data()
@@ -1124,6 +1178,92 @@ void SpeechTests::routing_previewInterruptsButKeepsUnheardAnnouncements()
     f.tts.preview(QStringLiteral("finished"));
     QTRY_COMPARE(f.player->played.size(), 5);
     QVERIFY(f.player->stops > stops);
+}
+
+// Review OJ-4: switching 播报 off left the sentences already waiting for the
+// Collector to be synthesized and played. They are dropped, quietly - the
+// player's own choice is not a failure to explain - while a 试听 still plays.
+void SpeechTests::routing_switchingAnnouncementsOffDropsWaitingSentencesQuietly()
+{
+    RoutingFixture f;
+    QVERIFY(f.loaded());
+    f.backend.script = {RoutingFixture::hang(), RoutingFixture::file(f.cache.wav(40)),
+                        RoutingFixture::file(f.cache.wav(41))};
+    f.say(QStringLiteral("matched"));
+    f.say(QStringLiteral("entered"));
+    QTRY_COMPARE(f.backend.countOf(QStringLiteral("SynthesizeSpeech")), 1);
+    QCOMPARE(f.tts.pendingOnlineCount(), 2);
+
+    f.settings.setTtsEnabled(false);
+    QCOMPARE(f.tts.pendingOnlineCount(), 0);
+    // The answer still on its way belongs to a sentence nobody wants any more.
+    QVERIFY(!f.backend.hung.isEmpty() && f.backend.hung.constFirst());
+    f.backend.hung.constFirst()->succeed({{QStringLiteral("audio_path"), f.cache.wav(42)},
+                                          {QStringLiteral("from_cache"), false},
+                                          {QStringLiteral("provider"), QStringLiteral("azure")}});
+    QTest::qWait(50);
+    QCOMPARE(f.backend.countOf(QStringLiteral("SynthesizeSpeech")), 1);
+    QVERIFY(f.player->played.isEmpty());
+    QVERIFY(f.routes.isEmpty());
+    QVERIFY(f.toasts.isEmpty());
+    QVERIFY(f.fallbacks.isEmpty());
+
+    // 试听 ignores the switch, as it always has.
+    f.tts.preview(QStringLiteral("finished"));
+    QTRY_COMPARE(f.player->played.size(), 1);
+}
+
+// Review OJ-4: moving to a local voice left the waiting online sentences to fail
+// one by one with "在线语音暂不可用（未配置）" and a local fallback. They are
+// dropped quietly; what is said next goes the local way.
+void SpeechTests::routing_switchingToALocalVoiceDropsWaitingOnlineSentencesQuietly()
+{
+    RoutingFixture f;
+    QVERIFY(f.loaded());
+    f.backend.script = {RoutingFixture::hang(), RoutingFixture::file(f.cache.wav(43))};
+    f.say(QStringLiteral("matched"));
+    f.say(QStringLiteral("entered"));
+    QTRY_COMPARE(f.backend.countOf(QStringLiteral("SynthesizeSpeech")), 1);
+
+    f.settings.setTtsVoice(QStringLiteral("local:Microsoft Huihui Desktop"));
+    QCOMPARE(f.tts.pendingOnlineCount(), 0);
+    QTest::qWait(50);
+    QCOMPARE(f.backend.countOf(QStringLiteral("SynthesizeSpeech")), 1);
+    QVERIFY(f.routes.isEmpty());
+    QVERIFY(f.toasts.isEmpty());
+    QVERIFY(f.fallbacks.isEmpty());
+
+    f.say(QStringLiteral("finished"));
+    QCOMPARE(f.routes, QStringList{route(QStringLiteral("finished"), QStringLiteral("local"))});
+    QCOMPARE(f.backend.countOf(QStringLiteral("SynthesizeSpeech")), 1);
+}
+
+// Review V4-4: a 试听 whose online answer failed is said with the local voice.
+// Switching 播报 off kept it in the online queue and then stopped the engine
+// under it, cutting it off; it plays to its end now.
+void SpeechTests::routing_switchingAnnouncementsOffLetsATestSaidLocallyFinish()
+{
+    RoutingFixture f(mr::TtsService::EngineMode::Mock);
+    const QString savedFinished = f.settings.templateFinished();
+    const auto restore = qScopeGuard([&f, savedFinished] { f.settings.setTemplateFinished(savedFinished); });
+    f.settings.setTemplateFinished(QStringLiteral("one two three four five six seven eight nine ten"));
+    QVERIFY(f.loaded());
+    auto *engine = f.tts.findChild<QTextToSpeech *>();
+    if (!engine || !f.tts.isAvailable())
+        QSKIP("Qt's mock speech engine plugin is not installed.");
+    QTRY_COMPARE(engine->state(), QTextToSpeech::Ready);
+
+    f.backend.script = {RoutingFixture::error(QStringLiteral("ERR_SPEECH_NETWORK"))};
+    f.tts.preview(QStringLiteral("finished"));
+    QTRY_COMPARE(f.fallbacks, QStringList{QStringLiteral("ERR_SPEECH_NETWORK")});
+    QTRY_COMPARE(engine->state(), QTextToSpeech::Speaking);
+
+    f.settings.setTtsEnabled(false);
+    QTest::qWait(100);
+    QCOMPARE(engine->state(), QTextToSpeech::Speaking);
+    QCOMPARE(f.tts.pendingOnlineCount(), 1);
+    QTRY_COMPARE_WITH_TIMEOUT(f.tts.pendingOnlineCount(), 0, 5000);
+    QCOMPARE(engine->state(), QTextToSpeech::Ready);
 }
 
 void SpeechTests::voices_mergeLocalAndOnlineRows()

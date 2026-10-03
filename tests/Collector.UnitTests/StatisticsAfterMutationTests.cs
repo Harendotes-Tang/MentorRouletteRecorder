@@ -42,6 +42,20 @@ public sealed class StatisticsAfterMutationTests : IDisposable
                 : new DateTimeOffset(2026, 9, 3, 10, 31, 0, TimeSpan.Zero),
         });
 
+    private RunMutationOutcome CreateAt(RunResult result, DateTimeOffset endedAt) =>
+        _mutations.CreateManualRun(new CreateManualRunCommand
+        {
+            RequestId = Guid.NewGuid().ToString("D"),
+            Reason = "补录一次导随",
+            Result = result,
+            ContentId = 900001,
+            JobId = 19,
+            ContributesToGoal = true,
+            MatchedAtUtc = endedAt.AddMinutes(-31),
+            EnteredAtUtc = endedAt.AddMinutes(-30),
+            EndedAtUtc = endedAt,
+        });
+
     [Fact]
     public void SoftDeletedRun_LeavesEveryStatistic()
     {
@@ -98,6 +112,167 @@ public sealed class StatisticsAfterMutationTests : IDisposable
         Assert.Equal(1503, dashboard.AchievementProgress);
         Assert.Equal(497, dashboard.Remaining);
     }
+
+    /// <summary>
+    /// Audit 2026-10-03 OG-3. The baseline is the in-game total at its effective time, so it
+    /// already includes every completion that ended before then; adding those again counted them
+    /// twice (the baseline dialog promises 「之前的自动记录不会重复计入」). Completions that end
+    /// later are added on top.
+    /// </summary>
+    [Fact]
+    public void CompletionsThatEndedBeforeTheBaselineTookEffectAreNotCountedTwice()
+    {
+        Create(RunResult.Completed);
+        Create(RunResult.Completed);
+        Create(RunResult.Completed);
+
+        _mutations.UpdateAchievementBaseline(new UpdateAchievementBaselineCommand(
+            Guid.NewGuid().ToString("D"),
+            2000,
+            1500,
+            new DateTimeOffset(2026, 9, 3, 12, 0, 0, TimeSpan.Zero),
+            "游戏内成就面板显示 1500 次"));
+
+        var dashboard = _statistics.GetDashboard();
+        Assert.Equal(1500, dashboard.AchievementProgress);
+        Assert.Equal(500, dashboard.Remaining);
+        Assert.Equal(3, dashboard.CompletedCount);
+
+        CreateAt(RunResult.Completed, new DateTimeOffset(2026, 9, 3, 13, 0, 0, TimeSpan.Zero));
+        Assert.Equal(1501, _statistics.GetDashboard().AchievementProgress);
+    }
+
+    /// <summary>
+    /// The moment that decides is when the duty ended: a run that started before the baseline
+    /// and finished after it was not yet in the in-game total.
+    /// </summary>
+    [Fact]
+    public void ACompletionThatEndedAfterTheBaselineTookEffectCounts()
+    {
+        var effective = new DateTimeOffset(2026, 9, 3, 10, 15, 0, TimeSpan.Zero);
+        Create(RunResult.Completed);
+
+        _mutations.UpdateAchievementBaseline(new UpdateAchievementBaselineCommand(
+            Guid.NewGuid().ToString("D"), 2000, 1500, effective, "副本进行中填写的基数"));
+
+        Assert.Equal(1501, _statistics.GetDashboard().AchievementProgress);
+    }
+
+    /// <summary>
+    /// A row that lacks its end time is placed by the latest time it does carry - entry, then
+    /// match. That time is never later than the real completion, so a doubtful row is left out
+    /// rather than counted twice.
+    /// </summary>
+    [Fact]
+    public void ACompletionWithoutAnEndTimeIsPlacedByItsEntry()
+    {
+        var effective = new DateTimeOffset(2026, 9, 4, 0, 0, 0, TimeSpan.Zero);
+        var runs = new RunRepository(_database.Database);
+        _database.Database.RunInTransaction(tx =>
+        {
+            runs.Insert(TestDatabase.Run(enteredAt: effective.AddHours(-1)) with { EndedAtUtc = null }, tx);
+            runs.Insert(TestDatabase.Run(enteredAt: effective.AddHours(1)) with { EndedAtUtc = null }, tx);
+        });
+
+        _mutations.UpdateAchievementBaseline(new UpdateAchievementBaselineCommand(
+            Guid.NewGuid().ToString("D"), 2000, 1500, effective, "基数"));
+
+        Assert.Equal(1501, _statistics.GetDashboard().AchievementProgress);
+    }
+
+    /// <summary>
+    /// A baseline of 0 holds no completion, so there is nothing a recorded run could be counted
+    /// twice against: every contributing completion counts, including those entered by hand for
+    /// days before the software was installed. This is also the state of a database whose user
+    /// never filled in the baseline, whose effective time is merely the first start.
+    /// </summary>
+    [Fact]
+    public void AZeroBaselineCountsEveryContributingCompletion()
+    {
+        Create(RunResult.Completed);
+        Create(RunResult.Completed);
+
+        _mutations.UpdateAchievementBaseline(new UpdateAchievementBaselineCommand(
+            Guid.NewGuid().ToString("D"), 2000, 0,
+            new DateTimeOffset(2026, 9, 4, 0, 0, 0, TimeSpan.Zero), "从 0 开始"));
+
+        Assert.Equal(2, _statistics.GetDashboard().AchievementProgress);
+    }
+
+    /// <summary>
+    /// Audit 2026-10-03 CS-7. The Desktop sends the save time as the effective time with every
+    /// save of the achievement settings, a goal-only edit included. A baseline that did not change
+    /// keeps the moment it took effect: moved, every completion recorded since would fall before the
+    /// new cutoff and drop out of the progress. Typing the same number in again is no change either.
+    /// </summary>
+    [Theory]
+    [InlineData(2500)]
+    [InlineData(2000)]
+    public void AnUnchangedBaselineKeepsItsEffectiveTimeAndTheProgress(int goal)
+    {
+        var effective = new DateTimeOffset(2026, 9, 3, 12, 0, 0, TimeSpan.Zero);
+        SetBaseline(2000, 1500, effective);
+        CreateAt(RunResult.Completed, effective.AddHours(1));
+        Assert.Equal(1501, _statistics.GetDashboard().AchievementProgress);
+
+        var outcome = SetBaseline(goal, 1500, effective.AddDays(2));
+
+        var dashboard = _statistics.GetDashboard();
+        Assert.Equal(goal, dashboard.GoalCount);
+        Assert.Equal(1501, dashboard.AchievementProgress);
+        Assert.Equal(goal - 1501, dashboard.Remaining);
+        Assert.Equal(effective, outcome.Settings.BaselineEffectiveAt);
+        Assert.Equal(effective, _settings.GetAchievementSettings().BaselineEffectiveAt);
+    }
+
+    /// <summary>
+    /// A new baseline is the in-game total at the moment it is sent with: completions that ended
+    /// before then are inside that number and are no longer added, later ones are.
+    /// </summary>
+    [Fact]
+    public void AChangedBaselineMovesTheEffectiveTime()
+    {
+        var first = new DateTimeOffset(2026, 9, 3, 12, 0, 0, TimeSpan.Zero);
+        var second = first.AddDays(2);
+        SetBaseline(2000, 1500, first);
+        CreateAt(RunResult.Completed, first.AddHours(1));
+
+        var outcome = SetBaseline(2000, 1510, second);
+
+        Assert.Equal(second, outcome.Settings.BaselineEffectiveAt);
+        Assert.Equal(second, _settings.GetAchievementSettings().BaselineEffectiveAt);
+        Assert.Equal(1510, _statistics.GetDashboard().AchievementProgress);
+
+        CreateAt(RunResult.Completed, second.AddHours(1));
+        Assert.Equal(1511, _statistics.GetDashboard().AchievementProgress);
+    }
+
+    /// <summary>
+    /// A baseline of 0 counts every completion whatever its effective time, and an unchanged 0
+    /// keeps that time like any other unchanged baseline. The first positive baseline takes the
+    /// time it is sent with.
+    /// </summary>
+    [Fact]
+    public void AZeroBaselineKeepsItsTimeUntilAPositiveBaselineSetsOne()
+    {
+        var installed = _settings.GetAchievementSettings().BaselineEffectiveAt;
+        Create(RunResult.Completed);
+
+        var goalOnly = SetBaseline(2500, 0, new DateTimeOffset(2026, 9, 5, 0, 0, 0, TimeSpan.Zero));
+
+        Assert.Equal(installed, goalOnly.Settings.BaselineEffectiveAt);
+        Assert.Equal(1, _statistics.GetDashboard().AchievementProgress);
+
+        var effective = new DateTimeOffset(2026, 9, 3, 12, 0, 0, TimeSpan.Zero);
+        var outcome = SetBaseline(2500, 100, effective);
+
+        Assert.Equal(effective, outcome.Settings.BaselineEffectiveAt);
+        Assert.Equal(100, _statistics.GetDashboard().AchievementProgress);
+    }
+
+    private BaselineMutationOutcome SetBaseline(int goal, int baseline, DateTimeOffset effectiveAt) =>
+        _mutations.UpdateAchievementBaseline(new UpdateAchievementBaselineCommand(
+            Guid.NewGuid().ToString("D"), goal, baseline, effectiveAt, "保存成就设置"));
 
     [Fact]
     public void BaselineAboveTheGoal_NeverProducesANegativeRemaining()

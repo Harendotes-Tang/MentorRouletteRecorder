@@ -67,9 +67,30 @@ bool UpdateController::dismissed() const
 
 bool UpdateController::isReleaseUrl(const QUrl &url)
 {
-    return url.isValid() && url.scheme() == QLatin1String("https")
-        && url.host() == QLatin1String("github.com") && url.userInfo().isEmpty()
-        && url.port() == -1;
+    if (!(url.isValid() && url.scheme() == QLatin1String("https")
+          && url.host() == QLatin1String("github.com") && url.userInfo().isEmpty()
+          && url.port() == -1)) {
+        return false;
+    }
+    // github.com serves everybody's releases; only this project's may be
+    // offered (review OH-4). Judged on the fully decoded path, segment by
+    // segment, so neither "..", an encoded one, nor a look-alike repository
+    // name can walk out of it.
+    static const QStringList kProject{QStringLiteral("Harendotes-Tang"),
+                                      QStringLiteral("MentorRouletteRecorder")};
+    const QStringList segments = url.path(QUrl::FullyDecoded).split(QLatin1Char('/'));
+    if (segments.size() < 3 || !segments.first().isEmpty())
+        return false;
+    for (int index = 0; index < kProject.size(); ++index) {
+        if (segments.at(index + 1).compare(kProject.at(index), Qt::CaseInsensitive) != 0)
+            return false;
+    }
+    for (const QString &segment : segments) {
+        if (segment == QLatin1String(".") || segment == QLatin1String("..")
+            || segment.contains(QLatin1Char('\\')))
+            return false;
+    }
+    return true;
 }
 
 void UpdateController::refreshFromStatus(const QVariantMap &status)

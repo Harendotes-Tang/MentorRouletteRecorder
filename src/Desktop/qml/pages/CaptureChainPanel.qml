@@ -24,8 +24,11 @@ Card {
     readonly property bool maintainer: App.maintainerToolsVisible
 
     readonly property bool gameRunning: !!chain.capture.ffxiv_running
-    readonly property bool choosingGame: !!chain.capture.game_selection_required
-    readonly property int gameCount: (chain.capture.game_processes || []).length
+    // The 记录对象 card's own verdict, so the two never disagree: a choice is
+    // asked for only while a client is listed to choose from. With the only
+    // client closed the list is empty and this is ordinary waiting.
+    readonly property bool choosingGame: App.gameSelection.selectionRequired
+    readonly property int gameCount: App.gameSelection.choices.length
     readonly property string npcapStatus: String(chain.npcap.status || "")
     readonly property bool npcapReady: App.npcapInstalled
                                        && (chain.npcapStatus === "" || chain.npcapStatus === "READY")
@@ -80,7 +83,7 @@ Card {
     function summary() {
         if (App.validationActive && String(App.validationStatus.reason || "") === "WAITING_RESTART")
             return [qsTr("验证正在等待所选游戏重启"), "wait"]
-        if (chain.capture.game_selection_required)
+        if (chain.choosingGame)
             return [App.gameSelection.selectionMessage, "bad"]
         if (!chain.npcapReady)
             return App.npcapInstalled
@@ -251,7 +254,8 @@ Card {
             key: "npcap", label: qsTr("Npcap"),
             value: App.npcapInstalled
                    ? ((chain.npcap.version || chain.capture.npcap_version)
-                      ? "v" + (chain.npcap.version || chain.capture.npcap_version) : qsTr("已安装"))
+                      ? Fmt.npcapVersionLabel(chain.npcap.version || chain.capture.npcap_version)
+                      : qsTr("已安装"))
                    : qsTr("未安装"),
             sub: chain.npcapSub(),
             tone: chain.npcapReady ? "ok" : "bad"

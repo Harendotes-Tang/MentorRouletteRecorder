@@ -314,6 +314,70 @@ public sealed class FirstPacketTests
         Assert.Equal(1, buffer.Counters.StreamResets);
     }
 
+    /// <summary>
+    /// Audit 2026-10-03, CS3a-X1. A direction given up is reported once, with its connection and
+    /// its direction, after the messages decoded before it. The session-wide count alone cannot say
+    /// which connection lost it, so damage on the chat server's connection used to end a duty whose
+    /// own connection was fine. The reader thread gave the outbound direction up when it took the
+    /// inbound segment at five seconds, before that segment was even queued, so the report comes
+    /// ahead of what the next pump decodes from it (audit 2026-10-03, V2-3).
+    /// </summary>
+    [Fact]
+    public void AnAbandonedDirectionIsReportedOnceWithItsConnectionBehindWhatWasDecoded()
+    {
+        var time = TimeSpan.Zero;
+        var reports = new List<string>();
+        var buffer = new FirstPacketBuffer(Local, 42, c => new FirstPacketDecoder(c,
+            (_, _, bytes, inbound) => reports.Add(
+                (inbound ? "in " : "out ") + BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(18)))),
+            clock: () => time,
+            directionDamaged: (connection, inbound) => reports.Add(
+                "damaged " + connection.LocalPort + (inbound ? " in" : " out")));
+        buffer.Offer(Packet(false, 100, 2), 101);
+        buffer.Offer(Packet(true, 500, 18), 101);
+        buffer.Offer(Packet(false, 101, 24, Bundle(1)), 101);
+        buffer.Pump(new[] { Owned() });
+
+        // The outbound segment in front of this one never arrives.
+        buffer.Offer(Packet(false, 101 + 76 + 76, 24, Bundle(3)), 101);
+        time = TimeSpan.FromSeconds(5);
+        buffer.Offer(Packet(true, 501, 24, Bundle(9)), 101);
+        buffer.Pump(new[] { Owned() });
+
+        // The abandoned direction takes nothing more, and is not reported again.
+        buffer.Offer(Packet(false, 101 + 76 * 3, 24, Bundle(4)), 101);
+        time = TimeSpan.FromSeconds(11);
+        buffer.Pump(new[] { Owned() });
+
+        Assert.Equal(new[] { "out 1", "damaged 41000 out", "in 9" }, reports);
+        Assert.Equal(1, buffer.Counters.DamagedGameDirections);
+    }
+
+    /// <summary>
+    /// Audit 2026-10-03, V2-3. The client reconnects on the same four-tuple: the reader thread sees the
+    /// new handshake, and the stream that was decoding there is over. Its end used to be reported only
+    /// after everything the next pump decoded, the new stream's first messages included, so the end of
+    /// the old stream was told after the new one had started delivering on the same tuple - and the
+    /// monitor then struck that live tuple off the connections still delivering.
+    /// </summary>
+    [Fact]
+    public void ANewHandshakeOnADecodingTupleReportsTheOldStreamsEndBeforeTheNewStreamsMessages()
+    {
+        var reports = new List<string>();
+        var buffer = new FirstPacketBuffer(Local, 42, c => new FirstPacketDecoder(c,
+            (_, _, bytes, _) => reports.Add("message " + BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(18)))),
+            ownedStreamEnded: connection => reports.Add("ended " + connection.LocalPort));
+        buffer.Offer(Packet(false, 100, 2), 101);
+        buffer.Offer(Packet(false, 101, 24, Bundle(1)), 101);
+        buffer.Pump(new[] { Owned() });
+
+        buffer.Offer(Packet(false, 1000, 2), 101);
+        buffer.Offer(Packet(false, 1001, 24, Bundle(2)), 101);
+        buffer.Pump(new[] { Owned() });
+
+        Assert.Equal(new[] { "message 1", "ended 41000", "message 2" }, reports);
+    }
+
     [Theory]
     [InlineData(1)]
     [InlineData(4)]
@@ -338,13 +402,17 @@ public sealed class FirstPacketTests
     [Fact]
     public void ChangedSynSequenceAndLostOwnershipDiscardDecoderState()
     {
+        var time = TimeSpan.Zero;
         var created = 0;
-        var buffer = new FirstPacketBuffer(Local, 42, _ => { created++; return new Sink(); });
+        var buffer = new FirstPacketBuffer(Local, 42, _ => { created++; return new Sink(); }, clock: () => time);
         buffer.Offer(Packet(false, 100, 2), 101);
         buffer.Pump(new[] { Owned() });
         buffer.Offer(Packet(false, 200, 2), 101);
         buffer.Pump(new[] { Owned() });
         Assert.Equal(2, created);
+        // Ownership is lost once the absence has lasted, not on a single reading.
+        buffer.Pump(Array.Empty<TCPConnection>());
+        time = TimeSpan.FromSeconds(1);
         buffer.Pump(Array.Empty<TCPConnection>());
         buffer.Offer(Packet(false, 201, 24, Bundle(1)), 101);
         buffer.Pump(new[] { Owned() });
@@ -352,12 +420,105 @@ public sealed class FirstPacketTests
         Assert.Equal((0, 0, 0), buffer.Usage);
     }
 
+    /// <summary>
+    /// Audit 2026-10-03, OA-3. Ending a decoding stream is what produces DISCONNECTED, so one
+    /// reading of the connection table that does not list it is not enough: the absence has to
+    /// last across readings spanning a second. Until then the stream keeps decoding.
+    /// </summary>
+    [Fact]
+    public void OneReadingWithoutTheConnectionDoesNotEndADecodingStream()
+    {
+        var time = TimeSpan.Zero;
+        var messages = new List<ushort>();
+        var ended = 0;
+        var buffer = new FirstPacketBuffer(Local, 42, c => new FirstPacketDecoder(c,
+            (_, _, bytes, _) => messages.Add(BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(18)))),
+            clock: () => time, ownedStreamEnded: _ => ended++);
+        buffer.Offer(Packet(false, 100, 2), 101);
+        buffer.Offer(Packet(false, 101, 24, Bundle(1)), 101);
+        buffer.Pump(new[] { Owned() });
+
+        buffer.Pump(Array.Empty<TCPConnection>());
+        time = TimeSpan.FromMilliseconds(500);
+        buffer.Offer(Packet(false, 177, 24, Bundle(2)), 101);
+        buffer.Pump(new[] { Owned() });
+        Assert.Equal(new ushort[] { 1, 2 }, messages);
+        Assert.Equal(0, ended);
+
+        // A real disappearance: still decoding while unconfirmed, reported once it has lasted.
+        time = TimeSpan.FromSeconds(1);
+        buffer.Pump(Array.Empty<TCPConnection>());
+        buffer.Offer(Packet(false, 253, 24, Bundle(3)), 101);
+        time = TimeSpan.FromMilliseconds(1900);
+        buffer.Pump(Array.Empty<TCPConnection>());
+        Assert.Equal(new ushort[] { 1, 2, 3 }, messages);
+        Assert.Equal(0, ended);
+
+        time = TimeSpan.FromSeconds(2);
+        buffer.Pump(Array.Empty<TCPConnection>());
+        Assert.Equal(1, ended);
+        Assert.Equal((0, 0, 0), buffer.Usage);
+    }
+
     [Fact]
     public void SynPayloadIsRejectedInsteadOfLosingTcpFastOpenPrefix()
     {
-        var buffer = new FirstPacketBuffer(Local, 42, _ => new Sink());
-        buffer.Offer(Packet(false, 100, 2, Bundle(1)), 101);
-        Assert.NotNull(buffer.Failure);
+        // The game's own connection: Machina would consume the SYN/ACK's sequence space and
+        // ignore its data, so the inbound decoder would start after a lost prefix. That
+        // direction is given up; the decoder never sees the frame and the capture goes on.
+        var sink = new Sink();
+        var buffer = new FirstPacketBuffer(Local, 42, _ => sink);
+        buffer.Offer(Packet(false, 100, 2), 101);
+        buffer.Pump(new[] { Owned() });
+        Assert.Single(sink.Packets);
+
+        buffer.Offer(Packet(true, 500, 18, Bundle(1)), 101);
+        buffer.Pump(new[] { Owned() });
+
+        Assert.Null(buffer.Failure);
+        Assert.Single(sink.Packets);
+        Assert.Equal(1, buffer.Counters.DamagedGameDirections);
+        buffer.Offer(Packet(true, 577, 24, Bundle(2)), 101);
+        buffer.Pump(new[] { Owned() });
+        Assert.Single(sink.Packets);
+    }
+
+    /// <summary>
+    /// Audit 2026-10-03, OA-1. The pcap filter is "this local address", so every program's TCP
+    /// reaches the buffer. A sequence wrap happens about once per 4 GiB on any connection, and
+    /// one of them -- or a TCP Fast Open SYN, or an ambiguous segment -- on a connection the
+    /// game does not own must cost that connection at most, never the capture and the duty in
+    /// flight with it.
+    /// </summary>
+    [Fact]
+    public void AnotherProgramsWrappingOrFastOpenTrafficNeverEndsTheCapture()
+    {
+        var messages = new List<ushort>();
+        var buffer = new FirstPacketBuffer(Local, 42, c => new FirstPacketDecoder(c,
+            (_, _, bytes, _) => messages.Add(BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(18)))));
+        buffer.Offer(Packet(false, 100, 2), 101);
+        buffer.Offer(Packet(true, 500, 18), 101);
+        buffer.Pump(new[] { Owned() });
+
+        // Untracked: a long download crossing zero, and a Fast Open handshake.
+        buffer.Offer(Packet(true, uint.MaxValue - 10, 24, new byte[100], port: 41005), 101);
+        buffer.Offer(Packet(false, 7000, 2, Bundle(1), port: 41006), 101);
+        // Tracked but nobody's: one wraps, one jumps half the sequence space.
+        buffer.Offer(Packet(false, uint.MaxValue - 50, 2, port: 41007), 101);
+        buffer.Offer(Packet(false, uint.MaxValue - 49, 24, new byte[100], port: 41007), 101);
+        buffer.Offer(Packet(false, 100, 2, port: 41008), 101);
+        buffer.Offer(Packet(false, 0x80000065u, 24, new byte[10], port: 41008), 101);
+
+        Assert.Null(buffer.Failure);
+        Assert.Equal(2, buffer.Counters.DroppedNoStream);
+        Assert.Equal(2, buffer.Counters.StreamResets);
+        Assert.Equal(1, buffer.Usage.Tuples);
+
+        // The game's stream is untouched and still decodes.
+        buffer.Offer(Packet(true, 501, 24, Bundle(5)), 101);
+        buffer.Pump(new[] { Owned(), Owned(41006), Owned(41007), Owned(41008) });
+        Assert.Equal(new ushort[] { 5 }, messages);
+        Assert.Equal(0, buffer.Counters.DamagedGameDirections);
     }
 
     [Theory]
@@ -385,6 +546,142 @@ public sealed class FirstPacketTests
         Assert.Single(messages);
     }
 
+    /// <summary>
+    /// Audit 2026-10-03, OA-5. A FIN that arrives before a retransmission of the segment in
+    /// front of it must not lock that segment out: the tail decodes, the FIN is consumed and
+    /// the end of the connection is reported.
+    /// </summary>
+    [Fact]
+    public void ARetransmissionInFrontOfAnEarlierFinIsStillDecodedAndTheEndReported()
+    {
+        var messages = new List<ushort>();
+        var ended = 0;
+        var buffer = new FirstPacketBuffer(Local, 42, c => new FirstPacketDecoder(c,
+            (_, _, bytes, _) => messages.Add(BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(18)))),
+            ownedStreamEnded: _ => ended++);
+        buffer.Offer(Packet(false, 100, 2), 101);
+        buffer.Pump(new[] { Owned() });
+
+        buffer.Offer(Packet(false, 177, 17), 101);               // FIN/ACK, ahead of a lost segment
+        buffer.Offer(Packet(false, 101, 24, Bundle(9)), 101);    // the retransmission fills it
+        buffer.Offer(Packet(false, 178, 24, Bundle(10)), 101);   // nothing may follow a FIN
+        buffer.Pump(new[] { Owned() });
+
+        Assert.Equal(new ushort[] { 9 }, messages);
+        Assert.Equal(1, ended);
+        Assert.Equal((0, 0, 0), buffer.Usage);
+    }
+
+    /// <summary>
+    /// Audit 2026-10-03, OA-5. A FIN stuck behind a hole that never fills is abandoned with
+    /// its direction; once the operating system no longer lists the connection, the stream is
+    /// still reported as ended rather than kept as "closing" for the rest of the session.
+    /// </summary>
+    [Fact]
+    public void AClosingStreamWhoseFinNeverDrainsIsReportedOnceTheSystemDropsTheConnection()
+    {
+        var time = TimeSpan.Zero;
+        var ended = 0;
+        var buffer = new FirstPacketBuffer(Local, 42, _ => new Sink(), clock: () => time,
+            ownedStreamEnded: _ => ended++);
+        buffer.Offer(Packet(false, 100, 2), 101);
+        buffer.Pump(new[] { Owned() });
+        buffer.Offer(Packet(false, 177, 17), 101); // the segment in front of it is never seen
+
+        buffer.Pump(Array.Empty<TCPConnection>());
+        time = TimeSpan.FromSeconds(6);
+        buffer.Pump(Array.Empty<TCPConnection>());
+
+        Assert.Equal(1, ended);
+        Assert.Equal((0, 0, 0), buffer.Usage);
+    }
+
+    /// <summary>
+    /// Audit 2026-10-03, OA-5. Losing both directions to unfillable gaps is not evidence that
+    /// the connection ended, so it is not reported then; it stays known until the operating
+    /// system drops it, and is reported exactly then. Removing it silently left it counted as
+    /// delivering for the rest of the session, so a real disconnect later was never reported.
+    /// </summary>
+    [Fact]
+    public void ADecodingStreamWithBothDirectionsLostIsReportedWhenTheSystemDropsItNotBefore()
+    {
+        var time = TimeSpan.Zero;
+        var ended = new List<TCPConnection>();
+        var buffer = new FirstPacketBuffer(Local, 42, _ => new Sink(), clock: () => time,
+            ownedStreamEnded: ended.Add);
+        buffer.Offer(Packet(false, 100, 2), 101);
+        buffer.Offer(Packet(true, 500, 18), 101);
+        buffer.Pump(new[] { Owned() });
+        buffer.Offer(Packet(false, 177, 24, Bundle(1)), 101);
+        buffer.Offer(Packet(true, 577, 24, Bundle(2)), 101);
+        time = TimeSpan.FromSeconds(5);
+        buffer.Pump(new[] { Owned() });
+
+        Assert.Equal(2, buffer.Counters.DamagedGameDirections);
+        Assert.Empty(ended);
+
+        buffer.Pump(Array.Empty<TCPConnection>());
+        time = TimeSpan.FromSeconds(7);
+        buffer.Pump(Array.Empty<TCPConnection>());
+
+        Assert.Equal(41000, Assert.Single(ended).LocalPort);
+        Assert.Equal((0, 0, 0), buffer.Usage);
+    }
+
+    /// <summary>
+    /// Audit 2026-10-03, OA-5. A new handshake on a tuple that is decoding means the old
+    /// connection is over, and that is reported, not silently forgotten.
+    /// </summary>
+    [Fact]
+    public void ANewHandshakeOnADecodingTupleReportsTheOldConnectionAsEnded()
+    {
+        var ended = 0;
+        var created = 0;
+        var buffer = new FirstPacketBuffer(Local, 42, _ => { created++; return new Sink(); },
+            ownedStreamEnded: _ => ended++);
+        buffer.Offer(Packet(false, 100, 2), 101);
+        buffer.Pump(new[] { Owned() });
+
+        buffer.Offer(Packet(false, 9000, 2), 101);
+        buffer.Pump(new[] { Owned() });
+
+        Assert.Equal(1, ended);
+        Assert.Equal(2, created);
+    }
+
+    /// <summary>
+    /// Audit 2026-10-03, OA-5. A direction that never showed its own SYN, or showed two
+    /// different ones, cannot be decoded; on a stream that already decodes the other direction
+    /// only that direction is given up. Removing the whole stream stopped the healthy direction
+    /// and left the connection counted as delivering, without any report.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void AnUntrustworthyDirectionOfADecodingStreamIsAbandonedAlone(bool conflictingSyn)
+    {
+        var messages = new List<ushort>();
+        var ended = 0;
+        var buffer = new FirstPacketBuffer(Local, 42, c => new FirstPacketDecoder(c,
+            (_, _, bytes, _) => messages.Add(BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(18)))),
+            ownedStreamEnded: _ => ended++);
+        buffer.Offer(Packet(false, 100, 2), 101);
+        if (conflictingSyn) buffer.Offer(Packet(true, 500, 18), 101);
+        buffer.Pump(new[] { Owned() });
+        buffer.Offer(Packet(false, 101, 24, Bundle(1)), 101);
+        buffer.Pump(new[] { Owned() });
+
+        if (conflictingSyn) buffer.Offer(Packet(true, 900, 18), 101);
+        else buffer.Offer(Packet(true, 501, 24, Bundle(7)), 101);
+        buffer.Offer(Packet(false, 177, 24, Bundle(2)), 101);
+        buffer.Pump(new[] { Owned() });
+
+        Assert.Equal(new ushort[] { 1, 2 }, messages);
+        Assert.Equal(1, buffer.Counters.DamagedGameDirections);
+        Assert.Equal(0, ended);
+        Assert.Equal(1, buffer.Usage.Tuples);
+    }
+
     [Theory]
     [InlineData(uint.MaxValue - 76, 0)] // Data ends at zero: upstream can emit it indefinitely.
     [InlineData(uint.MaxValue - 50, 0)] // Data crosses zero.
@@ -406,10 +703,12 @@ public sealed class FirstPacketTests
         }
         var overlapOffset = prefixLength / 2;
         buffer.Offer(Packet(false, start + (uint)overlapOffset, 24, bundle[overlapOffset..]), 101);
-        // This assertion precedes Pump deliberately: a broken guard must fail the test,
-        // never execute the known non-terminating dependency path during a RED run.
-        Assert.NotNull(buffer.Failure);
-        Assert.Equal((0, 0, 0), buffer.Usage);
+        // These assertions precede Pump deliberately: a broken guard must fail the test,
+        // never execute the known non-terminating dependency path during a RED run. The
+        // refusal is the game stream's own: that direction is given up, the capture is not.
+        Assert.Equal(0, buffer.Usage.Packets);
+        Assert.Equal(1, buffer.Counters.DamagedGameDirections);
+        Assert.Null(buffer.Failure);
         buffer.Pump(new[] { Owned() });
         buffer.Stop();
         Assert.Equal(0, messages);
@@ -425,7 +724,10 @@ public sealed class FirstPacketTests
             return new FirstPacketDecoder(c, (_, _, _, _) => { });
         });
         buffer.Offer(Packet(false, uint.MaxValue, 2), 101);
-        Assert.NotNull(buffer.Failure);
+        // The handshake opens nothing, so the connection is dropped for want of a stream --
+        // counted, and without ending the capture for every other connection.
+        Assert.Null(buffer.Failure);
+        Assert.Equal(1, buffer.Counters.DroppedNoStream);
         buffer.Pump(new[] { Owned() });
         buffer.Stop();
         Assert.Equal(0, created);
@@ -435,17 +737,59 @@ public sealed class FirstPacketTests
     [Theory]
     [InlineData(uint.MaxValue - 200, 12u)] // A low-sequence continuation after an uncaptured wrap.
     [InlineData(100u, 0x80000065u)] // Exactly half the sequence space is ambiguous.
-    public void AmbiguousSequenceDistanceFaultsWithoutAdvancingTheDecoder(uint synSequence, uint sequence)
+    public void AmbiguousSequenceDistanceAbandonsThatDirectionWithoutAdvancingTheDecoder(uint synSequence, uint sequence)
     {
         var sink = new Sink();
         var buffer = new FirstPacketBuffer(Local, 42, _ => sink);
         buffer.Offer(Packet(false, synSequence, 2), 101);
         buffer.Pump(new[] { Owned() });
         buffer.Offer(Packet(false, sequence, 24, Bundle(9)), 101);
-        Assert.NotNull(buffer.Failure);
+        Assert.Null(buffer.Failure);
+        Assert.Equal(1, buffer.Counters.DamagedGameDirections);
         buffer.Pump(new[] { Owned() });
         Assert.Single(sink.Packets); // Only the established SYN reached the decoder.
-        Assert.Equal((0, 0, 0), buffer.Usage);
+        Assert.Equal(0, buffer.Usage.Packets);
+    }
+
+    /// <summary>
+    /// Audit 2026-10-03, CS-8. The decode-time recheck catches a frame that was in range when it
+    /// arrived and is no longer, because the decoder advanced past segments queued in front of it.
+    /// It is the game stream's own frame, so it costs that direction - reported with its connection,
+    /// behind what was decoded - and never the capture with every other connection in it.
+    /// </summary>
+    [Fact]
+    public void AFrameThatBecomesAmbiguousBeforeDecodingAbandonsOnlyItsDirection()
+    {
+        var reports = new List<string>();
+        var buffer = new FirstPacketBuffer(Local, 42, c => new FirstPacketDecoder(c,
+            (_, _, bytes, inbound) => reports.Add(
+                (inbound ? "in " : "out ") + BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(18)))),
+            directionDamaged: (connection, inbound) => reports.Add(
+                "damaged " + connection.LocalPort + (inbound ? " in" : " out")));
+        const uint syn = 0x80000100u;
+        buffer.Offer(Packet(false, syn, 2), 101);
+        buffer.Offer(Packet(true, 500, 18), 101);
+        buffer.Pump(new[] { Owned() });
+
+        // Both arrive before the next decode, while the outbound side still expects syn + 1: the
+        // second is a stale retransmission just inside half the sequence space, so it is accepted.
+        // Feeding the first moves the expected sequence 76 bytes on, and the second is then
+        // exactly as far away as an ambiguous frame.
+        buffer.Offer(Packet(false, syn + 1, 24, Bundle(1)), 101);
+        buffer.Offer(Packet(false, syn + 1 - 0x7FFFFFF0u, 24, Bundle(2)), 101);
+        Assert.Equal(0, buffer.Counters.DamagedGameDirections);
+        buffer.Pump(new[] { Owned() });
+
+        Assert.Null(buffer.Failure);
+        Assert.Equal(1, buffer.Counters.DamagedGameDirections);
+        Assert.Equal(0, buffer.Usage.Packets);
+
+        // The inbound direction of the same connection still decodes.
+        buffer.Offer(Packet(true, 501, 24, Bundle(9)), 101);
+        buffer.Pump(new[] { Owned() });
+
+        Assert.Null(buffer.Failure);
+        Assert.Equal(new[] { "out 1", "damaged 41000 out", "in 9" }, reports);
     }
 
     [Theory]

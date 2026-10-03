@@ -1,7 +1,7 @@
-#Requires -Version 5.1
+#Requires -Version 7.0
 
 function ConvertTo-PackageProcessArgument([AllowEmptyString()][string]$Value) {
-    # ProcessStartInfo.ArgumentList is unavailable on Windows PowerShell 5.1.
+    # Written for Windows PowerShell 5.1, which lacked ProcessStartInfo.ArgumentList; kept as is.
     # Quote for the Windows argv parser, including quotes and trailing backslashes.
     $escaped = [regex]::Replace($Value, '(\\*)"', '$1$1\"')
     $escaped = [regex]::Replace($escaped, '(\\+)$', '$1$1')

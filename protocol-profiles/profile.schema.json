@@ -53,7 +53,7 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["finder_request", "finder_reply_max_ms"],
-      "description": "Shape knowledge for re-learning opcodes on a client build with no profile. Permitted only on VERIFIED and SYNTHETIC profiles, which act as templates; a VERIFIED template needs a non-SYNTHETIC evidence entry for calibration.finder_request. Never drives formal parsing or recording: the observer it configures only proposes a draft that the user confirms and that is then written and re-loaded as an ordinary profile.",
+      "description": "Shape knowledge for re-learning opcodes on a client build with no profile. Permitted only on VERIFIED profiles, which act as templates, and such a template needs a non-SYNTHETIC evidence entry for calibration.finder_request.roulette_field. Never drives formal parsing or recording: the observer it configures only proposes a draft that the user confirms and that is then written and re-loaded as an ordinary profile.",
       "properties": {
         "finder_request": { "$ref": "#/$defs/calibration_finder_request" },
         "finder_reply_max_ms": { "type": "integer", "minimum": 1, "maximum": 60000 }
@@ -63,7 +63,7 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["direction", "expected_length", "roulette_field"],
-      "description": "The duty-finder action the client sends when the player picks a roulette. Its roulette id must be echoed by CONTENT_FINDER_POP within finder_reply_max_ms; that echo is what identifies both opcodes on a new build. roulette_field is an ordinary field definition whose name must be roulette_id.",
+      "description": "The duty-finder action the client sends when the player picks a roulette. Its roulette id must be echoed by CONTENT_FINDER_POP within finder_reply_max_ms; that echo is what identifies both opcodes on a new build. roulette_field is an ordinary field definition and gets every ordinary field check (no length on a fixed-width type, no read past expected_length, no constraint max below min); its type must also be u8, u16 or u32. It is conventionally named roulette_id, but neither validator checks the name.",
       "properties": {
         "direction": { "enum": ["SERVER_TO_CLIENT", "CLIENT_TO_SERVER"] },
         "expected_length": { "type": "integer", "minimum": 1, "maximum": 65535 },
@@ -135,6 +135,7 @@
     "constraints": {
       "type": "object",
       "additionalProperties": false,
+      "description": "min, max and every value of in are signed 64-bit integers: as everywhere in this schema, 'integer' means a value that fits in a signed 64-bit integer, and both validators refuse one outside that range as the wrong type. max must not be below min.",
       "properties": {
         "min": { "type": "integer" },
         "max": { "type": "integer" },

@@ -322,6 +322,127 @@ public sealed class CalibrationEvidenceStoreTests : IDisposable
         Assert.Equal(0, carried.TimingOverflow);
     }
 
+    private string FilePath => Path.Combine(_root, CalibrationEvidenceStore.FileNameFor(Region.Cn, Build));
+
+    /// <summary>
+    /// Audit 2026-10-03, OCal-1. A file written while every movement packet that started with a
+    /// roulette id stood as the player's queue holds tables gathered against the wrong queue: here
+    /// the real match of the evening filed as the server's reply to a movement packet, and both scan
+    /// tables overflowed. Carried as it is, the next real match carries the same state and the draft
+    /// blocks with "需要新版本的软件" for good. Such a file is still adopted - its zone loads and
+    /// request/echo pairs are sound - but everything the queue decided starts over.
+    /// </summary>
+    [Fact]
+    public void AFileGatheredUnderTheOldQueueRuleStartsItsQueueTablesOver()
+    {
+        var template = CalibrationObserverTests.Template();
+        var before = Observe(CalibrationObserverTests.Session1());
+        Assert.True(CalibrationEvidenceStore.Save(_root, Region.Cn, Build, TemplateSha, before));
+        var document = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(FilePath))!.AsObject();
+        document.Remove("queue_rule");
+        foreach (var pop in document["pops"]!.AsArray())
+        {
+            pop!["echo"] = true;
+        }
+
+        document["marker_overflow"] = 4;
+        document["timing_overflow"] = 2;
+        File.WriteAllText(FilePath, document.ToJsonString());
+
+        var carried = CalibrationEvidenceStore.Load(_root, Region.Cn, Build, TemplateSha);
+
+        Assert.NotNull(carried);
+        Assert.Equal("OLD_QUEUE_RULE", CalibrationEvidenceStore.Explain(_root, Region.Cn, Build, TemplateSha));
+        Assert.Empty(carried!.Pops);
+        Assert.Empty(carried.Markers);
+        Assert.Empty(carried.MarkerShapeTotals);
+        Assert.Empty(carried.RouletteEchoHits);
+        Assert.Empty(carried.TimedShapes);
+        Assert.Equal(0, carried.MarkerOverflow);
+        Assert.Equal(0, carried.TimingOverflow);
+        Assert.Equal(before.Pairs.Count, carried.Pairs.Count);
+        Assert.Equal(before.Clusters.Count, carried.Clusters.Count);
+        Assert.Equal(before.MessagesSeen, carried.MessagesSeen);
+
+        // The next evening's real match is a match, not the contradiction the misfiled one made it.
+        var restored = new CalibrationObserver(template, Region.Cn, "session-two");
+        restored.AdoptEvidence(carried);
+        foreach (var message in CalibrationObserverTests.Session1().OrderBy(message => message.Mono))
+        {
+            restored.Accept(message with
+            {
+                CaptureSessionId = "session-two",
+                ObservedAtUtc = message.ObservedAtUtc + TimeSpan.FromHours(2),
+            });
+        }
+
+        restored.Flush();
+        var draft = CalibrationDraft.Derive(restored.Snapshot(), template);
+        Assert.NotEqual(CalibrationDraftStatus.Blocked, draft.Status);
+        Assert.Equal(CalibrationMatchSource.ReplyState, draft.MatchSource);
+    }
+
+    /// <summary>
+    /// Audit 2026-10-03, OCal-5. An update that ships a new template makes yesterday's file
+    /// unloadable (OTHER_TEMPLATE), and the observer starts empty. That file is not evidence for
+    /// anything the observer will ever hold, so it cannot be "richer": refusing every save until
+    /// one session out-counted it meant the evidence under the new template was never written, and
+    /// a restart started it from nothing again.
+    /// </summary>
+    [Fact]
+    public void AFileOfAnotherTemplateOrLayoutIsReplacedRatherThanCountedAgainst()
+    {
+        var rich = Observe(CalibrationObserverTests.Session1());
+        var thin = Observe(CalibrationObserverTests.Cluster(5_000, 5000));
+        Assert.True(CalibrationEvidenceStore.Save(_root, Region.Cn, Build, "the-old-template", rich));
+
+        Assert.True(CalibrationEvidenceStore.Save(_root, Region.Cn, Build, TemplateSha, thin));
+        Assert.Equal(thin.MessagesSeen, CalibrationEvidenceStore.Load(_root, Region.Cn, Build, TemplateSha)!.MessagesSeen);
+
+        var document = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(FilePath))!.AsObject();
+        document["schema_version"] = CalibrationEvidenceStore.SchemaVersion + 1;
+        document["messages_seen"] = rich.MessagesSeen;
+        File.WriteAllText(FilePath, document.ToJsonString());
+        Assert.True(CalibrationEvidenceStore.Save(_root, Region.Cn, Build, TemplateSha, thin));
+        Assert.Equal("OK", CalibrationEvidenceStore.Explain(_root, Region.Cn, Build, TemplateSha));
+    }
+
+    /// <summary>
+    /// "Never throws" holds for any file a crash, a disk tool or a hand edit can leave behind. A
+    /// file whose root is not an object used to throw out of the save's richness check, so no
+    /// save ever succeeded again; one with a repeated entry threw out of the load.
+    /// </summary>
+    [Theory]
+    [InlineData("[1, 2, 3]")]
+    [InlineData("42")]
+    [InlineData("\"text\"")]
+    public void AFileThatIsNotAnObjectIsNoEvidenceAndBlocksNoSave(string content)
+    {
+        Directory.CreateDirectory(_root);
+        File.WriteAllText(FilePath, content);
+
+        Assert.Null(CalibrationEvidenceStore.Load(_root, Region.Cn, Build, TemplateSha));
+        Assert.Equal("UNREADABLE", CalibrationEvidenceStore.Explain(_root, Region.Cn, Build, TemplateSha));
+        var thin = Observe(CalibrationObserverTests.Cluster(5_000, 5000));
+        Assert.True(CalibrationEvidenceStore.Save(_root, Region.Cn, Build, TemplateSha, thin));
+        Assert.NotNull(CalibrationEvidenceStore.Load(_root, Region.Cn, Build, TemplateSha));
+    }
+
+    [Fact]
+    public void AFileWithARepeatedEntryIsNoEvidenceAndBlocksNoSave()
+    {
+        var rich = Observe(CalibrationObserverTests.Session1());
+        Assert.True(CalibrationEvidenceStore.Save(_root, Region.Cn, Build, TemplateSha, rich));
+        var document = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(FilePath))!.AsObject();
+        var opcodes = document["opcodes"]!.AsArray();
+        opcodes.Add(opcodes[0]!.DeepClone());
+        File.WriteAllText(FilePath, document.ToJsonString());
+
+        Assert.Null(CalibrationEvidenceStore.Load(_root, Region.Cn, Build, TemplateSha));
+        var thin = Observe(CalibrationObserverTests.Cluster(5_000, 5000));
+        Assert.True(CalibrationEvidenceStore.Save(_root, Region.Cn, Build, TemplateSha, thin));
+    }
+
     [Fact]
     public void NoPayloadEverReachesTheFile()
     {

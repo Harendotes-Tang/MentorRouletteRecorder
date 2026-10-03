@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+#Requires -Version 7.0
 <#
 .SYNOPSIS
     运行 tools/ 下的 Python 自测 / Run the Python self-tests under tools/.

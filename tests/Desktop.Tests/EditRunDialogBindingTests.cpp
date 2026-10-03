@@ -614,6 +614,122 @@ private Q_SLOTS:
             QVERIFY(changes.value(QStringLiteral("duration_ms")).isNull());
     }
 
+    // 审查 OL-2：「估算进本」之后玩家又想起了真实的进本时间并填上，记录仍按估算保存：
+    // 耗时为空（不计入平均耗时），备注里还留着「进本时间按匹配时间估算」。
+    void aRealEntryTimeReplacesTheEstimate()
+    {
+        DialogFixture fixture;
+        QVERIFY2(fixture.create(), qPrintable(fixture.errors));
+        auto value = run(QStringLiteral("missing-entry"), 70, 19,
+                         QStringLiteral("CANCELLED_BEFORE_ENTRY"));
+        value.insert(QStringLiteral("entered_at_utc"), QVariant());
+        value.insert(QStringLiteral("duration_ms"), QVariant());
+        QVERIFY(fixture.openForRun(value));
+        QSignalSpy corrections(fixture.dialog(), SIGNAL(correctRequested(QVariant,QString)));
+        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "markCompleted"));
+        QVERIFY(fixture.goToStep(3));
+        QVERIFY(fixture.click(QStringLiteral("estimateEntryButton")));
+        QVERIFY(fixture.dialog()->property("estimatedEntry").toBool());
+        QVERIFY(fixture.dialog()->property("noteText").toString().contains(QStringLiteral("估算")));
+
+        // Leaving the estimated time field as it is keeps the estimate.
+        QVERIFY(fixture.click(QStringLiteral("enteredTimeField")));
+        QVERIFY(fixture.click(QStringLiteral("endedTimeField")));
+        QVERIFY(fixture.dialog()->property("estimatedEntry").toBool());
+
+        // The player remembers: the duty started two minutes after the match.
+        const QDateTime matched = QDateTime::fromString(
+            value.value(QStringLiteral("matched_at_utc")).toString(), Qt::ISODateWithMs);
+        const QDateTime entered = matched.addSecs(120).toLocalTime();
+        fixture.dialog()->setProperty("enteredDate", entered.toString(QStringLiteral("yyyy-MM-dd")));
+        fixture.dialog()->setProperty("enteredTime", entered.toString(QStringLiteral("HH:mm:ss")));
+        QVERIFY(!fixture.dialog()->property("estimatedEntry").toBool());
+        QVERIFY(!fixture.dialog()->property("noteText").toString().contains(QStringLiteral("估算")));
+
+        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
+        QCOMPARE(corrections.count(), 1);
+        const auto changes = asMap(corrections.at(0).at(0));
+        const QDateTime enteredAt = QDateTime::fromString(
+            entered.toString(QStringLiteral("yyyy-MM-dd HH:mm:ss")), QStringLiteral("yyyy-MM-dd HH:mm:ss"));
+        const QDateTime ended = QDateTime::fromString(
+            value.value(QStringLiteral("ended_at_utc")).toString(), Qt::ISODateWithMs);
+        QCOMPARE(changes.value(QStringLiteral("duration_ms")).toLongLong(), enteredAt.msecsTo(ended));
+        QVERIFY(!changes.value(QStringLiteral("note")).toString().contains(QStringLiteral("估算")));
+    }
+
+    // 审查 OL-3：离开时间框会把 HH:mm:00 写成 HH:mm，原值却读作 HH:mm:ss，于是没动过的
+    // 时间也算改动；表单里只供显示的字段（role、job_name…）又总与记录不同，「没有改动」
+    // 的检查永远不成立，空的修正被送到采集服务，只换来 ERR_NO_CHANGES。
+    void anUntouchedFormIsNoCorrection()
+    {
+        DialogFixture fixture;
+        QVERIFY2(fixture.create(), qPrintable(fixture.errors));
+        auto value = run(QStringLiteral("whole-minutes"), 70, 19, QStringLiteral("COMPLETED"));
+        value.insert(QStringLiteral("matched_at_utc"), QStringLiteral("2026-09-04T12:39:00.000Z"));
+        value.insert(QStringLiteral("ended_at_utc"), QStringLiteral("2026-09-04T12:59:00.000Z"));
+        value.insert(QStringLiteral("duration_ms"), 1080000);
+        // As the Collector stores it: the role it derived, which the catalogue rows do not carry.
+        value.insert(QStringLiteral("duty_name"), QString::fromUtf8("伊库拉尔堡垒"));
+        value.insert(QStringLiteral("job_name"), QString::fromUtf8("骑士"));
+        value.insert(QStringLiteral("role"), QStringLiteral("TANK"));
+        QVERIFY(fixture.openForRun(value));
+        QVERIFY(fixture.goToStep(3));
+        QVERIFY(fixture.click(QStringLiteral("matchedTimeField")));
+        QVERIFY(fixture.click(QStringLiteral("enteredTimeField")));
+        QVERIFY(fixture.click(QStringLiteral("endedTimeField")));
+        QVERIFY(fixture.click(QStringLiteral("reasonField")));
+        QVERIFY2(asList(fixture.dialog()->property("diffRows")).isEmpty(),
+                 qPrintable(QStringLiteral("%1 / %2").arg(fixture.dialog()->property("enteredTime").toString(),
+                                                          fixture.dialog()->property("endedTime").toString())));
+
+        QSignalSpy corrections(fixture.dialog(), SIGNAL(correctRequested(QVariant,QString)));
+        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
+        QCOMPARE(corrections.count(), 0);
+        QCOMPARE(fixture.dialog()->property("errorCode").toString(), QStringLiteral("ERR_NO_CHANGES"));
+
+        // A real edit sends that edit and nothing the correction contract does not carry.
+        fixture.dialog()->setProperty("noteText", QString::fromUtf8("讲了三次分摊"));
+        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
+        QCOMPARE(corrections.count(), 1);
+        QCOMPARE(asMap(corrections.at(0).at(0)).keys(), QStringList{QStringLiteral("note")});
+    }
+
+    // 审查 OG-1（桌面端一半）：选「未知副本」必须带上 content_id: null。只在区域里认出
+    // 副本的记录 content_id 本来就是 null，此前于是不发它，采集服务保留了区域，统计、
+    // 历史筛选和名称仍算在原副本上。
+    void choosingTheUnknownDutyAlwaysNamesTheContent_data()
+    {
+        QTest::addColumn<QVariant>("contentId");
+        // JSON null, as a run read back from the Collector carries it (not a missing key).
+        QTest::newRow("zone only") << QVariant::fromValue(nullptr);
+        QTest::newRow("content observed") << QVariant(70);
+    }
+
+    void choosingTheUnknownDutyAlwaysNamesTheContent()
+    {
+        QFETCH(QVariant, contentId);
+        DialogFixture fixture;
+        QVERIFY2(fixture.create(), qPrintable(fixture.errors));
+        auto value = run(QStringLiteral("zone-run"), 70, 19, QStringLiteral("COMPLETED"));
+        value.insert(QStringLiteral("content_id"), contentId);
+        value.insert(QStringLiteral("territory_id"), 123);
+        value.insert(QStringLiteral("duty_name"), QString::fromUtf8("区域识别的副本"));
+        value.insert(QStringLiteral("duty_category"), QString::fromUtf8("四人迷宫"));
+        QVERIFY(fixture.openForRun(value));
+        QVERIFY(fixture.dialog()->property("dutyIndex").toInt() > 0);
+        QVERIFY(fixture.goToStep(2));
+        QVERIFY(fixture.click(QStringLiteral("changeDutyButton")));
+        QCOMPARE(fixture.dialog()->property("dutyIndex").toInt(), 0);
+
+        QSignalSpy corrections(fixture.dialog(), SIGNAL(correctRequested(QVariant,QString)));
+        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
+        QCOMPARE(corrections.count(), 1);
+        const auto changes = asMap(corrections.at(0).at(0));
+        QVERIFY(changes.contains(QStringLiteral("content_id")));
+        QVERIFY(changes.value(QStringLiteral("content_id")).isNull());
+        QVERIFY(changes.value(QStringLiteral("duty_name")).isNull());
+    }
+
     void theWizardFitsASmallWindowWithItsButtonsInView()
     {
         // Plan §5: min(720, window - 40) x min(680, window - 32), and the action row stays
@@ -959,7 +1075,8 @@ private Q_SLOTS:
         QCOMPARE(corrections.count(), 2);
         const auto jobChanges = asMap(corrections.at(1).at(0));
         QCOMPARE(jobChanges.value(QStringLiteral("job_id")).toInt(), 19);
-        QCOMPARE(jobChanges.value(QStringLiteral("job_name")).toString(), QStringLiteral("骑士"));
+        // The name is the Collector's to derive from the id; the contract carries no job_name.
+        QVERIFY(!jobChanges.contains(QStringLiteral("job_name")));
 
         // Choosing 未知 is an explicit clear, unlike an unrelated note edit.
         QVERIFY(fixture.openForRun(value));
@@ -1001,7 +1118,7 @@ private Q_SLOTS:
         QCOMPARE(corrections.count(), 1);
         const auto changes = asMap(corrections.at(0).at(0));
         QCOMPARE(changes.value(QStringLiteral("job_id")).toInt(), 24);
-        QCOMPARE(changes.value(QStringLiteral("job_name")).toString(), QStringLiteral("白魔法师"));
+        QVERIFY(!changes.contains(QStringLiteral("job_name")));
     }
 
     void jobsAreGroupedByRoleInLegendOrder()

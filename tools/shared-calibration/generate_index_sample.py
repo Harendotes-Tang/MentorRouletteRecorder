@@ -4,7 +4,8 @@
     python tools/shared-calibration/generate_index_sample.py           write the files
     python tools/shared-calibration/generate_index_sample.py --check   exit 1 when they differ
 
-The sample is a small repository state built only through ``index.add_submission`` - the function the
+The sample is a small repository state built only through ``index.add_submission`` and ``index.revoke``,
+with the conflict marks ``index.update_conflicts`` recomputes after each of them - the functions the
 public repository's Action publishes with - and never written by hand:
 
   tests/Fixtures/shared-calibration/index-sample.json            the index, as index.dump writes it
@@ -23,6 +24,7 @@ import datetime as dt
 import hashlib
 import json
 import sys
+import tempfile
 from pathlib import Path
 
 import index as repo_index
@@ -52,8 +54,16 @@ SCENARIO = (
     # A second code from an account that already has one replaces it (rollback plan section 2). Account
     # 1001 was code 1's only submitter, so code 1 is revoked here and the client must skip it.
     ("CN", BUILD_A, 10, 1001, 24, repo_index.PUBLISHED),
-    ("CN", BUILD_B, 0, 1000, 30, repo_index.PUBLISHED),
+    # Shared on the day build B came out: a build dated after the day after its submission is refused.
+    # The steps run in this order, not by time; the ones after this keep their earlier hours.
+    ("CN", BUILD_B, 0, 1000, 222, repo_index.PUBLISHED),
     ("GLOBAL", BUILD_A, 1, 1001, 31, repo_index.PUBLISHED),
+    # Codes 5 and 1 share a match source and template, so both are marked conflicting (plan section 18.6);
+    # code 2 is the only one of its kind and stays unmarked. Code 5 then gains a second submitter: the
+    # client picks it first, then the unmarked code 2, then code 1, published before code 2.
+    ("GLOBAL", BUILD_A, 5, 3001, 32, repo_index.PUBLISHED),
+    ("GLOBAL", BUILD_A, 5, 3002, 33, repo_index.ADDED),
+    ("GLOBAL", BUILD_A, 2, 3003, 34, repo_index.PUBLISHED),
 )
 REVOKED = (("CN", BUILD_A, 4), ("CN", BUILD_B, 0))
 
@@ -90,23 +100,35 @@ def build_state() -> tuple:
     template = rebuild.load_template(TEMPLATE.read_bytes(), TEMPLATE.name)
     state = repo_index.empty_index()
     codes = {}
-    for region, build, number, account, hours, expected in SCENARIO:
-        payload = payload_for(template, region, build, number)
-        if region == template.region and not rebuild.rebuild(payload, template).built:
-            raise SampleError("sample code %d does not rebuild on %s" % (number, template.name))
-        code = sharecode.encode(payload)
-        outcome = repo_index.add_submission(
-            state, region, build, code, None, ACCOUNT_CREATED, START + dt.timedelta(hours=hours),
-            _commit(len(codes)), account_id=account, issue=100 + hours)
-        if outcome.status != expected:
-            raise SampleError("step %s/%s/%d by %d ended %s (%s)" % (region, build, number, account, outcome.status, outcome.reason))
-        if outcome.index is not None:
-            state = outcome.index
-        if outcome.status == repo_index.PUBLISHED:
-            codes[outcome.new_code_path] = code
-    for region, build, number in REVOKED:
-        state = repo_index.revoke(state, sharecode.code_sha256(payload_for(template, region, build, number)))
+    # The checkout update_conflicts reads the code files from, as publish.py's update-index and revoke do.
+    with tempfile.TemporaryDirectory() as checkout:
+        root = Path(checkout)
+        for region, build, number, account, hours, expected in SCENARIO:
+            payload = payload_for(template, region, build, number)
+            if region == template.region and not rebuild.rebuild(payload, template).built:
+                raise SampleError("sample code %d does not rebuild on %s" % (number, template.name))
+            code = sharecode.encode(payload)
+            outcome = repo_index.add_submission(
+                state, region, build, code, None, ACCOUNT_CREATED, START + dt.timedelta(hours=hours),
+                _commit(len(codes)), account_id=account, issue=100 + hours)
+            if outcome.status != expected:
+                raise SampleError("step %s/%s/%d by %d ended %s (%s)" % (region, build, number, account, outcome.status, outcome.reason))
+            if outcome.status == repo_index.PUBLISHED:
+                codes[outcome.new_code_path] = code
+                target = root / outcome.new_code_path
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(code.encode("ascii"))
+            if outcome.index is not None:
+                state = repo_index.update_conflicts(outcome.index, root, region, build, log=_missing_code_file)
+        for region, build, number in REVOKED:
+            revoked = repo_index.revoke(state, sharecode.code_sha256(payload_for(template, region, build, number)))
+            state = repo_index.update_conflicts(revoked, root, region, build, log=_missing_code_file)
     return state, codes
+
+
+def _missing_code_file(message: str) -> None:
+    """update_conflicts skips a code it cannot read; in the sample every code file is written, so that is a bug."""
+    raise SampleError(message)
 
 
 def _expected(state: repo_index.Index) -> dict:

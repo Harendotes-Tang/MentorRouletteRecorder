@@ -74,7 +74,7 @@ ColumnLayout {
 
         SettingToggleRow {
             label: qsTr("自动备份")
-            description: qsTr("每日启动时备份，保留 14 份")
+            description: qsTr("每天自动备份一次，保留 14 份")
             checked: Settings.autoBackup
             onToggled: function(value) { Settings.autoBackup = value }
         }

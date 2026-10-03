@@ -134,6 +134,16 @@ QString Formatters::gameVersionLabel(const QVariant &build)
     return parts.mid(0, 3).join(QLatin1Char('.'));
 }
 
+QString Formatters::npcapVersionLabel(const QVariant &version)
+{
+    if (!version.isValid() || version.isNull())
+        return {};
+    const QString text = version.toString().trimmed();
+    if (text.isEmpty())
+        return {};
+    return text.front().isDigit() ? QStringLiteral("v") + text : text;
+}
+
 QString Formatters::resultLabel(const QString &code)
 {
     if (code == QLatin1String("COMPLETED"))              return QString::fromUtf8("通关");
@@ -259,8 +269,10 @@ const QHash<QString, QString> &captureErrorTable()
         // 数据库文件（审查 2026-09-21 第 15 条）。
         {QStringLiteral("ERR_DB_INTEGRITY"),
          QString::fromUtf8("本地数据库校验没通过，采集服务无法启动。请先把数据库文件复制一份留底，再排查问题。")},
+        // Also the answer to a capture start that failed for a reason other than
+        // Npcap (review OA-7), so it must not claim a capture that never began.
         {QStringLiteral("ERR_INTERNAL"),
-         QString::fromUtf8("采集服务内部出错，已停止本次监听。")},
+         QString::fromUtf8("采集服务内部出错，本次监听没能开始或已经中止。")},
     };
     return kTable;
 }
@@ -345,6 +357,10 @@ QString Formatters::fieldLabel(const QString &field)
         {QStringLiteral("duty_category"), QString::fromUtf8("类型")},
         {QStringLiteral("content_id"), QStringLiteral("content_id")},
         {QStringLiteral("job_id"), QString::fromUtf8("职业")},
+        {QStringLiteral("job_name"), QString::fromUtf8("职业")},
+        {QStringLiteral("role"), QString::fromUtf8("职能")},
+        {QStringLiteral("detection_confidence"), QString::fromUtf8("检测置信")},
+        {QStringLiteral("source"), QString::fromUtf8("来源")},
         {QStringLiteral("matched_at_utc"), QString::fromUtf8("匹配时间")},
         {QStringLiteral("entered_at_utc"), QString::fromUtf8("进本时间")},
         {QStringLiteral("ended_at_utc"), QString::fromUtf8("结束时间")},
@@ -375,6 +391,91 @@ QString Formatters::revisionValue(const QVariant &value)
             return local;
     }
     return text;
+}
+
+bool Formatters::revisionFieldVisible(const QString &field)
+{
+    // What a record says, as 详情 shows it. Revision 1 also lists the run's
+    // identifiers and bookkeeping (SemanticEventProcessor.DescribeCreation,
+    // RunMutationService.InitialChanges); job_id and content_id travel with the
+    // job_name / duty_name rows that name the same change.
+    static const QStringList kShown{
+        QStringLiteral("result"),          QStringLiteral("duty_name"),
+        QStringLiteral("duty_category"),   QStringLiteral("job_name"),
+        QStringLiteral("role"),            QStringLiteral("matched_at_utc"),
+        QStringLiteral("entered_at_utc"),  QStringLiteral("ended_at_utc"),
+        QStringLiteral("duration_ms"),     QStringLiteral("contributes_to_goal"),
+        QStringLiteral("note"),            QStringLiteral("soft_deleted"),
+        QStringLiteral("pending_review"),  QStringLiteral("detection_confidence"),
+        QStringLiteral("source"),
+    };
+    return kShown.contains(field);
+}
+
+QString Formatters::revisionFieldValue(const QString &field, const QVariant &value)
+{
+    if (!value.isValid() || value.isNull() || value.toString().isEmpty())
+        return revisionValue(value);
+    if (field == QLatin1String("result"))
+        return resultLabel(value.toString());
+    if (field == QLatin1String("role"))
+        return roleLabel(value.toString());
+    if (field == QLatin1String("source"))
+        return sourceLabel(value.toString());
+    if (field == QLatin1String("detection_confidence"))
+        return confidenceLabel(value.toString());
+    if (field == QLatin1String("duration_ms"))
+        return duration(value);
+    return revisionValue(value);
+}
+
+QString Formatters::changeKindLabel(const QString &code)
+{
+    // $defs/RunRevision.change_kind. An undo is written as a CORRECT revision.
+    static const QHash<QString, QString> kLabels{
+        {QStringLiteral("CREATE_AUTO"), QString::fromUtf8("自动记录")},
+        {QStringLiteral("CREATE_MANUAL"), QString::fromUtf8("手动新增")},
+        {QStringLiteral("CORRECT"), QString::fromUtf8("修正")},
+        {QStringLiteral("SOFT_DELETE"), QString::fromUtf8("软删除")},
+        {QStringLiteral("RESTORE"), QString::fromUtf8("恢复")},
+        {QStringLiteral("IMPORT"), QString::fromUtf8("导入")},
+    };
+    return kLabels.value(code, QString::fromUtf8("修改"));
+}
+
+QString Formatters::revisionActorLabel(const QString &code)
+{
+    return code == QLatin1String("SYSTEM") ? QString::fromUtf8("软件自动")
+                                           : QString::fromUtf8("用户操作");
+}
+
+QString Formatters::runEventLabel(const QString &code)
+{
+    // The capture page's names where the two vocabularies meet, then the
+    // events the Collector writes itself (Domain/Events/SemanticEvent.cs,
+    // crash recovery's PROCESS_RESTART).
+    const QString shared = eventKindLabel(code);
+    if (!shared.isEmpty())
+        return shared;
+    static const QHash<QString, QString> kLabels{
+        {QStringLiteral("CONNECTION_LOST"), QString::fromUtf8("游戏连接中断")},
+        {QStringLiteral("CAPTURE_STOPPED"), QString::fromUtf8("监听停止")},
+        {QStringLiteral("EVENT_SEQUENCE_GAP"), QString::fromUtf8("部分游戏数据来不及处理")},
+        {QStringLiteral("TIMEOUT_TICK"), QString::fromUtf8("等待超时")},
+        {QStringLiteral("PROCESS_RESTART"), QString::fromUtf8("软件重启后收尾")},
+        {QStringLiteral("PROFILE_LOST"), QString::fromUtf8("协议档案不再可用")},
+    };
+    return kLabels.value(code, QString::fromUtf8("其他事件"));
+}
+
+QString Formatters::oodleModeLabel(const QString &code)
+{
+    // ICaptureSource.OodleMode, sent by name (CaptureWire / CaptureDiagnostics).
+    if (code == QLatin1String("FfxivTcp"))
+        return QString::fromUtf8("游戏自带的解压函数");
+    if (code == QLatin1String("LibraryTcp"))
+        return QString::fromUtf8("用户提供的解压库");
+    return code.isEmpty() ? dash() : QString::fromUtf8("未知方式");
 }
 
 QStringList Formatters::resultCodes()

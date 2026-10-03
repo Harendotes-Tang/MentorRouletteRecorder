@@ -108,6 +108,10 @@ Dialog {
                 return
             dialog.noticeText = ""
             dialog.close()
+            // 采集服务没能当场换上新档案（这一把正在进行，或还没开始监听）：它从下一把
+            // 起才生效，必须如实告诉玩家，而不是让人以为这一把已按它记录（审查 CS3b-X2）。
+            if (!boundInSession && typeof App !== "undefined" && App.showToast)
+                App.showToast(qsTr("本机校准已保存，从下一把起按它记录；正在进行的这一把不受影响。"))
         }
         function onRejected(message) {
             if (!dialog.ownsReply())
@@ -285,7 +289,10 @@ Dialog {
             Item { Layout.fillWidth: true }
 
             AppButton {
+                objectName: "calibrationDialogLater"
                 text: qsTr("以后再说")
+                // Like Esc: not while the confirmation is out (review OL-10).
+                enabled: !dialog.busy
                 onClicked: dialog.close()
             }
 

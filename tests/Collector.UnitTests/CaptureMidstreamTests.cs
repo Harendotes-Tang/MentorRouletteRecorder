@@ -227,9 +227,10 @@ public sealed class CaptureMidstreamTests : IDisposable
 
         // The wire shape of a mid-connection attach: nearly everything has no tracked stream
         // at all because the handshake predates the capture, and only the few connections that
-        // showed one direction's SYN and not the other's land in dropped_no_syn.
+        // showed one direction's SYN and not the other's land in dropped_no_syn. The system
+        // lists the game's connections on this address, which is what makes them the game's.
         Source.IngressCounters = new CaptureIngressCounters(
-            RawPackets: 400, DroppedNoStream: 380, DroppedNoSyn: 20);
+            RawPackets: 400, DroppedNoStream: 380, DroppedNoSyn: 20, GameConnectionsNow: 2);
         controller.Poll();
 
         var snapshot = controller.Snapshot();
@@ -242,6 +243,30 @@ public sealed class CaptureMidstreamTests : IDisposable
         Assert.Equal(400, wire["raw_packets_observed"]!.GetValue<long>());
         Assert.Equal(380, wire["ingress"]!["dropped_no_stream"]!.GetValue<long>());
         Assert.Equal(20, wire["ingress"]!["dropped_no_syn"]!.GetValue<long>());
+    }
+
+    /// <summary>
+    /// Audit 2026-10-03, OA-6. Before login the game holds no connection, while other programs'
+    /// long-lived connections fill the adapter with continuations nobody saw the handshake of.
+    /// Every frame dropped is then not evidence about the game, and telling the player to log
+    /// out and in -- and latching the session as midstream -- would be wrong.
+    /// </summary>
+    [Fact]
+    public void EveryFrameDroppedWhileTheGameHoldsNoConnectionIsNotMidstream()
+    {
+        _preexisting = 0;
+        StopFollowing();
+        using var controller = Build();
+        controller.Start();
+
+        Source.IngressCounters = new CaptureIngressCounters(
+            RawPackets: 400, DroppedNoStream: 400, GameConnectionsNow: 0);
+        controller.Poll();
+
+        var snapshot = controller.Snapshot();
+        Assert.Equal(CaptureSilentReason.None, snapshot.SilentReason);
+        Assert.Null(snapshot.Hint);
+        Assert.False(snapshot.MidstreamSuspected);
     }
 
     [Fact]

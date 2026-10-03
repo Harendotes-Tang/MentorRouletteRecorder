@@ -56,6 +56,15 @@ class CalibrationController final : public QObject
     /// this build and nothing is in force under its name, so 恢复上一份本机校准
     /// has something to put back. False on a Collector that does not report it.
     Q_PROPERTY(bool retiredLocalProfileAvailable READ retiredLocalProfileAvailable NOTIFY changed)
+    /// The Collector's sentence when it answered 恢复上一份本机校准 with
+    /// ERR_CALIBRATION_NOT_READY. That code answers a restore that did not happen,
+    /// and one that did - the file is back, but a profile ranked above it stays in
+    /// use (LiveProtocolPipeline.Recalibration.cs, OutrankedAnswer). The reply
+    /// carries nothing else to tell them apart; the capture status read after it
+    /// does: a retired profile still waiting means nothing was put back. Cleared by
+    /// the next request, and once the profile in force or the build is no longer
+    /// the one it spoke of (audit 2026-10-03, CS8-D1).
+    Q_PROPERTY(QString restoreAnswer READ restoreAnswer NOTIFY changed)
     /// The accepted ConfirmCalibration response: profile_id, profile_path,
     /// bound_in_session. Empty until one is accepted.
     Q_PROPERTY(QVariantMap lastResult READ lastResult NOTIFY changed)
@@ -80,6 +89,7 @@ public:
     bool busy() const { return m_busy; }
     QString error() const { return m_error; }
     bool retiredLocalProfileAvailable() const { return m_retiredLocalProfileAvailable; }
+    QString restoreAnswer() const { return m_restoreAnswer; }
     QVariantMap lastResult() const { return m_lastResult; }
     SharedCalibrationController *shared() const { return m_shared; }
 
@@ -102,8 +112,10 @@ public Q_SLOTS:
     /// already made are left exactly as they are.
     void recalibrate();
     /// 恢复上一份本机校准: the undo of recalibrate(). Puts the retired profile back
-    /// and records with it again, letting go of whatever records now. A refusal
-    /// is shown as-is; the Collector's sentence is already player-facing.
+    /// and records with it again, letting go of whatever records now - unless a
+    /// profile ranked above it is in use, which then stays (see restoreAnswer). A
+    /// refusal is shown as-is; the Collector's sentence is already player-facing.
+    /// Whatever the answer, the capture status is read again.
     void restoreLocalProfile();
 
 Q_SIGNALS:
@@ -118,6 +130,8 @@ private:
                  const QVariantMap &progress, const QVariantList &events, bool provisional,
                  bool retiredLocalProfileAvailable);
     void sendDiscard(bool retireLocalProfile, bool restoreLocalProfile);
+    /// The profile in force as \a capture describes it: status, origin and build.
+    static QString profileInForce(const QVariantMap &capture);
 
     QPointer<IBackend> m_backend;
     SharedCalibrationController *m_shared = nullptr;
@@ -129,6 +143,11 @@ private:
     QVariantList m_events;
     QVariantMap m_lastResult;
     QString m_error;
+    QString m_restoreAnswer;
+    /// profileInForce() of the status that was current when m_restoreAnswer came.
+    QString m_restoreAnswerProfile;
+    /// profileInForce() of the last capture status adopted.
+    QString m_profileInForce;
     int m_confirmCount = 0;
     bool m_busy = false;
     bool m_retiredLocalProfileAvailable = false;

@@ -415,6 +415,9 @@ private Q_SLOTS:
     void opensOnlyAGithubHttpsAddress()
     {
         QVERIFY(mr::UpdateController::isReleaseUrl(QUrl(QLatin1String(kReleaseUrl))));
+        // Any page of this project's releases is fine, not only "latest".
+        QVERIFY(mr::UpdateController::isReleaseUrl(QUrl(QStringLiteral(
+            "https://github.com/Harendotes-Tang/MentorRouletteRecorder/releases/tag/v1.5.0"))));
 
         ControllerScene scene;
         scene.open(updateStatus(true, QStringLiteral("9.9.9")));
@@ -439,12 +442,23 @@ private Q_SLOTS:
         QTest::newRow("plain-http")
             << "http://github.com/Harendotes-Tang/MentorRouletteRecorder/releases/latest";
         QTest::newRow("not-a-url") << "javascript:void(0)";
+        // github.com hosts anybody's releases; only this project's are ours to
+        // send the player to (review OH-4).
+        QTest::newRow("another-repository")
+            << "https://github.com/someone-else/MentorRouletteRecorder/releases/latest";
+        QTest::newRow("look-alike-repository")
+            << "https://github.com/Harendotes-Tang/MentorRouletteRecorder-setup/releases/latest";
+        QTest::newRow("dot-segments")
+            << "https://github.com/Harendotes-Tang/MentorRouletteRecorder/../../someone-else/x/releases";
+        QTest::newRow("encoded-dot-segments")
+            << "https://github.com/Harendotes-Tang/MentorRouletteRecorder/%2E%2E/%2E%2E/someone-else/x";
+        QTest::newRow("site-root") << "https://github.com/";
     }
 
     void refusesAnAddressWithUserInfoAPortOrAnotherHost()
     {
         QFETCH(QString, url);
-        QVERIFY(!mr::UpdateController::isReleaseUrl(QUrl(url)));
+        QVERIFY2(!mr::UpdateController::isReleaseUrl(QUrl(url)), qPrintable(url));
 
         // A refused address is never even held, so no view can offer it, and
         // pressing 打开下载页 opens nothing.

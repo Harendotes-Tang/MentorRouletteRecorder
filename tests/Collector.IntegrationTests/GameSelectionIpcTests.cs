@@ -93,6 +93,63 @@ public sealed class GameSelectionIpcTests
         Assert.Single(sources);
     }
 
+    [Fact]
+    public async Task WithTheOnlyClientClosedNothingIsOfferedForChoiceAndStartingIsRetryable()
+    {
+        var processes = new RestartingClient();
+        var services = CaptureFakes.Ready(new FakeCaptureSource()) with { Game = new GameProcessLocator(processes) };
+        await using var fixture = CaptureServerFixture.Start(services);
+        await using var client = await fixture.ConnectAsync();
+        fixture.Host.Capture.Poll();
+        processes.Client = null;
+        fixture.Host.Capture.Poll();
+
+        var status = (await client.SendAsync("GetCaptureStatus")).Require();
+        ContractSchema.Validate("$defs/CaptureStatus", status, "closed game");
+        Assert.Equal("EXITED", status["game_selection_reason"]!.GetValue<string>());
+        Assert.False(status["game_selection_required"]!.GetValue<bool>());
+        Assert.Empty(status["game_processes"]!.AsArray());
+
+        var refused = await client.SendAsync("StartCapture", new JsonObject());
+        Assert.Equal(ErrorCodes.FfxivNotRunning, refused.ErrorCode);
+        Assert.True(refused.Payload["retryable"]!.GetValue<bool>());
+    }
+
+    [Fact]
+    public async Task ASelectionTokenIsAcceptedInEitherLetterCase()
+    {
+        var processes = new Clients();
+        var services = CaptureFakes.Ready(new FakeCaptureSource()) with { Game = new GameProcessLocator(processes) };
+        await using var fixture = CaptureServerFixture.Start(services);
+        await using var client = await fixture.ConnectAsync();
+        var status = (await client.SendAsync("GetCaptureStatus")).Require();
+        var choice = status["game_processes"]!.AsArray().Single(p => p!["process_id"]!.GetValue<int>() == 9876)!;
+
+        var selected = (await client.SendAsync("SelectGameProcess", new JsonObject
+        {
+            ["process_id"] = 9876,
+            ["selection_token"] = choice["selection_token"]!.GetValue<string>().ToUpperInvariant(),
+        })).Require();
+
+        Assert.Equal(9876, selected["ffxiv_process_id"]!.GetValue<int>());
+    }
+
+    [Fact]
+    public async Task AMissingProcessIdNamesItsFieldLikeEveryOtherMissingField()
+    {
+        var services = CaptureFakes.Ready(new FakeCaptureSource()) with { Game = new GameProcessLocator(new Clients()) };
+        await using var fixture = CaptureServerFixture.Start(services);
+        await using var client = await fixture.ConnectAsync();
+
+        var refused = await client.SendAsync("SelectGameProcess", new JsonObject
+        {
+            ["selection_token"] = Guid.NewGuid().ToString("D"),
+        });
+
+        Assert.Equal(ErrorCodes.BadRequest, refused.ErrorCode);
+        Assert.Equal("payload.process_id", refused.Payload["field"]!.GetValue<string>());
+    }
+
     private sealed class Clients : IGameProcessProvider
     {
         public bool FirstRunning { get; set; } = true;

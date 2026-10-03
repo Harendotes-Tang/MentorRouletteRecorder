@@ -70,7 +70,10 @@ class TtsService : public QObject
 public:
     /// System: the machine's speech engine, when there is one. None: no engine
     /// at all, so a test observes the local route through spokeVia() only.
-    enum class EngineMode { System, None };
+    /// Mock: Qt's own "mock" engine plugin, which plays no sound but goes
+    /// through the engine states word by word, so a test can see what the
+    /// engine is doing; without that plugin there is no engine, as for None.
+    enum class EngineMode { System, None, Mock };
 
     explicit TtsService(AppSettings *settings, QObject *parent = nullptr,
                         EngineMode engineMode = EngineMode::System);
@@ -252,6 +255,12 @@ private:
     void noteLocalEngineState(int state);
     void finishCurrent(bool spokenOnline);
     void cancelOnline(const QString &code);
+    /// Stops the sentence in progress without speaking it anywhere.
+    void abandonCurrent(const QString &code);
+    /// The player switched announcements off (\a includeTests false: a 试听
+    /// still plays) or chose a voice that is not online (\a includeTests true):
+    /// what waits for the Collector is dropped, with no toast - nothing failed.
+    void dropOnline(bool includeTests);
     void noteFallback(const QString &code);
     SpeechPlayer *player();
 
@@ -297,6 +306,15 @@ private:
     QTimer m_localTimer;
     /// Error codes already toasted this session.
     QSet<QString> m_toastedCodes;
+    /// Everything handed to the engine since it was last told to say something
+    /// new is one 试听 / 测试: switching 播报 off then leaves the engine alone.
+    /// Set where the engine is given a line, never cleared when it falls idle -
+    /// an idle engine has nothing to stop either way.
+    bool m_engineHoldsOnlyTest = false;
+    /// Settings.ttsEnabled and onlineVoiceSelected() as last seen, so a change
+    /// of either is noticed once (onSettingsChanged).
+    bool m_announcementsEnabled = true;
+    bool m_onlineVoice = false;
 };
 
 } // namespace mr

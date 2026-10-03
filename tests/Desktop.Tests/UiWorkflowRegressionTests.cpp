@@ -407,6 +407,66 @@ ApplicationWindow {
     }
 };
 
+/// 副本统计 and 职业统计 side by side on one scripted backend.
+struct StatsScene {
+    WorkflowBackend backend;
+    mr::AppController controller{&backend, nullptr};
+    mr::Formatters formatters;
+    mr::JobCatalog jobs;
+    mr::RoleCatalog roles;
+    QQmlEngine engine;
+    std::unique_ptr<QObject> root;
+    QString errors;
+
+    bool create()
+    {
+        const auto context = engine.rootContext();
+        context->setContextProperty(QStringLiteral("App"), &controller);
+        context->setContextProperty(QStringLiteral("Fmt"), &formatters);
+        context->setContextProperty(QStringLiteral("Jobs"), &jobs);
+        context->setContextProperty(QStringLiteral("Roles"), &roles);
+        context->setContextProperty(QStringLiteral("ReduceMotion"), true);
+        QQmlComponent component(&engine);
+        component.setData(R"(import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
+import MentorRecorder
+ApplicationWindow {
+    width: 1280; height: 900; visible: true
+    RowLayout {
+        anchors.fill: parent
+        DungeonsPage { objectName: "dungeons"; Layout.fillWidth: true; Layout.fillHeight: true }
+        JobsPage { objectName: "jobs"; Layout.fillWidth: true; Layout.fillHeight: true }
+    }
+})", QUrl());
+        root.reset(component.create());
+        for (const auto &error : component.errors())
+            errors += error.toString() + QLatin1Char('\n');
+        return root != nullptr;
+    }
+
+    QQuickItem *item(const QString &name) const
+    {
+        auto *scene = qobject_cast<QQuickWindow *>(root.get());
+        return scene ? SettingsFixture::find(scene->contentItem(), name) : nullptr;
+    }
+    QStringList visibleTexts() const
+    {
+        QStringList texts;
+        std::function<void(QQuickItem *)> walk = [&](QQuickItem *at) {
+            if (!at || !at->isVisible())
+                return;
+            const QVariant text = at->property("text");
+            if (text.isValid() && !text.toString().isEmpty())
+                texts.append(text.toString());
+            for (auto *child : at->childItems())
+                walk(child);
+        };
+        walk(qobject_cast<QQuickWindow *>(root.get())->contentItem());
+        return texts;
+    }
+};
+
 } // namespace
 
 class UiWorkflowRegressionTests : public QObject
@@ -417,6 +477,10 @@ private Q_SLOTS:
     void initTestCase();
     void historyPageSizesItsPagesToTheWindow();
     void immediateModelFailureClearsLoadingAndOldRows();
+    void historyLoadFailureIsNotShownAsNoMatches();
+    void statisticsLoadFailureIsNotShownAsZero();
+    void historyKeepsAHalfTypedDateAndDoesNotQueryWithoutIt();
+    void historyRefusesAnInvertedRangeAndCapsTheSearch();
     void reflectionFailurePreservesTextAndDoesNotConfirmResult();
     void resultFailureAfterSavedReflectionCanBeRetried();
     void aLiveRevisionCannotBypassResultConflictChecks();
@@ -428,10 +492,14 @@ private Q_SLOTS:
     void ordinaryReflectionSaveStillWaitsForItsReply();
     void unrelatedReflectionReplyDoesNotCloseAnIdleDialog();
     void quickReviewButtonsRefuseASecondClickWhileTheFirstIsOut();
+    void quickReviewButtonsWaitForTheRefusalOfTheirOwnRequest();
     void calibrationDialogsLockWhileBusyAndDropAnEarlierReply();
+    void calibrationDialogsCannotBeCancelledWhileBusy();
     void historyMirrorsEveryFilterAndClearsStaleControls();
     void historyRetainsAnUnlistedJobDrillDownUntilExplicitlyCleared_data();
     void historyRetainsAnUnlistedJobDrillDownUntilExplicitlyCleared();
+    void achievementProgressIsTheCollectorsFigure();
+    void aStatisticsRowWithoutIdentityDoesNotOpenAnUnfilteredHistory();
     void externalHistoryFilterCancelsPendingDebounce();
     void mockCorrectionAcknowledgesOnlyExplicitOutcome_data();
     void mockCorrectionAcknowledgesOnlyExplicitOutcome();
@@ -532,6 +600,130 @@ void UiWorkflowRegressionTests::immediateModelFailureClearsLoadingAndOldRows()
     QCOMPARE(runFailures.count(), 1);
     QCOMPARE(dungeonFailures.count(), 1);
     QCOMPARE(jobFailures.count(), 1);
+}
+
+// 审查 OD-3 / OK-4：查询失败时清空的列表不是「没有符合筛选条件的记录」，页头也
+// 不能报「0 条匹配」。
+void UiWorkflowRegressionTests::historyLoadFailureIsNotShownAsNoMatches()
+{
+    UiFixture fixture;
+    fixture.backend.failures.insert(QStringLiteral("QueryRuns"), QStringLiteral("ERR_BAD_REQUEST"));
+    QVERIFY2(fixture.create(), qPrintable(fixture.errors));
+    fixture.controller.runs()->reload();
+    QTRY_VERIFY(!fixture.controller.runs()->loadError().isEmpty());
+    auto *empty = fixture.history()->findChild<QObject *>(QStringLiteral("historyEmptyText"));
+    auto *header = fixture.history()->findChild<QObject *>(QStringLiteral("historyHeader"));
+    QVERIFY(empty);
+    QVERIFY(header);
+    QVERIFY(empty->property("visible").toBool());
+    const QString text = empty->property("text").toString();
+    QVERIFY2(!text.contains(QString::fromUtf8("没有符合筛选条件")), qPrintable(text));
+    QVERIFY(text.contains(QString::fromUtf8("读取失败")));
+    QVERIFY(text.contains(QStringLiteral("fixture refusal")));
+    const QString subtitle = header->property("subtitle").toString();
+    QVERIFY2(!subtitle.contains(QString::fromUtf8("0 条匹配")), qPrintable(subtitle));
+
+    // The next answer is a result again, even an empty one.
+    fixture.backend.failures.remove(QStringLiteral("QueryRuns"));
+    fixture.controller.runs()->reload();
+    QTRY_VERIFY(fixture.controller.runs()->loadError().isEmpty());
+    QCOMPARE(empty->property("text").toString(), QString::fromUtf8("没有符合筛选条件的记录。"));
+    QVERIFY(header->property("subtitle").toString().contains(QString::fromUtf8("0 条匹配")));
+}
+
+// 审查 OD-3：统计读取失败不能显示成「0 个副本 · 0 次」或「未知职业 0 次」。
+void UiWorkflowRegressionTests::statisticsLoadFailureIsNotShownAsZero()
+{
+    StatsScene scene;
+    scene.backend.failures.insert(QStringLiteral("GetDungeonStats"), QStringLiteral("ERR_INTERNAL"));
+    scene.backend.failures.insert(QStringLiteral("GetJobStats"), QStringLiteral("ERR_INTERNAL"));
+    QVERIFY2(scene.create(), qPrintable(scene.errors));
+    scene.controller.dungeons()->reload();
+    scene.controller.jobs()->reload();
+    QTRY_VERIFY(!scene.controller.dungeons()->loadError().isEmpty());
+    QTRY_VERIFY(!scene.controller.jobs()->loadError().isEmpty());
+    auto *dungeons = scene.item(QStringLiteral("dungeonsHeader"));
+    auto *jobs = scene.item(QStringLiteral("jobsHeader"));
+    QVERIFY(dungeons);
+    QVERIFY(jobs);
+    QVERIFY2(!dungeons->property("subtitle").toString().contains(QString::fromUtf8("0 个副本")),
+             qPrintable(dungeons->property("subtitle").toString()));
+    QVERIFY2(!jobs->property("subtitle").toString().contains(QString::fromUtf8("未知职业 0 次")),
+             qPrintable(jobs->property("subtitle").toString()));
+    const QString page = scene.visibleTexts().join(QLatin1Char('\n'));
+    QVERIFY2(page.count(QString::fromUtf8("读取失败")) >= 2, qPrintable(page));
+    QVERIFY(page.contains(QStringLiteral("fixture refusal")));
+
+    scene.backend.failures.clear();
+    scene.controller.dungeons()->reload();
+    QTRY_VERIFY(scene.controller.dungeons()->loadError().isEmpty());
+    QTRY_VERIFY(dungeons->property("subtitle").toString().contains(QString::fromUtf8("0 个副本")));
+}
+
+// 审查 OK-5：去抖之后，半截或非法的日期不能被抹掉，也不能不带它就去查询；搜索
+// 框末尾的空格不能在输入时被删掉（docs/ui-design.md §4.2）。
+void UiWorkflowRegressionTests::historyKeepsAHalfTypedDateAndDoesNotQueryWithoutIt()
+{
+    UiFixture fixture;
+    QVERIFY2(fixture.create(), qPrintable(fixture.errors));
+    auto *runs = fixture.controller.runs();
+    QTRY_VERIFY_WITH_TIMEOUT(runs->pageSize() != 10, 3000);
+    QTest::qWait(400);
+    auto *from = fixture.history()->findChild<QObject *>(QStringLiteral("fromDateField"));
+    auto *search = fixture.history()->findChild<QObject *>(QStringLiteral("historySearchField"));
+    QVERIFY(from);
+    QVERIFY(search);
+    const int queries = fixture.backend.counts.value(QStringLiteral("QueryRuns"));
+
+    from->setProperty("text", QStringLiteral("2026-09-1"));
+    QTest::qWait(450);
+    QCOMPARE(from->property("text").toString(), QStringLiteral("2026-09-1"));
+    QCOMPARE(fixture.backend.counts.value(QStringLiteral("QueryRuns")), queries);
+    QVERIFY(!fixture.controller.historyFilter().contains(QStringLiteral("from_utc")));
+
+    from->setProperty("text", QStringLiteral("2026-09-10"));
+    QTRY_VERIFY(fixture.controller.historyFilter().contains(QStringLiteral("from_utc")));
+    QCOMPARE(from->property("text").toString(), QStringLiteral("2026-09-10"));
+
+    search->setProperty("text", QStringLiteral("fixture "));
+    QTRY_COMPARE(fixture.controller.historyFilter().value(QStringLiteral("text")).toString(),
+                 QStringLiteral("fixture"));
+    QCOMPARE(search->property("text").toString(), QStringLiteral("fixture "));
+}
+
+// 审查 OK-4 / OI-1：开始晚于结束、或超过 200 字的搜索，采集服务都会拒绝；页面在
+// 本地拦下，不发出注定失败的查询。
+void UiWorkflowRegressionTests::historyRefusesAnInvertedRangeAndCapsTheSearch()
+{
+    UiFixture fixture;
+    QVERIFY2(fixture.create(), qPrintable(fixture.errors));
+    auto *runs = fixture.controller.runs();
+    QTRY_VERIFY_WITH_TIMEOUT(runs->pageSize() != 10, 3000);
+    QTest::qWait(400);
+    auto *from = fixture.history()->findChild<QObject *>(QStringLiteral("fromDateField"));
+    auto *to = fixture.history()->findChild<QObject *>(QStringLiteral("toDateField"));
+    auto *search = fixture.history()->findChild<QObject *>(QStringLiteral("historySearchField"));
+    QVERIFY(from);
+    QVERIFY(to);
+    QVERIFY(search);
+    QCOMPARE(search->property("maximumLength").toInt(), 200);
+    const int queries = fixture.backend.counts.value(QStringLiteral("QueryRuns"));
+
+    from->setProperty("text", QStringLiteral("2026-09-10"));
+    to->setProperty("text", QStringLiteral("2026-09-01"));
+    QTest::qWait(450);
+    QCOMPARE(fixture.backend.counts.value(QStringLiteral("QueryRuns")), queries);
+    QVERIFY(!fixture.controller.historyFilter().contains(QStringLiteral("to_utc")));
+    auto *hint = fixture.history()->findChild<QObject *>(QStringLiteral("historyRangeHint"));
+    QVERIFY(hint);
+    QVERIFY(hint->property("visible").toBool());
+    QCOMPARE(from->property("text").toString(), QStringLiteral("2026-09-10"));
+    QCOMPARE(to->property("text").toString(), QStringLiteral("2026-09-01"));
+
+    to->setProperty("text", QStringLiteral("2026-09-30"));
+    QTRY_VERIFY(fixture.controller.historyFilter().contains(QStringLiteral("to_utc")));
+    QVERIFY(fixture.controller.historyFilter().contains(QStringLiteral("from_utc")));
+    QVERIFY(!hint->property("visible").toBool());
 }
 
 void UiWorkflowRegressionTests::reflectionFailurePreservesTextAndDoesNotConfirmResult()
@@ -797,6 +989,60 @@ void UiWorkflowRegressionTests::quickReviewButtonsRefuseASecondClickWhileTheFirs
     QVERIFY(left->property("enabled").toBool());
 }
 
+// 审查 DT4-X1：mutationFailed 带上了请求种类与记录 id 之后，快速处理按钮只认
+// 自己那一条的拒绝。别处（原因对话框、结果窗口、设置）的拒绝不是它的回答：
+// 提前解锁会让第二次点击在第一条还在途时发出。
+void UiWorkflowRegressionTests::quickReviewButtonsWaitForTheRefusalOfTheirOwnRequest()
+{
+    ShellScene scene;
+    QVERIFY2(scene.create(), qPrintable(scene.errors));
+    scene.backend.answers.insert(QStringLiteral("GetDashboardStats"),
+                                 QJsonObject{{QStringLiteral("unfinished_pending_review"), 1}});
+    scene.backend.answers.insert(
+        QStringLiteral("QueryRuns"),
+        QJsonObject{{QStringLiteral("items"),
+                     QJsonArray{QJsonObject{{QStringLiteral("run_id"), QStringLiteral("pending-run")},
+                                            {QStringLiteral("revision"), 1},
+                                            {QStringLiteral("duty_name"), QStringLiteral("fixture duty")}}}}});
+    scene.controller.refreshDashboard();
+    QTRY_COMPARE(scene.controller.pendingReviewRun().value(QStringLiteral("run_id")).toString(),
+                 QStringLiteral("pending-run"));
+
+    auto *completed = scene.item(QStringLiteral("pendingReviewCompletedButton"));
+    auto *left = scene.item(QStringLiteral("pendingReviewLeftButton"));
+    QVERIFY(completed);
+    QVERIFY(left);
+    QTRY_VERIFY(completed->property("enabled").toBool());
+    QVERIFY(QMetaObject::invokeMethod(completed, "clicked"));
+    QCOMPARE(scene.backend.counts.value(QStringLiteral("CorrectRun")), 1);
+    QVERIFY(!completed->property("enabled").toBool());
+
+    // Refusals of other requests: another run's review, a correction of this very run
+    // from the edit dialog, and two requests about no run at all.
+    Q_EMIT scene.controller.mutationFailed(QStringLiteral("ERR_REVISION_CONFLICT"),
+                                           QStringLiteral("fixture refusal"),
+                                           QStringLiteral("review"), QStringLiteral("other-run"));
+    Q_EMIT scene.controller.mutationFailed(QStringLiteral("ERR_BAD_REQUEST"),
+                                           QStringLiteral("fixture refusal"),
+                                           QStringLiteral("correct"), QStringLiteral("pending-run"));
+    Q_EMIT scene.controller.mutationFailed(QStringLiteral("ERR_BAD_REQUEST"),
+                                           QStringLiteral("fixture refusal"),
+                                           QStringLiteral("baseline"), QString());
+    Q_EMIT scene.controller.mutationFailed(QStringLiteral("ERR_BAD_REQUEST"),
+                                           QStringLiteral("fixture refusal"),
+                                           QStringLiteral("create"), QString());
+    QCoreApplication::processEvents();
+    QVERIFY(!completed->property("enabled").toBool());
+    QVERIFY(!left->property("enabled").toBool());
+    QVERIFY(QMetaObject::invokeMethod(completed, "clicked"));
+    QCOMPARE(scene.backend.counts.value(QStringLiteral("CorrectRun")), 1);
+
+    // Its own refusal unlocks both, so the player can answer again.
+    QVERIFY(scene.backend.finish(QStringLiteral("CorrectRun"), false));
+    QTRY_VERIFY(completed->property("enabled").toBool());
+    QVERIFY(left->property("enabled").toBool());
+}
+
 // 审查第 9 条：核对与导入校准码两个对话框与第 4 条同源——确认按钮用 busy 禁用
 // 了，Esc 没有；回调又只问「窗口开着吗」，重开之后这一问照样成立，于是上一次
 // 提交的回应会落在新一次的窗口上。
@@ -869,6 +1115,74 @@ void UiWorkflowRegressionTests::calibrationDialogsLockWhileBusyAndDropAnEarlierR
     QTRY_VERIFY(importDialog->property("visible").toBool());
     QVERIFY(scene.backend.release(QStringLiteral("ImportCalibrationCode"), QJsonObject()));
     QVERIFY(importDialog->property("messageText").toString().isEmpty());
+}
+
+// 审查 OL-10：Esc 锁住了，「取消」「以后再说」却没有：请求在途时一点就关窗，导入被拒
+// 的原因只经 importFinished 送到这个窗口，随之丢失。
+void UiWorkflowRegressionTests::calibrationDialogsCannotBeCancelledWhileBusy()
+{
+    ShellScene scene;
+    QVERIFY2(scene.create(), qPrintable(scene.errors));
+    QVERIFY(QTest::qWaitForWindowExposed(scene.window()));
+    scene.backend.holdTypes << QStringLiteral("ConfirmCalibration")
+                            << QStringLiteral("ImportCalibrationCode");
+    auto *calibration = scene.controller.calibration();
+    QVERIFY(calibration);
+    const auto clickItem = [&scene](QQuickItem *target) {
+        QTest::qWait(50);
+        const QPointF centre = target->mapToScene(QPointF(target->width() / 2, target->height() / 2));
+        QTest::mouseClick(scene.window(), Qt::LeftButton, Qt::NoModifier, centre.toPoint());
+    };
+
+    auto *importDialog = scene.named(QStringLiteral("sharedImportDialog"));
+    QVERIFY(importDialog);
+    QVERIFY(QMetaObject::invokeMethod(importDialog, "openDialog"));
+    QTRY_VERIFY(importDialog->property("visible").toBool());
+    importDialog->setProperty("code", QStringLiteral("fixture-code"));
+    QVERIFY(QMetaObject::invokeMethod(importDialog, "submit"));
+    QVERIFY(calibration->shared()->busy());
+    auto *cancel = scene.item(QStringLiteral("sharedImportCancel"));
+    QVERIFY(cancel);
+    QVERIFY(!cancel->isEnabled());
+    clickItem(cancel);
+    QVERIFY(importDialog->property("visible").toBool());
+    // The refusal reaches the window that asked.
+    QVERIFY(scene.backend.release(QStringLiteral("ImportCalibrationCode"),
+                                  QJsonObject{{QStringLiteral("outcome"), QStringLiteral("REJECTED")},
+                                              {QStringLiteral("message"), QString::fromUtf8("这份校准码属于另一个游戏版本。")}}));
+    QTRY_COMPARE(importDialog->property("messageText").toString(),
+                 QString::fromUtf8("这份校准码属于另一个游戏版本。"));
+    QTRY_VERIFY(cancel->isEnabled());
+    QVERIFY(QMetaObject::invokeMethod(importDialog, "close"));
+    QTRY_VERIFY(!importDialog->property("visible").toBool());
+
+    const QJsonObject timeline{
+        {QStringLiteral("state"), QStringLiteral("READY")},
+        {QStringLiteral("game_build"), QStringLiteral("2026.09.01.0000.0000")},
+        {QStringLiteral("events"),
+         QJsonArray{QJsonObject{{QStringLiteral("event_id"), QStringLiteral("pop-1")},
+                                {QStringLiteral("kind"), QStringLiteral("pop")},
+                                {QStringLiteral("at_utc"), QStringLiteral("2026-09-10T12:00:00.000Z")},
+                                {QStringLiteral("t_ms"), 120000.0},
+                                {QStringLiteral("label"), QString::fromUtf8("匹配弹窗：练级迷宫")},
+                                {QStringLiteral("requires_confirmation"), true}}}}};
+    auto *dialog = scene.named(QStringLiteral("calibrationDialog"));
+    QVERIFY(dialog);
+    QVERIFY(QMetaObject::invokeMethod(dialog, "openDialog"));
+    QTRY_VERIFY(dialog->property("visible").toBool());
+    calibration->refreshFromCaptureStatus(
+        QJsonObject{{QStringLiteral("calibration"), timeline}}.toVariantMap());
+    QVERIFY(QMetaObject::invokeMethod(dialog, "setVerdict",
+                                      Q_ARG(QVariant, QVariant(QStringLiteral("pop-1"))),
+                                      Q_ARG(QVariant, QVariant(QStringLiteral("CORRECT"))),
+                                      Q_ARG(QVariant, QVariant(QString()))));
+    QVERIFY(QMetaObject::invokeMethod(dialog, "submit"));
+    QVERIFY(calibration->busy());
+    auto *later = scene.item(QStringLiteral("calibrationDialogLater"));
+    QVERIFY(later);
+    QVERIFY(!later->isEnabled());
+    clickItem(later);
+    QVERIFY(dialog->property("visible").toBool());
 }
 
 void UiWorkflowRegressionTests::historyMirrorsEveryFilterAndClearsStaleControls()
@@ -980,6 +1294,71 @@ void UiWorkflowRegressionTests::historyRetainsAnUnlistedJobDrillDownUntilExplici
     QVERIFY(!chip->property("visible").toBool());
     QVERIFY(QMetaObject::invokeMethod(fixture.history(), "applyFilter"));
     QVERIFY(!fixture.controller.historyFilter().contains(QStringLiteral("job_id")));
+}
+
+// 审查 OK-1：成就进度是采集服务的 achievement_progress，「还差」是它的 remaining。
+// 一次不计入目标的通关在 completed_count 里却不在进度里，「基数 + completed_count」
+// 会多算；设置页的「进度 = 基数 + 软件记录」同理。
+void UiWorkflowRegressionTests::achievementProgressIsTheCollectorsFigure()
+{
+    const QJsonObject dashboard{{QStringLiteral("attempt_count"), 6},
+                                {QStringLiteral("completed_count"), 5},
+                                {QStringLiteral("baseline_completed_count"), 100},
+                                {QStringLiteral("achievement_progress"), 104},
+                                {QStringLiteral("goal_count"), 2000},
+                                {QStringLiteral("remaining"), 1896}};
+    ShellScene scene;
+    scene.backend.answers.insert(QStringLiteral("GetDashboardStats"), dashboard);
+    QVERIFY2(scene.create(), qPrintable(scene.errors));
+    scene.controller.refreshDashboard();
+    QTRY_COMPARE(scene.controller.dashboard().value(QStringLiteral("achievement_progress")).toInt(), 104);
+    auto *ring = scene.item(QStringLiteral("achievementRing"));
+    auto *remaining = scene.item(QStringLiteral("achievementRemaining"));
+    QVERIFY(ring);
+    QVERIFY(remaining);
+    QCOMPARE(ring->property("label").toString(), QStringLiteral("104"));
+    QCOMPARE(ring->property("value").toInt(), 104);
+    QCOMPARE(remaining->property("text").toString(), QStringLiteral("1896"));
+
+    SettingsFixture settings;
+    settings.backend.answers.insert(QStringLiteral("GetDashboardStats"), dashboard);
+    QVERIFY2(settings.create(), qPrintable(settings.errors));
+    QVERIFY(settings.selectTab(QStringLiteral("goal")));
+    settings.controller.refreshDashboard();
+    QTRY_COMPARE(settings.controller.dashboard().value(QStringLiteral("achievement_progress")).toInt(), 104);
+    QTRY_VERIFY(settings.item(QStringLiteral("progressFormulaFigures")));
+    QCOMPARE(settings.item(QStringLiteral("progressFormulaFigures"))->property("text").toString(),
+             QStringLiteral("100 + 4 = 104"));
+}
+
+// 审查 OD-4 / OI-4 / OK-3：未知副本、未识别职业那一行没有可用的筛选键。契约表达
+// 不了「为空」，下钻只会打开一份不加筛选的全部历史，与该行的数字对不上。这样的
+// 行不跳转，只说明原因。
+void UiWorkflowRegressionTests::aStatisticsRowWithoutIdentityDoesNotOpenAnUnfilteredHistory()
+{
+    UiFixture fixture;
+    QVERIFY2(fixture.create(), qPrintable(fixture.errors));
+    fixture.controller.navigate(2);
+    const int page = fixture.controller.currentPage();
+    const QVariantMap filter = fixture.controller.historyFilter();
+    QSignalSpy filters(&fixture.controller, &mr::AppController::historyFilterChanged);
+
+    fixture.controller.showHistoryForContent(QVariant());
+    QCOMPARE(filters.count(), 0);
+    QCOMPARE(fixture.controller.currentPage(), page);
+    QCOMPARE(fixture.controller.historyFilter(), filter);
+    QVERIFY(!fixture.controller.toastMessage().isEmpty());
+
+    fixture.controller.navigate(3);
+    fixture.controller.showHistoryForJob(QVariant());
+    QCOMPARE(filters.count(), 0);
+    QCOMPARE(fixture.controller.currentPage(), 3);
+    QVERIFY(!fixture.controller.toastMessage().isEmpty());
+
+    // A row with an identity still drills down.
+    fixture.controller.showHistoryForJob(19);
+    QCOMPARE(filters.count(), 1);
+    QCOMPARE(fixture.controller.currentPage(), 1);
 }
 
 void UiWorkflowRegressionTests::externalHistoryFilterCancelsPendingDebounce()

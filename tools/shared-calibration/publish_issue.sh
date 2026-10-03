@@ -26,7 +26,7 @@ py() {
 # rebase would not do: index.json pins a new code to the commit that added its file, and a rebase
 # rewrites that commit, so every retry recomputes both commits on top of the current main.
 publish_loop() {
-  local event="$1" account="$2" out="$3"
+  local event="$1" account="$2" out="$3" live="$4"
   local attempt status file
   git config user.name 'github-actions[bot]'
   git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
@@ -36,7 +36,7 @@ publish_loop() {
     git clean --quiet -fd
     rm -rf "$out"
     mkdir -p "$out"
-    py check --repo . --event "$event" --account "$account" --out "$out"
+    py check --repo . --event "$event" --account "$account" --live "$live" --out "$out"
     status="$(py field --out "$out" --name status)"
     case "$status" in
       published)
@@ -46,13 +46,13 @@ publish_loop() {
         if ! git diff --cached --quiet; then
           git commit --quiet -m "$(py field --out "$out" --name code_commit_message)"
         fi
-        py update-index --repo . --event "$event" --account "$account" --out "$out" \
+        py update-index --repo . --event "$event" --account "$account" --live "$live" --out "$out" \
           --expect published --commit "$(git rev-parse HEAD)"
         git add -- index.json submissions.json
         git commit --quiet -m "$(py field --out "$out" --name index_commit_message)"
         ;;
       added)
-        py update-index --repo . --event "$event" --account "$account" --out "$out" --expect added
+        py update-index --repo . --event "$event" --account "$account" --live "$live" --out "$out" --expect added
         git add -- index.json submissions.json
         git commit --quiet -m "$(py field --out "$out" --name index_commit_message)"
         ;;
@@ -100,27 +100,27 @@ report() {
 
 main() {
   local event="${1:?usage: bash tools/publish_issue.sh <event.json>}"
-  local number work account out state login
+  local number work account live out login
   number="$(py event-field --event "$event" --name number)"
   work="${RUNNER_TEMP:?RUNNER_TEMP is not set}/publish-$number"
   rm -rf "$work"
   mkdir -p "$work"
   account="$work/account.json"
+  live="$work/live.json"
   out="$work/out"
 
-  # The event may be stale: an earlier queued run can already have answered and closed this issue.
-  state="$(gh issue view "$number" --json state --jq .state)"
-  if [ "$state" != OPEN ]; then
-    echo "issue #$number is not open; nothing to do"
-    return 0
-  fi
+  # The event may be stale: an earlier queued run can already have answered this issue, closing it or
+  # leaving it open with needs-maintainer, and the event (the `labeled` one of the same issue, an edit, a
+  # redelivery) still shows the labels of the moment it fired. Whether the issue is still open and still
+  # unanswered is therefore read as it is now; publish.py skips it otherwise, and nothing is answered.
+  gh issue view "$number" --json state,labels > "$live"
 
   echo '{}' > "$account"
   if login="$(py event-field --event "$event" --name login)"; then
     gh api "users/$login" > "$account" || echo '{}' > "$account"
   fi
 
-  publish_loop "$event" "$account" "$out"
+  publish_loop "$event" "$account" "$out" "$live"
   report "$number" "$out" "$work"
 }
 

@@ -22,6 +22,35 @@ public sealed class CaptureDetectionTests
         Assert.True(detection.WinPcapCompatible);
     }
 
+    /// <summary>
+    /// Audit 2026-10-03 OB-8. <c>wpcap.dll</c> is Npcap's build of libpcap and carries libpcap's
+    /// version (1.10.6 on a machine with Npcap 1.88 installed); <c>Packet.dll</c> carries Npcap's
+    /// own. The version reported as Npcap's is Npcap's.
+    /// </summary>
+    [Fact]
+    public void Npcap_ReportsItsOwnVersionNotTheLibpcapOneInsideIt()
+    {
+        var environment = FakeNpcapEnvironment.Healthy()
+            .WithFileVersion(@"C:\Windows\System32\Npcap\Packet.dll", "1.88")
+            .WithFileVersion(@"C:\Windows\System32\Npcap\wpcap.dll", "1.10.6");
+
+        Assert.Equal("1.88", new NpcapDetector(environment).Detect().Version);
+    }
+
+    /// <summary>
+    /// When only the libpcap library answers, its number is still worth showing, but labelled as
+    /// what it is rather than passed off as Npcap's.
+    /// </summary>
+    [Fact]
+    public void Npcap_LabelsTheLibpcapVersionWhenItIsAllThatCanBeRead()
+    {
+        var environment = FakeNpcapEnvironment.Healthy()
+            .WithFileVersion(@"C:\Windows\System32\Npcap\Packet.dll", null)
+            .WithFileVersion(@"C:\Windows\System32\Npcap\wpcap.dll", "1.10.6");
+
+        Assert.Equal("libpcap 1.10.6", new NpcapDetector(environment).Detect().Version);
+    }
+
     [Fact]
     public void Npcap_IsNotInstalled_WhenNothingIsPresent()
     {
@@ -32,10 +61,12 @@ public sealed class CaptureDetectionTests
         Assert.False(detection.Usable);
         Assert.Null(detection.Version);
 
-        // The guidance is the whole answer in this case: it must name the install option and
-        // must never suggest that this software downloads anything.
+        // The guidance is the whole answer in this case: it must name the install option, say
+        // that the running program downloads nothing, and not deny what the installer does -- it
+        // fetches the official Npcap installer when Npcap is missing (audit 2026-10-03, CS-8).
         Assert.Contains("WinPcap API-compatible Mode", detection.Guidance, StringComparison.Ordinal);
-        Assert.Contains("不会替您下载", detection.Guidance, StringComparison.Ordinal);
+        Assert.Contains("运行时不会替您下载", detection.Guidance, StringComparison.Ordinal);
+        Assert.Contains("安装程序", detection.Guidance, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -145,6 +176,20 @@ public sealed class CaptureDetectionTests
         var processes = new FakeGameProcessProvider().Add(GameProcessLocator.Dx11ProcessName, 7, null, exe);
 
         Assert.Equal(Region.Global, new GameProcessLocator(processes, new FakeGameFileReader()).Locate().Region);
+    }
+
+    [Theory]
+    [InlineData(@"D:\最终幻想\SquareEnix\FINAL FANTASY XIV - A Realm Reborn\game\ffxiv_dx11.exe")]
+    [InlineData(@"E:\ff14cn\Square Enix\FINAL FANTASY XIV - A Realm Reborn\game\ffxiv_dx11.exe")]
+    public void Game_LeavesTheRegionUnknownAndSaysWhy_WhenThePathCarriesMarkersOfBothRegions(string exe)
+    {
+        var processes = new FakeGameProcessProvider().Add(GameProcessLocator.Dx11ProcessName, 7, null, exe);
+
+        var detection = new GameProcessLocator(processes, new FakeGameFileReader()).Locate();
+
+        // Which marker wins would be a guess; the region stays unknown and the user is told why.
+        Assert.Equal(Region.Unknown, detection.Region);
+        Assert.Contains(detection.Warnings, warning => warning.Contains("同时含有", StringComparison.Ordinal));
     }
 
     [Fact]

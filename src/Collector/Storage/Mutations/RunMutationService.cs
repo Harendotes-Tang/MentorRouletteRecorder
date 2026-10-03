@@ -189,6 +189,27 @@ public sealed class RunMutationService
                 RunMutationValidation.RequireChanges(RunMutationRules.Diff(before, candidate));
             }
 
+            // Nor may a correction put an automatic run into the shape of one still in flight: left
+            // out of every statistic, off the review list, and never closed again - the shape an undo
+            // of crash recovery is refused for (OG-4). Pending review cannot be the answer: only the
+            // software sets it, when it could not see an outcome, and this run's outcome is the
+            // player's to give. The run the state machine is still following has that shape already
+            // and may be corrected as before (audit 2026-10-03, CS5-X2).
+            var settled = candidate with { PendingReview = candidate.PendingReview && !acknowledgesReview };
+            if (RunMutationRules.ReadsAsInFlight(settled) && !RunMutationRules.ReadsAsInFlight(before))
+            {
+                throw new CollectorException(
+                    ErrorCodes.BadRequest,
+                    "结果为「未知」的自动记录必须填写结束时间：没有结束时间的未知结果会被当作仍在进行的记录，" +
+                    "既不计入统计，也不会出现在待复核中。请填写结束时间，或选择实际结果。",
+                    new Dictionary<string, object?>
+                    {
+                        ["run_id"] = before.RunId,
+                        ["result"] = EnumWire<RunResult>.Format(settled.Result),
+                    },
+                    field: "ended_at_utc");
+            }
+
             // Saying how a pending run went, or filling a field the software left blank, corrects
             // nothing (RunMutationRules.OverrulesTheRecord). The revision is written either way.
             return Commit(
@@ -260,6 +281,22 @@ public sealed class RunMutationService
                 restored = RunFieldWriter.Apply(restored, change.Field, change.OldValue);
             }
 
+            // The system revisions that close an unfinished run - crash recovery, and the one-off
+            // repair of rows earlier versions stored - cannot be taken back into the shape they
+            // closed. Undoing recovery left an open UNKNOWN run off the review list: the "still in
+            // flight" row every statistic leaves out, which no restart closes again because its
+            // restart marker exists, so the run was gone for good (audit 2026-10-03, OG-4). The
+            // player settles such a run with a correction instead.
+            if (target.Actor == RevisionActor.System && IsUnsettledShape(restored))
+            {
+                throw new CollectorException(
+                    ErrorCodes.UndoNotAllowed,
+                    "这条修订是程序为未完结的记录自动写下的。撤销它会让记录回到无法统计、也无法确认的状态，" +
+                    "因此不能撤销；如果判断有误，请直接更正这条记录。",
+                    new Dictionary<string, object?> { ["run_id"] = before.RunId },
+                    field: "expected_revision");
+            }
+
             var candidate = RunMutationValidation.ValidateFinalValue(restored, durationExplicit: true);
             // A system revision may contain only confidence, which is intentionally
             // absent from the client-editable field diff but is still a real undo.
@@ -301,8 +338,20 @@ public sealed class RunMutationService
 
         var snapshot = ApplySnapshot(command.RequestId, "UpdateAchievementBaseline", fingerprint, tx =>
         {
+            // The baseline is the in-game total at its effective time, so only a new baseline
+            // moves that time. The Desktop sends the save time with every save, a goal-only edit
+            // included; taken as given, it dropped every completion recorded since the baseline
+            // out of the progress (audit 2026-10-03, CS-7). The same number entered again is no
+            // change either.
+            var stored = _settings.GetAchievementSettings(tx);
+            var effectiveAt = command.BaselineCompletedCount == stored.BaselineCompletedCount
+                ? stored.BaselineEffectiveAt
+                : UtcTimestamp.Truncate(command.BaselineEffectiveAt);
+
+            // The completions the dashboard will add on top of this baseline, not every one.
             var completed = new StatisticsRepository(_database, _settings, _jobs, _duties, _clock)
-                .CountContributingCompleted(tx);
+                .CountContributingCompleted(tx, StatisticsRepository.CountedFrom(
+                    command.BaselineCompletedCount, effectiveAt));
             if (completed > int.MaxValue - (long)command.BaselineCompletedCount)
             {
                 throw CollectorException.BadRequest(
@@ -315,7 +364,7 @@ public sealed class RunMutationService
             {
                 GoalCount = command.GoalCount,
                 BaselineCompletedCount = command.BaselineCompletedCount,
-                BaselineEffectiveAt = UtcTimestamp.Truncate(command.BaselineEffectiveAt),
+                BaselineEffectiveAt = effectiveAt,
                 UpdatedAtUtc = now,
             };
             _settings.UpdateAchievementSettings(settings, tx);
@@ -435,7 +484,10 @@ public sealed class RunMutationService
             next = next with
             {
                 ContentId = changes.ContentId,
-                TerritoryId = duty?.TerritoryId ?? next.TerritoryId,
+                // An explicit null is 未知副本: the observed zone goes with the duty, or a zone that
+                // hosts one duty names it again in statistics, the history filter and the name
+                // shown (audit 2026-10-03, OG-1). The duty-identity snapshot lets undo restore it.
+                TerritoryId = changes.ContentId is null ? null : duty?.TerritoryId ?? next.TerritoryId,
                 DutyName = duty?.LocalizedName,
                 DutyCategory = duty?.DutyCategory,
                 DutySource = DutySource.Manual,
@@ -500,6 +552,17 @@ public sealed class RunMutationService
 
         return next;
     }
+
+    /// <summary>
+    /// True for the two shapes a closed run must never be put back into: an automatic run that
+    /// reads as still in flight (UNKNOWN, no end time, not pending review - the shape
+    /// <see cref="RunFilterSql"/> leaves out of every statistic), and a run with no entry time whose
+    /// result is not "cancelled before entry", which the correction rules refuse to touch.
+    /// </summary>
+    /// <param name="run">The run as an undo would leave it.</param>
+    private static bool IsUnsettledShape(MentorRun run) =>
+        RunMutationRules.ReadsAsInFlight(run) ||
+        (run.Result != RunResult.CancelledBeforeEntry && run.EnteredAtUtc is null);
 
     private MentorRun Load(string runId, SqliteTransaction transaction) =>
         _runs.GetInternal(runId, transaction) ?? throw CollectorException.NotFound(runId);

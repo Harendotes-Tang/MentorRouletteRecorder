@@ -141,6 +141,7 @@ class WorkflowScriptTests(unittest.TestCase):
         (self.stub / ("repos_owner_calibrations_issues_%d.json" % number)).write_text(json.dumps(issue, ensure_ascii=False), encoding="utf-8")
         event = self.root / ("event-%d.json" % number)
         event.write_text(json.dumps({"action": "opened", "issue": issue}, ensure_ascii=False), encoding="utf-8")
+        self.set_live(number, ("share-calibration",))
         return issue, event
 
     def run_bash(self, script: str, *args, **env) -> subprocess.CompletedProcess:
@@ -174,7 +175,7 @@ class WorkflowScriptTests(unittest.TestCase):
         self.assertEqual(log[1][0], entry["commit"])
         self.assertEqual(code.encode("ascii"), self.origin_show("%s:%s" % (entry["commit"], entry["path"])))
         calls = self.gh_calls()
-        for expected in ("issue view 7 --json state --jq .state", "api users/Octo-Cat", "issue edit 7 --add-label published",
+        for expected in ("issue view 7 --json state,labels", "api users/Octo-Cat", "issue edit 7 --add-label published",
                          "issue close 7 --reason completed"):
             self.assertIn(expected, calls)
         self.assertTrue(any(call.startswith("issue comment 7 --body-file ") for call in calls))
@@ -214,10 +215,12 @@ class WorkflowScriptTests(unittest.TestCase):
 
     def test_a_closed_issue_is_left_alone_and_a_failed_account_lookup_needs_a_maintainer(self):
         _, closed = self.submission(12, 4004, "closed-player", sharecode.encode(testsupport.payload()))
-        (self.stub / "state-12").write_text("CLOSED\n", encoding="utf-8")
+        self.set_live(12, ("share-calibration",), state="CLOSED")
         completed = self.run_bash("tools/publish_issue.sh", closed.as_posix())
         self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
-        self.assertEqual(["issue view 12 --json state --jq .state"], self.gh_calls())
+        self.assertIn("nothing to do", completed.stdout)
+        self.assertEqual(["issue view 12 --json state,labels", "api users/closed-player"], self.gh_calls())
+        self.assertEqual(["seed"], [subject for _, subject in self.origin_log()])
 
         _, unknown = self.submission(13, 5005, "ghost-player", sharecode.encode(testsupport.payload()), with_account=False)
         completed = self.run_bash("tools/publish_issue.sh", unknown.as_posix())
@@ -228,6 +231,27 @@ class WorkflowScriptTests(unittest.TestCase):
         self.assertIn("维护者会处理", self.comment(13))
         self.assertTrue((self.runner / "publish-13" / "replied").exists())
         self.assertEqual(["seed"], [subject for _, subject in self.origin_log()])
+
+    def test_a_submission_left_open_for_a_maintainer_is_not_answered_again_by_a_later_event(self):
+        """ON1-5: the `labeled` event of the same issue, an edit, or a redelivery runs after the first answer."""
+        code = sharecode.encode(testsupport.payload())
+        issue, event = self.submission(14, 7007, "waiting-player", code, with_account=False)
+        self.assertEqual(1, self.run_bash("tools/publish_issue.sh", event.as_posix()).returncode)
+        self.assertEqual(1, self.comment(14).count("维护者会处理"))
+
+        # GitHub now carries the label the first run added; the account would even resolve this time.
+        self.set_live(14, ("share-calibration", "needs-maintainer"))
+        account = {"id": 7007, "login": "waiting-player", "type": "User", "created_at": "2020-01-01T00:00:00Z"}
+        (self.stub / "users_waiting-player.json").write_text(json.dumps(account), encoding="utf-8")
+        edited = self.root / "event-14-edited.json"
+        edited.write_text(json.dumps({"action": "edited", "issue": issue}, ensure_ascii=False), encoding="utf-8")
+        for again in (event, edited):
+            with self.subTest(again.name):
+                completed = self.run_bash("tools/publish_issue.sh", again.as_posix())
+                self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+                self.assertIn("nothing to do", completed.stdout)
+        self.assertEqual(1, self.comment(14).count("维护者会处理"), "the submission was answered a second time")
+        self.assertEqual(["seed"], [subject for _, subject in self.origin_log()], "nothing was published behind the maintainer's back")
 
     def report(self, number, body=None, labels=("calibration-report",)) -> Path:
         issue = {"number": number, "state": "open", "title": "[校准有误] CN " + testsupport.BUILD,

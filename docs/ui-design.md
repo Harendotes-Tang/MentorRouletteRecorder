@@ -137,7 +137,7 @@ IBM Plex Mono 随程序分发，许可为 SIL OFL 1.1。字体文件位于 `src/
 原型中标注 `font-variant-numeric: tabular-nums` 的位置，实现使用
 `font.features: ({ "tnum": 1 })`，涉及时间、耗时、次数、百分比与页码。
 只有原型明确使用 `ui-monospace` 的位置仍使用等宽字体：
-捕获诊断页「最近失败」的错误码，以及维护者工具底部的状态块。
+捕获诊断页「最近失败」的错误码（只在维护者视图中显示），以及维护者工具底部的状态块。
 
 ## 4. 各页面要点
 
@@ -154,6 +154,7 @@ IBM Plex Mono 随程序分发，许可为 SIL OFL 1.1。字体文件位于 `src/
   统计口径见 [statistics-definitions.md](statistics-definitions.md) §12.1。
 * `components/UpdateNotice.qml`（`updateNotice`）位于页头之下，仅在 `App.update.updateAvailable`
   为真且本机未忽略该版本时可见，内容全部来自 `GetStatus` 应答中的可选对象 `update`。
+  「检查新版本并提示」关闭时采集服务报告的 `update_available` 恒为假，此前查到的新版本横幅随即消失。
   卡片上是「打开下载页」（`openReleasePageButton`）与「忽略此版本」（`dismissUpdateButton`）。
   前者把固定的公开发布页交给系统浏览器，后者只对该版本有效，升到更高的版本后会再次提示。
   本软件不下载、不安装任何内容，见 [privacy-boundary.md](privacy-boundary.md) §8.4。
@@ -165,7 +166,7 @@ IBM Plex Mono 随程序分发，许可为 SIL OFL 1.1。字体文件位于 `src/
 ### 4.2 历史记录（page 2）
 
 * 筛选栏按原型压缩为**一行**（`Flow`，间距 6），自左至右依次为：
-  搜索框（占据剩余宽度）；起始日期与结束日期（`components/DateField.qml`，各 118 px，
+  搜索框（占据剩余宽度，最多 200 字）；起始日期与结束日期（`components/DateField.qml`，各 118 px，
   占位文字「年/月/日」，可手动输入 yyyy-MM-dd，右侧日历图标打开月历 `MonthGrid` 选择日期，
   对应原型的 `<input type="date">`）；四个 86 px 的窄下拉框 类型 / 职业 / 结果 / 来源
   （首项即占位文字，不再使用「全部…」）；`.chip` 开关 已修正 / **有心得** / 含已删除；
@@ -184,11 +185,17 @@ IBM Plex Mono 随程序分发，许可为 SIL OFL 1.1。字体文件位于 `src/
   但没有任何一次改动推翻软件的记录——通常是用户在「本次导随结果」里回答了是否通关。
 * **筛选实时生效**，带 300 ms 去抖。先前实现中的「应用筛选」按钮已移除。
 * 日期输入接受 `yyyy-MM-dd`，由 C++ `RunForm.isValidDate()` 校验。
-  值非法时输入框文字转为红色，该值不会进入筛选条件，也不会以空值静默查询。
+  值不完整或非法时输入框文字转为红色并保持原样，填写完整之前不发出查询，也不会以空值静默查询，
+  列表保留上一次的结果。开始日期晚于结束日期时同样不查询，筛选栏下方以橙字提示
+  「开始日期晚于结束日期，筛选未更新。」（`historyRangeHint`）。
+* 历史记录读取失败时，页头小字为「读取失败」，列表位置以橙字说明「历史记录读取失败：<原因>」，
+  不显示为「0 条匹配」或「没有符合筛选条件的记录。」（`RunListModel.loadError`）。
 * 点击表头排序，同一排序键只在一列上显示箭头。
 * 点击行打开右侧 380 px 的详情浮层（`dialogs/RunDetailPanel.qml`），
   含四个页签 详情 / 事件摘要 / 修正历史 / **心得**，底部为 手动修正 / 软删除 / 恢复记录。
-  详情页签采用原型的两列键值网格。
+  详情页签采用原型的两列键值网格。修正历史只列出详情页同样展示的字段，字段名、取值、修订种类与
+  操作者均以中文显示（`Fmt.revisionFieldVisible` / `revisionFieldValue` / `changeKindLabel` /
+  `revisionActorLabel`）；事件摘要见 §8 第 2 条。内部编号与原始取值只在维护者工具打开时显示。
 * 详情页签末尾的「备注」区块：备注文字（经手动修正编辑）之下是该记录的图片条
   （`components/NoteImageStrip.qml`，64 px，点击缩略图以浮层查看原图），带「添加图片」格子与每张右上角的移除；
   在这里添加或移除是即时的（`NoteImages.addPicked()` / `removeOne()`），不经向导、不需理由、不产生修订，
@@ -206,6 +213,7 @@ IBM Plex Mono 随程序分发，许可为 SIL OFL 1.1。字体文件位于 `src/
   早先的实现为 `Flickable` 设置 `rightMargin: 392`，浮层打开时「副本」列被压缩为「伊…」。
   页面仍可在浮层下方滚动。关闭方式为 ✕ 按钮，或点击浮层以外的任意位置；
   后者由一层透明 `MouseArea` 实现，仅在浮层打开时启用，且不拦截滚轮事件。
+  浮层根部的 `TapHandler` 接住落在浮层自身空白处（页头、正文文字）的点击，这类点击不会关闭浮层。
 * 详情页签的**职业**字段横跨两列，显示职业图标、职业名、职能图标与职能名。
   职业未识别时显示 All-Rounder 图标与 `未知 · job_detection=UNKNOWN`。
 * 表格「职业」列宽仅 112 px，不足以容纳职能图标，因此只保留职业图标与名称，
@@ -213,7 +221,12 @@ IBM Plex Mono 随程序分发，许可为 SIL OFL 1.1。字体文件位于 `src/
 
 ### 4.3 副本统计（page 3）/ 职业统计（page 4）
 
-* 左侧为柱状列表，右侧为表格；点击任意一行跳转到按该副本或职业筛选的历史记录。
+* 左侧为柱状列表，右侧为表格；点击有副本或职业标识的行，跳转到按该副本或职业筛选的历史记录。
+  `content_id` 为空的副本行（「未知副本」，以及同一区域对应多个副本的行）与 `job_id` 为空的职业行
+  不跳转，停留在原页并以 toast 提示历史记录无法单独列出它们（`App.showHistoryForContent` /
+  `showHistoryForJob`）。
+* 统计读取失败时，页头小字为「读取失败」，列表上方以橙字说明
+  「副本统计读取失败，下方没有统计结果：<原因>」（职业统计同理），不显示为「0 个副本」。
 * **职业统计的「角色」列使用 `Jobs.roleGroup()`**，即图例的六个分组
   坦克 / 治疗 / 近战 / 远程物理 / 魔法 / 未知，不出现契约中的粗粒度 `DPS`（「输出」）。
   `Fmt.roleLabel()` 仍然保留，但只用于确实需要契约 `Role` 三分类的位置。
@@ -248,7 +261,8 @@ IBM Plex Mono 随程序分发，许可为 SIL OFL 1.1。字体文件位于 `src/
 已安装但不可用时（`NOT_WINPCAP_COMPATIBLE` / `NPCAP_ADMIN_ONLY` / `LOAD_FAILED`），
 说明改为一句中文原因，加上采集服务自身的 `npcap.install_hint`。
 该提示给出的正是具体的修复方式，界面与 `--capture-doctor` 因此不会给出两种说法。
-未安装时 `install_hint` 只是重复安装步骤，故不显示。
+未安装时不显示 `install_hint`（其全文见 [capture-diagnostics.md](capture-diagnostics.md) §2），
+由上述固定说明与右栏的安装步骤代替。
 右栏是四步安装说明，采用设计稿的短句。
 
 **提示条**位于链路上方，顺序固定，左右内边距与下方的面板一致：
@@ -298,7 +312,7 @@ Npcap 未安装或不可用；游戏未运行（见下）；
 | 列 | 值 | 副行 | 来源 |
 |---|---|---|---|
 | FF14 进程 | `ffxiv_dx11.exe`（固定）/ 未运行 | PID n / 已安装版本 2026.09.01（游戏未运行而版本已知，`Fmt.gameVersionLabel`）/ 启动游戏后自动检测 | `capture.ffxiv_running` / `ffxiv_process_id` / `game_build` |
-| Npcap | v版本 / 未安装 | WinPcap 兼容模式 / 驱动缺失 / 未启用 WinPcap 兼容模式 / 仅限管理员使用 / 驱动文件无法加载 | `GetStatus.npcap.version`、`status`，`capture.npcap_*` |
+| Npcap | 版本（以数字开头时加「v」；只读得到 libpcap 版本时原样显示 `libpcap x.y.z`，`Fmt.npcapVersionLabel`）/ 已安装（读不到版本）/ 未安装 | WinPcap 兼容模式 / 驱动缺失 / 未启用 WinPcap 兼容模式 / 仅限管理员使用 / 驱动文件无法加载 | `GetStatus.npcap.version`、`status`，`capture.npcap_*` |
 | 适配器 | 正在用的网卡友好名 / 未选择 | 自动选择（有 FF14 连接）/ 手动指定 / 记住的网卡上没有游戏流量 | `capture.adapter_id` 对上 `App.captureAdapters[].friendly_name`（找不到时用 `capture.adapter_description`；普通用户从不看到不透明的 adapter_id）；`captureSettings.adapter_id` 为空即自动 |
 | 协议档案 | 普通用户：档案匹配 / 本机校准 / 共享校准 / 待游戏启动（仅版本未知时）/ 校准中 / 待校准（游戏未运行）/ 待核对 / 版本不支持 / 档案冲突 / 未匹配；维护者：`profile_id` | 与游戏版本匹配 / 与已安装的游戏版本匹配 / 启动游戏后重新校准 / 已安装版本暂时不会自动记录 / 待游戏启动后校验（仅版本未知时）/ …；维护者：状态令牌 · build | `capture.profile_status` / `profile_origin`、`App.calibration.state`、`App.protocolProfile` |
 
@@ -321,8 +335,8 @@ Npcap 未安装或不可用；游戏未运行（见下）；
 采集服务完全没有报告解析计数时（`AppController::parserStatsAvailable` 为假），整行指标不出现，
 只显示一句「还没有拿到解析统计……」。
 
-「最近失败」位于一条分隔线之下，每行依次为 64 px 时间、140 px 红色 11 px 等宽错误码与说明，
-行间有分隔线，最新的一行在上。
+「最近失败」位于一条分隔线之下，行间有分隔线，最新的一行在上。普通用户看到的每行依次为
+64 px 时间与说明；维护者视图在两者之间另有一列 140 px、红色 11 px 的等宽错误码。
 普通用户看到的说明来自 `Fmt.parserErrorLabel(code)`，例如「报文长度与档案不符，已忽略」；
 六个 `ParserErrorEntry.code` 各对应一句，未知码有通用句。
 普通用户视图**不显示 opcode、方向与采集服务原文**，原文中含有十六进制数值；
@@ -355,7 +369,7 @@ Npcap 未安装或不可用；游戏未运行（见下）；
 
    | 标题 | 值 | 副标题 | 来源字段 |
    |------|----|--------|----------|
-   | Npcap | 版本 / 未安装 | `status` · WinPcap 兼容 · 仅管理员 | `capture.npcap_*` + `GetStatus.npcap` |
+   | Npcap | 版本（规则同链路的 Npcap 列）/ `v?`（读不到版本）/ 未安装 | `status` · WinPcap 兼容 · 仅管理员 | `capture.npcap_*` + `GetStatus.npcap` |
    | 适配器 | `adapter_id` / 未选择 | 可用 N 个 · 未开始捕获时不占用任何网卡 | `capture.adapter_id` + `ListCaptureAdapters` |
    | FF14 PID | 进程号 / 未运行 | 实例 N · build … · region … | `capture.ffxiv_*` + `GetStatus.game` |
    | 捕获状态 | 监听中 / 已停止 / 降级监听 / 无有效报文 / … | 自 hh:mm:ss / 需回到标题画面重新登录 | `capture.state` |
@@ -403,13 +417,19 @@ QtTest `MentorRecorderCapturePage`（`tests/Desktop.Tests/CapturePageTests.cpp`�
 * **校准卡片**（`calibrationCard`，位于捕获页协议档案卡之上，`capture.calibration.state != IDLE` 时显示）：
   四行进度为 已看到排本 / 已看到匹配弹窗 / 已看到进本 / 已看到出本，以 ✓ 或 – 表示，
   取自 `calibration.progress`。`blockers[]` 逐句原样显示，Collector 写入的即是面向玩家的完整句子。
+  `READY` 时卡片标题为「校准完成，核对 N 件事就能开始自动记录。」；若此时已有档案在记录
+  （共享档案在用、`profile_status = VERIFIED`，或 `calibration.local_profile_id` 非空，例如按排本推断
+  或缺职业的本机档案），标题改为「正在自动记录。核对 N 件事后，之后的记录会更准确、更完整。」，
+  采集服务的说明句改用灰色而不用警示色（`recordingBesideOffer`）。
   卡片有两个按钮：**核对并启用**（`calibrationConfirmButton`，仅在 `READY` 时可用）与
   **重新观察**（`calibrationDiscardButton`，发送 `DiscardCalibration`）。
 * **核对对话框**（`calibrationDialog`）按时间列出 `calibration.events`，每行为 `HH:mm` 与 `label`，
   登录与换区行灰显且没有按钮。每条 `requires_confirmation` 的事件带一对 **对 / 错** 按钮
   （`calibrationVerdictCorrect_<event_id>` 与 `calibrationVerdictWrong_<event_id>`），
   全部选择完毕后方可点击确认（`calibrationDialogConfirm`），发送 `ConfirmCalibration`。
-  成功后对话框关闭并刷新。返回 `ERR_CALIBRATION_REJECTED` 时显示
+  成功后对话框关闭并刷新。应答的 `bound_in_session` 为假时（采集服务没有当场换上新档案，
+  例如这一把正在进行），另以 toast 提示「本机校准已保存，从下一把起按它记录；正在进行的这一把不受影响。」
+  返回 `ERR_CALIBRATION_REJECTED` 时显示
   「有事件被标为不对，这次校准作废；再打一把随机任务后会重新核对。」并关闭，
   该句同时保留在卡片上（`App.calibration.error`）。
 * **横幅与侧栏**：`AutomaticRecordingController` 提供 `calibrating`、`calibration_ready` 与
@@ -443,9 +463,10 @@ QtTest `MentorRecorderCapturePage`（`tests/Desktop.Tests/CapturePageTests.cpp`�
 | 情况 | 卡片上的话 | 按钮 |
 |---|---|---|
 | `FETCHING` | 正在获取其他玩家的共享校准，本机校准照常进行。 | 导入校准码 |
-| `VERIFYING`，候选中有 `provenance = PUBLISHED` 的 | 找到共享校准，登录时自动核实，通过就开始记录。 | 导入校准码、不用共享的，我自己校准 |
 | `VERIFYING`，未被拒绝的候选全为 `provenance = IMPORTED` | 已导入校准码，登录并排一次本、核实通过后启用。 | 导入校准码、不用共享的，我自己校准 |
-| `VERIFYING`，候选未报告 `provenance`（1.1.0 之前的采集服务） | 找到共享校准，登录或排本时自动核实。（候选全是手动导入的：已导入校准码，……） | 导入校准码、不用共享的，我自己校准 |
+| `VERIFYING`，某个未被拒绝的候选的 `CONTENT_FINDER_POP` 判据为 `gate = AUDIT`（仓库发布的码，且本机没有可用校准、未被标为有分歧、没有提交人数更多的候选） | 找到共享校准，登录时自动核实，通过就开始记录。 | 导入校准码、不用共享的，我自己校准 |
+| `VERIFYING`，未被拒绝的候选的该判据全为 `gate = REQUIRED`（或为手动导入的码） | 找到共享校准，还要在本机排一次本、核实通过后才会启用。 | 导入校准码、不用共享的，我自己校准 |
+| `VERIFYING`，候选未报告 `provenance` 或判据的 `gate`（1.1.0 之前的采集服务，或候选尚未判定） | 找到共享校准，登录或排本时自动核实。（候选全是手动导入的：已导入校准码，……） | 导入校准码、不用共享的，我自己校准 |
 | `VERIFYING`，且 `profile_status = VERIFIED`（已有档案在记录，1.4.0 起会出现） | 找到更准的共享校准，正在本机核实；当前记录照常生成。（候选全为 `IMPORTED`：已导入校准码，正在本机核实；当前记录照常生成。）另加一行灰字：现在的记录不受影响；核实通过后会自动换用更准的那一份，之前生成的记录不会改动。 | 导入校准码、不用共享的，我自己校准 |
 | `AWAITING_CONSENT` | 共享校准核实通过了，还需要你同意一次才能开始记录。橙框内说明代价，末句另给第三条出路：「手上有其他玩家发来的校准码的话，也可以先点「导入校准码」。」 | 同意，开始记录（橙框内，与 `sharedConsentImportButton` 并排）、导入校准码、不用共享的，我自己校准 |
 | `VERIFIED`，或 `profile_origin = SHARED_CALIBRATION` | 已使用其他玩家分享的校准（本机已核实）。 | 不用共享的，我自己校准 |
@@ -486,14 +507,21 @@ QtTest `MentorRecorderCapturePage`（`tests/Desktop.Tests/CapturePageTests.cpp`�
 `calibration.retired_local_profile_available` 为真时出现，即被停用的那份档案还在磁盘上、
 且当前没有本机档案生效。它与「重新校准」互斥——一个要求有本机档案生效，另一个要求没有——
 同屏只会出现其中之一。确认框（`protocolRestoreDialog`）标题「恢复上一份本机校准？」，
-正文「软件会停用现在这份校准，换回你上次停用的那一份本机校准，并立刻用它记录。之前的记录不受影响。」，
+正文「软件会把你上次停用的那一份本机校准放回来，并立刻改用它记录，现在这份校准随之停用。如果现在用的档案比它优先（比如随软件附带的档案），就继续用现在这份记录，放回的那份留作备用。之前的记录不受影响。」，
 按钮 **取消** 与 **恢复**（`protocolRestoreConfirm`），确认后发送
-`DiscardCalibration` 并带上 `restore_local_profile = true`，随即重读一次捕获状态。
+`DiscardCalibration` 并带上 `restore_local_profile = true`；应答到达后，不论成功还是被拒，都重读一次捕获状态。
 副本进行中时同样禁用，并复用「重新校准」那一行灰字。
 停用之后校准卡片会重新出现，若不把这条退路算进协议档案卡的可见条件，整张卡会被隐藏、
 按钮也就不可达，因此 `profileCardVisible` 把它一并计入。
 采集服务拒绝时（没有可恢复的、同名档案已存在、恢复后无法通过校验），它给的中文句子
 原样显示在卡片的 `protocolCalibrationError` 一行——此时校准卡片未必在场，这是唯一的说明位置。
+恢复出来的档案被更优先的档案遮蔽时，采集服务的应答说明档案已经放回、为何继续使用现有校准，
+在用的校准不被停用（[protocol-profile-format.md](protocol-profile-format.md) §11.6.1）。
+这一应答与真正的拒绝使用同一个错误码，桌面端不解析句子，而是按重读到的状态区分：
+`retired_local_profile_available` 仍为真，说明什么都没有放回，句子留在 `protocolCalibrationError`；
+已为假，说明档案已经放回，句子改以灰色说明文字显示在 `protocolCalibrationNotice` 一行，
+恢复按钮随状态消失，协议档案卡在这行说明显示期间保持可见。
+下一次校准请求发出，或在用档案的状态、来源或游戏版本改变时，这行说明清除。
 
 * 「立即检查」只在本机仍处于校准（`WAITING` / `OBSERVING`）、
   且没有共享档案正在记录时出现。「导入校准码」条件相同，但**包括**征求同意（`AWAITING_CONSENT`）
@@ -508,8 +536,9 @@ QtTest `MentorRecorderCapturePage`（`tests/Desktop.Tests/CapturePageTests.cpp`�
   隐藏进度行与「清空进度并重新观察」，采集服务的说明句改用灰色。
   侧栏「协议」显示 **共享校准**，横幅使用普通的「自动监听中」。
 * **绑定后仍在核对（`audit_pending = true`）**：核实门槛按来源分级之后
-  （plans/shared-calibration.md §18），仓库来源的校准在登录簇核实通过即开始记录，
-  排本与进本改为绑定后审计。此时卡片标题改为
+  （plans/shared-calibration.md §18），仓库发布的校准只在本机没有可用校准、未被仓库标为有分歧、
+  且没有提交人数更多的候选时，才在登录簇核实通过即开始记录，排本与进本改为绑定后审计；
+  其余情况下排本与进本须先核实通过。此时卡片标题改为
   「已使用其他玩家分享的校准（登录时已在本机核实），正在自动记录。」，
   不再说「本机已核实」；共享校准一节的灰字说明照常显示（这是唯一说明该状态的地方），
   内容为「排本和进本还在核对中，照常游戏即可；万一对不上，会自动改回本机校准，这期间生成的记录会标记待复核。」。
@@ -540,7 +569,8 @@ QtTest `MentorRecorderCapturePage`（`tests/Desktop.Tests/CapturePageTests.cpp`�
   截图目标为 `MentorRecorderQmlSharedCalibration_<state>`。
   其中 `verified-auditing`、`imported-published`、`imported-unpublished` 三个状态对应核实门槛按来源分级：
   分别为登录时已核实、排本与进本仍在核对；导入后命中索引；导入后任何索引都不认识。
-  其余状态不带 `provenance` 与 `audit_pending`，用于覆盖旧采集服务的"未报告"分支。
+  带 `provenance` 的候选同时带判据的 `gate`（`PUBLISHED` 为 `AUDIT`，`IMPORTED` 为 `REQUIRED`）。
+  其余状态不带 `provenance`、`gate` 与 `audit_pending`，用于覆盖旧采集服务的"未报告"分支。
   重启之后的分享入口使用 `--mock-calibration idle --mock-shared share`，
   截图目标为 `MentorRecorderQmlSharedCalibration_share_after_restart`。
   QtTest 包括 `MentorRecorderSharedCalibration`（控制器、接线与 Mock）与
@@ -587,7 +617,7 @@ kicker `padding: 12px 0 4px`；`freeLayout` 面板 `padding: 20px 24px`，间距
 * **更新**：开关「检查新版本并提示」（`updateCheckToggle`，写入
   `UpdateCaptureSettings.update_check_enabled`，由采集服务持有，默认开启）。
   描述写明这是第三类联网请求：每天最多一次，只从本项目的发布页读取一个仅含版本号的小文件，
-  与当前版本比较；请求不带账号、安装编号或任何可识别信息，本软件也从不自动下载或安装任何东西，
+  与当前版本比较；请求不带账号、安装编号或任何可识别信息，本软件也从不自动下载或安装新版本，
   见 [privacy-boundary.md](privacy-boundary.md) §8.4。已检查过时，面板下方以小字给出
   「最近检查：<时间> · 最新版本 <版本号>」（`updateCheckStatusText`）。
   该行右侧是「检查更新」（`checkUpdateNowButton`）：点击发出 `CheckUpdateNow`，
@@ -720,6 +750,11 @@ kicker `padding: 12px 0 4px`；`freeLayout` 面板 `padding: 20px 24px`，间距
   回退的那句朗读完毕后（引擎回到 `Ready`，或按字数估算的上限到达）才处理下一句，**不丢弃任何一句**。
 * 试听与自由文本会打断正在播放的那句，与本机语音的行为一致；
   仍在等待合成、尚未播出任何字的播报句会重新排入队列。
+* 关闭语音播报总开关时，排队中与正在合成、播放的在线播报句一并取消，本机引擎中排队的播报同样停止，
+  已排队或正在播放的试听照常播放，在线语音失败后改由本机语音朗读的试听也不例外。唯一的例外是本机引擎中
+  在试听之后又排入了播报句：引擎无法单独撤下这一句，关闭总开关时试听与它一并停止（`m_engineHoldsOnlyTest`）。
+  所选音色从在线语音改为本机语音时，在线队列连同试听全部取消。
+  两种情况都是用户自己的选择，不提示「在线语音暂不可用」（`TtsService::dropOnline`）。
 * `spokeVia(kind, text, route)` 对每句话发出一次，`route` 取 `online` 或 `local`，
   测试据此断言播报顺序与去向。
 
@@ -733,6 +768,8 @@ kicker `padding: 12px 0 4px`；`freeLayout` 面板 `padding: 20px 24px`，间距
   控制器同时接受 `ERR_UNKNOWN_MESSAGE` 与 `ERR_UNSUPPORTED`。此时在线语音整组设置不出现。
 * 方法包括 `save(map)`、`clearKey()` 与 `test()`，后者转交 `TtsService::testOnline()`，
   结果写回 `resultText`。控制器在连接采集服务时与每次保存后刷新。
+  `GetSpeechSettings` 没有得到应答（不是被拒绝）时，按 2 秒起、每次加倍、最长 60 秒的间隔重新读取，
+  直到读到或连接断开（`kSettingsRetryFirstMs` / `kSettingsRetryMaxMs`）。
 * 所选音色与采集服务属于同一家服务、仅音色不同时，自动发送一次只含 `voice` 的更新。
   控制器**从不自动更换服务**：更换服务而不携带新密钥会导致采集服务删除旧密钥。
 
@@ -755,17 +792,29 @@ MockBackend 在模拟状态切换以及开始或停止捕获时发出这些事�
 并提供 `simulateRunTransitions()` 供测试驱动完整流程，其中包含最后一条 `RunFinished`。
 
 **成就**（`achievementSettingsCard`）分为目标值与安装前已完成次数（基数）两列，修改原因为必填项。
+两个输入框预填的是从采集服务读到的已保存值（`GetDashboardStats` 的 `goal_count` 与 `baseline_completed_count`）。
+在当前连接上读到第一份统计之前（`App.achievementSettingsLoaded` 为假，与采集服务断开后重新变为假），
+两个输入框与「保存」均不可用，下方以灰字说明「还没有从采集服务读到已保存的目标与基数，读到之后才能修改和保存。」：
+此时输入框里只是默认的 2000 与 0（或上一次连接读到的值），只改目标并保存就可能改掉已保存的基数。
+读到之后，用户尚未动过的输入框换成已保存的值。
 采集服务对 `UpdateAchievementBaseline` 强制要求 reason（`ERR_REASON_REQUIRED`），页面先执行同样的检查；
 采集服务的拒绝（`App.baselineFailed`）以红字显示在按钮上方。
+保存成功后桌面端重新读取一次总览，toast 取重新读取得到的进度，写作「基数已设为 N · 目标 M · 进度 P · 已重算」；
+重新读取失败时只写「基数已设为 N · 目标 M · 已保存」，不给进度数字（`UpdateAchievementBaseline` 的应答不含进度）。
 内嵌框「进度 = 基数 + 软件记录」之后是数字字体的大号算式 `基数 + 记录 = 进度`（`progressFormula`），
-右侧小字为「修改后立即重算 · 导入按 run_id 去重」。
+右侧小字为「修改后立即重算 · 导入按 run_id 去重」。其中「进度」取采集服务给出的
+`achievement_progress`，「记录」为 `achievement_progress − 基数`，因此不计入进度的通关与早于基数生效时间
+结束的通关都不在其中（[statistics-definitions.md](statistics-definitions.md) §4）。
+总览的进度环、「还差 N 次」与语音播报中的进度数字同样取自 `achievement_progress`。
 左下为「重新打开首次引导」，右下为主按钮「保存」。
 
 **数据**（`dataSettingsCard`，kicker 为「数据库」）包含以下内容：
 数据库位置（只读、等宽，取自 `GetStatus.database_path`）与「打开目录」
 （`QDesktopServices::openUrl` 指向本地文件夹）；
-自动备份开关，小字为「每日启动时备份，保留 14 份」，
-由 `AppController::runDailyBackupIfDue()` 在启动时按日触发一次 `BackupDatabase`；
+自动备份开关，小字为「每天自动备份一次，保留 14 份」，
+由 `AppController::runDailyBackupIfDue()` 每天触发一次 `BackupDatabase`：启动后连上采集服务时、
+每次读回当前导随时与每小时检查一次日期，当天已备份则跳过，导随进行中（已匹配或已进本）时顺延到这一场结束
+5 分钟之后（结果确认、心得窗口与播报在这段时间里不必排在备份之后），其间再次匹配则继续顺延；
 诊断日志保留天数（`logRetentionField`，写入 `UpdateCaptureSettings.log_retention_days`，
 小字为「1–90 天 · 采集器当前生效值：N 天」），日志及其保留天数均由采集服务持有；
 按钮「立即备份」与「完整性校验」，其下是校验结果行与一行说明。
@@ -796,8 +845,9 @@ MockBackend 回 `{passed: true, detail: "ok", checked_at_utc: 现在}`。
 「有新版本 x.y.z」，其右侧另有「打开下载页」（`aboutOpenReleasePageButton`），同样只在有新版本时出现。
 没有新版本时，该位置是「检查更新」（`aboutCheckUpdateButton`），与设置页「通用」的同名按钮
 发出同一条 `CheckUpdateNow`、遵循同一套停用规则，结果同样以一句提示说明。
-小标题「隐私与边界」下有三块内嵌信息：Oodle 解压（`GetStatus.oodle_mode`）、
-读取游戏可执行文件（`reads_game_executable`，为真时以橙色显示「是（DEC-OODLE-01）」）、
+小标题「隐私与边界」下有三块内嵌信息：Oodle 解压（`GetStatus.oodle_mode` 经
+`Fmt.oodleModeLabel` 换成中文说明，不显示模式名与决策编号）、
+读取游戏可执行文件（`reads_game_executable`，为真时以橙色显示「是（读取磁盘上的一份副本）」）、
 首次运行说明（「已确认 · 时间」或「未确认」）。
 按钮为「重新查看首次运行说明」与「打开捕获诊断」（ghost）。
 其下是 **版权与来源**（`copyrightCard`），保留四段完整表述，较原型的缩写更为准确。
@@ -818,7 +868,7 @@ MockBackend 回 `{passed: true, detail: "ok", checked_at_utc: 现在}`。
 | 历史筛选 `有心得` | `RunFilter.with_reflection` |
 | 详情浮层「心得」页签 | `run.reflection`；有则 心情 tag + 时间 + 正文 + `编辑心得`，无则空状态框 + `补录心得` |
 | `dialogs/ReflectionDialog.qml` | `App.saveReflection(runId, mood, text)`；`App.reflectionSaved` 关闭，`App.reflectionFailed` 在对话框内红字显示 |
-| 通关后自动弹出 | `App.reflectionPromptRequested(run)` → `Main.qml` 的 `openReflection(run, "刚刚完成")` |
+| 通关后自动弹出 | `App.reflectionPromptRequested(run)` → `Main.qml` 的 `reflectionDialog.openForPrompt(run, "刚刚完成")`；对话框正忙时请求留在队列中，窗口关闭后再弹出（`reflectionPromptShown` / `reflectionPromptClosed`），期间关闭「通关后弹出心得窗口」则清空队列；已在「本次导随结果」中弹出过的记录不再单独提示 |
 | 设置「通关后弹出心得窗口」 | `Settings.reflectPrompt` |
 | 结束后询问结果 | `App.resultConfirmationRequested(run)` → 同一个对话框的 `openForResult(run)` |
 | 设置「结束后询问本次结果」 | `Settings.confirmPrompt` |
@@ -914,7 +964,7 @@ MockBackend 回 `{passed: true, detail: "ok", checked_at_utc: 现在}`。
 | 历史记录：详情面板 | 行数据 + `GetRunRevisions` | 选中即拉修正历史 |
 | 副本统计 | `GetDungeonStats` | 含 `content_id = null` 的「未知副本」行 |
 | 职业统计 | `GetJobStats` | 含 `job_id = null` 的「未知」行；职能占比由 `job_id` 经职业目录推导 |
-| 副本 / 职业柱状图点击 | `QueryRuns`（`filter.content_id` / `filter.job_id`）| 跳到历史页并预置筛选 |
+| 副本 / 职业柱状图点击 | `QueryRuns`（`filter.content_id` / `filter.job_id`）| 跳到历史页并预置筛选；`content_id` / `job_id` 为空的行不跳转，只提示原因 |
 | 捕获诊断 | `GetStatus` + `GetCaptureStatus` 形状 + `ListCaptureAdapters` + `GetProtocolProfileStatus` | 计数与 `recent_parser_errors` 是 `CaptureStatus` 的可选字段；缺失即 `—`。见 4.4 |
 | 捕获诊断：开始 / 停止捕获 | `StartCapture` / `StopCapture` | 本机无 Npcap ⇒ `ERR_NPCAP_MISSING` |
 | 捕获诊断：导出脱敏诊断报告 | `ExportDiagnosticsReport`（`target_path` 可省略）| 见 4.4 |
@@ -939,11 +989,11 @@ MockBackend 回 `{passed: true, detail: "ok", checked_at_utc: 现在}`。
 
 | `kind` | 行为 |
 |---|---|
-| `run_state_changed` | 先 `GetCurrentRun`，再播报 匹配 / 进本，最后刷新总览 |
+| `run_state_changed` | 先 `GetCurrentRun`，再播报 匹配 / 进本，最后刷新总览；发出时间早于本次桌面端启动的事件（订阅时补发的旧事件）不播报 |
 | `run_finished` | 重新加载列表，刷新总览，**在总览回包里**播报终局那句并弹出「本次导随结果」 |
 | `run_created` / `run_updated` | 重新加载历史列表与当前导随卡 |
 | `stats_invalidated` | 刷新总览、趋势、副本统计、职业统计 |
-| `collector_status` | 直接采用事件里的 `capture` 对象，再补一次 `GetStatus` |
+| `collector_status` | 直接采用事件里的 `capture` 对象（发出时间早于最近一次读到的捕获状态时不采用），再补一次 `GetStatus` |
 | `heartbeat` | 直接返回：该事件只表明管道存活，落入下一行的处理会每 5 秒产生一串 IPC |
 | 其他 | 一次廉价的 `GetStatus`，绝不静默丢弃 |
 
@@ -961,19 +1011,35 @@ MockBackend 回 `{passed: true, detail: "ok", checked_at_utc: 现在}`。
 | 场景 | 出现位置 |
 |---|---|
 | `ERR_REASON_REQUIRED` / `ERR_TIME_ORDER` / `ERR_NEGATIVE_DURATION` / `ERR_NO_CHANGES` / `ERR_REVISION_CONFLICT` / `ERR_BAD_REQUEST`（新增 / 修正）| **修正对话框内的红色错误条** + toast |
-| 同上（软删除 / 恢复）| **原因对话框内的红色错误行** + toast |
+| 同上（软删除 / 恢复 / 撤销修正 / 确认复核）| **原因对话框内的红色错误行** + toast |
 | `ERR_REASON_REQUIRED` 等（成就进度）| **成就进度卡内、字段下方的红色说明行** + toast |
 | `ERR_NPCAP_MISSING` / `ERR_FFXIV_NOT_RUNNING` / `ERR_CAPTURE_*` | toast（页面本身已经在解释同一件事） |
 | `ERR_EXPORT_FAILED` / `ERR_DB_*` | toast |
-| 连接中断 / 超时 | toast + 顶栏 Collector 行 |
+| 连接中断 / 超时（新增 / 修正）| **修正对话框内的红色错误条**：请求已发出却没有回应时，说明记录可能已经保存，表单冻结，只能「原样重试」或关闭窗口；请求根本没有发出时（未连上采集服务、写入被拒、请求超过帧上限），说明「这次提交没有发给采集服务，记录没有保存。」，表单保持可编辑 |
+| 连接中断 / 超时（其他）| toast + 顶栏 Collector 行 |
 
 为使上表第一、二行成立，两个对话框在提交后**不立即关闭**：
 按钮变为「提交中…」并禁用，直到 `AppController::mutationSucceeded` 到达后才关闭。
 否则后端的拒绝理由只能显示在一个已经取代表单的 toast 上。
+`mutationSucceeded` 与 `mutationFailed` 都带有请求的种类与记录编号，每个窗口只采用属于自己那次请求的
+回应：别处（「本次导随结果」、设置页的成就进度）同时在途的请求成功或被拒，都不会关闭或写入另一个窗口。
+原因对话框在请求在途期间不能经 Esc 或「取消」关闭（点击窗口之外从不关闭它）。
 
-`GetRunRevisions` 是只读接口。`ipc-v1` 没有「撤销」消息，
-`MessageDispatcher.KnownMessageTypes` 中同样没有，因此界面**不提供**撤销按钮。
-`run_revisions` 为 append-only，撤销需再发一次 `CorrectRun` 实现。
+新增或修正的提交发出之后没有收到回应时（客户端等待超时或管道断开，桌面端按 `ERR_INTERNAL` 处理），
+采集服务可能已经保存了这条记录。向导因此冻结表单，「保存」改为「原样重试」：它以同一请求编号重发
+内容完全相同的请求，由采集服务的幂等机制保证只生效一次（`HistoryController` 对内容未变的重新提交沿用
+原请求编号）。改动内容后再提交会得到新的请求编号，可能多出一条记录，因此在收到回应之前不允许编辑。
+
+请求在写入管道之前就被拒绝时（未连上采集服务、写入被拒，或请求超过 4 MiB 帧上限），桌面端以
+`BackendReply::neverSent()` 标明它从未发出，`mutationFailed` 随之带上这一标志。采集服务不可能保存过这样的请求，
+因此可编辑的表单保持可编辑，错误条在原因之后写「这次提交没有发给采集服务，记录没有保存。」。
+表单已因此前一次发出而未得到回应的提交冻结、「原样重试」又未能发出时，表单仍保持冻结，错误条写
+「这次重试没有发给采集服务。之前那次提交可能已经保存，为免重复，只能原样重试或关闭窗口；关闭后请先在历史记录中确认，再决定是否重新填写。」
+
+`GetRunRevisions` 是只读接口；撤销经 `UndoRevision` 实现。详情浮层「修正历史」页签只在最新一条修订
+（不含第 1 条创建修订）上提供「撤销」按钮（`undoRevisionButton`），点击后经原因对话框提交；
+被撤销的修订保留在链上，撤销本身追加一条新修订，规则见 [manual-correction.md](manual-correction.md) §1。
+采集服务拒绝撤销时（例如程序为未完结记录写下的系统修订），拒绝原因显示在原因对话框内。
 
 ## 4.8 Collector 生命周期在界面上的呈现
 
@@ -981,12 +1047,13 @@ MockBackend 回 `{passed: true, detail: "ok", checked_at_utc: 现在}`。
 
 | 状态 | 文案 | 触发 |
 |---|---|---|
-| `missing` | 未找到 Collector，请重新构建或检查安装目录 | 同目录下没有 exe |
+| `missing` | 未找到 Collector，安装可能不完整，请重新安装本软件。 | exe 同目录与其 `collector\` 子目录中都没有 `MentorRecorder.Collector.exe`。以 `MR_DEV_COLLECTOR_DISCOVERY` 编译的开发构建改为给出期望位置与构建提示 |
 | `idle` | Collector 可用，未启动 | 还没拉起 |
 | `starting` | Collector 启动中… | `QProcess::start()` 已发出 |
 | `running` | Collector 运行中 | 本软件启动的子进程仍在运行 |
 | `reused` | Collector 运行中（复用已有实例）| 子进程因单实例租约立刻退出，但管道已连上 |
-| `exited` | Collector 已退出（代码 N），x.x 秒后重启（第 N 次）| 非预期退出，指数退避 0.8 s → 30 s |
+| `exited` | Collector 已退出（代码 N），x.x 秒后重启（第 N 次）| 非预期退出，指数退避 0.8 s → 30 s；连续运行满 60 秒后退出时退避才重新从 0.8 s 开始 |
+| `exited`（拒绝启动） | Collector 无法启动：<原因> | 退出码 2（无法识别启动参数）、尚未开始服务就以退出码 3 退出（数据库或数据目录不可用，原因取自采集服务写到标准错误的最后一行），或 Windows 连续两次拒绝运行该程序。不进入重启循环，同一原因只提示一次；退出码 3 每 5 分钟静默重试一次 |
 | `stopped` | Collector 已停止 | 由本软件主动停止 |
 
 `reused` 是必须单独区分的一档。Collector 以一个具名事件实现每用户单实例租约，
@@ -994,11 +1061,18 @@ MockBackend 回 `{passed: true, detail: "ok", checked_at_utc: 现在}`。
 判据是「短时退出且管道已连接」，并在重启定时器触发时再判定一次，
 因为子进程可能先于 socket 的 connected 信号退出。
 
-退出路径为：`AppController` 析构，调用 `CollectorProcess::stop()`，执行 `terminate()`，
-3 秒后执行 `kill()`。托盘的「退出」菜单项，以及在「关闭时最小化到托盘」开启状态下关闭窗口，
-均走这条路径。
-进程被 `Stop-Process` 或任务管理器强制结束时不会执行析构，子 Collector 会残留。
-下一次启动会以 `reused` 复用该进程，不会出错，但 `tasklist` 中会多出一个进程。
+桌面端每个用户只运行一个（`SingleInstanceGuard`）：第一个实例持有一个以当前用户管道名命名的
+具名互斥量；再次启动时，新进程置位第一个实例等待的具名事件，使其把窗口调到前台，随后自行退出，
+不会出现第二个托盘图标、第二路播报或第二个 Collector 监管者。截图运行与模拟后端的运行不受此限制。
+
+退出路径为：`AppController` 析构，调用 `CollectorProcess::stop()`。子进程是本软件拉起的、
+且 `serve.pid` 尚未写出或记录的正是它时，先置位 Collector 的停止事件（`Local\<管道名>.stop`），
+最多等待 10 秒让它正常收尾；没有停止事件可用或到时仍未退出，才执行 `terminate()`，0.5 秒后执行 `kill()`。
+托盘的「退出」菜单项，以及在「关闭时最小化到托盘」**关闭**的情况下关闭窗口，均走这条路径；
+该开关开启时，关闭窗口只把窗口隐藏到托盘。
+进程被 `Stop-Process` 或任务管理器强制结束时不会执行析构。子 Collector 以
+`--serve --parent-pid <桌面端 pid> --parent-start-time <启动时间>` 拉起，自行监视桌面端进程，
+发现其结束后走与 Ctrl+C 相同的停止流程，10 秒内未完成则强制退出，因此不会留下孤儿进程。
 
 ## 5. 手动修正对话框与校验
 
@@ -1008,6 +1082,7 @@ MockBackend 回 `{passed: true, detail: "ok", checked_at_utc: 现在}`。
 | 情况 | 错误码 |
 |------|--------|
 | 未填写修正/新增原因 | `ERR_REASON_REQUIRED` |
+| 原因超过 500 字、备注超过 1000 字（表单内说明上限与当前字数） | `ERR_BAD_REQUEST` |
 | 进本时间早于匹配时间 | `ERR_TIME_ORDER` |
 | 无进本时间且结束时间早于匹配时间 | `ERR_TIME_ORDER` |
 | 结束时间早于进本时间（耗时为负） | `ERR_NEGATIVE_DURATION` |
@@ -1024,7 +1099,30 @@ MockBackend 回 `{passed: true, detail: "ok", checked_at_utc: 现在}`。
 
 首次启动的 baseline 对话框（`dialogs/BaselineDialog.qml`）按原型排版，自上而下为：
 `首次启动 · 1 / 1` kicker、大号标题、两个大字号数字输入（当前已完成次数与目标）、
-生效时间说明，以及 `从 0 开始` 与 `保存并开始` 两个按钮。
+生效时间说明，以及 `从 0 开始` 与 `保存并开始` 两个按钮。首次启动时该对话框不能经 Esc 关闭。
+从设置页「重新打开首次引导」打开时（`openDialog(true)`），kicker 改为「成就基数」，两个输入预填当前的
+基数与目标，并多出「取消」按钮，Esc 同样关闭对话框而不做任何修改；保存时一并提交基数与目标。
+
+两个输入预填的同样是从采集服务读到的已保存值。读到之前（`settingsLoaded` 为假）两个输入框、`从 0 开始` 与
+`保存并开始` 均不可用，说明行写「还没有从采集服务读到已保存的目标与基数，读到之后才能修改和保存。」；
+首次启动时此时另有「稍后填写」按钮，关闭对话框而不保存任何内容，下次启动时再次询问。
+值在对话框打开之后才读到时，用户尚未动过的输入换成已保存的值。
+
+`从 0 开始` 提交的是对话框中显示的目标（与 `保存并开始` 一样先检查是否为大于 0 的整数）与基数 0。
+按下任一保存按钮后对话框保持打开，`保存并开始` 改写为「保存中…」；应答到达之前，两个输入框、两个保存按钮与
+「取消」/「稍后填写」均不可用，Esc 与点击窗外也不关闭对话框。采集服务接受后对话框才关闭，首次启动随之记为完成；
+被拒绝或连接断开时，对话框保留已填写的内容，并以红字显示采集服务给出的原因。首次启动时，保存失败之后同样出现
+「稍后填写」，可以不保存即关闭对话框，下次启动时再次询问，因此即使采集服务一再拒绝保存，也总能离开对话框。
+另有一次成就设置的保存（例如来自设置页）尚未得到应答时，两个保存按钮同样不可用。
+
+生效时间说明按输入的基数与已保存基数的关系给出，与采集服务实际保存的结果一致
+（[statistics-definitions.md](statistics-definitions.md) §4）：
+
+* 基数为 0：「基数为 0 · 软件记录的通关不论何时结束都计入进度。」
+* 基数与已保存的相同：「基数未改动 · 沿用原有的生效时间，进度不受影响。」
+* 其他：「生效时间 <今天的日期> · 此前结束的记录已含在基数中，不会重复计入。」
+
+已保存的生效时间没有出现在任何读取的应答中，因此第二种情形不写出具体日期。
 
 新增与修正采用三步向导。状态与逻辑位于 `dialogs/EditRunDialog.qml`，
 三步的界面分别为 `RunWizardResultStep.qml`、`RunWizardDutyStep.qml` 与 `RunWizardTimeStep.qml`，
@@ -1307,7 +1405,8 @@ build/src/Desktop/MentorRecorder.Desktop.exe --screenshot <png> --page N
     [--mock-speech azure|openai|unconfigured|fail]
                              # 在线语音（§4.5 播报）：azure / openai 已配置，unconfigured 什么都没选，
                              # fail 已配置但每句 SynthesizeSpeech 都回 ERR_SPEECH_NETWORK。只在本次运行里
-                             # 选中对应的在线音色（并视为确认过），退出时把 desktop.ini 里的选择还原
+                             # 选中对应的在线音色（并视为确认过），退出时还原；模拟后端的设置文件
+                             # 本就位于测试目录，真实的 desktop.ini 不受影响
     [--mock-open-speech-confirm]
                              # 以本机语音起步，打开在线语音确认框（与 --mock-speech 同用时问的是该状态的音色）
     [--mock-speech-preview]  # 启动 0.4 秒后播一次「试听」，配 --mock-speech fail 可截到回退提示
@@ -1349,6 +1448,13 @@ Qt 6.11 的 `QSoundEffect` 并不依赖后端插件，缺少插件时只输出�
 截图要求 `D:/APPS/Qt/6.11.2/mingw_64/bin` 位于 `PATH` 中。
 
 `--mock-*` 与 `--backend ipc` 同时给出时直接拒绝，退出码为 2，以免测试专用开关被静默忽略。
+截图运行，以及使用模拟后端的任何运行（无论是否截图），都启用 `QStandardPaths` 的测试模式
+（`AppSettings::isHarnessRun`）：设置、自动备份日期与语音选择都写入测试目录，不改动用户真实的
+`desktop.ini`；模拟后端的备注图片写入 `%TEMP%\MentorRecorder-mock-note-images`，不进入安装目录。
+截图运行以 `--backend ipc` 自行拉起采集服务时，`serve.pid` 仍按真实的 `%LOCALAPPDATA%` 查找
+（`CollectorProcess::collectorDataDirectory`），退出时经停止事件请求它正常收尾，而不会将其强行结束。
+截图运行期间出现任何 QML / JavaScript 运行时警告时，画面照常写出，进程以退出码 10 结束
+（`QmlWarningCounter`），便于查看出问题的页面。
 `--open-detail`、`--open-edit`、`--show-disclosure` 与 `--export-target` 只驱动导航与落盘位置，
 不注入任何假数据，因此两种后端都接受；`--settings-tab` 同理，取值不在五个分页之内时退出码为 2。
 截图模式下 Qt 无法发现系统字体，因此除一个 CJK 字体外，还会登记 `Consolas`（存在时登记），
@@ -1379,13 +1485,14 @@ Phase 4 的真实后端评审截图位于 `build/screenshots/phase4/`，包括
 1. **数据库文件名**：界面显示后端上报的 `database_path`，本仓库中为
    `%LOCALAPPDATA%\MentorRecorder\mentor_recorder.db`（见 `docs/data-model.md`），
    原型写作 `mentor.db`。实现以真实路径为准，不显示不存在的路径。
-2. **事件摘要页签**：Collector 契约目前不返回逐事件摘要，因此该页签显示说明文字
-   而不是伪造的 opcode 列表。
+2. **事件摘要页签**：内容来自只读消息 `GetRunEvents`。普通用户每行只看到中文事件名称
+   （`Fmt.runEventLabel`）与时间，来源不明（`parser_status = UNKNOWN`）的行另带「来源不明」标记；
+   方向、opcode、哈希前缀、解析出的字段与原始事件令牌只在维护者工具打开时显示。
 3. **完整性校验**：`CheckDatabaseIntegrity` 自 2026-09-16 起纳入契约，执行只读的 `PRAGMA integrity_check`，
    由数据页的按钮调用。原型中的结果仅为一个 toast，实现改为按钮下方的结果行，见 4.5。
    更早版本的采集服务返回 `ERR_UNKNOWN_MESSAGE`，界面显示「当前采集器不支持完整性校验」，不会谎称通过。
-4. **撤销修正**：原型的修正历史中有「撤销此修正（生成新 revision）」按钮；
-   契约没有对应消息，本软件未实现该功能。
+4. **撤销修正**：原型的修正历史中有「撤销此修正（生成新 revision）」按钮。实现经 `UndoRevision`
+   提供同一功能，但按钮只出现在最新一条修订上，且须在原因对话框中填写原因，见 4.7.3。
 5. **开机启动默认值**：原型默认开启，实现默认关闭（见 4.5）。
 6. **窗口背景的径向光晕**：原型使用两层 `radial-gradient`，而 `Rectangle.gradient` 只支持线性渐变。
    实现改用一块 `Canvas`（`createRadialGradient`，椭圆通过 `scale` 得到），

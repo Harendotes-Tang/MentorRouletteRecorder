@@ -392,6 +392,19 @@ public sealed class CaptureDiagnosticsTests
     }
 
     /// <summary>A snapshot carrying every kind of value the report must not leak.</summary>
+    [Fact]
+    public void SanitizedReportCountsTheGameDirectionsLostToAGap()
+    {
+        var report = SanitizedDiagnosticsReport.Build(
+            Loaded() with { Ingress = CaptureIngressCounters.Empty with { DamagedGameDirections = 2 } },
+            "0.1.0",
+            DateTimeOffset.UnixEpoch);
+
+        // One of the reasons a session stops counting as calibration evidence; without it the
+        // report cannot explain why calibration made no progress.
+        Assert.Equal(2, report["counters"]!["damaged_game_directions"]!.GetValue<long>());
+    }
+
     private static CaptureDiagnosticsSnapshot Loaded() => new()
     {
         State = CaptureControllerState.Running,

@@ -118,6 +118,14 @@ void RunListModel::setLoading(bool loading)
     Q_EMIT loadingChanged();
 }
 
+void RunListModel::setLoadError(const QString &error)
+{
+    if (m_loadError == error)
+        return;
+    m_loadError = error;
+    Q_EMIT loadErrorChanged();
+}
+
 void RunListModel::reload()
 {
     const quint64 generation = ++m_loadGeneration;
@@ -141,6 +149,9 @@ void RunListModel::reload()
                     m_rows.clear();
                     m_total = 0;
                     endResetModel();
+                    // The emptied list is not an answer; the page says so
+                    // instead of "没有符合筛选条件的记录" (review OD-3).
+                    setLoadError(message.isEmpty() ? code : message);
                     setLoading(false);
                     Q_EMIT pagingChanged();
                     Q_EMIT loadFailed(code, message);
@@ -175,6 +186,7 @@ void RunListModel::reload()
                 m_anchorRow = qBound(0, m_anchorRow, qMax(0, m_total - 1));
                 m_page = qMax(1, pageInfo.value(QStringLiteral("page")).toInt(m_page));
                 endResetModel();
+                setLoadError({});
                 setLoading(false);
                 Q_EMIT pagingChanged();
             });

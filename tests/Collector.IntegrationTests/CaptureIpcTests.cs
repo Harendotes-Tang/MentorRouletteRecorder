@@ -47,8 +47,9 @@ public sealed class CaptureIpcTests
         Assert.Equal(ErrorCodes.NpcapMissing, response.ErrorCode);
         Assert.Contains("Npcap", response.ErrorMessage!, StringComparison.Ordinal);
 
-        // The refusal must point at the official installer, never offer to fetch anything.
-        Assert.Contains("不会替您下载", response.ErrorMessage!, StringComparison.Ordinal);
+        // The refusal must point at the official installer and never offer to fetch anything at
+        // run time; only the installer ever downloads Npcap's (audit 2026-10-03, CS-8).
+        Assert.Contains("运行时不会替您下载", response.ErrorMessage!, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -200,7 +201,8 @@ public sealed class CaptureIpcTests
                 AdapterDropped: 7,
                 Handshakes: 40,
                 GameConnections: 2,
-                GameConnectionsNow: 2),
+                GameConnectionsNow: 2,
+                DamagedGameDirections: 4),
         };
         await using var fixture = CaptureServerFixture.Start(CaptureFakes.Ready(source));
         Assert.True((await fixture.CallAsync("StartCapture")).Ok);
@@ -232,6 +234,9 @@ public sealed class CaptureIpcTests
         Assert.Equal(40, ingress["handshakes"]!.GetValue<long>());
         Assert.Equal(2, ingress["game_connections"]!.GetValue<long>());
         Assert.Equal(2, ingress["game_connections_now"]!.GetValue<long>());
+        // A game direction abandoned after a gap is lost observation too; without it a session
+        // that stopped counting as evidence would have no visible reason.
+        Assert.Equal(4, ingress["damaged_game_directions"]!.GetValue<long>());
 
         // Driver loss is loss: it is reported as dropped and the capture reads as degraded.
         Assert.Equal(7, status["packets_dropped"]!.GetValue<long>());

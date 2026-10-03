@@ -10,12 +10,16 @@
 
 出站网络请求只有三类例外，均由采集服务发起：
 
-- **共享校准获取**：游戏更新后本机没有可用档案时，从一个固定的公开仓库只读下载其他玩家分享的校准（§8.2）。
+- **共享校准获取**：游戏更新后本机没有可用档案时（以及 §8.2 所列在用档案仍读取索引的两种情形），
+  从一个固定的公开仓库只读下载其他玩家分享的校准（§8.2）。
 - **在线语音合成**（**默认关闭**）：用户开启后，播报时将本次要播报的文字发送给用户选定的语音服务，并取回读音（§8.3）。
 - **更新检查**：每 24 小时最多一次，只读取本项目发布页上的版本号文件，与本软件自身的版本比较；
   发现新版本时仅在界面上提示一句，不下载安装包，也不自动安装（§8.4）。
 
 除该条播报文字外，本软件不向任何地方上传数据。
+
+安装程序另有一次下载：仅在安装过程中、且本机没有 Npcap 时，从 Npcap 官方站点下载其官方安装程序（§8.5）。
+安装完成后运行的软件不再涉及这一下载。
 
 ## 2. 禁止清单（Hard NO）
 
@@ -23,21 +27,56 @@
 |---|---|---|
 | 1 | 不做 ACT / Dalamud 插件，不以插件形态挂载到任何第三方宿主 | 人工评审 |
 | 2 | 不进行进程注入 | `INJ-*` |
-| 3 | 不调用 `ReadProcessMemory` / `WriteProcessMemory` / `VirtualAllocEx` / `CreateRemoteThread` / `SetWindowsHookEx` | `INJ-001`…`INJ-006` |
-| 3b | 不打开游戏进程句柄（`OpenProcess` / `DebugActiveProcess`，以及内部会打开句柄的 `Process.MainModule`）；只允许进程存在性检查、内核进程表查询（`NtQuerySystemInformation(SystemProcessIdInformation)` 读取镜像路径）与系统 TCP 表 | `INJ-007` `INJ-008` |
-| 4 | 不发送任何数据包（`pcap_sendpacket` / `pcap_inject`），抓包严格只读 | `CAP-001` `CAP-002` |
-| 4b | 只用 Npcap/WinPCap 抓包实现，不用 raw socket 实现；不直接 P/Invoke pcap 原生库 | `CAP-003` `CAP-004` `CAP-006` |
-| 4c | 不把原始报文写成抓包文件（`pcap_dump*`） | `CAP-005` |
-| 5 | 不做游戏自动化、不模拟输入、不代替玩家操作 | `AUT-001` |
+| 3 | 不读写其他进程的内存、不在其中分配内存或修改内存保护、不创建远程线程或投递 APC、不安装窗口钩子：`ReadProcessMemory` / `WriteProcessMemory` / `VirtualAllocEx` / `VirtualProtectEx` / `CreateRemoteThread` / `QueueUserAPC` / `SetWindowsHookEx`，以及对应的 `Nt*` / `Zw*` 原语、`RtlCreateUserThread` 与转储进程内存的 `MiniDumpWriteDump` | `INJ-001`…`INJ-006` |
+| 3b | 不打开游戏进程或其线程的句柄：不调用 `OpenProcess`（含 `NtOpenProcess` / `ZwOpenProcess`）/ `OpenThread`（含 `NtOpenThread` / `ZwOpenThread`）/ 按窗口取进程句柄的 `GetProcessHandleFromHwnd` / 逐个打开进程的 `NtGetNextProcess`（含 `ZwGetNextProcess`）/ `DebugActiveProcess` / `Process.EnterDebugMode`，不使用内部会打开目标进程句柄的 `Process` 成员（`MainModule` / `Modules`、`StartTime`、`HasExited`、`WaitForExit`、`Kill`、`Handle`、`Process.GetProcessById` 等；属性模式与对象初始化器中的写法同样拒绝）。涉及进程、窗口与网络的操作系统查询只允许下列几类，均不打开任何进程的句柄：内核进程表（`NtQuerySystemInformation` 的 `SystemProcessInformation` 快照读取进程编号、映像名与创建时间，`SystemProcessIdInformation` 读取单个进程的镜像路径）、系统 TCP 表（`GetExtendedTcpTable`）、系统路由表（`GetBestInterface`，与任何进程无关），以及桌面端在「点选游戏窗口」期间读取前台窗口所属的进程编号（`GetForegroundWindow` / `GetWindowThreadProcessId`）。本软件对自身进程的操作见 §2.1 | `INJ-007` `INJ-008` `INJ-009` |
+| 4 | 不发送任何数据包（`pcap_sendpacket` / `pcap_inject`、libpcap 的发送队列、Packet.dll 的 `PacketSendPacket`、SharpPcap 的 `SendPacket` / `SendQueue`），抓包严格只读 | `CAP-001` `CAP-002` |
+| 4b | 只用 Npcap/WinPCap 抓包实现，不用 raw socket 实现；不直接加载 pcap 原生库（`DllImport` / `LibraryImport` / `NativeLibrary.Load` / `LoadLibrary` / `QLibrary`），抓包只经由 SharpPcap 的 Npcap 设备 | `CAP-003` `CAP-004` `CAP-006` |
+| 4c | 不把原始报文写成抓包文件（`pcap_dump*`、SharpPcap 的 `CaptureFileWriterDevice`） | `CAP-005` |
+| 5 | 不做游戏自动化、不模拟输入（`SendInput` / `SendKeys` / `keybd_event` / `mouse_event`）、不向窗口投递消息（`PostMessage` / `SendMessage` 系列、`Process.CloseMainWindow`）、不代替玩家操作 | `AUT-001` |
 | 6 | 不做任何反检测、反封禁、隐藏自身、混淆特征的处理 | 人工评审 |
-| 7 | 无遥测、无使用统计、无崩溃上报；不自动下载更新、不自动安装更新，本软件从不替换自身的任何文件；允许的出站请求只有三类：§8.2 的共享校准获取（只读下载）、§8.3 的在线语音合成（默认关闭，只发送本次要播报的文字），与 §8.4 的更新检查（默认开启，可关闭，只读取发布页上的版本号文件） | `NET-006` `NET-007` |
-| 8 | 无本软件自己的服务器、无账号体系、无同步、无上传。共享校准存放于一个公开 GitHub 仓库（§8.2），本软件只从该仓库读取；发布由玩家在浏览器中提交 Issue、由仓库的 Action 完成，本软件不发送数据。在线语音合成（§8.3）发往用户选定的语音服务（Azure 语音，或用户填写地址的 OpenAI 兼容接口），发送内容仅为本次要播报的文字，密钥由用户自行提供 | `NET-006` `NET-007` |
-| 9 | 不监听任何 HTTP / TCP / WebSocket / gRPC 端口；进程间通信**只用命名管道** | `NET-001`…`NET-005` |
+| 7 | 无遥测、无使用统计、无崩溃上报；不自动下载更新、不自动安装更新，本软件从不替换自身的任何文件；运行时允许的出站请求只有三类：§8.2 的共享校准获取（只读下载）、§8.3 的在线语音合成（默认关闭，只发送本次要播报的文字），与 §8.4 的更新检查（默认开启，可关闭，只读取发布页上的版本号文件）。三类请求都只经由 HTTP 客户端发出，不直接使用套接字或域名解析接口；脚本与 QML 不自行下载或请求网络资源。唯一的另一处联网在安装程序中：本机没有 Npcap 时下载其官方安装程序（§8.5） | `NET-006` `NET-007` `NET-008` `NET-009` |
+| 8 | 无本软件自己的服务器、无账号体系、无同步、无上传。共享校准存放于一个公开 GitHub 仓库（§8.2），本软件只从该仓库读取；发布由玩家在浏览器中提交 Issue、由仓库的 Action 完成，本软件不发送数据。在线语音合成（§8.3）发往用户选定的语音服务（Azure 语音，或用户填写地址的 OpenAI 兼容接口），发送内容仅为本次要播报的文字，密钥由用户自行提供 | `NET-006` `NET-007` `NET-008` `NET-009` |
+| 9 | 不监听任何 HTTP / TCP / WebSocket / gRPC 端口，也不直接使用 TCP / UDP / QUIC 套接字；进程间通信**只用命名管道** | `NET-001`…`NET-005` `NET-008` |
 | 10 | 不长期存储原始报文负载 | 见 §5 |
 | 11 | 不从 AGPL 项目复制代码 | 见 §7 |
 | 12 | 不在没有证据的情况下猜测 opcode / 结构偏移 | 见 [protocol-profile-format.md](protocol-profile-format.md) |
 | 13 | 客户端版本未知时 **fail-closed**：不解析、不记录 | 见 §6 |
-| 14 | 不内置、不分发、不自动下载 Npcap | 见 §4 |
+| 14 | 不内置、不分发 Npcap；运行中的软件从不下载 Npcap。安装程序仅在安装过程中、且本机没有 Npcap 时，下载固定版本、校验 SHA-256 的 Npcap 官方安装程序并启动它，由用户在 Npcap 自己的向导中完成安装，不静默安装（§8.5） | 见 §7；`NET-009`（安装程序的例外见 §2.1） |
+
+### 2.1 静态检查的放行范围
+
+规则的匹配范围、各自的放行与登记的标记以 `tools/static-boundary-check/rules.json` 为准，本节说明其中涉及上表的放行。
+规则匹配的是写法，不是意图：一条命中只说明某一行用了被禁止的名字，放行则必须按仓库相对路径精确指定，或在该行登记标记。
+
+- **`INJ-009` 只放行驱动本软件自身进程的代码。** 采集服务的父进程看门狗
+  （`src/Collector/Diagnostics/ParentProcessWatchdog.cs`）用 `Process.GetProcessById`、`StartTime` 与 `WaitForExitAsync`
+  打开**桌面端进程**，等待其退出并核对其启动时间，使桌面端被强行结束后采集服务随之停止。此外只放行启动、等待与结束
+  采集服务或替身父进程的集成测试与单元测试，以及运行子进程（`dotnet`、采集服务、静态分析工具）的脚本
+  `scripts/package.ps1`、`scripts/static-analysis.ps1`、`scripts/verify.ps1` 与一个打包测试。随软件发布的抓包代码
+  一律不放行。以行内标记逐行放行的 `INJ-009` 命中都与进程句柄无关：SQLite 连接自身的句柄（`SqliteConnection.Handle`，
+  位于 `src/Collector/Storage/SqliteDatabase.cs` 与单元测试 `tests/Collector.UnitTests/DatabaseIntegrityCheckTests.cs`）、
+  注释中为说明取值格式而点名的 `Process.StartTime`（`src/Collector/CommandLineOptions.cs`），以及测试夹具结果记录的
+  `ExitCode`（`tests/Collector.IntegrationTests/RecoveryEndToEndTests.cs`）。标记的规则见下文。
+- **本软件对自身进程的其他操作。** 下列操作针对的是本软件自己的进程或内核对象，不涉及游戏进程，也不在上表禁止之列：
+  桌面端读取自身进程的创建时间（`GetProcessTimes(GetCurrentProcess())`）并作为 `--parent-start-time` 传给采集服务；
+  桌面端读取自身令牌的用户 SID（`OpenProcessToken(GetCurrentProcess())`），据此算出管道名，并在连上管道后用
+  `GetSecurityInfo` 读取管道的所有者，只接受当前用户（或其令牌的默认所有者）的管道；采集服务用 `WaitNamedPipe`
+  询问管道是否存在；两个进程用命名事件与命名互斥体（`Local\<管道名>.stop`、桌面端的单实例互斥体与唤起事件等）
+  协调停止与单实例；采集服务无应答时，桌面端用系统自带的 `tasklist` / `taskkill` 核对并结束 `serve.pid` 所记的
+  采集服务进程。
+- **`NET-009` 只放行安装程序中创建下载页的那一行。** 安装程序在缺少 Npcap 时以 Inno Setup 的下载页下载
+  Npcap 官方安装程序（§8.5）。`installer/MentorRecorder.iss` 不再按路径整体放行，只有创建该下载页的一行带有登记在案的
+  行内标记（登记的命中原文为 `CreateDownloadPage(`），该文件中其他任何下载写法照常报错。其余脚本、工作流、QML 与
+  桌面端不得自行下载或请求网络资源，桌面端也不得以 `load` / `setSource` 把远程地址交给 QML 引擎。
+- **行内标记。** 一行可以用 `BOUNDARY-ALLOW(<规则编号>): <理由>` 解除**该行**上**该条**规则的**一处**命中，
+  其他规则照常检查。每个标记都按「文件 + 规则编号 + 命中原文」逐个登记在 `rules.json` 的 `allow_markers` 中，
+  只有该行上该规则恰好只有一处命中、且其原文与登记一致时才生效；同一行出现该规则的第二处命中，或命中换成了
+  其他写法，都会被报出并使检查失败。未登记的标记、没有解除任何命中的标记、登记了却找不到的标记，以及写了未声明
+  规则编号的标记，同样使检查失败。每个生效的标记连同它解除的命中原文列在检查输出中。标记只用于三种情形：
+  说明边界的代码在注释中点名一个被禁止的成员（例如解释为何不用它）；某行的唯一命中并非被禁止的对象（同名而无关的
+  成员）；以及上一条所述安装程序中创建 Npcap 下载页的那一行。
+- **检查不完整即失败。** 文件无法读取或超出大小上限、目录无法列出、扫描根缺失、扫描到零个文件，都使检查以失败告终，
+  而不是报告通过。
 
 ## 3. 注入式抓包（禁止）
 
@@ -48,11 +87,16 @@ Machina.FFXIV 较新的版本支持 **Deucalion**，即一个被注入到游戏�
 
 具体约束：
 
-1. `FFXIVNetworkMonitor.UseDeucalion` 必须保持 `false`。Machina 的默认值即为 `false`，
-   本项目仍显式设置该值并以测试断言加以保证。
-2. `MonitorType` 必须显式设为 **WinPCap（Npcap）**。Machina 的默认值是
-   `NetworkMonitorType.RawSocket`，本项目**不使用**该值，也不提供 raw-socket 回退。
-   Npcap 缺失时直接返回 `ERR_NPCAP_MISSING`。静态规则 `CAP-003` 禁止出现 `RawSocket`。
+1. 本项目不使用 Machina 的 `FFXIVNetworkMonitor`，因此不存在可以开启 Deucalion 的监视器。
+   报文由 `src/Collector/Capture/NpcapPacketReader.cs` 读取：经 SharpPcap 打开所选网卡对应的唯一一个 Npcap 设备
+   （不开启混杂模式），设置过滤器 `ip and tcp and host <所选网卡的本机地址>`，以非阻塞方式逐包读取。
+   Machina.FFXIV 只承担三项工作：读取系统 TCP 表以确认连接归属、获取 Oodle 解压函数、在已确认归属的连接上
+   做 TCP 重组与报文包解码（`MachinaCaptureSource.cs`、`FirstPacketMonitor.cs`）。静态规则 `DEU-001` 禁止把 `UseDeucalion` 设为开启，
+   `DEU-002` 与 `DEU-004` 禁止调用 Deucalion 的接口及其注入载荷的加载入口。
+2. 只经由 Npcap 抓包，不存在 raw socket 实现，也不提供 raw socket 回退。Npcap 不可用时直接返回
+   `ERR_NPCAP_MISSING`。静态规则 `CAP-003` 禁止出现 `NetworkMonitorType.RawSocket`，`CAP-004` 禁止 raw socket
+   抓包实现，`CAP-006` 禁止绕过 SharpPcap 直接加载 pcap 原生库。诊断中的 `monitor_type` 恒为 `WinPCap`，
+   表示经 Npcap 的 WinPcap 兼容接口抓包。
 3. Machina.FFXIV 的 NuGet 包在 `lib/netstandard2.0/` 中附带了原生注入载荷
    `deucalion-<version>.dll`。仓库根目录的 `Directory.Build.targets` 定义了
    `StripInjectionPayloadFromOutput` 目标，将其从**所有**构建输出中移除，
@@ -134,15 +178,22 @@ Machina 在释放库时会尝试删除自己产生的临时副本，其诊断信
 
 因此 `src/Collector/Capture/OodleTempCopyCleaner.cs` 只登记本次抓包创建的 native
 实例实际持有的临时副本路径，且路径必须位于 Machina 专属临时子目录。它不扫描 TEMP，
-不凭文件大小、时间或内容相似来猜测所有权。初始化失败时也尝试从该实例登记路径；
-依赖内部结构不兼容或无法确认所有权时保留文件。
+不按文件名删除该目录中的文件，也不凭文件大小、时间或内容相似来猜测所有权：未经登记的副本
+不属于本软件，同一目录中可能有其他基于 Machina 的程序刚复制、尚未加载的副本。初始化失败时也尝试
+从该实例登记路径；依赖内部结构不兼容或无法确认所有权时保留文件。
 
 释放本次实例后，仅重试删除已登记路径，并记录删除数量。删除失败的路径继续保留，
 供后续清理重试；不会扩大删除范围或处理其他实例的文件。
 
+登记依赖 Machina 在复制之前先记下副本路径、并在初始化线程上写出诊断信息的行为，本软件在这些时刻读取路径。
+进程恰好在副本复制完成之后、本软件读到其路径之前被结束时，该副本未及登记，本软件不会删除它；
+它位于 `%TEMP%\Machina.FFXIV\` 下，可由用户手动删除。
+
 **跨进程的清单。** 登记过的路径同时写入数据库目录下的清单文件
 `<数据库目录>\oodle-temp.json`（`--db` 未指定时为 `%LOCALAPPDATA%\MentorRecorder\`）。
-登记一条时写入，删除一条时重写，清单为空时删除该文件。下次 `CollectorHost.Open` 时，
+正常监听、界面上的「开始验证」与命令行取证 `--capture-trace` 使用同一份清单。每次开始监听都有各自的登记，
+登记时把自己的路径并入清单，删除后只从清单中移去已删除的路径，不改写其他条目；清单为空时删除该文件。
+下次 `CollectorHost.Open` 时，
 清单中**仍然存在**且**确实位于 Machina 专属临时子目录直下**的条目会被删除，并记录一条
 `startup/oodle_temp_copy_reclaimed {count}`。该通路存在的原因是进程可能没有机会
 执行 finally 块，例如被任务管理器结束、断电，或被不执行优雅停止的调用方终止。
@@ -154,15 +205,15 @@ Machina 在释放库时会尝试删除自己产生的临时副本，其诊断信
 
 **退出路径。** 进程退出时 `CollectorHost.Dispose` 先停止抓包再关闭数据库，正常退出
 路径上该步骤总会执行。桌面端关闭时不直接结束 Collector：它先置位 Collector 的停止事件
-`Local\<管道名>.stop` 并最多等待 3 秒，使采集服务走与 Ctrl+C 完全相同的停止路径，
+`Local\<管道名>.stop` 并最多等待 10 秒，使采集服务走与 Ctrl+C 完全相同的停止路径，
 超时后才兜底结束进程。因此关闭桌面端这一最常见的退出路径同样会清理副本、关闭会话行并写入停止日志。
 
 ## 5. 原始报文的处理
 
-- 为避免 Machina 在新连接建立与远端过滤器安装之间漏掉 Oodle TCP 初始化数据，
-  `UseRemoteIpFilter` 固定为 `false`。Npcap 因而可能把同一本地网卡上的无关候选包短暂送入
-  进程内缓冲区；随后 IP/TCP 元组解码器只保留目标游戏连接的数据。无关包不进入业务解析、
-  trace、日志或数据库，也不会落盘。
+- 抓包过滤器只按本机地址过滤（`ip and tcp and host <所选网卡的本机地址>`），不按远端地址过滤，
+  以免在新连接建立与过滤条件更新之间漏掉 Oodle TCP 初始化数据（诊断日志记为 `remote_ip_filter = false`）。
+  Npcap 因而会把同一本地网卡上其他程序的 TCP 报文短暂送入进程内的有界缓冲区；只有系统 TCP 表确认属于
+  游戏进程的连接才会被解码，其余报文在缓冲区中丢弃。无关包不进入业务解析、trace、日志或数据库，也不会落盘。
 - 抓包回调复制出**判定所需的最小字段**后立即释放缓冲区。
 - 有界队列中的元素在解析后立即归还，不做任何持久化。
 - `run_events.detail_json` 只允许：opcode 编号、方向、报文长度、时间戳、
@@ -180,13 +231,16 @@ Machina 在释放库时会尝试删除自己产生的临时副本，其诊断信
   （[capture-diagnostics.md](capture-diagnostics.md) §8）。
 - 用户显式开启验证时，会额外生成 opcode 级取证文件。取证文件有**两条**通路，产物格式相同：
   命令行 `--capture-trace <out.jsonl>` 写入用户指定的路径；界面上的"开始验证"写入
-  `<数据库目录>\traces\<时间戳>-<GUID>\`。两条通路均不含负载字节、连接键、地址或解析
-  字段。每条消息只有序号、时间、方向、段类型、opcode、负载长度和负载 SHA-256 的 12 位
-  前缀；标记只接受 `queued` / `pop` / `entered` / `victory` / `left` 五个固定词。
+  `<数据库目录>\traces\<时间戳>-<GUID>\`。两条通路均不含负载字节、地址或解析字段。
+  每条消息只有序号、时间（相对毫秒、本机 UTC 时间与报文所属压缩包的服务器 epoch）、连接标识、
+  方向、段类型、opcode、负载长度和负载 SHA-256 的 12 位前缀。连接标识是已哈希连接键的前 8 位，
+  只用于在同一份取证内区分连接，不含地址，跨会话不可关联；summary 另按该标识汇总每条连接的消息数。
+  标记只接受 `queued` / `pop` / `entered` / `victory` / `left` 五个固定词。
 - 取证文件的边界由**具体数值**限定：
-  - 行数：消息行默认上限 20 万（`--max-lines`），标记行上限 1 万；达到上限后只计数、不再写入，
-    并在 summary 中标记 `truncated`。
-  - 时长：界面通路每次会话最长 **2 小时**，到时自动停止；命令行 `--duration-seconds <n>` 最大
+  - 行数：消息行默认上限 20 万（`--max-lines`，最多可设为 25 万，即 `--trace-report` 能读取的行数），
+    标记行上限 1 万；达到上限后只计数、不再写入，并在 summary 中标记 `truncated`。
+  - 时长：界面通路每次会话最长 **2 小时**（从开始验证起计，含等待游戏或重启的时间），到时自动停止；
+    命令行 `--duration-seconds <n>` 最大
     86400，**省略该参数或取 0 表示不限时长**，只由行数上限、游戏退出或 Ctrl+C 封顶。
   - 保留：界面通路的会话目录只保留**最近 10 个**，且不超过 **7 天**；启动时与每次会话
     结束后各清理一次，只删除本服务自身按 `<时间戳>-<GUID>` 命名写下的整个会话目录。
@@ -250,12 +304,12 @@ opcode，按 opcode 与字段名分组，**不与轮盘编号、连接标签或�
 
 | 情形 | 行为 |
 |---|---|
-| 未安装 Npcap | `ERR_NPCAP_MISSING` + 安装指引，不下载不内置 |
+| 未安装 Npcap | `ERR_NPCAP_MISSING` + 安装指引；运行中的软件不下载、不内置（安装程序的下载见 §8.5） |
 | 游戏未运行 | `ERR_FFXIV_NOT_RUNNING` |
 | 客户端版本未知 / 无匹配档案 | `ProfileStatus = UNSUPPORTED_BUILD`，`ERR_PROFILE_UNSUPPORTED`，**不解析、不记录** |
 | 档案存在但未经证据验证 | `ProfileStatus = UNVERIFIED`，同样不用于自动记录 |
 | 字段解析失败 | 该字段留 `NULL`，降低 `detection_confidence`，**不猜测** |
-| 事件序列出现空洞 | 该次记录判为 `INTERRUPTED`，**不补全** |
+| 事件序列出现空洞（解析队列溢出；或一条游戏连接的某一方向被放弃，且该方向本次会话交出过当前档案能解析的报文，尚无任何方向交出过时任一方向均算，见 [state-machine.md](state-machine.md) §7.5） | 进行中的记录按丢失观测收尾：已进本的判为 `INTERRUPTED`，尚未进本的记为「进本前取消」并标记待复核；**不补全** |
 
 默认行为始终是**不记录**，而不是先记录、事后修正。
 
@@ -280,17 +334,20 @@ opcode，按 opcode 与字段名分组，**不与轮盘编号、连接标签或�
 | 　· 共享校准获取 | 默认开启，可关闭 | 只读 `GET` 一个固定公开仓库中的索引与校准码，条件与限制见 §8.2 |
 | 　· 在线语音合成 | **默认关闭** | 用户在设置中选择在线语音并填写密钥后，播报时将该条文字 `POST` 给用户选定的语音服务，取回 WAV 读音，条件与限制见 §8.3 |
 | 　· 更新检查 | 默认开启，可关闭 | 每 24 小时最多一次，只读 `GET` 一个固定地址上的版本号文件，与自身版本比较；不下载安装包，不自动安装，条件与限制见 §8.4 |
-| 本机 IPC | 是 | 仅命名管道 `MentorRecorder.<UserSidHash>.v1`，ACL 限当前用户 |
+| 安装程序下载 Npcap | 仅在安装过程中、且本机没有 Npcap 时 | 由安装程序（而非运行中的软件）从 `npcap.com` 下载固定版本的 Npcap 官方安装程序，校验 SHA-256 后启动，见 §8.5 |
+| 本机 IPC | 是 | 仅命名管道 `MentorRecorder.<UserSidHash>.v1`，ACL 限当前用户；桌面端连上后核对管道的所有者，不属于当前用户即断开 |
 | 抓包 | 是（只读） | Npcap，仅读取，从不发送 |
 
 开发期存在其他联网行为：NuGet 包还原、`tools/duty-data-generator` 下载公开数据表、开发者查阅文档。
-发布版本在运行时只发起 §8.2、§8.3 与 §8.4 三类请求，均由采集服务发出。桌面端不发起任何网络请求：
-打开网页一律交由系统浏览器处理，在线语音的读音由采集服务取回并写成本机文件后，再由桌面端播放。
+发布版本在运行时只发起 §8.2、§8.3 与 §8.4 三类请求，均由采集服务发出；安装时另有 §8.5 的一次下载。
+桌面端不发起任何网络请求：打开网页一律交由系统浏览器处理，在线语音的读音由采集服务取回并写成本机文件后，
+再由桌面端播放。
 
 ### 8.1 本机备份：复制整个数据库，仅写入本机
 
-桌面端的"每日自动备份"**默认开启**，可在设置中关闭。它在每天首次连接 Collector 之后执行
-一次，写入 `<数据库目录>\backups\`（默认 `%LOCALAPPDATA%\MentorRecorder\backups\`），
+桌面端的"每日自动备份"**默认开启**，可在设置中关闭。它每天执行一次：启动后连上 Collector 时，
+或程序持续运行跨过零点后的检查中（每小时检查一次日期）；导随进行中则顺延到这一场结束 5 分钟之后，其间再次匹配则继续顺延。备份写入
+`<数据库目录>\backups\`（默认 `%LOCALAPPDATA%\MentorRecorder\backups\`），
 保留最近 **14** 份，超出部分按时间删除；同时清理该目录中遗留超过 1 小时的
 `.mentor-export-*.tmp` 暂存文件。清理范围**仅限该由本软件管理的目录**。用户在
 `BackupDatabase` 中自行指定的目标目录不受影响。
@@ -315,7 +372,9 @@ opcode，按 opcode 与字段名分组，**不与轮盘编号、连接标签或�
 0.7.11 发布时该仓库尚未建立，该版本的请求只会得到"未找到"。
 
 **仓库内容。** 仓库中包含玩家提交的校准码、索引 `index.json`，以及提交台账 `submissions.json`。
-台账记录提交者的 GitHub 数字编号，以及该账号此前被替换掉的校准码的校验值，仅用于执行"每个账号每个版本同时只保留一份有效校准码"的限制；**本软件从不下载该文件**，
+台账按区服与客户端版本记录每次提交的 GitHub 账号数字编号、校准码校验值、提交时间与 Issue 编号，以及该账号此前被替换掉的校准码的校验值，
+仅用于执行按账号的规则：每个账号每个版本同时只保留一份有效校准码；每个账号对同一版本的提交次数、每天可提交的版本数均有上限；
+某个账号提交的校准码被维护者撤回后，该账号在该区服与版本下的提交暂停，经维护者复核后才恢复。**本软件从不下载该文件**，
 `index.json` 中也不含任何账号信息。发布由玩家在浏览器中提交 Issue、由该仓库的 GitHub Action 校验后完成，
 Action 只使用 GitHub 默认的 `GITHUB_TOKEN`。仓库中的脚本与模板按 GPL-3.0-or-later 授权，
 玩家提交的数据按 CC0-1.0 公开，提交表单中写明"提交即同意"。
@@ -337,6 +396,7 @@ Action 只使用 GitHub 默认的 `GITHUB_TOKEN`。仓库中的脚本与模板�
 
 随包档案在用、或本机校准出来的、认服务器报文的档案在用时，仍然一次都不发出请求；
 共享档案完整记录过一次并且判据全部通过、校准随之结束后，也不再读取。
+这两种情形下索引中的码若要启用，就会替换本机已可用的档案，因此须排本与进本报文也核实通过（见下文"客户端行为限制"）。
 
 读取的**请求与没有档案时逐字节相同**：同一个 `GET`，没有查询串、没有正文、没有任何标识信息，
 与本节下文"请求不携带标识信息"完全一致。这次读取**不上传任何内容**，索引里没有、请求里也没有任何本机信息，
@@ -379,9 +439,17 @@ Action 只使用 GitHub 默认的 `GITHUB_TOKEN`。仓库中的脚本与模板�
 - 边读取边统计字节：索引超过 64 KB、单个校准码超过 4 KB 立即断开；校准码解压后另行限制为 16 KB。
 - 索引按严格格式逐条校验，格式不符的条目丢弃；校准码的哈希必须等于索引中登记的 `code_sha256`，否则丢弃。
 - 下载的校准码**不是档案**。它只写入 §9 的 `shared-calibrations\`，须先在本机流量中按结构核实，
-  才会生成档案并用于记录（plans/shared-calibration.md §4、§18）。1.1.0 起核实分两步：登录时换区报文按结构核实通过即生成档案并开始记录，
-  排本与进本报文在记录中继续核实；两个抓包完整的会话都对不上时撤下档案，它生成的记录标记待复核。
-  未在仓库发布的导入码则须三条报文全部核实通过才生成档案。
+  才会生成档案并用于记录（plans/shared-calibration.md §4、§18）。候选按索引给出的提交人数从多到少排列，
+  人数相同时没有冲突标记的在前，再依次按首次发布时间与校验值排列；通过核实的候选中，认得出服务器匹配报文的码
+  优先于按排本推断的码。
+- 核实的门槛取决于这份码与本机的情况。公开仓库列出的码，只有同时满足下列条件时，才在登录时换区报文按结构核实
+  通过后即生成档案并开始记录，排本与进本报文在记录中继续核实：本机当前没有可用档案；仓库没有给它标冲突标记；
+  至少有一名提交者；没有提交人数比它更多的候选。其余的码，即会替换本机已可用档案的、带冲突标记的、另有提交人数
+  更多的候选的，以及未在仓库发布的导入码，须排本与进本报文也核实通过才生成档案，在此之前不产生记录。
+  每份候选实际采用的门槛见脱敏诊断报告中各判据的 `gate`（[capture-diagnostics.md](capture-diagnostics.md) §9.6）。
+- 无论门槛如何，两个抓包完整的会话都对不上时撤下档案，它生成的记录标记待复核。每份共享档案开始记录的时间随档案
+  保存在本机（§9 的 `state.json`），撤下时只标记这份校准自己生成的记录，重启之后同样如此。采用磁盘上已有的共享档案
+  之前，先核对上次读到的索引是否已撤回它；已撤回的立即撤下，它生成的记录标记待复核。
 
 **不上传数据。** 在共享校准一侧，本软件不向任何地方发送数据。校准卡片上的「分享给其他玩家」只在本机校准完成、
 且当前正在使用本机校准档案时出现。点击后由系统浏览器打开 github.com 上预填的 Issue 页面，并将校准码复制到剪贴板。
@@ -394,14 +462,18 @@ Action 只使用 GitHub 默认的 `GITHUB_TOKEN`。仓库中的脚本与模板�
 任何非空且不为 `0` / `false` 的值同样生效。`scripts/verify.ps1`、`scripts/test.ps1`、`scripts/package.ps1`
 均设置该变量，因此验证、测试、打包期间不会联网。
 
-**静态检查约束。** `NET-006` 仍在全仓范围内禁止 `HttpClient` / `WebClient` / `QNetworkAccessManager`，只放行三个文件，
+**静态检查约束。** `NET-006` 仍在全仓范围内禁止 HTTP 客户端（`HttpClient` / `WebClient` / `QNetworkAccessManager`，
+以及 `HttpMessageInvoker`、`SocketsHttpHandler`、`WebRequest`、WinHTTP、WinINet、`URLDownloadToFile` 等），只放行三个文件，
 且按仓库相对路径精确匹配，不按文件名或目录名匹配：本节的 `src/Collector/Protocol/Sharing/SharedCalibrationClient.cs`、
 §8.3 的 `src/Collector/Speech/OnlineSpeechClient.cs`，与 §8.4 的 `src/Collector/Update/UpdateCheckClient.cs`。
 `NET-007` 管控主机名片段，每个片段有各自的放行名单。`jsdelivr` 只能出现在共享校准获取客户端、公开仓库脚本的镜像目录
 `tools/shared-calibration/`，以及开发期下载公开数据表的 `tools/duty-data-generator/generate.py`；
 `githubusercontent` 另有 `github-content-hosts` 变体，除上述三处外，还可以出现在 §8.4 的更新检查客户端中，此外任何位置都报错；
 `tts.speech.microsoft.com` 只能出现在在线语音客户端（§8.3）。各处放行互不通用：共享校准客户端中出现语音主机名，
-或语音客户端中出现共享校准的源，同样报错。
+或语音客户端中出现共享校准的源，同样报错。`NET-008` 禁止直接使用套接字、域名解析、Ping 与 SmtpClient，
+没有任何放行，三个客户端同样只经由 HTTP 客户端联网；`NET-009` 禁止脚本、工作流、QML 与桌面端自行下载或请求
+网络资源，也禁止桌面端把远程地址交给 QML 引擎，只以一个登记在案的行内标记放行安装程序中创建 Npcap 下载页的那一行
+（§2.1、§8.5）。
 
 ### 8.3 在线语音合成：仅发送播报文字（2026-09-16 起的放宽，默认关闭）
 
@@ -498,7 +570,8 @@ Action 只使用 GitHub 默认的 `GITHUB_TOKEN`。仓库中的脚本与模板�
 
 - 发现更高的版本时，总览页出现横幅「有新版本 x.y.z」，其上有「打开下载页」与「忽略此版本」两项。
   「打开下载页」把固定的公开发布页 `https://github.com/Harendotes-Tang/MentorRouletteRecorder/releases/latest`
-  交给系统浏览器；桌面端先核对该地址确为 `github.com` 下的 `https` 地址，再交给浏览器打开。
+  交给系统浏览器；桌面端先核对该地址确为本项目仓库 `https://github.com/Harendotes-Tang/MentorRouletteRecorder/`
+  之下的地址，再交给浏览器打开。
   「忽略此版本」只影响本机的提示，不改变检查本身；它只对被忽略的那一个版本有效，出现更高的版本时横幅会再次出现。
 - 设置页"通用"的「更新」中，开关「检查新版本并提示」对应上述 `update_check_enabled`，默认开启。
   关闭后不再发出任何请求，横幅随之消失。该面板另以小字显示最近一次检查的时间与取到的版本号，
@@ -546,6 +619,30 @@ Windows 可能执行代理自动发现（WPAD / PAC 脚本）；校验 TLS 证�
 `githubusercontent` 除 §8.2 已放行的几处之外，还可以出现在该更新检查客户端中，此外任何位置都报错；
 `jsdelivr` 仍只限于共享校准一侧，更新检查客户端中出现它同样报错。
 
+### 8.5 安装程序下载 Npcap：仅在安装过程中、仅在缺少 Npcap 时
+
+**为何由安装程序下载。** 本软件依赖 Npcap 读取网卡流量，而 Npcap 免费版的许可证不允许随本软件分发
+（`THIRD_PARTY_NOTICES.md`）。为免去用户自行查找下载页的步骤，安装程序在本机没有 Npcap 时代为下载其官方安装程序。
+这是发布物中唯一不经由采集服务的联网，也是 `NET-009` 唯一的放行（§2.1）。
+
+**何时发生。** 只在运行安装程序的过程中。安装程序检查本机是否已有 Npcap（`%SystemRoot%\System32\Npcap\wpcap.dll`，
+或注册表 `HKLM\SOFTWARE\Npcap` / `HKLM\SOFTWARE\WOW6432Node\Npcap`）；已有时不显示相关页面，也不发出任何请求。
+没有时，向导先用一页说明原因，在「准备安装」页点击下一步后才开始下载。
+
+**下载什么。** 只有一个文件：`https://npcap.com/dist/npcap-<版本>.exe`，版本号固定写在安装脚本
+`installer/MentorRecorder.iss` 中。下载完成后由 Inno Setup 核对其 SHA-256 与脚本中登记的值一致，不一致即作废。
+下载的是未经修改的官方安装程序，存放在安装程序自己的临时目录中，安装程序退出时随该目录一并删除。
+
+**不静默安装。** 下载完成后启动该安装程序并显示其向导，由用户在 Npcap 自己的向导中选择选项、接受其许可条款并完成安装
+（Npcap 免费版不提供静默安装）。下载失败时说明原因，本软件的安装照常继续；Npcap 仍未安装时，安装程序提示可随时到
+`https://npcap.com` 自行安装，在此之前软件无法抓包。
+
+**请求内容。** 请求由 Inno Setup 的下载组件发出，只是对上述固定地址的一次下载，不携带任何记录、设置或本机标识。
+与任何网络连接一样，对端可以看到请求的来源 IP 地址与发生时间。
+
+**运行中的软件不下载。** 安装完成后，采集服务与桌面端都不会下载或安装 Npcap：缺少 Npcap 时采集服务返回
+`ERR_NPCAP_MISSING` 并给出安装指引（§6），桌面端可按用户的点击由系统浏览器打开 Npcap 官方站点。
+
 ## 9. 用户可自行验证的方式
 
 用户可通过以下方式核对上述声明：
@@ -558,8 +655,13 @@ Windows 可能执行代理自动发现（WPAD / PAC 脚本）；校验 TLS 证�
    在设置中关闭「游戏更新后获取其他玩家的共享校准」与「检查新版本并提示」、并将播报的语音引擎保持为本机语音，
    或设置 `MR_DISABLE_SHARED_FETCH=1`、`MR_DISABLE_ONLINE_SPEECH=1` 与 `MR_DISABLE_UPDATE_CHECK=1` 并重启软件之后，
    两个进程都不应出现任何出站连接。
-   「分享给其他玩家」打开的网页属于系统浏览器进程，不计入其中。
-2. 用 Process Explorer 检查 `MentorRecorder.Collector.exe` 没有打开游戏进程的句柄。
+   「分享给其他玩家」打开的网页属于系统浏览器进程，不计入其中；安装时下载 Npcap 的是安装程序（§8.5），
+   同样不属于这两个进程。
+2. 用 Process Explorer 检查本软件没有打开游戏进程的句柄：选中 `MentorRecorder.Collector.exe`，打开下方的句柄视图
+   （View → Lower Pane View → Handles），类型为 Process 的条目中不应出现 `ffxiv_dx11.exe` 或 `ffxiv.exe`；
+   对 `MentorRecorder.Desktop.exe` 做同样的检查。采集服务的句柄中可能有一条指向 `MentorRecorder.Desktop.exe`，
+   那是父进程看门狗（§2.1），不是游戏。游戏客户端由启动器以管理员身份拉起时，这一检查同样适用：
+   读取进程编号、启动时间与路径用的是内核进程表（§2 第 3b 条），不需要也不会打开游戏进程。
 3. 检查安装目录中**没有** `deucalion-*.dll`。安装目录中唯一由本软件在运行时写入的内容是
    `note-images\`（或 `MR_NOTE_IMAGE_DIR` 指向的目录）：用户在备注里附上的图片，按记录编号分文件夹，
    由桌面端复制自用户自己选择的文件；不经过采集服务，不进入数据库、日志、诊断报告、导出与备份，
@@ -579,17 +681,23 @@ Windows 可能执行代理自动发现（WPAD / PAC 脚本）；校验 TLS 证�
    | `game-install.json` | 仅在本软件运行期间检测到过游戏进程之后 | 上次看到的游戏程序路径，只用于在游戏未运行时读取同目录的 `ffxivgame.ver` 以得知客户端版本；只记录本地盘符上的路径，位于网络共享、映射的网络驱动器或设备路径上的游戏不记录，也不会据此读取（否则读取版本号本身就是一次未列明的出站连接）；该路径不进入 IPC 应答、日志、诊断报告、导出文件与数据库 | 在下次启动游戏之前客户端版本重新变为未知，档案匹配与共享校准获取相应推迟 |
    | `serve.pid` | 采集服务**开始服务之后**（位于 `logs\` 或 `--log-dir` 指定的目录下）；迁移与崩溃恢复期间尚无该文件，停止时它最先被删除 | 占用通信管道的进程号；干净退出时自动删除。用 `--pipe` 指定其他管道名时，文件名为 `serve.<管道名>.pid` | 无影响 |
    | `icons\` | 仅在用户自行放入时 | 用户自备的图标 | 回退到内置图标 |
+   | `desktop.ini` | 首次运行桌面端时；始终位于 `%LOCALAPPDATA%\MentorRecorder\`，不随 `MR_DATA_DIR` 移动 | 桌面端的界面、播报与数据设置，以及首次运行说明的确认记录、上次自动备份的日期与被忽略的新版本号 | 设置恢复默认，首次运行说明页再出现一次 |
+   | `calibration\` | 仅在本机校准观察过流量之后 | 每个区服与客户端版本一份 `<区服>.<客户端版本>.json`：本机校准积累的观察，只有 opcode、报文长度、字节偏移、id 类数值（轮盘、区域、职业）以及脱敏后的连接标签与时间，不含报文正文（§5.2）；「清空进度并重新观察」或校准结束后删除 | 本机校准从头积累观察 |
+   | `reference\` | 仅在用户于校准时间线上更正过随机任务名称之后 | `roulette-names.json`：用户更正的随机任务编号与名称，只用于显示 | 回退到随软件提供的名称 |
    | `protocol-profiles\` | 仅在用户确认过一次本机校准之后 | 本机校准写出的协议档案（每区服最新 3 份；不含任何报文正文，只有 opcode、长度、偏移与证据说明） | 下次游戏时重新校准一次 |
-   | `shared-calibrations\` | 仅在获取过共享校准之后（§8.2；默认开启，可关闭） | 按 `<区服>\<客户端版本>\` 分目录：下载的校准码 `<sha前12位>.mrc`，以及 `state.json`，其中含上次获取的时间、每个源的结果码、索引给出的排序信息与撤销标记，以及拒绝记录（校准码编号与在本机流量中判出矛盾的抓包会话编号）；不含报文正文、地址或账号 | 下次需要时重新获取；拒绝记录一并清空 |
+   | `shared-calibrations\` | 仅在获取过共享校准之后（§8.2；默认开启，可关闭） | 按 `<区服>\<客户端版本>\` 分目录：下载的校准码 `<sha前12位>.mrc`，以及 `state.json`，其中含上次获取的时间、每个源的结果码、索引给出的排序信息与撤销标记、拒绝记录（校准码编号与在本机流量中判出矛盾的抓包会话编号）、用户选择「不用共享的」的时间、已结束看护的共享档案的文档校验值，以及在用共享档案的文档校验值、对应校准码编号与开始记录的时间；不含报文正文、地址或账号 | 下次需要时重新获取；拒绝记录与「不用共享的」选择一并清空 |
    | `protocol-profiles-shared\` | 仅在一份共享校准通过本机核实之后 | 由共享校准码重建的协议档案（id `<区服>.<版本>.shared`；不含报文正文，证据说明写明来源校准码与本机核实次数） | 下次游戏时重新获取并核实 |
    | `tts-cache\` | 仅在使用过在线语音之后（§8.3；默认关闭） | 在线语音取回的读音 `<sha256>.wav`，每个文件对应一条播报的声音，可能含副本名与进度数字；上限 20 MB，按最近使用淘汰 | 下次播报同一文字时重新请求一次 |
    | `speech-key.bin` | 仅在用户为在线语音填写过密钥之后 | 用户的语音服务密钥与其发送目标主机，用 Windows DPAPI（当前用户）加密；其他账户、其他机器无法解密 | 在线语音变为"未配置"，需重新填写密钥 |
 
    **信任边界的变化。** 该目录对用户可写，而其中的 VERIFIED 档案会驱动记录。因此，
-   随包目录中存在同版本档案时，本机校准档案自动让位；界面常驻"本机校准"标签；诊断报告与 `capture_sessions`
+   随包目录中存在同版本、可用的档案时，本机校准档案自动让位，唯一的例外是随包档案只能按排本推断匹配、
+   而本机档案认得出服务器的匹配报文（[protocol-profile-format.md](protocol-profile-format.md) §11.2 的目录合并规则）；
+   界面常驻"本机校准"标签；诊断报告与 `capture_sessions`
    记录其 id（`profile_origin = LOCAL_CALIBRATION`），事后可以找出由它产生的每一条记录。
 
-   共享档案同样会驱动记录，因此门槛更高。下载的校准码先在本机流量中按结构核实，通过后才写出档案。
+   共享档案同样会驱动记录，因此门槛更高。下载的校准码先在本机流量中按结构核实，通过后才写出档案（门槛见 §8.2）；
+   同一版本另有可用档案时，先看谁认得出服务器的匹配报文，再按随包、本机、共享的顺序选取。
    共享档案有独立的目录，界面标签为「共享校准」，记录中为 `profile_origin = SHARED_CALIBRATION`。
    `shared-calibrations\` 中的校准码本身不是档案，档案目录不读取它。
 

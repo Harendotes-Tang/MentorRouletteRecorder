@@ -4,6 +4,7 @@ using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Domain.Mutations;
 using MentorRecorder.Collector.Export;
 using MentorRecorder.Collector.Ipc;
+using MentorRecorder.Collector.Storage;
 using MentorRecorder.Collector.Storage.Mutations;
 using MentorRecorder.Collector.Storage.Repositories;
 
@@ -98,7 +99,15 @@ public sealed class StorageExportAtomicityTests : IDisposable
     [Fact]
     public void BackupWriteFailurePreservesVerifiedCopyAndDoesNotPruneHistory()
     {
-        var service = new BackupService(_database.Database, _database.Clock);
+        // The copy reads on a connection of its own (audit 2026-10-03, OG-7), which WAL never
+        // blocks and the shared connection's query_only - this test's old injection - no longer
+        // reaches. The failure is injected where the copy now reads.
+        var failing = false;
+        _database.Database.Dispose();
+        using var database = SqliteDatabase.Open(_database.Path, _database.Clock, path => failing
+            ? throw new SqliteException("disk I/O error", 10)
+            : SqliteDatabase.OpenReadOnlyConnection(path));
+        var service = new BackupService(database, _database.Clock);
         var target = Path.Combine(service.DefaultDirectory, "previous-verified.db");
         service.CreateBackup(target);
         var previous = File.ReadAllBytes(target);
@@ -109,16 +118,61 @@ public sealed class StorageExportAtomicityTests : IDisposable
         }
         var before = Directory.GetFiles(service.DefaultDirectory).Order().ToArray();
 
-        SetQueryOnly(true);
-        try
-        {
-            var error = Assert.Throws<CollectorException>(() => service.CreateBackup(target, overwrite: true));
-            Assert.Equal(ErrorCodes.ExportFailed, error.Code);
-        }
-        finally { SetQueryOnly(false); }
+        failing = true;
+        var error = Assert.Throws<CollectorException>(() => service.CreateBackup(target, overwrite: true));
+        Assert.Equal(ErrorCodes.ExportFailed, error.Code);
 
         Assert.Equal(previous, File.ReadAllBytes(target));
         Assert.Equal(before, Directory.GetFiles(service.DefaultDirectory).Order().ToArray());
+        AssertNoTemporaryFiles();
+    }
+
+    /// <summary>
+    /// Audit 2026-10-03 OG-7. A backup copies the whole file and used to do it under the gate every
+    /// live-capture write waits on, with no timeout: a backup during a duty stalled the parser
+    /// thread behind it. The copy now runs on a connection of its own, like the integrity check,
+    /// and still sees every committed write.
+    /// </summary>
+    [Fact]
+    public async Task ABackupDoesNotWaitForTheWriterGate()
+    {
+        var runs = new RunRepository(_database.Database);
+        var committed = TestDatabase.Run();
+        _database.Database.RunInTransaction(transaction => runs.Insert(committed, transaction));
+
+        using var gateHeld = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        var holder = Task.Run(() => _database.Database.Read(_ =>
+        {
+            gateHeld.Set();
+            release.Wait();
+            return 0;
+        }));
+        Assert.True(gateHeld.Wait(TimeSpan.FromSeconds(10)));
+
+        var target = Target("while-capture-writes.db");
+        try
+        {
+            var outcome = await Task.Run(() => _database.Database.BackupDatabase(target, overwrite: false))
+                .WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.True(outcome.IntegrityCheckPassed);
+        }
+        finally
+        {
+            release.Set();
+            await holder.WaitAsync(TimeSpan.FromSeconds(10));
+        }
+
+        using var copy = new SqliteConnection(new SqliteConnectionStringBuilder
+        {
+            DataSource = target,
+            Mode = SqliteOpenMode.ReadOnly,
+            Pooling = false,
+        }.ConnectionString);
+        copy.Open();
+        using var command = copy.CreateCommand();
+        command.CommandText = "SELECT run_id FROM mentor_runs;";
+        Assert.Equal(committed.RunId, command.ExecuteScalar() as string);
         AssertNoTemporaryFiles();
     }
 
@@ -182,14 +236,6 @@ public sealed class StorageExportAtomicityTests : IDisposable
         Assert.Equal(1, revisions.Total);
         Assert.Empty(revisions.Items);
     }
-
-    private void SetQueryOnly(bool enabled) => _database.Database.Read(connection =>
-    {
-        using var command = connection.CreateCommand();
-        command.CommandText = enabled ? "PRAGMA query_only=ON;" : "PRAGMA query_only=OFF;";
-        command.ExecuteNonQuery();
-        return 0;
-    });
 
     private void AssertNoTemporaryFiles() =>
         Assert.Empty(Directory.GetFiles(DirectoryPath, ".mentor-export-*.tmp", SearchOption.AllDirectories));

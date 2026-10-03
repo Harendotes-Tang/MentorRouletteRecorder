@@ -48,6 +48,8 @@ Collector 侧指命令行解析失败，或内嵌的 schema 资源缺失；
 都须先通过这一关，因此这段代码保留在本仓库内，并沿用本仓库的许可证。
 正则匹配设有 200 ms 超时。`$defs` 之外的未知关键字被忽略，而非视为"已满足"。
 schema 仅使用上述关键字这一点本身也有测试覆盖。
+`integer` 指可放入有符号 64 位整数的值，超出该范围的整数按类型不符拒绝；
+`minLength` / `maxLength` 按 UTF-16 码元计数，BMP 之外的字符计为 2。`validate.py` 与此一致。
 
 Schema 在构建时**内嵌进 Collector 程序集**，因此运行时校验使用的是构建时的版本，
 而非磁盘上可被任意修改的文件。
@@ -86,7 +88,7 @@ Collector 侧只校验，不写入。
 目录名不是 `cn` / `global` / `synthetic` 时，C# 侧跳过后两项检查，因此校验临时目录中的
 草稿档案不受目录名影响。Python 侧的 `SYNTHETIC` 位置检查则是无条件的。
 对于放在任意目录中的同一份 `SYNTHETIC` 档案，Python 会报错而 Collector 不会。
-这是两份实现目前**唯一**已知的行为差异，详见文末。
+这是两份实现已知的行为差异之一，全部差异见文末。
 
 ### 5. 消息规则
 
@@ -102,14 +104,19 @@ Collector 侧只校验，不写入。
 - 必需字段齐全（`E_PROFILE_MISSING_FIELD`）：
   `CONTENT_FINDER_POP.roulette_id`、`DUTY_RESULT.outcome`、`PLAYER_JOB.job_id`；
   `ZONE_INITIALIZATION` / `ZONE_LEFT` / `INSTANCE_LEFT` / `MATCH_CANCELLED` 无必需字段；
-- `DUTY_RESULT` 的 `victory_values` 必须非空（`E_PROFILE_NO_VICTORY`）。
+- `DUTY_RESULT` 的 `victory_values` 必须非空（`E_PROFILE_NO_VICTORY`）；
+- `calibration` 只允许出现在 `VERIFIED` 档案中（`E_PROFILE_CALIBRATION_STATUS`）。
+  其 `finder_request.roulette_field` 按普通字段读取，因此同样执行上面的字段检查
+  （非 `bytes` 不得带 `length`、不得越过 `expected_length`、`constraints.max` 不得小于 `min`），
+  且类型只能是 `u8` / `u16` / `u32`（`E_PROFILE_CALIBRATION_FIELD`）。
 
 ### 6. 状态规则
 
 | `compatibility_status` | 要求 | 违反时 |
 |---|---|---|
 | `UNSUPPORTED` | **不得声明任何消息**；`mentor_roulette_id` 必须为 `null` | `E_PROFILE_UNSUPPORTED_MESSAGES` / `E_PROFILE_UNSUPPORTED_ROULETTE` |
-| `CANDIDATE` / `VERIFIED` / `SYNTHETIC` | `mentor_roulette_id` 非 `null`；`CONTENT_FINDER_POP`、`ZONE_INITIALIZATION`、`DUTY_RESULT` 三条消息齐全 | `E_PROFILE_NO_ROULETTE` / `E_PROFILE_MISSING_MESSAGE` |
+| `CANDIDATE` / `VERIFIED` / `SYNTHETIC` | `mentor_roulette_id` 非 `null`；`CONTENT_FINDER_POP`、`ZONE_INITIALIZATION` 两条消息齐全。`DUTY_RESULT` 可以缺少：缺少时副本退出记为待复核的 `UNKNOWN`，不会推断为完成（`docs/state-machine.md` §3.10） | `E_PROFILE_NO_ROULETTE` / `E_PROFILE_MISSING_MESSAGE` |
+| 只含 `hypotheses`、不含消息的 `CANDIDATE` | `mentor_roulette_id` 必须为 `null` | `E_PROFILE_CANDIDATE_ROULETTE` |
 | `VERIFIED` | **每一条消息的 opcode** 都要在 `provenance.evidence` 里有一条 `field = "messages.<NAME>.opcode"` 且 `method != "SYNTHETIC"` 的条目 | `E_PROFILE_NO_EVIDENCE` |
 
 `SYNTHETIC` 的特殊之处仅在于此：它**通过**校验，编造常量正是其用途。
@@ -243,10 +250,25 @@ build/docs-replay/bad/synthetic-v1.json: FAILED
 
 ## 两份实现的已知差异
 
-除 §4 中 `SYNTHETIC` 位置检查的适用范围之外，两侧检查项一一对应：
-Python 校验器接受的档案 Collector 亦接受，反之亦然。
-此处保留而非抹平该差异，是因为 Python 侧更严格的一侧正是期望的默认。
+两侧检查项一一对应，目标是 Collector 拒绝的档案 Python 校验器也一定拒绝；反过来并不处处成立。
+已知差异有以下四处，每一处都是 Python 侧更严格，即 Python 拒绝而 Collector 接受：
+
+1. §4 中 `SYNTHETIC` 位置检查的适用范围：Python 侧无条件检查。
+2. 重复的 JSON 键：Python 在读取时即拒绝（`duplicate key`）。Collector 的解析器允许重复键，
+   但规范化 JSON 会写出每一个条目，因此由 Python 盖章、按去重后文档计算的哈希在 Collector 侧
+   永远对不上（`E_PROFILE_HASH`）；只有手工按含重复键的规范化形式计算哈希时，Collector 才会接受。
+3. UTF-8 BOM：Python 的 `json` 模块拒绝以 BOM 开头的文件，Collector 读取时去掉 BOM 后照常校验。
+4. 非法 UTF-8 字节：Python 按严格 UTF-8 读取，遇到非法字节即报告无法读取档案；Collector 的
+   `File.ReadAllText` 把非法字节替换为 U+FFFD 后照常校验。
+
+含孤立代理项转义（如 `"\ud800"`）的字符串无法编码为 UTF-8，因而算不出规范化哈希：Python 将该档案判为无效
+（`cannot compute the canonical hash`），`--stamp` 不写文件，命令行上其余档案照常检查；Collector 读取该字符串时同样失败。
+
+此处保留而非抹平这些差异，是因为 Python 侧更严格的一侧正是期望的默认。
 **若将来统一实现，应由 C# 向 Python 看齐，而非放松 Python 侧。**
+2026-10-03 审计前，Python 侧曾在四处比 Collector 宽松：`calibration` 的 `roulette_field`
+未执行普通字段检查、超出 64 位范围的整数被当作整数、重复键被合并后按合并结果计算哈希、
+字符串长度按码点而非 UTF-16 码元计数。四处均已对齐，并各有一条反例测试（`test_loader_parity.py`）。
 
 另有一处**表述**差异，判定结果相同：Python 侧对 `DUTY_RESULT.victory_values`
 的非空检查不区分 `compatibility_status`，C# 侧对 `UNSUPPORTED` 跳过该检查。

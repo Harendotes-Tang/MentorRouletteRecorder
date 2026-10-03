@@ -38,11 +38,15 @@ Item {
             spacing: 16
 
             PageHeader {
+                objectName: "dungeonsHeader"
                 title: qsTr("副本统计")
                 // Both counters describe the complete statistics snapshot;
-                // the Top-N selector only limits the rows drawn below.
-                subtitle: qsTr("%1 个副本 · %2 次").arg(App.dungeons.distinctCount)
-                                                    .arg(App.dungeons.totalAttemptCount)
+                // the Top-N selector only limits the rows drawn below. A failed
+                // read has no counters to report.
+                subtitle: App.dungeons.loadError.length > 0
+                          ? qsTr("读取失败")
+                          : qsTr("%1 个副本 · %2 次").arg(App.dungeons.distinctCount)
+                                                      .arg(App.dungeons.totalAttemptCount)
 
                 SegmentedControl {
                     Layout.preferredWidth: 230
@@ -54,6 +58,17 @@ Item {
                     currentValue: page.topLimit
                     onActivated: function(value) { page.topLimit = value }
                 }
+            }
+
+            Text {
+                objectName: "dungeonsLoadError"
+                Layout.fillWidth: true
+                visible: App.dungeons.loadError.length > 0
+                text: qsTr("副本统计读取失败，下方没有统计结果：%1").arg(App.dungeons.loadError)
+                textFormat: Text.PlainText
+                wrapMode: Text.WordWrap
+                color: Theme.orangeText
+                font.pixelSize: Theme.fs(13)
             }
 
             RowLayout {

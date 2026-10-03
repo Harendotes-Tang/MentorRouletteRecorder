@@ -18,7 +18,7 @@
 | Ninja | 随 Qt 安装 | `D:\APPS\Qt\Tools\Ninja\ninja.exe` |
 | CMake | 随 Qt 安装（另有系统 cmake 3.28 在 PATH 上） | `D:\APPS\Qt\Tools\CMake_64\bin\cmake.exe` |
 | Python | 3.11 | 在 PATH 上（`python`） |
-| PowerShell | 7（`pwsh`），另有 Windows PowerShell 5.1（`powershell`） | 在 PATH 上 |
+| PowerShell | 7（`pwsh`），脚本要求 7 及以上；另有 Windows PowerShell 5.1（`powershell`），脚本拒绝在其中运行 | 在 PATH 上 |
 
 > 开发机**未安装 MSVC C++ 工具集与 Windows SDK**，C++ 一律使用 MinGW 构建。
 > 因此桌面端不使用任何依赖 MSVC 的 Qt 模块或第三方库。
@@ -84,14 +84,17 @@ Windows 版本资源的 `FILEVERSION` / `PRODUCTVERSION` 是四段数字，放�
 
 **发布规则**：已经打过 tag 的 CHANGELOG 段落不得再修改。同一步中的
 `Assert-ReleasedChangelogSectionsUnchanged` 会针对每个 `vX.Y.Z` tag，将工作区
-`CHANGELOG.md` 中的 `## [X.Y.Z]` 段落与 `git show <tag>:CHANGELOG.md` 中的同名段落逐字
-比较，不一致则打包失败；找不到 git 或当前目录不是仓库时跳过该检查并给出提示。已发布段落
+`CHANGELOG.md` 中的 `## [X.Y.Z]` 段落与 `git show <tag>:CHANGELOG.md` 中的同名段落比较：
+标题行（含日期）与正文都必须逐字一致（区分大小写，换行统一为 LF 后比较），不一致则打包失败。
+tag 中有该段落而工作区中找不到（段落被删除，或标题被改成别的版本号）同样算作改动；
+tag 中本来没有该段落时无可保护，跳过。找不到 git 或当前目录不是仓库时跳过该检查并给出提示。已发布段落
 记录的是对应 tag 中的内容，tag 之后的改动一律写入 `[Unreleased]` 或下一个版本。
 `vX.Y.Z-beta.N` 形式的先行版 tag 不参与该比较：它标记的是测试包，其条目还在 `[Unreleased]`
 中，本来就会继续改动。该关卡的由来见 `reviews/2026-09-08/fix-status.md`
 （内部工作文档，不随仓库分发）的 H-9。
 
-上述纯函数（读取版本号、归一化两种形状、判定 CHANGELOG 顶部段落）位于
+上述无副作用的函数（读取版本号、归一化两种形状、判定 CHANGELOG 顶部段落、取出并比较已发布段落，
+以及只读地询问 git 的 `Get-SourceTreeState`，见 §5）位于
 `scripts/package-version.ps1`，由 `scripts/package.ps1` 点源引入，并由
 `tools/package-verification/test_package_version.py` 逐条自测；该自测由
 `scripts/run-python-tool-tests.ps1` 自动发现，`verify.ps1` 的「工具自测」关卡会运行它。
@@ -112,8 +115,11 @@ Machina.FFXIV 包中附带的原生注入载荷 `deucalion-*.dll` 从所有构�
 | `Machina`（传递依赖） | 2.3.1.3 | GPL-3.0 |
 | `Microsoft.Data.Sqlite` | 8.0.11 | MIT |
 | `SQLitePCLRaw.*`（传递依赖） | 随上 | Apache-2.0 / MIT / public domain（SQLite 本体） |
-| `xunit` / `xunit.runner.visualstudio` | 2.9.2 / 2.8.2 | Apache-2.0 / MIT |
-| `Microsoft.NET.Test.Sdk` | 17.11.1 | MIT |
+| `SharpPcap` | 6.3.1 | MIT |
+| `PacketDotNet`（传递依赖） | 1.4.8 | MPL-2.0 |
+| `xunit` / `xunit.runner.visualstudio`（仅测试） | 2.9.3 / 4.0.0 | Apache-2.0 |
+| `Microsoft.NET.Test.Sdk`（仅测试） | 18.10.1 | MIT |
+| `JsonSchema.Net`（仅集成测试） | 7.3.4 | MIT |
 
 ## 3. C++ / Qt 侧（Desktop）
 
@@ -189,6 +195,9 @@ ctest --test-dir build --output-on-failure
 `kill()`，并断言进程已结束，运行结束后不会遗留孤儿 Collector 进程。
 
 QML 测试通过 `QQmlApplicationEngine::objectCreationFailed` 将 QML 错误转换为非零退出码。
+每个截图用例还以 `--verify-text` 断言名称所指的内容确实出现在画面上（否则退出码 8）；
+截图运行期间出现任何 QML / JavaScript 运行时警告时，画面照常写出，进程以退出码 10 结束，
+ctest 另以 `FAIL_REGULAR_EXPRESSION` 匹配警告输出，两者任一都使用例失败。
 
 ### 3.3 截图
 
@@ -220,8 +229,10 @@ build\src\Desktop\MentorRecorder.Desktop.exe --screenshot out.png --page 5 --the
 
 在发布布局中，`MentorRecorder.Collector.exe` 与 `MentorRecorder.Desktop.exe`
 位于**同一目录**（`scripts/build.ps1` 会把 Collector 的输出复制到 `build/src/Desktop/`）。
-桌面端以交互方式启动时默认使用 `--backend ipc`，并以 `--serve` 参数将同目录下的该程序
-作为**子进程**拉起。该路径固定写死在代码中，不来自任何设置或命令行参数，无法替换。
+桌面端以交互方式启动时默认使用 `--backend ipc`，并以 `--serve` 参数将该程序作为**子进程**拉起。
+发布构建只在桌面端可执行文件的同目录及其 `collector\` 子目录中查找，路径不来自任何设置、
+命令行参数或环境变量；只有以 `MR_DEV_COLLECTOR_DISCOVERY` 编译的开发构建另外读取
+`MR_COLLECTOR_PATH` 并在源码树中查找（见 §3.6）。
 
 日常开发有两种运行方式：
 
@@ -262,10 +273,19 @@ build\src\Desktop\MentorRecorder.Desktop.exe
 `Collector 运行中（复用已有实例）`。这是正常行为，桌面端不会因此进入重启循环。
 详见 [ui-design.md](ui-design.md) §4.8。
 
-Collector 非预期退出时，桌面端按 0.8 s 至 30 s 的指数退避自动重启，并弹出一条 toast 提示。
-桌面端正常退出（托盘「退出」，或在「关闭时最小化到托盘」关闭的情况下关窗）会先
-`terminate()` 子进程，3 秒后 `kill()`。使用 `Stop-Process` 或任务管理器强制结束桌面端
-不会执行析构，子 Collector 进程会保留，并在下次启动时被复用。验证结束后应确认残留进程：
+Collector 非预期退出时，桌面端按 0.8 s 至 30 s 的指数退避自动重启，并弹出一条 toast 提示；
+子进程连续运行满 60 秒后再退出，退避才重新从 0.8 s 开始。以下情形不再重启，顶栏显示
+「Collector 无法启动：<原因>」，同一原因只提示一次：退出码 2（无法识别启动参数）、
+尚未开始服务就以退出码 3 退出（数据库或数据目录不可用，原因取自子进程标准错误的最后一行），
+以及 Windows 连续两次拒绝运行该程序。其中退出码 3 每 5 分钟静默重试一次，因为占用数据库的
+程序可能稍后释放它。
+
+桌面端正常退出（托盘「退出」，或在「关闭时最小化到托盘」关闭的情况下关窗）时，若子进程是本软件
+拉起的、且 `serve.pid` 尚未写出或记录的正是它，先置位 Collector 的停止事件并最多等待 10 秒，
+让它正常收尾；没有停止事件可用或到时仍未退出，才 `terminate()`，0.5 秒后 `kill()`。
+使用 `Stop-Process` 或任务管理器强制结束桌面端不会执行析构；子 Collector 以 `--parent-pid`
+监视桌面端进程，发现其结束后自行走正常停止流程，10 秒内未完成则强制退出。
+验证结束后应确认没有残留进程：
 
 ```powershell
 Get-Process -Name "MentorRecorder*" -ErrorAction SilentlyContinue
@@ -294,21 +314,28 @@ Collector，界面显示“未找到 Collector”，Npcap 与 FF14 等状态停�
 
 - 关闭：`-DMR_STAGE_COLLECTOR=OFF`。
 - 未安装 .NET SDK 时打印一条 `Collector staging skipped` 并跳过，不影响桌面端构建。
-- 查找顺序（`CollectorProcess::resolveDefaultExecutable`）：环境变量
-  `MR_COLLECTOR_PATH` → exe 同目录 → `collector/` 子目录 → 从构建目录逐级向上
+- 查找顺序（`CollectorProcess::resolveDefaultExecutable`）：exe 同目录 → `collector/` 子目录。
+- 开发期的额外查找由 CMake 选项 `MR_DEV_COLLECTOR_DISCOVERY` 控制，默认 `OFF`，
+  `scripts/build.ps1` 总是显式以 `-DMR_DEV_COLLECTOR_DISCOVERY=OFF` 配置。只有手动以
+  `-DMR_DEV_COLLECTOR_DISCOVERY=ON` 配置的开发构建才读取环境变量 `MR_COLLECTOR_PATH`
+  （设置后它是唯一的候选，文件不存在也不回退到其他位置），并在上述两处之后从构建目录逐级向上
   查找源码树中的 `src/Collector/bin/{x64/,}{Release,Debug}/net8.0-windows/win-x64/`。
-- 仍未找到时，顶栏提示会给出期望路径，便于排查。
+  `scripts/package.ps1` 拒绝打包以该选项编译的桌面端（`Assert-DesktopExecutable`，见 §5）。
+- 仍未找到时，发布构建的顶栏提示「未找到 Collector，安装可能不完整，请重新安装本软件。」；
+  开发构建的提示给出期望路径与构建建议，便于排查。
 
 ## 4. 脚本
 
-全部脚本位于 `scripts/`，以 PowerShell 编写，优先使用 `pwsh`，回退到 `powershell`。
+全部脚本位于 `scripts/`，以 PowerShell 编写，要求 PowerShell 7（`pwsh`）：每个脚本首行为
+`#Requires -Version 7.0`，在 Windows PowerShell 5.1 中运行会被直接拒绝，而不是在中文 Windows 上因编码
+误读而出错。
 
 | 脚本 | 作用 |
 |---|---|
 | `bootstrap.ps1` | 检查 .NET 8 运行时、CMake、Ninja、MinGW、Qt 路径；报告 Npcap 是否安装（**只检测，不下载**） |
 | `build.ps1` | `dotnet build -c Release`；若 `src/Desktop/CMakeLists.txt` 存在则再执行 CMake configure 与 build，并将完整的 Collector 运行目录部署到 Desktop 同目录，供默认 IPC 模式联调 |
 | `test.ps1` | 默认完整构建后运行全部 .NET / Qt / QML 测试，并**解析 TRX 报告真实用例数**；`-NoBuild` 复用已有产物 |
-| `verify.ps1` | 环境自检 + 静态边界检查 + 检查器反向自测 + 全部测试 + 监听端口核对 + `LIVE_CAPTURE_STATUS` 断言 + 注入载荷扫描 + 许可证材料核对（提交前必须运行）；`-TestFilter` 转发 xunit 特征筛选，`-SkipGate` 显式跳过单个关卡（见 4.4） |
+| `verify.ps1` | 环境自检 + 静态边界检查 + 架构依赖门禁 + 协议档案校验 + `tools/` 下全部 Python 自测（含检查器反向自测）+ 全部测试 + 监听端口核对 + `LIVE_CAPTURE_STATUS` 断言 + 注入载荷扫描 + 许可证材料核对（提交前必须运行）；`-NoBuild` 复用已有构建产物，`-TestFilter` 转发 xunit 特征筛选，`-SkipGate` 显式跳过单个关卡；带其中任一参数的运行是部分验证（见 4.4） |
 | `package.ps1` | 先运行 `verify.ps1`，再发布 Collector、部署 Qt 运行时、补齐许可证与 docs，生成 zip 与 SHA256；`-Verify` 额外解包并运行两个可执行文件 |
 | `static-analysis.ps1` | 对桌面端 C++ 逐编译单元运行 clang-tidy 与 cppcheck，按检查项汇总并将原始输出写入 `artifacts/static-analysis/`；只有编译错误、`clang-analyzer-*` 告警与 cppcheck 的 error 级结果令退出码非零（见 4.5） |
 
@@ -324,12 +351,10 @@ pwsh -File scripts/package.ps1 -Force -Verify
 
 ### 4.1 `test.ps1` 解析 TRX 的原因
 
-在本仓库中，`dotnet test MentorRecorder.sln` 会**不运行任何测试**并返回 0：
-`MentorRecorder.sln` 只包含 `src/Collector/MentorRecorder.Collector.csproj`，
-两个测试项目不在该解决方案内，“0 个测试”因而被判定为成功。
-
-因此 `test.ps1` 不以退出码为准，只以用例计数为准。该脚本逐个项目运行测试、写出 TRX、
-读取 `ResultSummary/Counters`，并在下列任一情况下判定失败：
+`test.ps1` 不以 `dotnet test` 的退出码为准，只以用例计数为准：一次运行即使一个用例也没有执行，
+也不能算作通过。该脚本枚举 `tests/` 下声明 `IsTestProject=true` 的项目（`MentorRecorder.sln`
+同样包含这两个测试项目），逐个运行测试、写出 TRX、读取 `ResultSummary/Counters`，
+并在下列任一情况下判定失败：
 
 - 任一项目失败数 > 0；
 - 任一项目用例总数为 0（空测试不视为成功）；
@@ -366,30 +391,38 @@ Get-Process MentorRecorder* | Stop-Process -Force
 
 `.github/workflows/ci.yml` 不维护第二套构建命令，而是设置 `MR_QT_PREFIX`、
 `MR_MINGW_BIN`、`MR_NINJA_EXE`、`MR_CMAKE_EXE`、`MR_CTEST_EXE` 指向 runner 上的
-工具链，然后直接运行：
+工具链，先单独校验 `protocol-profiles/` 下的全部档案，然后直接运行：
 
 ```powershell
 pwsh -File scripts/verify.ps1 -Configuration Release -TestFilter 'Category!=Soak'
 ```
 
-CI 因此覆盖完整的发布关卡：桌面端与真实 Collector 之间的
+CI 因此覆盖 `verify.ps1` 的全部关卡：桌面端与真实 Collector 之间的
 `MentorRecorderIpcIntegration` 与 `MentorRecorderLifecycle`（`build.ps1` 会把
 Collector 运行目录部署到测试二进制旁边）、TRX 真实计数与空测试保护、监听端口核对、
 `LIVE_CAPTURE_STATUS` 断言、注入载荷扫描与许可证材料核对。
 
-与本地发布验收相比只有两处差异，且均已明确说明：
+与本地发布验收相比有以下差异：
 
-- `-TestFilter 'Category!=Soak'` 仅排除长稳套件。该套件断言 5000 msg/s 的吞吐下限，
-  共享 runner 没有稳定的吞吐基线，因此该关卡在本地发布验收中运行（见
-  [release-checklist.md](release-checklist.md)）。
+- 推送与 Pull Request 触发的运行带 `-TestFilter 'Category!=Soak'`，只排除长稳套件。
+  该套件断言 5000 msg/s 的吞吐下限，共享 runner 没有稳定的吞吐基线，因此该关卡在本地发布验收中运行
+  （见 [release-checklist.md](release-checklist.md)）；在 Actions 页面手动触发并勾选
+  「Run the Soak suite」时，`verify.ps1` 不带任何筛选运行。带筛选的运行是部分验证，
+  结论中不评定 `PUBLIC_DISTRIBUTION_READY`。
 - **未**传入 `-SkipGate`。CI 上没有任何关卡需要 Npcap 或游戏客户端：抓包相关的
   断言核对的是 `src/Collector/Capture/CaptureDiagnostics.cs` 中的编译期常量
   （`LiveCaptureStatus` / `MonitorType` / `InjectedHookEnabled`），
   而 `--capture-doctor` 返回 1（表示该机器当前无法启动抓包）本身就是合法结果。
+- CI **不**运行 `package.ps1`（打包、版本与 CHANGELOG 一致性核对、`-Verify` 解包运行、安装器），
+  也不运行 `static-analysis.ps1`；这两步只在本地发布验收中执行。
 
 `-SkipGate` 接受 `tool-selftests`、`listener-check`、`live-capture-status`、
 `injection-payload`。被跳过的关卡会在跳过时与结论中各提示一次，不会静默通过。
-带 `-SkipGate` 的运行不能作为发布验收。
+
+`PUBLIC_DISTRIBUTION_READY` 是对一次完整运行的判断。带 `-SkipGate`、`-TestFilter` 或 `-NoBuild`
+的运行即使全部通过、退出码为 0，结论中也只说明这是一次部分验证，不打印
+`PUBLIC_DISTRIBUTION_READY = true`；`-NoBuild` 复用磁盘上已有的构建产物，它们可能早于正在验证的源码。
+这类运行不能作为发布验收。
 
 另有一个 `markdown` job，使用 `markdownlint-cli` 检查 `docs/`、`README.md`、
 `CHANGELOG.md`、`CONTRIBUTING.md`、`SECURITY.md`。规则见 `.markdownlint.json`，
@@ -459,19 +492,21 @@ MentorRecorder/
 ```powershell
 pwsh -File scripts/package.ps1
 pwsh -File scripts/package.ps1 -Configuration Debug -OutputDir out\pkg
-pwsh -File scripts/package.ps1 -Force           # 仅替换脚本自己的同名目录、zip 与 zip.sha256
+pwsh -File scripts/package.ps1 -Force           # 仅替换脚本自己的同名目录、zip、zip.sha256 与同版本的安装器及其 .sha256
 pwsh -File scripts/package.ps1 -Force -Verify   # 再解包运行一次，证明运行时依赖完整
 ```
 
 默认行为：
 
 1. 先执行 `scripts/verify.ps1 -Configuration <...>`。
-2. 再执行 `dotnet publish src/Collector/MentorRecorder.Collector.csproj -r win-x64 --self-contained false`。
+2. 再执行 `scripts/build.ps1` 补齐构建产物，并对 `build\src\Desktop\MentorRecorder.Desktop.exe` 执行
+   `Assert-DesktopExecutable`（见 §5.1）；随后执行
+   `dotnet publish src/Collector/MentorRecorder.Collector.csproj -r win-x64 --self-contained true`。
 3. 复用 `build\src\Desktop\MentorRecorder.Desktop.exe`，对其运行 `windeployqt --release --compiler-runtime --no-translations --no-ffmpeg --exclude-plugins ffmpegmediaplugin`
    （在线语音只播放 WAV，只需要 Windows 多媒体后端，见 [third-party-licenses.md](third-party-licenses.md) §3）。
 4. 若 `windeployqt` 未补齐 MinGW 运行时，则显式复制 `libgcc_s_seh-1.dll`、`libstdc++-6.dll`、`libwinpthread-1.dll`。
 5. 显式补入 `platforms\qoffscreen.dll`，保证发布包中的 `--screenshot` 离屏验收入口可运行。
-6. 输出 `MentorRecorder-<version>-win-x64\`（Debug 配置为 `MentorRecorder-<version>-debug-win-x64\`）、同名 `.zip` 与 `.zip.sha256`。默认拒绝覆盖，只有显式指定 `-Force` 才替换同名产物。目录名包含版本号是有意设计：早期命名不含版本，未加 `-Force` 的重新打包会让上一个版本的目录原样留在原地。`<version>` 是完整版本号，先行版因此得到 `MentorRecorder-1.4.0-beta.1-win-x64\` 与 `MentorRecorder-1.4.0-beta.1-setup.exe`，与正式版的产物不会重名。
+6. 输出 `MentorRecorder-<version>-win-x64\`（Debug 配置为 `MentorRecorder-<version>-debug-win-x64\`）、同名 `.zip` 与 `.zip.sha256`。默认拒绝覆盖，只有显式指定 `-Force` 才替换同名产物。同版本的 `MentorRecorder-<version>-setup.exe` 与其 `.sha256` 同样算作本次运行的产物：即使本次不生成安装器（`-NoInstaller`，或本机没有 Inno Setup），它们存在时也要求 `-Force`，并在打包开始时被删除，以免上一次的安装器留在新 zip 旁边、被当作它的安装器。目录名包含版本号是有意设计：早期命名不含版本，未加 `-Force` 的重新打包会让上一个版本的目录原样留在原地。`<version>` 是完整版本号，先行版因此得到 `MentorRecorder-1.4.0-beta.1-win-x64\` 与 `MentorRecorder-1.4.0-beta.1-setup.exe`，与正式版的产物不会重名。
    先行版的 `public_distribution_ready` 恒为 `false`，`public_distribution_blockers` 中写明「版本 … 是先行版（测试包），按定义不作为正式发布分发」；打包本身照常成功，因为产出测试包正是此时的目的。
 7. synthetic profile 保留在开发与测试构建目录中，不进入发布包；发布包只安装真实区域目录中的档案与 fail-closed 占位。
 8. 对暂存目录执行三组断言：`Assert-NoForbiddenPayload`（禁止内容）、`Assert-MultimediaLayout`
@@ -503,6 +538,14 @@ pwsh -File scripts/package.ps1 -Force -Verify   # 再解包运行一次，证明
 两种编码扫描产物中是否出现仓库根路径，命中即失败；`.md`、`.txt`、`.json` 不在扫描范围内，
 因为文档中出现源码树路径属于正常情况。该断言在打包阶段与 `-Verify` 解包后各执行一次。
 
+`Assert-DesktopExecutable` 直接从 PE 资源目录读出桌面端可执行文件内嵌的应用程序清单
+（`RT_MANIFEST` 1；源文件为 `src/Desktop/resources/app/MentorRecorder.Desktop.manifest`，由 `app.rc.in`
+编入），要求 `requestedExecutionLevel` 为 `asInvoker`、声明 `longPathAware = true`，并声明支持
+Windows 10/11；没有内嵌清单或任一项不符即打包失败。可执行文件中出现 `MR_COLLECTOR_PATH` 字样时
+（即以 `MR_DEV_COLLECTOR_DISCOVERY` 编译的开发构建）同样失败。该断言在暂存之前与 `-Verify`
+解包后各执行一次。清单不再以可执行文件旁的单独文件分发，构建目录中残留的旧外部清单
+`MentorRecorder.Desktop.exe.manifest` 不进入发布包。
+
 #### 调试符号：内嵌并重写路径，不分发 `.pdb`
 
 `Directory.Build.props` 对 **Release** 配置设置了两项：
@@ -530,21 +573,23 @@ pwsh -File scripts/package.ps1 -Force -Verify   # 再解包运行一次，证明
 
 该步骤依次断言：
 
-1. 解包目录同样通过 `Assert-NoForbiddenPayload` 与 `Assert-RequiredContent`；
+1. 解包目录同样通过 `Assert-NoForbiddenPayload`、`Assert-NoLocalPathLeak`、`Assert-MultimediaLayout`、
+   `Assert-RequiredContent`、`Assert-StagedVersion` 与 `Assert-ReleasedChangelogSectionsUnchanged`，
+   解包出的桌面端可执行文件再通过一次 `Assert-DesktopExecutable`；
 2. `MentorRecorder.Collector.exe --version` 退出码 0，且输出是版本横幅；
 3. `MentorRecorder.Collector.exe --capture-doctor --json` 退出码为 0 或 1。
    **在没有 Npcap、没有游戏的机器上，退出码 1 是正确结果**，说明降级路径可用。
-   该命令报出的 `live_capture_status` 必须与 `BUILD-METADATA.json` 中记录的一致，
-   且 `boundary.monitor_type = WinPCap`、`boundary.injected_hook_enabled = false`。
-   这两个状态值都是二进制中的**编译期常量**，因此本步证明的是元数据与解包出来的可执行
+   该命令报出的 `live_capture_status` 必须为 `VERIFIED_POP_TO_EXIT` 且与 `BUILD-METADATA.json`
+   中记录的一致，并且 `boundary.monitor_type = WinPCap`、`boundary.injected_hook_enabled = false`。
+   这些状态值都是二进制中的**编译期常量**，因此本步证明的是元数据与解包出来的可执行
    文件同源，而不是对这份产物测试过实时抓包。
    `packaged_verified_profile_status` 同样按解包产物自身的 `--list-profiles --json` 复核。
-   元数据若声称 `public_distribution_ready = true`，则工作区脏、包内无 VERIFIED 档案、
-   `live_capture_status` 不符三者中任一命中即失败（判据见
-   [release-checklist.md](release-checklist.md) §7）；
+   元数据若声称 `public_distribution_ready = true`，则下列任一情况即失败：工作区脏、元数据没有记录
+   `source_commit`、此时 git 无法读出工作区状态、打包之后工作区又出现未提交改动、包内无 VERIFIED 档案、
+   `live_capture_status` 不符（判据见 [release-checklist.md](release-checklist.md) §7）；
 4. `MentorRecorder.Desktop.exe --screenshot`（`QT_QPA_PLATFORM=offscreen`）
    退出码为 0，且产出一张大于 4 KiB 的 PNG。该步骤同时证明 Qt 运行时、QML 模块
-   与 offscreen 平台插件齐备；
+   与 offscreen 平台插件齐备；截图期间出现 QML / JavaScript 运行时警告时退出码为 10，本步随之失败；
 5. `MentorRecorder.Desktop.exe --speech-selftest <静音 WAV>`（隐藏开关）退出码为 0。
    该开关走在线语音相同的 `QSoundEffect` 路径，仅依赖包内的 Qt 播放一段 0.3 秒静音，
    用于证明多媒体运行时齐备。退出码 6 表示该机器没有音频输出设备，与产物无关，同样接受；
@@ -561,17 +606,23 @@ pwsh -File scripts/package.ps1 -Force -Verify   # 再解包运行一次，证明
 5. **不打包** `deucalion-*.dll`（构建阶段已剔除；打包脚本需再做一次断言）。
 6. 默认先运行 `verify.ps1`，静态边界检查必须通过；只有显式指定 `-SkipVerify` 才允许跳过，此时产物仅适用于本地联调。
 
-`PUBLIC_DISTRIBUTION_READY` **不是固定字面量**，而是 `package.ps1` 按五条前提计算并
+`PUBLIC_DISTRIBUTION_READY` **不是固定字面量**，而是 `package.ps1` 按一组前提计算并
 写入 `BUILD-METADATA.json` 的实测值。前提不满足时，`public_distribution_blockers` 会逐条
-列出原因。五条前提与核对方式见 [release-checklist.md](release-checklist.md) §7。
+列出原因。前提与核对方式见 [release-checklist.md](release-checklist.md) §7。
+其中源码状态由 `Get-SourceTreeState` 读取：git 必须能给出源码提交号并读出工作区状态。
+找不到 git、目录不是仓库、git 因所有权不符（dubious ownership）拒绝该仓库，或任一 git 命令失败时，
+`source_commit` 与 `source_worktree_dirty` 记为 `null`，这种情况不会被当作工作区干净，
+而是作为一条阻断原因写入 `public_distribution_blockers`。
 许可证一侧的前置条件（[third-party-licenses.md](third-party-licenses.md) §7）已全部落实：
 `docs/licenses/` 下的 LGPL 与 GCC 运行时例外文本随 `docs/` 一并进入发布包。
 
 ### 5.3 安装器
 
-`package.ps1` 在生成 zip 之后，若找到 Inno Setup 6（`ISCC.exe`，`winget install JRSoftware.InnoSetup`），
-会按 [`installer/MentorRecorder.iss`](../installer/MentorRecorder.iss) 生成
-`artifacts/MentorRecorder-<版本>-setup.exe` 与 `.sha256`。`-NoInstaller` 跳过这一步。
+`package.ps1` 在生成 zip 之后，若找到 Inno Setup（`ISCC.exe`，在 `Inno Setup 6` 安装目录下查找，
+`winget install JRSoftware.InnoSetup`），会按 [`installer/MentorRecorder.iss`](../installer/MentorRecorder.iss) 生成
+`artifacts/MentorRecorder-<版本>-setup.exe` 与 `.sha256`。编译需要 Inno Setup 6.7 或更新版本：
+`.iss` 显式开启的 `RedirectionGuard` 从 6.7.0 起才受支持，更旧的编译器由预处理器 `#error` 直接拒绝。
+`-NoInstaller` 跳过这一步；同版本的旧安装器与校验和仍会在打包开始时被删除（见 §5「默认行为」第 6 条）。
 
 - Collector 以 **self-contained** 方式发布，安装器因此自带 .NET 运行时；Qt 与 MinGW 运行时由
   `windeployqt` 与脚本补齐。用户无需另行安装任何运行库。
@@ -580,6 +631,40 @@ pwsh -File scripts/package.ps1 -Force -Verify   # 再解包运行一次，证明
   光驱、读卡器、U 盘、映射的网络盘以及空间不足的磁盘一律回落，因为 `DirExists('D:\')` 对它们
   全部为真，据此安装会中途失败，或者把软件装入随时可能被移除的介质。取不到驱动器类型时按
   `DRIVE_UNKNOWN` 处理，走 Program Files 分支，以免安装器在目录页崩溃。目录页始终显示，用户仍可修改。
+  目录页拒绝三类位置并要求另选：整个磁盘的根目录（如 `D:\`）；本身是链接（联接点或符号链接）的文件夹；
+  以及已有其他文件、却不是本软件此前安装位置的非空文件夹。是否为此前的安装位置，以其中存在
+  `MentorRecorder.Desktop.exe` 或 `MentorRecorder.Collector.exe` 为准；卸载后只剩 `note-images` 的文件夹
+  同样可以直接安装，`note-images` 与其他文件并存则不算安装痕迹。这项检查只为避免误选，不是安全边界：
+  下一条的保护不依赖它，磁盘根目录与链接在 `ssInstall` 还会再检查一次，静默安装同样适用。
+- **安装文件夹的访问权限。** 数据盘（如 `D:\`）上的文件夹沿用盘符根目录的权限，常见情况下本机任何用户
+  都可以修改其中的程序与卸载程序。安装与升级在写入任何文件之前（`CurStepChanged(ssInstall)` 中的
+  `ProtectInstallDirectory`）以 `System32\icacls.exe` 处理 `{app}`：所有者设为 Administrators，
+  清除显式授权，再以受保护的 ACL 取代继承的 ACL——Administrators 与 SYSTEM 完全控制、Users 读取和执行，
+  向下继承。账户按众所周知的 SID 指定，不依赖本地化的账户名；`/L` 使 icacls 只作用于链接本身，
+  icacls 以隐藏窗口运行，全程不使用递归（`/T`）。受保护的 ACL 生效之后，安装程序再次确认 `{app}`
+  仍是真实的文件夹而不是链接，然后逐个处理此前已直接位于 `{app}` 中的文件：所有者改为 Administrators，
+  并清除其显式授权，使其只继承上述 ACL——安装之前由其他账户放入的文件因此不能保留原属主或自带的授权。
+  子文件夹不在此列（代码目录由下一条的 `[InstallDelete]` 整个清除，`note-images` 及其中的图片保持不变），
+  随后即被 `[InstallDelete]` 删除的 `*.dll` 与 `qt.conf` 也跳过。处理每个文件之前先读取其硬链接数：
+  文件是重解析点、另有硬链接，或链接数无法读取时，安装停止并指出该文件，不删除也不改动任何内容，
+  以免权限改动落到与它相连的另一个文件上。
+  上述任一步失败（例如该位置不是本机 NTFS 磁盘），或 `{app}` 是链接或磁盘根目录，安装即停止并说明原因。
+  `note-images` 是唯一允许普通用户写入的子文件夹（`[Dirs]` 的 `users-modify`）；它若是指向别处的
+  链接，安装同样停止并提示删除该链接，以免写入权限落到链接所指的位置。`.iss` 另以
+  `RedirectionGuard=yes` 在 Windows 11 与 Windows 10 22H2 上阻止安装与卸载程序跟随非提升进程创建的
+  链接；更早的系统靠上述自行检查。
+- **`[InstallDelete]` 在复制文件之前清除旧内容。** 除各代码与资源子文件夹外，还删除直接位于 `{app}` 的
+  全部 `*.dll` 与 `qt.conf`：安装包不附带 `qt.conf`，自带的 DLL 随后照常写回，安装之前被放入该文件夹的
+  DLL 或 `qt.conf` 因此不会被程序加载。可执行文件不在此列（卸载程序 `unins*.exe` 由 Setup 在每次升级时
+  重写）。从 1.5.0 及更早版本升级时，另删除已不再使用的外部应用程序清单
+  `{app}\MentorRecorder.Desktop.exe.manifest`（清单已内嵌在程序中）。
+- **这项保护的范围。** 它针对的是安装文件夹自身，以下情形不在其内，与不受信任的用户共用的电脑应安装到
+  `Program Files`：上级目录若允许普通用户删除或重命名其中的条目（例如对 Users 授予完全控制的数据盘根目录），
+  其他本机用户仍可在软件未运行时把整个安装文件夹改名并换成自己的文件夹；`[InstallDelete]` 的删除失败时
+  Setup 不报错，被其他进程占用而删不掉的外来 DLL 会留在原处；设置 `{app}` 的 ACL 以及 `note-images` 的
+  写入授权时，Windows 会把继承项传播到其下已有的文件，在允许普通用户为自己无权写入的文件创建硬链接的
+  旧版 Windows 上，事先放入的硬链接会使这一改动落到所链接的文件上；从文件夹可被任何用户写入的 1.5.0
+  升级时，原有的卸载日志 `unins000.dat` 会被沿用一次。
 - **最低要求在 `InitializeSetup`（`[Code]`）中检查**：低于 Windows 10 版本 1809（内部版本 17763，Qt 6.11 的下限；
   .NET 8 只需 1607）直接拒绝并说明所需版本；ARM 处理器上的 Windows 10 拒绝安装，因为没有 x64 模拟；
   Windows 11 on ARM 提示抓包未验证后继续；`System32\mfplat.dll` 不存在（Windows “N” 版本）时提示
@@ -589,6 +674,8 @@ pwsh -File scripts/package.ps1 -Force -Verify   # 再解包运行一次，证明
   用户应在其向导中保持默认选项，其中包含 WinPcap API-compatible Mode。下载失败或用户取消时，
   本软件照常安装，界面提示 Npcap 缺失。升级 Npcap 版本时需同时更新 `NpcapVersion` 与 `NpcapSha256`。
 - 卸载时询问是否删除 `%LOCALAPPDATA%\MentorRecorder`（记录、备份、设置），默认保留。
+  提示同时写明备注图片不在其中：它们保存在安装文件夹的 `note-images` 中，无论选择哪一项都会保留
+  （`uninsneveruninstall`），不再需要时可在卸载完成后手动删除。
 - 中文界面来自 `installer/ChineseSimplified.isl`（Inno Setup 官方仓库的用户贡献翻译）。
 
 ## 6. 已知构建注意事项

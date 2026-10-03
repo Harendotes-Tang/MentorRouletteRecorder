@@ -148,16 +148,6 @@ public static class CaptureCli
         }
 
         writer.WriteLine();
-        var orphans = OodleTempCopyCleaner.InspectOrphans();
-        writer.WriteLine("游戏程序临时副本（Machina 临时目录）");
-        writer.WriteLine("  文件数:              " + orphans.Removed.ToString(CultureInfo.InvariantCulture));
-        writer.WriteLine("  占用字节:            " + orphans.Bytes.ToString(CultureInfo.InvariantCulture));
-        if (orphans.Removed > 0)
-        {
-            writer.WriteLine("  → 采集服务启动与每次停止抓包时会删除没有被占用的副本。");
-        }
-
-        writer.WriteLine();
         writer.WriteLine("游戏程序临时副本（本软件登记过的文件）");
         writer.WriteLine("  尚未删除:            " + temporary.Present.ToString(CultureInfo.InvariantCulture));
         writer.WriteLine("  占用字节:            " + temporary.Bytes.ToString(CultureInfo.InvariantCulture));

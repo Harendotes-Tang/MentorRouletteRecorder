@@ -57,7 +57,9 @@ internal sealed partial class SharedCalibrationSession
             return SharedCheckOutcome.RecentlyChecked;
         }
 
-        if (!manual && _nextAutoFetchAtUtc is { } next && _clock.UtcNow < next)
+        // On the monotonic clock as well (audit 2026-10-03, OE-6b): a system clock moved back must not hold the next
+        // automatic download back for six hours plus however far it moved.
+        if (!manual && _nextAutoFetchAt is { } next && _clock.Elapsed < next)
         {
             return SharedCheckOutcome.NotNeeded;
         }
@@ -76,11 +78,30 @@ internal sealed partial class SharedCalibrationSession
     /// <summary>Off the gate: send when due and rebuild what came back; then claim it under the gate.</summary>
     private async Task FetchAsync(FetchTicket ticket)
     {
-        var (sent, last, result) = await SendIfDueAsync(ticket).ConfigureAwait(false);
-        var prepared = PrepareAll(ticket, result);
-        lock (_gate)
+        try
         {
-            ClaimFetch(ticket, sent, last, result, prepared);
+            var (sent, last, result) = await SendIfDueAsync(ticket).ConfigureAwait(false);
+            var prepared = PrepareAll(ticket, result);
+            lock (_gate)
+            {
+                ClaimFetch(ticket, sent, last, result, prepared);
+            }
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        {
+            // Whatever threw, the download is over: left claimed, every later check would answer AlreadyFetching
+            // for the rest of the arm. The failure itself is still recorded where Schedule records it.
+            lock (_gate)
+            {
+                if (ReferenceEquals(_fetch, ticket))
+                {
+                    _fetch = null;
+                    _fetchVisible = false;
+                    _host.SharedCalibrationChanged();
+                }
+            }
+
+            throw;
         }
     }
 
@@ -157,7 +178,11 @@ internal sealed partial class SharedCalibrationSession
             return;
         }
 
-        _nextAutoFetchAtUtc = (sent ? _clock.UtcNow : last?.LastAttemptAtUtc ?? _clock.UtcNow) + SharedCalibrationStore.AutoFetchInterval;
+        // Six hours from the attempt that counts - this one, or the stored one that made this one unnecessary - kept
+        // on the monotonic clock. Only the age of the stored attempt is read off the wall clock, and only once.
+        var interval = SharedCalibrationStore.AutoFetchInterval;
+        var age = sent || last is null ? TimeSpan.Zero : _clock.UtcNow - last.LastAttemptAtUtc;
+        _nextAutoFetchAt = _clock.Elapsed + interval - TimeSpan.FromTicks(Math.Clamp(age.Ticks, 0, interval.Ticks));
         if (result is not null && ApplyFetchResult(result, prepared))
         {
             // The revocation of the code in use took the rest of that index with it, to be offered again
@@ -280,20 +305,23 @@ internal sealed partial class SharedCalibrationSession
         var (region, build, templateSha, _) = ticket.Key;
         var store = _services.SharedCalibrations;
         var codes = (Attempt(() => store.LoadCandidates(region, build, templateSha)) ?? Array.Empty<SharedStoredCandidate>())
-            .Select(code => (code.CodeSha256, code.Payload))
+            .Select(code => (code.CodeSha256, code.Payload, code.Submitters, code.Conflicting))
             .ToList();
         foreach (var fetched in result?.Candidates ?? Array.Empty<SharedCalibrationCandidate>())
         {
             if (codes.All(code => code.CodeSha256 != fetched.CodeSha256) &&
                 !Attempt(() => store.IsRejected(region, build, templateSha, fetched.CodeSha256)))
             {
-                codes.Add((fetched.CodeSha256, fetched.Payload));
+                codes.Add((fetched.CodeSha256, fetched.Payload, fetched.Submitters, fetched.Conflicting));
             }
         }
 
+        // What the index says about each code goes with it: it decides which of them may bind on the login burst (GateFor).
         var now = _clock.UtcNow;
         return codes.Take(SharedCalibrationIndex.MaxCandidates)
-            .Select(code => Prepare(code.CodeSha256, code.Payload, ticket.Template, now))
+            .Select(code => Prepare(code.CodeSha256, code.Payload, ticket.Template, now) is { } prepared
+                ? prepared with { Submitters = code.Submitters, Conflicting = code.Conflicting }
+                : null)
             .OfType<Prepared>()
             .ToArray();
     }
@@ -356,9 +384,18 @@ internal sealed partial class SharedCalibrationSession
         }
 
         var provenance = publication == SharedPublication.Published ? SharedCandidateProvenance.Published : SharedCandidateProvenance.Imported;
+        if (provenance == SharedCandidateProvenance.Published)
+        {
+            // What the index said about it - submitters and the conflict mark - as for a downloaded code (GateFor).
+            var (region, build, templateSha, _) = context.Key;
+            var stored = Attempt(() => _services.SharedCalibrations.LoadCandidates(region, build, templateSha))
+                ?.FirstOrDefault(item => string.Equals(item.CodeSha256, sha, StringComparison.Ordinal));
+            prepared = prepared with { Submitters = stored?.Submitters ?? 0, Conflicting = stored?.Conflicting == true };
+        }
+
         lock (_gate)
         {
-            if (_stopped || _host.SharedContext()?.Key != context.Key)
+            if (_stopped || _host.SharedContext() is not { } current || current.Key != context.Key)
             {
                 return new SharedImportResult(SharedImportOutcome.NotApplicable, "CHANGED", "导入期间游戏版本或校准状态发生了变化，请重新导入。", sha);
             }
@@ -368,15 +405,21 @@ internal sealed partial class SharedCalibrationSession
                 return new SharedImportResult(SharedImportOutcome.NotApplicable, refusal, RefusalMessage(refusal), sha);
             }
 
+            // Said before Evaluate, which may bind it at once and take it off the candidate list.
+            var atLogin = _candidates.FirstOrDefault(item => item.Sha == sha) is not { } registered ||
+                          GateFor(current, registered) == SharedCandidateProvenance.Published;
             Evaluate();
             _host.SharedCalibrationChanged();
-            return new SharedImportResult(SharedImportOutcome.Applied, null, ImportedMessage(provenance), sha, provenance);
+            return new SharedImportResult(SharedImportOutcome.Applied, null, ImportedMessage(provenance, atLogin), sha, provenance);
         }
     }
 
-    private static string ImportedMessage(SharedCandidateProvenance provenance) => provenance == SharedCandidateProvenance.Published
-        ? "校准码已导入。它与公开仓库里其他玩家提交的一致，登录时在本机流量里核实通过就会启用。"
-        : "校准码已导入。它没有在公开仓库发布过，所以要在本机登录并排一次本、核实通过后才会启用；在那之前不会生成记录。";
+    private static string ImportedMessage(SharedCandidateProvenance provenance, bool atLogin) =>
+        provenance != SharedCandidateProvenance.Published
+            ? "校准码已导入。它没有在公开仓库发布过，所以要在本机登录并排一次本、核实通过后才会启用；在那之前不会生成记录。"
+            : atLogin
+                ? "校准码已导入。它与公开仓库里其他玩家提交的一致，登录时在本机流量里核实通过就会启用。"
+                : "校准码已导入。它与公开仓库里其他玩家提交的一致，但还要在本机排一次本、核实通过后才会启用。";
 
     private SharedImportResult? Inapplicable(ShareCodePayload payload, string sha, SharedContext? context, bool userRejected)
     {

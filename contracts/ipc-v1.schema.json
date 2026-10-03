@@ -501,19 +501,20 @@
         "capture_session_id": { "oneOf": [{ "$ref": "#/$defs/Uuid" }, { "type": "null" }] },
         "npcap_installed": { "type": "boolean" },
         "npcap_version": { "type": ["string", "null"] },
-        "ffxiv_running": { "type": "boolean" },
-        "ffxiv_process_id": { "type": ["integer", "null"], "minimum": 0 },
-        "game_selection_required": { "type": "boolean" },
-        "game_selection_reason": { "enum": ["NONE", "MULTIPLE", "EXITED", "IDENTITY_UNAVAILABLE"] },
+        "ffxiv_running": { "type": "boolean", "description": "True while the locked client is running. False while no client is locked -- none running, or a choice pending -- even when game_processes lists candidates. A failed process listing does not turn it false: the previous reading stands until a listing succeeds." },
+        "ffxiv_process_id": { "type": ["integer", "null"], "minimum": 0, "description": "Process id of the locked client; null whenever ffxiv_running is false." },
+        "game_selection_required": { "type": "boolean", "description": "True only when automatic recording waits for an explicit SelectGameProcess and game_processes lists at least one client to choose. With no client listed it is false whatever game_selection_reason says, and StartCapture answers the ordinary retryable ERR_FFXIV_NOT_RUNNING." },
+        "game_selection_reason": { "type": "string", "enum": ["NONE", "MULTIPLE", "EXITED", "IDENTITY_UNAVAILABLE"], "description": "Why no client is locked. NONE: one is locked, or none is running and nothing was ambiguous. MULTIPLE: several clients and no choice yet; returns to NONE once every client has closed. EXITED: the locked client exited; kept while none runs, so a sole restart of the same installation continues on its own. IDENTITY_UNAVAILABLE: a sole client whose start time cannot be read yet. Diagnostic: whether a choice is asked for is game_selection_required." },
         "game_processes": {
           "type": "array",
+          "description": "Clients that can be chosen, from the latest successful process listing. Never carries a path, a window title or a character name.",
           "items": {
             "type": "object", "additionalProperties": false,
             "required": ["process_id", "started_at_utc", "selection_token"],
             "properties": {
               "process_id": { "type": "integer", "minimum": 1 },
-              "started_at_utc": { "type": ["string", "null"] },
-              "selection_token": { "$ref": "#/$defs/Uuid" }
+              "started_at_utc": { "$ref": "#/$defs/NullableUtcTimestamp", "description": "Process creation time from the kernel process table; null when the table carries none, and such a client cannot be selected." },
+              "selection_token": { "$ref": "#/$defs/Uuid", "description": "Random per client incarnation and per Collector run; compared without regard to letter case." }
             }
           }
         },
@@ -577,11 +578,12 @@
             "dropped_no_syn": { "type": "integer", "minimum": 0, "description": "Frames dropped because their direction never showed its own SYN: the classic signature of attaching mid-connection." },
             "expired_streams": { "type": "integer", "minimum": 0, "description": "Streams released after waiting too long for the OS to confirm ownership." },
             "unconfirmed_tuples": { "type": "integer", "minimum": 0, "description": "Distinct connections the OS TCP table never confirmed as the game's." },
-            "stream_resets": { "type": "integer", "minimum": 0, "description": "Directions abandoned after a packet gap could not be filled within the tolerance." },
+            "stream_resets": { "type": "integer", "minimum": 0, "description": "Streams and directions given up: every direction counted in damaged_game_directions, a stream nobody owned yet released over a frame it could not decode safely, and a tracked stream a new handshake replaced." },
             "adapter_dropped": { "type": "integer", "minimum": 0, "description": "Packets Npcap reported as lost at the driver or the interface. Small values degrade the capture; sustained loss faults it." },
             "handshakes": { "type": "integer", "minimum": 0, "description": "Connections opened because their TCP handshake was observed, whichever program they belong to. Zero over a long session means no handshake reached this card at all." },
             "game_connections": { "type": "integer", "minimum": 0, "description": "Distinct connections the OS attributed to the game since capture started. Above preexisting_connections it means the client reconnected while this capture was running, so a capture that still decodes nothing lost the handshake rather than started too late." },
-            "game_connections_now": { "type": "integer", "minimum": 0, "description": "Connections the OS attributes to the game in the most recent reading." }
+            "game_connections_now": { "type": "integer", "minimum": 0, "description": "Connections the OS attributes to the game in the most recent reading." },
+            "damaged_game_directions": { "type": "integer", "minimum": 0, "description": "Directions of owned, decoding game connections given up for good, session-wide: a sequence gap not filled in time, a frame that could not be decoded safely, or a direction that never showed its own SYN. Any of them makes the session's silence worthless as calibration evidence, as do packets_dropped." }
           }
         },
 
@@ -673,7 +675,7 @@
       "required": ["enabled", "update_available"],
       "properties": {
         "enabled": { "type": "boolean", "description": "Whether update_check_enabled allows a check at all. Default true." },
-        "update_available": { "type": "boolean", "description": "True when latest_version is strictly newer than this build. A running prerelease counts as older than the release it was cut towards." },
+        "update_available": { "type": "boolean", "description": "True when latest_version is strictly newer than this build. A running prerelease counts as older than the release it was cut towards. Always false while enabled is false, whatever an earlier check found." },
         "latest_version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$", "description": "Newest published version this installation has learned of. Absent until a check has succeeded; kept across a failed check and across restarts." },
         "release_url": { "type": "string", "description": "The release page to show the user. A constant of this build, always present." },
         "last_checked_at_utc": { "type": "string", "description": "When a check was last attempted, successfully or not. Absent until one has been." },
@@ -766,7 +768,7 @@
         { "if": { "properties": { "message_type": { "const": "GetDashboardStats" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/StatsRequest" } } } },
         { "if": { "properties": { "message_type": { "const": "GetDungeonStats" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/PagedStatsRequest" } } } },
         { "if": { "properties": { "message_type": { "const": "GetJobStats" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/PagedStatsRequest" } } } },
-        { "if": { "properties": { "message_type": { "const": "GetResultStats" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/StatsRequest" } } } },
+        { "if": { "properties": { "message_type": { "const": "GetResultStats" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResultStatsRequest" } } } },
         { "if": { "properties": { "message_type": { "const": "CreateManualRun" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/CreateManualRunRequest" } } } },
         { "if": { "properties": { "message_type": { "const": "CorrectRun" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/CorrectRunRequest" } } } },
         { "if": { "properties": { "message_type": { "const": "SoftDeleteRun" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/RunReasonRequest" } } } },
@@ -837,6 +839,7 @@
     },
     "SelectGameProcessRequest": {
       "type": "object", "additionalProperties": false,
+      "description": "Locks recording to one entry of CaptureStatus.game_processes. Refusals and their retryable flags are listed in contracts/error-codes.md. Once the previous capture has been stopped the choice is committed; if the chosen client exited meanwhile the reply is ERR_FFXIV_NOT_RUNNING and the status reports it EXITED.",
       "required": ["process_id", "selection_token"],
       "properties": {
         "process_id": { "type": "integer", "minimum": 1 },
@@ -848,7 +851,7 @@
       "additionalProperties": false,
       "properties": {
         "adapter_id": { "type": ["string", "null"], "description": "null selects the adapter the Collector recommends." },
-        "process_id": { "type": ["integer", "null"], "minimum": 0 }
+        "process_id": { "type": ["integer", "null"], "minimum": 0, "description": "Kept for compatibility. Null or 0 observes the locked client; any other value must equal it (ERR_BAD_REQUEST, field process_id, otherwise). Changing the client is SelectGameProcess's job." }
       }
     },
 
@@ -869,6 +872,15 @@
       "properties": {
         "filter": { "$ref": "#/$defs/RunFilter" },
         "trend_granularity": { "$ref": "#/$defs/TrendGranularity" }
+      }
+    },
+
+    "ResultStatsRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "GetResultStats takes the listing filter only; it has no trend series, so trend_granularity is refused (ERR_BAD_REQUEST).",
+      "properties": {
+        "filter": { "$ref": "#/$defs/RunFilter" }
       }
     },
 
@@ -975,7 +987,7 @@
       "properties": {
         "goal_count": { "type": "integer", "minimum": 1, "default": 2000 },
         "baseline_completed_count": { "type": "integer", "minimum": 0 },
-        "baseline_effective_at": { "$ref": "#/$defs/UtcTimestamp" },
+        "baseline_effective_at": { "$ref": "#/$defs/UtcTimestamp", "description": "When a changed baseline took effect: the in-game total it states already holds every completion that ended before this moment. Used only when baseline_completed_count differs from the stored baseline; a request that leaves the count as stored (a goal-only change, or the same number entered again) keeps the stored time, whatever this field says." },
         "reason": { "type": "string", "minLength": 1, "maxLength": 500 }
       }
     },
@@ -987,7 +999,6 @@
       "properties": {
         "target_path": { "type": "string", "minLength": 1, "description": "Absolute local path chosen by the user. The Collector never uploads anywhere." },
         "filter": { "$ref": "#/$defs/RunFilter" },
-        "include_revisions": { "type": "boolean", "default": false },
         "overwrite": { "type": "boolean", "default": false }
       }
     },
@@ -1165,7 +1176,7 @@
       "description": "重新观察：丢弃本次会话已积累的校准证据，重新开始观察。空载荷仍然合法。",
       "properties": {
         "retire_local_profile": { "type": "boolean", "default": false, "description": "重新校准：true 时，若当前生效的是本机校准出来的档案（profile_origin = LOCAL_CALIBRATION），则先停用它：文件改名保留（不删除），正在进行的记录按停止捕获收尾，校准重新开始观察。它生成的记录不会被标为待复核，它所认的报文也不会被拒绝：是玩家要求重新校准，而不是流量证伪了它。缺省为 false，即只重新观察；当前生效的不是本机校准档案时，true 与 false 等价。" },
-        "restore_local_profile": { "type": "boolean", "default": false, "description": "恢复上一份本机校准：把 `retire_local_profile` 停用的那份档案（`<profile_id>.json.retired`）改回 `.json` 并立即用它记录，同时放开当前生效的档案（包括正在使用的共享校准；共享校准只是被让位，不计作被证伪，其校准码不被拒绝，已生成的记录也不标待复核）。不会丢弃校准证据。流量证伪后自动撤下的档案（`.json.contradicted`）永远不可恢复。无可恢复、同名档案已存在、或恢复后无法通过档案校验时答 ERR_CALIBRATION_NOT_READY 并带上可直接展示的中文说明。与 `retire_local_profile` 互斥，同时为真答 ERR_BAD_REQUEST。" }
+        "restore_local_profile": { "type": "boolean", "default": false, "description": "恢复上一份本机校准：把 `retire_local_profile` 停用的那份档案（`<profile_id>.json.retired`）改回 `.json` 并立即用它记录，同时放开当前生效的档案（包括正在使用的共享校准；共享校准只是被让位，不计作被证伪，其校准码不被拒绝，已生成的记录也不标待复核）。不会丢弃校准证据。流量证伪后自动撤下的档案（`.json.contradicted`）永远不可恢复。无可恢复、同名档案已存在、或恢复后无法通过档案校验时答 ERR_CALIBRATION_NOT_READY 并带上可直接展示的中文说明。恢复出来的档案能通过校验、却被同版本排序更靠前的档案盖过时（例如它按排本推断匹配，而在用的校准认得出匹配报文），档案留在原处，当前生效的档案照常记录、不被放开，同样答 ERR_CALIBRATION_NOT_READY 并说明原因。与 `retire_local_profile` 互斥，同时为真答 ERR_BAD_REQUEST。" }
       }
     },
     "ConfirmCalibrationRequest": {
@@ -1471,7 +1482,7 @@
         "properties": {
           "goal_count": { "type": "integer", "minimum": 1 },
           "baseline_completed_count": { "type": "integer", "minimum": 0 },
-          "baseline_effective_at": { "$ref": "#/$defs/UtcTimestamp" },
+          "baseline_effective_at": { "$ref": "#/$defs/UtcTimestamp", "description": "The effective time as stored: the requested one when the baseline changed, otherwise the time kept from before." },
           "updated_at_utc": { "$ref": "#/$defs/UtcTimestamp" },
           "audit_event_id": { "$ref": "#/$defs/Uuid" },
           "idempotent_replay": { "type": "boolean", "default": false }
@@ -1649,7 +1660,7 @@
         "type": "object",
         "additionalProperties": false,
         "required": ["passed", "detail", "checked_at_utc"],
-        "description": "Read-only PRAGMA integrity_check of the open database, run under the Collector's database gate; nothing is repaired or written. A file too damaged for the check to run is passed = false with SQLite's sentence; a lock held elsewhere is ERR_DB_BUSY (retryable).",
+        "description": "Read-only PRAGMA integrity_check of the open database file, on a read-only connection of its own: it does not take the database gate live capture writes through, and sees the last committed state; nothing is repaired or written. One check at a time; a request while one runs is ERR_DB_BUSY (retryable). Cancelled when the requesting connection closes or the Collector stops, without an answer. A file too damaged for the check to run is passed = false with SQLite's sentence; a lock held elsewhere is ERR_DB_BUSY (retryable).",
         "properties": {
           "passed": { "type": "boolean" },
           "detail": { "type": "string", "minLength": 1, "maxLength": 200, "description": "\"ok\", or the first problem line, run through the log sanitizer." },

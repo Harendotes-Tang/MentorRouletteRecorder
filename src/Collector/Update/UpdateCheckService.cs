@@ -143,8 +143,11 @@ public sealed class UpdateCheckService : IDisposable
             outcome = _lastOutcome;
         }
 
+        // Switched off, nothing is offered: docs/privacy-boundary.md §8.4 promises the banner goes away (audit
+        // 2026-10-03, OE-5). The version found earlier is still reported, for the settings page and diagnostics.
+        var enabled = _enabled;
         return new UpdateCheckSnapshot(
-            _enabled, IsNewer(latest), latest, lastChecked, outcome, UpdateCheckClient.ReleaseUrl);
+            enabled, enabled && IsNewer(latest), latest, lastChecked, outcome, UpdateCheckClient.ReleaseUrl);
     }
 
     /// <summary>What the sanitized diagnostics report may state. Never an address.</summary>

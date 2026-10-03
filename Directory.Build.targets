@@ -1,7 +1,7 @@
 <Project>
 
   <!--
-    BOUNDARY-ALLOW: hard boundary enforcement, not an enablement.
+    Hard boundary enforcement, not an enablement.
 
     The Machina.FFXIV NuGet package ships a native injection payload
     (deucalion-*.dll, an injected in-process hook for the game) inside
@@ -39,7 +39,7 @@
   </Target>
 
   <!--
-    BOUNDARY-ALLOW: hard boundary enforcement, not an enablement.
+    Hard boundary enforcement, not an enablement.
 
     This target verifies the strip above: after every build and publish it scans the output
     folder for an injection payload and fails the build if one is present.

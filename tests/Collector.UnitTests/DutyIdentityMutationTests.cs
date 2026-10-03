@@ -38,6 +38,46 @@ public sealed class DutyIdentityMutationTests
         AssertDuty(corrected, fixture.Runs.Get(original.RunId)!);
     }
 
+    /// <summary>
+    /// Audit 2026-10-03 OG-1. Choosing 未知副本 sends <c>content_id: null</c>. The zone the run observed
+    /// used to stay behind, and a zone that hosts one duty names that duty again: statistics kept the
+    /// run under the old duty and the history filter for that duty still found it. The zone goes with
+    /// the duty, and undo brings both back through the identity snapshot.
+    /// </summary>
+    [Theory]
+    [InlineData(1, 1039, DutySource.ContentId)]
+    [InlineData(null, 1039, DutySource.Territory)]
+    public void CorrectingToTheUnknownDutyDropsTheZoneTooAndUndoRestoresIt(
+        int? contentId, int? territoryId, DutySource source)
+    {
+        using var fixture = new Fixture(contentId, territoryId, source);
+        var runId = fixture.Original.RunId;
+        var zoneDuty = DutyCatalog.Default.FindUniqueByTerritory(territoryId, Region.Cn)!.ContentId;
+
+        fixture.Service.CorrectRun(new CorrectRunCommand(NewId(), runId, 1, "其实不知道是哪个副本",
+            new RunChangeSet
+            {
+                ContentId = null, DutyName = null, DutyCategory = null,
+                Specified = new HashSet<string> { RunFields.ContentId, RunFields.DutyName, RunFields.DutyCategory },
+            }));
+
+        var corrected = fixture.Runs.Get(runId)!;
+        Assert.Null(corrected.ContentId);
+        Assert.Null(corrected.TerritoryId);
+        var settings = new SettingsRepository(fixture.Database.Database, fixture.Database.Clock);
+        var row = Assert.Single(new StatisticsRepository(fixture.Database.Database, settings).GetDungeonStats());
+        Assert.Null(row.ContentId);
+        Assert.Equal(DutyCatalog.UnknownDutyName, row.DutyName);
+        Assert.Equal(0, fixture.Runs.Query(
+            new Domain.Queries.RunFilter { ContentIds = new[] { zoneDuty } }, null, 1, 50).Total);
+
+        fixture.Service.UndoRevision(new RunReasonCommand(NewId(), runId, 2, "撤销未知副本"));
+        var restored = fixture.Runs.Get(runId)!;
+        Assert.Equal(contentId, restored.ContentId);
+        Assert.Equal(territoryId, restored.TerritoryId);
+        Assert.Equal(source, restored.DutySource);
+    }
+
     [Fact]
     public void NameOnlyCorrection_DoesNotInventIdentityChangesAndRemainsUndoable()
     {

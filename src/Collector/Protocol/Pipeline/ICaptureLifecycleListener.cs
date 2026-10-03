@@ -11,14 +11,16 @@ namespace MentorRecorder.Collector.Protocol.Pipeline;
 public interface ICaptureLifecycleListener
 {
     /// <summary>
-    /// Capture stopped: the user stopped it, the Collector is shutting down, or the game
-    /// process went away. A run already inside a duty becomes INTERRUPTED with LOW
-    /// confidence; a run that never entered becomes CANCELLED_BEFORE_ENTRY.
+    /// Capture stopped: the user stopped it, the Collector is shutting down, the game
+    /// process went away, or an error ended it. A run already inside a duty becomes INTERRUPTED
+    /// with LOW confidence; a run that never entered becomes CANCELLED_BEFORE_ENTRY, pending
+    /// review when an error ended capture.
     /// </summary>
     /// <param name="gameExited">True when the game process went away rather than the capture.</param>
     /// <param name="observedAtUtc">Wall-clock time of the stop.</param>
     /// <param name="mono">Monotonic reading taken at the stop.</param>
-    void OnCaptureStopped(bool gameExited, DateTimeOffset observedAtUtc, TimeSpan mono);
+    /// <param name="faulted">True when an error ended capture rather than a request.</param>
+    void OnCaptureStopped(bool gameExited, DateTimeOffset observedAtUtc, TimeSpan mono, bool faulted = false);
 
     /// <summary>
     /// The game connection dropped. A run inside a duty becomes DISCONNECTED, which is never

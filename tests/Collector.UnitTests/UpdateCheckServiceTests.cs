@@ -441,6 +441,34 @@ public sealed class UpdateCheckServiceTests : IDisposable
         Assert.True(Service(transport).Snapshot().Enabled);
     }
 
+    /// <summary>
+    /// docs/privacy-boundary.md §8.4: with the setting off the banner goes away (audit 2026-10-03, OE-5). The
+    /// version an earlier check found is still known; it is only no longer offered as an update - after a
+    /// restart with the setting stored off too - and is offered again once the setting is back on.
+    /// </summary>
+    [Fact]
+    public async Task WithTheSettingOffNoUpdateIsReportedAvailable()
+    {
+        var transport = new Transport();
+        var service = Service(transport);
+        service.Observe();
+        await SettleAsync(service);
+        Assert.True(service.Snapshot().UpdateAvailable);
+
+        service.ApplySetting(false);
+
+        var off = service.Snapshot();
+        Assert.False(off.Enabled);
+        Assert.False(off.UpdateAvailable);
+        Assert.Equal(Published, off.LatestVersion);
+
+        _settings.SetSetting(UpdateCheckService.EnabledSetting, "false");
+        Assert.False(Service(transport).Snapshot().UpdateAvailable);
+
+        service.ApplySetting(true);
+        Assert.True(service.Snapshot().UpdateAvailable);
+    }
+
     [Fact]
     public async Task TheKillSwitchOverridesTheSetting()
     {

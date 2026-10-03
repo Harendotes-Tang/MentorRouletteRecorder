@@ -58,11 +58,16 @@ public sealed class CaptureSessionRepository
     /// Rebinds an open session to a profile, for example after self-calibration hot-binds a
     /// newly confirmed local profile mid-session. Never touches a session that has already
     /// ended: a closed session's profile is history.
+    ///
+    /// The transaction-less form runs in a transaction of its own, behind the database's gate:
+    /// every repository shares one SQLite connection, and a statement issued on it outside the
+    /// gate while another thread holds a transaction is refused by ADO.NET (audit 2026-10-03,
+    /// OG-2).
     /// </summary>
     /// <param name="captureSessionId">Session identifier.</param>
     /// <param name="profileId">Profile identifier to record, or null to clear it.</param>
     /// <param name="status">Profile status to record.</param>
-    /// <param name="transaction">Enclosing transaction, or null to run outside one.</param>
+    /// <param name="transaction">Enclosing transaction, or null for one of its own.</param>
     /// <returns>True when an open session was found and updated.</returns>
     public bool UpdateProfile(
         string captureSessionId,
@@ -71,6 +76,10 @@ public sealed class CaptureSessionRepository
         SqliteTransaction? transaction = null)
     {
         ArgumentException.ThrowIfNullOrEmpty(captureSessionId);
+        if (transaction is null)
+        {
+            return _database.RunInTransaction(tx => UpdateProfile(captureSessionId, profileId, status, tx));
+        }
 
         using var command = _database.CreateCommand();
         command.Transaction = transaction;

@@ -295,6 +295,79 @@ public sealed class CaptureTraceTests
         Assert.Equal(0, (long)analysis.Summary!["markers"]!);
     }
 
+    /// <summary>
+    /// Audit 2026-10-03 CS1-X1. A process listing that failed read as "the game is not running",
+    /// so one unanswered process-table read ended a trace while the game was still being played.
+    /// A failed listing cannot tell; only a listing that answers without the client ends it.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void TraceRun_EndsOnlyWhenAListingAnswersWithoutTheClient(bool clientExits)
+    {
+        using var directory = new TempDirectory();
+        var tracePath = Path.Combine(directory.Path, clientExits ? "exits.jsonl" : "listing-fails.jsonl");
+        const string executablePath = @"D:\sdo\game\ffxiv_dx11.exe";
+        var processes = new FakeGameProcessProvider()
+            .Add(GameProcessLocator.Dx11ProcessName, 1234, path: executablePath);
+        var files = new FakeGameFileReader().With(
+            Path.Combine(Path.GetDirectoryName(executablePath)!, GameProcessLocator.VersionFileName),
+            "2026.08.05.0000.0000");
+        var source = new StartHookTraceSource(() =>
+        {
+            if (clientExits)
+            {
+                processes.Clear();
+            }
+            else
+            {
+                processes.Fails = true;
+            }
+        });
+        var status = new StringWriter();
+
+        var result = CaptureTraceRunner.Run(
+            new CaptureTraceOptions(tracePath, DurationSeconds: 1, AdapterId: "adapter"),
+            new CaptureTraceServices
+            {
+                Npcap = new NpcapDetector(FakeNpcapEnvironment.Healthy()),
+                Game = new GameProcessLocator(processes, files),
+                Adapters = new AdapterEnumerator(
+                    new FakeAdapterProvider().Add("adapter", "Ethernet", addresses: "10.0.0.2"),
+                    new FakeProcessTcpTable().With(1234, "10.0.0.2")),
+                SourceFactory = () => source,
+                Markers = new StringReader(string.Empty),
+                Output = new StringWriter(),
+                Status = status,
+                StatusInterval = TimeSpan.FromMilliseconds(50),
+                TcpConnectionCounter = (_, _) => 0,
+                InstallCancelHandler = false,
+            });
+
+        Assert.Equal(0, result);
+        Assert.Equal(clientExits, status.ToString().Contains("游戏进程已退出", StringComparison.Ordinal));
+    }
+
+    /// <summary>A source that runs a test's action when it is started, and never faults.</summary>
+    private sealed class StartHookTraceSource(Action onStart) : ICaptureSource
+    {
+        public string Kind => "start-hook-trace";
+
+        public bool IsRunning { get; private set; }
+
+        public bool ReadsGameExecutable => false;
+
+        public void Start(CaptureStartOptions options, ICaptureSourceObserver observer)
+        {
+            IsRunning = true;
+            onStart();
+        }
+
+        public void Stop() => IsRunning = false;
+
+        public void Dispose() => Stop();
+    }
+
     [Fact]
     public void UsesMessageObservationTime_WhenQueueDeliveryIsDelayed()
     {
@@ -736,6 +809,30 @@ public sealed class CaptureTraceTests
             CaptureTraceAnalysis.MaxMessageRows.ToString(),
             failure.Message,
             StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Audit 2026-10-03 OB-9. The writer accepted up to ten million message lines and advised
+    /// raising <c>--max-lines</c>, while <c>--trace-report</c> refuses anything above its own row
+    /// limit: a long trace was recorded and then could not be read. The writer's ceiling is the
+    /// reader's limit.
+    /// </summary>
+    [Fact]
+    public void TheWriterNeverAcceptsMoreMessageLinesThanTheReportReads()
+    {
+        Assert.True(CaptureTraceSink.MaxMaxLines <= CaptureTraceAnalysis.MaxMessageRows);
+        Assert.True(CaptureTraceSink.DefaultMaxLines <= CaptureTraceSink.MaxMaxLines);
+
+        Assert.Throws<FormatException>(() => CommandLineOptions.Parse(new[]
+        {
+            "--capture-trace", "t.jsonl", "--max-lines",
+            (CaptureTraceAnalysis.MaxMessageRows + 1).ToString(System.Globalization.CultureInfo.InvariantCulture),
+        }));
+
+        using var directory = new TempDirectory();
+        using var file = new StreamWriter(Path.Combine(directory.Path, "clamped.jsonl"));
+        var sink = new CaptureTraceSink(file, new TestClock(DateTimeOffset.UnixEpoch), () => TimeSpan.Zero, int.MaxValue);
+        Assert.Equal(CaptureTraceAnalysis.MaxMessageRows, sink.MaxLines);
     }
 
     /// <summary>

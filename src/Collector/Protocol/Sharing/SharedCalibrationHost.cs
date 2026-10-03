@@ -50,7 +50,25 @@ internal enum SharedBindOutcome
 /// is already over (plan §18.4).
 /// </param>
 /// <param name="RanComplete">True when the run table holds a complete entry and exit under the profile, audit or not.</param>
-internal sealed record SharedBindResult(SharedBindOutcome Outcome, string Reason, bool Proven = false, bool RanComplete = false);
+/// <param name="RecordsFromUtc">
+/// Earliest creation time a run recorded under this binding can have: the first staged entry it drained, else the
+/// moment it was committed, less <see cref="SharedBindResult.ClockAllowance"/>. Every code of a build writes the same
+/// profile id, so this is what tells this code's runs from those of the code before it (audit 2026-10-03, OE-2/OE-4).
+/// Null when nothing was bound or selected.
+/// </param>
+/// <param name="SwapOwed">
+/// Selected while another profile records a run in this session; it takes over once the machine is between runs.
+/// </param>
+internal sealed record SharedBindResult(
+    SharedBindOutcome Outcome, string Reason, bool Proven = false, bool RanComplete = false, DateTimeOffset? RecordsFromUtc = null,
+    bool SwapOwed = false)
+{
+    /// <summary>
+    /// How much earlier than the commit a run of the binding may be stamped. A message is stamped when it is decoded
+    /// and handled a moment later, so a match decoded just before the bind and handled just after it belongs to it.
+    /// </summary>
+    internal static readonly TimeSpan ClockAllowance = TimeSpan.FromSeconds(5);
+}
 
 /// <summary>A written shared profile to commit.</summary>
 /// <param name="ProfileId">Id of the profile just written.</param>
@@ -81,8 +99,13 @@ internal interface ISharedCalibrationHost
     /// <summary>Stops counting a candidate.</summary>
     void UnregisterSharedCandidate(string candidateId);
 
-    /// <summary>True when a run recorded under the profile entered a duty and its exit was observed.</summary>
-    bool HasFinishedSharedRun(string profileId);
+    /// <summary>
+    /// True when a run recorded under the profile, created at or after <paramref name="sinceUtc"/> (any time when
+    /// null), entered a duty and its exit was observed.
+    /// </summary>
+    /// <param name="profileId">Profile id written on the runs.</param>
+    /// <param name="sinceUtc">When the binding in question began recording; null when that is not known.</param>
+    bool HasFinishedSharedRun(string profileId, DateTimeOffset? sinceUtc);
 
     /// <summary>
     /// True while a run is under way: matched, or inside the duty. Taking a profile out of use then would
@@ -106,7 +129,10 @@ internal interface ISharedCalibrationHost
     /// saying why. Human decisions on a run are kept.
     /// </summary>
     /// <param name="profileId">The withdrawn profile.</param>
-    /// <param name="sinceUtc">When it was bound in this process; null for a profile adopted from disk.</param>
+    /// <param name="sinceUtc">
+    /// When this binding began recording - in this process, or as kept with the profile document; null only for a
+    /// document adopted from disk with no such record.
+    /// </param>
     /// <param name="reason">Why it was withdrawn, for the revision.</param>
     /// <returns>Runs marked.</returns>
     int FlagSharedRecords(string profileId, DateTimeOffset? sinceUtc, string reason);

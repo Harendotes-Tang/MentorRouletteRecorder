@@ -42,9 +42,9 @@ Microsoft.Data.Sqlite 仍会自行重试至命令超时（默认 5 秒）为止�
 | `protocol_profile_id` | TEXT | NULL | 产生该记录所用的协议档案 id；手工补录为 NULL |
 | `mentor_roulette_id` | INTEGER | NULL | 判定为导随所依据的 roulette id |
 | `content_id` | INTEGER | NULL | 副本 content id；**仅在报文中确实携带该字段时才写入**，绝不由 `territory_id` 反推 |
-| `territory_id` | INTEGER | NULL | 地图/区域 id；进本标记不带区域时由 `ZONE_TERRITORY` 播报补齐（[state-machine.md](state-machine.md) §3.11） |
+| `territory_id` | INTEGER | NULL | 地图/区域 id；进本标记不带区域时由 `ZONE_TERRITORY` 播报补齐（[state-machine.md](state-machine.md) §3.11）。用户把副本更正为「未知副本」（`content_id` 显式置空）时随之清空，撤销该次更正时恢复 |
 | `duty_source` | TEXT | NULL, IN (`CONTENT_ID`,`TERRITORY`,`MANUAL`) | 副本身份的来源（schema v8 新增，见 §1.4） |
-| `duty_name` | TEXT | NULL | 副本名称（本地化，来自 `data/duties/`）；可由 `content_id` 或 `territory_id` 反查，两者均只填补空值，不覆盖已有值 |
+| `duty_name` | TEXT | NULL | 副本名称（本地化，来自 `data/duties/`）；可由 `content_id` 或 `territory_id` 反查。按区域反查只填补空值；进本时若 `content_id` 与记录已有的不同（再次匹配换了副本），名称与分类按新副本重新映射，副本表中查不到时清空旧的自动名称；人工更正过的字段不被覆盖 |
 | `duty_category` | TEXT | NULL | 副本分类（如 迷宫挑战 / 讨伐战 / 大型任务） |
 | `job_id` | INTEGER | NULL | 职业 id |
 | `job_name` | TEXT | NULL | 职业名称；`job_id IS NULL` 时为 `未知` |
@@ -88,9 +88,10 @@ INDEX ix_runs_pending_review ON mentor_runs(pending_review) WHERE pending_review
 两列由 `migrations/0002_pending_review_and_note.sql` 追加，`0001_initial.sql` 永不修改
 （其校验和是识别篡改的依据，见 [migrations/README.md](../migrations/README.md)）。
 
-- `pending_review = 1` 表示这条记录的结果尚未经人工确认：由**崩溃恢复**置为 `INTERRUPTED`
-  （见 [state-machine.md](state-machine.md) §3.9），或由没有 `DUTY_RESULT` 的档案在离开副本时
-  置为 `UNKNOWN`（§3.10）。它是
+- `pending_review = 1` 表示这条记录的结果尚未经人工确认：例如由**崩溃恢复**收尾的未完结记录
+  （已进入副本的置为 `INTERRUPTED`，从未进入副本的置为 `CANCELLED_BEFORE_ENTRY`，见
+  [state-machine.md](state-machine.md) §3.9），或由没有 `DUTY_RESULT` 的档案在离开副本时
+  置为 `UNKNOWN`（§3.10）；全部来源见 [statistics-definitions.md](statistics-definitions.md) §12。它是
   `GetDashboardStats.unfinished_pending_review` 的唯一依据。此前该口径由
   `result = INTERRUPTED AND detection_confidence = LOW AND manually_corrected = 0` 推断，
   现已改为直接读取该列，语义不再依赖置信度的巧合。
@@ -156,10 +157,12 @@ INDEX ix_runs_pending_review ON mentor_runs(pending_review) WHERE pending_review
 一个错误的偏移足以污染副本统计。现在**自动写入只落 `territory_id` 与显示用的
 名称、分类**，`content_id` 保持 `NULL`，该列用于说明这条记录的副本身份具有何种可信程度。
 
-副本统计因此改为按 `content_id ?? territory_id` 聚合。两者位于各自的键空间，
-一个 territory id 不会与一个 content id 冲突。只按区域识别出来的那一组在
-IPC 上仍然回报 `content_id: null`，名称取自本地副本表。见
-[statistics-definitions.md](statistics-definitions.md)。
+副本统计因此按副本身份聚合：带 `content_id` 的记录按 `content_id` 聚合；只有 `territory_id` 时，
+若本地副本表中该区域只对应一个副本（只查该记录所属区服），归入那个副本的 `content_id`，
+与观察到内容编号的记录同属一行；该区域对应多个副本时按 `territory_id` 单独成行。
+`territory_id` 位于独立的键空间，不会与任何 content id 冲突。按区域唯一反查归入的那一组在
+IPC 上回报副本表给出的 `content_id`，区域对应多个副本的那一组回报 `content_id: null`，
+名称均取自本地副本表。见 [statistics-definitions.md](statistics-definitions.md) §10。
 
 **该列不进入 IPC。** `$defs/Run` 未变，`MentorRun.DutySource` 带 `[JsonIgnore]`，
 界面、实时事件与导出中均不包含该列。它只是本机数据库中供维护者排查偏移的来源标注，
@@ -225,12 +228,18 @@ INDEX ix_revisions_run ON run_revisions(run_id, revision)
 |---|---|---|---|
 | `id` | INTEGER | PK, CHECK (`id = 1`) | 单行 |
 | `goal_count` | INTEGER | NOT NULL, `>= 1`, **default 2000** | 目标次数 |
-| `baseline_completed_count` | INTEGER | NOT NULL, `>= 0`, default 0 | 开始记录前已完成的次数（用户自报） |
-| `baseline_effective_at` | TEXT | NOT NULL | 基线生效时间（UTC）。早于该时刻的记录不重复计入进度 |
+| `baseline_completed_count` | INTEGER | NOT NULL, `>= 0`, default 0 | 截至 `baseline_effective_at` 游戏内已完成的次数（用户自报） |
+| `baseline_effective_at` | TEXT | NOT NULL | 基线生效时间（UTC）。基数大于 0 时，早于该时刻结束的完成已含在基数中，不重复计入进度；基数为 0 时不起作用。只在基数改变时更新为请求中的时间；只改目标或重新填入同一基数时保持不变（[statistics-definitions.md](statistics-definitions.md) §4）。早期版本因此改动过的值在启动时改正一次（见表下） |
 | `updated_at_utc` | TEXT | NOT NULL | |
 
 基线的每次修改都必须带 `reason`，并写入 `application_settings` 的审计或独立审计行；
 `UpdateAchievementBaseline` 返回 `audit_event_id`。
+
+1.5.0 及更早版本在只修改目标或原样保存同一基数时也会把 `baseline_effective_at` 改为保存时刻。
+采集服务在本版本首次启动时按基数的审计记录（`application_settings` 的 `achievement.baseline_history`，最多保留
+最近 100 条）检查一次，能确定当前基数填入的时间且该时间更早时，把生效时间改回该时间，并在审计记录中追加一条写明原因的
+系统条目（请求标识 `system:baseline-effective-at-repair`）；审计记录无法判断时保持原值。检查之后写入 `application_settings` 的 `achievement.baseline_effective_at_checked`（§6），此后不再检查。
+何时改动、何时保持原值见 [statistics-definitions.md](statistics-definitions.md) §4。
 
 ## 5. `schema_migrations` —— 迁移记录
 
@@ -256,6 +265,8 @@ INDEX ix_revisions_run ON run_revisions(run_id, revision)
 
 默认值：`ui.language = "zh-Hans"`、`tts.enabled = false`、`capture.follow_game = true`（未写入时视为开启；
 旧键 `capture.autostart` 仍被种子为 `false`，只有显式取值 `true` 才被视为用户意图）。
+`achievement.baseline_effective_at_checked` 由采集服务在启动时写入（值为 `true`），表示 §4 所述的成就基数生效时间
+已检查过；该键存在时不再检查。
 **此表不存放任何凭据、令牌或个人身份信息。**
 
 ## 7. `capture_sessions` —— 一次抓包会话
@@ -264,7 +275,7 @@ INDEX ix_revisions_run ON run_revisions(run_id, revision)
 |---|---|---|---|
 | `capture_session_id` | TEXT | PK | UUID |
 | `started_at_utc` | TEXT | NOT NULL | |
-| `ended_at_utc` | TEXT | NULL | 非空表示正常结束；进程崩溃后重启时若仍为 NULL，则其未完结记录转 `INTERRUPTED_PENDING_REVIEW` |
+| `ended_at_utc` | TEXT | NULL | 非空表示正常结束；进程崩溃后重启时若仍为 NULL，则其未完结记录标为待复核：已进入副本的转 `INTERRUPTED_PENDING_REVIEW`，从未进入副本的记为 `CANCELLED_BEFORE_ENTRY` |
 | `collector_version` | TEXT | NOT NULL | |
 | `region` | TEXT | NOT NULL | |
 | `game_build` | TEXT | NULL | |
@@ -331,8 +342,9 @@ INDEX ix_revisions_run ON run_revisions(run_id, revision)
 - `run_events`：随记录长期保留（仅元数据）。
 - 诊断日志：按大小滚动，单文件上限 **2 MiB**、最多 **5** 个文件，另按 **7 天**清理，不含报文正文。
 - 幂等结果快照：**24 小时**（§7.1）。
-- 数据库备份：桌面端的"每日自动备份"**默认开启**，在每天第一次连上 Collector 之后执行一次，
-  写入 `<数据库目录>\backups\`（默认 `%LOCALAPPDATA%\MentorRecorder\backups\`），
+- 数据库备份：桌面端的"每日自动备份"**默认开启**，每天执行一次：启动后连上 Collector 时，
+  以及程序持续运行期间（每小时检查一次日期，跨过零点后的下一次检查即会触发）；当天已有备份
+  则跳过，导随进行中（已匹配或已进本）时顺延到这一场结束 5 分钟之后，其间再次匹配则继续顺延。备份写入 `<数据库目录>\backups\`（默认 `%LOCALAPPDATA%\MentorRecorder\backups\`），
   保留最近 **14** 份，超出部分按时间删除；同时清理该目录中遗留超过 1 小时的
   `.mentor-export-*.tmp` 暂存文件。用户显式请求的 `BackupDatabase` 可写入自选路径，
   **本软件一律不清理该目录**。备份是数据库的完整副本，因此可能包含 §8.1 的研究负载，

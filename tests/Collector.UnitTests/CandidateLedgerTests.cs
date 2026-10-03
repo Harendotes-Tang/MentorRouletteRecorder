@@ -269,8 +269,13 @@ public sealed class CandidateLedgerTests : IDisposable
         Assert.Throws<InvalidOperationException>(() => escaped!.ToArray());
     }
 
+    /// <summary>
+    /// The prune is committed on its own before the ledger is read (CS5-X3), so a write that fails in the
+    /// callback no longer brings expired evidence back; it still releases what it read with, and the
+    /// ledger works afterwards.
+    /// </summary>
     [Fact]
-    public void VisitEvidenceCallbackFailureRollsBackPruningAndReleasesItsTransaction()
+    public void VisitEvidenceCallbackFailureKeepsThePruneAndReleasesItsReadConnection()
     {
         Enable();
         var observation = Observation(_fixture.Clock.UtcNow.AddDays(-30));
@@ -287,10 +292,45 @@ public sealed class CandidateLedgerTests : IDisposable
             throw new IOException("simulated evidence write failure");
         }));
 
-        Assert.Equal(1, Count("candidate_observations"));
-        Assert.Equal(1, Count("candidate_reviews"));
-        Assert.Empty(_ledger.ReadEvidence().Observations);
+        Assert.Equal(0, Count("candidate_observations"));
         Assert.Equal(0, Count("candidate_reviews"));
+        Assert.True(_ledger.Add(Observation()));
+        Assert.Single(_ledger.ReadEvidence().Observations);
+    }
+
+    /// <summary>
+    /// Audit 2026-10-03, OG-7 remainder (CS5-X3). The evidence export writes a whole file while it walks the
+    /// ledger, and it used to do that inside the database gate: every other write - the capture thread's
+    /// included, which waits on that gate without a timeout - stalled until the file was written. A write
+    /// now goes through while the export is still in its callback, and the export keeps the snapshot it
+    /// started with.
+    /// </summary>
+    [Fact]
+    public void AWriteGoesThroughWhileAnExportIsStillWriting()
+    {
+        Enable();
+        var first = Observation();
+        _ledger.Add(first);
+        using var added = new ManualResetEventSlim();
+        Thread? writer = null;
+
+        _ledger.VisitEvidence((observationCount, reviewCount, observations, reviews) =>
+        {
+            Assert.Equal(1, observationCount);
+            writer = new Thread(() =>
+            {
+                _ledger.Add(Observation());
+                added.Set();
+            })
+            { IsBackground = true };
+            writer.Start();
+            Assert.True(added.Wait(TimeSpan.FromSeconds(5)), "a database write waited for the export to finish");
+            Assert.Equal(new[] { first }, observations.Select(entry => entry.Observation));
+            Assert.Empty(reviews);
+        });
+
+        Assert.True(writer!.Join(TimeSpan.FromSeconds(10)));
+        Assert.Equal(2, _ledger.Count());
     }
 
     [Fact]

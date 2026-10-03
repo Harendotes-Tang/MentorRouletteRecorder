@@ -49,6 +49,44 @@ public sealed class ContractRequestSampleTests
         }
     }
 
+    /// <summary>
+    /// Audit 2026-10-03 OF-7. Two request fields the contract offered and the Collector did not
+    /// honour: GetResultStats shared a definition that allowed trend_granularity, which the handler
+    /// refused, and the export requests declared include_revisions, which the handler read and threw
+    /// away. Contract and Collector now agree, both ways, on each.
+    /// </summary>
+    [Theory]
+    [InlineData("GetResultStats", "{\"filter\":{},\"trend_granularity\":\"week\"}", "{\"filter\":{}}")]
+    [InlineData("ExportJson", "{\"target_path\":\"{0}\",\"include_revisions\":true}", "{\"target_path\":\"{0}\"}")]
+    [InlineData("ExportCsv", "{\"target_path\":\"{0}\",\"include_revisions\":false}", "{\"target_path\":\"{0}\"}")]
+    public async Task TheContractAndTheCollectorAgreeOnWhichRequestFieldsExist(
+        string messageType, string refused, string accepted)
+    {
+        await using var fixture = ServerFixture.Start();
+        await using var client = await fixture.ConnectAsync();
+        var target = Path.Combine(Path.GetDirectoryName(fixture.DatabasePath)!, messageType + ".out")
+            .Replace("\\", "\\\\", StringComparison.Ordinal);
+
+        JsonObject Payload(string template) =>
+            JsonNode.Parse(template.Replace("{0}", target, StringComparison.Ordinal))!.AsObject();
+        JsonObject Envelope(JsonObject payload) => new()
+        {
+            ["protocol_version"] = 1,
+            ["request_id"] = Guid.NewGuid().ToString("D"),
+            ["message_type"] = messageType,
+            ["payload"] = payload,
+        };
+
+        Assert.False(
+            ContractSchema.Evaluate("$defs/RequestEnvelope", Envelope(Payload(refused))).IsValid,
+            messageType + " 的契约仍然接受 " + refused);
+        var refusal = await client.SendAsync(messageType, Payload(refused));
+        Assert.Equal(ErrorCodes.BadRequest, refusal.ErrorCode);
+
+        ContractSchema.Validate("$defs/RequestEnvelope", Envelope(Payload(accepted)), messageType);
+        Assert.True((await client.SendAsync(messageType, Payload(accepted))).Ok);
+    }
+
     [Fact]
     public async Task EverySampleIsAcceptedByTheCollector()
     {

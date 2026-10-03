@@ -61,13 +61,12 @@ GCC Runtime Library Exception 3.1 分发（`docs/licenses/GCC-RUNTIME-LIBRARY-EX
 | .NET 8 运行时与 SDK | 8.0.30 / 9.0.316 | MIT |
 | MinGW-w64 GCC 运行时（`libstdc++`、`libgcc`） | GCC 13.1 | GPL-3.0 **with GCC Runtime Library Exception** |
 | xUnit.net（仅测试，不随发布分发） | 2.9.3 | Apache-2.0 |
-| xunit.runner.visualstudio（仅测试） | 2.8.2 | Apache-2.0 |
+| xunit.runner.visualstudio（仅测试） | 4.0.0 | Apache-2.0 |
 | Microsoft.NET.Test.Sdk（仅测试） | 18.10.1 | MIT |
 | JsonSchema.Net（仅测试） | 7.3.4 | MIT |
 | Json.More.Net（仅测试，JsonSchema.Net 的传递依赖） | 2.1.1 | MIT |
 | JsonPointer.Net（仅测试，JsonSchema.Net 的传递依赖） | 5.3.1 | MIT |
 | Humanizer.Core（仅测试，JsonPointer.Net 的传递依赖） | 2.14.1 | MIT |
-| Newtonsoft.Json（仅测试，Microsoft.TestPlatform.ObjectModel 的传递依赖） | 13.0.1 | MIT |
 
 SharpPcap 与 PacketDotNet 使用未经修改的 NuGet 二进制。许可证全文分别见
 `docs/licenses/SharpPcap-MIT.txt`、`docs/licenses/PacketDotNet-MPL-2.0.txt`。

@@ -317,22 +317,28 @@ public sealed class SharedCalibrationIndexTests
         Assert.Equal(new[] { Sha('a') }, SharedCalibrationIndex.Revoked(read.Entries, Region.Cn, Build));
     }
 
-    /// <summary>Plan §18.6: codes the repository marked as contradicting each other are picked last, whatever their submitters.</summary>
+    /// <summary>
+    /// Plan §18.6: the conflict mark is optional. It only breaks a tie in submitters (audit 2026-10-03, ON1-1): one
+    /// more account publishing a differing code must not push a code many players submitted behind codes from one
+    /// or two accounts - out of the eight downloaded, in the worst case. (Until then it put a marked code last
+    /// whatever its submitters; this test pinned that.)
+    /// </summary>
     [Fact]
-    public void ConflictingEntriesAreOptionalReadAsFalseWhenAbsentAndPickedLast()
+    public void ConflictingEntriesAreOptionalReadAsFalseWhenAbsentAndOnlyBreakATieInSubmitters()
     {
         var conflicting = Entry(Sha('c'), submitters: 9);
         conflicting["conflicting"] = true;
         var cleared = Entry(Sha('d'), submitters: 3);
         cleared["conflicting"] = false;
-        var read = SharedCalibrationIndex.Read(Index(conflicting, cleared, Entry(Sha('e'), submitters: 1)));
+        var tied = Entry(Sha('a'), submitters: 3, conflicting: true);
+        var read = SharedCalibrationIndex.Read(Index(conflicting, cleared, Entry(Sha('e'), submitters: 1), tied));
 
         Assert.Empty(read.Skipped);
         Assert.True(Assert.Single(read.Entries, entry => entry.CodeSha256 == Sha('c')).Conflicting);
         Assert.False(Assert.Single(read.Entries, entry => entry.CodeSha256 == Sha('d')).Conflicting);
         Assert.False(Assert.Single(read.Entries, entry => entry.CodeSha256 == Sha('e')).Conflicting);
         Assert.Equal(
-            new[] { Sha('d'), Sha('e'), Sha('c') },
+            new[] { Sha('c'), Sha('d'), Sha('a'), Sha('e') },
             SharedCalibrationIndex.Select(read.Entries, Region.Cn, Build).Select(entry => entry.CodeSha256).ToArray());
     }
 

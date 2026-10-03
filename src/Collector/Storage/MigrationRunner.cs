@@ -90,7 +90,8 @@ public static class MigrationRunner
             transaction.Rollback();
             throw new CollectorException(
                 ErrorCodes.DbIntegrity,
-                "数据库迁移失败，已整体回滚。请备份数据库文件后再排查。",
+                "数据库迁移失败，已整体回滚，本软件无法启动。" +
+                "请先把数据库文件复制一份保存到别处，再排查问题。" + DatabaseFileHint(connection),
                 new Dictionary<string, object?> { ["sqlite_error"] = ex.SqliteErrorCode },
                 inner: ex);
         }

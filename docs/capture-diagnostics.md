@@ -17,7 +17,7 @@
 
 本文件说明采集服务如何自检抓包链路、对外暴露哪些指标，以及常见故障的排查方法，
 供需要定位抓包问题的用户与维护者查阅。相关的 IPC 消息为 `GetCaptureStatus`、
-`ListCaptureAdapters`、`GetProtocolProfileStatus`、`StartCapture`、`StopCapture`，
+`ListCaptureAdapters`、`GetProtocolProfileStatus`、`StartCapture`、`StopCapture`、`SelectGameProcess`，
 以及 `SubscribeLiveEvents` 中的 `CaptureStatusChanged` / `DiagnosticsMessage`。
 
 ## 0. 缺少 Npcap 与游戏进程时的行为
@@ -46,7 +46,7 @@
 | # | 检查 | 失败时 |
 |---|---|---|
 | 1 | Npcap 是否可用（安装 + WinPcap 兼容模式 + 权限） | `ERR_NPCAP_MISSING`（`details.npcap` 给出具体原因，见 §2） |
-| 2 | FFXIV 进程是否在运行 | `ERR_FFXIV_NOT_RUNNING`（`retryable = true`） |
+| 2 | FFXIV 进程是否在运行，且已锁定要记录的客户端 | `ERR_FFXIV_NOT_RUNNING`（`retryable = true`）。有客户端在运行但正等待选择（`game_selection_required = true`，见 §3）时同样返回该码，并提示先在「记录对象」中选择游戏窗口 |
 | 3 | 能否枚举到至少一个网卡 | `ERR_NPCAP_MISSING`（`details.adapters = 0`） |
 | 4 | 能否确定要用哪张网卡 | `ERR_BAD_REQUEST`，`field = "adapter_id"`（**不推测**，要求手动选择） |
 | 5 | 协议档案是否 `VERIFIED` | `ERR_PROFILE_UNSUPPORTED` |
@@ -65,7 +65,10 @@
 校准期间 `CaptureStatus.profile_status` 保持 `UNSUPPORTED_BUILD`，`calibration.state`
 取 `OBSERVING` / `READY` / `BLOCKED`，`warnings` 中给出正在重新校准的提示。
 用户确认后，采集服务写出本机档案、重新读取目录，并在当前会话内绑定解析器；
-`calibration_bound_at_utc` 记录该时刻，解析计数从零开始。
+`calibration_bound_at_utc` 记录该时刻，解析计数从零开始。绑定时，卡片等待确认期间本会话见到的、
+该档案所声明的报文按原顺序先交给新的解析器（[state-machine.md](state-machine.md) §0），
+因此绑定后的解析计数包含这些补交的报文；其间的队列溢出、游戏连接全部中断与连接方向被放弃
+按发生的位置夹在这些报文之间，一并交给新的状态机。
 存在模板但抓包尚未运行时，`calibration.state` 为 `WAITING`。
 
 补丁后的 exe 没有精确匹配的 Oodle 签名档案时，`oodle_signature_source = pattern-fallback`
@@ -94,7 +97,9 @@
 
 ## 2. Npcap 检测
 
-**只做检测，绝不下载、绝不内置、绝不静默安装。**
+**采集服务对 Npcap 只做检测，绝不下载、绝不内置、绝不静默安装。** 安装程序在本机没有 Npcap 时会下载
+Npcap 的官方安装程序并启动其向导，由用户自行完成安装（[privacy-boundary.md](privacy-boundary.md) §8.5）；
+运行中的软件不涉及这一下载。
 
 检测输入：
 
@@ -103,7 +108,9 @@
 3. 注册表值 `WinPcapCompatible`（缺失时回退到检查 `%SystemRoot%\System32\wpcap.dll` 是否存在）
 4. 注册表值 `AdminOnly`
 5. 当前进程是否具有管理员权限
-6. 版本号：`wpcap.dll` 的 `FileVersionInfo`，回退到注册表 `Version`
+6. 版本号：`Packet.dll` 的 `FileVersionInfo`（即 Npcap 自身的版本），回退到注册表 `Version`，
+   再回退到 `wpcap.dll` 的 `FileVersionInfo`（此时写作 `libpcap x.y.z`，因为该文件的版本是其中 libpcap 的版本）。
+   诊断页只在版本号以数字开头时加前缀「v」（`Formatters::npcapVersionLabel`），后一种情形原样显示为 `libpcap x.y.z`
 
 检测结果（`GetStatus.npcap.status`）：
 
@@ -115,21 +122,24 @@
 | `NOT_WINPCAP_COMPATIBLE` | 已安装但没有 WinPcap 兼容模式 | 重新安装并勾选兼容模式 |
 | `NPCAP_ADMIN_ONLY` | `AdminOnly = 1` 且当前进程未提权 | 以管理员身份运行，或重装时取消该限制 |
 
-未安装时，UI 显示的指引内容为：
+未安装时，`ERR_NPCAP_MISSING` 的提示与 `install_hint` 给出的指引内容为（`NpcapDetector.NotInstalledGuidance`）：
 
-> 未检测到 Npcap。本软件需要 Npcap 才能被动读取本机网卡流量。
-> 请从 Npcap 官方站点自行下载安装（安装时请勾选 "WinPcap API-compatible Mode"），
-> 安装完成后重新启动本软件。
-> 本软件不会替您下载或安装任何驱动。
+> 未检测到 Npcap。本软件需要 Npcap 才能被动读取本机网卡流量，
+> 请从 Npcap 官方站点自行下载安装（安装时请勾选 “WinPcap API-compatible Mode”），
+> 安装完成后重新启动本软件。本软件运行时不会替您下载或安装任何驱动；
+> 只有安装程序在安装时发现缺少 Npcap，才会下载 Npcap 官方安装程序，由您在它自己的向导中完成安装。
+
+捕获诊断页的降级模式面板在未安装时不显示这段指引，改用面板自身的说明与安装步骤（[ui-design.md](ui-design.md) §4.4）。
 
 **安装选项要求**：必须勾选 WinPcap 兼容模式。"Support raw 802.11 traffic" 不需要勾选，
 本软件只处理以太网与回环上的普通 IP 流量。
 
 ## 3. 游戏进程检测
 
-采集服务按进程名查找 `ffxiv_dx11` 与 `ffxiv`（`Process.GetProcessesByName`），并取得以下信息：
+采集服务按进程名查找 `ffxiv_dx11` 与 `ffxiv`，来源是内核进程表的一次快照
+（`NtQuerySystemInformation(SystemProcessInformation)`），不打开任何进程句柄，并取得以下信息：
 
-- **PID** 与**启动时间**。
+- **PID** 与**启动时间**：启动时间取自同一快照中该进程的创建时间，因此由管理员身份的启动器拉起的客户端同样可以读到。
 - **安装路径**：只从内核进程表读取
   （`NtQuerySystemInformation(SystemProcessIdInformation)`，不打开游戏进程句柄），
   因此由启动器以管理员身份拉起的客户端同样可以读到。本软件不设第二条途径：
@@ -138,25 +148,36 @@
   不提权、不重试、不推测。
 - **区服判定**：仅依据安装路径中的关键字。`SdoA` / `Shanda` 等判为 `CN`，
   `Square Enix` / `FINAL FANTASY XIV - A Realm Reborn` 判为 `GLOBAL`，
-  无法识别时为 `UNKNOWN`。
+  无法识别时为 `UNKNOWN`；两类关键字同时出现时同样为 `UNKNOWN`，并提示在设置中手动指定区服。
 - **客户端版本**：读取 exe 同目录下启动器的 **`ffxivgame.ver` 文本文件**。
   只接受长度不超过 64、且仅含 `0-9 A-Z a-z . _ -` 的短串，否则视为读取失败。
   游戏未运行时改从记住的安装目录读取同一个文件，见本节末。
 
-**边界**：上述信息全部来自操作系统的进程列表与磁盘上的一个文本文件。本软件
+**边界**：上述信息全部来自内核进程表与磁盘上的一个文本文件。本软件
 **从不**打开游戏进程句柄，**从不**读取游戏进程内存，**从不**附加到游戏进程。
 关于是否读取游戏可执行文件，参见 [privacy-boundary.md](privacy-boundary.md) §4。
 
 **多开**：单个客户端自动锁定；尚未选择时发现多个客户端，自动记录暂停，等待明确选择。
+多开的客户端全部关闭后，这一等待随之解除，之后单独启动的客户端会自动锁定。
 总览和捕获诊断页的「记录对象」卡片提供两种入口：点击「点选游戏窗口」后，在 15 秒内
 点击或切换到目标 FF14 窗口；或者从列表选择按启动时间区分的游戏，再点击「记录此窗口」。
-选择动作之外不跟随前台窗口，不安装输入钩子，不读取窗口标题或角色名。
+点选期间桌面端每 150 毫秒读取一次前台窗口所属的进程编号（`GetForegroundWindow` / `GetWindowThreadProcessId`，
+不打开任何进程句柄）。选择动作之外不跟随前台窗口，不安装输入钩子，不读取窗口标题或角色名。
 
 锁定身份同时校验 PID 与启动时间；目标退出或 PID 被复用时，先结束旧采集。
 单开时，同一路径中新启动的唯一客户端可自动接续，不必再次点击「记录此窗口」。
 原本已打开的其他号不会被接管；出现多个候选、路径不符或身份无法确认时保持暂停，
 需要明确选择。主动切换也先停止旧数据源、排空旧队列并结束会话，进行中的导随按中断处理。
-启动时间暂不可读时不能只凭 PID 继续采集。选择只保存在本次采集服务内存中。
+主动切换时，所有可能拒绝的检查（令牌是否过期、采集验证是否占用等）都在停止旧采集之前完成；
+旧采集停止并释放之后，选择必定提交（旧采集未能及时释放时返回 `ERR_INTERNAL`，提示稍后再选）。
+所选客户端恰在切换期间退出时，`SelectGameProcess` 返回
+`ERR_FFXIV_NOT_RUNNING`，提示所选游戏已退出并等待重新选择，不会悄悄接回原来的客户端。
+尚未锁定的客户端启动时间不可读时不会被锁定（`game_selection_reason = IDENTITY_UNAVAILABLE`），也不能手动选择；
+已锁定客户端的启动时间暂时读不到时，同一 PID 仍视为该客户端，不当作退出。
+进程列表读取失败时保持锁定，不结束采集，状态沿用上一次的结果；同一客户端（PID 与启动时间相同）
+在一次漏读之后重新出现时直接重新锁定。读取持续失败时，诊断日志首次失败记一条
+`capture/process_listing_failed`，之后每分钟至多一条，恢复时记一条 `capture/process_listing_recovered`，
+均只含次数。选择只保存在本次采集服务内存中。
 
 切换客户端时清除旧客户端的职业记忆；同一进程重试采集仍保留职业，累计的协议校准证据不受影响。
 采集验证提示「重启游戏，验证将自动继续」时，可接续同一安装目录中新启动的唯一客户端，
@@ -165,8 +186,11 @@
 
 `CaptureStatus.game_processes` 提供进程编号、启动时间与临时 `selection_token`；
 `SelectGameProcess` 使用编号和令牌选择客户端。过期令牌明确拒绝。
+`game_selection_required` 只在 `game_processes` 非空时为 `true`；没有客户端运行时为 `false`，
+`game_selection_reason` 仍保留原因（`MULTIPLE` / `EXITED` / `IDENTITY_UNAVAILABLE`），供诊断查看。
 `ffxiv_running` / `ffxiv_process_id` 表示已锁定客户端是否仍在运行及其编号；等待选择时为
 `false` / `null`，候选客户端仍显示在列表中。区服、版本与协议档案均取自锁定的客户端。
+`StartCapture.process_id` 只接受已锁定客户端的编号，其他编号返回 `ERR_BAD_REQUEST`（`field = "process_id"`）。
 正在进行采集验证时须先停止验证，才能切换目标；验证也使用同一个锁定客户端。
 
 **路径读取失败**：区服与版本保持 `UNKNOWN` / `null`，档案因此无法匹配，
@@ -189,17 +213,24 @@
 
 推荐规则（`recommended = true`），按优先级：
 
-1. 用户此前手动选过的网卡（记在 `application_settings` 的 `capture.adapter_id`）；
-2. 其 IPv4 地址出现在**游戏进程当前 TCP 连接**的本地地址中，且 `is_up`、非回环。
+1. 用户此前手动选过的网卡（记在 `application_settings` 的 `capture.adapter_id`）；它不承载游戏流量、
+   而另一张网卡承载时改为推荐后者，并把记住的网卡标为 `preference_stale`；
+2. 其 IPv4 地址出现在**游戏进程当前 TCP 连接**的本地地址中，且 `is_up`、非回环；
+3. 游戏正在运行、但系统 TCP 表中它还没有任何连接（标题画面）时：Windows 路由表为一次普通的互联网连接
+   选用的那张网卡；路由表无法回答时，取第一张带默认网关的已启用网卡。两种情况都要求网卡 `is_up`、非回环
+   且有 IPv4 地址。
 
-两条规则均不满足时**不推荐任何网卡**，要求用户手动选择。这同样是 fail-closed 行为，
-不作任何推测。用户显式指定的 `adapter_id` 会被记住，下次自动沿用。
+以上规则均不适用时**不推荐任何网卡**，要求用户手动选择；系统 TCP 表读取失败时同样如此，不会当作
+"尚未联网"去推测网卡。这同样是 fail-closed 行为，不作任何推测。用户显式指定的 `adapter_id` 会被记住，
+下次自动沿用。
 
 系统 TCP 表通过 Machina 的 `ProcessTCPInfo` 读取，该类封装的是 IP Helper 的
 `GetExtendedTcpTable`。它与 `netstat -ano` 是同一份信息，与游戏进程本身无关。
+第 3 条的路由表查询使用 IP Helper 的 `GetBestInterface`，以文档保留地址 `203.0.113.1`（RFC 5737）为目标，
+只读取系统路由表，不发送任何数据，也不涉及任何进程。
 
-Machina 的 WinPCap 监视器按**本地 IP** 选择设备，因此采集服务将所选网卡的地址作为
-`LocalIP` 传入。
+抓包读取器（`NpcapPacketReader`，经 SharpPcap 打开 Npcap 设备）按所选网卡的标识与 IPv4 地址找到唯一一个
+Npcap 设备，并以该地址设置过滤器 `ip and tcp and host <地址>`；系统 TCP 表也按该地址筛选游戏的连接。
 
 **隐私**：
 
@@ -218,7 +249,7 @@ Machina 的 WinPCap 监视器按**本地 IP** 选择设备，因此采集服务�
 | `state` | `STOPPED` / `STARTING` / `RUNNING` / `DEGRADED` / `FAILED` | `RUNNING` |
 | `capture_session_id` | 本次抓包会话的 UUID | 运行时非空 |
 | `npcap_installed` / `npcap_version` | Npcap 检测结果 | `true` + 版本号 |
-| `ffxiv_running` / `ffxiv_process_id` | 游戏进程 | `true` + PID |
+| `ffxiv_running` / `ffxiv_process_id` | 已锁定的游戏客户端；等待选择时为 `false` / `null`（候选见 `game_processes`，§3） | `true` + PID |
 | `game_build` / `region` | 从 `ffxivgame.ver` 与安装路径得到；游戏未运行时取自记住的安装目录（§3），因此可以在 `ffxiv_running` 为 `false` 时非空 | 非空 |
 | `profile_status` | 与本次检测到的区服、版本精确匹配的协议档案状态 | `VERIFIED`，其余取值一律 fail-closed |
 | `adapter_id` | 本次使用的网卡 | 非空 |
@@ -334,7 +365,7 @@ fail-closed 方式发现，不依赖对未知 opcode 的计数；对未知 opcod
 | 值 | 判定依据 | `hint` 给出的处理建议 |
 |---|---|---|
 | `NONE` | 健康，或证据尚不足以判定。启动后 60 秒内不作判定，证据确凿时除外 | 无 |
-| `MIDSTREAM` | 开始抓包时游戏已有连接且始终未解出 IPC；或网卡上读到了足够多的报文（≥ 20 条），而**每一条**都因未观察到握手而被丢弃在重组阶段 | 返回标题画面重新登录，无需关闭游戏；或先启动本软件再启动游戏 |
+| `MIDSTREAM` | 开始抓包时游戏已有连接且始终未解出 IPC；或网卡上读到了足够多的报文（≥ 20 条），而**每一条**都因未观察到握手而被丢弃在重组阶段，且系统连接表列出了游戏的连接（或开始时已有连接） | 返回标题画面重新登录，无需关闭游戏；或先启动本软件再启动游戏 |
 | `NO_PACKETS_ON_ADAPTER` | 运行超过 60 秒，`raw_packets_observed` 仍为 0 | 可能正在使用加速器或 VPN，请在捕获诊断页重新选择网卡 |
 | `NO_STREAM_OWNERSHIP` | 存在原始报文，但没有任何连接被系统确认属于游戏 | 关闭加速器或代理，必要时以管理员身份运行 |
 
@@ -345,15 +376,16 @@ fail-closed 方式发现，不依赖对未知 opcode 的计数；对未知 opcod
 
 | 字段 | 含义 |
 |---|---|
-| `dropped_no_stream` | 报文所属连接没有被跟踪的流，这是中途接入的典型形态；或该方向已因空洞被放弃 |
+| `dropped_no_stream` | 报文所属连接没有被跟踪的流，这是中途接入的典型形态；或该方向此前已被放弃。也包括首部无法信任（分片、截断、偏移非法）的报文，以及无法安全解码的新握手（携带数据的 SYN、序号回绕）本身及其之后的报文 |
 | `dropped_no_syn` | 该方向从未观察到自己的 SYN，无法安全重放 |
 | `expired_streams` | 等待系统确认连接归属超时（30 秒）而释放的流 |
 | `unconfirmed_tuples` | 从未被系统 TCP 表确认属于游戏的连接数（按连接去重） |
-| `stream_resets` | 因丢包空洞在容忍时间（5 秒）内无法补齐而放弃的方向数 |
+| `stream_resets` | 被放弃的流与方向数：`damaged_game_directions` 计入的每一个方向；尚未认领的流因一个无法安全解码的报文（序号回绕、携带数据的 SYN、序号距离歧义或 SYN 冲突）而整条释放；以及被同一四元组的新握手取代的流 |
 | `adapter_dropped` | Npcap 报告的驱动或网卡丢包数。少量丢包仅降级为 `DEGRADED`，持续丢包才判定为故障 |
 | `handshakes` | 因观察到 TCP 握手而建立的流数，不区分程序。长时间为 0 表示该网卡上没有握手报文 |
 | `game_connections` | 开始抓包以来系统归属于游戏的连接数，已去重 |
 | `game_connections_now` | 最近一次读数时系统归属于游戏的连接数 |
+| `damaged_game_directions` | 已在解码的游戏连接中被放弃的方向数（空洞在容忍时间内无法补齐、无法安全解码的报文，或该方向没有自己的握手），本次会话的累计值。该方向此后不再交出任何报文。每个被放弃的方向另带所属连接的连接键，排在该连接已交出的报文之后单独交给协议管线：该方向本次会话交出过当前档案能解析的报文（或尚无任何方向交出过）时，进行中的记录按丢失观测收尾；同一连接的另一方向交出过这类报文时不算（[state-machine.md](state-machine.md) §3.3、§3.7、§7.5）。累计值本身与 `adapter_dropped` 一样不结束任何记录，只用于校准的健康判断与诊断：该值不为 0 的会话不再计作校准证据 |
 
 **`game_connections` 大于 `preexisting_connections` 时，不能再判定为本软件启动过晚。**
 这两个数值将一份 `messages_decoded: 0` 的报告区分为两种情况。两者相等时，客户端始终沿用
@@ -362,7 +394,8 @@ fail-closed 方式发现，不依赖对未知 opcode 的计数；对未知 opcod
 意义（2026-09-13）。提示语句与诊断页的警告均依据该区分选择措辞。
 
 同一组数值每 30 秒以 `ingress_stats` 事件写入本机诊断日志，因此一次无记录的会话在事后
-仅凭日志便可定位。日志中不含任何地址、路径或报文内容。
+仅凭日志便可定位。该事件另带解析队列丢弃的报文数 `queue_dropped`：它与 `damaged_game_directions` 一样，
+会使该会话不再计作校准证据，日志据此可以解释校准为何没有进展。日志中不含任何地址、路径或报文内容。
 
 **两个超时时长含义不同，不可混用。** 等待连接归属确认的时长为 30 秒。默认 Oodle 模式需要
 复制并扫描 `ffxiv_dx11.exe`，在冷盘上可能超过 5 秒；以 5 秒淘汰该连接等于取消它唯一的机会。
@@ -374,6 +407,14 @@ TCP 流量共用同一份预算；归属确认又需等待 30 秒，一次普通
 释放的是**最旧且尚未被认领的连接**，整条释放而非截断，并计入 `ingress.expired_streams`。
 仅当每一条被跟踪的流都已进入解码、无可释放时才 fail-closed。
 "绝不将残缺的前缀送入解码器"这一约束保持不变。
+
+**无法安全解码的单个报文同样不再中止抓包，只影响其所属连接。** 首部无法信任的报文（分片、截断、偏移非法）
+连四元组都不可信，不归入任何流，只计入 `dropped_no_stream`；它所属的流若因此留下空洞，按上文的空洞规则处理。
+携带数据的 SYN、跨越 32 位序号回绕的报文、序号距离存在歧义或与已见 SYN 冲突的报文，在接收时只作用于它所在的那条流：
+尚未认领的流整条释放，已在解码的流只放弃该报文所在的方向，另一方向与其他连接照常解码。期望序号在报文排队期间可能前移，
+因此报文交给解码器之前还会按当时的期望序号复查一次序号距离；复查只发生在已在解码的流上，不通过时同样只放弃该方向，
+并与接收时一样带上所属连接报给协议管线（`damaged_game_directions`）。此前它们会让整个抓包停止，
+而 pcap 过滤器放行的是本机所有程序的 TCP 流量，任何一次大流量下载都可能触发。
 
 ## 6. 有界队列与背压
 
@@ -392,8 +433,8 @@ TCP 流量共用同一份预算；归属确认又需等待 30 秒，一次普通
 - 解析线程为**单线程**，按观察顺序调用 `IDecodedMessageSink.Accept`。
   队列自身会捕获 sink 异常并计入 `SinkErrorCount`，worker 不会因此崩溃。生产环境下的
   `CaptureController` 会将该会话置为 `FAILED`，避免界面仍显示运行中而后续记录持续丢失。
-- 发生丢弃时，当前进行中的记录会被标记为可能不完整。若关键事件因此缺失，
-  该记录最终判定为 `INTERRUPTED`（见 [state-machine.md](state-machine.md) §3.7）。
+- 发生丢弃时，丢失本身即作为事件序列空洞交给状态机：进行中的已进本记录判定为 `INTERRUPTED`，
+  尚未进本的匹配按「进本前取消」收尾并标记待复核（见 [state-machine.md](state-machine.md) §3.3、§3.7）。
 
 ## 7. 监视器故障
 
@@ -411,7 +452,8 @@ Machina 在自身线程内将失败写入 `Trace`，而不向调用方抛出异�
 - 命中致命标记（`Cannot load`、`Unable to retrieve network data`、`PcapException`、
   `Error opening`、`Cannot find one or more signatures`）时，抓包进入 `FAULTED`
   （契约中 `state = FAILED`），会话以 `end_reason = ERROR` 关闭，
-  并通过 `ICaptureLifecycleListener` 通知状态机按 `INTERRUPTED` 处理。
+  并通过 `ICaptureLifecycleListener` 通知状态机：已进本的记录按 `INTERRUPTED` 收尾，尚未进本的匹配按「进本前取消」
+  收尾并标记待复核（[state-machine.md](state-machine.md) §3.3）。
 
 缺少这一层时，启动后即失效的监视器只会表现为报文数持续为 0，与选错网卡的表象相同。
 
@@ -445,6 +487,12 @@ Machina 在自身线程内将失败写入 `Trace`，而不向调用方抛出异�
 - 滚动策略：**按大小**滚动，单文件上限 2 MiB，最多保留 5 个文件，总量上限约 10 MiB，
   另按 7 天清理。
 - 日志写入失败（磁盘已满、权限不足）**绝不**导致进程崩溃。诊断信息可以放弃，用户数据不可以。
+- 采集服务无法启动的原因同样写入日志。数据库无法打开（文件损坏、不是数据库，或被其他程序占用）时记一条
+  `startup/open_failed`，含错误码与原因说明。本机通信管道已被占用时记一条 `startup/already_running`，
+  其 `holder` 字段区分三种占用者：应答的本软件实例（`ANSWERED`）、占着管道却不应答的实例（`SILENT`），
+  以及属于另一个 Windows 账户或以管理员身份运行的占用者（`OTHER_ACCOUNT`，此时采集服务以退出码 3 停止启动，
+  见 [architecture.md](architecture.md) §2.4）。
+- 进程列表持续读取失败时的 `capture/process_listing_failed` / `capture/process_listing_recovered` 见 §3。
 
 ## 9. 脱敏诊断报告
 
@@ -512,9 +560,10 @@ Machina 在自身线程内将失败写入 `Trace`，而不向调用方抛出异�
 不受该策略约束，也不会覆盖已有输出。
 
 **时长上限**：界面发起的验证最长运行 **2 小时**
-（`CaptureValidationServices.MaxSessionDuration`），到时自动停止。命令行
+（`CaptureValidationServices.MaxSessionDuration`，从开始验证起计，含等待游戏或重启的时间），到时自动停止。
+验证占用抓包期间不会自动记录，捕获诊断页的提示会写明这一点。命令行
 `--duration-seconds <n>` 最大取 86400；**省略该参数或取 0 表示不限时长**，
-此时只有行数上限（`--max-lines`，默认 20 万）、Ctrl+C 与游戏退出可以结束它。
+此时只有行数上限（`--max-lines`，默认 20 万，最多 25 万）、Ctrl+C 与游戏退出可以结束它。
 
 trace 同样采用**白名单**机制，每条消息只写入下列字段。
 
@@ -524,7 +573,7 @@ trace 同样采用**白名单**机制，每条消息只写入下列字段。
 | `t_ms` | 相对取证开始的**单调**毫秒 |
 | `at_utc` | UTC 时间戳，取自**本机时钟**。该行为自 0.2.4 起生效，更早版本的取证在此处记录的是服务器 epoch |
 | `epoch` | 该报文所属压缩包的**服务器 epoch**（毫秒）。`at_utc` 改用本机时钟之后，两代取证依靠该字段对齐 |
-| `conn` | 连接键（不含任何地址，跨会话不可关联；见 §5.4） |
+| `conn` | 连接标识：连接键（§5.4）的前 8 位，只用于在同一份取证内区分连接，不含任何地址，跨会话不可关联 |
 | `dir` | `S2C` / `C2S` |
 | `seg` | 段类型 |
 | `op` | opcode，写作 `0xNNNN` |
@@ -537,8 +586,9 @@ trace 同样采用**白名单**机制，每条消息只写入下列字段。
 文件首行为文件头，包含 `trace_version` / `synthetic` / `started_at_utc` / `npcap_version` /
 `game_build` / `region` / `adapter_fingerprint` / `collector_version` / `oodle_mode` /
 `live_capture_status`，其中最后一项与 `--capture-doctor` 报告的是同一取值。
-末行为 summary，包含消息数、解码错误、丢弃数、时长、是否因行数上限被截断，以及
-Top 40 opcode。两者之间可能夹有用户输入的标记行（`marker` / `t_ms` / `at_utc`）。
+末行为 summary，包含消息数、解码错误、丢弃数、时长、是否因行数上限被截断、
+Top 40 opcode，以及按连接标识汇总的每条连接的消息数、首末时间与不同 opcode 数（最多区分 64 条连接，
+其余只计数）。两者之间可能夹有用户输入的标记行（`marker` / `t_ms` / `at_utc`）。
 
 真机 trace 还有一项前置条件：必须从**新建立的游戏 TCP 连接**开始。
 若采集服务发现游戏在所选适配器的本地地址上已存在活动连接，将拒绝启动 `--capture-trace`，
@@ -546,16 +596,15 @@ Top 40 opcode。两者之间可能夹有用户输入的标记行（`marker` / `t
 这类文件不属于低质量证据，而属于不可信证据。
 所选适配器没有可绑定的 IPv4 地址时同样拒绝启动，不会退回到全进程连接计数，
 也不会交由 Machina 自行选择网卡。
-抓包源同时关闭 Machina 的远端 IP 过滤，以免在监听器安装期间遗漏有状态解码所需的连接初始
-数据。无关候选包仍会被目标连接的 IP/TCP 元组解码器丢弃，且不会落盘。
+抓包过滤器只按本机地址过滤、不按远端地址过滤，以免在过滤条件更新之前遗漏有状态解码所需的连接初始
+数据。其他程序的报文不会被解码：只有系统 TCP 表确认属于游戏的连接才进入解码器，其余报文丢弃，且不会落盘。
 
 **不包含**（由 `tests/Collector.UnitTests/CaptureTraceTests.cs` 对产出的字节直接反向断言）：
 
 - 任何负载字节，无论以十六进制、Base64 还是其他形式书写；
 - 除 `h12` 之外**任何长于 12 位的十六进制串**。断言方式是先抹除 `h12` 字段，
   再断言全文不含 13 位以上的十六进制串；
-- 任何 IPv4 / IPv6 字面量。**已经哈希过的连接键同样不写入**，
-  因为区分连接对识别 opcode 没有帮助；
+- 任何 IPv4 / IPv6 字面量。连接只以 `conn` 标识，即已哈希连接键的前 8 位，不写入完整的连接键；
 - 角色名、聊天内容、队友或任何其他玩家的信息；
 - 网卡 GUID，只写入其 12 位指纹。
 
@@ -563,8 +612,8 @@ Top 40 opcode。两者之间可能夹有用户输入的标记行（`marker` / `t
 五个固定词，大小写不敏感，落盘时统一为小写，其他输入一律忽略。因此地址、路径、
 报文片段与角色名无法经标记入口进入 trace。
 
-有界性是**强制约束**而非约定。消息行默认上限 20 万行（`--max-lines`），
-标记行上限 1 万行；达到上限后只计数、不再写入，并在 summary 中标记 `truncated`。
+有界性是**强制约束**而非约定。消息行默认上限 20 万行（`--max-lines`，最多可设为 25 万，
+即 `--trace-report` 能读取的行数），标记行上限 1 万行；达到上限后只计数、不再写入，并在 summary 中标记 `truncated`。
 时长由 `--duration-seconds`、游戏进程退出或 Ctrl+C 三者之一封顶。
 输出路径已存在时命令拒绝覆盖，以免破坏既有证据。
 结束时写出 `<out>.sha256` 边车文件，未附哈希的证据不予采信
@@ -582,7 +631,7 @@ Top 40 opcode。两者之间可能夹有用户输入的标记行（`marker` / `t
 当前数量：
 
 ```
-游戏程序临时副本（只看本软件登记过的文件，不扫描临时目录）
+游戏程序临时副本（本软件登记过的文件）
   尚未删除:            0
   占用字节:            0
   登记但已不存在:      0
@@ -595,7 +644,8 @@ Top 40 opcode。两者之间可能夹有用户输入的标记行（`marker` / `t
 清单中只有本软件自行创建过的路径，其所有权是确定的；而枚举临时目录的自检会读取与本软件
 无关的文件。`尚未删除` 大于 0 时，输出附带说明"这些副本会在下次启动采集服务时自动删除"。
 回收发生在 `CollectorHost.Open`，只删除清单中仍然存在、且确实位于 Machina 专属临时子目录
-下的条目。
+下的条目。正常监听、界面上的「开始验证」与 `--capture-trace` 产生的副本都登记在这份清单中；
+该目录里未经登记的文件一律不删除，也不按文件名清理（[privacy-boundary.md](privacy-boundary.md) §4.2）。
 
 ### 9.4 校准受阻时 `calibration.evidence` 的解读
 
@@ -614,6 +664,7 @@ Top 40 opcode。两者之间可能夹有用户输入的标记行（`marker` / `t
 | `markers` | 格式为 `0x报文:长度@第几个字节=命中/该形状被扫过几条x跟过几个不同的随机任务`。上述两行只检查模板声明的那一个字节位置，本行**不预设位置**，将每条服务器报文的每个字节与用户当前正在排的随机任务比对一次。判据只有一条：该位置每次都带有**当时所排的编号**，且跟随过**至少两个不同的随机任务**（`x2` 及以上）。普通报文无法跟随一个持续变化的数值。`x1` 不能说明任何问题，列出它只是为了让受阻的报告能指出差距所在 |
 | `marker_overflow` | 上述表格溢出过多少次。溢出只削弱该项扫描的效果，不影响任何判定 |
 | `carried` | 本轮观察从上一次运行继承的报文条数。该值为 0 而磁盘上本应存在证据时，说明证据未被读入，属于软件缺陷，而非用户未进行游戏 |
+| `carried_source` | 本轮从什么证据开始，说明 `carried` 的来由：`OK` 为完整读入；`OLD_QUEUE_RULE` 为读入了 1.5.0 及更早版本保存的证据，但其中按旧的排本识别规则积累的部分已丢弃（§9.4.1）；`NO_FILE` 为没有证据文件；`OLD_LAYOUT` / `OTHER_BUILD` / `OTHER_TEMPLATE` 为文件属于其他格式、其他客户端版本或其他模板，未读入；`UNREADABLE` 为文件无法读取或已损坏 |
 | `watched_seconds` / `quiet_seconds` | 观测器实际监听的时长，以及距其最后一次收到报文的时长。**应优先查看这两项**。`watched_seconds` 远小于用户实际在线时长，或 `quiet_seconds` 达到数十乃至上百秒时，说明缺少的是报文而非游戏行为，继续游戏无法补足 |
 | `clusters_at` / `pairs_at` | 每一次换区与每一次排本配对发生在导出时刻之前多少秒。该值为相对时间，不含任何绝对时间。若用户完成了两次副本而只有一个 `clusters_at`，便可直接判断缺失的是哪一段 |
 | `duty_zones` | 有多少次换区识别出了副本表中的区域。该值为 0 而 `clusters` 不为 0 时，说明本版本同时调整了区域报文，继续游戏无助于校准 |
@@ -634,13 +685,21 @@ Top 40 opcode。两者之间可能夹有用户输入的标记行（`marker` / `t
 关闭软件、升级版本或重启计算机都不会导致证据丢失，下次启动后继续累积。
 
 - 文件按**区服与客户端版本**命名，并附带当时所用**模板档案的哈希**。游戏版本或模板发生变化时，
-  旧文件被直接忽略。
+  旧文件被直接忽略，并在下一次保存时被替换，不会因此挡住新证据的保存。
+- 文件还记有积累时所用的排本识别规则。1.5.0 及更早版本保存的文件没有这一标记：其中的换区簇、报文计数、
+  职业取值与排本配对照常读入，但依附于排本的部分（弹窗记录、轮盘编号回显、任意位置扫描与按出现时机的统计，
+  连同各自的溢出计数）全部丢弃，从下一次排本起重新积累；诊断中 `carried_source` 此时为 `OLD_QUEUE_RULE`。
+  原因是旧规则把形状与排本申请相同的每一条客户端报文（包括持续发送的移动报文）都当作排本，这些表据此积累的
+  内容不可信；现在只有得到服务器回执的申请才算排本。
 - 文件内容与诊断报告中已输出的内容一致：opcode、报文长度、字节偏移、id 类数值（轮盘、区域、
   职业），以及脱敏后的连接标签与时间。**不含任何负载字节**（docs/privacy-boundary.md §5.2）。
 - 点击「重新观察」时一并删除该文件，否则下次启动会重新载入已被放弃的证据。
 - 校准完成并写出本机档案后同样删除该文件。仅「按排本申请推断」生成的临时档案予以保留，
   因为仍需继续查找真正的匹配报文。
-- 文件无法读取、版本不匹配或内容损坏时，一律按无证据处理，不会因此导致启动失败。
+- 文件无法读取、版本不匹配或内容损坏时，一律按无证据处理，不会因此导致启动失败；这样的文件同样在下一次保存时
+  被直接替换。
+- 只有当前能够读入的同一格式、同一版本、同一模板的文件，才会阻止报文数更少的观察覆盖它（避免用一分钟的观察
+  换掉一个晚上的积累）；停止抓包时的最终保存也不会被稍早开始的定时保存覆盖。
 
 ### 9.5 认不出匹配报文时：按排本申请推断
 
@@ -657,7 +716,8 @@ Top 40 opcode。两者之间可能夹有用户输入的标记行（`marker` / `t
 - 状态机对该类档案附加一条规则：只有**副本表可识别的区域**才计为进本，普通传送不计，
   否则排队期间的一次城内传送会被误判为进本。
 - 卡片首行提示"已经可以正常记录导随了，软件还在后台找更准的判定依据"。校准**不会停止**，
-  找到真正的匹配报文后会再次请用户核对并替换该档案。
+  找到真正的匹配报文后会再次请用户核对并替换该档案。找到可补充的内容时，卡片改为说明这次核对能补上什么
+  （真正的匹配报文、职业或匹配弹窗），并说明核对之前记录照常进行。
 
 已知且唯一的代价是：用户申请随机任务后取消，并在随后一小时内手动进入了一个副本，
 该次会被记入已取消的那个随机任务名下。协议本身不提供区分这两种情况的依据。
@@ -677,7 +737,7 @@ opcode 与负载字节。
 |---|---|
 | `shared_calibration_enabled` | 设置「获取共享校准」是否开启。读不到设置时（例如 `--capture-doctor`）取默认值 `true` |
 | `kill_switch` | 进程环境变量 `MR_DISABLE_SHARED_FETCH` 是否关闭了整个获取流程。除空值、`0`、`false` 之外的取值均视为关闭 |
-| `last_fetch_utc` | 本进程**实际发出**请求的最近一次时间，从未发出时为 null。开关关闭、已有可用档案，或用户已选择不使用共享校准时都不会发出任何请求，该字段保持 null |
+| `last_fetch_utc` | 本进程**实际发出**请求的最近一次时间，从未发出时为 null。开关关闭、已有可用档案（[privacy-boundary.md](privacy-boundary.md) §8.2 所列仍读取索引的两种情形除外），或用户已选择不使用共享校准时都不会发出任何请求，该字段保持 null |
 | `last_fetch_status` | 该次请求的总体结果：`OK` / `CANCELLED` / `INDEX_UNAVAILABLE` / `NONE_FOR_BUILD` / `CODES_UNAVAILABLE` |
 
 `boundary.outbound.online_speech` 自 2026-09-16 起提供，属于只增不删的变更，报告版本仍为 2。
@@ -717,9 +777,9 @@ opcode 与负载字节。
 | `phase` | 总体阶段。`UNAVAILABLE` 表示上次获取时所有源均不可达或未取到校准码，本机校准照常进行；`VERIFYING` 表示已有校准码正等待本机流量核实；`AWAITING_CONSENT` 表示按排本推断的校准码已通过，等待用户确认一次；`VERIFIED` 表示共享档案正在使用；`REJECTED` 表示全部校准码均不匹配、已被撤销、在用档案被撤下，或用户选择了不使用共享校准，此时应先查看 `user_rejected` |
 | `last_fetch_status` / `last_index_attempts` | 该版本最近一次获取的总体结果，以及每个源（`GITHUB_RAW` / `CDN_PRIMARY` / `CDN_FALLBACK`）索引请求的结果码。三个源全部为 `DNS_OR_CONNECT` 或 `TIMEOUT` 表示用户网络无法到达，此时应引导用户使用「导入校准码」 |
 | `candidates[]` | 每份校准码一行，包含 `sha12`（码身份的前 12 位，可与公开仓库中的文件名对照）、`source`（`DOWNLOADED` 为下载，`MANUAL` 为手动导入）、`match_source`、`status`、`verdict`。正在使用的共享档案排在第一位 |
-| `candidates[].criteria[]` | 每条声明报文对应一项判定，包含 `message`（语义名，非 opcode）、`verdict`（`PASS` / `WAIT` / `CONTRADICTED`）、`reason`（中文原因）、`contradicting_sessions`（已有多少个**健康**抓包会话与之矛盾，达到两个才判定为拒绝）。长期为 `WAIT` 且原因为未观察到登录时的换区，通常说明本软件在游戏登录之后才开始抓包（§5.5），而非校准码存在问题 |
+| `candidates[].criteria[]` | 每条声明报文对应一项判定，包含 `message`（语义名，非 opcode）、`verdict`（`PASS` / `WAIT` / `CONTRADICTED`）、`reason`（中文原因）、`contradicting_sessions`（已有多少个**健康**抓包会话与之矛盾，达到两个才判定为拒绝），以及 `gate`：`REQUIRED` 为绑定前必须通过，`AUDIT` 为绑定后在记录中继续核对（矛盾时仍会撤下），`OPTIONAL` 为从不阻挡绑定（职业）。长期为 `WAIT` 且原因为未观察到登录时的换区，通常说明本软件在游戏登录之后才开始抓包（§5.5），而非校准码存在问题 |
 | `candidates[].staging_overflowed` | 暂存事件超过上限，该校准码在本会话内无法绑定，需在下一个抓包会话重试 |
-| `candidates[].provenance` | 1.1.0 起。`PUBLISHED` 表示本机最近一次读到的索引列出了这份码（下载来的，或导入后在索引里找到的），登录时换区判据通过即绑定，排本与进本判据在记录中继续核对；`IMPORTED` 表示导入后任何索引都不认识，三条判据全部通过才绑定。`IMPORTED` 的码长期停在 `VERIFYING`，通常是还没排过本，不是码有问题 |
+| `candidates[].provenance` | 1.1.0 起。`PUBLISHED` 表示本机最近一次读到的索引列出了这份码（下载来的，或导入后在索引里找到的）；`IMPORTED` 表示导入后任何索引都不认识。来源只说明码从哪里来，核实门槛另由各判据的 `gate` 给出：只有本机当前没有可用档案、仓库未给它标冲突标记、至少有一名提交者、且没有提交人数更多的候选时，`PUBLISHED` 的码才是登录时换区判据通过即绑定（`CONTENT_FINDER_POP` 等判据为 `AUDIT`）；其余 `PUBLISHED` 的码与全部 `IMPORTED` 的码须排本与进本判据也通过才绑定（这些判据为 `REQUIRED`）。这样的码长期停在 `VERIFYING`，通常是还没排过本，不是码有问题 |
 | `candidates[].audit_pending` / `audit_pending` | 1.1.0 起。正在使用（或可绑定）的共享档案仍有绑定后核对的判据在等待。为 true 时校准保持布防，记录照常生成；两个健康会话判矛盾会撤下档案并把它自绑定起生成的记录标记待复核 |
 | `profile_id` / `bound_at_utc` | 正在使用的共享档案，以及它在抓包会话内开始记录的时刻 |
 | `last_refusal` | 上一次绑定或撤下失败的原因令牌：`NOT_SELECTED`（写出后目录未选中它）、`STAGING_NOT_FOR_THIS_SESSION`、`WRITE_FAILED`、`BUILD_*`、`STALE`（写出期间状态发生变化）、`CONTRADICTED`、`REVOKED`、`REJECTED`、`USER_REJECTED`、`INTERNAL`。令牌之外的细节（异常类型、路径）只保留在本机，不写入报告 |
@@ -742,8 +802,9 @@ opcode 与负载字节。
 | `packets_observed` 增长但无记录产生 | 协议档案未达到 `VERIFIED`，触发 fail-closed | 查看诊断页的 `profile_status`，此时只能手工补录 |
 | `packets_dropped` 持续增长 | CPU 占用过高，或队列容量过小 | 提高 `capture.queue_capacity`，并关闭其他抓包工具 |
 | `state = FAILED` 且 `last_error_code` 非空 | 监视器致命错误（见 §7），或适配器被拔出、禁用 | 查看日志中的 `monitor_trace`，随后重新调用 `StartCapture` |
+| 开始监听时返回 `ERR_INTERNAL`（`details.monitor = START_FAILED`） | 与 Npcap 无关的启动失败：网卡的数据链路类型不受支持、读取线程未能启动、Oodle 初始化失败等 | 查看本机诊断日志；不需要重装 Npcap |
 | 记录全部为 `INTERRUPTED` | 采集服务频繁重启，或抓包被反复中断 | 查看日志中的 `PROCESS_RESTART` 事件 |
-| 游戏在运行但 `ffxiv_running = false` | 游戏以不同的进程名运行 | 在诊断页手动指定 `process_id` |
+| 游戏在运行但 `ffxiv_running = false` | 正在等待选择记录对象（`game_selection_required = true`，候选见 `game_processes`，§3）；或游戏以 `ffxiv_dx11` / `ffxiv` 之外的进程名运行 | 在总览或捕获诊断页的「记录对象」卡片中选择游戏窗口。`StartCapture.process_id` 只接受已锁定的客户端，不能用来指定其他进程；进程名不同的客户端不受支持 |
 
 ## 11. 用户可自行做的边界核对
 

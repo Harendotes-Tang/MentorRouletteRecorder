@@ -66,7 +66,7 @@
 - **导出与备份**：支持导出 CSV / JSON；数据库每日自动备份，也可手动备份。
 - **语音播报（可选）**：默认使用系统语音，可在设置中更换音色或关闭；也可改用在线语音
   （Microsoft Azure 语音或 OpenAI 兼容接口，需自备密钥，默认关闭）。
-- **版本更新后自动适配**：游戏更新后，软件在正常游玩中完成本机校准，或获取其他玩家分享的校准、登录时经本机核实后启用，
+- **版本更新后自动适配**：游戏更新后，软件在正常游玩中完成本机校准，或获取其他玩家分享的校准、经本机流量核实后启用，
   通常无需等待新版本发布。详见[常见问题](#常见问题)。
 
 <details>
@@ -91,7 +91,9 @@
 从 [Releases](https://github.com/Harendotes-Tang/MentorRouletteRecorder/releases) 下载
 `MentorRecorder-<版本>-setup.exe` 并运行。
 
-- 默认安装目录为 `D:\MentorRecorder`，可在安装时更改。
+- 默认安装目录为 `D:\MentorRecorder`（D 盘不是本地固定磁盘或空间不足时为 `Program Files\MentorRecorder`），
+  可在安装时更改。所选文件夹须为新建或空的文件夹，或此前安装本软件的文件夹；安装程序会将其设为只有管理员
+  可以修改、其他用户只能读取和运行，只有其中存放备注图片的 `note-images` 文件夹允许所有用户写入。
 - 若系统未安装 Npcap，安装程序将从 npcap.com 下载并启动其官方安装程序（Npcap 的免费许可证
   不允许随本软件再分发）。安装 Npcap 时请保留默认选项，尤其是 *WinPcap API-compatible Mode*。
 
@@ -162,8 +164,10 @@
 
 **游戏更新后还能用吗？**
 可以。更新后首次运行时，软件会提示"正在重新校准"：正常完成一次随机任务（不限于指导者任务）后，
-逐项核对校准结果并启用，随后恢复自动记录。若已有其他玩家分享了该版本的校准，软件会先获取，登录时在本机流量中核实通过就启用，
+逐项核对校准结果并启用，随后恢复自动记录。若已有其他玩家分享了该版本的校准，软件会先获取。
+本机尚无可用校准、该校准未被标记为与其他校准冲突、且没有提交人数更多的其他校准时，登录时在本机流量中核实通过就启用，
 第一把随机任务即可正常记录与播报；排本与进本报文在记录中继续核实，对不上会自动改回本机校准并把期间的记录标记待复核。
+其他情况下，需要在本机排一次本、排本与进本也核实通过后才启用。
 只有报文结构发生变化时，才需要将证据提交给维护者。详见
 [docs/live-validation-guide.md](docs/live-validation-guide.md) §7.6。
 
@@ -196,7 +200,7 @@ pwsh -File scripts/bootstrap.ps1     # 检查工具链（不下载任何内容�
 pwsh -File scripts/build.ps1         # 构建 Collector 与 Desktop
 pwsh -File scripts/test.ps1          # .NET 测试 + Qt 测试
 pwsh -File scripts/verify.ps1        # 静态边界检查 + 全部测试
-pwsh -File scripts/package.ps1 -Verify   # 生成 zip 与安装器（需要 Inno Setup 6）
+pwsh -File scripts/package.ps1 -Verify   # 生成 zip 与安装器（需要 Inno Setup 6.7 或更新版本）
 ```
 
 Collector 的命令行参数（`--serve`、`--replay`、`--validate-profile`、`--capture-doctor` 等）及

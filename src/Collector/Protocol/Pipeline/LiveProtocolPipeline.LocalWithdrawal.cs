@@ -143,30 +143,41 @@ public sealed partial class LiveProtocolPipeline
 
     /// <summary>
     /// The selector over the catalogue as it now stands on disk, or null when it cannot be read.
-    /// A profile this process withdrew is answered as "no profile matches", the one reason
-    /// calibration is allowed to act on. A new confirmation installs a selector of its own, so a
-    /// profile calibrated afresh for the same build is not caught by this.
+    /// A profile this process withdrew is answered as "no profile matches" (see
+    /// <see cref="WithoutWithdrawn"/>).
     /// </summary>
     private Func<GameProcessDetection, ProfileSelection>? ReloadedSelect()
     {
         try
         {
-            var select = _calibrationServices.ReloadSelect();
-            return game =>
-            {
-                var selection = select(game);
-                return selection.Profile is { } profile && _withdrawnLocalProfiles.Contains(profile.ProfileId)
-                    ? new ProfileSelection(
-                        ProfileCompatibilityStatus.Unsupported, ProfileBinding.FailClosed, null,
-                        selection.Region, selection.GameBuild, ProfileSelector.NoProfileMatchesReason)
-                    : selection;
-            };
+            return WithoutWithdrawn(_calibrationServices.ReloadSelect());
         }
         catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
         {
             return null;
         }
     }
+
+    /// <summary>
+    /// Wraps a selector reloaded from disk so that a local profile this process withdrew is answered
+    /// as "no profile matches", the one reason calibration is allowed to act on. Every reloaded
+    /// selector goes through this - the ones shared calibration hands over included - because any of
+    /// them can still list a withdrawn file that could not be renamed (audit 2026-10-03, ODp-4). A
+    /// confirmation takes the id it writes out of the set: the file under that id is then the one
+    /// the player has just vouched for.
+    /// </summary>
+    /// <param name="select">Selector over the catalogue as it stands on disk.</param>
+    private Func<GameProcessDetection, ProfileSelection> WithoutWithdrawn(
+        Func<GameProcessDetection, ProfileSelection> select) =>
+        game =>
+        {
+            var selection = select(game);
+            return selection.Profile is { } profile && _withdrawnLocalProfiles.Contains(profile.ProfileId)
+                ? new ProfileSelection(
+                    ProfileCompatibilityStatus.Unsupported, ProfileBinding.FailClosed, null,
+                    selection.Region, selection.GameBuild, ProfileSelector.NoProfileMatchesReason)
+                : selection;
+        };
 
     /// <summary>
     /// Sits between the parser and the state machine while a learned local announcement records,

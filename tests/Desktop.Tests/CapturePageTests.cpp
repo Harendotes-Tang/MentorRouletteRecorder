@@ -307,6 +307,46 @@ private slots:
         QVERIFY(!scene.app->gameSelection()->currentLabel().isEmpty());
     }
 
+    // 审查 OD-1 / OK-2：唯一的客户端关掉之后（或几个都关掉之后），采集服务可能仍
+    // 报 game_selection_required，但列表是空的。没有可选的游戏，页面就是普通的
+    // 「等待游戏启动」：不出「记录对象」卡片，链路不变橙，档案不写「等待选择游戏」。
+    void aClosedGameWithNothingToChooseIsOrdinaryWaiting_data()
+    {
+        QTest::addColumn<QString>("reason");
+        QTest::newRow("only client closed") << QStringLiteral("EXITED");
+        QTest::newRow("every client closed") << QStringLiteral("MULTIPLE");
+    }
+
+    void aClosedGameWithNothingToChooseIsOrdinaryWaiting()
+    {
+        QFETCH(QString, reason);
+        auto fake = std::make_unique<CaptureBackend>();
+        fake->capture = {{QStringLiteral("state"), QStringLiteral("STOPPED")},
+                         {QStringLiteral("ffxiv_running"), false},
+                         {QStringLiteral("ffxiv_process_id"), QJsonValue::Null},
+                         {QStringLiteral("npcap_installed"), true},
+                         {QStringLiteral("profile_status"), QStringLiteral("NONE")},
+                         {QStringLiteral("region"), QStringLiteral("UNKNOWN")},
+                         {QStringLiteral("game_selection_required"), true},
+                         {QStringLiteral("game_selection_reason"), reason},
+                         {QStringLiteral("game_processes"), QJsonArray()}};
+        PageScene scene;
+        scene.other = std::move(fake);
+        QVERIFY(scene.open());
+        QTRY_COMPARE(scene.app->recording()->state(), QStringLiteral("waiting"));
+        QTRY_COMPARE(scene.text(QStringLiteral("captureHeaderStatusText")), QString::fromUtf8("等待游戏启动"));
+        QTRY_COMPARE(scene.text(QStringLiteral("captureChainSummary")),
+                     QString::fromUtf8("等待游戏启动 · 档案按版本匹配，游戏启动后才知道能否记录"));
+        QVERIFY(summaryReadsAsWaiting(scene));
+        QVERIFY(!scene.shows(QStringLiteral("gameSelectionPanel")));
+        QCOMPARE(chainValue(scene, "game"), QString::fromUtf8("未运行"));
+        QCOMPARE(chainValue(scene, "profile"), QString::fromUtf8("待游戏启动"));
+        const QString page = scene.visibleTexts().join(QLatin1Char('\n'));
+        QVERIFY2(!page.contains(QString::fromUtf8("所选游戏已退出")), qPrintable(page));
+        QVERIFY(!page.contains(QString::fromUtf8("多个游戏客户端")));
+        QVERIFY(!page.contains(QString::fromUtf8("等待选择游戏")));
+    }
+
     void validationRestartWaitDoesNotTellTheUserToChangeClients()
     {
         PageScene scene;
@@ -406,6 +446,28 @@ private slots:
         QVERIFY(scene.shows(QStringLiteral("redetectNpcapButton")));
     }
 
+    // OB8-D1：只读得到 Npcap 自带 libpcap 的版本时，采集服务报「libpcap 1.10.6」；页面在
+    // 前面再加「v」就成了「vlibpcap 1.10.6」。只有以数字开头的版本号才加「v」。
+    void aLibpcapVersionIsNotPrefixedWithAV()
+    {
+        for (const bool maintainer : {false, true}) {
+            auto fake = std::make_unique<CaptureBackend>();
+            fake->capture = {{QStringLiteral("state"), QStringLiteral("RUNNING")},
+                             {QStringLiteral("ffxiv_running"), true},
+                             {QStringLiteral("npcap_installed"), true},
+                             {QStringLiteral("npcap_version"), QStringLiteral("libpcap 1.10.6")},
+                             {QStringLiteral("profile_status"), QStringLiteral("VERIFIED")}};
+            PageScene scene;
+            scene.other = std::move(fake);
+            QVERIFY(scene.open(maintainer));
+            QTRY_COMPARE(chainValue(scene, "npcap"), QStringLiteral("libpcap 1.10.6"));
+            if (maintainer)
+                QTRY_VERIFY(scene.shows(QStringLiteral("captureMetricGrid")));
+            const QString page = scene.visibleTexts().join(QLatin1Char('\n'));
+            QVERIFY2(!page.contains(QStringLiteral("vlibpcap")), qPrintable(page));
+        }
+    }
+
     // -- 解析 ---------------------------------------------------------------
 
     void theLastValidEventNamesAKnownKind()
@@ -478,18 +540,17 @@ private slots:
             QStringLiteral("0x"), QStringLiteral("ERR_"), QStringLiteral("VERIFIED"),
             QStringLiteral("S2C"), QStringLiteral("profile"), QStringLiteral("cn/2026"),
             QStringLiteral("LIVE_CAPTURE_STATUS"), QStringLiteral("ExportDiagnosticsReport")};
-        // The refusal code itself is shown in mono (plan §4: 错误码用等宽字体);
-        // E_UNKNOWN_OPCODE is a code, not an opcode, so the code cell is exempt.
-        static const QRegularExpression refusalCode(QStringLiteral("^E_[A-Z_]+$"));
+        // Review OK-8: the refusal code (E_LEN_MISMATCH …) is a token like any other.
+        // A player reads the sentence; the code column is maintainer material.
+        static const QRegularExpression refusalCode(QStringLiteral("\\bE_[A-Z_]+"));
         for (const QString &text : texts) {
-            if (refusalCode.match(text).hasMatch())
-                continue;
+            QVERIFY2(!refusalCode.match(text).hasMatch(),
+                     qPrintable(QStringLiteral("player page leaks a refusal code: %1").arg(text)));
             for (const QString &word : words) {
                 QVERIFY2(!text.contains(word, Qt::CaseInsensitive),
                          qPrintable(QStringLiteral("player page leaks \"%1\": %2").arg(word, text)));
             }
         }
-        QVERIFY(texts.contains(QStringLiteral("E_LEN_MISMATCH")));
     }
 
     void maintainersReadTheRawRefusal()
@@ -500,6 +561,8 @@ private slots:
         QTRY_VERIFY(!scene.app->parserErrors().isEmpty());
         QTRY_VERIFY(scene.visibleTexts().join(QLatin1Char('\n')).contains(QStringLiteral("S2C 0x01A3")));
         QVERIFY(scene.visibleTexts().join(QLatin1Char('\n')).contains(QStringLiteral("LIVE_CAPTURE_STATUS")));
+        // The refusal code, in its mono column.
+        QVERIFY(scene.visibleTexts().contains(QStringLiteral("E_LEN_MISMATCH")));
     }
 };
 

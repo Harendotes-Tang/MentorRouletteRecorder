@@ -51,6 +51,14 @@ void CalibrationController::refreshFromCaptureStatus(const QVariantMap &capture)
     // Shared calibration reads the same snapshot, including the profile origin that
     // lives beside the calibration object rather than inside it.
     m_shared->refreshFromCaptureStatus(capture);
+    // The answer to a restore speaks of the profile that stayed in use on this build. Once
+    // another one is in force - the restored file itself after all, or anything after a
+    // patch - it is no longer true.
+    m_profileInForce = profileInForce(capture);
+    if (!m_restoreAnswer.isEmpty() && m_profileInForce != m_restoreAnswerProfile) {
+        m_restoreAnswer.clear();
+        Q_EMIT changed();
+    }
     const QVariant raw = capture.value(QStringLiteral("calibration"));
     if (!raw.isValid() || raw.isNull()) {
         publish(QStringLiteral("IDLE"), QString(), {}, {}, {}, false, false);
@@ -170,6 +178,7 @@ void CalibrationController::confirm(const QVariantMap &verdicts)
 
     m_busy = true;
     m_error.clear();
+    m_restoreAnswer.clear();
     Q_EMIT changed();
     m_backend->confirmCalibration(payload)->whenDone(this,
         [this](bool ok, const QVariantMap &result, const QString &code, const QString &message) {
@@ -220,6 +229,7 @@ void CalibrationController::sendDiscard(bool retireLocalProfile, bool restoreLoc
     const bool changesProfile = retireLocalProfile || restoreLocalProfile;
     m_busy = true;
     m_error.clear();
+    m_restoreAnswer.clear();
     Q_EMIT changed();
     m_backend->discardCalibration(retireLocalProfile, restoreLocalProfile)->whenDone(this,
         [this, retireLocalProfile, restoreLocalProfile, changesProfile](
@@ -229,13 +239,24 @@ void CalibrationController::sendDiscard(bool retireLocalProfile, bool restoreLoc
             // The Collector's refusals here are already written for the player ("上一份本机
             // 校准已经无法使用，请重新校准。"), so they are shown verbatim; the token stays in
             // the log.
-            Q_UNUSED(code);
-            m_error = !message.isEmpty()
-                ? message
-                : retireLocalProfile ? tr("重新校准失败，请稍后再试。")
-                : restoreLocalProfile ? tr("恢复上一份本机校准失败，请稍后再试。")
-                                      : tr("重新观察失败，请稍后再试。");
+            if (restoreLocalProfile && code == QLatin1String("ERR_CALIBRATION_NOT_READY")
+                && !message.isEmpty()) {
+                // Possibly not a refusal at all: the file may be back and outranked. The
+                // page tells the two apart by the status read below (see restoreAnswer).
+                m_restoreAnswer = message;
+                m_restoreAnswerProfile = m_profileInForce;
+            } else {
+                m_error = !message.isEmpty()
+                    ? message
+                    : retireLocalProfile ? tr("重新校准失败，请稍后再试。")
+                    : restoreLocalProfile ? tr("恢复上一份本机校准失败，请稍后再试。")
+                                          : tr("重新观察失败，请稍后再试。");
+            }
             Q_EMIT changed();
+            // A restore the Collector answered may still have moved the file, so whether
+            // there is anything left to restore is its to say again (CS8-D1).
+            if (restoreLocalProfile)
+                Q_EMIT refreshRequested();
             return;
         }
         // The Collector threw the draft away, so nothing derived from it may stay
@@ -254,6 +275,13 @@ void CalibrationController::sendDiscard(bool retireLocalProfile, bool restoreLoc
         if (changesProfile)
             Q_EMIT refreshRequested();
     });
+}
+
+QString CalibrationController::profileInForce(const QVariantMap &capture)
+{
+    return capture.value(QStringLiteral("profile_status")).toString() + QLatin1Char('|')
+         + capture.value(QStringLiteral("profile_origin")).toString() + QLatin1Char('|')
+         + capture.value(QStringLiteral("game_build")).toString();
 }
 
 } // namespace mr

@@ -47,7 +47,7 @@ class SharedCalibrationController final : public QObject
     /// still being audited (plans/shared-calibration.md §18.4). An older Collector
     /// never reports it, and then it stays false: "not reported", not "no audit".
     Q_PROPERTY(bool auditPending READ auditPending NOTIFY changed)
-    /// Which gate set the candidates are judged by, in one word: "published" when
+    /// Where the candidates came from, in one word: "published" when
     /// at least one candidate that is not rejected came from an index this machine
     /// read, "imported" when every one of them was pasted and no index knows it,
     /// and empty when a Collector before 1.1.0 reports no provenance at all.
@@ -133,6 +133,8 @@ private:
         bool auditPending = false;
         /// "published", "imported" or empty when no candidate reports a provenance.
         QString provenance;
+        /// "login", "queue" or empty when the candidates' gate cannot be told.
+        QString gate;
         QString phase;
         QString lastFetchStatus;
         QString calibrationState = QStringLiteral("IDLE");

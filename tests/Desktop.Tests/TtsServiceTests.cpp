@@ -29,6 +29,7 @@
 #include <QTest>
 #include <QScopeGuard>
 #include <QTimer>
+#include <QUuid>
 #include <memory>
 
 namespace {
@@ -64,6 +65,18 @@ public:
     int correctRunConflicts = 0;
     /// What GetRunRevisions answers with.
     QJsonObject revisions;
+    /// What GetStatus answers with.
+    QJsonObject status;
+    /// What GetCurrentRun answers with.
+    QJsonObject currentRun;
+    /// When set, SelectGameProcess behaves as the Collector does when the
+    /// chosen client exits during the switch: the old capture is already
+    /// stopped, this capture status is published as a collector_status event,
+    /// and the request is refused with ERR_FFXIV_NOT_RUNNING.
+    QJsonObject selectionExitedCapture;
+    /// Whether that event reaches the pipe after the refusal rather than
+    /// before it. Both happen: the bus writes events from a task of its own.
+    bool selectionEventAfterAnswer = false;
 
     mr::BackendReply *request(const QString &messageType,
                               const QJsonObject &payload = {}) override
@@ -76,6 +89,28 @@ public:
                 reply->fail(QStringLiteral("ERR_INTERNAL"),
                             QString::fromUtf8("统计读取失败。"));
             });
+            return reply;
+        }
+        if (messageType == QLatin1String("SelectGameProcess") && !selectionExitedCapture.isEmpty()) {
+            QVariantMap event;
+            event.insert(QStringLiteral("event_id"), QUuid::createUuid().toString(QUuid::WithoutBraces));
+            event.insert(QStringLiteral("event_type"), QStringLiteral("CaptureStatusChanged"));
+            event.insert(QStringLiteral("kind"), QStringLiteral("collector_status"));
+            event.insert(QStringLiteral("emitted_at_utc"),
+                         QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs));
+            event.insert(QStringLiteral("capture"), selectionExitedCapture.toVariantMap());
+            const auto publish = [this, event] { Q_EMIT liveEvent(event); };
+            const auto refuse = [reply] {
+                reply->fail(QStringLiteral("ERR_FFXIV_NOT_RUNNING"),
+                            QString::fromUtf8("所选游戏已退出或重新启动，请重新选择游戏窗口。"));
+            };
+            if (selectionEventAfterAnswer) {
+                QTimer::singleShot(0, reply, refuse);
+                QTimer::singleShot(0, this, publish);
+            } else {
+                QTimer::singleShot(0, this, publish);
+                QTimer::singleShot(0, reply, refuse);
+            }
             return reply;
         }
         if (messageType == QLatin1String("CorrectRun") && correctRunConflicts > 0) {
@@ -94,6 +129,10 @@ public:
             answer = m_dashboard;
         else if (messageType == QLatin1String("GetRunRevisions"))
             answer = revisions;
+        else if (messageType == QLatin1String("GetStatus"))
+            answer = status;
+        else if (messageType == QLatin1String("GetCurrentRun"))
+            answer = currentRun;
         else if (messageType == QLatin1String("CorrectRun"))
             answer = m_correctRunAnswer;
         else if (messageType == QLatin1String("BackupDatabase"))
@@ -126,12 +165,20 @@ public:
     }
 
     /// The $defs/DashboardStats every GetDashboardStats answers with.
+    /// achievement_progress and remaining are the Collector's own figures and
+    /// are required by the contract. They are not baseline + completed_count:
+    /// a COMPLETED run that does not count towards the goal is in completed_count
+    /// only (docs/statistics-definitions.md). \a progress < 0 means every
+    /// completed run counts.
     void setDashboard(int completedCount, int baselineCount, int goalCount,
-                      int pendingReview = 0)
+                      int pendingReview = 0, int progress = -1)
     {
+        const int achievement = progress < 0 ? baselineCount + completedCount : progress;
         m_dashboard.insert(QStringLiteral("completed_count"), completedCount);
         m_dashboard.insert(QStringLiteral("baseline_completed_count"), baselineCount);
+        m_dashboard.insert(QStringLiteral("achievement_progress"), achievement);
         m_dashboard.insert(QStringLiteral("goal_count"), goalCount);
+        m_dashboard.insert(QStringLiteral("remaining"), qMax(0, goalCount - achievement));
         m_dashboard.insert(QStringLiteral("unfinished_pending_review"), pendingReview);
     }
 
@@ -160,6 +207,32 @@ QString writeAlreadyRunningStub(const QString &directory)
                  + QByteArrayLiteral("\r\n"));
     script.close();
     return path;
+}
+
+/// A Collector stub that refuses to start the way the Collector does when the
+/// database fails its integrity check: one line on standard error, exit code 3.
+/// Every launch appends a line to runs.txt beside it.
+QString writeRefusingStub(const QString &directory)
+{
+    const QString path = QDir(directory).absoluteFilePath(QStringLiteral("refusing.cmd"));
+    QFile script(path);
+    if (!script.open(QIODevice::WriteOnly))
+        return QString();
+    script.write(QByteArrayLiteral("@echo off\r\necho run>>\"%~dp0runs.txt\"\r\n"
+                                   ">&2 echo ERR_DB_INTEGRITY: database check failed\r\nexit /b ")
+                 + QByteArray::number(mr::CollectorProcess::kCannotServeExitCode)
+                 + QByteArrayLiteral("\r\n"));
+    script.close();
+    return path;
+}
+
+/// How many times the stub in \a directory was launched.
+int launchesOf(const QString &directory)
+{
+    QFile runs(QDir(directory).absoluteFilePath(QStringLiteral("runs.txt")));
+    if (!runs.open(QIODevice::ReadOnly | QIODevice::Text))
+        return 0;
+    return int(runs.readAll().count('\n'));
 }
 
 /// Record \a pid as the holder of the per-user serve lease, the way the
@@ -205,8 +278,10 @@ QVariantMap liveEvent(const QString &eventType, const QString &kind)
                      .arg(g_sequence + 1, 12, 10, QLatin1Char('0')));
     event.insert(QStringLiteral("event_type"), eventType);
     event.insert(QStringLiteral("kind"), kind);
+    // Published now, as a live event is: one emitted before the controller
+    // existed is a replay, and the shell treats it as one.
     event.insert(QStringLiteral("emitted_at_utc"),
-                 QStringLiteral("2026-09-04T11:00:00.000Z"));
+                 QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs));
     event.insert(QStringLiteral("sequence"), ++g_sequence);
     return event;
 }
@@ -296,6 +371,7 @@ private Q_SLOTS:
     void appController_announcesTerminalStatesFromRunFinishedOnly_data();
     void appController_announcesTerminalStatesFromRunFinishedOnly();
     void appController_finishedLineCarriesTheRefreshedProgress();
+    void appController_speaksTheCollectorsAchievementProgress();
     void appController_ignoresReplayedAndOutOfOrderEvents();
     void appController_speaksTheDutyCarriedByTheStateEvent();
     void appController_ignoresTheSameEventsReplayedAfterAReconnect();
@@ -306,9 +382,17 @@ private Q_SLOTS:
     void appController_retriesAResultConfirmationAfterARevisionConflict();
     void appController_adoptsTheRevisionARunUpdatedCarries();
     void appController_runsTheDailyBackupOnTheFirstConnection();
+    void appController_runsTheDailyBackupAgainOnTheNextDay();
+    void appController_leavesTheDailyBackupAWhileAfterADutyEnds();
+    void appController_staysSilentAboutTransitionsFromBeforeItStarted();
+    void appController_keepsANewerCaptureAnswerOverAnOlderStatusEvent();
+    void appController_reportsAChosenGameThatExitedDuringTheSwitch_data();
+    void appController_reportsAChosenGameThatExitedDuringTheSwitch();
     void appController_neverRelaunchesAReusedCollectorOnEveryFailedConnect();
     void appController_takesAVacatedLeaseOnTheFirstFailedConnect();
+    void appController_neverRelaunchesACollectorThatRefusedToStart();
     void tts_voiceIsOnlyReconfiguredWhileTheEngineIsReady();
+    void tts_switchingAnnouncementsOffLetsAStartedPreviewFinish();
     void voices_areListedChineseFirstWithReadableLabels();
     void savedVoice_fallsBackToTheDefaultWhenItCannotBeUsed();
     void setVoice_persistsLocalChoicesAndIgnoresOtherProviders();
@@ -475,12 +559,8 @@ void TtsServiceTests::appController_announcesEveryLiveTransition()
     QVERIFY(controller.tts() != nullptr);
 
     QSignalSpy spy(controller.tts(), &mr::TtsService::spoke);
-    // The mock's run ended on its fixed fixture date, which is long before this
-    // process started; without moving the cutoff every terminal announcement is
-    // correctly treated as a replay of old history.
-    controller.setReflectionPromptCutoffForTest(
-        QDateTime::fromString(QStringLiteral("2020-01-01T00:00:00.000Z"),
-                              Qt::ISODateWithMs));
+    // The mock stamps its live events with the time they are emitted (review
+    // DT2-X4), so they pass the controller's own start-of-session cutoff.
     backend.simulateRunTransitions(QStringLiteral("COMPLETED"));
 
     // 匹配 and 进本 are spoken straight from StateChanged; the terminal line
@@ -749,6 +829,35 @@ void TtsServiceTests::appController_finishedLineCarriesTheRefreshedProgress()
     QCOMPARE(spoke.at(0).at(0).toString(), QStringLiteral("finished"));
     QCOMPARE(spoke.at(0).at(1).toString(),
              QString::fromUtf8("导随结束，请确认是否通关，已确认 1446 次"));
+}
+
+/// 审查 OK-1：{progress} / {remaining} 是采集服务的 achievement_progress /
+/// remaining。一次不计入目标的通关（向导里取消了「计入进度」）在 completed_count
+/// 里，却不在进度里；按「基数 + completed_count」去算会多报。
+void TtsServiceTests::appController_speaksTheCollectorsAchievementProgress()
+{
+    mr::AppSettings settings;
+    settings.setTtsEnabled(true);
+    settings.setConfirmPrompt(false);
+    // The settings store outlives this test; later tests read the template
+    // the earlier ones left behind.
+    const QString previousTemplate = settings.templateFinished();
+    const auto restoreTemplate = qScopeGuard([&settings, previousTemplate] {
+        settings.setTemplateFinished(previousTemplate);
+    });
+    settings.setTemplateFinished(
+        QString::fromUtf8("导随结束，请确认是否通关，已确认 {progress} 次，还差 {remaining} 次"));
+
+    EventOnlyBackend backend;
+    backend.setDashboard(46, 1400, 2000, 0, 1445);
+    mr::AppController controller(&backend, &settings);
+    QSignalSpy spoke(controller.tts(), &mr::TtsService::spoke);
+
+    backend.emitEvent(runFinishedEvent(QStringLiteral("UNKNOWN_FINAL_STATE"),
+                                       freshRun(QStringLiteral("run-uncounted"), true)));
+    QTRY_COMPARE_WITH_TIMEOUT(spoke.count(), 1, 3000);
+    QCOMPARE(spoke.at(0).at(1).toString(),
+             QString::fromUtf8("导随结束，请确认是否通关，已确认 1445 次，还差 555 次"));
 }
 
 void TtsServiceTests::appController_ignoresReplayedAndOutOfOrderEvents()
@@ -1078,10 +1187,126 @@ void TtsServiceTests::appController_runsTheDailyBackupOnTheFirstConnection()
     backend.setConnected(true);
     QTRY_COMPARE_WITH_TIMEOUT(backend.countOf(QStringLiteral("BackupDatabase")), 1, 3000);
 
-    // Still only once per session, however often the pipe comes and goes.
+    // Still only once that day, however often the pipe comes and goes.
     backend.setConnected(false);
     backend.setConnected(true);
     QTest::qWait(150);
+    QCOMPARE(backend.countOf(QStringLiteral("BackupDatabase")), 1);
+    QFile::remove(mr::AppSettings::filePath());
+}
+
+/// 每日自动备份 is daily, also for a Desktop that lives in the tray for a week:
+/// the day is checked again on every connection and periodically while the
+/// program runs, not once per process (review OH-5).
+void TtsServiceTests::appController_runsTheDailyBackupAgainOnTheNextDay()
+{
+    QFile::remove(mr::AppSettings::filePath());
+    mr::AppSettings settings;
+    settings.setAutoBackup(true);
+    settings.setLastAutoBackupDate(QString());
+
+    EventOnlyBackend backend;
+    mr::AppController controller(&backend, &settings);
+    QDate today(2026, 10, 3);
+    controller.setTodayForTest([&today] { return today; });
+    QTest::qWait(80);
+    backend.resetCounts();
+
+    controller.runDailyBackupIfDue();
+    QTRY_COMPARE_WITH_TIMEOUT(backend.countOf(QStringLiteral("BackupDatabase")), 1, 3000);
+    QTRY_COMPARE(settings.lastAutoBackupDate(), QStringLiteral("2026-10-03"));
+
+    // The same day: nothing more.
+    backend.setConnected(false);
+    backend.setConnected(true);
+    QTest::qWait(150);
+    QCOMPARE(backend.countOf(QStringLiteral("BackupDatabase")), 1);
+
+    // Past midnight, the next connection takes that day's backup.
+    today = today.addDays(1);
+    backend.setConnected(false);
+    backend.setConnected(true);
+    QTRY_COMPARE_WITH_TIMEOUT(backend.countOf(QStringLiteral("BackupDatabase")), 2, 3000);
+    QTRY_COMPARE(settings.lastAutoBackupDate(), QStringLiteral("2026-10-04"));
+
+    // And with the pipe up the whole time, the periodic check does - though
+    // not in the middle of a duty, where copying the database competes with
+    // recording it; it waits for the run to end, and a while longer
+    // (appController_leavesTheDailyBackupAWhileAfterADutyEnds).
+    backend.currentRun = QJsonObject{{QStringLiteral("state"), QStringLiteral("ENTERED_DUTY")}};
+    controller.refreshStatus();
+    QTRY_COMPARE(controller.currentRunState(), QStringLiteral("ENTERED_DUTY"));
+    controller.setDailyBackupCheckMsForTest(50);
+    controller.setBackupAfterDutyMsForTest(100);
+    today = today.addDays(1);
+    QTest::qWait(300);
+    QCOMPARE(backend.countOf(QStringLiteral("BackupDatabase")), 2);
+    backend.currentRun = QJsonObject{{QStringLiteral("state"), QStringLiteral("IDLE")}};
+    controller.refreshStatus();
+    QTRY_COMPARE_WITH_TIMEOUT(backend.countOf(QStringLiteral("BackupDatabase")), 3, 3000);
+    QTest::qWait(200);
+    QCOMPARE(backend.countOf(QStringLiteral("BackupDatabase")), 3);
+
+    // A connection made in the middle of a duty waits as well: until the
+    // current run has been read back, it is not known to be over.
+    backend.currentRun = QJsonObject{{QStringLiteral("state"), QStringLiteral("ENTERED_DUTY")}};
+    today = today.addDays(1);
+    backend.setConnected(false);
+    backend.setConnected(true);
+    QTest::qWait(300);
+    QCOMPARE(backend.countOf(QStringLiteral("BackupDatabase")), 3);
+    backend.currentRun = QJsonObject{{QStringLiteral("state"), QStringLiteral("IDLE")}};
+    controller.refreshStatus();
+    QTRY_COMPARE_WITH_TIMEOUT(backend.countOf(QStringLiteral("BackupDatabase")), 4, 3000);
+    QFile::remove(mr::AppSettings::filePath());
+}
+
+/// The Collector answers BackupDatabase on the connection's read loop, so every
+/// request sent behind it waits for the whole copy. A backup held back for a
+/// duty started the moment that duty ended - just when 本次导随结果, the 心得
+/// prompt and the announcement go out on the same connection, under an 8 s
+/// deadline (review V4-3). It starts a while after the duty instead.
+void TtsServiceTests::appController_leavesTheDailyBackupAWhileAfterADutyEnds()
+{
+    QFile::remove(mr::AppSettings::filePath());
+    mr::AppSettings settings;
+    settings.setAutoBackup(true);
+    settings.setLastAutoBackupDate(QString());
+
+    EventOnlyBackend backend;
+    backend.currentRun = QJsonObject{{QStringLiteral("state"), QStringLiteral("ENTERED_DUTY")}};
+    mr::AppController controller(&backend, &settings);
+    controller.setBackupAfterDutyMsForTest(600);
+    QTRY_COMPARE(controller.currentRunState(), QStringLiteral("ENTERED_DUTY"));
+    backend.resetCounts();
+
+    // Due, but in the middle of a duty: held back.
+    controller.runDailyBackupIfDue();
+    QTest::qWait(100);
+    QCOMPARE(backend.countOf(QStringLiteral("BackupDatabase")), 0);
+
+    // The duty ends. Not now...
+    backend.currentRun = QJsonObject{{QStringLiteral("state"), QStringLiteral("IDLE")}};
+    controller.refreshStatus();
+    QTRY_COMPARE(controller.currentRunState(), QStringLiteral("IDLE"));
+    QTest::qWait(200);
+    QCOMPARE(backend.countOf(QStringLiteral("BackupDatabase")), 0);
+
+    // ...and not while the next duty runs, which holds it back once more.
+    backend.currentRun = QJsonObject{{QStringLiteral("state"), QStringLiteral("MENTOR_MATCHED")}};
+    controller.refreshStatus();
+    QTRY_COMPARE(controller.currentRunState(), QStringLiteral("MENTOR_MATCHED"));
+    QTest::qWait(700);
+    QCOMPARE(backend.countOf(QStringLiteral("BackupDatabase")), 0);
+
+    // A while after the last duty ended, it runs.
+    backend.currentRun = QJsonObject{{QStringLiteral("state"), QStringLiteral("IDLE")}};
+    controller.refreshStatus();
+    QTRY_COMPARE(controller.currentRunState(), QStringLiteral("IDLE"));
+    QTest::qWait(200);
+    QCOMPARE(backend.countOf(QStringLiteral("BackupDatabase")), 0);
+    QTRY_COMPARE_WITH_TIMEOUT(backend.countOf(QStringLiteral("BackupDatabase")), 1, 3000);
+    QTest::qWait(200);
     QCOMPARE(backend.countOf(QStringLiteral("BackupDatabase")), 1);
     QFile::remove(mr::AppSettings::filePath());
 }
@@ -1103,9 +1328,7 @@ void TtsServiceTests::appController_neverRelaunchesAReusedCollectorOnEveryFailed
 
     const QString stub = writeAlreadyRunningStub(stubDirectory.path());
     QVERIFY(!stub.isEmpty());
-    const QByteArray previousPath = qgetenv("MR_COLLECTOR_PATH");
     const QByteArray previousData = qgetenv("MR_DATA_DIR");
-    qputenv("MR_COLLECTOR_PATH", QFile::encodeName(stub));
     qputenv("MR_DATA_DIR", QFile::encodeName(dataDirectory.path()));
     // A serve.pid that names somebody else and was not written just now: the
     // only state in which four failed connects may take the lease at all.
@@ -1115,7 +1338,7 @@ void TtsServiceTests::appController_neverRelaunchesAReusedCollectorOnEveryFailed
     mr::AppSettings settings;
     EventOnlyBackend backend;
     backend.setConnected(false);
-    mr::CollectorProcess supervisor;
+    mr::CollectorProcess supervisor(stub, nullptr);
     mr::AppController controller(&backend, &settings, nullptr, &supervisor);
     auto *collector = controller.collectorForTest();
     QVERIFY(collector);
@@ -1150,7 +1373,6 @@ void TtsServiceTests::appController_neverRelaunchesAReusedCollectorOnEveryFailed
         controller.toastMessage().contains(QString::fromUtf8("采集服务")), 15000);
     QVERIFY(toolCalls > 0);
 
-    qputenv("MR_COLLECTOR_PATH", previousPath);
     qputenv("MR_DATA_DIR", previousData);
 #endif
 }
@@ -1174,16 +1396,14 @@ void TtsServiceTests::appController_takesAVacatedLeaseOnTheFirstFailedConnect()
 
     const QString stub = writeAlreadyRunningStub(stubDirectory.path());
     QVERIFY(!stub.isEmpty());
-    const QByteArray previousPath = qgetenv("MR_COLLECTOR_PATH");
     const QByteArray previousData = qgetenv("MR_DATA_DIR");
-    qputenv("MR_COLLECTOR_PATH", QFile::encodeName(stub));
     // No serve.pid: the holder took it with it when it quit.
     qputenv("MR_DATA_DIR", QFile::encodeName(dataDirectory.path()));
 
     mr::AppSettings settings;
     EventOnlyBackend backend;
     backend.setConnected(false);
-    mr::CollectorProcess supervisor;
+    mr::CollectorProcess supervisor(stub, nullptr);
     mr::AppController controller(&backend, &settings, nullptr, &supervisor);
     auto *collector = controller.collectorForTest();
     QVERIFY(collector);
@@ -1207,7 +1427,182 @@ void TtsServiceTests::appController_takesAVacatedLeaseOnTheFirstFailedConnect()
     // It is a fresh launch, not the crash-restart backoff.
     QCOMPARE(collector->restartCount(), restartsBefore);
 
-    qputenv("MR_COLLECTOR_PATH", previousPath);
+    qputenv("MR_DATA_DIR", previousData);
+#endif
+}
+
+/// The Collector replays its recent events to every client that connects. A
+/// Desktop opened after a match was announced - by an earlier window, or
+/// before the player closed and reopened this one - must not say 「匹配成功」
+/// or 「进入 X」 again for it (review OH-1).
+void TtsServiceTests::appController_staysSilentAboutTransitionsFromBeforeItStarted()
+{
+    mr::AppSettings settings;
+    settings.setTtsEnabled(true);
+    EventOnlyBackend backend;
+    mr::AppController controller(&backend, &settings);
+    QSignalSpy spoke(controller.tts(), &mr::TtsService::spoke);
+
+    const QVariantMap run = freshRun(QStringLiteral("replayed"));
+    QVariantMap matched = stateChangedEvent(QStringLiteral("MENTOR_MATCHED"), run);
+    matched.insert(QStringLiteral("emitted_at_utc"),
+                   QDateTime::currentDateTimeUtc().addSecs(-40).toString(Qt::ISODateWithMs));
+    QVariantMap entered = stateChangedEvent(QStringLiteral("ENTERED_DUTY"), run);
+    entered.insert(QStringLiteral("emitted_at_utc"),
+                   QDateTime::currentDateTimeUtc().addSecs(-30).toString(Qt::ISODateWithMs));
+    backend.resetCounts();
+    backend.emitEvent(matched);
+    backend.emitEvent(entered);
+    QTest::qWait(80);
+    QCOMPARE(spoke.count(), 0);
+    // Silent, not ignored: the current-run card still follows them.
+    QVERIFY(backend.countOf(QStringLiteral("GetCurrentRun")) >= 1);
+
+    // What happens from now on is spoken as before.
+    backend.emitEvent(stateChangedEvent(QStringLiteral("ENTERED_DUTY"),
+                                        freshRun(QStringLiteral("live"))));
+    QTRY_COMPARE_WITH_TIMEOUT(spoke.count(), 1, 3000);
+    QCOMPARE(spoke.at(0).at(0).toString(), QStringLiteral("entered"));
+}
+
+/// A capture status the Collector published while it was still working on a
+/// request - in the middle of a switch to another game client, say - can reach
+/// the pipe after the answer to that request. It must not replace the newer
+/// answer the shell already holds (DT-1 hand-off); it still triggers a re-read.
+void TtsServiceTests::appController_keepsANewerCaptureAnswerOverAnOlderStatusEvent()
+{
+    mr::AppSettings settings;
+    EventOnlyBackend backend;
+    backend.status = QJsonObject{{QStringLiteral("capture"),
+                                  QJsonObject{{QStringLiteral("state"), QStringLiteral("RUNNING")},
+                                              {QStringLiteral("ffxiv_running"), true},
+                                              {QStringLiteral("ffxiv_process_id"), 200}}}};
+    mr::AppController controller(&backend, &settings);
+    QTRY_COMPARE_WITH_TIMEOUT(
+        controller.captureStatus().value(QStringLiteral("ffxiv_process_id")).toInt(), 200, 3000);
+
+    QVariantMap stale = liveEvent(QStringLiteral("CaptureStatusChanged"),
+                                  QStringLiteral("collector_status"));
+    stale.insert(QStringLiteral("emitted_at_utc"),
+                 QDateTime::currentDateTimeUtc().addSecs(-5).toString(Qt::ISODateWithMs));
+    stale.insert(QStringLiteral("capture"),
+                 QVariantMap{{QStringLiteral("state"), QStringLiteral("STOPPED")},
+                             {QStringLiteral("ffxiv_process_id"), 100}});
+    backend.resetCounts();
+    backend.emitEvent(stale);
+    QCOMPARE(controller.captureStatus().value(QStringLiteral("ffxiv_process_id")).toInt(), 200);
+    QVERIFY(controller.capturing());
+    QVERIFY(backend.countOf(QStringLiteral("GetStatus")) >= 1);
+
+    // An event published after that answer is adopted at once, as before.
+    QTest::qWait(20);
+    QVariantMap fresh = liveEvent(QStringLiteral("CaptureStatusChanged"),
+                                  QStringLiteral("collector_status"));
+    fresh.insert(QStringLiteral("capture"),
+                 QVariantMap{{QStringLiteral("state"), QStringLiteral("STOPPED")},
+                             {QStringLiteral("ffxiv_process_id"), 300}});
+    backend.emitEvent(fresh);
+    QCOMPARE(controller.captureStatus().value(QStringLiteral("ffxiv_process_id")).toInt(), 300);
+}
+
+void TtsServiceTests::appController_reportsAChosenGameThatExitedDuringTheSwitch_data()
+{
+    QTest::addColumn<bool>("eventAfterAnswer");
+    QTest::newRow("event-first") << false;
+    QTest::newRow("answer-first") << true;
+}
+
+/// The Collector stops the old capture before it switches clients; when the
+/// chosen client exits in that moment, it publishes the stopped state and
+/// refuses with ERR_FFXIV_NOT_RUNNING (DT-1 hand-off). Whichever of the two
+/// reaches the pipe first, the player is told the chosen game exited, and the
+/// shell ends where the Collector is: nothing recording and a choice asked
+/// for - not the old client still shown as running.
+void TtsServiceTests::appController_reportsAChosenGameThatExitedDuringTheSwitch()
+{
+    QFETCH(bool, eventAfterAnswer);
+    mr::AppSettings settings;
+    EventOnlyBackend backend;
+    const QJsonArray both{
+        QJsonObject{{QStringLiteral("process_id"), 101},
+                    {QStringLiteral("started_at_utc"), QStringLiteral("2026-10-03T01:00:00.000Z")},
+                    {QStringLiteral("selection_token"), QStringLiteral("first")}},
+        QJsonObject{{QStringLiteral("process_id"), 202},
+                    {QStringLiteral("started_at_utc"), QStringLiteral("2026-10-03T02:00:00.000Z")},
+                    {QStringLiteral("selection_token"), QStringLiteral("second")}}};
+    backend.status = QJsonObject{
+        {QStringLiteral("capture"),
+         QJsonObject{{QStringLiteral("state"), QStringLiteral("RUNNING")},
+                     {QStringLiteral("ffxiv_running"), true},
+                     {QStringLiteral("ffxiv_process_id"), 101},
+                     {QStringLiteral("game_selection_required"), false},
+                     {QStringLiteral("game_processes"), both}}}};
+    mr::AppController controller(&backend, &settings);
+    QTRY_VERIFY_WITH_TIMEOUT(controller.capturing(), 3000);
+    auto *selection = controller.gameSelection();
+    QCOMPARE(selection->choices().size(), 2);
+
+    // What the Collector holds once the switch failed: nothing recording, the
+    // choice committed to the client that is gone, the other one still listed.
+    const QJsonObject after{{QStringLiteral("state"), QStringLiteral("IDLE")},
+                            {QStringLiteral("ffxiv_running"), false},
+                            {QStringLiteral("ffxiv_process_id"), QJsonValue::Null},
+                            {QStringLiteral("game_selection_required"), true},
+                            {QStringLiteral("game_selection_reason"), QStringLiteral("EXITED")},
+                            {QStringLiteral("game_processes"), QJsonArray{both.at(0)}}};
+    backend.selectionExitedCapture = after;
+    backend.selectionEventAfterAnswer = eventAfterAnswer;
+    backend.status = QJsonObject{{QStringLiteral("capture"), after}};
+    selection->select(1);
+
+    QTRY_VERIFY_WITH_TIMEOUT(!selection->busy(), 3000);
+    QTest::qWait(100);
+    QVERIFY(!controller.capturing());
+    QVERIFY(!controller.ffxivRunning());
+    QVERIFY(selection->required());
+    QCOMPARE(selection->choices().size(), 1);
+    const QString shown = selection->message() + QLatin1Char('|') + selection->selectionMessage();
+    QVERIFY2(shown.contains(QString::fromUtf8("所选游戏已退出")), qPrintable(shown));
+    QVERIFY2(!shown.contains(QString::fromUtf8("已锁定")), qPrintable(shown));
+}
+
+/// A Collector that refused to start - its database failed the integrity
+/// check - is not launched again on every failed reconnect, and the player
+/// reads the Collector's own reason instead of 「已退出（代码 3）」 over and
+/// over (review OH-3 / OF-1).
+void TtsServiceTests::appController_neverRelaunchesACollectorThatRefusedToStart()
+{
+#ifndef Q_OS_WIN
+    QSKIP("The stub needs a Windows batch file.");
+#else
+    QTemporaryDir stubDirectory;
+    QTemporaryDir dataDirectory;
+    QVERIFY(stubDirectory.isValid());
+    QVERIFY(dataDirectory.isValid());
+    const QString stub = writeRefusingStub(stubDirectory.path());
+    QVERIFY(!stub.isEmpty());
+    const QByteArray previousData = qgetenv("MR_DATA_DIR");
+    qputenv("MR_DATA_DIR", QFile::encodeName(dataDirectory.path()));
+
+    mr::AppSettings settings;
+    EventOnlyBackend backend;
+    backend.setConnected(false);
+    mr::CollectorProcess supervisor(stub, nullptr);
+    mr::AppController controller(&backend, &settings, nullptr, &supervisor);
+    QTRY_VERIFY_WITH_TIMEOUT(
+        controller.toastMessage().contains(QStringLiteral("database check failed")), 10000);
+
+    // Nothing serves the pipe, so every reconnect attempt fails.
+    for (int attempt = 0; attempt < 4; ++attempt) {
+        backend.reportConnectFailure();
+        QTest::qWait(100);
+    }
+    QTest::qWait(mr::CollectorProcess::minBackoffMs() * 2);
+    QCOMPARE(launchesOf(stubDirectory.path()), 1);
+    QVERIFY2(controller.collectorStatusText().contains(QStringLiteral("database check failed")),
+             qPrintable(controller.collectorStatusText()));
+    QVERIFY(!controller.collectorStatusText().contains(QLatin1String("ERR_")));
+
     qputenv("MR_DATA_DIR", previousData);
 #endif
 }
@@ -1222,6 +1617,58 @@ void TtsServiceTests::tts_voiceIsOnlyReconfiguredWhileTheEngineIsReady()
     QVERIFY(!mr::TtsService::voiceApplicableInState(int(QTextToSpeech::Paused)));
     QVERIFY(!mr::TtsService::voiceApplicableInState(int(QTextToSpeech::Error)));
     QVERIFY(!mr::TtsService::voiceApplicableInState(int(QTextToSpeech::Synthesizing)));
+}
+
+/// Switching 播报 off stops the announcements the engine is saying, but a 试听
+/// that is already playing answers a click and plays to its end (review V4-4).
+/// On Qt's mock engine, which says a word every 100 ms and plays no sound.
+void TtsServiceTests::tts_switchingAnnouncementsOffLetsAStartedPreviewFinish()
+{
+    mr::AppSettings settings;
+    const bool wasEnabled = settings.ttsEnabled();
+    const QString savedVoice = settings.ttsVoice();
+    const QString savedFinished = settings.templateFinished();
+    const auto restore = qScopeGuard([&settings, wasEnabled, savedVoice, savedFinished] {
+        settings.setTtsEnabled(wasEnabled);
+        settings.setTtsVoice(savedVoice);
+        settings.setTemplateFinished(savedFinished);
+    });
+    const QString longLine = QStringLiteral("one two three four five six seven eight nine ten");
+    settings.setTtsEnabled(true);
+    settings.setTtsVoice(QString());
+    settings.setTemplateFinished(longLine);
+
+    mr::TtsService tts(&settings, nullptr, mr::TtsService::EngineMode::Mock);
+    auto *engine = tts.findChild<QTextToSpeech *>();
+    if (!engine || !tts.isAvailable())
+        QSKIP("Qt's mock speech engine plugin is not installed.");
+    QTRY_COMPARE(engine->state(), QTextToSpeech::Ready);
+
+    // A 试听 is playing when 播报 goes off: it goes on to its end.
+    tts.preview(QStringLiteral("finished"));
+    QTRY_COMPARE(engine->state(), QTextToSpeech::Speaking);
+    settings.setTtsEnabled(false);
+    QTest::qWait(100);
+    QCOMPARE(engine->state(), QTextToSpeech::Speaking);
+    QTRY_COMPARE_WITH_TIMEOUT(engine->state(), QTextToSpeech::Ready, 5000);
+
+    // An announcement is playing: it stops at once.
+    settings.setTtsEnabled(true);
+    tts.announceText(QStringLiteral("entered"), longLine);
+    QTRY_COMPARE(engine->state(), QTextToSpeech::Speaking);
+    settings.setTtsEnabled(false);
+    QTest::qWait(50);
+    QCOMPARE(engine->state(), QTextToSpeech::Ready);
+
+    // An announcement waits behind the 试听 inside the engine, which cannot drop
+    // it alone: the announcements are what switching off is for, so it stops.
+    settings.setTtsEnabled(true);
+    tts.preview(QStringLiteral("finished"));
+    tts.announceText(QStringLiteral("entered"), longLine);
+    QTRY_COMPARE(engine->state(), QTextToSpeech::Speaking);
+    settings.setTtsEnabled(false);
+    QTest::qWait(50);
+    QCOMPARE(engine->state(), QTextToSpeech::Ready);
 }
 
 namespace {

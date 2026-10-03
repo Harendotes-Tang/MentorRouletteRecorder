@@ -122,6 +122,16 @@ public static class ProfileLoader
         var errors = new List<ProfileIssue>();
         var warnings = new List<ProfileIssue>();
 
+        // A key or string holding a lone surrogate escape parses, and throws only from whichever read of it comes
+        // first - the schema check's, here. Refused like text that is not JSON, before anything in it is looked at,
+        // so neither this loader nor a catalogue scan throws on a file like that (audit 2026-10-03, R2T-X1).
+        if (!ReadsAsText(root))
+        {
+            errors.Add(new ProfileIssue("E_PROFILE_PARSE", "$", "a key or string is not valid Unicode text"));
+            return new ProfileValidationReport(
+                fullPath, null, null, null, null, 0, false, errors, warnings, null);
+        }
+
         foreach (var message in JsonSchemaValidator.Validate(root, SchemaDocument))
         {
             errors.Add(new ProfileIssue("E_PROFILE_SCHEMA", "$", message));
@@ -786,6 +796,50 @@ public static class ProfileLoader
         "u64" => ProfileFieldType.U64,
         _ => ProfileFieldType.Bytes,
     };
+
+    /// <summary>
+    /// True when every key and string under <paramref name="element"/> can be read as text - the check
+    /// <see cref="WellFormedJson"/> makes for untrusted input, on a document already parsed.
+    /// </summary>
+    private static bool ReadsAsText(JsonElement element)
+    {
+        try
+        {
+            ReadAllText(element);
+            return true;
+        }
+        catch (InvalidOperationException)
+        {
+            // The runtime's own verdict: exactly the keys and strings a later reader would throw on.
+            return false;
+        }
+    }
+
+    /// <summary>Reads every key and string once; depth is bounded by the options the document was parsed with.</summary>
+    private static void ReadAllText(JsonElement element)
+    {
+        switch (element.ValueKind)
+        {
+            case JsonValueKind.Object:
+                foreach (var property in element.EnumerateObject())
+                {
+                    _ = property.Name;
+                    ReadAllText(property.Value);
+                }
+
+                break;
+            case JsonValueKind.Array:
+                foreach (var item in element.EnumerateArray())
+                {
+                    ReadAllText(item);
+                }
+
+                break;
+            case JsonValueKind.String:
+                _ = element.GetString();
+                break;
+        }
+    }
 
     private static JsonDocument LoadSchema()
     {

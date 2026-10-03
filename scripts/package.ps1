@@ -1,4 +1,4 @@
-﻿#Requires -Version 5.1
+﻿#Requires -Version 7.0
 <#
 .SYNOPSIS
     打包 MentorRecorder / Package MentorRecorder.
@@ -107,6 +107,7 @@ $HashPath = Join-Path $StageDir 'SHA256SUMS.txt'
 $ChangelogPath = Join-Path $RepoRoot 'CHANGELOG.md'
 $InstallerScript = Join-Path $RepoRoot 'installer\MentorRecorder.iss'
 $InstallerPath = Join-Path $OutputRoot ("MentorRecorder-{0}-setup.exe" -f $Version)
+$InstallerHashPath = $InstallerPath + '.sha256'
 $IsccCandidates = @(
     (Join-Path $env:LOCALAPPDATA 'Programs\Inno Setup 6\ISCC.exe'),
     (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'),
@@ -306,7 +307,7 @@ function Invoke-StagedCollectorJson {
     #   .LiveCaptureStatus, and a literal `true`). Reading them proves only that the metadata
     #   and the shipped binary came from one build, so they must not be described as
     #   measured. The release blockers are the three that follow: no VERIFIED profile in the
-    #   package, a dirty source worktree, -SkipVerify.
+    #   package, a source worktree that is dirty or that git cannot read, -SkipVerify.
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)][string]$TargetDir,
@@ -488,28 +489,11 @@ function Assert-StagedVersion([string]$TargetDir) {
         $Version, $(if ($IsPrerelease) { '，先行版' } else { '' })) -ForegroundColor Green
 }
 
-function Get-ChangelogSection([string]$Text, [string]$Version) {
-    # The body of "## [X.Y.Z] - date" up to the next "## " heading, with line endings
-    # normalised so a CRLF/LF difference between git and the working copy is not a change.
-    $lines = $Text -replace "`r`n", "`n" -split "`n"
-    $inside = $false
-    $body = New-Object System.Collections.Generic.List[string]
-    foreach ($line in $lines) {
-        if ($line -match '^##\s*\[([^\]]+)\]') {
-            if ($inside) { break }
-            $inside = ($Matches[1] -eq $Version)
-            continue
-        }
-        if ($inside) { $body.Add($line.TrimEnd()) }
-    }
-    if (-not $inside -and $body.Count -eq 0) { return $null }
-    return ($body -join "`n").Trim()
-}
-
 function Assert-ReleasedChangelogSectionsUnchanged {
     # A published section records what a tag contains, so every "## [X.Y.Z]" section with a
-    # matching vX.Y.Z tag must read exactly as it did at that tag. Newer entries belong
-    # under [Unreleased] or the next version.
+    # matching vX.Y.Z tag must read exactly as it did at that tag - heading line included -
+    # and must still be there. Newer entries belong under [Unreleased] or the next version.
+    # The comparison itself is Get-ReleasedChangelogSectionChange in package-version.ps1.
     $git = Get-Command git -ErrorAction SilentlyContinue
     if (-not $git) {
         Write-Host '  跳过：找不到 git，无法核对已发布的 CHANGELOG 段落。' -ForegroundColor Yellow
@@ -533,20 +517,21 @@ function Assert-ReleasedChangelogSectionsUnchanged {
         # under [Unreleased] and are expected to keep changing until the release is cut.
         if ($tag -notmatch '^v(\d+\.\d+\.\d+)$') { continue }
         $version = $Matches[1]
-        $current = Get-ChangelogSection $working $version
-        if ($null -eq $current) { continue }   # never released with a section: nothing to protect
+        # The tagged text is read first: a section that is missing from the working copy -
+        # deleted, or renamed to another version - is a change, not a reason to skip.
         $tagged = & git -C $RepoRoot show ("{0}:CHANGELOG.md" -f $tag) 2>$null
         if ($LASTEXITCODE -ne 0) { continue }  # tag predates the changelog
-        $released = Get-ChangelogSection ($tagged -join "`n") $version
-        if ($null -eq $released) { continue }
+        $taggedText = $tagged -join "`n"
+        if ($null -eq (Get-ChangelogSection -Text $taggedText -Version $version)) { continue }   # never released with a section: nothing to protect
         $checked++
-        if ($released -ne $current) { $changed += $tag }
+        $change = Get-ReleasedChangelogSectionChange -Tagged $taggedText -Working $working -Version $version
+        if ($change) { $changed += ("{0}（{1}）" -f $tag, $change) }
     }
     } finally { [Console]::OutputEncoding = $previousEncoding }
     if ($changed.Count -gt 0) {
         throw (("CHANGELOG.md 里已发布的段落在打 tag 之后被修改了：{0}。" +
                 "已发布段落记录的是那个 tag 的内容；新的变更请写到 [Unreleased] 或下一个版本。") -f
-               ($changed -join ', '))
+               ($changed -join '; '))
     }
     Write-Host ("  已核对 {0} 个已发布段落与其 tag 一致。" -f $checked) -ForegroundColor Green
 }
@@ -618,6 +603,118 @@ function Assert-RequiredContent([string]$TargetDir) {
     Write-Host ("  必需文件齐全（{0} 项）。" -f $required.Count) -ForegroundColor Green
 }
 
+function Get-EmbeddedManifest([string]$Path) {
+    # The application manifest Windows reads when the process starts: resource type 24
+    # (RT_MANIFEST), name 1, any language. Read straight out of the PE resource directory;
+    # the file is never loaded or run. $null when the executable carries none.
+    $bytes = [System.IO.File]::ReadAllBytes($Path)
+    $read16 = {
+        param([long]$At)
+        if ($At -lt 0 -or $At + 2 -gt $bytes.Length) { throw ("{0} 不是完整的 PE 文件" -f $Path) }
+        [long][BitConverter]::ToUInt16($bytes, [int]$At)
+    }
+    $read32 = {
+        param([long]$At)
+        if ($At -lt 0 -or $At + 4 -gt $bytes.Length) { throw ("{0} 不是完整的 PE 文件" -f $Path) }
+        [long][BitConverter]::ToUInt32($bytes, [int]$At)
+    }
+    if ((& $read16 0) -ne 0x5A4D) { throw ("{0} 不是 Windows 可执行文件" -f $Path) }
+    $pe = & $read32 0x3C
+    if ((& $read32 $pe) -ne 0x4550) { throw ("{0} 不是 Windows 可执行文件" -f $Path) }
+    $sectionCount = & $read16 ($pe + 6)
+    $optional = $pe + 24
+    $directories = switch (& $read16 $optional) {
+        0x20B { $optional + 112 }
+        0x10B { $optional + 96 }
+        default { throw ("{0} 的 PE 可选头无法识别" -f $Path) }
+    }
+    $resourceRva = & $read32 ($directories + 2 * 8)
+    if ($resourceRva -eq 0) { return $null }
+    $sectionTable = $optional + (& $read16 ($pe + 20))
+    $toOffset = {
+        param([long]$Rva)
+        for ($i = 0; $i -lt $sectionCount; $i++) {
+            $header = $sectionTable + 40 * $i
+            $start = & $read32 ($header + 12)
+            $size = [Math]::Max((& $read32 ($header + 8)), (& $read32 ($header + 16)))
+            if ($Rva -ge $start -and $Rva -lt $start + $size) {
+                return (& $read32 ($header + 20)) + ($Rva - $start)
+            }
+        }
+        throw ("{0} 的资源表不在任何节内" -f $Path)
+    }
+    # Every level is an IMAGE_RESOURCE_DIRECTORY whose entries follow its 16-byte header. An
+    # entry's first word is its id (top bit set: a name instead), its second the offset of
+    # what it points to, relative to the resource root; top bit set means a subdirectory.
+    $child = {
+        param([long]$Directory, [long]$Id)
+        $count = (& $read16 ($Directory + 12)) + (& $read16 ($Directory + 14))
+        for ($i = 0; $i -lt $count; $i++) {
+            $entry = $Directory + 16 + 8 * $i
+            if ($Id -ge 0 -and (& $read32 $entry) -ne $Id) { continue }
+            return & $read32 ($entry + 4)
+        }
+        return $null
+    }
+    $subdirectory = 0x80000000L
+    $root = & $toOffset $resourceRva
+    $types = & $child $root 24
+    if ($null -eq $types -or ($types -band $subdirectory) -eq 0) { return $null }
+    $names = & $child ($root + ($types -band 0x7FFFFFFFL)) 1
+    if ($null -eq $names -or ($names -band $subdirectory) -eq 0) { return $null }
+    $language = & $child ($root + ($names -band 0x7FFFFFFFL)) -1
+    if ($null -eq $language -or ($language -band $subdirectory) -ne 0) { return $null }
+    $start = & $toOffset (& $read32 ($root + $language))
+    $size = & $read32 ($root + $language + 4)
+    if ($start + $size -gt $bytes.Length) { throw ("{0} 的清单资源超出文件末尾" -f $Path) }
+    return [System.Text.Encoding]::UTF8.GetString($bytes, [int]$start, [int]$size).TrimStart([char]0xFEFF)
+}
+
+function Assert-DesktopExecutable([string]$ExePath) {
+    # What Windows applies to the Desktop process is declared inside the executable
+    # (src/Desktop/resources/app/MentorRecorder.Desktop.manifest, embedded by app.rc.in): it
+    # starts with the user's own rights, accepts long paths and runs as a Windows 10/11
+    # program. A missing or different manifest fails the package; nothing depends on a side
+    # file that is copied only if it happens to exist (review OJ-5).
+    Assert-File $ExePath '缺少 Desktop 可执行文件'
+    $problems = @()
+    $text = Get-EmbeddedManifest $ExePath
+    if (-not $text) {
+        $problems += '没有内嵌应用程序清单（RT_MANIFEST 1）'
+    }
+    else {
+        $manifest = [xml]$text
+        $levels = @($manifest.SelectNodes("//*[local-name()='requestedExecutionLevel']"))
+        if ($levels.Count -ne 1 -or $levels[0].GetAttribute('level') -ne 'asInvoker' -or
+            $levels[0].GetAttribute('uiAccess') -eq 'true') {
+            $problems += '清单的 requestedExecutionLevel 不是 asInvoker'
+        }
+        $longPaths = @($manifest.SelectNodes("//*[local-name()='longPathAware']"))
+        if ($longPaths.Count -ne 1 -or $longPaths[0].InnerText.Trim() -ne 'true') {
+            $problems += '清单没有声明 longPathAware = true'
+        }
+        $supported = @($manifest.SelectNodes("//*[local-name()='supportedOS']") |
+            ForEach-Object { $_.GetAttribute('Id') })
+        if ($supported -notcontains '{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}') {
+            $problems += '清单没有声明支持 Windows 10/11'
+        }
+    }
+
+    # MR_DEV_COLLECTOR_DISCOVERY (src/Desktop/CMakeLists.txt) compiles in the MR_COLLECTOR_PATH
+    # override and the walk up into a source checkout, for developer builds only (reviews OH-8,
+    # DT2-X3). That code is the only place the variable is named, so the name in the
+    # executable means the build was configured for development.
+    $latin1 = [System.Text.Encoding]::Latin1.GetString([System.IO.File]::ReadAllBytes($ExePath))
+    if ($latin1.IndexOf('MR_COLLECTOR_PATH', [StringComparison]::Ordinal) -ge 0) {
+        $problems += '以 MR_DEV_COLLECTOR_DISCOVERY 构建（开发用的 Collector 查找），不得发布'
+    }
+
+    if ($problems.Count -gt 0) {
+        throw ("{0}:`n{1}" -f $ExePath, (($problems | ForEach-Object { '  - ' + $_ }) -join [Environment]::NewLine))
+    }
+    Write-Host '  Desktop 内嵌清单：asInvoker、长路径、Windows 10/11；不含开发用的 Collector 查找。' -ForegroundColor Green
+}
+
 Write-Head '打包 / Packaging'
 Write-Host ("配置: {0}" -f $Configuration)
 Write-Host ("输出目录: {0}" -f $OutputRoot)
@@ -645,10 +742,14 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Assert-File $DesktopExe '缺少 Desktop 可执行文件'
+Assert-DesktopExecutable $DesktopExe
 
 Write-Head '准备目录 / Prepare staging directories'
 New-Item -ItemType Directory -Path $OutputRoot -Force | Out-Null
-Assert-ReplaceAllowed @($StageDir, $CollectorStage, $ZipPath, $ZipHashPath)
+# The same-version installer and its checksum are outputs of this run even when the installer
+# step will not run (-NoInstaller, or no ISCC here): left in place, an earlier run's setup.exe
+# would sit beside the new zip and pass for its installer.
+Assert-ReplaceAllowed @($StageDir, $CollectorStage, $ZipPath, $ZipHashPath, $InstallerPath, $InstallerHashPath)
 Remove-IfExists $StageDir
 Remove-IfExists $CollectorStage
 if (Test-Path -LiteralPath $ZipPath) {
@@ -657,6 +758,8 @@ if (Test-Path -LiteralPath $ZipPath) {
 if (Test-Path -LiteralPath $ZipHashPath) {
     Remove-Item -LiteralPath $ZipHashPath -Force
 }
+Remove-IfExists $InstallerPath
+Remove-IfExists $InstallerHashPath
 New-Item -ItemType Directory -Path $StageDir | Out-Null
 New-Item -ItemType Directory -Path $CollectorStage | Out-Null
 
@@ -676,8 +779,11 @@ if ($LASTEXITCODE -ne 0) {
 Write-Head '组装发布目录 / Assemble staged layout'
 Copy-Item -Path (Join-Path $CollectorStage '*') -Destination $StageDir -Recurse -Force
 Copy-Item -LiteralPath $DesktopExe -Destination (Join-Path $StageDir 'MentorRecorder.Desktop.exe')
+# The manifest is inside the executable (Assert-DesktopExecutable). The side file Qt's CMake
+# used to generate beside it carried a placeholder identity; one left in an older build tree
+# is not shipped.
 if (Test-Path -LiteralPath $DesktopManifest) {
-    Copy-Item -LiteralPath $DesktopManifest -Destination (Join-Path $StageDir 'MentorRecorder.Desktop.exe.manifest')
+    Write-Host ("  不随包：构建目录中旧的外部清单 {0}" -f $DesktopManifest) -ForegroundColor Yellow
 }
 Copy-Item -LiteralPath (Join-Path $RepoRoot 'LICENSE') -Destination $StageDir
 Copy-Item -LiteralPath (Join-Path $RepoRoot 'README.md') -Destination $StageDir
@@ -706,9 +812,10 @@ foreach ($localOnlyDocs in @('docs\diagrams', 'docs\plans', 'docs\reviews')) {
     'Licence: GPL-3.0-or-later (LICENSE); third-party notices: THIRD_PARTY_NOTICES.md.'
 ) | Set-Content -LiteralPath $SourceNotePath -Encoding utf8
 
-$sourceCommit = (& git -C $RepoRoot rev-parse HEAD 2>$null)
-$sourceCommitAvailable = $LASTEXITCODE -eq 0
-$sourceDirty = @(& git -C $RepoRoot status --porcelain --untracked-files=all 2>$null).Count -gt 0
+# A git that fails (not a repository, "dubious ownership", not installed) prints nothing, and
+# an empty `git status` must not pass for a clean tree: Get-SourceTreeState reports it as a
+# problem, which blocks the distribution claim below.
+$sourceState = Get-SourceTreeState -RepoRoot $RepoRoot
 
 Write-Head '读取构建自述 / Read build self-report'
 # Exit code 1 from --capture-doctor means this machine could not capture right now (no Npcap,
@@ -741,8 +848,8 @@ $sourceProfileStatus = $sourceProfileMatch.Groups[1].Value
 # The first two are declarations, not findings: compile-time constants read back out of the
 # staged binary (see Invoke-StagedCollectorJson), recorded with a *_source field saying so and
 # kept only so a build whose declared status regressed cannot ship. The last three carry the
-# gate: whether the package carries a VERIFIED protocol profile, whether its source is
-# committed, and whether verification was skipped.
+# gate: whether the package carries a VERIFIED protocol profile, whether its source is a
+# clean commit that git can name, and whether verification was skipped.
 $distributionBlockers = @()
 if (-not $stagedDoctor.public_distribution_ready) {
     $distributionBlockers += '打包的 Collector 自述 public_distribution_ready=false（编译期常量）'
@@ -753,7 +860,10 @@ if ($liveCaptureStatus -ne 'VERIFIED_POP_TO_EXIT') {
 if ($verifiedProfileIds.Count -eq 0) {
     $distributionBlockers += '包内没有任何 VERIFIED 协议档案'
 }
-if ($sourceDirty) {
+if ($sourceState.Problem) {
+    $distributionBlockers += ("无法确定源码提交与工作区状态：{0}" -f $sourceState.Problem)
+}
+elseif ($sourceState.Dirty) {
     $distributionBlockers += '源码工作区有未提交改动（source_worktree_dirty）'
 }
 if ($SkipVerify) {
@@ -783,8 +893,9 @@ foreach ($blocker in $distributionBlockers) {
     configuration = $Configuration
     runtime = 'win-x64'
     framework_dependent = $false
-    source_commit = if ($sourceCommitAvailable) { [string]$sourceCommit } else { $null }
-    source_worktree_dirty = $sourceDirty
+    # Both null when git could not answer; public_distribution_blockers then says why.
+    source_commit = $sourceState.Commit
+    source_worktree_dirty = $sourceState.Dirty
     live_capture_status = $liveCaptureStatus
     # Where each status came from, so a reader never has to guess whether a field is a
     # finding or a declaration: live_capture_status is a constant, not evidence that this
@@ -877,6 +988,7 @@ if ($Verify) {
         $desktop = Join-Path $unpacked 'MentorRecorder.Desktop.exe'
         Assert-File $collector '解包目录缺少 Collector'
         Assert-File $desktop '解包目录缺少 Desktop'
+        Assert-DesktopExecutable $desktop
 
         function Invoke-Unpacked([string]$Exe, [string[]]$PackageArgs, [int[]]$AllowedExitCodes, [string]$Label,
                                  [switch]$Offscreen) {
@@ -976,7 +1088,15 @@ if ($Verify) {
             if ($metadata.source_worktree_dirty) {
                 $verifyBlockers += '源码工作区有未提交改动：产物无法与任何提交对应'
             }
-            if (@(& git -C $RepoRoot status --porcelain --untracked-files=all 2>$null).Count -gt 0) {
+            if (-not $metadata.source_commit) {
+                $verifyBlockers += 'BUILD-METADATA.json 没有记录 source_commit：产物无法与任何提交对应'
+            }
+            # The same reading as at packaging time: a git that fails is not a clean tree.
+            $verifySourceState = Get-SourceTreeState -RepoRoot $RepoRoot
+            if ($verifySourceState.Problem) {
+                $verifyBlockers += ("无法确定源码工作区状态：{0}" -f $verifySourceState.Problem)
+            }
+            elseif ($verifySourceState.Dirty) {
                 $verifyBlockers += '打包后源码工作区又出现了未提交改动'
             }
             if ($unpackedVerifiedIds.Count -eq 0) {
@@ -1043,7 +1163,7 @@ if (-not $NoInstaller) {
         Assert-File $InstallerPath '安装器未生成'
         $setupHash = (Get-FileHash -LiteralPath $InstallerPath -Algorithm SHA256).Hash.ToLowerInvariant()
         ("{0}  {1}" -f $setupHash, (Split-Path -Leaf $InstallerPath)) |
-            Set-Content -LiteralPath ($InstallerPath + '.sha256') -Encoding ascii
+            Set-Content -LiteralPath $InstallerHashPath -Encoding ascii
         Write-Host ("  安装器: {0} ({1:N0} 字节)" -f $InstallerPath, (Get-Item -LiteralPath $InstallerPath).Length) -ForegroundColor Green
     }
 }

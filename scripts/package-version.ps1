@@ -1,10 +1,10 @@
-#Requires -Version 5.1
+#Requires -Version 7.0
 <#
 .SYNOPSIS
     版本号的纯函数 / Pure version helpers shared by the packaging scripts.
 
 .DESCRIPTION
-    这些函数没有任何副作用（除读取传入的文件外），因此可以被点源引入并单独自测：
+    这些函数没有任何副作用（除读取传入的文件与只读地询问 git 外），因此可以被点源引入并单独自测：
     tools/package-verification/test_package_version.py 会逐条验证，
     scripts/run-python-tool-tests.ps1 与 scripts/verify.ps1 会运行该自测。
 
@@ -152,4 +152,101 @@ function Get-ChangelogTopRefusal {
             $Version, $observed)
     }
     return ("CHANGELOG.md 最上方应为 ## [{0}]，实际为 {1}" -f $Version, $observed)
+}
+
+function Get-ChangelogSection {
+    <#
+    .SYNOPSIS
+        取出一个版本段落 / The "## [X.Y.Z] - date" section of one version.
+    .DESCRIPTION
+        返回 @{ Heading; Body }：Heading 是标题行原文（含日期），Body 是到下一个 "## " 标题为止的
+        正文；没有该版本的标题时返回 $null。换行先统一为 LF：tag 中的文件由 git 以 LF 输出，
+        工作区是 CRLF；PowerShell 读取 git 输出时把单独的 CR 也当作换行，这里同样处理。
+    #>
+    param(
+        [AllowEmptyString()][AllowNull()][string]$Text,
+        [Parameter(Mandatory = $true)][string]$Version
+    )
+
+    $heading = $null
+    $body = New-Object System.Collections.Generic.List[string]
+    foreach ($line in (([string]$Text) -replace "`r`n?", "`n") -split "`n") {
+        if ($line -match '^##\s*\[([^\]]+)\]') {
+            if ($null -ne $heading) { break }
+            if ($Matches[1] -eq $Version) { $heading = $line.Trim() }
+            continue
+        }
+        if ($null -ne $heading) { $body.Add($line.TrimEnd()) }
+    }
+    if ($null -eq $heading) { return $null }
+    return [ordered]@{ Heading = $heading; Body = ($body -join "`n").Trim() }
+}
+
+function Get-ReleasedChangelogSectionChange {
+    <#
+    .SYNOPSIS
+        已发布段落是否被改动 / How a released section differs from what its tag recorded.
+    .DESCRIPTION
+        $Tagged 是 vX.Y.Z tag 中的 CHANGELOG.md，$Working 是工作区中的。tag 中没有这一段时返回
+        $null（该版本发布时没有段落，无可保护）；否则工作区中的同名段落必须存在，标题行（含日期）
+        与正文都与 tag 逐字一致，不一致时返回说明，一致时返回 $null。工作区中缺少该段落——被删除，
+        或标题被改成了别的版本号——同样算作改动。
+    #>
+    param(
+        [AllowEmptyString()][AllowNull()][string]$Tagged,
+        [AllowEmptyString()][AllowNull()][string]$Working,
+        [Parameter(Mandatory = $true)][string]$Version
+    )
+
+    $released = Get-ChangelogSection -Text $Tagged -Version $Version
+    if ($null -eq $released) { return $null }
+    $current = Get-ChangelogSection -Text $Working -Version $Version
+    if ($null -eq $current) {
+        return ("工作区中没有 ## [{0}] 段落（被删除或标题被改名）" -f $Version)
+    }
+    if ($current.Heading -cne $released.Heading) {
+        return ("标题行由「{0}」改成了「{1}」" -f $released.Heading, $current.Heading)
+    }
+    if ($current.Body -cne $released.Body) {
+        return ("## [{0}] 的正文与 tag 中的不一致" -f $Version)
+    }
+    return $null
+}
+
+function Get-SourceTreeState {
+    <#
+    .SYNOPSIS
+        源码提交与工作区状态 / The commit a package is built from, and whether the tree is clean.
+    .DESCRIPTION
+        返回 @{ Commit; Dirty; Problem }。git 回答了两个问题时，Commit 是 40 位提交号，Dirty 表示
+        工作区是否有未提交改动（含未跟踪文件），Problem 为 $null。找不到 git、目录不是仓库、git 因
+        “dubious ownership” 拒绝该仓库，或任一命令失败时，Commit 与 Dirty 均为 $null，Problem 说明
+        原因：这些情况下 `git status` 什么也不输出，绝不能被读成“工作区干净”。
+    #>
+    param([Parameter(Mandatory = $true)][string]$RepoRoot)
+
+    $state = [ordered]@{ Commit = $null; Dirty = $null; Problem = $null }
+    if (-not (Get-Command git -CommandType Application -ErrorAction SilentlyContinue)) {
+        $state.Problem = '找不到 git，无法确定源码提交与工作区状态'
+        return $state
+    }
+
+    $commit = @(& git -C $RepoRoot rev-parse --verify HEAD 2>$null)
+    $exitCode = $LASTEXITCODE
+    if ($exitCode -ne 0 -or $commit.Count -ne 1 -or $commit[0] -notmatch '^[0-9a-f]{40}$') {
+        $state.Problem = ("git rev-parse HEAD 失败（退出码 {0}）：目录可能不是 git 仓库，或 git 拒绝了该仓库（dubious ownership）" -f
+            $exitCode)
+        return $state
+    }
+
+    $changes = @(& git -C $RepoRoot status --porcelain --untracked-files=all 2>$null)
+    $exitCode = $LASTEXITCODE
+    if ($exitCode -ne 0) {
+        $state.Problem = ("git status 失败（退出码 {0}），无法确认源码工作区是否干净" -f $exitCode)
+        return $state
+    }
+
+    $state.Commit = [string]$commit[0]
+    $state.Dirty = $changes.Count -gt 0
+    return $state
 }

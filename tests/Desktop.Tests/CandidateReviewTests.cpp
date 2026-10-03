@@ -426,6 +426,35 @@ ApplicationWindow {
         QCOMPARE(backend.calls.last().type, QStringLiteral("StopCapture"));
     }
 
+    // 审查 OI-7：协议档案查询一直失败、验证状态却一直有回应时，退避也必须用尽。
+    // 状态的回应不能把档案查询的失败次数清零，否则会以基础间隔永远轮询下去。
+    void aFailingProfileQueryStopsRetryingWhileTheStatusAnswers()
+    {
+        TestBackend backend;
+        backend.automatic = false;
+        CaptureHost host;
+        host.candidate = false;
+        mr::CaptureValidationController controller(&host);
+        controller.setBackend(&backend);
+        // The poll timer's own order: profile first, then status.
+        for (int round = 0; round < 8; ++round) {
+            controller.refreshProfile();
+            const auto profile = backend.calls.last();
+            QCOMPARE(profile.type, QStringLiteral("GetProtocolProfileStatus"));
+            controller.refreshStatusSnapshot();
+            const auto status = backend.calls.last();
+            QCOMPARE(status.type, QStringLiteral("GetCaptureValidationStatus"));
+            profile.reply->fail(QStringLiteral("ERR_INTERNAL"), QStringLiteral("timeout"));
+            status.reply->succeed({{QStringLiteral("state"), QStringLiteral("IDLE")}});
+        }
+        QCOMPARE(controller.actionLabel(), QStringLiteral("状态未确认"));
+
+        // One answer from the profile query is a recovery.
+        controller.refreshProfile();
+        backend.calls.last().reply->succeed({{QStringLiteral("status"), QStringLiteral("VERIFIED")}});
+        QVERIFY(controller.actionLabel() != QStringLiteral("状态未确认"));
+    }
+
     void activeLegacyTraceRetainsItsStopPrecedence()
     {
         TestBackend backend;
@@ -682,6 +711,39 @@ ApplicationWindow {
         QCOMPARE(controller.rows().first().toMap().value(QStringLiteral("review_note")).toString(), QStringLiteral("新备注"));
         QCOMPARE(controller.rows().first().toMap().value(QStringLiteral("review_verdict")).toString(), QStringLiteral("CORRECT"));
         QCOMPARE(finished.last()[1].toBool(), true);
+    }
+
+    // 审查 OI-8：翻页读取在途时给出核对结论，会取消那次读取；页码已经是新页，
+    // 行却还是旧页的。核对回应之后必须把新页读完，页码与行保持一致。
+    void aVerdictDuringAPageLoadDoesNotLeaveThePageOutOfStep()
+    {
+        TestBackend backend;
+        backend.automatic = false;
+        for (int i = 0; i < 120; ++i)
+            backend.rows.append(row(i));
+        mr::CandidateReviewController controller;
+        controller.setBackend(&backend);
+        controller.loadPage(1);
+        backend.calls.last().reply->succeed(backend.query(backend.calls.last().payload));
+        QCOMPARE(controller.rows().first().toMap().value(QStringLiteral("observation_id")).toString(),
+                 QStringLiteral("0"));
+
+        controller.loadPage(2);
+        const auto pageTwo = backend.calls.last();
+        controller.review(QStringLiteral("0"), QStringLiteral("CORRECT"), QString());
+        const auto verdict = backend.calls.last();
+        QCOMPARE(verdict.type, QStringLiteral("ReviewCandidateObservation"));
+        pageTwo.reply->succeed(backend.query(pageTwo.payload));
+        verdict.reply->succeed({{QStringLiteral("observation_id"), QStringLiteral("0")},
+                                {QStringLiteral("review_verdict"), QStringLiteral("CORRECT")},
+                                {QStringLiteral("reviewed_at_utc"), QStringLiteral("2026-09-05T00:00:00.000Z")}});
+        const auto reread = backend.calls.last();
+        if (reread.type == QLatin1String("QueryCandidateObservations"))
+            reread.reply->succeed(backend.query(reread.payload));
+        QVERIFY(!controller.loading());
+        QCOMPARE(controller.page(), 2);
+        QCOMPARE(controller.rows().first().toMap().value(QStringLiteral("observation_id")).toString(),
+                 QStringLiteral("50"));
     }
 
     void candidateLiveEventDoesNotRefreshFormalViewsOrAnnounce()

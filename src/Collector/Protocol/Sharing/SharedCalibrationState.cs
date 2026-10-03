@@ -12,7 +12,9 @@ namespace MentorRecorder.Collector.Protocol.Sharing;
 /// <param name="Submitters">Distinct submitters.</param>
 /// <param name="FirstPublishedAtUtc">First publication.</param>
 /// <param name="Commit">Commit it was downloaded at.</param>
-/// <param name="Conflicting">The index marked it as one of several differing codes for the same thing (plan §18.6); picked last.</param>
+/// <param name="Conflicting">
+/// The index marked it as one of several differing codes for the same thing (plan §18.6); breaks a tie in submitters.
+/// </param>
 internal sealed record SharedCodeHints(
     string CodeSha256, int Submitters, DateTimeOffset? FirstPublishedAtUtc, string? Commit, bool Conflicting = false);
 
@@ -24,6 +26,16 @@ internal sealed record SharedCodeHints(
 /// <param name="LastAtUtc">Latest contradiction.</param>
 internal sealed record SharedRejection(
     string TemplateSha256, string CodeSha256, IReadOnlyList<string> Sessions, DateTimeOffset FirstAtUtc, DateTimeOffset LastAtUtc);
+
+/// <summary>
+/// When the shared profile document on the build's one path began recording, and from which code (audit 2026-10-03,
+/// OE-2/OE-4). Every code of a build writes the same profile id, so this is what tells the runs of one code from those
+/// of the code before it - for marking them after a withdrawal and for "has this code recorded a whole duty".
+/// </summary>
+/// <param name="ProfileSha256">Canonical hash of the profile document.</param>
+/// <param name="CodeSha256">The code it was written from.</param>
+/// <param name="RecordsFromUtc">Earliest creation time a run recorded under it can have.</param>
+internal sealed record SharedBinding(string ProfileSha256, string CodeSha256, DateTimeOffset RecordsFromUtc);
 
 /// <summary>
 /// The content of <c>state.json</c> in one region/build directory of <see cref="SharedCalibrationStore"/>.
@@ -41,16 +53,25 @@ internal sealed record SharedRejection(
 /// When the player chose 不用共享的，我自己校准 for this build; null while they have not. Written as the optional
 /// <c>user_rejected_at</c>, so a file from before it existed reads as "not refused" without a schema bump.
 /// </param>
+/// <param name="SettledProfileSha256">The shared profile document whose watch ended; the optional <c>settled_profile_sha256</c>.</param>
+/// <param name="Binding">
+/// When the shared profile document in use began recording; the optional <c>bound</c> object, so a file written before
+/// it existed reads as "not known" without a schema bump.
+/// </param>
 internal sealed record SharedCalibrationState(
     IReadOnlyList<SharedFetchRecord> Fetches,
     IReadOnlyList<SharedCodeHints> Codes,
     IReadOnlyList<string> Revoked,
     IReadOnlyList<SharedRejection> Rejections,
     DateTimeOffset? UserRejectedAtUtc = null,
-    string? SettledProfileSha256 = null)
+    string? SettledProfileSha256 = null,
+    SharedBinding? Binding = null)
 {
     /// <summary>The shared profile document whose watch ended (plan §18.4); written as the optional <c>settled_profile_sha256</c>.</summary>
     internal SharedCalibrationState WithSettled(string profileSha256) => this with { SettledProfileSha256 = profileSha256 };
+
+    /// <summary>When the document on the build's path began recording; one path per build, so it replaces any earlier one.</summary>
+    internal SharedCalibrationState WithBinding(SharedBinding binding) => this with { Binding = binding };
 
     internal const int SchemaVersion = 1;
     internal const int MaxFetches = 8;
@@ -147,7 +168,8 @@ internal sealed record SharedCalibrationState(
                 Items(root, "rejections").Select(ReadRejection).OfType<SharedRejection>()
                     .DistinctBy(rejection => (rejection.TemplateSha256, rejection.CodeSha256)).Take(MaxRejections).ToArray(),
                 ReadStamp(root, "user_rejected_at"),
-                StringOf(root, "settled_profile_sha256") is { } settled && SharedCalibrationIndex.IsSha256(settled) ? settled : null);
+                StringOf(root, "settled_profile_sha256") is { } settled && SharedCalibrationIndex.IsSha256(settled) ? settled : null,
+                root.TryGetProperty("bound", out var bound) ? ReadBinding(bound) : null);
         }
         catch (Exception ex) when (ex is JsonException or InvalidOperationException or FormatException)
         {
@@ -232,6 +254,16 @@ internal sealed record SharedCalibrationState(
         return new SharedRejection(template, code, sessions, first, last);
     }
 
+    private static SharedBinding? ReadBinding(JsonElement item)
+    {
+        var profile = StringOf(item, "profile_sha256");
+        var code = StringOf(item, "code_sha256");
+        return SharedCalibrationIndex.IsSha256(profile) && SharedCalibrationIndex.IsSha256(code) &&
+               ReadStamp(item, "records_from") is { } from
+            ? new SharedBinding(profile, code, from)
+            : null;
+    }
+
     private static bool SameKey(SharedRejection rejection, string templateSha256, string codeSha256) =>
         string.Equals(rejection.TemplateSha256, templateSha256, StringComparison.Ordinal) &&
         string.Equals(rejection.CodeSha256, codeSha256, StringComparison.Ordinal);
@@ -292,6 +324,16 @@ internal sealed record SharedCalibrationState(
         if (SettledProfileSha256 is { } settled)
         {
             node["settled_profile_sha256"] = settled;
+        }
+
+        if (Binding is { } binding)
+        {
+            node["bound"] = new JsonObject
+            {
+                ["profile_sha256"] = binding.ProfileSha256,
+                ["code_sha256"] = binding.CodeSha256,
+                ["records_from"] = Stamp(binding.RecordsFromUtc),
+            };
         }
 
         return node.ToJsonString(WriteOptions);

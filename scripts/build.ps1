@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+#Requires -Version 7.0
 <#
 .SYNOPSIS
     构建 MentorRecorder / Build MentorRecorder.
@@ -114,6 +114,7 @@ Write-Head 'cmake configure (MinGW + Ninja + Qt 6.11.2)'
     "-DCMAKE_CXX_COMPILER=$MinGwBin/g++.exe" `
     "-DCMAKE_RC_COMPILER=$MinGwBin/windres.exe" `
     "-DMR_STAGE_COLLECTOR=OFF" `
+    "-DMR_DEV_COLLECTOR_DISCOVERY=OFF" `
     "-DCMAKE_BUILD_TYPE=$Configuration"
 if ($LASTEXITCODE -ne 0) {
     Write-Host 'cmake configure 失败。' -ForegroundColor Red

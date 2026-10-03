@@ -250,6 +250,19 @@ public sealed class SettingsRepository
         _database.RunInTransaction(tx => WriteSetting(key, valueJson, tx));
     }
 
+    /// <summary>Writes one application setting inside an enclosing transaction.</summary>
+    /// <param name="key">Setting key.</param>
+    /// <param name="valueJson">JSON-encoded value.</param>
+    /// <param name="transaction">Enclosing transaction.</param>
+    public void SetSetting(string key, string valueJson, SqliteTransaction transaction)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(key);
+        ArgumentNullException.ThrowIfNull(valueJson);
+        ArgumentNullException.ThrowIfNull(transaction);
+
+        WriteSetting(key, valueJson, transaction);
+    }
+
     /// <summary>
     /// Atomically writes the supplied keys and reads their resulting projection before
     /// committing. A write or projection failure rolls back every supplied key; omitted

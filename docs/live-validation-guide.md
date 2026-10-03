@@ -39,7 +39,7 @@
 | 前提 | 说明 |
 |---|---|
 | Windows 10/11 x64 | 与目标平台一致 |
-| 已安装 Npcap | 由用户从官方站点自行安装，安装时勾选 "WinPcap API-compatible Mode"。本软件不下载、不内置 |
+| 已安装 Npcap | 由安装程序在缺少 Npcap 时下载官方安装程序并启动向导（[privacy-boundary.md](privacy-boundary.md) §8.5），或由用户从官方站点自行安装；安装时勾选 "WinPcap API-compatible Mode"。本软件不内置 Npcap，运行中的软件不下载它 |
 | FINAL FANTASY XIV 可正常游玩 | 国服或国际服均可，但须记录所用区服 |
 | 至少 5 次导随 | 覆盖多种结局（见 §4） |
 | 本项目 Release 构建 | `pwsh -File scripts/build.ps1` |
@@ -66,12 +66,14 @@ pwsh -File scripts/bootstrap.ps1
 1. 启动 `MentorRecorder.Desktop.exe`，确认它拉起了 `MentorRecorder.Collector.exe`。
 2. 打开诊断页，确认握手成功（显示 Collector 版本与 `protocol_version = 1`）。
 3. 用 `netstat -ano | findstr <两个进程的 PID>` 确认**没有任何 LISTENING 端口**，桌面端也没有出站连接。
-   采集服务只在当前版本没有可用档案且共享校准开启时，才会短暂连向 GitHub 或 jsDelivr 的 443 端口
-   （[privacy-boundary.md](privacy-boundary.md) §8.2）。若用户在「设置 → 播报」中选择了在线语音，
-   播报时还会连向所选的语音服务（§8.3）。要验证完全不联网，应先在设置中关闭
-   「游戏更新后获取其他玩家的共享校准」并把语音引擎改回本机语音，
-   或设置 `MR_DISABLE_SHARED_FETCH=1` 与 `MR_DISABLE_ONLINE_SPEECH=1` 后重启本软件。
-4. 用 Process Explorer 确认 Collector **没有打开游戏进程的句柄**。
+   采集服务只在 [privacy-boundary.md](privacy-boundary.md) §8.2 所列条件下（当前版本没有可用档案，或在用档案属于
+   仍读取索引的两种情形）且共享校准开启时，才会短暂连向 GitHub 或 jsDelivr 的 443 端口。若用户在「设置 → 播报」中
+   选择了在线语音，播报时还会连向所选的语音服务（§8.3）。桌面端处于连接状态时，更新检查（§8.4，默认开启）每 24 小时
+   最多一次连向 `github.com` 及其重定向的 `*.githubusercontent.com` 的 443 端口。要验证完全不联网，应先在设置中关闭
+   「游戏更新后获取其他玩家的共享校准」与「检查新版本并提示」，并把语音引擎改回本机语音，
+   或设置 `MR_DISABLE_SHARED_FETCH=1`、`MR_DISABLE_ONLINE_SPEECH=1` 与 `MR_DISABLE_UPDATE_CHECK=1` 后重启本软件。
+4. 用 Process Explorer 确认 Collector **没有打开游戏进程的句柄**（具体做法见
+   [privacy-boundary.md](privacy-boundary.md) §9 第 2 条）。
 5. 确认安装目录中**没有** `deucalion-*.dll`。
 
 **任一条不符即为边界违规**：应立即停止验证，并先行修复。
@@ -126,17 +128,20 @@ pwsh -File scripts/bootstrap.ps1
 每条消息只写入下列各项：序号、相对毫秒、UTC 时间、方向（`S2C` / `C2S`）、
 段类型、opcode、**负载长度**、以及**负载 SHA-256 的前 12 位**。
 
+另有一个连接标识，即已哈希连接键的前 8 位，只用于在同一份取证内区分连接，不含地址。
+
 **不写入**：任何负载字节（十六进制、Base64 或其他任何写法）、
-IP 与 MAC 地址（已经哈希过的连接键同样不写）、角色名、聊天内容、队友信息、网卡 GUID
+IP 与 MAC 地址（完整的连接键同样不写）、角色名、聊天内容、队友信息、网卡 GUID
 （只写其 12 位指纹）。标记只接受下文列出的五个固定词，不写入自由文本。
 
 该模式符合 [privacy-boundary.md](privacy-boundary.md) §5 对诊断模式的要求：
 由用户显式开启、范围有界、有明确的保留策略、不含聊天内容、凭据与地址。三条边界均为具体数值：
 
-- **行数**：消息行默认上限 20 万（`--max-lines` 可调），标记行上限 1 万；达到上限后只计数、
-  不再写入，并在 summary 中标记 `truncated`。
+- **行数**：消息行默认上限 20 万（`--max-lines` 可调，最多 25 万，即 `--trace-report` 能读取的行数），
+  标记行上限 1 万；达到上限后只计数、不再写入，并在 summary 中标记 `truncated`。
 - **时长**：`--duration-seconds <n>` 最大 86400；**省略或取 0 表示不限时长**，
-  仅由行数上限、游戏退出或 Ctrl+C 终止。界面上的“开始验证”另有 **2 小时**的硬上限。
+  仅由行数上限、游戏退出或 Ctrl+C 终止。界面上的“开始验证”另有 **2 小时**的硬上限，
+  从开始验证起计，含等待游戏或重启的时间。
 - **保留**：命令行通路写入用户自行指定的文件，本软件既不清理也不覆盖该文件。界面通路写入
   `<数据库目录>\traces\<时间戳>-<GUID>\`，只保留**最近 10 个**会话目录，且保留期不超过 **7 天**，
   在启动时与每次会话结束后各清理一次。
@@ -144,8 +149,9 @@ IP 与 MAC 地址（已经哈希过的连接键同样不写）、角色名、聊
 ### 3.5.2 步骤
 
 **第 1 步：安装 Npcap。**
-由用户从官方站点自行安装，安装时**必须**勾选 "WinPcap API-compatible Mode"。
-本软件不下载、不内置、也不分发该组件。
+本软件的安装程序在检测不到 Npcap 时，会从官方站点下载其官方安装程序并启动向导
+（[privacy-boundary.md](privacy-boundary.md) §8.5）；也可由用户从官方站点自行安装。安装时**必须**勾选
+"WinPcap API-compatible Mode"。本软件不内置、不分发该组件，运行中的软件也不下载它。
 
 **第 2 步：自检。**
 
@@ -163,7 +169,7 @@ MentorRecorder.Collector.exe --capture-doctor
 MentorRecorder.Collector.exe --capture-trace trace.jsonl
 # 可选：--duration-seconds 1800   限时（0 或省略 = 直到 Ctrl+C 或游戏退出）
 #       --adapter <id>            指定网卡（自检里那张 [*] 的 id）
-#       --max-lines 200000        行数上限，默认 20 万行
+#       --max-lines 200000        行数上限，默认 20 万行，最多 25 万行
 ```
 
 该命令**不打开数据库、不建立命名管道、不解析任何字段**，只写入指定的文件。
@@ -240,7 +246,7 @@ MentorRecorder.Collector.exe --trace-report trace.jsonl --around pop --window-ms
 | 已开始，但 `消息 0` 且提示“抓包中断” | 监视器致命错误 | 查看 `%LOCALAPPDATA%\MentorRecorder\logs\` 中的 `monitor_trace` 行 |
 | 日志中出现 `Cannot find one or more signatures in ffxiv_dx11` | 当前 Machina 版本的 Oodle 特征与该客户端版本不匹配，取不到解压函数 | 本项目无法在代码中绕过：需等待 Machina 更新特征，或按 `DEC-OODLE-01` 的选项 A 自备 `oo2net_9_win64.dll`（本项目不分发该文件） |
 | 状态行始终为 `消息 0` 且没有报错 | 选择了错误的网卡（例如流量经 VPN 虚拟网卡） | 更换网卡后重试 |
-| 结束时提示达到行数上限 | 已写满 `--max-lines` | 提高上限，或分多次采集，每次只覆盖一个流程 |
+| 结束时提示达到行数上限 | 已写满 `--max-lines` | 提高上限（最多 25 万行），或分多次采集，每次只覆盖一个流程 |
 
 ### 3.5.5 提交之前
 
@@ -265,7 +271,7 @@ trace 文件本身已脱敏，但**不应提交到 issue**：
 | 8 | 中途切换职业后再排 | `job_id` 正确 | 非空 |
 
 场景 4 **可以实际复现**：对于已经投递过解码消息的游戏连接，Collector 在其收到 FIN/RST
-或从系统连接表中消失时收尾为 `DISCONNECTED`（见 [state-machine.md](state-machine.md) §3.6）。
+或从系统连接表中消失（持续约 1 秒）时收尾为 `DISCONNECTED`（见 [state-machine.md](state-machine.md) §3.6）。
 拔掉网线之后不要立即关闭游戏，也不要立即重新登录，否则结果会分别变为 `INTERRUPTED` 与
 “换区收尾”，测试的就不是这条路径。
 

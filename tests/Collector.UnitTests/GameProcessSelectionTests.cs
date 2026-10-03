@@ -190,7 +190,182 @@ public sealed class GameProcessSelectionTests
         Assert.False(selection.RefreshAfterValidationRestart(previous).Running);
     }
 
-    private static GameProcessSelection Selector(Processes processes) =>
+    [Fact]
+    public void TwoClientsThatBothCloseLeaveNothingToChooseAndTheNextSoleClientIsLocked()
+    {
+        var processes = new Processes(Client(42, 0), Client(99, 1));
+        var selection = Selector(processes);
+        Assert.Equal("MULTIPLE", selection.Refresh().SelectionReason);
+
+        processes.Set();
+        var none = selection.Refresh();
+        Assert.Equal("NONE", none.SelectionReason);
+        Assert.False(none.SelectionRequired);
+        Assert.Empty(none.Processes);
+
+        processes.Set(Client(43, 2));
+        var next = selection.Refresh();
+        Assert.True(next.Running);
+        Assert.Equal(43, next.ProcessId);
+        Assert.False(next.SelectionRequired);
+    }
+
+    [Fact]
+    public void AnAmbiguousRestartIsForgottenOnceEveryClientHasClosed()
+    {
+        var processes = new Processes(Client(42, 0));
+        var selection = Selector(processes);
+        selection.Refresh();
+        processes.Set(Client(43, 1), Client(44, 2));
+        Assert.True(selection.Refresh().SelectionRequired);
+
+        processes.Set();
+        var none = selection.Refresh();
+        // The reason stays for diagnostics; with nothing listed there is nothing to choose.
+        Assert.Equal("EXITED", none.SelectionReason);
+        Assert.False(none.SelectionRequired);
+
+        processes.Set(Client(45, 3));
+        var restarted = selection.Refresh();
+        Assert.True(restarted.Running);
+        Assert.Equal(45, restarted.ProcessId);
+        Assert.False(restarted.SelectionRequired);
+    }
+
+    [Fact]
+    public void AnExitWithNoClientLeftAsksForNoChoiceAndAnotherInstallationStillWaits()
+    {
+        var processes = new Processes(Client(42, 0));
+        var selection = Selector(processes);
+        selection.Refresh();
+        processes.Set();
+        var none = selection.Refresh();
+        Assert.Equal("EXITED", none.SelectionReason);
+        Assert.False(none.SelectionRequired);
+
+        processes.Set(Client(43, 1) with { ExecutablePath = @"D:\Other\game\ffxiv_dx11.exe" });
+        var other = selection.Refresh();
+        Assert.False(other.Running);
+        Assert.True(other.SelectionRequired);
+    }
+
+    [Fact]
+    public void AFailedListingKeepsTheSelectionAndTheLastAnswer()
+    {
+        var processes = new Processes(Client(42, 0), Client(99, 1));
+        var selection = Selector(processes);
+        var choice = selection.Refresh().Processes.Single(p => p.ProcessId == 42);
+        selection.Select(choice.ProcessId, choice.Token);
+        var before = selection.Refresh();
+
+        processes.Fails = true;
+        var failed = selection.Refresh();
+        Assert.True(failed.Running);
+        Assert.Equal(42, failed.ProcessId);
+        Assert.Equal(before.StartedAtUtc, failed.StartedAtUtc);
+        Assert.False(failed.SelectionRequired);
+        Assert.Equal(before.Processes.Select(p => p.Token), failed.Processes.Select(p => p.Token));
+
+        processes.Fails = false;
+        var back = selection.Refresh();
+        Assert.True(back.Running);
+        Assert.Equal(42, back.ProcessId);
+        Assert.Equal("NONE", back.SelectionReason);
+    }
+
+    [Fact]
+    public void TheSelectedIncarnationReappearingAfterAMissIsSelectedAgain()
+    {
+        var processes = new Processes(Client(42, 0), Client(99, 1));
+        var selection = Selector(processes);
+        var choice = selection.Refresh().Processes.Single(p => p.ProcessId == 42);
+        selection.Select(choice.ProcessId, choice.Token);
+        processes.Set(Client(99, 1));
+        Assert.Equal("EXITED", selection.Refresh().SelectionReason);
+
+        processes.Set(Client(42, 0), Client(99, 1));
+        var back = selection.Refresh();
+        Assert.True(back.Running);
+        Assert.Equal(42, back.ProcessId);
+        Assert.False(back.SelectionRequired);
+    }
+
+    [Fact]
+    public void APinnedClientWhoseStartTimeIsMomentarilyUnreadableStaysSelected()
+    {
+        var processes = new Processes(Client(42, 0));
+        var selection = Selector(processes);
+        var pinned = selection.Refresh();
+
+        processes.Set(Client(42, 0) with { StartedAtUtc = null });
+        var unreadable = selection.Refresh();
+        Assert.True(unreadable.Running);
+        Assert.Equal(42, unreadable.ProcessId);
+        Assert.Equal(pinned.StartedAtUtc, unreadable.StartedAtUtc);
+        Assert.Equal("NONE", unreadable.SelectionReason);
+
+        // Its own process id was not remembered as somebody else's: a restart reusing it continues.
+        processes.Set();
+        selection.Refresh();
+        processes.Set(Client(42, 1));
+        Assert.Equal(42, selection.Refresh().ProcessId);
+    }
+
+    [Fact]
+    public void APeerSeenWithoutAStartTimeIsForgottenOnceItsProcessIdIsGone()
+    {
+        var processes = new Processes(Client(42, 0));
+        var selection = Selector(processes);
+        selection.Refresh();
+        processes.Set(Client(42, 0), Client(99, 1) with { StartedAtUtc = null });
+        selection.Refresh();
+        processes.Set(Client(42, 0));
+        selection.Refresh();
+
+        // The selected client exits and its sole restart happens to reuse that old process id.
+        processes.Set(Client(99, 2));
+        var restarted = selection.Refresh();
+        Assert.True(restarted.Running);
+        Assert.Equal(99, restarted.ProcessId);
+    }
+
+    [Fact]
+    public void WithNoClientTheProcessListIsReadOnceAndNothingIsReportedRunning()
+    {
+        var processes = new AppearsOnSecondListing();
+        var selection = Selector(processes);
+        var game = selection.Refresh();
+        Assert.False(game.Running);
+        Assert.Null(game.ProcessId);
+        Assert.Empty(game.Processes);
+        Assert.Equal(2, processes.Calls);
+    }
+
+    [Fact]
+    public void ASelectionTokenIsAcceptedWhateverItsLetterCase()
+    {
+        var processes = new Processes(Client(42, 0), Client(99, 1));
+        var selection = Selector(processes);
+        var choice = selection.Refresh().Processes.Single(p => p.ProcessId == 99);
+        selection.Select(choice.ProcessId, choice.Token.ToUpperInvariant());
+        Assert.Equal(99, selection.Refresh().ProcessId);
+    }
+
+    [Fact]
+    public void ALoneClientWhoseStartTimeBecomesReadableIsLockedWithoutAChoice()
+    {
+        var processes = new Processes(Client(42, 0) with { StartedAtUtc = null });
+        var selection = Selector(processes);
+        Assert.Equal("IDENTITY_UNAVAILABLE", selection.Refresh().SelectionReason);
+
+        processes.Set(Client(42, 0));
+        var locked = selection.Refresh();
+        Assert.True(locked.Running);
+        Assert.Equal(42, locked.ProcessId);
+        Assert.False(locked.SelectionRequired);
+    }
+
+    private static GameProcessSelection Selector(IGameProcessProvider processes) =>
         new(new GameProcessLocator(processes, new FakeGameFileReader()));
 
     private static GameProcessCandidate Client(int pid, int minute) => new(
@@ -199,9 +374,19 @@ public sealed class GameProcessSelectionTests
     private sealed class Processes(params GameProcessCandidate[] clients) : IGameProcessProvider
     {
         private GameProcessCandidate[] _clients = clients;
+        public bool Fails { get; set; }
         public void Set(params GameProcessCandidate[] clients) => _clients = clients;
         public IReadOnlyList<GameProcessCandidate> ByName(string name) =>
-            name == GameProcessLocator.Dx11ProcessName ? _clients : [];
+            Fails ? throw new InvalidOperationException("simulated process listing failure")
+            : name == GameProcessLocator.Dx11ProcessName ? _clients : [];
+    }
+
+    /// <summary>Empty for the first listing (two names), a client from then on.</summary>
+    private sealed class AppearsOnSecondListing : IGameProcessProvider
+    {
+        public int Calls { get; private set; }
+        public IReadOnlyList<GameProcessCandidate> ByName(string name) =>
+            ++Calls > 2 && name == GameProcessLocator.Dx11ProcessName ? [Client(42, 0)] : [];
     }
 
     private sealed class UnknownTime : IGameProcessProvider

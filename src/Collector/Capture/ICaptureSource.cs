@@ -87,6 +87,20 @@ public interface ICaptureSourceObserver
     void OnConnectionClosed()
     {
     }
+
+    /// <summary>
+    /// One direction of a game connection was given up after a gap it could not fill: nothing more
+    /// arrives from it this session, while the connection and the capture carry on. Reported with
+    /// the connection's opaque key -- the one its decoded messages carry -- so the parser can tell
+    /// whether that direction of that connection was carrying the run: damage to the chat server's
+    /// connection says nothing about a duty (audit 2026-10-03, CS3a-X1, V2-1). Defaulted to nothing so a
+    /// diagnostics-only observer does not have to care.
+    /// </summary>
+    /// <param name="connectionKey">Opaque key of the connection, as on its decoded messages.</param>
+    /// <param name="direction">The direction given up.</param>
+    void OnDirectionDamaged(string connectionKey, MessageDirection direction)
+    {
+    }
 }
 
 /// <summary>
@@ -118,17 +132,34 @@ public sealed record OodleSignatureUse(string? Source, string? ProfileId, string
 /// and are what tells "nothing arrived" apart from "everything arrived and was thrown away"
 /// (docs/capture-diagnostics.md section 5).
 /// </summary>
-/// <param name="RawPackets">IPv4/TCP frames read from the adapter and structurally accepted.</param>
-/// <param name="DroppedNoStream">Frames dropped because their tuple had no tracked stream.</param>
+/// <param name="RawPackets">
+/// IPv4/TCP frames to or from the selected address read from the adapter, before reassembly. A frame
+/// whose IP or TCP header cannot be trusted (a fragment, a truncated body) is counted here and in
+/// <paramref name="DroppedNoStream"/>.
+/// </param>
+/// <param name="DroppedNoStream">
+/// Frames dropped before reassembly for want of a stream that could take them: their tuple had no
+/// tracked stream, their header could not be trusted, their handshake was refused, or their direction
+/// had already been given up.
+/// </param>
 /// <param name="DroppedNoSyn">Frames dropped because their direction never showed its own SYN.</param>
 /// <param name="ExpiredStreams">Streams released after waiting too long for ownership.</param>
 /// <param name="UnconfirmedTuples">Distinct tuples the OS TCP table never confirmed as the game's.</param>
-/// <param name="StreamResets">Directions abandoned after a gap could not be filled in time.</param>
+/// <param name="StreamResets">
+/// Streams and directions given up: every direction counted in <paramref name="DamagedGameDirections"/>,
+/// a stream nobody owned yet released over a frame it could not decode safely, and a tracked stream a
+/// new handshake replaced.
+/// </param>
 /// <param name="AdapterDropped">Packets Npcap reported as lost, at the driver or the interface.</param>
 /// <param name="Handshakes">Streams opened because their TCP handshake was observed, any program.</param>
 /// <param name="GameConnections">Distinct connections the OS attributed to the game since the start.</param>
 /// <param name="GameConnectionsNow">Connections the OS attributes to the game in the latest reading.</param>
-/// <param name="DamagedGameDirections">Owned stream directions permanently abandoned after a sequence gap.</param>
+/// <param name="DamagedGameDirections">
+/// Directions of owned, decoding streams given up for good: a sequence gap not filled in time, a frame
+/// that could not be decoded safely, or a direction that never showed its own SYN. Session-wide; each one
+/// is also reported on its own, with its connection, through
+/// <see cref="ICaptureSourceObserver.OnDirectionDamaged"/>.
+/// </param>
 public sealed record CaptureIngressCounters(
     long RawPackets = 0,
     long DroppedNoStream = 0,

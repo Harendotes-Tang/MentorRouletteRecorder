@@ -46,8 +46,11 @@ public sealed class CandidateEvidenceExporter(CandidateObservationRepository rep
             {
                 created = true;
                 using var writer = new Utf8JsonWriter(file, new JsonWriterOptions { Indented = true });
-                // The transaction spans the synchronous enumeration. Only one row projection
-                // is materialised at a time, including arbitrarily long append-only history.
+                // The repository's read-only snapshot spans the synchronous enumeration, on a
+                // connection of its own with no database gate held, so the capture thread keeps
+                // writing while this file is written (audit 2026-10-03, OG-7 / CS5-X3). Only one
+                // row projection is materialised at a time, including arbitrarily long
+                // append-only history.
                 repository.VisitResearchEvidence((payloadOpcodes, observations, reviews, items, history) =>
                 {
                     observationCount = observations;

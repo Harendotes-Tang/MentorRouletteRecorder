@@ -114,12 +114,16 @@ Dialog {
     // Reported unconditionally, not only for a 结果 question: a run the dialog
     // could not show stays queued, and resultConfirmationClosed() is the only
     // thing that re-offers it. The call is idempotent when no question is on
-    // screen.
+    // screen. The 心得 prompt has the same pair, asked after the result
+    // question so that one comes first.
     onClosed: {
         dialog.resultAcknowledged = false
         if (typeof App !== "undefined"
             && typeof App.resultConfirmationClosed === "function")
             App.resultConfirmationClosed()
+        if (typeof App !== "undefined"
+            && typeof App.reflectionPromptClosed === "function")
+            App.reflectionPromptClosed()
     }
 
     function openForRun(run, kickerText) {
@@ -144,6 +148,20 @@ Dialog {
         dialog.open()
     }
 
+    // The automatic 心得 prompt after a COMPLETED run. Like openForResult it
+    // reports back once the window is really up: a prompt this busy window
+    // could not show stays queued in the controller and is offered again when
+    // the window closes (review OH-6).
+    function openForPrompt(run, kickerText) {
+        if (!run || !run.run_id || dialog.busy || dialog.visible)
+            return
+        openForRun(run, kickerText)
+        if (dialog.visible && dialog.runId === run.run_id
+            && typeof App !== "undefined"
+            && typeof App.reflectionPromptShown === "function")
+            App.reflectionPromptShown(run.run_id)
+    }
+
     // The duty just ended and nothing observed whether it was cleared. The
     // controller re-offers a question the dialog could not show, so the same run
     // can arrive twice: text already typed for it must survive, and only a
@@ -162,6 +180,9 @@ Dialog {
             textArea.text = ""
         }
         dialog.errorText = ""
+        // An image refusal belongs to the add that caused it, never to the next
+        // question (review OD-5).
+        dialog.noteImageError = ""
         dialog.submitting = false
         dialog.askingResult = true
         dialog.resolving = false
@@ -253,8 +274,11 @@ Dialog {
             dialog.close()
         }
 
-        function onMutationFailed(code, message) {
-            if (!dialog.visible || !dialog.resolving || dialog.waitingForReflection)
+        // Only the refusal of this window's own 通关 / 未通关 or 补录职业: one
+        // for the 原因 dialog or 设置 meanwhile is not its answer (review DT3-X1).
+        function onMutationFailed(code, message, kind, runId) {
+            if (!dialog.visible || !dialog.resolving || dialog.waitingForReflection
+                || (kind !== "review" && kind !== "supplement_job") || runId !== dialog.runId)
                 return
             dialog.resolving = false
             dialog.errorText = (message && message.length > 0 ? message : code)

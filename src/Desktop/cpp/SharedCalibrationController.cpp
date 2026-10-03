@@ -24,7 +24,7 @@ bool allManual(const QVariantList &candidates)
     return true;
 }
 
-/// Which gate set the candidates still in the running are judged by, as one word
+/// Where the candidates still in the running came from, as one word
 /// (plans/shared-calibration.md §18.3). Rejected candidates are left out: they no
 /// longer decide anything the player is told. Empty means no candidate reported a
 /// provenance - a Collector before 1.1.0, or a profile restored from disk whose code
@@ -45,6 +45,40 @@ QString provenanceOf(const QVariantList &candidates)
             ++imported;
     }
     return considered > 0 && imported == considered ? QStringLiteral("imported") : QString();
+}
+
+/// Which gate the candidates still in the running are judged by now, as one word
+/// (plans/shared-calibration.md §18.3; audit 2026-10-03, ON1-1). The gate, not the
+/// provenance: a published code is used on the login check alone only while nothing
+/// usable records, it carries no conflict mark and no other code has more submitters;
+/// otherwise the Collector reports its match criterion as REQUIRED, exactly as for a
+/// pasted code no index knows. "login" when one candidate may be used on the login
+/// check (its match criterion is AUDITed), "queue" when every one must first see a
+/// queue on this machine, empty while that cannot be told - a Collector before 1.1.0
+/// reports no gate, and a candidate not judged yet has no criteria.
+QString gateOf(const QVariantList &candidates)
+{
+    int considered = 0;
+    int queue = 0;
+    for (const auto &value : candidates) {
+        const QVariantMap candidate = value.toMap();
+        if (candidate.value(QStringLiteral("status")).toString() == QLatin1String("REJECTED"))
+            continue;
+        ++considered;
+        QString gate;
+        for (const auto &criterion : candidate.value(QStringLiteral("criteria")).toList()) {
+            const QVariantMap row = criterion.toMap();
+            if (row.value(QStringLiteral("message")).toString() == QLatin1String("CONTENT_FINDER_POP"))
+                gate = row.value(QStringLiteral("gate")).toString();
+        }
+        if (gate == QLatin1String("AUDIT"))
+            return QStringLiteral("login");
+        // A pasted code no index knows is never judged any other way.
+        if (gate == QLatin1String("REQUIRED")
+            || candidate.value(QStringLiteral("provenance")).toString() == QLatin1String("IMPORTED"))
+            ++queue;
+    }
+    return considered > 0 && queue == considered ? QStringLiteral("queue") : QString();
 }
 
 QString outcomeOf(const QVariantMap &payload)
@@ -95,6 +129,7 @@ void SharedCalibrationController::refreshFromCaptureStatus(const QVariantMap &ca
     const QVariantList candidates = shared.value(QStringLiteral("candidates")).toList();
     next.manualOnly = allManual(candidates);
     next.provenance = provenanceOf(candidates);
+    next.gate = gateOf(candidates);
     next.auditPending = shared.value(QStringLiteral("audit_pending")).toBool();
     next.phase = shared.value(QStringLiteral("phase")).toString();
     next.lastFetchStatus = shared.value(QStringLiteral("last_fetch_status")).toString();
@@ -170,14 +205,19 @@ QString SharedCalibrationController::headline() const
                 ? tr("已导入校准码，正在本机核实；当前记录照常生成。")
                 : tr("找到更准的共享校准，正在本机核实；当前记录照常生成。");
         }
-        // §18.3: a code an index lists binds at the login burst, so it is a matter of
-        // logging in; a pasted code no index knows waits for one queue and one duty as
-        // well. Without a provenance (an older Collector) neither promise can be made,
-        // and the sentence from before the split stands.
+        // §18.3: a code bound at the login burst is a matter of logging in; any other -
+        // a pasted code no index knows, or since audit 2026-10-03 (ON1-1) a published
+        // one that is outranked, marked as conflicting or would displace a usable
+        // calibration - waits for one queue and one duty as well. The gate the
+        // Collector reports decides, not where the code came from. Without one (an
+        // older Collector, or a code not judged yet) neither promise can be made, and
+        // the sentence from before the split stands.
         if (m_inputs.provenance == QLatin1String("imported"))
             return tr("已导入校准码，登录并排一次本、核实通过后启用。");
-        if (m_inputs.provenance == QLatin1String("published"))
+        if (m_inputs.gate == QLatin1String("login"))
             return tr("找到共享校准，登录时自动核实，通过就开始记录。");
+        if (m_inputs.gate == QLatin1String("queue"))
+            return tr("找到共享校准，还要在本机排一次本、核实通过后才会启用。");
         return m_inputs.manualOnly ? tr("已导入校准码，登录或排本时自动核实。")
                                    : tr("找到共享校准，登录或排本时自动核实。");
     }

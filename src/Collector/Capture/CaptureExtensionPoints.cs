@@ -9,8 +9,9 @@ namespace MentorRecorder.Collector.Capture;
 /// Told when a capture session begins and ends, so the state machine can treat a capture that
 /// stopped mid-run as an interruption rather than a completion.
 ///
-/// Until Phase 3 connects the real listener, <see cref="NullCaptureLifecycleListener"/> stands
-/// in: with no parser there is no run in flight to interrupt.
+/// The serving host passes the live protocol pipeline, which owns the state machine. A capture
+/// controller built without one gets <see cref="NullCaptureLifecycleListener"/>: with no parser
+/// there is no run in flight to interrupt.
 /// </summary>
 public interface ICaptureLifecycleListener
 {
@@ -44,9 +45,23 @@ public interface ICaptureLifecycleListener
     void OnConnectionLost(string captureSessionId)
     {
     }
+
+    /// <summary>
+    /// Reports that one direction of a game connection was given up after a gap it could not
+    /// fill, delivered behind the messages that connection had already delivered. A gap in the
+    /// run's event sequence only when that direction of that connection was carrying the run,
+    /// which the parser decides (audit 2026-10-03, CS3a-X1, V2-1). The default keeps
+    /// diagnostics-only listeners source compatible.
+    /// </summary>
+    /// <param name="captureSessionId">Session whose connection lost a direction.</param>
+    /// <param name="connectionKey">Opaque key of the connection, as on its decoded messages.</param>
+    /// <param name="direction">The direction given up.</param>
+    void OnDirectionDamaged(string captureSessionId, string connectionKey, MessageDirection direction)
+    {
+    }
 }
 
-/// <summary>Does nothing. The default until the Phase 3 state machine is wired in.</summary>
+/// <summary>Does nothing. The default for a capture controller built without the live pipeline.</summary>
 public sealed class NullCaptureLifecycleListener : ICaptureLifecycleListener
 {
     /// <summary>Shared instance.</summary>
@@ -68,9 +83,13 @@ public sealed class NullCaptureLifecycleListener : ICaptureLifecycleListener
 /// game connections it attached to midway, and what the adapter lost. Only the capture
 /// controller knows these facts.
 ///
-/// Advisory, never a lifecycle event: a reading ends no run. Readings of one session arrive
-/// repeatedly and the receiver merges them to the worst; an unreported session counts as not
-/// healthy there, so a missing reading can never make an absence look meaningful.
+/// Advisory, never a lifecycle event: a reading ends no run. Its damaged-direction count is
+/// session-wide and cannot say which connection lost a direction; each damaged direction reaches
+/// the run on its own, with its connection, through
+/// <see cref="ICaptureLifecycleListener.OnDirectionDamaged"/> (audit 2026-10-03, CS3a-X1).
+/// Readings of one session arrive repeatedly and the receiver merges them to the worst; an
+/// unreported session counts as not healthy there, so a missing reading can never make an absence
+/// look meaningful.
 /// </summary>
 public interface ICaptureHealthListener
 {

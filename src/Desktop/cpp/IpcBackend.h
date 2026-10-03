@@ -29,6 +29,8 @@ public:
 
     BackendReply *request(const QString &messageType,
                           const QJsonObject &payload = {}) override;
+    BackendReply *requestWithId(const QString &messageType, const QJsonObject &payload,
+                                const QString &requestId) override;
 
     IpcClient *client() { return m_client; }
 

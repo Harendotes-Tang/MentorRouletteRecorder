@@ -134,8 +134,38 @@ private Q_SLOTS:
     void appController_promptsOncePerCompletedRun();
     void appController_staysSilentWhenDisabledOrAlreadyWritten();
     void appController_neverPromptsForRunsThatEndedBeforeTheSession();
+    void appController_offersAPromptDroppedWhileBusyOnlyWhileStillWanted();
     void ipcBackend_buildsBothReflectionRequests();
 };
+
+/// A prompt the busy dialog could not show is offered when it closes (review
+/// OH-6) - unless the player switched 通关后弹出心得窗口 off in the meantime.
+void ReflectionTests::appController_offersAPromptDroppedWhileBusyOnlyWhileStillWanted()
+{
+    QFile::remove(mr::AppSettings::filePath());
+    for (const bool stillWanted : {true, false}) {
+        mr::AppSettings settings;
+        settings.setReflectPrompt(true);
+        EventBackend backend;
+        mr::AppController controller(&backend, &settings);
+        controller.setReflectionPromptCutoffForTest(fixtureCutoff());
+        QSignalSpy prompts(&controller, &mr::AppController::reflectionPromptRequested);
+
+        // The dialog is showing another run's prompt.
+        controller.reflectionPromptShown(QStringLiteral("run-on-screen"));
+        backend.emitEvent(runUpdatedEvent(completedRun(QStringLiteral("run-waiting"))));
+        QCOMPARE(prompts.count(), 0);
+
+        settings.setReflectPrompt(stillWanted);
+        controller.reflectionPromptClosed();
+        QCOMPARE(prompts.count(), stillWanted ? 1 : 0);
+        if (stillWanted) {
+            QCOMPARE(prompts.at(0).at(0).toMap().value(QStringLiteral("run_id")).toString(),
+                     QStringLiteral("run-waiting"));
+        }
+    }
+    QFile::remove(mr::AppSettings::filePath());
+}
 
 void ReflectionTests::settings_roundTripReflectPromptAndUiStyle()
 {

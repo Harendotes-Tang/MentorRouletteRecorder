@@ -542,6 +542,37 @@ public sealed class OnlineSpeechServiceTests : IDisposable
         Assert.True(timeout.Retryable);
     }
 
+    /// <summary>
+    /// contracts/error-codes.md: a sentence the service gives up on because it is stopping is
+    /// <c>ERR_SPEECH_TIMEOUT</c> with reason <c>CANCELLED</c>, and may be tried again - the one in flight and the
+    /// one waiting for the slot alike (audit 2026-10-03, OE-6a). Never <c>ERR_SPEECH_DISABLED</c>, which names the
+    /// kill switch.
+    /// </summary>
+    [Fact]
+    public async Task ASentenceCutShortByTheServiceStoppingIsARetryableTimeout()
+    {
+        var transport = new FakeSpeechTransport(async (request, token) =>
+        {
+            await Task.Delay(Timeout.Infinite, token);
+            return FakeSpeechTransport.Wav(request);
+        });
+        var service = Service(transport, TimeSpan.FromSeconds(30));
+        service.UpdateSettings(AzureUpdate());
+        var inFlight = service.SynthesizeAsync(new SpeechRequest(Text, 100, true), default);
+        await WaitUntil(() => transport.Requests.Count == 1);
+        var waiting = service.SynthesizeAsync(new SpeechRequest(Text + "b", 100, true), default);
+
+        service.Dispose();
+
+        foreach (var cut in new[] { inFlight, waiting })
+        {
+            var error = await Assert.ThrowsAsync<CollectorException>(() => cut.WaitAsync(TimeSpan.FromSeconds(10)));
+            Assert.Equal(ErrorCodes.SpeechTimeout, error.Code);
+            Assert.Equal("CANCELLED", error.Details!["reason"]);
+            Assert.True(error.Retryable);
+        }
+    }
+
     [Fact]
     public async Task OneRequestAtATimeThreeWaitingAndTheFifthFailsAtOnce()
     {

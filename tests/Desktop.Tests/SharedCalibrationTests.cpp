@@ -40,19 +40,33 @@ constexpr auto kVectorCode =
     "MRC1.XY_LasMwEEX_ZdbG6G3LuxKyKyG02ZRShCSPExXbMrIdaEP-vWoKpeksZjH3wZkLHO2Axq2hb6EBRpgqiS4JLUme24IC3qMzcfKxRWgEZUwWMNjFn8wc1-TzEZ62-8cX83x4OGyzf4oTNBf4jWgqRQEz9uiXmMzZ9ivO0Lzyt2sBCY8hjrljs8vRBYeptwuaKcUu9GjCN5cfyx-0uiTyr2s-WSZVdvBOeYrEaVu1zAuUXU00tcxxL1qJqqtITTWz3AkvW4XVP_1WmlLIfB93v2bwMzS0gM844p3Cr18";
 
 ///  provenance empty leaves the field out, as a Collector before 1.1.0 does.
+/// popGate adds the match criterion with the gate the Collector judges it by
+/// (criteria[].gate); empty leaves every gate out, as a Collector before 1.1.0
+/// does and as a candidate reads before it was first judged.
 QJsonObject candidate(const QString &source, const QString &status = QStringLiteral("VERIFYING"),
-                      const QString &provenance = QString(), bool auditPending = false)
+                      const QString &provenance = QString(), bool auditPending = false,
+                      const QString &popGate = QString())
 {
+    QJsonObject zone{{QStringLiteral("message"), QStringLiteral("ZONE_INITIALIZATION")},
+                     {QStringLiteral("verdict"), QStringLiteral("WAIT")},
+                     {QStringLiteral("reason"), QString::fromUtf8("还没有见到登录时的换区。")},
+                     {QStringLiteral("contradicting_sessions"), 0}};
+    QJsonArray criteria{zone};
+    if (!popGate.isEmpty()) {
+        zone.insert(QStringLiteral("gate"), QStringLiteral("REQUIRED"));
+        criteria = QJsonArray{zone, QJsonObject{
+            {QStringLiteral("message"), QStringLiteral("CONTENT_FINDER_POP")},
+            {QStringLiteral("verdict"), QStringLiteral("WAIT")},
+            {QStringLiteral("reason"), QString::fromUtf8("还没见到这条匹配报文跟在排本之后出现；排一次随机任务就能核实。")},
+            {QStringLiteral("contradicting_sessions"), 0},
+            {QStringLiteral("gate"), popGate}}};
+    }
     QJsonObject row{{QStringLiteral("sha12"), QStringLiteral("67ef1bb97e65")},
                     {QStringLiteral("source"), source},
                     {QStringLiteral("match_source"), QStringLiteral("REPLY_STATE")},
                     {QStringLiteral("status"), status},
                     {QStringLiteral("verdict"), QStringLiteral("WAIT")},
-                    {QStringLiteral("criteria"), QJsonArray{QJsonObject{
-                         {QStringLiteral("message"), QStringLiteral("ZONE_INITIALIZATION")},
-                         {QStringLiteral("verdict"), QStringLiteral("WAIT")},
-                         {QStringLiteral("reason"), QString::fromUtf8("还没有见到登录时的换区。")},
-                         {QStringLiteral("contradicting_sessions"), 0}}}},
+                    {QStringLiteral("criteria"), criteria},
                     {QStringLiteral("staging_overflowed"), false}};
     if (!provenance.isEmpty()) {
         row.insert(QStringLiteral("provenance"), provenance);
@@ -321,16 +335,19 @@ private Q_SLOTS:
         QTest::addColumn<QString>("headline");
 
         const QString published = QString::fromUtf8("找到共享校准，登录时自动核实，通过就开始记录。");
+        const QString queue = QString::fromUtf8("找到共享校准，还要在本机排一次本、核实通过后才会启用。");
         const QString imported = QString::fromUtf8("已导入校准码，登录并排一次本、核实通过后启用。");
+        const QString audit = QStringLiteral("AUDIT");
+        const QString required = QStringLiteral("REQUIRED");
         // A pasted code the last index read lists is judged like a downloaded one (18.5),
-        // so "已导入" is not what decides the sentence any more - the provenance is.
+        // so "已导入" is not what decides the sentence any more - the gate is.
         QTest::newRow("downloaded-published")
             << QJsonArray{candidate(QStringLiteral("DOWNLOADED"), QStringLiteral("VERIFYING"),
-                                    QStringLiteral("PUBLISHED"))}
+                                    QStringLiteral("PUBLISHED"), false, audit)}
             << "published" << published;
         QTest::newRow("imported-and-listed")
             << QJsonArray{candidate(QStringLiteral("MANUAL"), QStringLiteral("VERIFYING"),
-                                    QStringLiteral("PUBLISHED"))}
+                                    QStringLiteral("PUBLISHED"), false, audit)}
             << "published" << published;
         QTest::newRow("imported-unpublished")
             << QJsonArray{candidate(QStringLiteral("MANUAL"), QStringLiteral("VERIFYING"),
@@ -338,10 +355,40 @@ private Q_SLOTS:
             << "imported" << imported;
         QTest::newRow("one-published-among-them")
             << QJsonArray{candidate(QStringLiteral("MANUAL"), QStringLiteral("VERIFYING"),
-                                    QStringLiteral("IMPORTED")),
+                                    QStringLiteral("IMPORTED"), false, required),
                           candidate(QStringLiteral("DOWNLOADED"), QStringLiteral("VERIFYING"),
-                                    QStringLiteral("PUBLISHED"))}
+                                    QStringLiteral("PUBLISHED"), false, audit)}
             << "published" << published;
+        // Audit 2026-10-03 (ON1-1): a published code is used on the login check alone only
+        // when nothing usable records, it carries no conflict mark and no other code has more
+        // submitters. Otherwise its match is REQUIRED like a pasted code's, and promising
+        // "通过就开始记录" at login would be false: one queue on this machine comes first.
+        QTest::newRow("published-under-the-full-gate")
+            << QJsonArray{candidate(QStringLiteral("DOWNLOADED"), QStringLiteral("VERIFYING"),
+                                    QStringLiteral("PUBLISHED"), false, required)}
+            << "published" << queue;
+        QTest::newRow("listed-and-pasted-under-the-full-gate")
+            << QJsonArray{candidate(QStringLiteral("MANUAL"), QStringLiteral("VERIFYING"),
+                                    QStringLiteral("PUBLISHED"), false, required)}
+            << "published" << queue;
+        QTest::newRow("published-and-unpublished-both-under-the-full-gate")
+            << QJsonArray{candidate(QStringLiteral("MANUAL"), QStringLiteral("VERIFYING"),
+                                    QStringLiteral("IMPORTED"), false, required),
+                          candidate(QStringLiteral("DOWNLOADED"), QStringLiteral("VERIFYING"),
+                                    QStringLiteral("PUBLISHED"), false, required)}
+            << "published" << queue;
+        // One code that may be used at login is enough for that promise to hold.
+        QTest::newRow("one-at-login-beside-one-under-the-full-gate")
+            << QJsonArray{candidate(QStringLiteral("DOWNLOADED"), QStringLiteral("VERIFYING"),
+                                    QStringLiteral("PUBLISHED"), false, required),
+                          candidate(QStringLiteral("DOWNLOADED"), QStringLiteral("VERIFYING"),
+                                    QStringLiteral("PUBLISHED"), false, audit)}
+            << "published" << published;
+        // A published code not judged yet reports no gate: neither promise can be made.
+        QTest::newRow("published-not-judged-yet")
+            << QJsonArray{candidate(QStringLiteral("DOWNLOADED"), QStringLiteral("VERIFYING"),
+                                    QStringLiteral("PUBLISHED"))}
+            << "published" << QString::fromUtf8("找到共享校准，登录或排本时自动核实。");
         // A rejected candidate decides nothing any more, so the one still in the running does.
         QTest::newRow("rejected-published-is-ignored")
             << QJsonArray{candidate(QStringLiteral("DOWNLOADED"), QStringLiteral("REJECTED"),
@@ -431,7 +478,8 @@ private Q_SLOTS:
     {
         mr::SharedCalibrationController c;
         const QJsonArray checking{candidate(QStringLiteral("DOWNLOADED"), QStringLiteral("VERIFYING"),
-                                            QStringLiteral("PUBLISHED"))};
+                                            QStringLiteral("PUBLISHED"), false,
+                                            QStringLiteral("AUDIT"))};
         c.refreshFromCaptureStatus(captureWith(
             QStringLiteral("OBSERVING"),
             sharedStatus(QStringLiteral("VERIFYING"), false, QStringLiteral("OK"), checking), QString(),

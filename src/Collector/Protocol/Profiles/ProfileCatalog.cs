@@ -291,12 +291,41 @@ public sealed class ProfileCatalog
     public static ProfileCatalog LoadDefault(bool allowCandidate = false) => Load(FindDefaultRoot(), allowCandidate);
 
     /// <summary>
-    /// Locates the <c>protocol-profiles</c> directory next to the executable, next to the
-    /// working directory, or in any ancestor of either. Returns null when there is none.
+    /// Locates the shipped <c>protocol-profiles</c> directory next to the executable. Returns null
+    /// when there is none. A development build also looks next to the working directory and in
+    /// every ancestor of either (see <see cref="SearchesAncestorsForProfiles"/>).
     /// </summary>
-    public static string? FindDefaultRoot()
+    public static string? FindDefaultRoot() =>
+        FindDefaultRoot(AppContext.BaseDirectory, Directory.GetCurrentDirectory());
+
+    /// <summary>
+    /// Whether <see cref="FindDefaultRoot()"/> looks beyond the application's own folder.
+    ///
+    /// Only a Debug build does. The walk serves tools run from inside the repository; in a release
+    /// build every output, test and installed copy has the folder beside the executable, and
+    /// walking up from it or from the working directory let a <c>protocol-profiles</c> folder
+    /// planted anywhere above either one stand in for the shipped catalogue whenever the installed
+    /// one was missing (audit 2026-10-03, TL2-X1).
+    /// </summary>
+    internal static bool SearchesAncestorsForProfiles { get; } =
+#if DEBUG
+        true;
+#else
+        false;
+#endif
+
+    /// <summary><see cref="FindDefaultRoot()"/> from explicit folders, so it can be tested.</summary>
+    /// <param name="applicationDirectory">Folder of the executable.</param>
+    /// <param name="workingDirectory">Current working directory; consulted by development builds only.</param>
+    internal static string? FindDefaultRoot(string applicationDirectory, string workingDirectory)
     {
-        foreach (var start in new[] { AppContext.BaseDirectory, Directory.GetCurrentDirectory() })
+        if (!SearchesAncestorsForProfiles)
+        {
+            var shipped = Path.Combine(Path.GetFullPath(applicationDirectory), DirectoryName);
+            return Directory.Exists(shipped) ? shipped : null;
+        }
+
+        foreach (var start in new[] { applicationDirectory, workingDirectory })
         {
             var directory = new DirectoryInfo(start);
             while (directory is not null)
@@ -405,9 +434,11 @@ public sealed class ProfileCatalog
                 return generatedAt;
             }
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException
+            or InvalidOperationException)
         {
-            // Fall back to the file time below.
+            // Fall back to the file time below. InvalidOperationException is a string that parses
+            // as JSON but cannot be read as text - a lone surrogate escape (audit 2026-10-03, CS4-X1).
         }
 
         return File.GetLastWriteTimeUtc(path);

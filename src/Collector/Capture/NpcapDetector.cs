@@ -121,7 +121,8 @@ public sealed class NpcapDetector
     public const string NotInstalledGuidance =
         "未检测到 Npcap。本软件需要 Npcap 才能被动读取本机网卡流量，" +
         "请从 Npcap 官方站点自行下载安装（安装时请勾选 “WinPcap API-compatible Mode”），" +
-        "安装完成后重新启动本软件。本软件不会替您下载或安装任何驱动。";
+        "安装完成后重新启动本软件。本软件运行时不会替您下载或安装任何驱动；" +
+        "只有安装程序在安装时发现缺少 Npcap，才会下载 Npcap 官方安装程序，由您在它自己的向导中完成安装。";
 
     private readonly INpcapEnvironment _environment;
 
@@ -154,7 +155,7 @@ public sealed class NpcapDetector
                 NpcapStatus.NotInstalled, null, false, false, elevated, NotInstalledGuidance);
         }
 
-        var version = _environment.FileVersion(WpcapPath) ?? ReadRegistryString("Version");
+        var version = ReadVersion();
         var adminOnly = ReadFlag(AdminOnlyValue);
 
         // Registered but the libraries are gone: a partially removed or broken installation.
@@ -207,6 +208,28 @@ public sealed class NpcapDetector
             adminOnly,
             elevated,
             "Npcap 可用。抓包全程只读，从不发送任何数据包。");
+    }
+
+    /// <summary>
+    /// Npcap's own version. <c>Packet.dll</c> is Npcap's library and carries it (product name
+    /// "Npcap", 1.88 on a machine checked on 2026-10-03); <c>wpcap.dll</c> is Npcap's build of
+    /// libpcap and carries libpcap's (1.10.6 on that same machine), which was reported as Npcap's
+    /// (audit 2026-10-03, OB-8). The installer's registry value comes next where one exists, and
+    /// libpcap's number last, labelled as what it is.
+    /// </summary>
+    private string? ReadVersion()
+    {
+        if (_environment.FileVersion(PacketPath) is { } npcap)
+        {
+            return npcap;
+        }
+
+        if (ReadRegistryString("Version") is { } registered)
+        {
+            return registered;
+        }
+
+        return _environment.FileVersion(WpcapPath) is { } libpcap ? "libpcap " + libpcap : null;
     }
 
     private bool DetectWinPcapCompatible()

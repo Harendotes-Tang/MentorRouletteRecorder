@@ -451,6 +451,59 @@ public sealed class SharedCalibrationRecheckTests : IDisposable
         Assert.True(_bed.Transport.Requests.Count > sent);
     }
 
+    /// <summary>
+    /// The in-memory wait between automatic downloads runs on the monotonic clock, like the gap between two
+    /// 立即检查 (audit 2026-10-03, OE-6b): a system clock moved back by a day must not hold the next download back
+    /// for six hours and a day.
+    /// </summary>
+    [Fact]
+    public async Task AWallClockMovedBackDoesNotStretchTheSixHourWait()
+    {
+        _bed.Publish();
+        var pipeline = _bed.Pipeline(_bed.Services());
+        pipeline.Refresh(Bed.Game());
+        await Bed.Idle(pipeline);
+        var sent = _bed.Transport.Requests.Count;
+        Assert.NotEqual(0, sent);
+
+        _bed.Db.Clock.UtcNow += SharedCalibrationStore.AutoFetchInterval - TimeSpan.FromDays(1);
+        _bed.Db.Clock.Elapsed += SharedCalibrationStore.AutoFetchInterval;
+        pipeline.Refresh(Bed.Game());
+        await Bed.Idle(pipeline);
+
+        Assert.True(_bed.Transport.Requests.Count > sent);
+    }
+
+    /// <summary>
+    /// A revocation read while the code in use was mid-duty waits for the run to end. If the Collector stops first,
+    /// the revocation is still on disk, and the next start honours it although the six-hour throttle keeps the index
+    /// from being read again (audit 2026-10-03, OE-1).
+    /// </summary>
+    [Fact]
+    public async Task ARevocationAlreadyOnDiskWithdrawsTheProfileAdoptedAfterARestart()
+    {
+        var code = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
+        SharedProfileFiles.Write(
+            SharedProfileBuilder.Build(code.Payload, Bed.Template, Bed.Confirmed, new Dictionary<string, int>()), _bed.SharedRoot);
+        // What the previous process read just before it stopped: an index that revokes the code in use.
+        _bed.PublishRevoked(code);
+        var reader = new SharedCalibrationClient(_bed.Transport.Send, TimeSpan.FromSeconds(10), _ => null);
+        _bed.Store.RecordFetch(
+            Region.Cn, Bed.Build, Bed.TemplateSha, await reader.FetchAsync(Region.Cn, Bed.Build, default), _bed.Db.Clock.UtcNow);
+        Assert.Equal(SharedPublication.Revoked, _bed.Store.Publication(Region.Cn, Bed.Build, code.Sha));
+        var sent = _bed.Transport.Requests.Count;
+
+        var pipeline = _bed.Pipeline(_bed.Services());
+        pipeline.Refresh(Bed.Game());
+        await Bed.Idle(pipeline);
+
+        Assert.Equal(sent, _bed.Transport.Requests.Count);
+        Assert.False(File.Exists(_bed.SharedProfilePath));
+        Assert.Null(pipeline.CalibrationStatus().Shared.ProfileId);
+        Assert.Equal(ProfileStatus.UnsupportedBuild, pipeline.Refresh(Bed.Game()).Status);
+        Assert.True(pipeline.CalibrationArmed);
+    }
+
     /// <summary>Binds the code on an evening with no mentor duty, so the profile is still watched afterwards.</summary>
     private async Task<LiveProtocolPipeline> BoundAndStillWatched(SharedCode code)
     {

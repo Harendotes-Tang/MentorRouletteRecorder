@@ -188,7 +188,8 @@ internal sealed class SharedCalibrationTestBed : IDisposable
     /// <param name="Code">The code itself, always downloadable.</param>
     /// <param name="Revoked">True to list it as withdrawn from the repository.</param>
     /// <param name="Conflicting">True to mark it as disagreeing with another code of the same build.</param>
-    internal sealed record Listing(SharedCode Code, bool Revoked = false, bool Conflicting = false);
+    /// <param name="Submitters">Distinct accounts the index says submitted it.</param>
+    internal sealed record Listing(SharedCode Code, bool Revoked = false, bool Conflicting = false, int Submitters = 1);
 
     /// <summary>Serves an index listing the codes, and the codes, from the first source.</summary>
     public void Publish(params SharedCode[] codes) => Serve(codes.Select(code => new Listing(code)).ToArray());
@@ -203,7 +204,7 @@ internal sealed class SharedCalibrationTestBed : IDisposable
     {
         var entries = codes
             .Select(listing => (JsonNode)SharedCalibrationIndexTests.Entry(
-                listing.Code.Sha, build: listing.Code.Payload.GameBuild, revoked: listing.Revoked,
+                listing.Code.Sha, submitters: listing.Submitters, build: listing.Code.Payload.GameBuild, revoked: listing.Revoked,
                 matchSource: EnumWire<CalibrationMatchSource>.Format(listing.Code.Payload.MatchSource),
                 conflicting: listing.Conflicting))
             .ToArray();

@@ -4,11 +4,13 @@ using MentorRecorder.Collector.Domain.StateMachine;
 namespace MentorRecorder.Collector.Protocol.Profiles;
 
 /// <summary>
-/// Where the identity of the running client comes from.
+/// Where the identity of the running client comes from, for <see cref="ProfileSelector.Current"/>.
 ///
-/// Phase 2 owns the real implementation: it reads the file version, size or SHA-256 of the
-/// game executable on disk (docs/protocol-profile-format.md section 6). Nothing here opens
-/// a process. The default implementation knows nothing, which is the safe answer.
+/// Live capture does not use it: it selects with the region and build of the game-process
+/// detection (<c>GameProcessDetection</c>), whose build is read from the launcher's
+/// <c>ffxivgame.ver</c> text file next to the client and whose region follows the install path
+/// (docs/protocol-profile-format.md section 8). Nothing here opens a process. The default
+/// implementation knows nothing, which is the safe answer.
 /// </summary>
 public interface IGameBuildSource
 {

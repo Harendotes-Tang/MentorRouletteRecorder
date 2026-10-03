@@ -11,7 +11,13 @@
 // Reconnect policy: the client reconnects with an exponential backoff, but it
 // does NOT replay pending requests. Mutating requests are idempotent by
 // request_id (contracts/error-codes.md), so a resend is only ever done by the
-// caller, deliberately reusing the same id.
+// caller, deliberately reusing the same id (IBackend::requestWithId).
+//
+// Server identity: the pipe name is derived from the user's SID but lives in
+// the machine-global pipe namespace, so another local account could create it
+// first. Every connection is checked before it is used: the pipe's owner must
+// be this user (\ref pipeOwnedByCurrentUser), or the connection is dropped
+// before a single request is written to it.
 // ---------------------------------------------------------------------------
 
 #include <QByteArray>
@@ -21,6 +27,8 @@
 #include <QObject>
 #include <QPointer>
 #include <QTimer>
+
+#include <functional>
 
 namespace mr {
 
@@ -75,6 +83,16 @@ public:
     void start();
     void stop();
 
+    /// True when the owner of the pipe behind \a pipeHandle is this process's
+    /// user - its token's user SID, or its default owner, which is the
+    /// Administrators group for an elevated token. Reads the handle's security
+    /// descriptor only; no process is opened.
+    static bool pipeOwnedByCurrentUser(qintptr pipeHandle);
+    /// Decides whether a freshly connected server may be used.
+    using ServerOwnerCheck = std::function<bool(qintptr pipeHandle)>;
+    /// Test-only: replaces \ref pipeOwnedByCurrentUser.
+    void setServerOwnerCheckForTest(ServerOwnerCheck check) { m_ownerCheck = std::move(check); }
+
     /// Send one envelope and correlate the response by request_id.
     /// Takes ownership of \a reply's lifetime bookkeeping only; \a reply
     /// deletes itself once it fires.
@@ -109,6 +127,8 @@ private:
     QHash<QString, Pending> m_pending;
     QString m_serverName;
     QString m_lastError;
+    /// Empty in the shipping build: \ref pipeOwnedByCurrentUser decides.
+    ServerOwnerCheck m_ownerCheck;
     int m_backoffMs = 500;
     int m_requestTimeoutMs = kDefaultRequestTimeoutMs;
     bool m_running = false;

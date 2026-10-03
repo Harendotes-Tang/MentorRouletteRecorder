@@ -181,6 +181,31 @@ public sealed class StateMachineTests
         Assert.Equal(RunState.MentorMatched, machine.Handle(Pop(2000, 42)).ToState);
     }
 
+    /// <summary>
+    /// Audit 2026-10-03 OG-5. A profile that becomes unusable before the duty was entered ends a
+    /// run that never entered: it is cancelled before entry, and nobody saw how, so it is low and
+    /// pending review. UNKNOWN with no entry time is a row the correction rules refuse outright.
+    /// </summary>
+    [Fact]
+    public void ProfileLostBeforeEntry_IsCancelledBeforeEntryPendingReview()
+    {
+        var machine = Machine();
+        machine.Handle(Pop(0, 42));
+
+        var result = machine.Handle(new ProfileLost
+        {
+            Key = Key("lost-10"), ObservedAtUtc = Start.AddSeconds(10), Mono = TimeSpan.FromSeconds(10),
+        });
+
+        Assert.Equal(RunState.CancelledBeforeEntry, result.ToState);
+        var finish = Assert.IsType<FinishRunCommand>(result.Commands[0]);
+        Assert.Equal(RunResult.CancelledBeforeEntry, finish.Result);
+        Assert.Equal(DetectionConfidence.Low, finish.Confidence);
+        Assert.True(finish.PendingReview);
+        Assert.Null(finish.DurationMs);
+        Assert.False(machine.IsUsable);
+    }
+
     [Fact]
     public void UnknownDutyFlag_AfterTheMatchWindow_IsALapsedMatch()
     {

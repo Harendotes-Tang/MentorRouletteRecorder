@@ -6,6 +6,7 @@ import MentorRecorder
 // The 380 px overlay panel of the prototype: header, four tabs, action bar.
 Rectangle {
     id: root
+    objectName: "runDetailPanel"
 
     property var runData: ({})
     property var revisions: []
@@ -130,6 +131,16 @@ Rectangle {
     border.width: 1
     border.color: Theme.eorzea ? Theme.gold3 : Theme.border
 
+    // The panel lies over the history page's click-outside area and its rows.
+    // Its own surface accepted no press, so a click on a gap - the header, the
+    // body's text - travelled on and closed the panel (review OL-4). Accepting
+    // it here ends the delivery, as DialogFrame does for the dialogs; the tabs'
+    // and buttons' own handlers are children and still get it first.
+    TapHandler {
+        acceptedButtons: Qt.AllButtons
+        gesturePolicy: TapHandler.ReleaseWithinBounds
+    }
+
     PanelDecoration {}
 
     ColumnLayout {
@@ -215,6 +226,7 @@ Rectangle {
 
                     readonly property bool current: modelData.value === root.activeTab
 
+                    objectName: "detailTab_" + modelData.value
                     Layout.preferredHeight: 36
                     Layout.fillWidth: true
                     // Classic: the navi look of workbench.css (accent-100 plate, accent text).
@@ -557,17 +569,26 @@ Rectangle {
                                 spacing: 8
 
                                 Text {
-                                    text: modelData.event_type || Fmt.dash()
+                                    text: root.showRawTokens
+                                          ? (modelData.event_type || Fmt.dash())
+                                          : Fmt.runEventLabel(modelData.event_type || "")
                                     color: Theme.textPrimary
                                     font.pixelSize: Theme.fs(12)
                                     font.bold: true
                                 }
 
+                                // The Collector sends PARSED, SYNTHETIC or UNKNOWN
+                                // ($defs/RunEventEntry). Parsed and self-generated
+                                // rows are the normal case and carry no tag; only a
+                                // row without an observation identity is marked
+                                // (review OL-6). Maintainers see any other token.
                                 Tag {
-                                    visible: !!modelData.parser_status
-                                             && modelData.parser_status !== "OK"
-                                    text: modelData.parser_status || ""
-                                    variant: "danger"
+                                    visible: root.showRawTokens
+                                             ? !!modelData.parser_status && modelData.parser_status !== "PARSED"
+                                             : modelData.parser_status === "UNKNOWN"
+                                    text: root.showRawTokens ? (modelData.parser_status || "")
+                                                             : qsTr("来源不明")
+                                    variant: "neutral"
                                 }
 
                                 Item { Layout.fillWidth: true }
@@ -595,9 +616,11 @@ Rectangle {
                                 wrapMode: Text.WrapAnywhere
                             }
 
+                            // The parsed ids (roulette_id=9 · territory_id=1036):
+                            // wire vocabulary like the opcode above (review OL-7).
                             Text {
                                 Layout.fillWidth: true
-                                visible: text.length > 0
+                                visible: root.showRawTokens && text.length > 0
                                 text: {
                                     const parsed = modelData.parsed
                                     if (!parsed)
@@ -795,15 +818,31 @@ Rectangle {
 
                             Text {
                                 Layout.fillWidth: true
-                                text: revisionBox.modelData.change_kind || Fmt.dash()
+                                text: root.showRawTokens
+                                      ? (revisionBox.modelData.change_kind || Fmt.dash())
+                                      : Fmt.changeKindLabel(revisionBox.modelData.change_kind || "")
                                 color: Theme.textPrimary
                                 font.pixelSize: Theme.fs(12)
                                 wrapMode: Text.WordWrap
                             }
 
-                            // Per-field diff from RunRevision.changes[].
+                            // Per-field diff from RunRevision.changes[]. A player reads
+                            // the fields 详情 shows, in words (Fmt.revisionFieldValue),
+                            // and no row where nothing changed - revision 1 lists every
+                            // field of a new record, most of them empty; identifiers
+                            // and raw values are maintainer material (review OI-3).
                             Repeater {
-                                model: revisionBox.modelData.changes || []
+                                model: {
+                                    const changes = revisionBox.modelData.changes || []
+                                    if (root.showRawTokens)
+                                        return changes
+                                    return changes.filter(function(row) {
+                                        const field = row.field || ""
+                                        return Fmt.revisionFieldVisible(field)
+                                            && Fmt.revisionFieldValue(field, row.old_value)
+                                               !== Fmt.revisionFieldValue(field, row.new_value)
+                                    })
+                                }
 
                                 delegate: RowLayout {
                                     required property var modelData
@@ -823,7 +862,9 @@ Rectangle {
                                     Text {
                                         Layout.fillWidth: true
                                         Layout.preferredWidth: 1
-                                        text: Fmt.revisionValue(modelData.old_value)
+                                        text: root.showRawTokens
+                                              ? Fmt.revisionValue(modelData.old_value)
+                                              : Fmt.revisionFieldValue(modelData.field || "", modelData.old_value)
                                         color: Theme.textSecondary
                                         font.pixelSize: Theme.fs(11)
                                         font.strikeout: true
@@ -839,7 +880,9 @@ Rectangle {
                                     Text {
                                         Layout.fillWidth: true
                                         Layout.preferredWidth: 1
-                                        text: Fmt.revisionValue(modelData.new_value)
+                                        text: root.showRawTokens
+                                              ? Fmt.revisionValue(modelData.new_value)
+                                              : Fmt.revisionFieldValue(modelData.field || "", modelData.new_value)
                                         color: Theme.textPrimary
                                         font.pixelSize: Theme.fs(11)
                                         font.bold: true
@@ -852,7 +895,9 @@ Rectangle {
                                 Layout.fillWidth: true
                                 text: qsTr("原因：%1 \u00b7 %2")
                                       .arg(revisionBox.modelData.reason || qsTr("无原因"))
-                                      .arg(revisionBox.modelData.actor || "USER")
+                                      .arg(root.showRawTokens
+                                           ? (revisionBox.modelData.actor || "USER")
+                                           : Fmt.revisionActorLabel(revisionBox.modelData.actor || ""))
                                 color: Theme.textSecondary
                                 font.pixelSize: Theme.fs(12)
                                 wrapMode: Text.WordWrap

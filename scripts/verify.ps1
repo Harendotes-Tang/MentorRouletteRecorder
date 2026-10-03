@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+#Requires -Version 7.0
 <#
 .SYNOPSIS
     提交前验证 / Pre-commit verification.
@@ -453,7 +453,7 @@ else {
 # ------------------------------------------------- 8. injection payload scan ------
 Write-Head '注入载荷扫描 / Injection payload scan'
 
-# BOUNDARY-ALLOW: boundary enforcement, not enablement. The step proves the payload is
+# Boundary enforcement, not enablement. The step proves the payload is
 # absent, so it must be able to name it. See docs/privacy-boundary.md section 3.
 $payloadPattern = 'deucalion*'
 $skipPayloadScan = Test-GateSkipped 'injection-payload'
@@ -519,16 +519,20 @@ if ($skipped.Count -gt 0) {
 if ($TestFilter) {
     Write-Host ('  测试筛选 / test filter: {0}' -f $TestFilter) -ForegroundColor Yellow
 }
+if ($NoBuild) {
+    Write-Host '  -NoBuild：没有重新构建，测试与核对针对的是磁盘上已有的构建产物。' -ForegroundColor Yellow
+}
 if ($failures.Count -eq 0) {
     Write-Host '  全部通过。' -ForegroundColor Green
-    # PUBLIC_DISTRIBUTION_READY is a claim about a complete run. A run that skipped a gate or
-    # filtered the test suite (CI passes -TestFilter 'Category!=Soak') did not make the
+    # PUBLIC_DISTRIBUTION_READY is a claim about a complete run. A run that skipped a gate,
+    # filtered the test suite (CI passes -TestFilter 'Category!=Soak') or reused existing
+    # binaries with -NoBuild (which may predate the source being verified) did not make the
     # observation the claim rests on and must not print it; the exit code is still 0 because
-    # everything requested passed. Release acceptance is the unfiltered run in
+    # everything requested passed. Release acceptance is the complete run in
     # docs/release-checklist.md.
-    if ($skipped.Count -gt 0 -or $TestFilter) {
+    if ($skipped.Count -gt 0 -or $TestFilter -or $NoBuild) {
         Write-Host '  这是一次部分验证，不评定 PUBLIC_DISTRIBUTION_READY；' -ForegroundColor Yellow
-        Write-Host '  发布验收要用不带 -SkipGate / -TestFilter 的完整运行。' -ForegroundColor Yellow
+        Write-Host '  发布验收要用不带 -SkipGate / -TestFilter / -NoBuild 的完整运行。' -ForegroundColor Yellow
     }
     else {
         Write-Host '  PUBLIC_DISTRIBUTION_READY = true（见 docs/release-checklist.md）' -ForegroundColor Green

@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """Validate (and optionally stamp) a MentorRecorder protocol profile.
 
-No third-party dependencies. The checks mirror, one for one, the checks the Collector
-performs in src/Collector/Protocol/Profiles/ProfileLoader.cs, so a profile that this tool
-accepts is a profile the Collector accepts and vice versa.
+No third-party dependencies. The checks mirror the checks the Collector performs in
+src/Collector/Protocol/Profiles/ProfileLoader.cs, so a profile the Collector refuses is
+refused here too. The converse does not hold everywhere: in the few places listed in the
+README ("两份实现的已知差异") this tool is the stricter side and refuses a profile the
+Collector would accept. A profile it cannot read or hash is reported as invalid; the
+remaining paths on the command line are still checked.
 
 Exit codes: 0 valid, 1 invalid, 2 could not run.
 """
@@ -37,6 +40,10 @@ REQUIRED_MESSAGE_FIELDS = {
 }
 
 FIELD_SIZES = {"u8": 1, "u16": 2, "u32": 4, "i32": 4, "u64": 8}
+
+# JsonSchemaValidator's "integer" is JsonElement.TryGetInt64: a signed 64-bit value.
+INT64_MIN = -(2 ** 63)
+INT64_MAX = 2 ** 63 - 1
 
 
 # --------------------------------------------------------------------------- canonical JSON
@@ -133,9 +140,11 @@ def schema_errors(node, schema: dict, root: dict, path: str) -> list:
         if "maximum" in schema and node > schema["maximum"]:
             errors.append("%s: above maximum %s" % (path, schema["maximum"]))
     elif isinstance(node, str):
-        if "minLength" in schema and len(node) < schema["minLength"]:
+        # C#'s string.Length counts UTF-16 code units, so a character outside the BMP counts twice.
+        length = len(node.encode("utf-16-le", "surrogatepass")) // 2
+        if "minLength" in schema and length < schema["minLength"]:
             errors.append("%s: shorter than %s" % (path, schema["minLength"]))
-        if "maxLength" in schema and len(node) > schema["maxLength"]:
+        if "maxLength" in schema and length > schema["maxLength"]:
             errors.append("%s: longer than %s" % (path, schema["maxLength"]))
         if "pattern" in schema and re.search(schema["pattern"], node) is None:
             errors.append("%s: does not match %s" % (path, schema["pattern"]))
@@ -166,7 +175,8 @@ def _is_type(node, name: str) -> bool:
     if name == "boolean":
         return isinstance(node, bool)
     if name == "integer":
-        return isinstance(node, int) and not isinstance(node, bool)
+        return (isinstance(node, int) and not isinstance(node, bool)
+                and INT64_MIN <= node <= INT64_MAX)
     if name == "number":
         return isinstance(node, (int, float)) and not isinstance(node, bool)
     if name == "string":
@@ -338,14 +348,21 @@ def message_errors(message: dict) -> list:
 def calibration_errors(calibration: dict) -> list:
     """Mirrors ProfileLoader.ReadCalibration: the roulette field must be a fixed-width
     integer (a bytes run has no numeric value to compare against an echoed roulette id) and
-    must not read past the declared request length -- the same bounds check every ordinary
-    field gets, applied to this one field.
+    must not read past the declared request length. ReadCalibration reads the field through
+    ReadFields, so it also gets every other ordinary field check: no length on a fixed-width
+    type, and no constraint max below its min.
     """
     errors = []
     request = calibration.get("finder_request", {})
     field = request.get("roulette_field", {})
     expected_length = request.get("expected_length")
     field_type = field.get("type")
+    if field_type != "bytes" and "length" in field:
+        errors.append(
+            "calibration.finder_request.roulette_field: length applies to bytes fields only")
+    constraints = field.get("constraints", {})
+    if "min" in constraints and "max" in constraints and constraints["max"] < constraints["min"]:
+        errors.append("calibration.finder_request.roulette_field: constraint max is below min")
     if field_type not in ("u8", "u16", "u32"):
         errors.append(
             "calibration.finder_request.roulette_field: must be u8, u16 or u32")
@@ -364,14 +381,30 @@ def fixture_errors(document: dict, path: str) -> list:
         target = os.path.normpath(os.path.join(base, entry["path"]))
         if not os.path.isfile(target):
             continue
-        with open(target, "rb") as handle:
-            actual = hashlib.sha256(handle.read()).hexdigest()
+        try:
+            with open(target, "rb") as handle:
+                actual = hashlib.sha256(handle.read()).hexdigest()
+        except OSError as error:
+            errors.append("fixture %s: cannot read: %s" % (entry["path"], error))
+            continue
         if actual != entry["sha256"]:
             errors.append("fixture %s: SHA-256 mismatch" % entry["path"])
     return errors
 
 
 # --------------------------------------------------------------------------- entry point
+
+
+def _reject_duplicate_keys(pairs: list) -> dict:
+    """json.load would keep the last of two equal keys and hash the folded document, while
+    CanonicalJson.cs writes every entry, so the Collector refuses what Python would accept
+    (and --stamp would write a hash the Collector can never reproduce)."""
+    document = {}
+    for key, value in pairs:
+        if key in document:
+            raise ValueError("duplicate key %r" % key)
+        document[key] = value
+    return document
 
 
 def validate(path: str, stamp: bool):
@@ -383,7 +416,7 @@ def validate(path: str, stamp: bool):
 
     try:
         with open(path, "r", encoding="utf-8") as handle:
-            document = json.load(handle)
+            document = json.load(handle, object_pairs_hook=_reject_duplicate_keys)
     except (OSError, ValueError) as error:
         return 1, ["cannot read the profile: %s" % error]
 
@@ -391,13 +424,23 @@ def validate(path: str, stamp: bool):
     if errors:
         return 1, errors
 
-    if stamp:
-        document["profile_sha256"] = profile_hash(document)
-        with open(path, "w", encoding="utf-8", newline="\n") as handle:
-            json.dump(document, handle, ensure_ascii=False, indent=2)
-            handle.write("\n")
+    try:
+        expected = profile_hash(document)
+    except ValueError as error:
+        # A string UTF-8 cannot encode (a lone surrogate escape such as "\ud800") or a number
+        # the canonical form refuses: no hash can be computed or stamped, and the Collector
+        # cannot read such a string either. Refused before --stamp writes anything.
+        return 1, ["cannot compute the canonical hash: %s" % error]
 
-    expected = profile_hash(document)
+    if stamp:
+        document["profile_sha256"] = expected
+        try:
+            with open(path, "w", encoding="utf-8", newline="\n") as handle:
+                json.dump(document, handle, ensure_ascii=False, indent=2)
+                handle.write("\n")
+        except OSError as error:
+            return 2, ["cannot write the stamped profile: %s" % error]
+
     if document["profile_sha256"] != expected:
         errors.append("profile_sha256 mismatch: expected %s" % expected)
     errors += semantic_errors(document, path)

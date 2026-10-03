@@ -193,9 +193,9 @@ public sealed class CandidateObservationRepository
     }
 
     /// <summary>
-    /// 在同一清理事务内同步访问计数及逐行证据，供流式导出使用，避免完整账本与历史同时驻留内存。
+    /// 清理之后，在同一个只读快照内同步访问计数及逐行证据，供流式导出使用，避免完整账本与历史同时驻留内存。
     /// 回调必须先枚举 observations、关闭其枚举器，再枚举 reviews；两者各自拥有独立命令和 reader。
-    /// 禁止将枚举或枚举器带出回调、异步使用或在回调内再次调用仓储；回调异常使本次清理回滚。
+    /// 禁止将枚举或枚举器带出回调、异步使用或在回调内再次调用仓储；清理在读取之前单独提交，回调异常不会撤销它。
     /// </summary>
     /// <param name="write">同步写出回调：观测数、核对历史数、观测序列、历史序列。</param>
     public void VisitEvidence(Action<int, int, IEnumerable<CandidateObservationEntry>, IEnumerable<CandidateReviewEntry>> write)
@@ -213,9 +213,15 @@ public sealed class CandidateObservationRepository
         IEnumerable<CandidateObservationEntry>, IEnumerable<CandidateReviewEntry>> write)
     {
         ArgumentNullException.ThrowIfNull(write);
-        _database.RunInTransaction(tx =>
+        // 清理在数据库锁内单独提交；读取以及调用方在回调里写整个文件，都在一条自己的只读连接上进行，
+        // 不持有数据库锁，与备份相同。此前导出在锁内写文件，期间所有写入——包括没有超时、一直等待这把锁的
+        // 抓包线程——都要等文件写完（审计 2026-10-03，OG-7 / CS5-X3）。一个延迟读事务让计数、账本与核对历史
+        // 来自同一个快照。
+        _database.RunInTransaction(Prune);
+        try
         {
-            Prune(tx);
+            using var connection = SqliteDatabase.OpenReadOnlyConnection(_database.Path);
+            using var tx = connection.BeginTransaction(deferred: true);
             var payloadOpcodes = new List<string>();
             using (var command = Command(tx, "SELECT DISTINCT opcode FROM candidate_observations " +
                 "WHERE payload_hex IS NOT NULL ORDER BY opcode;"))
@@ -235,7 +241,11 @@ public sealed class CandidateObservationRepository
                     StreamObservations(tx, () => active), StreamReviews(tx, () => active));
             }
             finally { active = false; }
-        });
+        }
+        catch (SqliteException ex) when (ex.SqliteErrorCode is 5 or 6)
+        {
+            throw new CollectorException(ErrorCodes.DbBusy, "数据库正忙，请稍后重试。", retryable: true, inner: ex);
+        }
     }
 
     private IEnumerable<CandidateObservationEntry> StreamObservations(SqliteTransaction transaction, Func<bool> active)
@@ -398,9 +408,10 @@ public sealed class CandidateObservationRepository
         Bind(command, "$to", UtcTimestamp.ToTextOrNull(to));
     }
 
-    private SqliteCommand Command(SqliteTransaction transaction, string sql)
+    private static SqliteCommand Command(SqliteTransaction transaction, string sql)
     {
-        var command = _database.CreateCommand();
+        // 命令建在事务自己的连接上：RunInTransaction 内是共享连接，VisitResearchEvidence 内是导出用的只读连接。
+        var command = transaction.Connection!.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = sql;
         return command;

@@ -15,7 +15,7 @@
 | 原因 | 链接了 GPL-3.0 的 `Machina.FFXIV`（含 `Machina`）与 GPL-3.0-only 的 Qt Graphs 模块 |
 | 闭源 / 商业分发 | **不可能**（在当前依赖组合下） |
 | `PUBLIC_DISTRIBUTION_READY` | **true**（2026-09-07 起；11 项前置条件见 §7） |
-| Npcap | **不得随本软件分发**，只做检测并给出安装指引 |
+| Npcap | **不得随本软件分发**；运行中的软件只做检测并给出安装指引，安装程序在本机缺少 Npcap 时下载其官方安装程序（§4） |
 | 游戏美术素材 | © SQUARE ENIX；依据 Materials Usage License 随包分发，附来源与版权声明，仅限非商业用途（§9） |
 | 副本中文名的上游 | `ffxiv-datamining-cn` **没有 LICENSE**，再分发许可未决（§10） |
 | 测试期依赖 | `JsonSchema.Net` 及其依赖链（MIT）**仅用于测试**，不进产物（§5.1） |
@@ -40,8 +40,8 @@
 
 实时原始报文由 **SharpPcap 6.3.1** 的只读 Npcap API 读取，随后进入本软件自有的有界内存缓冲。
 Machina 继续负责已确认连接的 IP/TCP/FFXIV bundle 解码。发送、文件抓包、Raw Socket 与
-Deucalion 均未启用。§2.1.1 记录旧 `FFXIVNetworkMonitor` 的模式约束，
-新入口不再使用其按连接打开 socket 的路径。
+Deucalion 均未启用。本项目不构造 Machina 的 `FFXIVNetworkMonitor`，§2.1.1 说明其配置属性
+与本项目的对应约束。
 
 该入口引入的依赖与源码证据如下：
 
@@ -60,16 +60,18 @@ SharpPcap 与 PacketDotNet 均不修改上游源码，表中前两个仓库链�
 
 ### 2.1.1 原 Machina 抓包模式（MonitorType）
 
-`FFXIVNetworkMonitor` 的配置属性（来自上游源码 `Machina.FFXIV/FFXIVNetworkMonitor.cs`）：
+`FFXIVNetworkMonitor` 的配置属性（来自上游源码 `Machina.FFXIV/FFXIVNetworkMonitor.cs`）如下。
+本项目**不构造**该监视器，因此不设置其中任何一项；表中最后一列是本项目对同一事项的实际处理
+（读取方式见 [privacy-boundary.md](privacy-boundary.md) §3）：
 
-| 属性 | 类型 | 上游默认值 | 本项目的设定 |
+| 属性 | 类型 | 上游默认值 | 本项目的对应处理 |
 |---|---|---|---|
-| `MonitorType` | `NetworkMonitorType` | `RawSocket` | **必须显式设为 WinPCap（Npcap）** |
-| `ProcessID` / `ProcessIDList` | `uint` / `ICollection<uint>` | — | 指向 FFXIV 进程 |
-| `WindowName` | `string` | `"FINAL FANTASY XIV"` | 保持默认 |
-| `UseDeucalion` | `bool` | `false` | **必须保持 `false`** |
-| `OodleImplementation` | `Oodle.OodleImplementation` | `FfxivTcp` | 见 §2.3，决策项 `DEC-OODLE-01` |
-| `OodlePath` | `string` | 指向游戏安装目录 | 见 §2.3 |
+| `MonitorType` | `NetworkMonitorType` | `RawSocket` | 不使用。报文由 `NpcapPacketReader` 经 SharpPcap 从 Npcap 设备只读读取；诊断中的 `monitor_type` 是常量 `WinPCap` |
+| `ProcessID` / `ProcessIDList` | `uint` / `ICollection<uint>` | — | 不使用。连接归属由 Machina 的 `ProcessTCPInfo` 按锁定客户端的 PID 读取系统 TCP 表确认 |
+| `WindowName` | `string` | `"FINAL FANTASY XIV"` | 不使用 |
+| `UseDeucalion` | `bool` | `false` | 不使用；静态规则 `DEU-001` 禁止将其设为开启 |
+| `OodleImplementation` | `Oodle.OodleImplementation` | `FfxivTcp` | 不经监视器设置：直接调用 `OodleFactory.SetImplementation`，取 `FfxivTcp` 或 `LibraryTcp`，见 §2.3，决策项 `DEC-OODLE-01` |
+| `OodlePath` | `string` | 指向游戏安装目录 | 随 `OodleFactory.SetImplementation` 传入：`FfxivTcp` 时为游戏可执行文件路径，`LibraryTcp` 时为用户自备的库，见 §2.3 |
 
 本项目**不使用** `RawSocket` 回退：Npcap 缺失时直接返回 `ERR_NPCAP_MISSING`。
 静态规则 `CAP-003` 禁止源码中出现 `NetworkMonitorType.RawSocket`。
@@ -231,10 +233,13 @@ ISC 与 MIT 的条件均只有一条：在所有副本中保留版权声明与�
 **基于上述条款，本项目：**
 
 - **不内置** Npcap 安装包；
-- **不自动下载** Npcap；
+- 运行中的软件**不下载** Npcap。只有安装程序在安装过程中、且本机没有 Npcap 时，从 npcap.com 下载
+  固定版本、校验 SHA-256 的 Npcap 官方安装程序并启动它，由用户在 Npcap 自己的向导中完成安装
+  （[privacy-boundary.md](privacy-boundary.md) §8.5）。下载的是未经修改的官方安装程序，
+  不随本软件的任何发行物提供；
 - **不静默安装** Npcap；
-- 只做**检测**，检测对象为注册表 `HKLM:\SOFTWARE\WOW6432Node\Npcap`、`HKLM:\SOFTWARE\Npcap`
-  与 `C:\Windows\System32\Npcap\wpcap.dll`。未安装时显示官方站点的安装指引，
+- 运行中的软件只做**检测**，检测对象为注册表 `HKLM:\SOFTWARE\WOW6432Node\Npcap`、`HKLM:\SOFTWARE\Npcap`
+  与 `C:\Windows\System32\Npcap\wpcap.dll`、`Packet.dll`。未安装时显示官方站点的安装指引，
   由用户自行安装并自行遵守 Npcap 的许可条款。
 
 `ERR_NPCAP_MISSING` 的用户提示文案见 [capture-diagnostics.md](capture-diagnostics.md) §2。
@@ -257,13 +262,12 @@ ISC 与 MIT 的条件均只有一条：在所有副本中保留版权声明与�
 | `System.Text.Encoding.CodePages` | 9.0.5 | MIT | 传递依赖（PacketDotNet） |
 | `System.Runtime.CompilerServices.Unsafe` | 6.0.0 | MIT | 传递依赖 |
 | `xunit` | 2.9.3 | Apache-2.0 | 仅测试 |
-| `xunit.runner.visualstudio` | 2.8.2 | Apache-2.0 | 仅测试 |
+| `xunit.runner.visualstudio` | 4.0.0 | Apache-2.0 | 仅测试 |
 | `Microsoft.NET.Test.Sdk` | 18.10.1 | MIT | 仅测试 |
 | `JsonSchema.Net` | 7.3.4 | MIT | 仅测试（集成测试直接依赖） |
 | `Json.More.Net` | 2.1.1 | MIT | 仅测试（`JsonSchema.Net` 的传递依赖） |
 | `JsonPointer.Net` | 5.3.1 | MIT | 仅测试（`JsonSchema.Net` 的传递依赖） |
 | `Humanizer.Core` | 2.14.1 | MIT | 仅测试（`JsonPointer.Net` 的传递依赖） |
-| `Newtonsoft.Json` | 13.0.1 | MIT | 仅测试（`Microsoft.TestPlatform.ObjectModel` 的传递依赖） |
 
 许可证取自各包 `.nuspec` 中的 `<license type="expression">`（MIT 与 Apache-2.0），
 或 `<license type="file">LICENSE.md`（Machina 系列，内容为 GPL v3 全文）。

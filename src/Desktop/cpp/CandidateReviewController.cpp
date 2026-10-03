@@ -432,11 +432,14 @@ void CandidateReviewController::review(const QString &id, const QString &verdict
     const int generation = m_connectionGeneration;
     m_reviewBusyId = id;
     m_reviewError.clear();
-    ++m_pageGeneration; // A pending read must not replace the just-reviewed row with older data.
+    // A cancelled page read already moved m_page; it is read again once the
+    // verdict is stored, or the page number and the rows disagree (review OI-8).
+    const bool pageWasLoading = m_loading;
+    const int cancelledPage = ++m_pageGeneration; // A pending read must not replace the just-reviewed row with older data.
     m_loading = false;
     Q_EMIT changed();
     m_backend->reviewCandidateObservation(id, verdict, note)->whenDone(this,
-        [this, generation, id, note](bool ok, const QVariantMap &payload, const QString &code, const QString &message) {
+        [this, generation, id, note, pageWasLoading, cancelledPage](bool ok, const QVariantMap &payload, const QString &code, const QString &message) {
             if (generation != m_connectionGeneration) return;
             m_reviewBusyId.clear();
             if (!ok) m_reviewError = failure(code, message);
@@ -454,6 +457,8 @@ void CandidateReviewController::review(const QString &id, const QString &verdict
                 patch(m_rows);
                 patch(m_timeline);
             }
+            // No later read was started meanwhile: finish the one this review cut off.
+            if (pageWasLoading && cancelledPage == m_pageGeneration) loadPage(m_page);
             Q_EMIT changed();
             Q_EMIT reviewFinished(id, ok, m_reviewError);
         });

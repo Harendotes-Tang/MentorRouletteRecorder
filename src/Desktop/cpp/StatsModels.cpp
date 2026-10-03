@@ -155,10 +155,19 @@ void StatsRowsModel::loadPage(quint64 generation, int page, QList<QJsonObject> r
                 m_distinctCount = total;
                 m_loading = false;
                 endResetModel();
+                setLoadError({});
                 Q_EMIT countChanged();
                 if (generation == m_loadGeneration)
                     Q_EMIT loadingChanged();
             });
+}
+
+void StatsRowsModel::setLoadError(const QString &error)
+{
+    if (m_loadError == error)
+        return;
+    m_loadError = error;
+    Q_EMIT loadErrorChanged();
 }
 
 void StatsRowsModel::failLoad(quint64 generation, const QString &code, const QString &message)
@@ -170,6 +179,9 @@ void StatsRowsModel::failLoad(quint64 generation, const QString &code, const QSt
     m_distinctCount = 0;
     m_loading = false;
     endResetModel();
+    // Set before countChanged, so whoever rebuilds from the emptied rows can
+    // tell a failed read from an answer of zero (review OD-3 / S2-2).
+    setLoadError(message.isEmpty() ? code : message);
     Q_EMIT countChanged();
     if (generation == m_loadGeneration) {
         Q_EMIT loadingChanged();

@@ -42,8 +42,8 @@ public sealed record CaptureTraceHeader(
 ///
 /// This is the diagnostics-mode artefact described in docs/privacy-boundary.md §5: it is
 /// user-enabled, bounded and short-lived, and it records only what an opcode-level
-/// investigation needs. Per message that is: a sequence number, two timestamps, the
-/// direction, the segment type, the opcode, the payload <em>length</em>, and a twelve
+/// investigation needs. Per message that is: a sequence number, timestamps, a connection tag,
+/// the direction, the segment type, the opcode, the payload <em>length</em>, and a twelve
 /// character prefix of the payload's SHA-256.
 ///
 /// What it deliberately never writes:
@@ -52,9 +52,10 @@ public sealed record CaptureTraceHeader(
 ///   <item><description>payload bytes, in any encoding -- the digest prefix lets two
 ///   observations be compared without carrying the bytes that produced them. It is a local
 ///   correlation identifier, not encryption or an anonymization guarantee;</description></item>
-///   <item><description>addresses, of either endpoint -- not even the already-hashed
-///   connection key, because a trace does not need to tell connections apart to identify an
-///   opcode;</description></item>
+///   <item><description>addresses, of either endpoint -- connections are told apart only by
+///   an eight-character tag cut from the already-hashed connection key
+///   (<see cref="ConnectionTag"/>), on each message line and in the summary's per-connection
+///   rows;</description></item>
 ///   <item><description>character names, chat, or any other player's data -- none of it is
 ///   read in the first place;</description></item>
 ///   <item><description>arbitrary user text -- only the five documented canonical marker
@@ -78,8 +79,12 @@ public sealed class CaptureTraceSink : IDecodedMessageSink
     /// <summary>Smallest cap the command line accepts.</summary>
     public const int MinMaxLines = 1;
 
-    /// <summary>Largest cap the command line accepts.</summary>
-    public const int MaxMaxLines = 10_000_000;
+    /// <summary>
+    /// Largest cap the command line accepts: as many message lines as <c>--trace-report</c> reads.
+    /// It used to accept ten million while the report refuses anything above its own limit, so a
+    /// long trace was recorded and then could not be read (audit 2026-10-03, OB-9).
+    /// </summary>
+    public const int MaxMaxLines = CaptureTraceAnalysis.MaxMessageRows;
 
     /// <summary>Cap on marker lines. A person types a handful; a piped file must not be unbounded.</summary>
     public const int MaxMarkers = 10_000;

@@ -77,7 +77,7 @@ internal sealed partial class SharedCalibrationSession
     private bool _stopped;
     private FetchTicket? _fetch;
     private bool _fetchVisible;
-    private DateTimeOffset? _nextAutoFetchAtUtc;
+    private TimeSpan? _nextAutoFetchAt;
     private TimeSpan? _lastManualCheckAt;
     private SharedFetchStatus? _lastFetchStatus;
     private IReadOnlyList<SharedSourceAttempt> _lastAttempts = Array.Empty<SharedSourceAttempt>();
@@ -157,7 +157,7 @@ internal sealed partial class SharedCalibrationSession
         // this very document was recorded as settled, which is what the store answers.
         var proven = _bound is { } bound && string.Equals(bound.ProfileId, profile.ProfileId, StringComparison.Ordinal)
             ? bound.Proven
-            : _host.HasFinishedSharedRun(profile.ProfileId) && IsSettled(profile);
+            : _host.HasFinishedSharedRun(profile.ProfileId, BoundSince(profile)) && IsSettled(profile);
         return !proven;
     }
 
@@ -172,6 +172,19 @@ internal sealed partial class SharedCalibrationSession
         }
     }
 
+    /// <summary>When this profile document began recording, as kept with it; null when nothing was kept.</summary>
+    private DateTimeOffset? BoundSince(ProtocolProfile profile) =>
+        Attempt(() => _services.SharedCalibrations.BoundSince(profile.Region, profile.GameBuild, profile.ProfileSha256));
+
+    /// <summary>Keeps when the bound document began recording, so a restart still tells its runs from an earlier code's.</summary>
+    private void RecordBound(BoundProfile bound)
+    {
+        if (bound.ProfileSha256 is { } profile && bound.Sha is { } code && bound.RecordsFromUtc is { } from)
+        {
+            Attempt(() => _services.SharedCalibrations.RecordBound(bound.Region, bound.GameBuild, profile, code, from));
+        }
+    }
+
     /// <summary>The setting changed. Off cancels a download and drops downloaded candidates; a profile in use stays.</summary>
     public void SetEnabled(bool enabled)
     {
@@ -183,7 +196,7 @@ internal sealed partial class SharedCalibrationSession
         _enabled = enabled;
         if (enabled)
         {
-            _nextAutoFetchAtUtc = null;
+            _nextAutoFetchAt = null;
             Sync();
         }
         else
@@ -235,7 +248,7 @@ internal sealed partial class SharedCalibrationSession
         _contradictions.Clear();
         _superseded = false;
         _lastRefusal = null;
-        _nextAutoFetchAtUtc = null;
+        _nextAutoFetchAt = null;
         if (_host.SharedContext() is { } context)
         {
             MaybeFetch(context, manual: false);
@@ -254,12 +267,24 @@ internal sealed partial class SharedCalibrationSession
         }
     }
 
-    /// <summary>The capture session ended: its staging is thrown away.</summary>
+    /// <summary>
+    /// The capture session ended: its staging is thrown away, and a swap still owed is dropped with the session - the
+    /// profile it was owed to records from the next one instead. What it records therefore dates from now, not from
+    /// when its file was written: until now the profile it was to take over from recorded, under the same id when
+    /// that was another code of the build (audit 2026-10-03, V3-3).
+    /// </summary>
     public void OnCaptureStopped()
     {
         foreach (var candidate in _candidates)
         {
             candidate.Stage = null;
+        }
+
+        if (_bound is { AwaitingSwap: true } bound)
+        {
+            bound.AwaitingSwap = false;
+            bound.RecordsFromUtc = UtcTimestamp.Truncate(_clock.UtcNow - SharedBindResult.ClockAllowance);
+            RecordBound(bound);
         }
     }
 
@@ -297,7 +322,10 @@ internal sealed partial class SharedCalibrationSession
     /// </summary>
     public bool OnRunFinished(MentorRun run)
     {
+        // The profile id is the build's: a run the profile this one is taking over from recorded under the same id,
+        // before the swap or before the bind, is not this code's duty (audit 2026-10-03, OE-4).
         if (_bound is not { Proven: false } bound || !string.Equals(run.ProtocolProfileId, bound.ProfileId, StringComparison.Ordinal) ||
+            bound.AwaitingSwap || (bound.RecordsFromUtc is { } from && run.CreatedAtUtc < from) ||
             run.EnteredAtUtc is null || run.EndedAtUtc is null ||
             run.Result is RunResult.Interrupted or RunResult.Disconnected or RunResult.CancelledBeforeEntry)
         {
@@ -328,9 +356,19 @@ internal sealed partial class SharedCalibrationSession
     /// <param name="atUtc">When the parser was rebuilt over it.</param>
     public void OnBoundLater(string profileId, DateTimeOffset atUtc)
     {
-        if (_bound is { BoundAtUtc: null } bound && string.Equals(bound.ProfileId, profileId, StringComparison.Ordinal))
+        if (_bound is not { } bound || !string.Equals(bound.ProfileId, profileId, StringComparison.Ordinal))
         {
-            bound.BoundAtUtc = atUtc;
+            return;
+        }
+
+        bound.BoundAtUtc ??= atUtc;
+        if (bound.AwaitingSwap)
+        {
+            // Until now the profile it took over from recorded - under the same id when that was another code of the
+            // build - so this binding's own runs begin here, not when its file was written.
+            bound.AwaitingSwap = false;
+            bound.RecordsFromUtc = UtcTimestamp.Truncate(atUtc - SharedBindResult.ClockAllowance);
+            RecordBound(bound);
         }
     }
 
@@ -473,7 +511,7 @@ internal sealed partial class SharedCalibrationSession
     /// </summary>
     private bool VerifyCandidate(SharedContext context, CalibrationSnapshot snapshot, Candidate candidate)
     {
-        var verification = SharedCandidateVerifier.Verify(snapshot, context.Template, candidate.Prepared.Declared, candidate.Provenance);
+        var verification = SharedCandidateVerifier.Verify(snapshot, context.Template, candidate.Prepared.Declared, GateFor(context, candidate));
         candidate.Verification = verification;
         if (RecordContradictions(context, snapshot, candidate.Prepared.Declared, verification) ||
             verification.Verdict == SharedVerdict.Contradicted)
@@ -511,6 +549,22 @@ internal sealed partial class SharedCalibrationSession
 
         return true;
     }
+
+    /// <summary>
+    /// The gate a candidate is judged by now (plan §18.3; audit 2026-10-03, ON1-1). A published code binds on the login
+    /// burst, with its match and duty entry audited while it records, only on patch day: nothing usable on this
+    /// machine for it to displace, no conflict mark from the repository, and no other candidate submitted by more
+    /// players. Any other must see its match and duty entry behave first, exactly as a code no index knows must - so
+    /// neither a code's kind nor the conflict mark lets one or two accounts put a code ahead of one many submitted.
+    /// What the code is (its provenance, shown to the player) does not change; only how much it must prove.
+    /// </summary>
+    /// <param name="context">What is being calibrated, with the selection in force.</param>
+    /// <param name="candidate">The candidate to judge.</param>
+    private SharedCandidateProvenance GateFor(SharedContext context, Candidate candidate) =>
+        candidate.Provenance == SharedCandidateProvenance.Published && candidate.Submitters > 0 && !candidate.Conflicting &&
+        !context.Selection.IsUsable && !_candidates.Any(other => other.Submitters > candidate.Submitters)
+            ? SharedCandidateProvenance.Published
+            : SharedCandidateProvenance.Imported;
 
     /// <summary>Starts writing the chosen candidate's profile, unless it infers the match and the player has not accepted that yet.</summary>
     private void StartBinding(SharedContext context, CalibrationSnapshot snapshot, Candidate chosen)
@@ -678,7 +732,10 @@ internal sealed partial class SharedCalibrationSession
         AuditPending = !bound.Proven && bound.Verification?.AuditPending == true,
     };
 
-    private sealed record Prepared(string Sha, ShareCodePayload Payload, DeclaredCandidate Declared, ProtocolProfile StagingProfile);
+    /// <summary>A code rebuilt through the template, with what the index said about it (0 and false when nothing).</summary>
+    private sealed record Prepared(
+        string Sha, ShareCodePayload Payload, DeclaredCandidate Declared, ProtocolProfile StagingProfile, int Submitters = 0,
+        bool Conflicting = false);
 
     private sealed class FetchTicket
     {
@@ -711,6 +768,8 @@ internal sealed partial class SharedCalibrationSession
             Prepared = prepared;
             Source = source;
             Provenance = provenance;
+            Submitters = prepared.Submitters;
+            Conflicting = prepared.Conflicting;
         }
 
         public Prepared Prepared { get; }
@@ -719,6 +778,12 @@ internal sealed partial class SharedCalibrationSession
 
         /// <summary>Published or imported; an imported code is promoted once an index this machine reads lists it.</summary>
         public SharedCandidateProvenance Provenance { get; set; }
+
+        /// <summary>Distinct submitters the latest index this machine read gives it; 0 when no index said.</summary>
+        public int Submitters { get; set; }
+
+        /// <summary>The latest index this machine read marks it as differing from another code of the same kind.</summary>
+        public bool Conflicting { get; set; }
 
         public string Sha => Prepared.Sha;
 
@@ -766,6 +831,16 @@ internal sealed partial class SharedCalibrationSession
 
         /// <summary>When it began recording in this process; null while it is selected but not yet recording.</summary>
         public DateTimeOffset? BoundAtUtc { get; set; }
+
+        /// <summary>
+        /// Earliest creation time a run this binding recorded can have - in this process or as kept with the document
+        /// (audit 2026-10-03, OE-2/OE-4). Null only for a document adopted from disk with nothing kept: then every run
+        /// under the id is taken for its own, as before.
+        /// </summary>
+        public DateTimeOffset? RecordsFromUtc { get; set; }
+
+        /// <summary>Selected while another profile records a run; until it takes over, nothing recorded is its own.</summary>
+        public bool AwaitingSwap { get; set; }
 
         public SharedVerification? Verification { get; set; }
 

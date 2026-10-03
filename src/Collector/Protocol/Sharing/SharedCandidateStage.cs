@@ -76,6 +76,9 @@ internal sealed class SharedCandidateStage
     /// <summary>True when a job event is staged: draining sets the job, in the order it arrived.</summary>
     public bool HoldsJob => _entries.Any(entry => entry.Event is PlayerJob);
 
+    /// <summary>Wall-clock time of the earliest entry not yet drained, or null when there is none.</summary>
+    public DateTimeOffset? FirstAtUtc => _entries.Count == 0 ? null : _entries.Min(entry => entry.AtUtc);
+
     /// <summary>Parses one message of this session into the list.</summary>
     /// <param name="message">Decoded message; its payload is read now and never kept.</param>
     public void Accept(DecodedMessage message)

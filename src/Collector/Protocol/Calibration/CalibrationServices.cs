@@ -115,6 +115,14 @@ public sealed record CalibrationServices(
     /// </summary>
     public Func<Region, string, bool> HasRetiredLocalProfile { get; init; } = (_, _) => false;
 
+    /// <summary>
+    /// The local profile of a region and build as the loader reads it, or null when there is none
+    /// or the loader refuses it. What lets a restore tell a profile that came back unusable from
+    /// one the catalogue merely ranks below another (audit 2026-10-03, CS-8). Inert by default,
+    /// like <see cref="RestoreLocalProfile"/>, and wired by <see cref="WithLocalProfilesIn"/>.
+    /// </summary>
+    public Func<Region, string, ProtocolProfile?> LoadLocalProfile { get; init; } = (_, _) => null;
+
     /// <summary>The shared-calibration seams pointed at a fetch and a store of the caller's choosing.</summary>
     /// <param name="fetch">Fetches codes for a region and build.</param>
     /// <param name="store">Keeps what was fetched.</param>
@@ -164,6 +172,8 @@ public sealed record CalibrationServices(
             RetireLocalProfile = (region, build, suffix) => LocalProfileFiles.Retire(root, region, build, suffix),
             RestoreLocalProfile = (region, build) => LocalProfileFiles.Restore(root, region, build),
             HasRetiredLocalProfile = (region, build) => LocalProfileFiles.HasRetired(root, region, build),
+            LoadLocalProfile = (region, build) =>
+                ProfileLoader.Validate(LocalProfileFiles.PathFor(root, region, build)).Profile,
         };
     }
 

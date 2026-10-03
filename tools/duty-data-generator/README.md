@@ -17,8 +17,8 @@ python tools/duty-data-generator/test_generate.py            # 离线单元测�
 |---|---|---|
 | `--version <label>` | 当天的 UTC 日期（`YYYY-MM-DD`） | 写进文件名与 `data_version` 的**数据版本**标签 |
 | `--out-dir <dir>` | `data/duties` | 输出目录 |
-| `--raw-dir <dir>` | 临时目录 | 原始下载的存放位置，不进入仓库 |
-| `--dry-run` | 关 | 抓取并打印统计，**不写任何文件** |
+| `--raw-dir <dir>` | 临时目录 | 原始下载的存放位置，不进入仓库：指向仓库目录或其子目录时直接拒绝运行（退出码 2）；未指定时在系统临时目录（`TMP` / `TEMP`）下新建，临时目录本身位于仓库内时同样拒绝运行。`--dry-run` 时不保存原始下载 |
+| `--dry-run` | 关 | 抓取并打印统计，**不写任何文件**：不写输出、不保存原始下载、不创建临时目录 |
 | `--game-version <key>` | XIVAPI 当前版本 | 将每一页请求固定到该游戏版本，即 `provenance.xivapi_game_version` 记录的键 |
 | `--add-party-size <file>…` | — | 不生成新版本，只为这些已有文件逐行补写 `party_size`（置于 `level` 之后），行顺序与其余字段逐字不变；按各文件记录的 `xivapi_game_version` 抓取，来源记入 `provenance.party_size`。任一步骤失败均不写文件 |
 
@@ -61,7 +61,8 @@ XIVAPI 侧的链接字段为软失败：取不到时写 `null` / `UNKNOWN` / `�
 ## 不做的事项
 
 - **不复制游戏数据文件**：只取出"行号 → 名称 / 分类 / 领地 / 等级"这一层映射。
-- **不把原始下载放进仓库**：原始 JSON/CSV 写入临时目录，仓库中只保留其 SHA-256。
+- **不把原始下载放进仓库**：原始 JSON/CSV 写入临时目录，仓库中只保留其 SHA-256；
+  `--raw-dir` 指向仓库内，或未指定时系统临时目录位于仓库内，均拒绝运行。
 - **不编造中文名**：没有中文名的行不会进入 `cn.*.json`，UI 显示 `未知副本`。
 - **不在抓取失败时写文件**：任一来源失败 → 打印原因，退出码 1，现有文件保持不变。
 - **不按队伍人数改写分类**：`duty_category` 只由 `ContentType` 决定，人数单独写入
@@ -95,5 +96,6 @@ python tools/duty-data-generator/test_generate.py
 覆盖范围：CSV 表头按列名定位（上游结构变更时报错而非错位）、
 英文与中文两种本地化的行筛选、分类映射与未映射回落、
 `territory_id` / `expansion` / `level` 的透传、`party_size` 的计算与缺失时的 `null`、
-`--add-party-size` 只增加一个字段且不改变行序、排序稳定性、`provenance` 组装。
+`--add-party-size` 只增加一个字段且不改变行序、排序稳定性、`provenance` 组装、
+`--dry-run` 不写任何文件（以假的下载函数驱动，不保存原始下载、不留临时目录）、`--raw-dir` 或系统临时目录位于仓库内时拒绝运行。
 另有一条测试读取随包的 `data/duties/*.2026-09-04.json`，确认随机任务涉及的各类行均带有人数。

@@ -72,6 +72,40 @@ public sealed class CaptureValidationTests
         Until(controller, "reason", "WAITING_ADAPTER");
     }
 
+    /// <summary>
+    /// Audit 2026-10-03 CS1-X1. Without the host's locator - the command-line path - the recording
+    /// loop asked the bare locator, which reads a failed process listing as "not running" and ended
+    /// the session on one unanswered read. A failed listing cannot tell and keeps recording; a
+    /// listing that answers without the client still ends it.
+    /// </summary>
+    [Fact]
+    public void WithoutTheHostsLocatorAFailedListingDoesNotEndTheRecording()
+    {
+        using var db = new TestDatabase();
+        const string executable = @"D:\SdoA\game\ffxiv_dx11.exe";
+        var processes = new FakeGameProcessProvider()
+            .Add(GameProcessLocator.Dx11ProcessName, 42, DateTimeOffset.UnixEpoch, executable);
+        var files = new FakeGameFileReader().With(@"D:\SdoA\game\" + GameProcessLocator.VersionFileName, "2026.01");
+        var services = Services(() => Game());
+        services = services with
+        {
+            LocateGame = null,
+            Trace = services.Trace with { Game = new GameProcessLocator(processes, files) },
+        };
+        using var controller = new CaptureValidationController(db.Path, new(), services);
+        controller.Start("wifi");
+        Until(controller, "state", "RECORDING");
+
+        processes.Fails = true;
+        Assert.False(SpinWait.SpinUntil(
+            () => controller.Snapshot()["state"]!.GetValue<string>() != "RECORDING", 300),
+            controller.Snapshot().ToJsonString());
+
+        processes.Fails = false;
+        processes.Clear();
+        Until(controller, "state", "COMPLETED");
+    }
+
     [Fact]
     public void CandidateIsRecheckedBeforeSourceStart()
     {
@@ -402,6 +436,61 @@ public sealed class CaptureValidationTests
         formal.Poll();
         Assert.Equal(1, source.StartCount);
         Assert.Equal(ErrorCodes.BadRequest, Assert.Throws<CollectorException>(() => validation.Start()).Code);
+    }
+
+    /// <summary>
+    /// Audit 2026-10-03, OA-8. The two-hour cap is on the session, not on recording alone. A
+    /// validation left waiting for a restart that never comes held the capture for good, and
+    /// with it every automatic recording.
+    /// </summary>
+    [Fact]
+    public void AValidationWaitingForARestartEndsAtTheSessionCapAndFreesTheCapture()
+    {
+        using var db = new TestDatabase();
+        var ownership = new CaptureOwnership();
+        long elapsedMs = 0;
+        var services = Services(() => Game(), tcp: (_, _) => 1) with
+        {
+            MaxSessionDuration = TimeSpan.FromMinutes(1),
+            Elapsed = () => TimeSpan.FromMilliseconds(Interlocked.Read(ref elapsedMs)),
+        };
+        using var controller = new CaptureValidationController(db.Path, ownership, services);
+        controller.Start("wifi");
+        Until(controller, "reason", "WAITING_RESTART");
+        Assert.Throws<CollectorException>(() => ownership.Acquire());
+
+        Interlocked.Exchange(ref elapsedMs, 60_000);
+        Until(controller, "state", "COMPLETED");
+
+        var snapshot = controller.Snapshot();
+        Assert.Contains("时长上限", snapshot["message"]!.GetValue<string>(), StringComparison.Ordinal);
+        Assert.Null(snapshot["trace_path"]);
+        using var lease = ownership.Acquire();
+    }
+
+    /// <summary>
+    /// Audit 2026-10-03, OA-8. While a validation holds the capture, automatic recording waits
+    /// in silence; the capture status says why.
+    /// </summary>
+    [Fact]
+    public void AValidationHoldingTheCaptureIsNamedInTheCaptureWarnings()
+    {
+        using var db = new TestDatabase();
+        var ownership = new CaptureOwnership();
+        using var formal = new CaptureController(FormalServices(new FakeCaptureSource(), ownership));
+        Assert.DoesNotContain(formal.Snapshot().Warnings, warning => warning.Contains("验证", StringComparison.Ordinal));
+
+        using var validation = new CaptureValidationController(db.Path, ownership, Services(() => GameProcessDetection.NotRunning));
+        validation.Start();
+        Assert.Contains(formal.Snapshot().Warnings, warning => warning.Contains("验证", StringComparison.Ordinal));
+
+        validation.Stop();
+        Until(validation, "state", "COMPLETED");
+        Assert.DoesNotContain(formal.Snapshot().Warnings, warning => warning.Contains("验证", StringComparison.Ordinal));
+
+        // The formal capture's own lease is not somebody else's.
+        formal.Start("wifi");
+        Assert.DoesNotContain(formal.Snapshot().Warnings, warning => warning.Contains("验证", StringComparison.Ordinal));
     }
 
     [Fact]

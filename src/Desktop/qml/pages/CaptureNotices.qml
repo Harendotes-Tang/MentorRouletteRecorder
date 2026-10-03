@@ -46,6 +46,14 @@ ColumnLayout {
     // 生效时报 true，因此这两个按钮天然互斥，这里再显式排除一次。
     readonly property bool offersRestore: !!App.calibration && App.calibration.retiredLocalProfileAvailable
                                           && !notices.offersRecalibrate
+    // 恢复时采集服务用同一个拒绝码回答两种情况：真没换回来，或者文件已经放回、只是这一版
+    // 另有排在它前面的档案在用。回答之后状态会重读：退路还在，说明没有放回，按错误显示；
+    // 退路没了，说明文件已经放回，这句话是说明，不是错误（审查 CS8-D1）。
+    readonly property string restoreAnswer: App.calibration ? App.calibration.restoreAnswer : ""
+    readonly property bool restoreNoticeVisible: notices.restoreAnswer.length > 0 && !notices.offersRestore
+    readonly property string calibrationError: !App.calibration ? ""
+        : App.calibration.error.length > 0 ? App.calibration.error
+        : notices.offersRestore ? notices.restoreAnswer : ""
     // 停用档案会把正在进行的记录按停止捕获收尾，等于让玩家白打这一把。
     readonly property bool runInFlight: App.currentRunState === "MENTOR_MATCHED"
                                         || App.currentRunState === "ENTERED_DUTY"
@@ -60,6 +68,7 @@ ColumnLayout {
     // 协议档案卡就会整张隐藏，「恢复上一份本机校准」也随之不可达——正是本功能要堵的洞。
     readonly property bool profileCardVisible: notices.offersShare || notices.calibratedProfile
                                                || notices.profileProblem || notices.offersRestore
+                                               || notices.restoreNoticeVisible
     readonly property bool silentVisible: App.captureMidstreamSuspected || App.captureSilent
                                           || App.recording.silent
 
@@ -265,10 +274,23 @@ ColumnLayout {
             objectName: "protocolCalibrationError"
             Layout.fillWidth: true
             visible: (notices.offersRecalibrate || notices.offersRestore)
-                     && !!App.calibration && App.calibration.error.length > 0
-            text: App.calibration ? App.calibration.error : ""
+                     && notices.calibrationError.length > 0
+            text: notices.calibrationError
             textFormat: Text.PlainText
             color: Theme.orangeText
+            font.pixelSize: Theme.fs(12)
+            wrapMode: Text.WordWrap
+        }
+
+        // 上一份本机校准已经放回，但仍在用排在它前面的档案：采集服务的原话，按说明显示。
+        // 退路此时已经消失，所以不跟按钮绑在一起。
+        Text {
+            objectName: "protocolCalibrationNotice"
+            Layout.fillWidth: true
+            visible: notices.restoreNoticeVisible
+            text: notices.restoreAnswer
+            textFormat: Text.PlainText
+            color: Theme.textSecondary
             font.pixelSize: Theme.fs(12)
             wrapMode: Text.WordWrap
         }
@@ -356,10 +378,13 @@ ColumnLayout {
                 font.pixelSize: Theme.dialogTitleSize(20)
             }
 
+            // 两种结果都要说到：放回的那份可能立刻用上，也可能因为现在用的档案比它优先而
+            // 留作备用（审查 CS8-D1）。
             Text {
                 Layout.fillWidth: true
-                text: qsTr("软件会停用现在这份校准，换回你上次停用的那一份本机校准，并立刻用它记录。"
-                           + "之前的记录不受影响。")
+                text: qsTr("软件会把你上次停用的那一份本机校准放回来，并立刻改用它记录，现在这份校准随之停用。"
+                           + "如果现在用的档案比它优先（比如随软件附带的档案），就继续用现在这份记录，"
+                           + "放回的那份留作备用。之前的记录不受影响。")
                 textFormat: Text.PlainText
                 color: Theme.textSecondary
                 font.pixelSize: Theme.fs(12)

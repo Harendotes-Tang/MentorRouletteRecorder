@@ -262,7 +262,8 @@ class WithPartySizeTests(unittest.TestCase):
                         contextlib.redirect_stdout(output):
                     code = generate.main(args)
                 self.assertEqual(0, code)
-                fetch.assert_called_once_with(directory, "sample-version")
+                # A dry run keeps no raw download, so it hands the fetcher no directory at all.
+                fetch.assert_called_once_with(None if dry_run else directory, "sample-version")
                 self.assertIn("party_size", output.getvalue())
                 with open(path, "rb") as handle:
                     after = handle.read()
@@ -271,6 +272,133 @@ class WithPartySizeTests(unittest.TestCase):
                     self.assertIn("dry run", output.getvalue())
                 else:
                     self.assertEqual(24, json.loads(after)["duties"][0]["party_size"])
+
+
+class DryRunTests(unittest.TestCase):
+    """--dry-run writes nothing anywhere, and raw downloads never land in the repository.
+
+    Audit 2026-10-03 (OX-7 / ON2-8): the ordinary dry run used to save both raw downloads to
+    --raw-dir, or to a fresh mkdtemp directory it then left behind.
+    """
+
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory(prefix="duty-data-dry-run-")
+        self.addCleanup(directory.cleanup)
+        self.scratch = directory.name
+        with io.open(os.path.join(SAMPLE, "xivapi_page.json"), "rb") as handle:
+            self.page = handle.read()
+        with io.open(os.path.join(SAMPLE, "ContentFinderCondition.cn.csv"), "rb") as handle:
+            self.csv = handle.read()
+        self.requests = []
+
+    def fake_get(self, url, timeout=60):
+        self.requests.append(url)
+        return self.csv if url == generate.DATAMINING_CN_CSV else self.page
+
+    def run_main(self, args):
+        output = io.StringIO()
+        with mock.patch.object(generate, "http_get", side_effect=self.fake_get), \
+                mock.patch.object(generate.tempfile, "mkdtemp",
+                                  side_effect=AssertionError("a dry run made a temp directory")), \
+                contextlib.redirect_stdout(output):
+            code = generate.main(args)
+        return code, output.getvalue()
+
+    def test_an_ordinary_dry_run_fetches_both_sources_and_writes_nothing(self):
+        out_dir = os.path.join(self.scratch, "out")
+
+        code, output = self.run_main(["--dry-run", "--out-dir", out_dir])
+
+        self.assertEqual(0, code)
+        self.assertEqual(2, len(self.requests))
+        self.assertIn("dry run: nothing written", output)
+        self.assertIn("cn duties:          2", output)
+        self.assertFalse(os.path.exists(out_dir))
+        self.assertEqual([], os.listdir(self.scratch))
+
+    def test_a_dry_run_leaves_an_explicit_raw_dir_untouched(self):
+        existing = os.path.join(self.scratch, "raw")
+        os.makedirs(existing)
+        missing = os.path.join(self.scratch, "missing")
+
+        for raw_dir in (existing, missing):
+            with self.subTest(raw_dir=raw_dir):
+                code, _ = self.run_main(["--dry-run", "--raw-dir", raw_dir,
+                                         "--out-dir", os.path.join(self.scratch, "out")])
+
+                self.assertEqual(0, code)
+        self.assertEqual([], os.listdir(existing))
+        self.assertFalse(os.path.exists(missing))
+        self.assertEqual(["raw"], os.listdir(self.scratch))
+
+    def test_a_raw_dir_inside_the_repository_is_refused_before_any_fetch(self):
+        # Only directories that already exist, and a fetch that fails: even a generator that
+        # does not refuse cannot write a single byte into the repository from this test.
+        def no_fetch(url, timeout=60):
+            raise AssertionError("fetched %s before refusing --raw-dir" % url)
+
+        for raw_dir in (generate.REPO, os.path.join(generate.REPO, "tools"),
+                        os.path.join(generate.REPO, "tools", "..", "data")):
+            for extra in ([], ["--dry-run"], ["--add-party-size", "unused.json"]):
+                with self.subTest(raw_dir=raw_dir, extra=extra), \
+                        mock.patch.object(generate, "http_get", side_effect=no_fetch), \
+                        contextlib.redirect_stderr(io.StringIO()) as errors:
+                    with self.assertRaises(SystemExit) as caught:
+                        generate.main(["--raw-dir", raw_dir,
+                                       "--out-dir", os.path.join(self.scratch, "out")] + extra)
+
+                    self.assertEqual(2, caught.exception.code)
+                    self.assertIn("inside the repository", errors.getvalue())
+        self.assertEqual([], os.listdir(self.scratch))
+
+    def test_a_temporary_directory_inside_the_repository_is_refused_before_any_fetch(self):
+        # Without --raw-dir the raw downloads go to a fresh directory under the temporary
+        # directory, which TMP/TEMP choose; one pointing into the repository used to put the
+        # downloads there unchecked (audit 2026-10-03, R2T-13). mkdtemp fails the test if called.
+        def no_fetch(url, timeout=60):
+            raise AssertionError("fetched %s before refusing the temporary directory" % url)
+
+        for scratch in (generate.REPO, os.path.join(generate.REPO, "tools")):
+            for extra in ([], ["--add-party-size", "unused.json"]):
+                with self.subTest(scratch=scratch, extra=extra), \
+                        mock.patch.object(generate.tempfile, "tempdir", scratch), \
+                        mock.patch.object(generate.tempfile, "mkdtemp",
+                                          side_effect=AssertionError("made a raw directory")), \
+                        mock.patch.object(generate, "http_get", side_effect=no_fetch), \
+                        contextlib.redirect_stderr(io.StringIO()) as errors:
+                    with self.assertRaises(SystemExit) as caught:
+                        generate.main(["--out-dir", os.path.join(self.scratch, "out")] + extra)
+
+                    self.assertEqual(2, caught.exception.code)
+                    self.assertIn("inside the repository", errors.getvalue())
+        self.assertEqual([], os.listdir(self.scratch))
+
+    def test_the_default_raw_directory_is_made_under_the_temporary_directory(self):
+        made = []
+
+        def fake_mkdtemp(prefix=None, dir=None):
+            made.append((prefix, dir))
+            path = os.path.join(self.scratch, "raw")
+            os.makedirs(path)
+            return path
+
+        out_dir = os.path.join(self.scratch, "out")
+        with mock.patch.object(generate.tempfile, "tempdir", self.scratch), \
+                mock.patch.object(generate.tempfile, "mkdtemp", side_effect=fake_mkdtemp), \
+                mock.patch.object(generate, "http_get", side_effect=self.fake_get), \
+                contextlib.redirect_stdout(io.StringIO()):
+            code = generate.main(["--out-dir", out_dir, "--version", "2026-10-03"])
+
+        self.assertEqual(0, code)
+        self.assertEqual([("duty-data-", self.scratch)], made)
+        self.assertEqual(2, len(os.listdir(os.path.join(self.scratch, "raw"))))
+
+    def test_only_the_repository_itself_counts_as_inside(self):
+        sibling = generate.REPO.rstrip("\\/") + "-raw"
+
+        self.assertTrue(generate.is_inside_repository(os.path.join(generate.REPO, "x")))
+        self.assertFalse(generate.is_inside_repository(sibling))
+        self.assertFalse(generate.is_inside_repository(self.scratch))
 
 
 class BundledDataTests(unittest.TestCase):

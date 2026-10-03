@@ -16,6 +16,11 @@ public sealed class ValidationRestartSelectionTests
         fixture.StartWaitingForRestart();
         fixture.Processes.Set();
         Assert.Equal("EXITED", fixture.Capture.RescanGame().SelectionReason);
+        // With the game closed there is nothing to choose, and validation keeps saying what
+        // it waits for: the restart it asked for.
+        Assert.False(fixture.Capture.RescanGame().SelectionRequired);
+        fixture.WaitForAnotherPoll();
+        Assert.Equal("WAITING_RESTART", fixture.Validation.Snapshot()["reason"]!.GetValue<string>());
         fixture.Connections = 0;
         var nextPid = reusedPid ? 42 : 43;
         fixture.Processes.Set(Client(nextPid, 1));

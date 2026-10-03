@@ -83,6 +83,61 @@ public sealed class CalibrationMatchSourceTests
     }
 
     /// <summary>
+    /// Audit 2026-10-03, OCal-7. An announcement that carries the queued roulette twice - at byte 8
+    /// and again at byte 12 - qualifies at both positions, and two candidates used to read as an
+    /// ambiguity, so the build fell back to inferring the match from the queue. Two positions of
+    /// one shape that agree on every sighting are one answer; the lower offset is written, so every
+    /// machine on the build writes the same profile and share code.
+    /// </summary>
+    [Fact]
+    public void AnAnnouncementCarryingTheIdTwiceIsStillFoundAtItsFirstOffset()
+    {
+        var draft = Derive(WithoutTheMatch()
+            .Concat(SecondQueue())
+            .Concat(new[]
+            {
+                CalibrationObserverTests.Message(
+                    MessageDirection.Inbound, Announce, CalibrationObserverTests.Bytes(24, (8, 1), (12, 1)), 120_000),
+                CalibrationObserverTests.Message(
+                    MessageDirection.Inbound, Announce, CalibrationObserverTests.Bytes(24, (8, 2), (12, 2)), 340_000),
+            }));
+
+        Assert.Equal(CalibrationDraftStatus.Ready, draft.Status);
+        Assert.Equal(CalibrationMatchSource.MarkerOffset, draft.MatchSource);
+        var pop = draft.Messages.Single(message => message.Name == "CONTENT_FINDER_POP");
+        Assert.Equal(Announce, pop.Opcode);
+        Assert.Equal(8, pop.Field("roulette_id")!.Offset);
+    }
+
+    /// <summary>
+    /// Two positions of one shape that part company even once are not twins, and the software does
+    /// not know which of them is the roulette. Live traffic cannot produce them - both carried the
+    /// queued roulette on every message the scan looked at - so the pair is built by hand, as carried
+    /// evidence written by two different versions could leave it.
+    /// </summary>
+    [Fact]
+    public void TwoPositionsThatDisagreeOnASightingAreNotCollapsed()
+    {
+        var snapshot = CalibrationTrafficCases.Observe(WithoutTheMatch()
+            .Concat(SecondQueue())
+            .Concat(new[]
+            {
+                CalibrationObserverTests.Message(
+                    MessageDirection.Inbound, Announce, CalibrationObserverTests.Bytes(24, (8, 1), (12, 1)), 120_000),
+                CalibrationObserverTests.Message(
+                    MessageDirection.Inbound, Announce, CalibrationObserverTests.Bytes(24, (8, 2), (12, 2)), 340_000),
+            })
+            .OrderBy(message => message.Mono));
+        var markers = snapshot.Markers.Select(marker => marker.Opcode == Announce && marker.Offset == 12
+            ? marker with { Sightings = marker.Sightings.Select(sighting => sighting with { TMs = sighting.TMs + 1 }).ToArray() }
+            : marker).ToArray();
+
+        var draft = CalibrationDraft.Derive(snapshot with { Markers = markers }, CalibrationObserverTests.Template());
+
+        Assert.NotEqual(CalibrationMatchSource.MarkerOffset, draft.MatchSource);
+    }
+
+    /// <summary>
     /// A roulette id is a number between 1 and 17, so a byte lands on one by accident roughly
     /// once in 256 messages. A position that carried the queued id on some of its shape's
     /// messages and not the rest is describing that accident, and must not be written into a
@@ -195,6 +250,33 @@ public sealed class CalibrationMatchSourceTests
         Assert.Equal(CalibrationDraftStatus.Ready, draft.Status);
         Assert.Equal(Request, draft.FinderRequestOpcode);
         Assert.Contains(draft.Messages, message => message.Name == "CONTENT_FINDER_POP");
+    }
+
+    /// <summary>
+    /// Audit 2026-10-03, OCal-4. The pairs persist, so the first one of a build is there for good,
+    /// and it can be a movement packet that carried the queued id between the request and its echo.
+    /// The frequency ceiling is about the request opcode the pairs agree on, not whichever paired
+    /// first: asking it of the chatty stray disqualified the real reply opcode for the life of the
+    /// build, however many real requests paired after it.
+    /// </summary>
+    [Fact]
+    public void AChattyStrayThatPairedFirstDoesNotDisqualifyTheReply()
+    {
+        var snapshot = CalibrationTrafficCases.Observe(CalibrationTrafficCases.Traffic(CalibrationTrafficCases.QueueRequest));
+        Assert.Equal(2, snapshot.Pairs.Count);
+        var stray = snapshot.Pairs[0] with { RequestOpcode = 0xD001, RequestTMs = snapshot.Pairs[0].RequestTMs + 50 };
+        var counts = new Dictionary<(PacketDirection Direction, ushort Opcode), int>(snapshot.OpcodeCounts)
+        {
+            [(PacketDirection.ClientToServer, 0xD001)] = CalibrationDraft.MaxCandidateOccurrences + 1,
+        };
+
+        var draft = CalibrationDraft.Derive(
+            snapshot with { Pairs = snapshot.Pairs.Prepend(stray).ToArray(), OpcodeCounts = counts },
+            CalibrationObserverTests.Template());
+
+        Assert.Equal(CalibrationDraftStatus.Ready, draft.Status);
+        Assert.Equal(CalibrationMatchSource.QueueRequest, draft.MatchSource);
+        Assert.Equal(Request, draft.FinderRequestOpcode);
     }
 
     /// <summary>

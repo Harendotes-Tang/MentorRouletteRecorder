@@ -9,7 +9,8 @@
 
 修正已有记录时，仅凭区域识别得到的副本，以及不在当前副本表中的副本，均保留原有名称；
 只修改结果、职业或时间不会清空副本信息。主动匹配新的副本编号时，采集服务同步采用副本表中的名称与种类，
-请求中明确填写的名称与种类优先。
+请求中明确填写的名称与种类优先。把副本改为「未知副本」（`content_id` 显式置空）时，
+记录观测到的区域随之清除，统计、历史筛选与副本名称都不再把它算回原来的副本；撤销该次更正时一并恢复。
 
 结束弹窗在记录缺少职业时提供可选的职业补录，该补录与用户确认的结果写入同一条修订；
 记录已有职业时不再询问。用户选择稍后补录时，职业保持未知。
@@ -19,7 +20,7 @@
 | 操作 | 消息 | 效果 |
 |---|---|---|
 | 手工新建 | `CreateManualRun` | 新建一条 `source = MANUAL`、`manually_created = 1` 的记录 |
-| 更正 | `CorrectRun` | 修改已有记录的字段，`revision + 1`，置 `manually_corrected = 1` |
+| 更正 | `CorrectRun` | 修改已有记录的字段，`revision + 1`；改动了软件已记下的内容时置 `manually_corrected = 1`（见 §7） |
 | 软删除 / 恢复 | `SoftDeleteRun` / `RestoreRun` | 翻转 `soft_deleted`，`revision + 1` |
 | 撤销 | `UndoRevision` | 追加一条新修订，把上一条修订的 `old_value` 逐字段写回；**被撤销的那条修订依然留在链上** |
 
@@ -29,6 +30,16 @@
 `UndoRevision` 只能撤销**当前最新**的那条修订，且不能撤销 `revision = 1`，即创建修订本身。
 撤销创建修订时返回 `ERR_UNDO_NOT_ALLOWED`，其中 `field = "expected_revision"`，
 `details.run_id` 给出记录标识。需要移除记录时应使用软删除。
+以下两类修订同样不能撤销，并返回 `ERR_UNDO_NOT_ALLOWED`（`field = "expected_revision"`）：
+
+- 撤销后会使记录回到无法收尾形态的系统修订（`actor = SYSTEM`），也就是程序为未完结记录写下的收尾与待复核标记：
+  重启时的崩溃恢复、启动时对早期记录的一次性改正，以及启动时为看似仍在进行的早期记录加上的待复核标记（见 §9）。
+  无法收尾的形态指自动记录结果未知、
+  没有结束时间且不待复核（即被当作仍在进行、不计入任何统计也不出现在待复核中的形态），或记录没有
+  进本时间而结果不是 `CANCELLED_BEFORE_ENTRY`。判断有误时应直接用 `CorrectRun` 更正该记录；
+- 早期版本写下的副本修订：修订差异中只有 `content_id`，没有完整的副本标识，无法安全还原区域与
+  副本来源。此时应通过更正重新选择副本。
+
 该错误码与 `ERR_BAD_REQUEST` 分开，用于让客户端区分请求格式错误与该修订按定义不可撤销两种情形。
 
 **没有硬删除。** 数据库中不存在任何 `DELETE FROM mentor_runs` 的代码路径，
@@ -140,6 +151,8 @@ mentor_runs.revision = 1  ──►  run_revisions(revision=1, change_kind=CREAT
 记录不处于待复核状态时返回 `ERR_NO_CHANGES`；传入 `true` 返回 `ERR_BAD_REQUEST`，
 因为待复核状态只由系统在观察不到结局时设置。
 提交 `result` 同样表示确认结果，为待复核记录再次提交当前结果亦属确认。
+结果未知且没有结束时间的待复核自动记录不能只凭确认退出复核：确认时须同时补上 `ended_at_utc` 或改选实际结果，
+否则返回 `ERR_BAD_REQUEST`（`field = "ended_at_utc"`，见下文最终值规则）。
 仅修改备注、职业或时间不清除待复核状态。`manually_corrected` 只记录人工更正历史，不代表结果已确认。
 
 `job_name` 与 `role` **不由客户端直接给出**。更正 `job_id` 时，采集服务按
@@ -154,9 +167,15 @@ mentor_runs.revision = 1  ──►  run_revisions(revision=1, change_kind=CREAT
 也可能因数据库中已有的 `entered_at_utc` 而返回 `ERR_TIME_ORDER`。此外：
 
 - `result != CANCELLED_BEFORE_ENTRY` 的记录必须有 `entered_at_utc`；
-- `result = COMPLETED` 的记录必须有 `ended_at_utc`。
+- `result = COMPLETED` 的记录必须有 `ended_at_utc`；
+- `source = AUTO_NETWORK`、`result = UNKNOWN` 且更正之后不处于待复核的记录必须有 `ended_at_utc`，
+  更正之前已经处于这一形态的记录（状态机仍在跟随的进行中记录）除外。没有结束时间、结果未知又不待复核的自动记录
+  会被当作仍在进行：不计入任何统计，不出现在待复核中，此后也不会再被收尾
+  （[statistics-definitions.md](statistics-definitions.md) §0）。「更正之后」的待复核状态已计入本次确认：
+  提交 `result`（包括再次提交 `UNKNOWN`）或 `pending_review=false` 都会清除待复核，因此确认一条结果未知、
+  没有结束时间的待复核自动记录时，须同时补上结束时间或改选实际结果。
 
-违反上述两条时返回 `ERR_BAD_REQUEST`，并在 `payload.field` 中指出具体字段。
+违反上述三条时返回 `ERR_BAD_REQUEST`，并在 `payload.field` 中指出具体字段（第三条为 `ended_at_utc`）。
 若进本时间或结束时间实际发生变化，而请求未显式给出 `duration_ms`，
 采集服务按 `ended - entered` 重算时长。端点未发生变化时保留原时长，
 包括自动记录的单调时长与用户此前明确填写的时长。
@@ -164,9 +183,12 @@ mentor_runs.revision = 1  ──►  run_revisions(revision=1, change_kind=CREAT
 以下字段**不可更正**，由系统维护：`run_id`、`revision`、`source`、`capture_session_id`、
 `protocol_profile_id`、`game_build`、`region`、`detection_confidence`、
 `manually_created`、`created_at_utc`、`updated_at_utc`。
-`manually_corrected` 由系统在首次 `CorrectRun` 时置 1，且不会因后续操作回退。
+`manually_corrected` 由系统在某次 `CorrectRun` 改动了软件已记下的内容时置 1，且不会因后续操作回退。
+回答待复核记录的结局（`result`、`pending_review`、`contributes_to_goal`）、补上原本为空的职业或副本、
+编辑备注都不算更正，不置该标志（`RunMutationRules.OverrulesTheRecord`，见
+[data-model.md](data-model.md) §1）。
 
-活动记录的人工更正按字段保护：后续的自动观察与重启恢复从已有人工修订中读取实际被变更的字段，
+活动记录的人工更正按字段保护：后续的自动观察与重启恢复（§9 所述的一次性待复核标记除外）从已有人工修订中读取实际被变更的字段，
 保留当前人工值，其余字段继续自动补齐。职业标识与职业名称、职能一并保留；
 副本标识与其关联的展示字段一并保留。旧版本曾回退过历史标记的行同样以修订证据为准。
 自动观察不新增人工修订，也不修改既有修订号；重启恢复仍追加原有的系统修订与事件。
@@ -206,13 +228,22 @@ mentor_runs.revision = 1  ──►  run_revisions(revision=1, change_kind=CREAT
 
 ## 9. 与“重启后待复核”的关系
 
-进程重启时，未完结记录中未受保护的结果被置为 `result = INTERRUPTED`、
-`detection_confidence = LOW`，详见 [state-machine.md](state-machine.md) §3.9。
+进程重启时，未完结记录中未受保护的结果按是否进入过副本收尾：已进入副本的置为
+`result = INTERRUPTED`，从未进入副本的置为 `result = CANCELLED_BEFORE_ENTRY`，
+两者均为 `detection_confidence = LOW` 并标为待复核，详见 [state-machine.md](state-machine.md) §3.9。
+早期版本曾把从未进本的此类记录写成 `INTERRUPTED` 或 `UNKNOWN`，更正规则因此拒绝确认或补充说明它们；
+采集服务启动时将这些记录一次性改记为 `CANCELLED_BEFORE_ENTRY` 并标为待复核，留下一条系统修订。
 人工保护在此过程中仍然适用，时间冲突时保持未知结果。
+早期版本允许撤销重启收尾的系统修订，也允许把自动记录更正为结果未知、没有结束时间且不待复核的形态；
+这样的记录被当作仍在进行，既不计入统计，也不出现在待复核中，以后也不会再被收尾。采集服务启动时为这些记录
+（未删除、已带有 `PROCESS_RESTART` 事件）一次性加上待复核标记，只改动 `pending_review`，结果、时间与其他字段保持不变，并留下一条系统修订。
+这一标记不受人工保护的约束：用户本人在早期版本中清除过待复核标记的记录同样被标记。
+上述系统修订都不可撤销（见 §1）。
 桌面端按 `pending_review` 将需要确认的记录列为“待复核”。用户可采取两种处理方式：
 
 - 通过 `CorrectRun` 提交实际结果（含 `COMPLETED`），或显式提交 `pending_review=false`，
   并附上理由。该操作清除待复核状态，记录随之移出列表；仅修改备注不会将其移出。
+  结果未知且没有结束时间的自动记录须同时补上结束时间或改选实际结果，否则返回 `ERR_BAD_REQUEST`（见 §7）。
 - 通过 `SoftDeleteRun` 删除该记录，适用于该次实际上并未进入副本的情形。
 
 **系统自身永远不会把待复核记录自动改为 `COMPLETED`。**

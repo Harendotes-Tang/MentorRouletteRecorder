@@ -13,7 +13,8 @@ public interface ISharedCalibrationStore
     /// <summary>
     /// Records what a fetch produced: writes every candidate that decodes and hashes to its claim and
     /// describes this region and build, and remembers the attempt. A fetch that sent nothing records
-    /// nothing. Never deletes or overwrites a valid stored code.
+    /// nothing. Never deletes a valid stored code, and overwrites one only when the index has revoked it and a
+    /// new code is published under the same file name.
     /// </summary>
     /// <param name="region">Region the fetch was for.</param>
     /// <param name="gameBuild">Build the fetch was for.</param>
@@ -103,6 +104,25 @@ public interface ISharedCalibrationStore
     /// <param name="gameBuild">Build of the running client.</param>
     /// <param name="profileSha256">Canonical hash of the profile document in use.</param>
     bool IsSettled(Region region, string gameBuild, string profileSha256);
+
+    /// <summary>
+    /// Remembers when the shared profile document written from a code began recording (audit 2026-10-03, OE-2/OE-4).
+    /// Every code of a build writes the same profile id, so after a restart this is what tells the runs this document
+    /// recorded from those of the code before it. One record per region and build, like the profile path it describes.
+    /// True when written.
+    /// </summary>
+    /// <param name="region">Region of the running client.</param>
+    /// <param name="gameBuild">Build of the running client.</param>
+    /// <param name="profileSha256">Canonical hash of the written profile document.</param>
+    /// <param name="codeSha256">The code it was written from.</param>
+    /// <param name="recordsFromUtc">Earliest creation time a run recorded under it can have.</param>
+    bool RecordBound(Region region, string gameBuild, string profileSha256, string codeSha256, DateTimeOffset recordsFromUtc);
+
+    /// <summary>What <see cref="RecordBound"/> kept for exactly this profile document, or null when nothing was.</summary>
+    /// <param name="region">Region of the running client.</param>
+    /// <param name="gameBuild">Build of the running client.</param>
+    /// <param name="profileSha256">Canonical hash of the profile document in use.</param>
+    DateTimeOffset? BoundSince(Region region, string gameBuild, string profileSha256);
 }
 
 /// <summary>What the index last read says about a code.</summary>
@@ -133,7 +153,10 @@ public sealed record SharedStoreWriteResult(bool Recorded, int CodesWritten, IRe
 /// <param name="Payload">What it says.</param>
 /// <param name="Submitters">Submitters according to the index it was fetched from; 0 when unknown.</param>
 /// <param name="FirstPublishedAtUtc">First publication according to that index, when known.</param>
-/// <param name="Conflicting">That index marked it as one of several differing codes for the same thing; offered last.</param>
+/// <param name="Conflicting">
+/// That index marked it as one of several differing codes for the same thing: offered after an equally attested code
+/// without the mark, and never bound on the login burst alone.
+/// </param>
 public sealed record SharedStoredCandidate(
     string CodeSha256, string Code, ShareCodePayload Payload, int Submitters, DateTimeOffset? FirstPublishedAtUtc, bool Conflicting = false);
 
@@ -204,4 +227,11 @@ internal sealed class InertSharedCalibrationStore : ISharedCalibrationStore
 
     /// <inheritdoc />
     public bool IsSettled(Region region, string gameBuild, string profileSha256) => false;
+
+    /// <inheritdoc />
+    public bool RecordBound(Region region, string gameBuild, string profileSha256, string codeSha256, DateTimeOffset recordsFromUtc) =>
+        false;
+
+    /// <inheritdoc />
+    public DateTimeOffset? BoundSince(Region region, string gameBuild, string profileSha256) => null;
 }

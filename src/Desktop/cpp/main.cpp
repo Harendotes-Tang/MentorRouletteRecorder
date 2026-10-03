@@ -26,7 +26,8 @@
 // --show-disclosure, --export-target, --open-detail, --open-edit,
 // --settings-tab and --screenshot-size work with either backend. --export-target
 // replaces the interactive file chooser with a fixed directory, so an unattended
-// run never blocks on a modal dialog.
+// run never blocks on a modal dialog. A screenshot run that logged a QML or
+// JavaScript runtime warning still writes its frame and then exits 10.
 //
 // It never opens a listening socket and never performs a network request.
 // ---------------------------------------------------------------------------
@@ -41,8 +42,10 @@
 #include "MockBackend.h"
 #include "Motion.h"
 #include "NoteImageStore.h"
+#include "QmlWarningCounter.h"
 #include "RoleCatalog.h"
 #include "RunFormValidator.h"
+#include "SingleInstanceGuard.h"
 #include "SpeechPlayer.h"
 #include "TrayController.h"
 #include "TtsService.h"
@@ -75,11 +78,17 @@
 
 namespace {
 
+/// Set for a screenshot run only: every diagnostic is offered to it (review DT4-X5).
+mr::QmlWarningCounter *g_qmlWarnings = nullptr;
+
 /// Send Qt/QML diagnostics to stderr even for the Windows GUI subsystem.
 /// This keeps headless screenshot and CI failures observable when stdout and
 /// stderr are redirected by a build script.
-void stderrMessageHandler(QtMsgType type, const QMessageLogContext &, const QString &message)
+void stderrMessageHandler(QtMsgType type, const QMessageLogContext &context, const QString &message)
 {
+    if (g_qmlWarnings)
+        g_qmlWarnings->noteMessage(type, context, message);
+
     const char *const level = [type] {
         switch (type) {
         case QtDebugMsg: return "debug";
@@ -444,6 +453,13 @@ int main(int argc, char *argv[])
         qputenv("QT_MEDIA_BACKEND", "windows");
 
     const bool screenshotMode = hasRawArgument(argc, argv, "--screenshot");
+    // A screenshot run whose page logged a QML/JS runtime warning fails, whoever runs
+    // it (review OJ-7, DT4-X5). Declared before the application so it outlives
+    // everything that can still log, and detached before it goes away.
+    mr::QmlWarningCounter qmlWarnings;
+    const auto detachQmlWarnings = qScopeGuard([] { g_qmlWarnings = nullptr; });
+    if (screenshotMode)
+        g_qmlWarnings = &qmlWarnings;
     if (hasRawArgument(argc, argv, "--motion-probe")) {
         // The probe steps the animation clock itself; the basic render loop is
         // the one that leaves the clock alone (the threaded loop installs its own).
@@ -711,9 +727,6 @@ int main(int argc, char *argv[])
     if (parser.isSet(speechSelfTestOption))
         return mr::runSpeechSelfTest(parser.value(speechSelfTestOption));
 
-    // 设置先于控制器和 QML 引擎创建，确保它们销毁时设置对象仍然存活。
-    mr::AppSettings settings;
-
     const QString selectedBackend = parser.isSet(backendOption)
                                         ? parser.value(backendOption)
                                         : (screenshotMode ? QStringLiteral("mock")
@@ -726,6 +739,16 @@ int main(int argc, char *argv[])
                      qPrintable(selectedBackend));
         return 2;
     }
+
+    // A run on the mock backend keeps away from the player's desktop.ini and
+    // backup date as a screenshot does, window or not: its fake backup would
+    // stamp today's date and skip the real one, and --mock-speech would rewrite
+    // the chosen voice (review OH-7).
+    if (mr::AppSettings::isHarnessRun(screenshotMode, selectedBackend))
+        QStandardPaths::setTestModeEnabled(true);
+
+    // 设置先于控制器和 QML 引擎创建，确保它们销毁时设置对象仍然存活。
+    mr::AppSettings settings;
 
     const QString mockLiveMode = parser.value(liveOption);
     if (selectedBackend == QLatin1String("mock")
@@ -823,6 +846,21 @@ int main(int argc, char *argv[])
                      qPrintable(settingsTab));
         return 2;
     }
+    // One Desktop per user (review OH-1). Checked before a backend, a Collector
+    // supervisor, a speech engine or a tray icon exists, so a second launch -
+    // the shortcut double-clicked while the first window sits in the tray -
+    // brings that window forward and leaves. Screenshot and mock runs are not
+    // the player's program and may run beside it.
+    std::unique_ptr<mr::SingleInstanceGuard> instanceGuard;
+    if (!screenshotMode && selectedBackend == QLatin1String("ipc")) {
+        instanceGuard =
+            std::make_unique<mr::SingleInstanceGuard>(mr::SingleInstanceGuard::defaultKey());
+        if (!instanceGuard->isPrimary()) {
+            instanceGuard->signalPrimary();
+            return 0;
+        }
+    }
+
     mr::IBackend *backend = nullptr;
     mr::MockBackend *mockBackend = nullptr;
     if (selectedBackend == QLatin1String("ipc")) {
@@ -904,13 +942,19 @@ int main(int argc, char *argv[])
     auto *jobs = new mr::JobCatalog(&app);
     auto *roles = new mr::RoleCatalog(&app);
     auto *validator = new mr::RunFormValidator(&app);
-    // 备注图片 live under the install directory (NoteImageStore.h); the
-    // screenshot harness never writes one, so no override is needed here.
-    auto *noteImages = new mr::NoteImageStore(&app);
+    // 备注图片 live under the install directory (NoteImageStore.h). The mock
+    // backend's runs are fixtures, not the player's: images attached to them go
+    // to a scratch folder instead (review OH-7).
+    auto *noteImages = mockBackend
+        ? new mr::NoteImageStore(
+              QDir::temp().absoluteFilePath(QStringLiteral("MentorRecorder-mock-note-images")), &app)
+        : new mr::NoteImageStore(&app);
     if (parser.isSet(themeOption))
         controller.setThemeMode(parser.value(themeOption));
 
     QQmlApplicationEngine engine;
+    if (screenshotMode)
+        qmlWarnings.watch(&engine);
     engine.rootContext()->setContextProperty(QStringLiteral("App"), &controller);
     engine.rootContext()->setContextProperty(QStringLiteral("Fmt"), formatters);
     engine.rootContext()->setContextProperty(QStringLiteral("Jobs"), jobs);
@@ -993,11 +1037,20 @@ int main(int argc, char *argv[])
     if (!parser.isSet(screenshotOption)) {
         // 事件循环结束后先移除托盘及窗口过滤器，再销毁 QML 窗口。
         mr::TrayController tray(&controller, &settings, window);
+        // A second launch asks this one to come forward.
+        if (instanceGuard) {
+            QObject::connect(instanceGuard.get(), &mr::SingleInstanceGuard::activationRequested,
+                             &tray, &mr::TrayController::showWindow);
+        }
         // Without a tray there is nowhere to minimise to, so closing the last
         // window must still end the process.
         QApplication::setQuitOnLastWindowClosed(!tray.isActive());
         controller.runDailyBackupIfDue();
-        return app.exec();
+        const int exitCode = app.exec();
+        // The window is gone; stopping the Collector can take seconds. A launch
+        // in that time starts normally instead of signalling a closing program.
+        instanceGuard.reset();
+        return exitCode;
     }
 
     // ---------------------------------------------------------------- shot --
@@ -1073,5 +1126,12 @@ int main(int argc, char *argv[])
     });
 
     const int loopResult = app.exec();
+    // The frame is still written, so the page the warning came from can be looked at.
+    const int qmlWarningCount = qmlWarnings.count();
+    if (exitCode == 0 && loopResult == 0 && qmlWarningCount > 0) {
+        std::fprintf(stderr, "%d QML/JavaScript runtime warning(s) during the screenshot run, listed above\n",
+                     qmlWarningCount);
+        return 10;
+    }
     return exitCode != 0 ? exitCode : loopResult;
 }

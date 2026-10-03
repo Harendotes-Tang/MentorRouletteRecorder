@@ -9,6 +9,19 @@
 #include <QLoggingCategory>
 #include <QSet>
 
+#ifdef Q_OS_WIN
+// libstdc++ on MinGW defines NOMINMAX itself; see CollectorProcess.cpp.
+#  ifndef NOMINMAX
+#    define NOMINMAX
+#  endif
+#  ifndef WIN32_LEAN_AND_MEAN
+#    define WIN32_LEAN_AND_MEAN
+#  endif
+#  include <windows.h>
+#  include <aclapi.h>
+#  include <vector>
+#endif
+
 namespace {
 Q_LOGGING_CATEGORY(lcIpc, "mr.ipc")
 
@@ -153,8 +166,76 @@ void IpcClient::stop()
     m_buffer.clear();
 }
 
+bool IpcClient::pipeOwnedByCurrentUser(qintptr pipeHandle)
+{
+#ifdef Q_OS_WIN
+    // The owner recorded in the pipe's own security descriptor, read through
+    // the handle we already hold - the check .NET's PipeOptions.CurrentUserOnly
+    // makes. The Collector's pipe is created with this user's token, so its
+    // owner is the token's user, or its default owner (the Administrators group
+    // when elevated). Another standard account can make neither the owner.
+    PSID owner = nullptr;
+    PSECURITY_DESCRIPTOR descriptor = nullptr;
+    if (::GetSecurityInfo(reinterpret_cast<HANDLE>(pipeHandle), SE_KERNEL_OBJECT,
+                          OWNER_SECURITY_INFORMATION, &owner, nullptr, nullptr, nullptr,
+                          &descriptor)
+            != ERROR_SUCCESS
+        || owner == nullptr) {
+        if (descriptor)
+            ::LocalFree(descriptor);
+        return false;
+    }
+
+    bool owned = false;
+    HANDLE token = nullptr;
+    // Our own process token only; no other process is opened.
+    if (::OpenProcessToken(::GetCurrentProcess(), TOKEN_QUERY, &token)) {
+        for (const TOKEN_INFORMATION_CLASS kind : {TokenUser, TokenOwner}) {
+            DWORD needed = 0;
+            ::GetTokenInformation(token, kind, nullptr, 0, &needed);
+            if (needed == 0)
+                continue;
+            std::vector<unsigned char> buffer(needed);
+            if (!::GetTokenInformation(token, kind, buffer.data(), needed, &needed))
+                continue;
+            const PSID sid = kind == TokenUser
+                                 ? reinterpret_cast<const TOKEN_USER *>(buffer.data())->User.Sid
+                                 : reinterpret_cast<const TOKEN_OWNER *>(buffer.data())->Owner;
+            if (sid && ::EqualSid(owner, sid)) {
+                owned = true;
+                break;
+            }
+        }
+        ::CloseHandle(token);
+    }
+    ::LocalFree(descriptor);
+    return owned;
+#else
+    Q_UNUSED(pipeHandle)
+    return true;
+#endif
+}
+
 void IpcClient::onConnected()
 {
+    const qintptr handle = m_socket->socketDescriptor();
+    const bool owned = m_ownerCheck ? m_ownerCheck(handle) : pipeOwnedByCurrentUser(handle);
+    if (!owned) {
+        // Another account created the pipe first, under the name this user's
+        // Collector would serve. Nothing - an online-speech key above all - may
+        // be written to it (review OH-4).
+        qCWarning(lcIpc) << "refused" << m_serverName << ": the pipe belongs to another account";
+        m_buffer.clear();
+        m_lastError = QString::fromUtf8("连接到的采集服务管道不属于当前用户，已拒绝连接。");
+        m_socket->abort();
+        if (!m_reconnectTimer.isActive()) {
+            // abort() reported no disconnect of its own.
+            Q_EMIT connectionChanged();
+            scheduleReconnect();
+        }
+        return;
+    }
+
     m_backoffMs = kMinBackoffMs;
     m_lastError.clear();
     m_buffer.clear();
@@ -273,9 +354,12 @@ void IpcClient::failAllPending(const QString &code, const QString &message)
 void IpcClient::send(BackendReply *reply, const QString &messageType,
                      const QJsonObject &payload, int timeoutMs)
 {
+    // The three refusals below are made before anything is written, so they
+    // say the request never left (BackendReply::failUnsent): a form may stay
+    // editable after one, never after a request that went out unanswered.
     if (!isConnected()) {
-        reply->fail(QStringLiteral("ERR_INTERNAL"),
-                    QString::fromUtf8("Collector 未连接。"));
+        reply->failUnsent(QStringLiteral("ERR_INTERNAL"),
+                          QString::fromUtf8("Collector 未连接。"));
         scheduleReconnect();
         return;
     }
@@ -298,8 +382,8 @@ void IpcClient::send(BackendReply *reply, const QString &messageType,
     const QByteArray frame =
         ipc::encodeFrame(ipc::makeRequest(reply->requestId(), messageType, payload));
     if (frame.isEmpty()) {
-        reply->fail(QStringLiteral("ERR_BAD_REQUEST"),
-                    QString::fromUtf8("请求过大，超过 4 MiB 帧上限。"));
+        reply->failUnsent(QStringLiteral("ERR_BAD_REQUEST"),
+                          QString::fromUtf8("请求过大，超过 4 MiB 帧上限。"));
         return;
     }
 
@@ -322,10 +406,10 @@ void IpcClient::send(BackendReply *reply, const QString &messageType,
             m_timeoutTimer.stop();
         const QString detail = m_socket->errorString();
         qCWarning(lcIpc) << "short write for" << messageType << detail;
-        reply->fail(QStringLiteral("ERR_INTERNAL"),
-                    detail.isEmpty()
-                        ? QString::fromUtf8("请求没能完整发给 Collector，请重试。")
-                        : QString::fromUtf8("请求没能完整发给 Collector，请重试。%1").arg(detail));
+        reply->failUnsent(QStringLiteral("ERR_INTERNAL"),
+                          detail.isEmpty()
+                              ? QString::fromUtf8("请求没能完整发给 Collector，请重试。")
+                              : QString::fromUtf8("请求没能完整发给 Collector，请重试。%1").arg(detail));
     }
 }
 

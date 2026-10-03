@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
+using System.Runtime.InteropServices;
 
 namespace MentorRecorder.Collector.Capture;
 
@@ -12,6 +13,11 @@ namespace MentorRecorder.Collector.Capture;
 /// <param name="IsLoopback">True for the loopback interface.</param>
 /// <param name="IPv4Addresses">Unicast IPv4 addresses bound to the interface.</param>
 /// <param name="HasDefaultRoute">True when the interface has an IPv4 default gateway.</param>
+/// <param name="PreferredRoute">
+/// True when Windows' own route lookup sends a connection to an internet address through this
+/// interface: interface and route metrics decide it, and a tunnel that routes everything
+/// through itself is named even without a default gateway of its own.
+/// </param>
 public sealed record AdapterInfo(
     string Id,
     string FriendlyName,
@@ -19,7 +25,8 @@ public sealed record AdapterInfo(
     bool IsUp,
     bool IsLoopback,
     IReadOnlyList<IPAddress> IPv4Addresses,
-    bool HasDefaultRoute = false);
+    bool HasDefaultRoute = false,
+    bool PreferredRoute = false);
 
 /// <summary>An adapter as it is shown to a client: addresses masked, carrier flag resolved.</summary>
 /// <param name="Id">Opaque adapter identifier.</param>
@@ -51,6 +58,13 @@ public sealed record CaptureAdapterView(
     public bool HasDefaultRoute { get; init; }
 
     /// <summary>
+    /// True when Windows' own route lookup sends a connection to an internet address through
+    /// this interface. Preferred over <see cref="HasDefaultRoute"/> before the game has any
+    /// connection, because it is the route actually taken rather than the first card listed.
+    /// </summary>
+    public bool PreferredRoute { get; init; }
+
+    /// <summary>
     /// True when this is the adapter the user chose earlier and it no longer carries the
     /// game's traffic while another one does. Reported so the UI can explain the switch
     /// rather than capturing on a card with nothing on it.
@@ -73,7 +87,10 @@ public interface IAdapterProvider
 /// </summary>
 public interface IProcessTcpTable
 {
-    /// <summary>Local IPv4 addresses of the process's current TCP connections.</summary>
+    /// <summary>
+    /// Local IPv4 addresses of the process's current TCP connections. Throws when the table
+    /// cannot be read: an empty list means "no connection", which is a different answer.
+    /// </summary>
     /// <param name="processId">Process identifier.</param>
     IReadOnlyList<IPAddress> LocalAddresses(int processId);
 }
@@ -126,21 +143,24 @@ public sealed class AdapterEnumerator
     /// should use.
     ///
     /// Recommendation is deliberately conservative: an adapter is recommended only when the
-    /// user has chosen it before, or when it demonstrably carries the game's connections. When
-    /// neither is true nothing is recommended and the user picks -- guessing an adapter would
-    /// produce a capture that silently observes nothing.
+    /// user has chosen it before, when it demonstrably carries the game's connections, or --
+    /// while the running game has no connection at all yet -- when it is the route Windows will
+    /// take for the one about to open. Otherwise nothing is recommended and the user picks --
+    /// guessing an adapter would produce a capture that silently observes nothing.
     /// </summary>
     /// <param name="gameProcessId">Game process id, when one is running.</param>
     /// <param name="preferredAdapterId">Adapter the user chose previously, if any.</param>
     public IReadOnlyList<CaptureAdapterView> List(int? gameProcessId, string? preferredAdapterId = null)
     {
         var gameAddresses = gameProcessId is { } pid ? SafeLocalAddresses(pid) : Array.Empty<IPAddress>();
-        var gameAddressSet = new HashSet<IPAddress>(gameAddresses);
+        var gameAddressSet = new HashSet<IPAddress>(gameAddresses ?? Array.Empty<IPAddress>());
 
         // The game is running and holds no TCP connection yet: the title screen. That is the
         // only moment at which capture can start early enough to observe the connection's
-        // SYN, and it is exactly the moment the traffic-based rule has nothing to say.
-        var gameIsIdle = gameProcessId is not null && gameAddressSet.Count == 0;
+        // SYN, and it is exactly the moment the traffic-based rule has nothing to say. A table
+        // that could not be read is not that moment: the game may be talking on another card
+        // (audit 2026-10-03, OB-4).
+        var gameIsIdle = gameProcessId is not null && gameAddresses is { Count: 0 };
 
         var views = new List<CaptureAdapterView>();
         foreach (var adapter in SafeList())
@@ -160,6 +180,7 @@ public sealed class AdapterEnumerator
                     ? adapter.IPv4Addresses.First(gameAddressSet.Contains)
                     : adapter.IPv4Addresses.FirstOrDefault(),
                 HasDefaultRoute = adapter.HasDefaultRoute,
+                PreferredRoute = adapter.PreferredRoute,
             });
         }
 
@@ -229,11 +250,19 @@ public sealed class AdapterEnumerator
         // default route is not a guess about which card the user prefers: it is the card
         // Windows will itself use for the connection that is about to open. Starting there is
         // the difference between capturing the handshake and never decoding this session.
-        return gameIsIdle
-            ? (adapters.FirstOrDefault(adapter =>
-                adapter.HasDefaultRoute && adapter.IsUp && !adapter.IsLoopback &&
-                adapter.BindAddress is not null), null)
-            : (null, null);
+        // Windows' own route lookup decides -- metrics, and a tunnel that carries every route
+        // without a gateway of its own -- and listing order only when it gave no usable answer
+        // (audit 2026-10-03, OB-4).
+        if (!gameIsIdle)
+        {
+            return (null, null);
+        }
+
+        var usable = adapters
+            .Where(adapter => adapter.IsUp && !adapter.IsLoopback && adapter.BindAddress is not null)
+            .ToArray();
+        return (usable.FirstOrDefault(adapter => adapter.PreferredRoute)
+            ?? usable.FirstOrDefault(adapter => adapter.HasDefaultRoute), null);
     }
 
     private IReadOnlyList<AdapterInfo> SafeList()
@@ -248,16 +277,19 @@ public sealed class AdapterEnumerator
         }
     }
 
-    private IReadOnlyList<IPAddress> SafeLocalAddresses(int processId)
+    /// <summary>The game's local addresses, or null when the table could not be read.</summary>
+    private IReadOnlyList<IPAddress>? SafeLocalAddresses(int processId)
     {
         try
         {
             return _tcpTable.LocalAddresses(processId);
         }
-        catch (Exception ex) when (ex is NetworkInformationException or InvalidOperationException or NotSupportedException)
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
         {
-            // Without the TCP table nothing is recommended and the user picks the adapter.
-            return Array.Empty<IPAddress>();
+            // Without the TCP table nothing is recommended -- the remembered adapter aside -- and
+            // the user picks the adapter. Nothing here may take the process down or block a
+            // capture the user asked for explicitly.
+            return null;
         }
     }
 }
@@ -268,9 +300,26 @@ public sealed class SystemAdapterProvider : IAdapterProvider
     /// <summary>Shared instance.</summary>
     public static SystemAdapterProvider Instance { get; } = new();
 
+    /// <summary>
+    /// Stands for "a host on the internet" in the route lookup: a documentation address
+    /// (RFC 5737) is never a real host, so no route a program adds for particular servers
+    /// covers it, and the lookup answers with the path an ordinary internet connection takes.
+    /// Nothing is ever sent to it -- the lookup reads the routing table and nothing else.
+    /// </summary>
+    private static readonly IPAddress RouteProbe = IPAddress.Parse("203.0.113.1");
+
+    /// <summary>
+    /// IP Helper's routing-table query: which interface Windows would send a packet for the
+    /// destination through. Reads operating-system routing state only; it opens no process
+    /// and sends nothing (docs/privacy-boundary.md section 2).
+    /// </summary>
+    [DllImport("iphlpapi.dll", ExactSpelling = true)]
+    private static extern uint GetBestInterface(uint destinationAddress, out uint bestInterfaceIndex);
+
     /// <inheritdoc />
     public IReadOnlyList<AdapterInfo> List()
     {
+        var routed = RoutedInterfaceIndex();
         var results = new List<AdapterInfo>();
         foreach (var nic in NetworkInterface.GetAllNetworkInterfaces())
         {
@@ -298,10 +347,43 @@ public sealed class SystemAdapterProvider : IAdapterProvider
                 nic.OperationalStatus == OperationalStatus.Up,
                 nic.NetworkInterfaceType == NetworkInterfaceType.Loopback,
                 addresses,
-                HasDefaultRoute(nic)));
+                HasDefaultRoute(nic),
+                routed is { } index && Ipv4Index(nic) == index));
         }
 
         return results;
+    }
+
+    /// <summary>
+    /// The interface Windows routes an ordinary internet connection through, or null when the
+    /// routing table could not answer. Route and interface metrics decide it, so it is the card
+    /// actually used rather than the first one listed with a gateway, and a tunnel that takes
+    /// every route without a gateway of its own is named too (audit 2026-10-03, OB-4).
+    /// </summary>
+    private static int? RoutedInterfaceIndex()
+    {
+        try
+        {
+            var destination = BitConverter.ToUInt32(RouteProbe.GetAddressBytes(), 0);
+            return GetBestInterface(destination, out var index) == 0 ? (int)index : null;
+        }
+        catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>The interface's IPv4 index, or null when it has no IPv4 configuration to describe.</summary>
+    private static int? Ipv4Index(NetworkInterface nic)
+    {
+        try
+        {
+            return nic.GetIPProperties().GetIPv4Properties()?.Index;
+        }
+        catch (Exception ex) when (ex is NetworkInformationException or PlatformNotSupportedException)
+        {
+            return null;
+        }
     }
 
     /// <summary>
@@ -343,6 +425,12 @@ public sealed class MachinaProcessTcpTable : IProcessTcpTable
     public static MachinaProcessTcpTable Instance { get; } = new();
 
     /// <inheritdoc />
+    /// <remarks>
+    /// A failed read propagates: Machina 2.3.1.3 throws <c>Win32Exception</c> when
+    /// <c>GetExtendedTcpTable</c> fails, and swallowing it here turned "unreadable" into
+    /// "no connection", which recommends a card the game may not be using (audit 2026-10-03,
+    /// OB-4). <see cref="AdapterEnumerator"/> turns it into "unknown".
+    /// </remarks>
     public IReadOnlyList<IPAddress> LocalAddresses(int processId)
     {
         if (processId <= 0)
@@ -350,29 +438,20 @@ public sealed class MachinaProcessTcpTable : IProcessTcpTable
             return Array.Empty<IPAddress>();
         }
 
-        try
-        {
-            var info = new Machina.Infrastructure.ProcessTCPInfo { ProcessID = (uint)processId };
-            var connections = new List<Machina.Infrastructure.TCPConnection>();
-            info.UpdateTCPIPConnections(connections);
+        var info = new Machina.Infrastructure.ProcessTCPInfo { ProcessID = (uint)processId };
+        var connections = new List<Machina.Infrastructure.TCPConnection>();
+        info.UpdateTCPIPConnections(connections);
 
-            var addresses = new List<IPAddress>();
-            foreach (var connection in connections)
+        var addresses = new List<IPAddress>();
+        foreach (var connection in connections)
+        {
+            var address = new IPAddress(connection.LocalIP);
+            if (!addresses.Contains(address))
             {
-                var address = new IPAddress(connection.LocalIP);
-                if (!addresses.Contains(address))
-                {
-                    addresses.Add(address);
-                }
+                addresses.Add(address);
             }
+        }
 
-            return addresses;
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
-        {
-            // The TCP table only informs the recommendation; nothing here may take the process
-            // down or block a capture the user asked for explicitly.
-            return Array.Empty<IPAddress>();
-        }
+        return addresses;
     }
 }

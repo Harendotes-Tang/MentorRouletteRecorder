@@ -5,6 +5,7 @@ import MentorRecorder
 
 ScrollView {
     id: page
+    objectName: "dashboardPage"
 
     readonly property int resultTotal: {
         let total = 0
@@ -12,6 +13,14 @@ ScrollView {
             total += Number(App.resultBuckets[index].count || 0)
         return total
     }
+
+    // The Collector's own figures, never baseline + completed_count: a COMPLETED
+    // run that does not count towards the goal is in completed_count only
+    // (docs/statistics-definitions.md; review OK-1).
+    readonly property int achievementProgress: Math.max(0, Number(App.dashboard.achievement_progress || 0))
+    readonly property int achievementRemaining: App.dashboard.remaining !== undefined
+        ? Math.max(0, Number(App.dashboard.remaining))
+        : Math.max(0, App.goalCount - page.achievementProgress)
 
     signal openManualRequested()
     signal openCaptureRequested()
@@ -68,10 +77,10 @@ ScrollView {
                 page.resolvingRunId = ""
         }
 
-        // mutationFailed 不带记录 id，无从核对；只要本页还在等回应就解锁，
-        // 让用户能够重试——按钮永远锁死比偶尔提前解锁更糟。
-        function onMutationFailed(code, message) {
-            if (page.resolvingPendingRun)
+        // 拒绝同样只认本页那一条（审查 DT4-X1）：原因对话框、结果窗口或设置
+        // 的拒绝不是它的回答，提前解锁会让第二次点击在第一条还在途时发出。
+        function onMutationFailed(code, message, kind, runId) {
+            if (kind === "review" && runId === page.resolvingRunId)
                 page.resolvingRunId = ""
         }
     }
@@ -89,6 +98,18 @@ ScrollView {
             App.showToast(qsTr("所有通关记录都已写过笔记"))
     }
 
+    // The header's date. The app lives in the tray for days, so the date is
+    // read again every minute instead of once at start (review OK-9).
+    property string todayText: Fmt.dateWithWeekday(new Date().toISOString())
+
+    Timer {
+        objectName: "dashboardDateTimer"
+        interval: 60 * 1000
+        repeat: true
+        running: true
+        onTriggered: page.todayText = Fmt.dateWithWeekday(new Date().toISOString())
+    }
+
     clip: true
     contentWidth: availableWidth
     ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
@@ -98,8 +119,9 @@ ScrollView {
         spacing: 20
 
         PageHeader {
+            objectName: "dashboardHeader"
             title: qsTr("总览")
-            subtitle: Fmt.dateWithWeekday(new Date().toISOString())
+            subtitle: page.todayText
         }
 
         // The Collector found a newer release. Notify only: nothing is
@@ -391,12 +413,13 @@ ScrollView {
                     Layout.preferredHeight: 208
 
                     ProgressRing {
+                        objectName: "achievementRing"
                         width: 200
                         height: 200
                         anchors.centerIn: parent
-                        value: Math.max(0, App.baselineCount + (App.dashboard.completed_count || 0))
+                        value: page.achievementProgress
                         maximum: Math.max(1, App.goalCount)
-                        label: String(Math.max(0, App.baselineCount + (App.dashboard.completed_count || 0)))
+                        label: String(page.achievementProgress)
                         detail: Fmt.percent(Math.min(1, Math.max(0, value / maximum)), 1)
                     }
                 }
@@ -412,8 +435,8 @@ ScrollView {
                     }
 
                     Text {
-                        text: String(Math.max(0, App.goalCount - App.baselineCount
-                                             - (App.dashboard.completed_count || 0)))
+                        objectName: "achievementRemaining"
+                        text: String(page.achievementRemaining)
                         color: Theme.textPrimary
                         font.pixelSize: Theme.fs(18)
                         font.weight: Theme.figureWeight(true)

@@ -13,7 +13,8 @@ namespace MentorRecorder.Collector.Protocol.Sharing;
 /// Monotonic about codes. A code file is written only when the code decodes, hashes to the identity it
 /// was downloaded under and describes this region and build. Nothing a fetch reports - a failure, an
 /// empty index, an index that no longer lists a code - deletes or overwrites a valid code file; a
-/// revoked or rejected code is hidden from <see cref="LoadCandidates"/>, never deleted.
+/// revoked or rejected code is hidden from <see cref="LoadCandidates"/>, never deleted. The one file that
+/// is overwritten is one holding a revoked code, by a new code the index publishes under the same name.
 ///
 /// Robust about state. <c>state.json</c> is bookkeeping, not evidence. A file that cannot be understood
 /// reads as empty and is replaced on the next write; a file that cannot be opened (locked, denied) reads
@@ -118,9 +119,11 @@ public sealed class SharedCalibrationStore : ISharedCalibrationStore
             var written = 0;
             var refused = new List<string>();
             var hints = new List<SharedCodeHints>();
+            // What the index these codes came from revokes: a stored file holding one of those may make way for them.
+            var revoked = result.RevokedCodeSha256s.ToHashSet(StringComparer.Ordinal);
             foreach (var candidate in result.Candidates)
             {
-                var write = WriteCode(directory, region, gameBuild, candidate);
+                var write = WriteCode(directory, region, gameBuild, candidate, revoked);
                 written += write.Written ? 1 : 0;
                 if (write.Refusal is { } refusal)
                 {
@@ -180,9 +183,10 @@ public sealed class SharedCalibrationStore : ISharedCalibrationStore
                     code.Sha, code.Text, code.Payload, hints?.Submitters ?? 0, hints?.FirstPublishedAtUtc, hints?.Conflicting == true));
             }
 
+            // The order the index is downloaded in (SharedCalibrationIndex.Select): the conflict mark only breaks a tie.
             return found
-                .OrderBy(candidate => candidate.Conflicting)
-                .ThenByDescending(candidate => candidate.Submitters)
+                .OrderByDescending(candidate => candidate.Submitters)
+                .ThenBy(candidate => candidate.Conflicting)
                 .ThenBy(candidate => candidate.FirstPublishedAtUtc ?? DateTimeOffset.MaxValue)
                 .ThenBy(candidate => candidate.CodeSha256, StringComparer.Ordinal)
                 .Take(SharedCalibrationIndex.MaxCandidates)
@@ -315,6 +319,35 @@ public sealed class SharedCalibrationStore : ISharedCalibrationStore
     }
 
     /// <inheritdoc />
+    public bool RecordBound(Region region, string gameBuild, string profileSha256, string codeSha256, DateTimeOffset recordsFromUtc)
+    {
+        var directory = DirectoryFor(Root, region, gameBuild);
+        RequireSha256(profileSha256, nameof(profileSha256));
+        RequireSha256(codeSha256, nameof(codeSha256));
+        lock (Gate)
+        {
+            var (state, writable) = ReadState(directory);
+            var binding = new SharedBinding(profileSha256, codeSha256, recordsFromUtc);
+            return writable &&
+                   WriteAtomically(StatePath(directory), state.WithBinding(binding).Serialize(region, gameBuild));
+        }
+    }
+
+    /// <inheritdoc />
+    public DateTimeOffset? BoundSince(Region region, string gameBuild, string profileSha256)
+    {
+        var directory = DirectoryFor(Root, region, gameBuild);
+        RequireSha256(profileSha256, nameof(profileSha256));
+        lock (Gate)
+        {
+            return ReadState(directory).State.Binding is { } binding &&
+                   string.Equals(binding.ProfileSha256, profileSha256, StringComparison.Ordinal)
+                ? binding.RecordsFromUtc
+                : null;
+        }
+    }
+
+    /// <inheritdoc />
     public SharedPublication Publication(Region region, string gameBuild, string codeSha256)
     {
         var directory = DirectoryFor(Root, region, gameBuild);
@@ -350,7 +383,8 @@ public sealed class SharedCalibrationStore : ISharedCalibrationStore
 
     private sealed record CodeWrite(bool Written, string? Refusal);
 
-    private static CodeWrite WriteCode(string directory, Region region, string gameBuild, SharedCalibrationCandidate candidate)
+    private static CodeWrite WriteCode(
+        string directory, Region region, string gameBuild, SharedCalibrationCandidate candidate, IReadOnlySet<string> revoked)
     {
         if (!SharedCalibrationIndex.IsSha256(candidate.CodeSha256))
         {
@@ -383,9 +417,11 @@ public sealed class SharedCalibrationStore : ISharedCalibrationStore
         return ReadCode(path, out var existing) switch
         {
             FileState.Valid when string.Equals(existing!.Sha, candidate.CodeSha256, StringComparison.Ordinal) => new CodeWrite(false, null),
-            FileState.Valid => new CodeWrite(false, label + ":NAME_TAKEN"),
+            // The publisher hands a file name held only by a revoked code to the next code that hashes to it
+            // (audit 2026-10-03, TL3-X1). The revoked code stays revoked by its hash; its file has nothing left to offer.
+            FileState.Valid when !revoked.Contains(existing!.Sha) => new CodeWrite(false, label + ":NAME_TAKEN"),
             FileState.Unreadable => new CodeWrite(false, label + ":UNREADABLE"),
-            // Missing, or a file that is not a code: writing a verified code over it only improves it.
+            // Missing, a file that is not a code, or a revoked one: writing a verified code over it only improves it.
             _ => WriteAtomically(path, candidate.Code.Trim())
                 ? new CodeWrite(true, null)
                 : new CodeWrite(false, label + ":UNWRITABLE"),

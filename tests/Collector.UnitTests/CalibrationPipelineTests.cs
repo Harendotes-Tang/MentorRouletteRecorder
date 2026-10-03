@@ -405,6 +405,52 @@ public sealed class CalibrationPipelineTests : IDisposable
     }
 
     /// <summary>
+    /// Audit 2026-10-03, OCal-8. The periodic save froze its snapshot on the session's last message
+    /// and wrote it off the delivery thread. Stopping the capture closes what was still open and
+    /// writes the final snapshot; when the periodic write only got going after that - a starved
+    /// thread pool, a stop that gave up waiting - it carried the same message count, passed the
+    /// "never poorer" check, and put the earlier snapshot back over the final one.
+    /// </summary>
+    [Fact]
+    public void ALatePeriodicSaveNeverOverwritesTheFinalOne()
+    {
+        using var db = new TestDatabase();
+        var template = CalibrationObserverTests.Template();
+        var evidenceRoot = Path.Combine(_localRoot, "evidence");
+        Action? late = null;
+        var pipeline = new LiveProtocolPipeline(
+            db.Database, db.Clock, new LiveEventBus(db.Clock), NoProfile, null, Services(template).WithEvidenceIn(evidenceRoot))
+        {
+            // Held back until the test says so; the stop finds nothing in the air to wait for.
+            RunCalibrationFlush = write =>
+            {
+                late = write;
+                return Task.CompletedTask;
+            },
+        };
+        pipeline.Refresh(NewBuild);
+        var sessionId = OpenSession(db);
+        pipeline.OnCaptureStarted(sessionId);
+        // The save falls due on the session's last message, which is still in the ring when frozen.
+        var last = new MessageKey(Domain.Events.PacketDirection.ServerToClient, 0xE00E, 8);
+        Feed(pipeline, sessionId, CalibrationObserverTests.Session1()
+            .Where(message => message.Mono < TimeSpan.FromMilliseconds(100_000))
+            .OrderBy(message => message.Mono)
+            .Append(CalibrationObserverTests.Message(MessageDirection.Inbound, last.Opcode, new byte[last.Length], 125_000)));
+        Assert.NotNull(late);
+
+        pipeline.OnCaptureStopped(sessionId, CaptureEndReason.UserStop);
+        Assert.True(CalibrationEvidenceStore.Load(evidenceRoot, Region.Cn, Build, template.Source.ProfileSha256)!
+            .OutsideCounts.ContainsKey(last));
+
+        late!();
+
+        var kept = CalibrationEvidenceStore.Load(evidenceRoot, Region.Cn, Build, template.Source.ProfileSha256);
+        Assert.NotNull(kept);
+        Assert.True(kept!.OutsideCounts.ContainsKey(last), "the earlier snapshot was written over the final one");
+    }
+
+    /// <summary>
     /// Fails with <paramref name="because"/> rather than a bare timeout when <paramref name="task"/>
     /// is still running. Awaited, not waited on: a blocking wait in a test can deadlock, and the
     /// analyser refuses it (xUnit1031).
@@ -497,6 +543,137 @@ public sealed class CalibrationPipelineTests : IDisposable
                 CalibrationObserverTests.Bytes(456, (100, 2)), 420_100),
         });
         Assert.Equal(RunState.EnteredDuty, pipeline.RunState);
+    }
+
+    /// <summary>
+    /// Audit 2026-10-03 ODp-1, the counting-only half. The card waits for the player, who queues for
+    /// the mentor roulette and confirms while waiting. The machine bound by the confirmation is new
+    /// and knew nothing of the request, so the duty it led to was ignored and never recorded. What
+    /// the session saw of the confirmed profile's messages while the card waited is handed to the
+    /// new machine first, in order.
+    /// </summary>
+    [Fact]
+    public void AMentorQueueMadeWhileTheCardWaitedStillBecomesARunAfterConfirming()
+    {
+        using var db = new TestDatabase();
+        var template = CalibrationObserverTests.Template();
+        var pipeline = new LiveProtocolPipeline(
+            db.Database, db.Clock, new LiveEventBus(db.Clock), NoProfile, null, Services(template));
+        pipeline.Refresh(NewBuild);
+        var sessionId = OpenSession(db);
+        pipeline.OnCaptureStarted(sessionId);
+        Feed(pipeline, sessionId, CalibrationObserverTests.Session1()
+            .Where(message => !(message.Opcode == 0xC002 && message.Mono == TimeSpan.FromMilliseconds(120_000)))
+            .Concat(new[]
+            {
+                CalibrationObserverTests.Message(
+                    MessageDirection.Outbound, 0xC001, CalibrationObserverTests.Bytes(24, (0, 2)), 300_000),
+                CalibrationObserverTests.Message(
+                    MessageDirection.Inbound, 0xC002, CalibrationObserverTests.Bytes(40, (9, 5), (16, 2)), 300_120),
+            })
+            .Concat(CalibrationObserverTests.Noise(301_000, 330_000))
+            .OrderBy(message => message.Mono));
+        Assert.Equal(CalibrationState.Ready, pipeline.CalibrationStatus().State);
+
+        var request = CalibrationObserverTests.Message(MessageDirection.Outbound, 0xC001,
+            CalibrationObserverTests.Bytes(24, (0, 9)), 400_000);
+        Feed(pipeline, sessionId, new[] { request });
+        var ready = pipeline.CalibrationStatus();
+        Assert.Equal(CalibrationState.Ready, ready.State);
+        Assert.True(pipeline.ConfirmCalibration(AllCorrect(ready)).BoundInSession);
+        Assert.Equal(RunState.Idle, pipeline.RunState);
+
+        Feed(pipeline, sessionId, new[]
+        {
+            CalibrationObserverTests.Message(MessageDirection.Inbound, 0xA108,
+                CalibrationObserverTests.Bytes(136, (2, 15), (3, 4)), 420_000),
+            CalibrationObserverTests.Message(MessageDirection.Inbound, 0xA107,
+                CalibrationObserverTests.Bytes(456, (100, 2)), 420_100),
+        });
+
+        Assert.Equal(RunState.EnteredDuty, pipeline.RunState);
+        var run = Assert.Single(new RunRepository(db.Database).Query(null, null, 1, 50).Items);
+        Assert.Equal(9, run.MentorRouletteId);
+        Assert.Equal(request.ObservedAtUtc, run.MatchedAtUtc);
+    }
+
+    /// <summary>
+    /// Audit 2026-10-03, V2-2. While the card waited the player queued and entered the duty, and then
+    /// the session lost something: the queue overflowed, the game connection closed, or a direction of
+    /// the zone connection was given up. Only the messages used to be kept, so the replay after the
+    /// confirmation followed a duty that, as far as the new machine could tell, was still going: it
+    /// stayed entered until the game closed, or the next thing seen ended it with a confident result.
+    /// The loss is kept in its place among the messages and replayed with them, and ends the duty as it
+    /// would have live. A direction given up on a connection that carried none of these messages -
+    /// the chat server's - loses nothing, then as live.
+    /// </summary>
+    [Theory]
+    [InlineData("overflow", RunResult.Interrupted)]
+    [InlineData("connection", RunResult.Disconnected)]
+    [InlineData("zone", RunResult.Interrupted)]
+    [InlineData("chat", null)]
+    public void ALossWhileTheCardWaitedIsReplayedWithTheMessagesKept(string loss, RunResult? expected)
+    {
+        using var db = new TestDatabase();
+        var template = CalibrationObserverTests.Template();
+        var pipeline = new LiveProtocolPipeline(
+            db.Database, db.Clock, new LiveEventBus(db.Clock), NoProfile, null, Services(template));
+        pipeline.Refresh(NewBuild);
+        var sessionId = OpenSession(db);
+        pipeline.OnCaptureStarted(sessionId);
+        Feed(pipeline, sessionId, CalibrationObserverTests.Session1()
+            .Where(message => !(message.Opcode == 0xC002 && message.Mono == TimeSpan.FromMilliseconds(120_000)))
+            .Concat(new[]
+            {
+                CalibrationObserverTests.Message(
+                    MessageDirection.Outbound, 0xC001, CalibrationObserverTests.Bytes(24, (0, 2)), 300_000),
+                CalibrationObserverTests.Message(
+                    MessageDirection.Inbound, 0xC002, CalibrationObserverTests.Bytes(40, (9, 5), (16, 2)), 300_120),
+            })
+            .Concat(CalibrationObserverTests.Noise(301_000, 330_000))
+            .OrderBy(message => message.Mono));
+        Assert.Equal(CalibrationState.Ready, pipeline.CalibrationStatus().State);
+
+        Feed(pipeline, sessionId, new[]
+        {
+            CalibrationObserverTests.Message(MessageDirection.Outbound, 0xC001,
+                CalibrationObserverTests.Bytes(24, (0, 9)), 400_000),
+            CalibrationObserverTests.Message(MessageDirection.Inbound, 0xA108,
+                CalibrationObserverTests.Bytes(136, (2, 15), (3, 4)), 420_000),
+            CalibrationObserverTests.Message(MessageDirection.Inbound, 0xA107,
+                CalibrationObserverTests.Bytes(456, (100, 2)), 420_100),
+        });
+        switch (loss)
+        {
+            case "overflow":
+                pipeline.OnEventsDropped(sessionId, 3);
+                break;
+            case "connection":
+                pipeline.OnConnectionLost(sessionId);
+                break;
+            default:
+                pipeline.OnDirectionDamaged(sessionId, loss, MessageDirection.Inbound);
+                break;
+        }
+
+        var ready = pipeline.CalibrationStatus();
+        Assert.Equal(CalibrationState.Ready, ready.State);
+        Assert.True(pipeline.ConfirmCalibration(AllCorrect(ready)).BoundInSession);
+
+        var run = Assert.Single(new RunRepository(db.Database).Query(null, null, 1, 50).Items);
+        Assert.Equal(9, run.MentorRouletteId);
+        Assert.NotNull(run.EnteredAtUtc);
+        if (expected is { } result)
+        {
+            Assert.Equal(result, run.Result);
+            Assert.Equal(DetectionConfidence.Low, run.DetectionConfidence);
+            Assert.NotNull(run.EndedAtUtc);
+        }
+        else
+        {
+            Assert.Equal(RunState.EnteredDuty, pipeline.RunState);
+            Assert.Null(run.EndedAtUtc);
+        }
     }
 
     [Fact]

@@ -267,6 +267,72 @@ public sealed class CatalogMergeTests : IDisposable
         Assert.True(File.Exists(strayFile));
     }
 
+    /// <summary>
+    /// Audit 2026-10-03 CS4-X1. A <c>generated_at</c> holding a lone surrogate escape parses as JSON
+    /// but throws when read as text. Retention runs at startup and promises never to fail over one
+    /// damaged file: that file falls back to its own write time like any other unreadable one.
+    /// </summary>
+    [Fact]
+    public void PruneLocalProfiles_ATimeThatCannotBeReadAsTextFallsBackToTheFileTime()
+    {
+        var baseline = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var damaged = RestampLocal("cn.damaged", "2099.06.01.0000.0000", baseline);
+        File.WriteAllText(damaged, File.ReadAllText(damaged).Replace(
+            "\"generated_at\": \"" + baseline.ToString("yyyy-MM-ddTHH:mm:ss.fffZ", System.Globalization.CultureInfo.InvariantCulture) + "\"",
+            "\"generated_at\": \"\\ud800\"",
+            StringComparison.Ordinal));
+        Assert.Contains("\\ud800", File.ReadAllText(damaged), StringComparison.Ordinal);
+        File.SetLastWriteTimeUtc(damaged, new DateTime(2000, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+        var kept = new[]
+        {
+            RestampLocal("cn.a", "2099.06.02.0000.0000", baseline.AddDays(1)),
+            RestampLocal("cn.b", "2099.06.03.0000.0000", baseline.AddDays(2)),
+            RestampLocal("cn.c", "2099.06.04.0000.0000", baseline.AddDays(3)),
+        };
+
+        var deleted = ProfileCatalog.PruneLocalProfiles(LocalRoot, keepPerRegion: 3);
+
+        Assert.Equal(new[] { damaged }, deleted);
+        Assert.All(kept, path => Assert.True(File.Exists(path)));
+    }
+
+    /// <summary>
+    /// Audit 2026-10-03 TL2-X1. A release build trusts only the shipped folder next to the
+    /// executable. It used to walk every ancestor of the executable and of the working directory,
+    /// so a <c>protocol-profiles</c> folder planted anywhere above either was loaded as the shipped
+    /// catalogue whenever the installed one was missing. A development build keeps the walk, which
+    /// is how tools run from inside the repository find it.
+    /// </summary>
+    [Fact]
+    public void FindDefaultRoot_OutsideADevelopmentBuildTrustsOnlyTheApplicationFolder()
+    {
+        var application = Directory.CreateDirectory(Path.Combine(_root, "app", "bin")).FullName;
+        var working = Directory.CreateDirectory(Path.Combine(_root, "work", "deep")).FullName;
+        var plantedAboveApplication = Directory.CreateDirectory(
+            Path.Combine(_root, "app", ProfileCatalog.DirectoryName)).FullName;
+        Directory.CreateDirectory(Path.Combine(_root, "work", ProfileCatalog.DirectoryName));
+
+        var found = ProfileCatalog.FindDefaultRoot(application, working);
+
+        if (ProfileCatalog.SearchesAncestorsForProfiles)
+        {
+            Assert.Equal(plantedAboveApplication, found);
+        }
+        else
+        {
+            Assert.Null(found);
+            var shipped = Directory.CreateDirectory(
+                Path.Combine(application, ProfileCatalog.DirectoryName)).FullName;
+            Assert.Equal(shipped, ProfileCatalog.FindDefaultRoot(application, working));
+        }
+    }
+
+#if !DEBUG
+    [Fact]
+    public void FindDefaultRoot_AReleaseBuildDoesNotSearchAncestors() =>
+        Assert.False(ProfileCatalog.SearchesAncestorsForProfiles);
+#endif
+
     [Fact]
     public void PruneLocalProfiles_OnAMissingDirectoryDeletesNothing()
     {

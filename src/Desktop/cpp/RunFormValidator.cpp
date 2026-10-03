@@ -79,6 +79,22 @@ QVariantMap RunFormValidator::validate(const QVariantMap &form, const QVariantMa
                        QString::fromUtf8("必须填写%1，请求已拒绝（ERR_REASON_REQUIRED）。")
                            .arg(reasonLabel));
     }
+    // The Collector's own limits, counted the way it counts them (UTF-16 code
+    // units, the reason as sent - trimmed - and the note as typed). Refused here
+    // in words instead of after the round trip as "note 超过 1000 个字符的上限"
+    // (review OI-6).
+    const qsizetype reasonLength = text(form, "reason").size();
+    if (reasonLength > kMaxReasonLength) {
+        return failure(QStringLiteral("ERR_BAD_REQUEST"),
+                       QString::fromUtf8("%1最多 %2 个字，当前 %3 个字。")
+                           .arg(reasonLabel).arg(kMaxReasonLength).arg(reasonLength));
+    }
+    const qsizetype noteLength = form.value(QStringLiteral("note")).toString().size();
+    if (noteLength > kMaxNoteLength) {
+        return failure(QStringLiteral("ERR_BAD_REQUEST"),
+                       QString::fromUtf8("备注最多 %1 个字，当前 %2 个字。")
+                           .arg(kMaxNoteLength).arg(noteLength));
+    }
 
     const QString date = text(form, "date");
     if (!isValidDate(date)) {

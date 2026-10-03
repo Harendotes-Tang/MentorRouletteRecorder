@@ -154,9 +154,15 @@ add_test(NAME MentorRecorderReflections
 # Motion: 动效 - durations collapse under ReduceMotion, theme reveal lifecycle, trend transitions.
 # UpdateNotice: 检查新版本 - the projection of the Collector's verdict, the address
 #   predicate, per-version dismissal, the 总览 banner, the switch and the disclosure.
+# SingleInstance: one Desktop per user - the guard and the "show the first window" request.
+# ShellDialog: Main.qml's own dialogs (原因, 首次引导, the wizard's retry) on the shipping window.
+# RunDetailPanel: the history detail panel - player wording of 修正历史 / 事件摘要, clicks that stay in it.
+# MockBackend: the offline backend answers in the Collector's shapes (paging, sort, event types, timestamps).
+# QmlWarningCounter: the screenshot harness's own count of QML/JS runtime warnings.
 foreach(MR_REVIEW_SUITE WorkflowController RunFormValidator ExportFailure UiWorkflowRegression EditRunDialogBinding
                         ReflectionDialogBinding Calibration SharedCalibration SharedCalibrationCard Speech
-                        CapturePage Motion UpdateNotice NoteImageStore)
+                        CapturePage Motion UpdateNotice NoteImageStore SingleInstance ShellDialog RunDetailPanel
+                        MockBackend QmlWarningCounter)
     add_executable(MentorRecorder${MR_REVIEW_SUITE}Tests ${MR_REVIEW_SUITE}Tests.cpp)
     target_link_libraries(MentorRecorder${MR_REVIEW_SUITE}Tests PRIVATE
         MentorRecorderDesktopLib Qt6::Gui Qt6::Test)
@@ -253,14 +259,20 @@ set_tests_properties(MentorRecorderIpcIntegration PROPERTIES
 
 # ---------------------------------------------------------------------------
 # QML smoke tests. Each one loads the whole scene graph offscreen and grabs a
-# frame; a QML error makes objectCreationFailed exit non-zero.
+# frame; a QML error makes objectCreationFailed exit non-zero. Each also
+# asserts, through --verify-text, that the thing in its name is on screen (exit
+# 8 otherwise), and fails on any QML/JS runtime warning (MR_QML_WARNING_REGEX
+# below): a frame of the wrong page, or of a page whose bindings threw, is not
+# a pass (review OJ-7).
 # ---------------------------------------------------------------------------
 add_test(NAME MentorRecorderQmlLoad
     COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
         --screenshot "${CMAKE_CURRENT_BINARY_DIR}/qml-smoke.png"
         --page 1
         --theme dark
-        --screenshot-delay 150)
+        --screenshot-delay 150
+        --verify-text "完成趋势"
+        --verify-text "副本进行中")
 
 # Opens the history detail side panel on the first row.
 add_test(NAME MentorRecorderQmlDetailPanel
@@ -269,7 +281,8 @@ add_test(NAME MentorRecorderQmlDetailPanel
         --page 2
         --theme dark
         --mock-open-detail
-        --screenshot-delay 1500)
+        --screenshot-delay 1500
+        --verify-text "修正历史")
 
 # Opens the manual-correction dialog on top of that panel.
 add_test(NAME MentorRecorderQmlEditDialog
@@ -278,7 +291,8 @@ add_test(NAME MentorRecorderQmlEditDialog
         --page 2
         --theme dark
         --mock-open-edit
-        --screenshot-delay 1700)
+        --screenshot-delay 1700
+        --verify-text "修正结果与进度，原记录会保留")
 
 # The 新增遗漏记录 wizard on its 副本与职业 step: the whole catalogue list and the
 # 最近打过 chips from the mock runs.
@@ -293,14 +307,30 @@ add_test(NAME MentorRecorderQmlCreateWizard
         --verify-text "最近打过"
         --screenshot-delay 1500)
 
-# First-run baseline dialog.
+# A mock run's fixture records keep their images out of the install folder
+# (review OH-7): the wizard's time step names the scratch folder they go to.
+add_test(NAME MentorRecorderQmlMockNoteImageFolder
+    COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
+        --screenshot "${CMAKE_CURRENT_BINARY_DIR}/qml-mock-note-images.png"
+        --page 1
+        --theme light
+        --mock-open-create
+        --mock-wizard-step 3
+        --verify-text "MentorRecorder-mock-note-images"
+        --screenshot-delay 1500)
+
+# First-run baseline dialog. It opens at start-up, before the stored settings
+# are read; by the screenshot it shows them (the mock's 1374, unchanged), and the
+# line under the fields says the stored effective time stays (CS7-D2/D3).
 add_test(NAME MentorRecorderQmlBaselineDialog
     COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
         --screenshot "${CMAKE_CURRENT_BINARY_DIR}/qml-baseline.png"
         --page 1
         --theme light
         --mock-first-run
-        --screenshot-delay 1000)
+        --screenshot-delay 1000
+        --verify-text "你已经完成了多少次导随？"
+        --verify-text "沿用原有的生效时间")
 
 # CLI boundary. Each of these must exit with code 2 exactly *and* print the
 # refusal that names the option. WILL_FAIL would also accept a crash, a missing
@@ -382,7 +412,10 @@ add_test(NAME MentorRecorderQmlPendingReviewBanner
         --screenshot-delay 1200
         --verify-text "条记录待复核")
 
-# The 事件摘要 tab must render real GetRunEvents rows, never a placeholder.
+# The 事件摘要 tab must render real GetRunEvents rows, never a placeholder. A
+# player reads the event by its Chinese name. The first history row is a match
+# cancelled before entry, so its trail is the pop (CONTENT_FINDER_POP = 匹配成功)
+# and the cancellation (MATCH_CANCELLED = 匹配取消), never a 副本结算.
 add_test(NAME MentorRecorderQmlRunEventsTab
     COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
         --backend mock
@@ -392,7 +425,8 @@ add_test(NAME MentorRecorderQmlRunEventsTab
         --screenshot-size 1280x900
         --screenshot-delay 1600
         --mock-detail-tab events
-        --verify-text "MENTOR_MATCH")
+        --verify-text "匹配成功"
+        --verify-text "匹配取消")
 
 add_test(NAME MentorRecorderQmlValidationDashboard
     COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
@@ -402,8 +436,11 @@ add_test(NAME MentorRecorderQmlValidationDashboard
         --theme dark
         --screenshot-size 1100x720
         --screenshot-delay 1000
-        --mock-validation-state recording)
+        --mock-validation-state recording
+        --verify-text "查看验证状态")
 
+# A finished validation is history; the formal capture running beside it is what
+# the dashboard projects (its stop button).
 add_test(NAME MentorRecorderQmlValidationDashboardFormalRunning
     COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
         --backend mock
@@ -413,7 +450,8 @@ add_test(NAME MentorRecorderQmlValidationDashboardFormalRunning
         --screenshot-size 1100x720
         --screenshot-delay 1000
         --mock-validation-state completed
-        --mock-formal-running)
+        --mock-formal-running
+        --verify-text "停止捕获")
 
 add_test(NAME MentorRecorderQmlValidationKeyboard
     COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
@@ -631,6 +669,7 @@ set(MR_QML_TESTS
     MentorRecorderQmlDetailPanel
     MentorRecorderQmlEditDialog
     MentorRecorderQmlCreateWizard
+    MentorRecorderQmlMockNoteImageFolder
     MentorRecorderQmlBaselineDialog)
 
 get_target_property(MR_QT_CORE_LIBRARY Qt6::Core IMPORTED_LOCATION_RELEASE)
@@ -727,6 +766,11 @@ set(MR_ALL_DESKTOP_TESTS
     MentorRecorderMotion
     MentorRecorderUpdateNotice
     MentorRecorderNoteImageStore
+    MentorRecorderSingleInstance
+    MentorRecorderShellDialog
+    MentorRecorderRunDetailPanel
+    MentorRecorderMockBackend
+    MentorRecorderQmlWarningCounter
     MentorRecorderIpcRequests
     MentorRecorderLifecycle
     MentorRecorderIpcIntegration
@@ -762,10 +806,11 @@ set_tests_properties(${MR_ALL_DESKTOP_TESTS} PROPERTIES
 # Keep process-supervision tests away from the user's Collector and database.
 #
 # AppController has no process authority unless a supervisor is explicitly
-# injected. Tests that exercise that authority still need an impossible default
-# executable and an isolated data directory: MR_COLLECTOR_PATH is authoritative
-# and exclusive, and MR_DATA_DIR keeps lease/takeover inspection away from the
-# user's live serve.pid. Supervision fixtures override these values only with
+# injected, and tests inject one only with a stub they name themselves. MR_DATA_DIR
+# keeps lease/takeover inspection away from the user's live serve.pid.
+# MR_COLLECTOR_PATH matters only to a build compiled with
+# MR_DEV_COLLECTOR_DISCOVERY, where it is authoritative and exclusive; a release
+# build never reads it. Supervision fixtures override these values only with
 # their own temporary stubs and directories.
 #
 # MentorRecorderIpcIntegration is included too: it launches its fixture
@@ -777,6 +822,20 @@ set_property(TEST ${MR_ALL_DESKTOP_TESTS} APPEND PROPERTY ENVIRONMENT
     "MR_DATA_DIR=${CMAKE_CURRENT_BINARY_DIR}/no-collector-data")
 
 set_tests_properties(${MR_QML_TESTS} ${MR_VALIDATION_QML_TESTS} ${MR_RECORDING_QML_TESTS} PROPERTIES TIMEOUT 30)
+
+# A QML or JavaScript runtime diagnostic names the QML file it comes from
+# (qrc:/qt/qml/MentorRecorder/... or file:///...). The screenshot harness prints
+# it to stderr ("[warning] <url>:<line>: TypeError: ...", main.cpp's message
+# handler) and carries on to the frame, so a binding that throws, a failed
+# property assignment or an unresolved name would otherwise still pass (review
+# OJ-7). The harness counts them itself and exits 10 (QmlWarningCounter, review
+# DT4-X5); this pattern stays as a second net, and it also sees a warning logged
+# while the window is torn down. The harness's two environment notices (no font
+# directory, no Direct3D 12) name no QML file and are not matched. No "\\[" in front: CTest's regex
+# engine then fails to match the group that follows it.
+set(MR_QML_WARNING_REGEX "(warning|critical|fatal)\\] (qrc|file):")
+set_tests_properties(${MR_QML_TESTS} ${MR_VALIDATION_QML_TESTS} ${MR_RECORDING_QML_TESTS}
+    PROPERTIES FAIL_REGULAR_EXPRESSION "${MR_QML_WARNING_REGEX}")
 
 set_property(TEST ${MR_ALL_DESKTOP_TESTS} PROPERTY ENVIRONMENT_MODIFICATION
     "PATH=path_list_prepend:${MR_QT_RUNTIME_DIR}"

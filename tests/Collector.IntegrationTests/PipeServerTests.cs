@@ -227,6 +227,38 @@ public sealed class PipeServerTests
         Assert.True(afterwards.Ok);
     }
 
+    /// <summary>
+    /// Audit 2026-10-03 OF-7. A repeated key used to escape the envelope parser as an unhandled
+    /// exception (envelope) or come back as ERR_INTERNAL (payload). Both are a request the
+    /// Collector cannot read, answered as ERR_BAD_REQUEST against the id, and the connection
+    /// keeps serving.
+    /// </summary>
+    [Theory]
+    [InlineData("{{\"protocol_version\":1,\"request_id\":\"{0}\",\"message_type\":\"GetVersion\",\"message_type\":\"GetStatus\",\"payload\":{{}}}}")]
+    [InlineData("{{\"protocol_version\":1,\"request_id\":\"{0}\",\"message_type\":\"QueryRuns\",\"payload\":{{\"page\":1,\"page\":2}}}}")]
+    public async Task ARepeatedKey_IsABadRequestAndTheConnectionSurvives(string template)
+    {
+        await using var fixture = ServerFixture.Start();
+        await using var client = await fixture.ConnectAsync();
+        var requestId = Guid.NewGuid().ToString("D");
+        var answered = new TaskCompletionSource<JsonObject>(TaskCreationOptions.RunContinuationsAsynchronously);
+        client.EnvelopeReceived += envelope =>
+        {
+            if (envelope["request_id"]?.GetValue<string>() == requestId)
+            {
+                answered.TrySetResult(envelope);
+            }
+        };
+
+        await client.SendRawAsync(Encoding.UTF8.GetBytes(
+            string.Format(System.Globalization.CultureInfo.InvariantCulture, template, requestId)));
+
+        var response = await answered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.False(response["ok"]!.GetValue<bool>());
+        Assert.Equal(ErrorCodes.BadRequest, response["error"]!["code"]!.GetValue<string>());
+        Assert.True((await client.SendAsync("GetVersion")).Ok);
+    }
+
     [Fact]
     public async Task UnknownMessageType_IsRefusedExplicitly()
     {
@@ -505,6 +537,47 @@ public sealed class PipeServerTests
         var dashboard = (await client.SendAsync("GetDashboardStats", new JsonObject())).Require();
         Assert.Equal(1500, dashboard["achievement_progress"]!.GetValue<int>());
         Assert.Equal(500, dashboard["remaining"]!.GetValue<int>());
+    }
+
+    /// <summary>
+    /// Audit 2026-10-03 CS-7: the Desktop sends the save time with every save, a goal-only edit
+    /// included. The answer and the next dashboard show what was stored: the unchanged baseline
+    /// keeps its effective time and the completion recorded after it still counts. Only a new
+    /// baseline takes the time it is sent with.
+    /// </summary>
+    [Fact]
+    public async Task UpdateAchievementBaseline_GoalOnlyChange_KeepsTheEffectiveTimeAndTheProgress()
+    {
+        // ManualRun(1) is a completion that ended at 2026-09-01T01:31Z.
+        await using var fixture = ServerFixture.Start(host =>
+            host.Mutations.CreateManualRun(ManualRun(1)));
+        await using var client = await fixture.ConnectAsync();
+
+        JsonObject Save(int goal, int baseline, string effectiveAt) => new()
+        {
+            ["goal_count"] = goal,
+            ["baseline_completed_count"] = baseline,
+            ["baseline_effective_at"] = effectiveAt,
+            ["reason"] = "保存成就设置",
+        };
+
+        (await client.SendAsync(
+            "UpdateAchievementBaseline", Save(2000, 1500, "2026-09-01T00:00:00.000Z"))).Require();
+        var goalOnly = (await client.SendAsync(
+            "UpdateAchievementBaseline", Save(2500, 1500, "2026-10-03T08:00:00.000Z"))).Require();
+
+        var dashboard = (await client.SendAsync("GetDashboardStats", new JsonObject())).Require();
+        Assert.Equal(1501, dashboard["achievement_progress"]!.GetValue<int>());
+        Assert.Equal(999, dashboard["remaining"]!.GetValue<int>());
+        Assert.Equal(2500, goalOnly["goal_count"]!.GetValue<int>());
+        Assert.Equal("2026-09-01T00:00:00.000Z", goalOnly["baseline_effective_at"]!.GetValue<string>());
+
+        var rebased = (await client.SendAsync(
+            "UpdateAchievementBaseline", Save(2500, 1600, "2026-10-03T09:00:00.000Z"))).Require();
+
+        Assert.Equal("2026-10-03T09:00:00.000Z", rebased["baseline_effective_at"]!.GetValue<string>());
+        dashboard = (await client.SendAsync("GetDashboardStats", new JsonObject())).Require();
+        Assert.Equal(1600, dashboard["achievement_progress"]!.GetValue<int>());
     }
 
     [Fact]

@@ -163,7 +163,7 @@ ColumnLayout {
             description: tab.captureSettingDescription(
                 qsTr("默认开启的联网请求：每天最多一次，从本项目的 GitHub 发布页读取一个只含版本号的小文件，"
                      + "有新版本时在总览页提示。请求不带账号、安装编号或任何可识别信息；"
-                     + "本软件从不自动下载或安装任何东西。"))
+                     + "本软件从不自动下载或安装新版本。"))
             toggleEnabled: App.captureSettingsSupported && App.captureSettingsLoaded
             checked: !App.captureSettingsLoaded
                      || App.captureSettings.update_check_enabled !== false

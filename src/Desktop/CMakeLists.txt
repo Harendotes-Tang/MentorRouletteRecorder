@@ -43,6 +43,22 @@ target_compile_features(MentorRecorderDesktopLib PUBLIC cxx_std_20)
 target_compile_definitions(MentorRecorderDesktopLib
     PRIVATE MR_APP_VERSION="${MR_VERSION_FULL}")
 
+# Developer Collector discovery (CollectorProcess::resolveDefaultExecutable): the
+# MR_COLLECTOR_PATH override and the walk up into a source checkout's C# build
+# output. A release build must never start a Collector found either way (review
+# OH-8), so it is OFF unless a developer turns it on for a plain IDE build
+# (review DT2-X3). scripts/build.ps1 stages a real Collector beside the built
+# Desktop, so its builds need neither, and scripts/package.ps1 refuses an
+# executable compiled with it. PUBLIC so a test can tell which build it runs in.
+option(MR_DEV_COLLECTOR_DISCOVERY
+    "Developer builds only: honour MR_COLLECTOR_PATH and find the Collector in a source checkout"
+    OFF)
+if(MR_DEV_COLLECTOR_DISCOVERY)
+    target_compile_definitions(MentorRecorderDesktopLib PUBLIC MR_DEV_COLLECTOR_DISCOVERY)
+    message(STATUS "MR_DEV_COLLECTOR_DISCOVERY=ON: development Collector discovery is compiled in; "
+                   "scripts/package.ps1 refuses to package this build")
+endif()
+
 target_include_directories(MentorRecorderDesktopLib
     PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/cpp)
 
@@ -115,6 +131,8 @@ set(MR_CPP_SOURCES
     cpp/NoteImageStore.h
     cpp/PipeName.cpp
     cpp/PipeName.h
+    cpp/QmlWarningCounter.cpp
+    cpp/QmlWarningCounter.h
     cpp/RoleCatalog.cpp
     cpp/RoleCatalog.h
     cpp/RunFormValidator.cpp
@@ -123,6 +141,8 @@ set(MR_CPP_SOURCES
     cpp/RunListModel.h
     cpp/SharedCalibrationController.cpp
     cpp/SharedCalibrationController.h
+    cpp/SingleInstanceGuard.cpp
+    cpp/SingleInstanceGuard.h
     cpp/SpeechAudioFile.cpp
     cpp/SpeechAudioFile.h
     cpp/SpeechController.cpp
@@ -343,12 +363,21 @@ configure_file(resources/app/app.rc.in "${MR_APP_RC}" @ONLY)
 # root CMakeLists.txt for the same problem in AUTOMOC). Copying the icon next to
 # the generated script keeps the reference relative and the script pure ASCII.
 configure_file(resources/app/app.ico "${CMAKE_CURRENT_BINARY_DIR}/app.ico" COPYONLY)
+# The application manifest goes the same way and is embedded by app.rc.in (review
+# OJ-5). Listing it as a source of the executable also tells Qt's finalizer
+# (_qt_internal_finalize_windows_app) that the project brings its own, so no
+# placeholder MentorRecorder.Desktop.exe.manifest is generated beside the binary.
+configure_file(resources/app/MentorRecorder.Desktop.manifest
+    "${CMAKE_CURRENT_BINARY_DIR}/MentorRecorder.Desktop.manifest" COPYONLY)
+set_source_files_properties("${MR_APP_RC}" PROPERTIES OBJECT_DEPENDS
+    "${CMAKE_CURRENT_BINARY_DIR}/app.ico;${CMAKE_CURRENT_BINARY_DIR}/MentorRecorder.Desktop.manifest")
 
 qt_add_executable(MentorRecorder.Desktop WIN32
     cpp/main.cpp
     cpp/Motion.cpp
     cpp/Motion.h
-    "${MR_APP_RC}")
+    "${MR_APP_RC}"
+    resources/app/MentorRecorder.Desktop.manifest)
 
 target_compile_definitions(MentorRecorder.Desktop
     PRIVATE MR_APP_VERSION="${MR_VERSION_FULL}")
@@ -384,7 +413,7 @@ if(MR_STAGE_COLLECTOR AND MR_DOTNET_EXE)
         VERBATIM)
     add_dependencies(mr_stage_collector MentorRecorder.Desktop)
 else()
-    message(STATUS "Collector staging skipped (MR_STAGE_COLLECTOR=${MR_STAGE_COLLECTOR}, dotnet=${MR_DOTNET_EXE}); run scripts/build.ps1 or set MR_COLLECTOR_PATH")
+    message(STATUS "Collector staging skipped (MR_STAGE_COLLECTOR=${MR_STAGE_COLLECTOR}, dotnet=${MR_DOTNET_EXE}); run scripts/build.ps1, which stages one beside the Desktop, or configure with -DMR_DEV_COLLECTOR_DISCOVERY=ON and set MR_COLLECTOR_PATH")
 endif()
 
 

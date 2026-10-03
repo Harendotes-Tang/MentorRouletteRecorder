@@ -8,7 +8,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QLoggingCategory>
-#include <QStandardPaths>
+#include <QRegularExpression>
 
 #include <utility>
 
@@ -22,6 +22,7 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
+#include <shlobj.h>
 #endif
 
 namespace {
@@ -112,24 +113,29 @@ CollectorProcess::CollectorProcess(QObject *parent)
 
 /// Where the Collector is looked for.
 ///
-/// MR_COLLECTOR_PATH, when set, is authoritative and exclusive: it is returned
-/// whether or not the file exists, so pointing it at nothing is a supported way
-/// to say "never launch a Collector from this process".
-///
-/// Otherwise, in order:
+/// In order:
 ///   1. next to the Desktop executable (release layout, scripts/build.ps1,
 ///      the CMake mr_stage_collector target);
-///   2. a "collector" sub-directory next to the executable;
-///   3. the C# build output inside a source checkout, walking up from the
-///      build directory (plain IDE builds that never staged anything).
+///   2. a "collector" sub-directory next to the executable.
 /// The first existing file wins. When nothing exists the path beside the
 /// executable is returned so the "missing" state names where it was expected.
+///
+/// A build compiled with MR_DEV_COLLECTOR_DISCOVERY also honours
+/// MR_COLLECTOR_PATH - authoritative and exclusive: it is returned whether or
+/// not the file exists, so pointing it at nothing says "never launch a
+/// Collector from this process" - and, after the two places above, the C#
+/// build output inside a source checkout, walking up from the build directory
+/// (plain IDE builds that never staged anything). A release build does neither
+/// (review OH-8): installed under D:\MentorRecorder, that walk reaches the
+/// drive root, which any local account can write, and the environment is not
+/// the installer's to vouch for.
 QString CollectorProcess::resolveDefaultExecutable()
 {
     const QString exeName = QStringLiteral("MentorRecorder.Collector.exe");
     const QDir appDir(QCoreApplication::applicationDirPath());
     const QString beside = appDir.absoluteFilePath(exeName);
 
+#ifdef MR_DEV_COLLECTOR_DISCOVERY
     // An explicit override is the *only* candidate: falling back to a discovered
     // binary when the named one does not exist would launch something the
     // operator did not ask for - including the real Collector against the user's
@@ -143,11 +149,13 @@ QString CollectorProcess::resolveDefaultExecutable()
             qCWarning(lcCollector) << "MR_COLLECTOR_PATH does not exist:" << resolved;
         return resolved;
     }
+#endif
 
     QStringList candidates;
     candidates << beside;
     candidates << appDir.absoluteFilePath(QStringLiteral("collector/") + exeName);
 
+#ifdef MR_DEV_COLLECTOR_DISCOVERY
     static const QStringList devLayouts = {
         QStringLiteral("src/Collector/bin/x64/Release/net8.0-windows/win-x64/"),
         QStringLiteral("src/Collector/bin/x64/Debug/net8.0-windows/win-x64/"),
@@ -161,6 +169,7 @@ QString CollectorProcess::resolveDefaultExecutable()
         if (!probe.cdUp())
             break;
     }
+#endif
 
     for (const QString &candidate : std::as_const(candidates)) {
         if (QFileInfo::exists(candidate)) {
@@ -192,8 +201,21 @@ CollectorProcess::CollectorProcess(QString executablePath, QObject *parent)
         ++m_restartCount;
         qCInfo(lcCollector) << "restarting collector, attempt" << m_restartCount;
         start();
+        // Windows can refuse the launch inside start() itself; that is reported
+        // as a refusal, and 「已自动重启」 would be false on top of it.
+        if (m_startRefused || !isRunning())
+            return;
         // The delay that actually elapsed, not the one queued for next time.
         Q_EMIT restarted(m_restartCount, m_scheduledDelayMs);
+    });
+
+    // A refused exit 3 is tried again now and then, without a word: the file
+    // another program held may be free by then (see isStartRefused).
+    m_refusedRetryTimer.setSingleShot(true);
+    m_refusedRetryTimer.setInterval(refusedRetryMs());
+    connect(&m_refusedRetryTimer, &QTimer::timeout, this, [this] {
+        if (m_startRefused && !m_stopRequested && !isRunning())
+            start();
     });
 
     // The takeover's waits are timers, not waitForFinished(): waiting on the GUI
@@ -260,15 +282,35 @@ void CollectorProcess::wireProcess()
 
     connect(m_process, &QProcess::started, this, [this] {
         m_startedAtMs = QDateTime::currentMSecsSinceEpoch();
+        m_failedLaunches = 0;
         setState(State::Running);
     });
     connect(m_process, &QProcess::finished, this, &CollectorProcess::onFinished);
+    // A refused start is explained only on standard error (the pipe never
+    // opens), so the end of it is kept for the sentence the player reads.
+    connect(m_process, &QProcess::readyReadStandardError, this, &CollectorProcess::collectStderr);
     connect(m_process, &QProcess::errorOccurred, this, [this](QProcess::ProcessError error) {
         if (error != QProcess::FailedToStart)
             return;
+        // Once more, for a scanner that held the file for a moment; then it is
+        // a broken installation, which no amount of retrying repairs.
+        if (++m_failedLaunches > 1) {
+            qCWarning(lcCollector) << "collector could not be launched:" << m_process->errorString();
+            refuseStart(QString::fromUtf8("Windows 无法运行采集服务程序，安装可能已损坏，"
+                                          "请重新安装本软件。"),
+                        /*retryLater=*/false);
+            return;
+        }
         setState(State::Exited, m_process->errorString());
         scheduleRestart();
     });
+}
+
+void CollectorProcess::collectStderr()
+{
+    m_stderrTail.append(m_process->readAllStandardError());
+    if (m_stderrTail.size() > kStderrTailBytes)
+        m_stderrTail = m_stderrTail.right(kStderrTailBytes);
 }
 
 bool CollectorProcess::isAvailable() const
@@ -304,9 +346,15 @@ QString CollectorProcess::statusText() const
 {
     switch (m_state) {
     case State::Missing:
+#ifdef MR_DEV_COLLECTOR_DISCOVERY
         return QString::fromUtf8("未找到 Collector（期望位置：%1）。请运行 scripts/build.ps1、"
                                  "在 CMake 中启用 MR_STAGE_COLLECTOR，或设置 MR_COLLECTOR_PATH")
             .arg(QDir::toNativeSeparators(m_executablePath));
+#else
+        // Shown to players (docs/ui-design.md §4.8): the installation is
+        // incomplete, and reinstalling is the one thing they can do about it.
+        return QString::fromUtf8("未找到 Collector，安装可能不完整，请重新安装本软件。");
+#endif
     case State::Idle:
         return QString::fromUtf8("Collector 可用，未启动");
     case State::Starting:
@@ -318,6 +366,8 @@ QString CollectorProcess::statusText() const
             return QString::fromUtf8("Collector 复用已有实例（%1）").arg(m_detail);
         return QString::fromUtf8("Collector 运行中（复用已有实例）");
     case State::Exited:
+        if (m_startRefused)
+            return QString::fromUtf8("Collector 无法启动：%1").arg(m_detail);
         if (m_restartTimer.isActive()) {
             return QString::fromUtf8("Collector 已退出（%1），%2 秒后重启（第 %3 次）")
                 .arg(m_detail)
@@ -350,6 +400,10 @@ void CollectorProcess::start()
         return;
     }
     m_stopRequested = false;
+    m_startRefused = false;
+    m_childServed = false;
+    m_stderrTail.clear();
+    m_refusedRetryTimer.stop();
     setState(State::Starting);
     m_process->start();
 }
@@ -372,8 +426,11 @@ bool CollectorProcess::childHoldsServeLease() const
 {
     if (!m_process || m_process->state() == QProcess::NotRunning)
         return false;
+    // No serve.pid yet is our child still opening the database: it writes the
+    // file only once it serves. Quitting in that window has to ask it too, or
+    // the fallback kills it in the middle of a migration (review OH-9).
     const qint64 recorded = readServeLeasePid();
-    return recorded > 0 && recorded == m_process->processId();
+    return recorded <= 0 || recorded == m_process->processId();
 }
 
 /// Set the Collector graceful-stop event.
@@ -390,11 +447,18 @@ bool CollectorProcess::signalStopEvent(bool requireOwnership)
 #ifdef Q_OS_WIN
     const bool overridden = !m_stopEventName.isEmpty();
     // The event is named after the pipe, and the pipe is per user, not per
-    // process. A second Desktop whose own child exited on the serve lease must
-    // not set it while quitting: the instance waiting on it is the *first*
-    // Desktop's Collector, which is still recording.
-    if (requireOwnership && !overridden && !childHoldsServeLease())
+    // process. While another Collector holds the serve lease our child is only
+    // checking on it before it exits, and the instance waiting on the event is
+    // that other one, which is still recording.
+    if (requireOwnership && !childHoldsServeLease())
         return false;
+    // Only a Collector can own the user's stop event. A stand-in program - a
+    // test stub, above all - never reaches the real one.
+    if (requireOwnership && !overridden
+        && QFileInfo(m_executablePath).fileName().compare(
+               QLatin1String(kCollectorImageName), Qt::CaseInsensitive) != 0) {
+        return false;
+    }
     const QString name = overridden ? m_stopEventName : currentStopEventName();
     if (name.isEmpty())
         return false;
@@ -418,6 +482,7 @@ void CollectorProcess::stop()
 {
     m_stopRequested = true;
     m_restartTimer.stop();
+    m_refusedRetryTimer.stop();
     abortTakeover();
     m_lastStopWasGraceful = false;
     if (!isRunning()) {
@@ -429,7 +494,7 @@ void CollectorProcess::stop()
     // Ask first; fall back to terminate()/kill() only when there is no stop event
     // to ask through, or the child ignores it.
     if (signalStopEvent(/*requireOwnership=*/true)
-        && m_process->waitForFinished(gracefulStopMs())) {
+        && m_process->waitForFinished(m_gracefulStopMs)) {
         m_lastStopWasGraceful = true;
         setState(State::Stopped);
         return;
@@ -454,8 +519,20 @@ QString CollectorProcess::collectorDataDirectory()
     const QString dataDirectory = qEnvironmentVariable("MR_DATA_DIR");
     if (!dataDirectory.trimmed().isEmpty())
         return QDir::cleanPath(QDir(dataDirectory).absolutePath());
-    const QString local =
-        QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation);
+    // Asked of Windows the way .NET's GetFolderPath(LocalApplicationData) does,
+    // not through QStandardPaths: a screenshot run puts that in test mode, and
+    // the folder it then names is not the one the Collector writes serve.pid
+    // to (review OH-7).
+    QString local;
+#ifdef Q_OS_WIN
+    wchar_t path[MAX_PATH] = {};
+    if (SUCCEEDED(::SHGetFolderPathW(nullptr, CSIDL_LOCAL_APPDATA, nullptr,
+                                     SHGFP_TYPE_CURRENT, path))) {
+        local = QDir::fromNativeSeparators(QString::fromWCharArray(path));
+    }
+#endif
+    if (local.isEmpty())
+        local = QDir::fromNativeSeparators(qEnvironmentVariable("LOCALAPPDATA"));
     if (local.isEmpty())
         return {};
     return QDir(local).absoluteFilePath(QStringLiteral("MentorRecorder"));
@@ -902,9 +979,15 @@ void CollectorProcess::noteBackendConnected(bool connected)
     m_backendConnected = connected;
     if (!connected)
         return;
-    // A live pipe resets the backoff and re-arms the takeover, so a holder that
-    // stalls later is asked politely again before anything is ended.
-    m_backoffMs = minBackoffMs();
+    if (isRunning()) {
+        m_childServed = true;
+        m_lastRefusal.clear();
+    }
+    // A live pipe re-arms the takeover, so a holder that stalls later is asked
+    // politely again before anything is ended. It does not reset the restart
+    // backoff: a Collector that dies seconds after every connection would be
+    // restarted every second (review OH-3); only a child that stayed up for
+    // \ref stableRunMs earns that (onFinished).
     m_takeoverAttempts = 0;
     m_holderGraceDone = false;
     m_freshHolderReported = false;
@@ -957,11 +1040,70 @@ void CollectorProcess::onFinished(int exitCode, QProcess::ExitStatus status)
         return;
     }
 
+    // Exits no restart can cure: our own command line, or a database / data
+    // folder the Collector refused before it ever served. Restarting reads the
+    // same file again and only repeats the toast (review OH-3 / OF-1).
+    collectStderr();
+    if (status == QProcess::NormalExit
+        && (exitCode == kBadArgumentsExitCode
+            || (exitCode == kCannotServeExitCode && !m_childServed))) {
+        refuseStart(exitExplanation(exitCode, m_stderrTail),
+                    /*retryLater=*/exitCode == kCannotServeExitCode);
+        return;
+    }
+
+    // A child that stayed up for a good while earns a fresh backoff; one that
+    // keeps dying soon after every start keeps backing off further.
+    if (lifetime >= m_stableRunMs)
+        m_backoffMs = minBackoffMs();
+
     const QString detail = status == QProcess::CrashExit
                                ? QString::fromUtf8("崩溃")
                                : QString::fromUtf8("代码 %1").arg(exitCode);
     setState(State::Exited, detail);
     scheduleRestart();
+}
+
+QString CollectorProcess::exitExplanation(int exitCode, const QByteArray &stderrTail)
+{
+    if (exitCode == kBadArgumentsExitCode) {
+        // The usage text that follows is for a person at a console; what the
+        // player can do is reinstall, so both halves are the same version.
+        return QString::fromUtf8("采集服务无法识别本软件给出的启动参数，两部分的版本可能不一致，"
+                                 "请重新安装本软件。");
+    }
+    // The Collector prints "<ERR_CODE>: <sentence>" for its own refusals and
+    // "failed: <sentence>" for an I/O failure, as its last line.
+    const QStringList lines =
+        QString::fromUtf8(stderrTail).split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+    for (auto line = lines.crbegin(); line != lines.crend(); ++line) {
+        QString text = line->trimmed();
+        if (text.isEmpty())
+            continue;
+        static const QRegularExpression kPrefix(QStringLiteral("^(?:ERR_[A-Z0-9_]+|failed)\\s*:\\s*"));
+        text.remove(kPrefix);
+        if (!text.isEmpty())
+            return text;
+    }
+    return QString::fromUtf8("采集服务无法打开数据库或数据目录（代码 %1），详情见本机日志。")
+        .arg(exitCode);
+}
+
+void CollectorProcess::refuseStart(const QString &reason, bool retryLater)
+{
+    qCWarning(lcCollector) << "collector refused to start:" << reason;
+    m_restartTimer.stop();
+    m_startRefused = true;
+    m_state = State::Exited;
+    m_detail = reason;
+    if (retryLater)
+        m_refusedRetryTimer.start();
+    Q_EMIT stateChanged();
+    // A quiet retry refused for the same reason has nothing new to say.
+    if (reason == m_lastRefusal)
+        return;
+    m_lastRefusal = reason;
+    Q_EMIT startRefused(reason);
 }
 
 void CollectorProcess::scheduleRestart()

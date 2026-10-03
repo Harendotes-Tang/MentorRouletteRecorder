@@ -250,9 +250,10 @@ public sealed class OnlineSpeechService : IDisposable
             }
             catch (ObjectDisposedException)
             {
-                // Dispose ran between the entry check and here; the service is stopping and
-                // this request is refused like any other it cannot serve, not faulted.
-                throw Failure(SpeechOutcome.Disabled, null, reason: "STOPPING");
+                // Dispose ran between the entry check and here; the service is stopping and this
+                // request is cut short like one already waiting (contracts/error-codes.md: CANCELLED).
+                // Not ERR_SPEECH_DISABLED, which names the kill switch (audit 2026-10-03, OE-6a).
+                throw Failure(SpeechOutcome.Cancelled, null);
             }
 
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, stopping);
@@ -409,12 +410,14 @@ public sealed class OnlineSpeechService : IDisposable
             SpeechOutcome.Quota => "语音服务的额度或频率用完了，请稍后再试。",
             SpeechOutcome.Network => "连不上语音服务，这一句改用本机语音。",
             SpeechOutcome.Timeout when reason is "QUEUE_FULL" or "QUEUE_WAIT" => "排队播报的句子太多，这一句改用本机语音。",
-            SpeechOutcome.Timeout or SpeechOutcome.Cancelled => "语音服务响应超时，这一句改用本机语音。",
+            SpeechOutcome.Timeout => "语音服务响应超时，这一句改用本机语音。",
+            SpeechOutcome.Cancelled => "这一句的在线语音请求已取消，改用本机语音。",
             SpeechOutcome.Format => "语音服务返回的不是可播放的 WAV 音频。",
             _ => "在线语音出错。",
         };
+        // A cancelled sentence is reported as ERR_SPEECH_TIMEOUT, and that code is retryable in the contract.
         return new CollectorException(
             ErrorCodeFor(outcome), message, details.Count == 0 ? null : details,
-            retryable: outcome is SpeechOutcome.Network or SpeechOutcome.Timeout or SpeechOutcome.Quota);
+            retryable: outcome is SpeechOutcome.Network or SpeechOutcome.Timeout or SpeechOutcome.Cancelled or SpeechOutcome.Quota);
     }
 }

@@ -55,6 +55,14 @@ public:
     /// Complete the reply. Calling either twice is a no-op.
     void succeed(const QJsonObject &payload);
     void fail(const QString &code, const QString &message, const QJsonObject &details = {});
+    /// Fails a request that never left this process - no connection, a write
+    /// the pipe refused, a frame too large to send - so the Collector cannot
+    /// have acted on it. \ref neverSent() says so to whoever handles the failure.
+    void failUnsent(const QString &code, const QString &message);
+    /// True only after \ref failUnsent(). Every other failure - a timeout, a
+    /// dropped pipe, the Collector's own refusal - may come after the Collector
+    /// received the request, and a mutation may then already be applied.
+    bool neverSent() const { return m_neverSent; }
 
     using Handler = std::function<void(bool ok, const QVariantMap &payload,
                                        const QString &errorCode,
@@ -82,6 +90,7 @@ private:
     QString m_messageType;
     bool m_finished = false;
     bool m_ok = false;
+    bool m_neverSent = false;
     QJsonObject m_payload;
     QString m_errorCode;
     QString m_errorMessage;
@@ -107,6 +116,13 @@ public:
     /// Generic entry point. Every wrapper below funnels through this.
     virtual BackendReply *request(const QString &messageType,
                                   const QJsonObject &payload = {}) = 0;
+    /// Like request(), but the envelope carries \a requestId rather than a
+    /// fresh one, so a mutation the client stopped waiting for can be resent
+    /// and answered by the Collector's idempotency instead of being applied
+    /// twice (contracts/error-codes.md). An empty id mints one. A backend
+    /// without request ids - the mock - ignores it.
+    virtual BackendReply *requestWithId(const QString &messageType, const QJsonObject &payload,
+                                        const QString &requestId);
 
     // -- version and status -------------------------------------------------
     BackendReply *getVersion();
@@ -201,9 +217,12 @@ public:
     BackendReply *getResultStats(const QJsonObject &filter = {});
 
     // -- mutations ----------------------------------------------------------
-    BackendReply *createManualRun(const QJsonObject &run, const QString &reason);
+    /// \a requestId: see requestWithId(); empty for a new request.
+    BackendReply *createManualRun(const QJsonObject &run, const QString &reason,
+                                  const QString &requestId = {});
     BackendReply *correctRun(const QString &runId, int expectedRevision,
-                             const QJsonObject &changes, const QString &reason);
+                             const QJsonObject &changes, const QString &reason,
+                             const QString &requestId = {});
     BackendReply *softDeleteRun(const QString &runId, int expectedRevision,
                                 const QString &reason);
     BackendReply *restoreRun(const QString &runId, int expectedRevision,

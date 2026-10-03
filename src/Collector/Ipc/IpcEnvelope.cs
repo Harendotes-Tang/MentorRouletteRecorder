@@ -57,7 +57,17 @@ public static class IpcEnvelope
             throw CollectorException.BadRequest("请求不是合法的 JSON。");
         }
 
-        readable.Dispose();
+        // A repeated key gives the request two meanings, one per copy. JsonNode does not notice
+        // until something reads that object, and then throws ArgumentException: out of this method
+        // for the envelope (the connection used to drop), as ERR_INTERNAL for the payload. Refused
+        // here instead, before any handler runs (audit 2026-10-03, OF-7).
+        using (readable)
+        {
+            if (HasRepeatedKey(readable.RootElement))
+            {
+                throw CollectorException.BadRequest("请求中有重复的字段名。");
+            }
+        }
 
         if (node is not JsonObject envelope)
         {
@@ -113,21 +123,64 @@ public static class IpcEnvelope
     {
         try
         {
-            if (JsonNode.Parse(body.ToArray()) is JsonObject envelope &&
-                envelope["request_id"] is JsonValue value &&
-                value.TryGetValue<string>(out var text) &&
-                Guid.TryParseExact(text, "D", out _))
+            // Read from the document rather than a JsonObject: a repeated key elsewhere in the
+            // envelope must not make the id unreadable, and a repeated id is no id at all.
+            using var document = JsonDocument.Parse(body.ToArray());
+            if (document.RootElement.ValueKind != JsonValueKind.Object)
             {
-                return text;
+                return null;
             }
+
+            string? id = null;
+            var seen = 0;
+            foreach (var property in document.RootElement.EnumerateObject())
+            {
+                if (string.Equals(property.Name, "request_id", StringComparison.Ordinal))
+                {
+                    seen++;
+                    id = property.Value.ValueKind == JsonValueKind.String ? property.Value.GetString() : null;
+                }
+            }
+
+            return seen == 1 && id is not null && Guid.TryParseExact(id, "D", out _) ? id : null;
         }
         catch (Exception ex) when (ex is JsonException or InvalidOperationException)
         {
             // Not JSON, or an id that cannot be read as text: answered against the zero id.
             return null;
         }
+    }
 
-        return null;
+    /// <summary>True when any object under <paramref name="element"/> names one key twice.</summary>
+    /// <param name="element">Parsed, readable JSON.</param>
+    private static bool HasRepeatedKey(JsonElement element)
+    {
+        switch (element.ValueKind)
+        {
+            case JsonValueKind.Object:
+                var names = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var property in element.EnumerateObject())
+                {
+                    if (!names.Add(property.Name) || HasRepeatedKey(property.Value))
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            case JsonValueKind.Array:
+                foreach (var item in element.EnumerateArray())
+                {
+                    if (HasRepeatedKey(item))
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            default:
+                return false;
+        }
     }
 
     /// <summary>Builds a success response envelope.</summary>

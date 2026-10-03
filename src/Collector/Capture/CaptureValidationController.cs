@@ -64,6 +64,7 @@ public sealed partial class CaptureValidationController : IDisposable
     private readonly CaptureValidationServices _services;
     private readonly CaptureOwnership _ownership;
     private readonly string _directory;
+    private readonly string _oodleTempManifest;
     private Session? _session;
     private bool _disposed;
     private string _state = "IDLE", _reason = "IDLE", _message = "尚未开始验证。";
@@ -71,6 +72,10 @@ public sealed partial class CaptureValidationController : IDisposable
     public CaptureValidationController(string databasePath, CaptureOwnership ownership, CaptureValidationServices? services = null)
     {
         _directory = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(databasePath))!, "traces");
+        // The copies of the game executable a validation makes are registered in the same
+        // manifest as the capture's, so a Collector killed mid-validation has them removed at
+        // the next start (audit 2026-10-03, OB-6).
+        _oodleTempManifest = Storage.DatabasePaths.ResolveOodleTempManifest(databasePath);
         _ownership = ownership;
         _services = services ?? new();
         if (_services.PollInterval <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(services));
@@ -211,6 +216,25 @@ public sealed partial class CaptureValidationController : IDisposable
 
     private GameProcessDetection Locate() => _services.LocateGame?.Invoke() ?? _services.Trace.Game.Locate();
 
+    /// <summary>
+    /// Whether the client being recorded is still there. The host's locator already answers a
+    /// failed process listing with its previous answer; the bare locator of the command-line path
+    /// reads it as "not running", which ended a recording on one unanswered read. There the
+    /// incarnation check is asked instead, which answers "still running" when it cannot tell
+    /// (audit 2026-10-03, CS1-X1).
+    /// </summary>
+    /// <param name="game">The client the recording started on.</param>
+    private bool StillRunning(GameProcessDetection game)
+    {
+        if (_services.LocateGame is null && game.ProcessId is int processId)
+        {
+            return _services.Trace.Game.IsRunning(processId, game.StartedAtUtc);
+        }
+
+        var current = Locate();
+        return current.Running && current.ProcessId == game.ProcessId && current.StartedAtUtc == game.StartedAtUtc;
+    }
+
     private GameProcessDetection LocateWaiting(Session session) =>
         session.RestartFrom is { } previous && _services.LocateRestartedGame is { } restart
             ? restart(previous) : Locate();
@@ -221,10 +245,28 @@ public sealed partial class CaptureValidationController : IDisposable
         Observer? observer = null;
         TextWriter? writer = null;
         var trace = _services.Trace;
+        // The cap is on the session, waiting included: a validation left waiting for a restart
+        // that never comes holds the capture lease, and with it every automatic recording
+        // (audit 2026-10-03, OA-8).
+        var sessionWatch = Stopwatch.StartNew();
+        var sessionElapsed = _services.Elapsed ?? (() => sessionWatch.Elapsed);
+        var deadline = _services.MaxSessionDuration > TimeSpan.Zero
+            ? sessionElapsed() + _services.MaxSessionDuration
+            : (TimeSpan?)null;
         try
         {
             while (!s.Stop.IsCancellationRequested)
             {
+                if (deadline is { } waitLimit && sessionElapsed() >= waitLimit)
+                {
+                    lock (_gate)
+                    {
+                        s.TimedOut = true;
+                        if (Active) SetState("STOPPING", "STOPPING", "已达到单次验证的时长上限，正在停止等待……");
+                    }
+                    break;
+                }
+
                 var game = LocateWaiting(s);
                 var adapter = Candidate(s, game);
                 if (adapter is null)
@@ -244,7 +286,8 @@ public sealed partial class CaptureValidationController : IDisposable
                     continue;
                 }
                 s.Stop.Token.ThrowIfCancellationRequested();
-                source = trace.SourceFactory?.Invoke() ?? new MachinaCaptureSource(trace.Logger);
+                source = trace.SourceFactory?.Invoke()
+                    ?? new MachinaCaptureSource(trace.Logger, oodleTempManifestPath: _oodleTempManifest);
                 s.Stop.Token.ThrowIfCancellationRequested();
                 var path = Path.Combine(_directory, trace.Clock.UtcNow.ToString("yyyyMMddTHHmmssfff") + "-" + s.Id, "trace.jsonl");
                 Directory.CreateDirectory(Path.GetDirectoryName(path)!);
@@ -275,13 +318,10 @@ public sealed partial class CaptureValidationController : IDisposable
                         SetState("RECORDING", "RECORDING", "仅验证，不自动记录。正在保存脱敏取证，可添加事件标记。");
                     }
                 }
-                var deadline = _services.MaxSessionDuration > TimeSpan.Zero
-                    ? s.Elapsed!() + _services.MaxSessionDuration
-                    : (TimeSpan?)null;
                 while (!s.Stop.IsCancellationRequested)
                 {
                     await Task.Delay(_services.PollInterval, s.Stop.Token).ConfigureAwait(false);
-                    if (deadline is { } limit && s.Elapsed!() >= limit)
+                    if (deadline is { } limit && sessionElapsed() >= limit)
                     {
                         // The documented hard duration cap. Reaching it is a normal end, not a
                         // failure: the file written so far stays and stays citable.
@@ -290,8 +330,7 @@ public sealed partial class CaptureValidationController : IDisposable
                         break;
                     }
 
-                    var current = Locate();
-                    if (!current.Running || current.ProcessId != game.ProcessId || current.StartedAtUtc != game.StartedAtUtc) break;
+                    if (!StillRunning(game)) break;
                 }
                 break;
             }
@@ -343,7 +382,9 @@ public sealed partial class CaptureValidationController : IDisposable
                 else s.RetainedSource = source;
                 s.Stop.Dispose();
                 if (s.ErrorCode is not null) SetState("FAILED", "FAILED", "验证失败，文件可能不完整。详情见本机诊断日志。");
-                else if (s.Path is null) SetState("COMPLETED", "CANCELLED", "已取消等待，未创建取证文件。");
+                else if (s.Path is null) SetState("COMPLETED", "CANCELLED", s.TimedOut
+                    ? "已达到单次验证的时长上限，已停止等待，未创建取证文件。"
+                    : "已取消等待，未创建取证文件。");
                 else SetState("COMPLETED", "COMPLETED", "取证文件已保存到本机。真实 FF14 / Oodle 仍未验证。");
             }
 
@@ -355,7 +396,9 @@ public sealed partial class CaptureValidationController : IDisposable
 
     private CaptureAdapterView? Candidate(Session s, GameProcessDetection game)
     {
-        if (game.SelectionRequired && game.SelectionReason == "EXITED" && s.RestartFrom is not null)
+        // Whether or not another client is listed to choose from: with none listed no choice is
+        // asked for, and the wait is still for the restart this validation requested.
+        if (!game.Running && game.SelectionReason == "EXITED" && s.RestartFrom is not null)
             return Wait("WAITING_RESTART", "正在等待所选游戏重新启动。若游戏已启动仍未继续，请停止验证，重新检测并选择窗口。");
         if (game.SelectionRequired) return Wait("WAITING_GAME", "请先停止验证，在总览或捕获诊断页选择游戏窗口后再开始。");
         if (!game.Running || game.ProcessId is not > 0) return Wait("WAITING_GAME", "正在等待游戏启动。");
@@ -477,7 +520,7 @@ public sealed partial class CaptureValidationController : IDisposable
         public DecodedMessageQueue? Queue;
         public long? Dropped;
         public bool WriteFailed;
-        public bool Finalized, RecordingStarted;
+        public bool Finalized, RecordingStarted, TimedOut;
         public ICaptureSource? RetainedSource;
         public Task? Work, MarkerWork;
     }

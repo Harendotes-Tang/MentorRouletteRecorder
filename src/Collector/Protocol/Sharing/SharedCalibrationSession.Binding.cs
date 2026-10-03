@@ -45,8 +45,10 @@ internal sealed partial class SharedCalibrationSession
                     refusal = "BUILD_" + built.Status.ToString().ToUpperInvariant();
                 }
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException or NotSupportedException)
+            catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
             {
+                // Whatever failed, the commit below runs: it is what gives the binding claim back, and a candidate
+                // left claimed is never chosen again in this arm (audit 2026-10-03, unclosed suspicion under OE).
                 refusal = "WRITE_FAILED:" + ex.GetType().Name;
             }
 
@@ -116,10 +118,13 @@ internal sealed partial class SharedCalibrationSession
             Provenance = candidate.Provenance,
             MatchSource = candidate.Prepared.Payload.MatchSource,
             BoundAtUtc = result.Outcome == SharedBindOutcome.Bound ? _clock.UtcNow : null,
+            RecordsFromUtc = result.RecordsFromUtc,
+            AwaitingSwap = result.SwapOwed,
             Verification = candidate.Verification,
             RanComplete = result.RanComplete,
             Proven = result.Proven,
         };
+        RecordBound(_bound);
 
         // Unless the drained staging already finished a duty with nothing left to audit, it stays registered
         // with the observer and keeps being verified until it records one and the audit settles.
@@ -175,11 +180,13 @@ internal sealed partial class SharedCalibrationSession
         }
 
         _host.UnbindSharedProfile(bound.ProfileId);
-        if (contradicted)
+        if (contradicted && !bound.AwaitingSwap)
         {
-            // What it recorded before the traffic caught it out is suspect (plan §18.4). Not for the player's own
-            // refusal: those records were made by a code nothing contradicted.
-            _host.FlagSharedRecords(bound.ProfileId, bound.BoundAtUtc, reason);
+            // What it recorded before the traffic caught it out is suspect (plan §18.4) - and only that: the profile id
+            // is the build's, not the code's, so the marking starts where this binding began recording (audit
+            // 2026-10-03, OE-2). Not for the player's own refusal: those records were made by a code nothing
+            // contradicted. Nor for a code that never took over from the profile recording when it was written.
+            _host.FlagSharedRecords(bound.ProfileId, bound.RecordsFromUtc, reason);
         }
 
         Schedule(() =>
@@ -283,10 +290,16 @@ internal sealed partial class SharedCalibrationSession
 
         if (_candidates.FirstOrDefault(candidate => candidate.Sha == prepared.Sha) is { } known)
         {
-            // One code, one candidate. A download of a code the player had pasted proves it published (plan §18.5).
+            // One code, one candidate. A download of a code the player had pasted proves it published (plan §18.5), and
+            // what the index now says about it - submitters, the conflict mark - replaces what was known before.
             if (provenance == SharedCandidateProvenance.Published)
             {
                 known.Provenance = SharedCandidateProvenance.Published;
+                if (prepared.Submitters > 0)
+                {
+                    known.Submitters = prepared.Submitters;
+                    known.Conflicting = prepared.Conflicting;
+                }
             }
 
             return null;
@@ -355,11 +368,14 @@ internal sealed partial class SharedCalibrationSession
         }
 
         // A recorded duty alone is not proof across a restart (plan §18.4): unless this very document was recorded
-        // as settled, the profile is adopted as watched, its code recovered and the audit resumed by Evaluate.
-        var ranComplete = _host.HasFinishedSharedRun(selected.ProfileId);
+        // as settled, the profile is adopted as watched, its code recovered and the audit resumed by Evaluate. Only
+        // the duties this document recorded count, by the bind time kept with it (audit 2026-10-03, OE-4).
+        var since = BoundSince(selected);
+        var ranComplete = _host.HasFinishedSharedRun(selected.ProfileId, since);
         _bound = new BoundProfile(selected.Region, selected.GameBuild, selected.ProfileId)
         {
             ProfileSha256 = selected.ProfileSha256,
+            RecordsFromUtc = since,
             RanComplete = ranComplete,
             Proven = ranComplete && IsSettled(selected),
         };
@@ -398,6 +414,18 @@ internal sealed partial class SharedCalibrationSession
                 Supersede("REJECTED");
                 return;
             }
+
+            // So is a code the last index this machine read revoked (audit 2026-10-03, OE-1): the revocation may have
+            // arrived mid-duty and been held for the run's end, which the process that read it never reached, and the
+            // six-hour throttle keeps the index from being read again. Settled or not - a withdrawn code is
+            // withdrawn - and held for the end of a run in flight exactly as a revocation read now is.
+            if (!_withdrawn.Contains(bound.ProfileId) &&
+                Attempt(() => _services.SharedCalibrations.Publication(
+                    context.Key.Region, context.Key.GameBuild, declared.CandidateId)) == SharedPublication.Revoked)
+            {
+                WithdrawRevoked(Array.Empty<Prepared>());
+                return;
+            }
         }
 
         if (!bound.Proven && bound.Declared is { } watched)
@@ -430,7 +458,7 @@ internal sealed partial class SharedCalibrationSession
         _rejected.Clear();
         _rejectedSummaries.Clear();
         _contradictions.Clear();
-        _nextAutoFetchAtUtc = null;
+        _nextAutoFetchAt = null;
         _lastFetchStatus = null;
         _lastAttempts = Array.Empty<SharedSourceAttempt>();
         _superseded = false;

@@ -53,16 +53,26 @@ QJsonValue fieldForSort(const QJsonObject &run, const QString &field)
     return run.value(field);
 }
 
-bool lessThan(const QJsonObject &a, const QJsonObject &b, const QString &field)
+/// RunRepository.Query: ORDER BY (field IS NULL), field <direction>, run_id -
+/// a missing value sorts last whichever way the list runs, and run_id breaks
+/// ties (review OJ-6).
+bool sortsBefore(const QJsonObject &a, const QJsonObject &b, const QString &field, bool ascending)
 {
     const QJsonValue left = fieldForSort(a, field);
     const QJsonValue right = fieldForSort(b, field);
 
     if (left.isNull() != right.isNull())
-        return left.isNull(); // nulls sort first ascending
-    if (left.isDouble() && right.isDouble())
-        return left.toDouble() < right.toDouble();
-    return left.toString() < right.toString();
+        return right.isNull();
+    if (!left.isNull()) {
+        const bool numeric = left.isDouble() && right.isDouble();
+        const bool less = numeric ? left.toDouble() < right.toDouble()
+                                  : left.toString() < right.toString();
+        const bool greater = numeric ? right.toDouble() < left.toDouble()
+                                     : right.toString() < left.toString();
+        if (less != greater)
+            return ascending ? less : greater;
+    }
+    return a.value(QStringLiteral("run_id")).toString() < b.value(QStringLiteral("run_id")).toString();
 }
 
 /// docs/statistics-definitions.md 8 - only COMPLETED runs with a plausible,
@@ -115,12 +125,23 @@ QList<QJsonObject> MockBackend::selectRuns(const QJsonObject &filter,
             continue;
         if (forStatistics && !isConfirmedMentor(run))
             continue;
+        // RunFilterSql: an automatic run still in flight - UNKNOWN, no end, no review
+        // flag - has no outcome yet and counts in no statistic. One crash recovery
+        // handed to the player (pending_review) is over and does (review DT4-X4).
+        if (forStatistics && run.value(QStringLiteral("source")).toString() == QLatin1String("AUTO_NETWORK")
+            && run.value(QStringLiteral("result")).toString() == QLatin1String("UNKNOWN")
+            && !run.value(QStringLiteral("ended_at_utc")).isString()
+            && !run.value(QStringLiteral("pending_review")).toBool(false)) {
+            continue;
+        }
         if (correctedOnly && !run.value(QStringLiteral("manually_corrected")).toBool(false))
             continue;
-        // 待复核: like 有心得, the predicate only narrows. A false value in the
-        // filter is no filter at all, never "show me the confirmed ones".
-        if (filter.value(QStringLiteral("pending_review")).toBool(false)
-            && !run.value(QStringLiteral("pending_review")).toBool(false)) {
+        // 待复核: $defs/RunFilter.pending_review has no default. true keeps the
+        // flagged runs, false keeps the others, and only an omitted key is no
+        // constraint (RunFilterSql; review OJ-6).
+        const QJsonValue pendingReview = filter.value(QStringLiteral("pending_review"));
+        if (pendingReview.isBool()
+            && run.value(QStringLiteral("pending_review")).toBool(false) != pendingReview.toBool()) {
             continue;
         }
         // 有心得: the chip narrows the list to runs carrying a reflection; it
@@ -183,7 +204,7 @@ QJsonObject MockBackend::queryRunsPayload(const QJsonObject &payload) const
 
     std::stable_sort(rows.begin(), rows.end(),
                      [&](const QJsonObject &a, const QJsonObject &b) {
-                         return ascending ? lessThan(a, b, field) : lessThan(b, a, field);
+                         return sortsBefore(a, b, field, ascending);
                      });
 
     const int total = int(rows.size());
@@ -330,7 +351,9 @@ QJsonObject MockBackend::dashboardStats(const QJsonObject &filter,
             ++attempts;
         if (result == QLatin1String("COMPLETED"))
             ++completed;
-        if (result == QLatin1String("LEFT_OR_ABANDONED"))
+        // Among the attempts only, like StatisticsRepository.BuildDashboard
+        // (review OJ-6): a run that never entered has no share of attempt_count.
+        if (result == QLatin1String("LEFT_OR_ABANDONED") && hasEntered(run))
             ++left;
         // The flag the Collector writes, not a heuristic re-derived from the
         // result: pending_review is what CrashRecoveryService sets and what
@@ -345,6 +368,13 @@ QJsonObject MockBackend::dashboardStats(const QJsonObject &filter,
 
     // achievement_progress ignores the filter entirely: it is always the
     // whole-database count (docs/statistics-definitions.md 4).
+    // StatisticsRepository.CountedFrom / CountContributingCompleted (audit 2026-10-03,
+    // CS7-D4): a baseline above 0 already holds every completion that ended before its
+    // effective time, so only those placed at or after it are added - by the end, else
+    // the entry, else the match; a row with no time at all is not added. A baseline of
+    // 0 holds nothing, so every completion counts.
+    const QDateTime countedFrom =
+        m_baselineCompletedCount > 0 ? m_baselineEffectiveAt : QDateTime();
     int goalRuns = 0;
     for (const QJsonValue &value : m_runs) {
         const QJsonObject run = value.toObject();
@@ -354,6 +384,15 @@ QJsonObject MockBackend::dashboardStats(const QJsonObject &filter,
             continue;
         if (!run.value(QStringLiteral("contributes_to_goal")).toBool(true))
             continue;
+        if (countedFrom.isValid()) {
+            QDateTime placed = fromIso(run.value(QStringLiteral("ended_at_utc")));
+            if (!placed.isValid())
+                placed = fromIso(run.value(QStringLiteral("entered_at_utc")));
+            if (!placed.isValid())
+                placed = fromIso(run.value(QStringLiteral("matched_at_utc")));
+            if (!placed.isValid() || placed < countedFrom)
+                continue;
+        }
         ++goalRuns;
     }
 

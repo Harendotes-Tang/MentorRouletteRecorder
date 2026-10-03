@@ -58,6 +58,24 @@ public sealed class CalibrationObserverSharedStateTests : IDisposable
         return observer.Snapshot();
     }
 
+    /// <summary>
+    /// Carried evidence adopted, and one more evening played on top of it two hours later. A file
+    /// written before the queue rule (audit 2026-10-03, OCal-1) carries its zone loads and pairs but
+    /// not its pops, so the draft is complete again once the next evening brings a match of its own.
+    /// </summary>
+    private static CalibrationSnapshot WithNextEvening(CalibrationSnapshot carried)
+    {
+        var observer = new CalibrationObserver(CalibrationObserverTests.Template(), Region.Cn, "session-two");
+        observer.AdoptEvidence(carried);
+        Feed(observer, CalibrationObserverTests.Session1().Select(message => message with
+        {
+            CaptureSessionId = "session-two",
+            ObservedAtUtc = message.ObservedAtUtc + TimeSpan.FromHours(2),
+        }));
+        observer.Flush();
+        return observer.Snapshot();
+    }
+
     private static DecodedMessage ReplyPop(long at, byte roulette = 1, byte state = 3, int length = 40) =>
         CalibrationObserverTests.Message(
             MessageDirection.Inbound, CalibrationTrafficCases.Reply,
@@ -345,7 +363,8 @@ public sealed class CalibrationObserverSharedStateTests : IDisposable
             Path.Combine(AppContext.BaseDirectory, "Fixtures", "calibration-evidence", "cn.2026.09.01.0000.0000.json"),
             Path.Combine(_root, CalibrationEvidenceStore.FileNameFor(Region.Cn, Build)));
 
-        Assert.Equal("OK", CalibrationEvidenceStore.Explain(_root, Region.Cn, Build, "template-sha"));
+        // Written before the queue rule too: carried, with the pops started over.
+        Assert.Equal("OLD_QUEUE_RULE", CalibrationEvidenceStore.Explain(_root, Region.Cn, Build, "template-sha"));
         var carried = CalibrationEvidenceStore.Load(_root, Region.Cn, Build, "template-sha");
 
         Assert.NotNull(carried);
@@ -358,7 +377,9 @@ public sealed class CalibrationObserverSharedStateTests : IDisposable
         Assert.Empty(carried.SessionHealth);
         Assert.Empty(carried.ConnectionSessions);
         Assert.Empty(carried.Candidates);
-        var draft = CalibrationDraft.Derive(carried, CalibrationObserverTests.Template());
+        Assert.Empty(carried.Pops);
+        Assert.NotEmpty(carried.Pairs);
+        var draft = CalibrationDraft.Derive(WithNextEvening(carried), CalibrationObserverTests.Template());
         Assert.Equal(CalibrationDraftStatus.Ready, draft.Status);
         Assert.Equal(CalibrationTrafficCases.ExpectedMessages(CalibrationTrafficCases.ReplyState),
             draft.Messages.Select(message => message.Name));
@@ -383,7 +404,7 @@ public sealed class CalibrationObserverSharedStateTests : IDisposable
             Path.Combine(AppContext.BaseDirectory, "Fixtures", "calibration-evidence", "cn.2026.09.01.0000.0000.job-violations.json"),
             Path.Combine(_root, CalibrationEvidenceStore.FileNameFor(Region.Cn, Build)));
 
-        Assert.Equal("OK", CalibrationEvidenceStore.Explain(_root, Region.Cn, Build, "template-sha"));
+        Assert.Equal("OLD_QUEUE_RULE", CalibrationEvidenceStore.Explain(_root, Region.Cn, Build, "template-sha"));
         var carried = CalibrationEvidenceStore.Load(_root, Region.Cn, Build, "template-sha");
 
         Assert.NotNull(carried);
@@ -398,7 +419,7 @@ public sealed class CalibrationObserverSharedStateTests : IDisposable
         });
         Assert.Empty(carried.SessionHealth);
         Assert.Empty(carried.Candidates);
-        var draft = CalibrationDraft.Derive(carried, CalibrationObserverTests.Template());
+        var draft = CalibrationDraft.Derive(WithNextEvening(carried), CalibrationObserverTests.Template());
         Assert.Equal(CalibrationDraftStatus.Ready, draft.Status);
         Assert.Equal(new[] { "CONTENT_FINDER_POP", "ZONE_INITIALIZATION", "ZONE_TERRITORY" },
             draft.Messages.Select(message => message.Name));

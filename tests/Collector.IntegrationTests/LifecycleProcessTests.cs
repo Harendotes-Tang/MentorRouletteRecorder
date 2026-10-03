@@ -2,6 +2,8 @@ using MentorRecorder.Collector.Capture;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO.Pipes;
+using System.Security.AccessControl;
+using System.Security.Principal;
 using System.Text;
 using System.Text.Json.Nodes;
 using MentorRecorder.Collector.Ipc;
@@ -532,6 +534,138 @@ public sealed class LifecycleProcessTests : IDisposable
         Assert.Contains(
             Program.ServePidFileNameFor(pipeName), refused.StandardError, StringComparison.Ordinal);
         Assert.False(File.Exists(databasePath), "a refused instance must not create its database");
+    }
+
+    /// <summary>
+    /// Audit 2026-10-03 OF-2. A pipe of this name held by a process of another account - or by
+    /// one this account runs elevated - refuses this client's connection. That is not a hung
+    /// Collector of ours: exit 6 would have the Desktop ask it to stop and then end the process
+    /// named in our own serve.pid. It is a refusal to start (3) that says what holds the name.
+    /// The squatter here grants the pipe to SYSTEM alone, so this user is refused exactly as
+    /// another account's Collector would refuse it.
+    /// </summary>
+    [Fact]
+    public void APipeHeldByAnotherAccountIsReportedAsSuchNotAsAHungCollector()
+    {
+        var databasePath = Path.Combine(_directory, "foreign.db");
+        var pipeName = "MentorRecorder.test." + Guid.NewGuid().ToString("N") + ".v1";
+        var security = new PipeSecurity();
+        security.AddAccessRule(new PipeAccessRule(
+            new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null),
+            PipeAccessRights.FullControl,
+            AccessControlType.Allow));
+        using var squatter = NamedPipeServerStreamAcl.Create(
+            pipeName, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous,
+            0, 0, security);
+
+        var refused = CollectorProcessFixture.RunToCompletion(
+            "--serve", "--db", databasePath, "--pipe", pipeName, "--json");
+
+        Assert.Equal(3, refused.ExitCode);
+        Assert.Contains("另一个 Windows 账户", refused.StandardError, StringComparison.Ordinal);
+        Assert.DoesNotContain("没有响应", refused.StandardError, StringComparison.Ordinal);
+        Assert.False(File.Exists(databasePath), "a refused instance must not create its database");
+        var log = ReadLogs();
+        Assert.Contains("\"event\":\"already_running\"", log, StringComparison.Ordinal);
+        Assert.Contains("\"holder\":\"OTHER_ACCOUNT\"", log, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Audit 2026-10-03 OF-1 / OF-4. A file that is not a database fails inside SQLite on the
+    /// first statement. That exception used to leave Main unhandled (0xE0434352), and no refusal
+    /// to open reached the rotating log, which is where the Desktop's message sends the user.
+    /// Now it exits 3, the last line on stderr is a Chinese sentence naming the file, and the log
+    /// has the reason.
+    /// </summary>
+    [Fact]
+    public void AFileThatIsNotADatabaseRefusesToStartWithExitCodeThreeAndALogLine()
+    {
+        var databasePath = Path.Combine(_directory, "not-a-database.db");
+        File.WriteAllText(databasePath, new string('x', 4096));
+
+        var refused = CollectorProcessFixture.RunToCompletion("--serve", "--db", databasePath, "--json");
+
+        Assert.Equal(3, refused.ExitCode);
+        var lastLine = LastLine(refused.StandardError);
+        Assert.StartsWith(ErrorCodes.DbIntegrity + ":", lastLine, StringComparison.Ordinal);
+        Assert.Contains("无法启动", lastLine, StringComparison.Ordinal);
+        Assert.Contains(databasePath, lastLine, StringComparison.Ordinal);
+        var log = ReadLogs();
+        Assert.Contains("\"event\":\"open_failed\"", log, StringComparison.Ordinal);
+        Assert.Contains(ErrorCodes.DbIntegrity, log, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The refusals that were already mapped to exit 3 - here a schema written by a newer build -
+    /// reach the rotating log too, not only stderr (audit 2026-10-03 OF-1).
+    /// </summary>
+    [Fact]
+    public void ARefusedDatabaseIsRecordedInTheRotatingLog()
+    {
+        var databasePath = Path.Combine(_directory, "newer.db");
+        using (var database = Storage.SqliteDatabase.Open(databasePath, Domain.Time.SystemClock.Instance))
+        using (var command = database.CreateCommand())
+        {
+            command.CommandText =
+                "INSERT INTO schema_migrations (version, name, checksum, applied_at_utc) " +
+                "VALUES (9999, '9999_from_a_newer_build.sql', 'unread', '2026-09-21T00:00:00.000Z');";
+            command.ExecuteNonQuery();
+        }
+
+        var refused = CollectorProcessFixture.RunToCompletion("--serve", "--db", databasePath, "--json");
+
+        Assert.Equal(3, refused.ExitCode);
+        Assert.Contains(databasePath, LastLine(refused.StandardError), StringComparison.Ordinal);
+        var log = ReadLogs();
+        Assert.Contains("\"event\":\"open_failed\"", log, StringComparison.Ordinal);
+        Assert.Contains("\"code\":\"" + ErrorCodes.DbIntegrity + "\"", log, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A database another program holds a write lock on opens, and the first write of the opening
+    /// work then waits out its budget. That refusal used to reach the user with the sentence meant
+    /// for an IPC client ("用相同的请求编号重试"); it is the startup refusal like any other, naming
+    /// the file, and it is in the log.
+    /// </summary>
+    [Fact]
+    public void ADatabaseLockedByAnotherProgramRefusesToStartAndSaysSo()
+    {
+        var databasePath = Path.Combine(_directory, "locked.db");
+        Storage.SqliteDatabase.Open(databasePath, Domain.Time.SystemClock.Instance).Dispose();
+        using var holder = new Microsoft.Data.Sqlite.SqliteConnection(
+            new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder
+            {
+                DataSource = databasePath,
+                Mode = Microsoft.Data.Sqlite.SqliteOpenMode.ReadWrite,
+                Pooling = false,
+            }.ConnectionString);
+        holder.Open();
+        using (var command = holder.CreateCommand())
+        {
+            command.CommandText = "BEGIN IMMEDIATE;";
+            command.ExecuteNonQuery();
+        }
+
+        var refused = CollectorProcessFixture.RunToCompletion("--serve", "--db", databasePath, "--json");
+
+        Assert.Equal(3, refused.ExitCode);
+        var lastLine = LastLine(refused.StandardError);
+        Assert.StartsWith(ErrorCodes.DbBusy + ":", lastLine, StringComparison.Ordinal);
+        Assert.Contains("无法启动", lastLine, StringComparison.Ordinal);
+        Assert.Contains(databasePath, lastLine, StringComparison.Ordinal);
+        Assert.Contains("\"code\":\"" + ErrorCodes.DbBusy + "\"", ReadLogs(), StringComparison.Ordinal);
+    }
+
+    private static string LastLine(string text) =>
+        text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)[^1];
+
+    /// <summary>Everything the Collector logged beside the databases of this test.</summary>
+    private string ReadLogs()
+    {
+        var folder = Path.Combine(_directory, "logs");
+        return Directory.Exists(folder)
+            ? string.Concat(Directory.GetFiles(folder, "*.log").Select(File.ReadAllText))
+            : string.Empty;
     }
 
     /// <summary>

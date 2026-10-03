@@ -337,21 +337,86 @@ private slots:
         QVERIFY(b.calls.contains("GetProtocolProfileStatus"));
     }
 
+    // A choice outranks the profile and waiting messages only while there is
+    // something to choose: the listed clients are what the player picks from.
     void gameChoiceOutranksProfileAndWaitingMessages() {
         RecordingBackend b;
         b.capture["ffxiv_running"] = false;
         b.capture["profile_status"] = "UNSUPPORTED_BUILD";
         b.capture["game_selection_required"] = true;
         b.capture["game_selection_reason"] = "MULTIPLE";
+        b.capture["game_processes"] = QJsonArray{
+            QJsonObject{{"process_id", 101}, {"started_at_utc", "2026-10-02T01:00:00.000Z"}, {"selection_token", "first"}},
+            QJsonObject{{"process_id", 202}, {"started_at_utc", "2026-10-02T02:00:00.000Z"}, {"selection_token", "second"}}};
         mr::AutomaticRecordingController recording(&b);
         recording.refresh();
         QCOMPARE(recording.state(), QStringLiteral("choosing_game"));
         QVERIFY(recording.attention());
         QVERIFY(!recording.pendingAlert());
         QVERIFY(recording.message().contains(QString::fromUtf8("多个游戏客户端")));
+        // The selected client exited and another one is still listed.
         b.capture["game_selection_reason"] = "EXITED";
+        b.capture["game_processes"] = QJsonArray{b.capture["game_processes"].toArray().at(1)};
         recording.refresh();
+        QCOMPARE(recording.state(), QStringLiteral("choosing_game"));
         QVERIFY(recording.message().contains(QString::fromUtf8("已退出")));
+    }
+
+    // 审查 OD-1：唯一的客户端正常关闭（EXITED），或几个客户端都关掉了
+    // （MULTIPLE），列表里已经没有可选的游戏。这是普通的「等待游戏启动」：
+    // 不点橙色、不要求选择，轮询也退回空闲周期。
+    void nothingListedToChooseIsOrdinaryWaiting_data() {
+        QTest::addColumn<QString>("reason");
+        QTest::newRow("only client closed") << QStringLiteral("EXITED");
+        QTest::newRow("every client closed") << QStringLiteral("MULTIPLE");
+    }
+    void nothingListedToChooseIsOrdinaryWaiting() {
+        QFETCH(QString, reason);
+        RecordingBackend b;
+        b.capture["ffxiv_running"] = false;
+        b.capture["ffxiv_process_id"] = QJsonValue::Null;
+        b.capture["state"] = "STOPPED";
+        b.capture["game_selection_required"] = true;
+        b.capture["game_selection_reason"] = reason;
+        b.capture["game_processes"] = QJsonArray();
+        mr::AutomaticRecordingController recording(&b);
+        recording.refresh();
+        QCOMPARE(recording.state(), QStringLiteral("waiting"));
+        QVERIFY(!recording.attention());
+        QCOMPARE(recording.pollIntervalMs(), mr::AutomaticRecordingController::kIdlePollMs);
+        QVERIFY(recording.message().contains(QString::fromUtf8("等待游戏启动")));
+    }
+
+    // 审查 OI-2：只列出一个客户端时，不能说「检测到多个游戏客户端」。
+    void aSingleListedClientIsNotCalledSeveral() {
+        RecordingBackend b;
+        b.capture["ffxiv_running"] = false;
+        b.capture["game_selection_required"] = true;
+        b.capture["game_selection_reason"] = "MULTIPLE";
+        b.capture["game_processes"] = QJsonArray{
+            QJsonObject{{"process_id", 202}, {"started_at_utc", "2026-10-02T02:00:00.000Z"}, {"selection_token", "second"}}};
+        mr::AutomaticRecordingController recording(&b);
+        recording.refresh();
+        QCOMPARE(recording.state(), QStringLiteral("choosing_game"));
+        QVERIFY(recording.attention());
+        QVERIFY2(!recording.message().contains(QString::fromUtf8("多个")), qPrintable(recording.message()));
+        QVERIFY(recording.message().contains(QString::fromUtf8("选择")));
+    }
+
+    // 「重扫 FF14」 must not ask for a choice when the scan found nothing to choose.
+    void rescanWithNothingListedDoesNotAskForAChoice() {
+        RecordingBackend b;
+        b.capture["ffxiv_running"] = false;
+        b.capture["ffxiv_process_id"] = QJsonValue::Null;
+        b.capture["game_selection_required"] = true;
+        b.capture["game_selection_reason"] = "EXITED";
+        b.capture["game_processes"] = QJsonArray();
+        b.game["running"] = false;
+        mr::AppController app(&b, nullptr);
+        app.rescanGame();
+        QVERIFY2(!app.toastMessage().contains(QString::fromUtf8("记录对象")), qPrintable(app.toastMessage()));
+        QVERIFY(app.toastMessage().contains(QString::fromUtf8("未找到正在运行的 FF14 进程")));
+        QVERIFY(!app.gameSelection()->required());
     }
 
     void normalMutationIsGatedAndMaintenancePreservesFollowChoice() {

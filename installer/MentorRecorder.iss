@@ -10,6 +10,12 @@
 ; downloads the official installer from npcap.com (pinned version + SHA-256) and runs it;
 ; the user completes the Npcap wizard themselves. See docs/build-and-package.md.
 
+; Inno Setup 6.7 or newer: RedirectionGuard in [Setup] first appears in 6.7.0, and an older
+; compiler would reject it without saying that the compiler is what is too old.
+#if Ver < EncodeVer(6,7,0)
+  #error Inno Setup 6.7 or newer is required (RedirectionGuard). Update it: winget upgrade JRSoftware.InnoSetup
+#endif
+
 ; The version has exactly one source: Directory.Build.props (<VersionPrefix> plus the
 ; optional <VersionSuffix>). There is deliberately no fallback, because a literal here would
 ; drift from it. scripts/package.ps1 passes /DAppVersion; a hand run must pass it too.
@@ -77,6 +83,12 @@ WizardStyle=modern
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=admin
+; Setup and Uninstall run elevated and work below a folder that, on a data drive such as D:,
+; ordinary users may have created or filled before installation. RedirectionGuard (Windows 11
+; and Windows 10 22H2) stops both from following a junction or symbolic link that an
+; unelevated process created; ProtectInstallDirectory in [Code] refuses such links itself,
+; which is what covers older Windows. Written out because it is a security setting.
+RedirectionGuard=yes
 LicenseFile={#StageDir}\LICENSE
 ; The Restart Manager finds MentorRecorder.Desktop.exe / MentorRecorder.Collector.exe
 ; under {app} and Setup asks before closing them (CloseApplicationsFilter defaults to
@@ -102,7 +114,14 @@ chinesesimplified.NpcapPageSubtitle=本软件依赖 Npcap 被动读取网卡上�
 chinesesimplified.NpcapPageText=检测到本机没有安装 Npcap。%n%nNpcap 的免费许可证不允许随本软件一起分发，所以安装程序会从官网 npcap.com 下载 Npcap {#NpcapVersion} 的官方安装程序（已校验 SHA-256）并启动它。%n%n请在 Npcap 的安装向导里保持默认选项，特别是勾选“Install Npcap in WinPcap API-compatible Mode”，完成后回到这里继续。%n%n如果稍后想手动安装，也可以随时从 https://npcap.com 下载。
 chinesesimplified.NpcapDownloadFailed=下载 Npcap 失败：%1%n%n安装会继续，但在你手动安装 Npcap 之前软件无法抓包。请到 https://npcap.com 下载并安装。
 chinesesimplified.NpcapStillMissing=Npcap 仍未安装。软件已经装好，但在安装 Npcap 之前无法抓包。请到 https://npcap.com 下载并安装。
-chinesesimplified.RemoveUserData=是否同时删除本机的记录数据（%1）？%n%n选择“否”会保留你的导随记录、备份和设置，以便重新安装后继续使用。
+chinesesimplified.RemoveUserData=是否同时删除本机的记录数据（%1）？%n%n选择“否”会保留你的导随记录、备份和设置，以便重新安装后继续使用。%n%n备注图片不在其中：它们保存在安装文件夹的“%2”中，无论选择哪一项都会保留。如果不再需要，请在卸载完成后手动删除该文件夹。
+chinesesimplified.InstallDirIsLink=所选的安装文件夹“%1”是一个链接（联接点或符号链接），实际指向别处的文件夹。%n%n为防止程序文件被安装或授权到链接所指的位置，请选择一个普通文件夹。
+chinesesimplified.InstallDirNotEmpty=所选的文件夹“%1”中已有其他文件。%n%n为防止程序文件被篡改，安装程序会把安装文件夹设为只有管理员可以修改、其他用户只能读取和运行，这同样会作用到其中原有的文件。请选择一个新的或空的文件夹。
+chinesesimplified.InstallDirIsDriveRoot=不能把软件直接安装到整个磁盘的根目录（“%1”）。%n%n磁盘根目录通常允许本机所有用户在其中新建和改名文件夹，安装程序无法像保护普通文件夹那样保护它。请选择该磁盘上的一个子文件夹（例如 D:\MentorRecorder），而不是磁盘根目录本身。
+chinesesimplified.InstallDirCreateFailed=无法创建安装文件夹“%1”，安装已停止。请重新运行安装程序并选择其他位置。
+chinesesimplified.InstallDirProtectFailed=无法为安装文件夹“%1”设置访问权限（错误码 %2），安装已停止。%n%n安装程序必须把该文件夹设为只有管理员可以修改，否则本机的其他用户可以篡改程序文件。该位置可能不在本机的 NTFS 磁盘上（例如 U 盘、FAT32 或 exFAT 分区、网络位置）。请重新运行安装程序，选择本机 NTFS 磁盘上的文件夹。
+chinesesimplified.InstallDirFileIsLink=安装文件夹中的文件“%1”是指向别处文件的链接（硬链接或符号链接），或者安装程序无法确认它不是链接，安装已停止。%n%n安装程序会把安装文件夹中原有的文件设为只有管理员可以修改；如果这个文件是链接，这项改动就会落到与它相连的另一个文件上。请删除这个文件（如果它是链接，与它相连的文件不受影响），然后重新运行安装程序。
+chinesesimplified.NoteImagesIsLink=安装文件夹中的“%1”是一个链接（联接点或符号链接），而不是普通文件夹，安装已停止。%n%n安装程序会允许本机所有用户在这个文件夹中保存备注图片；如果它是链接，这项写入权限就会落到链接所指的位置。请删除这个链接（链接所指的文件夹不受影响），然后重新运行安装程序。
 chinesesimplified.LaunchAfterInstall=启动 {#AppName}
 chinesesimplified.WindowsTooOld=这台电脑的 Windows 版本太旧（%1）。%n%n{#AppName} 需要 {#MinWindowsName}（内部版本 {#MinWindowsBuild}）或更新的 64 位 Windows 10 / Windows 11。请先通过 Windows 更新升级系统，再运行本安装程序。
 chinesesimplified.Arm64Windows10=这台电脑是 ARM 处理器上的 Windows 10。%n%n{#AppName} 是 64 位 x86 程序，Windows 10 on ARM 不能运行它；需要 Windows 11 on ARM 或 x64 电脑。
@@ -113,7 +132,14 @@ english.NpcapPageSubtitle=This application reads game traffic passively through 
 english.NpcapPageText=Npcap is not installed on this computer.%n%nThe Npcap free licence does not allow it to be redistributed with this application, so Setup will download the official Npcap {#NpcapVersion} installer from npcap.com (SHA-256 verified) and start it.%n%nKeep the defaults in the Npcap wizard, in particular "Install Npcap in WinPcap API-compatible Mode", then return here to continue.%n%nYou can also install it later from https://npcap.com.
 english.NpcapDownloadFailed=Downloading Npcap failed: %1%n%nSetup will continue, but capture cannot work until Npcap is installed. Please download it from https://npcap.com.
 english.NpcapStillMissing=Npcap is still not installed. The application is installed, but capture cannot work until Npcap is present. Please download it from https://npcap.com.
-english.RemoveUserData=Also delete the recorded data on this computer (%1)?%n%nChoose "No" to keep your records, backups and settings for a later reinstall.
+english.RemoveUserData=Also delete the recorded data on this computer (%1)?%n%nChoose "No" to keep your records, backups and settings for a later reinstall.%n%nNote images are not part of it: they are kept in "%2" in the installation folder whichever you choose. Delete that folder by hand after uninstalling if you no longer need them.
+english.InstallDirIsLink=The selected folder "%1" is a link (a junction or symbolic link) to a folder elsewhere.%n%nSo that program files are never installed into, or granted on, the place it points to, please choose an ordinary folder.
+english.InstallDirNotEmpty=The selected folder "%1" already contains other files.%n%nTo keep the program files from being tampered with, Setup makes the installation folder modifiable by administrators only and readable and executable by other users; that would apply to the files already there as well. Please choose a new or empty folder.
+english.InstallDirIsDriveRoot=Setup cannot install into the root of an entire drive ("%1").%n%nA drive root usually lets every user of this computer create and rename folders in it, so Setup cannot protect it the way it protects an ordinary folder. Please choose a subfolder on the drive (for example D:\MentorRecorder) rather than the drive root itself.
+english.InstallDirCreateFailed=The installation folder "%1" could not be created, so Setup has stopped. Please run Setup again and choose another location.
+english.InstallDirProtectFailed=The access permissions of the installation folder "%1" could not be set (error code %2), so Setup has stopped.%n%nSetup must make this folder modifiable by administrators only; otherwise other users of this computer could tamper with the program files. The location may not be on a local NTFS disk (for example a USB drive, a FAT32 or exFAT partition, or a network location). Please run Setup again and choose a folder on a local NTFS disk.
+english.InstallDirFileIsLink=The file "%1" in the installation folder is a link to a file elsewhere (a hard link or a symbolic link), or Setup could not confirm that it is not one, so Setup has stopped.%n%nSetup makes the files already in the installation folder modifiable by administrators only; if this file is a link, that change would land on the other file it is linked to. Please delete this file (if it is a link, the file it is linked to is not affected), then run Setup again.
+english.NoteImagesIsLink=The "%1" folder in the installation folder is a link (a junction or symbolic link), not an ordinary folder, so Setup has stopped.%n%nSetup lets every user of this computer save note images in this folder; if it were a link, that write access would land wherever it points. Please delete the link (the folder it points to is not affected), then run Setup again.
 english.LaunchAfterInstall=Launch {#AppNameEn}
 english.WindowsTooOld=This version of Windows is too old (%1).%n%n{#AppNameEn} needs {#MinWindowsName} (build {#MinWindowsBuild}) or later, 64-bit Windows 10 or Windows 11. Please update Windows first, then run Setup again.
 english.Arm64Windows10=This is Windows 10 on an ARM processor.%n%n{#AppNameEn} is a 64-bit x86 application, which Windows 10 on ARM cannot run; it needs Windows 11 on ARM or an x64 PC.
@@ -146,13 +172,30 @@ Type: filesandordirs; Name: "{app}\styles"
 Type: filesandordirs; Name: "{app}\texttospeech"
 Type: filesandordirs; Name: "{app}\tls"
 Type: filesandordirs; Name: "{app}\vectorimageformats"
+; A DLL loose in {app}, or a planted qt.conf, is loaded by the Desktop and the Collector from
+; their own directory (DLL search order; Qt's settings file). The package ships neither a
+; foreign DLL nor a qt.conf, so clearing every top-level *.dll and qt.conf before [Files]
+; copies the real binaries removes anything an unprivileged user planted here before Setup ran
+; (a fresh install into a folder someone pre-created, or an upgrade over 1.5.0, whose folder
+; every local user could write). The DLLs we ship are re-copied immediately afterwards; this
+; is files-only, so no directory is followed. Executables are not auto-loaded this way and are
+; handled by ProtectInstallDirectory (ownership), so they are not blanket-deleted here - that
+; would also catch the uninstaller's own unins*.exe. qt.conf is listed before *.dll only for
+; readability; [InstallDelete] order does not matter.
+Type: files; Name: "{app}\qt.conf"
+Type: files; Name: "{app}\*.dll"
+; 1.5.0 and earlier installed the application manifest as a side file. It is embedded in the
+; executable now and no longer shipped, so an upgrade removes the old copy.
+Type: files; Name: "{app}\MentorRecorder.Desktop.exe.manifest"
 
 [Files]
 Source: "{#StageDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Dirs]
-; Note images are user data stored beside the application. Grant write access only to
-; this subtree, including in Program Files; keep it when upgrading or uninstalling.
+; Note images are user data stored beside the application. The rest of {app} is writable by
+; administrators only (ProtectInstallDirectory in [Code], applied before this section runs);
+; this subtree alone grants ordinary users write access, including in Program Files. Keep it
+; when upgrading or uninstalling.
 Name: "{app}\note-images"; Permissions: users-modify; Flags: uninsneveruninstall
 
 [Icons]
@@ -172,12 +215,66 @@ const
   { The staged package is ~150 MB and the database grows with play history; a drive with
     less than this free is not somewhere to silently propose installing. }
   RequiredFreeMegabytes = 512;
+  // The subfolder of {app} that holds note images (see [Dirs]): the only part of the
+  // install folder ordinary users may write to.
+  NoteImagesDirName = 'note-images';
+  // The install folder's ACL, applied by ProtectInstallDirectory. Accounts are named by
+  // well-known SID, never by name, because Windows localises the names ("Users" is "用户"
+  // on a Chinese system): S-1-5-32-544 Administrators, S-1-5-18 SYSTEM, S-1-5-32-545 Users.
+  // /L makes icacls act on a link itself, never on the folder a link points to.
+  IcaclsOwnerArgs = '/setowner *S-1-5-32-544 /L /Q';
+  IcaclsResetArgs = '/reset /L /Q';
+  IcaclsProtectArgs = '/inheritance:r /grant:r *S-1-5-32-544:(OI)(CI)F *S-1-5-18:(OI)(CI)F *S-1-5-32-545:(OI)(CI)RX /L /Q';
+  // CreateFileW arguments for LinkCountOf: ask for the attributes only (FILE_READ_ATTRIBUTES),
+  // share everything (FILE_SHARE_READ, _WRITE and _DELETE), open an existing entry
+  // (OPEN_EXISTING), and open a reparse point itself rather than what it names
+  // (FILE_FLAG_OPEN_REPARSE_POINT). Values from the Windows SDK (winnt.h, fileapi.h).
+  LinkProbeAccess = $80;
+  LinkProbeShare = 7;
+  LinkProbeDisposition = 3;
+  LinkProbeFlags = $00200000;
+
+type
+  // BY_HANDLE_FILE_INFORMATION (fileapi.h): thirteen DWORDs, each FILETIME written out as its
+  // two DWORDs. Pascal Script places record fields back to back with no padding, which matches
+  // the C layout only because every field here is 32 bits wide - keep it that way (no Int64, no
+  // nested FILETIME record). nNumberOfLinks is the eleventh DWORD, at byte offset 40.
+  TByHandleFileInformation = record
+    dwFileAttributes: Cardinal;
+    ftCreationTimeLow: Cardinal;
+    ftCreationTimeHigh: Cardinal;
+    ftLastAccessTimeLow: Cardinal;
+    ftLastAccessTimeHigh: Cardinal;
+    ftLastWriteTimeLow: Cardinal;
+    ftLastWriteTimeHigh: Cardinal;
+    dwVolumeSerialNumber: Cardinal;
+    nFileSizeHigh: Cardinal;
+    nFileSizeLow: Cardinal;
+    nNumberOfLinks: Cardinal;
+    nFileIndexHigh: Cardinal;
+    nFileIndexLow: Cardinal;
+  end;
 
 { DirExists('D:\') is also true for a mounted CD, a card reader, a mapped network share and
   a USB stick, any of which would fail at the copy step or install onto removable media.
   GetDriveType asks the question that is actually meant: is D: a fixed local disk? }
 function GetDriveTypeW(lpRootPathName: String): Cardinal;
   external 'GetDriveTypeW@kernel32.dll stdcall setuponly';
+
+// For LinkCountOf. Setup is a 32-bit process (Inno Setup 6 ships only Setup.e32), so a HANDLE
+// and a pointer are 32 bits: handles are Longint here (INVALID_HANDLE_VALUE is -1), the unused
+// lpSecurityAttributes and hTemplateFile are passed as 0, and the BOOL results are read as
+// Longint (non-zero is success). A String argument reaches a W function as a PWideChar, as in
+// GetDriveTypeW above; a var record argument is passed as a pointer to the record.
+function CreateFileW(lpFileName: String; dwDesiredAccess, dwShareMode: Cardinal;
+  lpSecurityAttributes: Longint; dwCreationDisposition, dwFlagsAndAttributes: Cardinal;
+  hTemplateFile: Longint): Longint;
+  external 'CreateFileW@kernel32.dll stdcall setuponly';
+function GetFileInformationByHandle(hFile: Longint;
+  var lpFileInformation: TByHandleFileInformation): Longint;
+  external 'GetFileInformationByHandle@kernel32.dll stdcall setuponly';
+function CloseHandle(hObject: Longint): Longint;
+  external 'CloseHandle@kernel32.dll stdcall setuponly';
 
 var
   NpcapPage: TOutputMsgWizardPage;
@@ -223,6 +320,318 @@ begin
     Result := 'D:\MentorRecorder'
   else
     Result := ExpandConstant('{autopf}\MentorRecorder');
+end;
+
+// True when Path is an NTFS junction or symbolic link. FindFirst reads the entry from the
+// parent folder, so it describes the link itself, not the folder the link points to.
+function IsReparsePoint(const Path: String): Boolean;
+var
+  FindRec: TFindRec;
+begin
+  Result := False;
+  if FindFirst(RemoveBackslashUnlessRoot(Path), FindRec) then
+  begin
+    try
+      Result := (FindRec.Attributes and FILE_ATTRIBUTE_REPARSE_POINT) <> 0;
+    finally
+      FindClose(FindRec);
+    end;
+  end;
+end;
+
+// True when Path is the root of a whole drive ("D:\" or "D:"). Such a folder has no parent
+// whose ACL Setup could rely on, it is normally world-writable, and its trailing backslash
+// would also break the icacls argument quoting (a drive-root target "D:\" reads as an escaped
+// quote). Setup refuses it rather than install into it.
+function IsDriveRoot(const Path: String): Boolean;
+begin
+  Result := ((Length(Path) = 3) and (Path[2] = ':') and (Path[3] = '\'))
+    or ((Length(Path) = 2) and (Path[2] = ':'));
+end;
+
+// True when Dir contains anything at all.
+function DirectoryHasEntries(const Dir: String): Boolean;
+var
+  FindRec: TFindRec;
+begin
+  Result := False;
+  if FindFirst(AddBackslash(Dir) + '*', FindRec) then
+  begin
+    try
+      repeat
+        Result := (FindRec.Name <> '.') and (FindRec.Name <> '..');
+      until Result or (not FindNext(FindRec));
+    finally
+      FindClose(FindRec);
+    end;
+  end;
+end;
+
+// True when note-images is the only thing left in Dir - which is what an uninstall leaves
+// behind ([Dirs] uninsneveruninstall). A folder that holds note-images AND other content is
+// deliberately not this: it is a foreign folder with a note-images planted beside other
+// files, and must not pass the non-empty-folder refusal on the strength of note-images alone.
+function HoldsOnlyNoteImages(const Dir: String): Boolean;
+var
+  FindRec: TFindRec;
+  HasNoteImages, HasOther: Boolean;
+begin
+  HasNoteImages := False;
+  HasOther := False;
+  if FindFirst(AddBackslash(Dir) + '*', FindRec) then
+  begin
+    try
+      repeat
+        if (FindRec.Name <> '.') and (FindRec.Name <> '..') then
+        begin
+          if CompareText(FindRec.Name, NoteImagesDirName) = 0 then
+            HasNoteImages := True
+          else
+            HasOther := True;
+        end;
+      until not FindNext(FindRec);
+    finally
+      FindClose(FindRec);
+    end;
+  end;
+  Result := HasNoteImages and (not HasOther);
+end;
+
+// An earlier installation of this application - or the lone note-images folder its uninstaller
+// leaves behind - is the one kind of non-empty folder Setup may take over. A real executable is
+// required: a bare note-images directory beside planted files is not enough (an attacker could
+// create one to slip past the refusal). This is only a convenience for honest users; the folder
+// is protected and swept at ssInstall regardless of what this returns (ProtectInstallDirectory).
+function HoldsThisApplication(const Dir: String): Boolean;
+begin
+  Result := FileExists(AddBackslash(Dir) + '{#AppExe}')
+    or FileExists(AddBackslash(Dir) + 'MentorRecorder.Collector.exe')
+    or HoldsOnlyNoteImages(Dir);
+end;
+
+// Runs System32's icacls on Target; returns its exit code, or a non-zero Windows error code
+// when it could not be started. The absolute path means an icacls.exe found earlier on PATH
+// is never run, and in 64-bit install mode Exec reaches the 64-bit System32. Its output goes
+// to the Setup log; SW_HIDE so that no console window flashes up for any call.
+function RunIcacls(const Target, Args: String): Integer;
+var
+  ResultCode: Integer;
+begin
+  ResultCode := -1;
+  Log(Format('icacls "%s" %s', [Target, Args]));
+  try
+    if not ExecAndLogOutput(ExpandConstant('{sys}\icacls.exe'), '"' + Target + '" ' + Args, '',
+         SW_HIDE, ewWaitUntilTerminated, ResultCode, nil) then
+    begin
+      Log('icacls could not be started: ' + SysErrorMessage(ResultCode));
+      if ResultCode = 0 then
+        ResultCode := -1;
+    end;
+  except
+    Log(GetExceptionMessage);
+    ResultCode := -1;
+  end;
+  Result := ResultCode;
+end;
+
+// True for the names [InstallDelete] removes right after ssInstall: every "{app}\*.dll" and
+// "{app}\qt.conf". A long name ends in ".dll" exactly when it matches the *.dll wildcard, and
+// both comparisons ignore case as Windows does, so every name skipped here is one that
+// [InstallDelete] deletes. (The wildcard may also match a few more names through their short
+// 8.3 forms; those are not skipped, so they are re-owned and then deleted - harmless.)
+function IsRemovedByInstallDelete(const Name: String): Boolean;
+begin
+  Result := (CompareText(ExtractFileExt(Name), '.dll') = 0)
+    or (CompareText(Name, 'qt.conf') = 0);
+end;
+
+// The number of names (hard links) the file at Path has, or 0 when it cannot be read. Also
+// returns the attributes the open handle reports. The handle asks for the attributes only and
+// opens a reparse point itself, never what it names. Hard links share one security descriptor,
+// so re-owning or re-ACLing a name in {app} that is also a name of a file elsewhere would change
+// that other file - Setup acting on someone else's file on an ordinary user's behalf.
+function LinkCountOf(const Path: String; var Attributes: Cardinal): Cardinal;
+var
+  FileHandle: Longint;
+  Info: TByHandleFileInformation;
+begin
+  Result := 0;
+  Attributes := 0;
+  try
+    FileHandle := CreateFileW(Path, LinkProbeAccess, LinkProbeShare, 0, LinkProbeDisposition,
+      LinkProbeFlags, 0);
+    if FileHandle = -1 then
+      Exit;
+    try
+      if GetFileInformationByHandle(FileHandle, Info) <> 0 then
+      begin
+        Result := Info.nNumberOfLinks;
+        Attributes := Info.dwFileAttributes;
+      end;
+    finally
+      CloseHandle(FileHandle);
+    end;
+  except
+    Log(GetExceptionMessage);
+    Result := 0;
+  end;
+end;
+
+// Make every file sitting directly in Dir administrator-owned and inheriting Dir's ACL.
+// The ACL reset on Dir above re-derives inherited entries, but a file another account placed
+// here before Setup ran keeps its OWNER (an owner can always rewrite its own ACL) and any
+// explicit grant it carries, so each top-level file is re-owned and /reset one by one. Only
+// files are touched: directories are left to [InstallDelete] (which removes the code folders
+// without following a link) and to note-images (whose own grant and images must never change),
+// so a junction planted in Dir is skipped, never traversed - there is no recursion and no /T.
+//
+// Names that [InstallDelete] removes right afterwards (*.dll, qt.conf) are skipped: an installed
+// folder holds about 250 files directly in {app}, nearly all of them DLLs, and two icacls runs
+// each before deleting them anyway would cost some 500 process launches on every upgrade. That
+// is sound because those names are deleted, not kept: Setup re-copies our own DLLs as new files
+// that inherit the protected ACL. What it leaves open: [InstallDelete] ignores a failed delete,
+// so a planted DLL that some process holds open without delete sharing is then neither removed
+// nor re-owned (a check for the real machine; see the install matrix).
+//
+// Before icacls touches a file, its link count is read: a name that is a reparse point, that has
+// more than one hard link, or whose count cannot be read stops Setup and nothing is changed or
+// deleted - the user removes that entry and runs Setup again. The skipped names need no such
+// check: they are only deleted, and deleting a link removes that name, not the other file.
+// Returns '' on success, else the stopping message.
+function ProtectTopLevelFiles(const Dir: String): String;
+var
+  FindRec: TFindRec;
+  Target: String;
+  Code: Integer;
+  Links, Attributes: Cardinal;
+begin
+  Result := '';
+  if FindFirst(AddBackslash(Dir) + '*', FindRec) then
+  begin
+    try
+      repeat
+        if ((FindRec.Attributes and FILE_ATTRIBUTE_DIRECTORY) = 0)
+          and (not IsRemovedByInstallDelete(FindRec.Name)) then
+        begin
+          Target := AddBackslash(Dir) + FindRec.Name;
+          Links := LinkCountOf(Target, Attributes);
+          Log(Format('Link check: "%s" has %d name(s), attributes $%x', [Target, Links, Attributes]));
+          if ((FindRec.Attributes and FILE_ATTRIBUTE_REPARSE_POINT) <> 0)
+            or ((Attributes and FILE_ATTRIBUTE_REPARSE_POINT) <> 0)
+            or (Links <> 1) then
+          begin
+            Result := FmtMessage(CustomMessage('InstallDirFileIsLink'), [Target]);
+            Break;
+          end;
+          Code := RunIcacls(Target, IcaclsOwnerArgs);
+          if Code = 0 then
+            Code := RunIcacls(Target, IcaclsResetArgs);
+          if Code <> 0 then
+          begin
+            Result := FmtMessage(CustomMessage('InstallDirProtectFailed'), [Target, IntToStr(Code)]);
+            Break;
+          end;
+        end;
+      until not FindNext(FindRec);
+    finally
+      FindClose(FindRec);
+    end;
+  end;
+end;
+
+// The install folder must not be writable by ordinary users: Setup and the uninstaller run
+// elevated, every account runs the executables, and the bundled protocol profiles outrank
+// the user-writable local ones because they sit here (docs/privacy-boundary.md). Program
+// Files gives that for free; a folder on a data drive such as D:\ inherits the drive root's
+// ACL, which commonly lets every user modify everything below it. So, at ssInstall - before
+// [InstallDelete], [Dirs] and [Files] run ("Installation Order" in the Inno Setup help):
+//   0. refuse a drive root: it has no parent whose ACL we could trust and cannot be protected;
+//   1. refuse a folder that is a link: everything below would land where it points;
+//   2. make Administrators the owner: an owner can always rewrite the ACL, and a folder
+//      created before Setup ran may belong to an ordinary user;
+//   3. drop the explicit grants anyone added (/reset), then replace the inherited ACL with
+//      a protected one: Administrators and SYSTEM full control, Users read and execute,
+//      inherited by everything below. Windows re-derives the inherited entries of what is
+//      already there, which is how an upgrade over an older install sheds the drive root's
+//      grants, and it does not follow links while doing so. Explicit entries below are
+//      left alone: note-images keeps its own grant and the user's images keep theirs. Every
+//      file Setup writes afterwards, the uninstaller included, inherits the protected ACL;
+//   4. re-check, now that the protected ACL is in place, that Dir is still a real directory
+//      and not a link: a swap between the earlier checks and here (its parent may let users
+//      rename it - see docs) would otherwise go unnoticed;
+//   5. refuse a note-images that is a link, before [Dirs] grants users-modify on it;
+//   6. re-own and reset every file already sitting directly in Dir, so one an ordinary user
+//      placed here before Setup ran cannot keep its owner or an explicit grant - except the
+//      *.dll and qt.conf names [InstallDelete] deletes next; a file that is a link (reparse
+//      point or extra hard link), or whose link count cannot be read, stops Setup instead
+//      (ProtectTopLevelFiles). From step 3 on no ordinary user can create or rename entries
+//      in the folder any more.
+// Returns '' when the folder is protected, otherwise the message that stops Setup.
+//
+// To check on a real installation (Get-Acl, or icacls, on each path) - a fresh install to
+// D:\, an upgrade over an install made before this protection existed, and Program Files:
+//   {app}                            protected; Administrators F, SYSTEM F, Users RX; owner
+//                                    Administrators
+//   {app}\*.exe, {app}\unins000.exe  inherited entries only; no write right for Users,
+//                                    Authenticated Users or Everyone; owner Administrators
+//   {app}\*.dll, loose top-level     a planted one is gone ([InstallDelete]); ours are
+//                                    inherited entries only, owner Administrators
+//   {app}\note-images                Users Modify (explicit) on top of the inherited entries
+function ProtectInstallDirectory(const Dir: String): String;
+var
+  Code: Integer;
+begin
+  Result := '';
+  if IsDriveRoot(Dir) then
+  begin
+    Result := FmtMessage(CustomMessage('InstallDirIsDriveRoot'), [Dir]);
+    Exit;
+  end;
+  // A link is never created over, even one whose target is gone.
+  if (not IsReparsePoint(Dir)) and (not DirExists(Dir)) then
+    ForceDirectories(Dir);
+  if IsReparsePoint(Dir) then
+  begin
+    Result := FmtMessage(CustomMessage('InstallDirIsLink'), [Dir]);
+    Exit;
+  end;
+  if not DirExists(Dir) then
+  begin
+    Result := FmtMessage(CustomMessage('InstallDirCreateFailed'), [Dir]);
+    Exit;
+  end;
+
+  Code := RunIcacls(Dir, IcaclsOwnerArgs);
+  if Code = 0 then
+    Code := RunIcacls(Dir, IcaclsResetArgs);
+  if Code = 0 then
+    Code := RunIcacls(Dir, IcaclsProtectArgs);
+  if Code <> 0 then
+  begin
+    Result := FmtMessage(CustomMessage('InstallDirProtectFailed'), [Dir, IntToStr(Code)]);
+    Exit;
+  end;
+
+  // Re-verify after protecting: if Dir was swapped for a link since the checks above, stop
+  // before [Files] writes anything through it (RedirectionGuard also blocks the traversal).
+  if IsReparsePoint(Dir) then
+  begin
+    Result := FmtMessage(CustomMessage('InstallDirIsLink'), [Dir]);
+    Exit;
+  end;
+  if not DirExists(Dir) then
+  begin
+    Result := FmtMessage(CustomMessage('InstallDirCreateFailed'), [Dir]);
+    Exit;
+  end;
+
+  if IsReparsePoint(AddBackslash(Dir) + NoteImagesDirName) then
+  begin
+    Result := FmtMessage(CustomMessage('NoteImagesIsLink'), [AddBackslash(Dir) + NoteImagesDirName]);
+    Exit;
+  end;
+
+  Result := ProtectTopLevelFiles(Dir);
 end;
 
 function NpcapInstalled: Boolean;
@@ -281,7 +690,7 @@ procedure InitializeWizard;
 begin
   NpcapPage := CreateOutputMsgPage(wpSelectTasks,
     CustomMessage('NpcapPageTitle'), CustomMessage('NpcapPageSubtitle'), CustomMessage('NpcapPageText'));
-  DownloadPage := CreateDownloadPage(SetupMessage(msgWizardPreparing), SetupMessage(msgPreparingDesc), @OnDownloadProgress);
+  DownloadPage := CreateDownloadPage(SetupMessage(msgWizardPreparing), SetupMessage(msgPreparingDesc), @OnDownloadProgress); // BOUNDARY-ALLOW(NET-009): the pinned, SHA-256 checked Npcap download; Npcap's licence forbids bundling it
   NpcapHandled := False;
 end;
 
@@ -363,7 +772,21 @@ end;
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   DataRoot: String;
+  Failure: String;
 begin
+  if CurStep = ssInstall then
+  begin
+    // Before anything is written; see ProtectInstallDirectory. Abort from ssInstall ends
+    // Setup ("Abort" in the Inno Setup help), and nothing has been installed yet.
+    Failure := ProtectInstallDirectory(ExpandConstant('{app}'));
+    if Failure <> '' then
+    begin
+      Log('Install folder not protected: ' + Failure);
+      SuppressibleMsgBox(Failure, mbCriticalError, MB_OK, IDOK);
+      Abort;
+    end;
+  end;
+
   if CurStep = ssPostInstall then
   begin
     DataRoot := OriginalUserLocalAppData;
@@ -385,8 +808,34 @@ begin
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
+var
+  Dir: String;
 begin
   Result := True;
+  if CurPageID = wpSelectDir then
+  begin
+    // ProtectInstallDirectory will make the chosen folder modifiable by administrators only.
+    // A drive root, a link, or a folder that already holds someone's other files is refused
+    // here, while another folder can still be chosen; an earlier installation of this
+    // application is not. These same refusals are enforced again at ssInstall, so a silent
+    // install that never shows this page is covered too.
+    Dir := WizardDirValue;
+    if IsDriveRoot(Dir) then
+    begin
+      SuppressibleMsgBox(FmtMessage(CustomMessage('InstallDirIsDriveRoot'), [Dir]), mbError, MB_OK, IDOK);
+      Result := False;
+    end
+    else if IsReparsePoint(Dir) then
+    begin
+      SuppressibleMsgBox(FmtMessage(CustomMessage('InstallDirIsLink'), [Dir]), mbError, MB_OK, IDOK);
+      Result := False;
+    end
+    else if DirExists(Dir) and DirectoryHasEntries(Dir) and (not HoldsThisApplication(Dir)) then
+    begin
+      SuppressibleMsgBox(FmtMessage(CustomMessage('InstallDirNotEmpty'), [Dir]), mbError, MB_OK, IDOK);
+      Result := False;
+    end;
+  end;
   if (CurPageID = wpReady) and (not NpcapHandled) and (not NpcapInstalled) then
   begin
     NpcapHandled := True;
@@ -400,6 +849,7 @@ procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
   DataRoot: String;
   DataDir: String;
+  ImagesDir: String;
 begin
   if CurUninstallStep = usPostUninstall then
   begin
@@ -409,10 +859,13 @@ begin
     if DataRoot = '' then
       DataRoot := ExpandConstant('{localappdata}');
     DataDir := AddBackslash(DataRoot) + 'MentorRecorder';
+    // Not part of the data this prompt offers to delete ([Dirs] uninsneveruninstall); the
+    // prompt names it so the answer is not mistaken for "everything is gone".
+    ImagesDir := AddBackslash(ExpandConstant('{app}')) + NoteImagesDirName;
 
     // Nothing is ever deleted without this prompt, and its default answer is "No".
     if DirExists(DataDir) then
-      if MsgBox(FmtMessage(CustomMessage('RemoveUserData'), [DataDir]), mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES then
+      if MsgBox(FmtMessage(CustomMessage('RemoveUserData'), [DataDir, ImagesDir]), mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES then
         DelTree(DataDir, True, True, True);
 
     RegDeleteKeyIncludingSubkeys(HKEY_LOCAL_MACHINE, UserDataRegKey);

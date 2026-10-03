@@ -58,6 +58,35 @@ public sealed class FirstPacketLifecycleTests
         Assert.NotNull(monitor);
     }
 
+    /// <summary>
+    /// Audit 2026-10-03, OA-9. "Connections the game already held" means connections whose
+    /// handshake this capture cannot have seen. Counted before the device is open, a connection
+    /// opened in between is neither counted nor captured, and the capture claims a clean start.
+    /// </summary>
+    [Fact]
+    public void PreexistingConnectionsAreCountedOnlyOnceTheDeviceIsOpen()
+    {
+        var monitor = new PreparingMonitor();
+        bool? openWhenCounted = null;
+        using var source = new MachinaCaptureSource(_ => monitor,
+            (_, _) => { openWhenCounted = monitor.Prepared; return 3; });
+
+        source.Start(Options, new Observer());
+
+        Assert.True(openWhenCounted);
+        Assert.Equal(3, source.PreexistingTcpConnections);
+    }
+
+    private sealed class PreparingMonitor : IMachinaMonitor
+    {
+        public bool Prepared;
+        public void Prepare() => Prepared = true;
+        public void Start() { }
+        public void Stop() { }
+        public void DetachCallbacks() { }
+        public void Dispose() { }
+    }
+
     [Fact]
     public void StopTimeoutRetainsNativeResourcesAndBlocksRestartUntilReaderJoins()
     {
@@ -166,6 +195,100 @@ public sealed class FirstPacketLifecycleTests
 
         monitor.Stop();
         Assert.Equal(1, Volatile.Read(ref closures));
+    }
+
+    /// <summary>
+    /// Audit 2026-10-03, OA-3. Machina's ProcessTCPInfo throws when GetExtendedTcpTable fails.
+    /// One such reading must neither end the capture -- that ends the duty in flight and the
+    /// restart attaches mid-connection -- nor end the game's stream; only a table that stays
+    /// unreadable is a fault.
+    /// </summary>
+    [Fact]
+    public void OneUnreadableConnectionTableNeitherFaultsTheCaptureNorEndsTheStream()
+    {
+        var reader = new Reader();
+        var faults = new ConcurrentQueue<string>();
+        var closures = 0;
+        var delivered = 0;
+        var failNext = 0;
+        using var monitor = new FirstPacketMonitor(
+            Options,
+            (_, _, _, _) => Interlocked.Increment(ref delivered),
+            faults.Enqueue,
+            reader,
+            () => Interlocked.Exchange(ref failNext, 0) == 1
+                ? throw new System.ComponentModel.Win32Exception(122, "simulated TCP table failure")
+                : new[] { FirstPacketTests.Owned() },
+            () => { },
+            connectionClosed: () => Interlocked.Increment(ref closures));
+        reader.Packets.Enqueue(FirstPacketTests.Packet(false, 100, 2));
+        reader.Packets.Enqueue(FirstPacketTests.Packet(false, 101, 24, FirstPacketTests.Bundle(0x1111)));
+        monitor.Prepare();
+        monitor.Start();
+        WaitFor(() => Volatile.Read(ref delivered) >= 1, "the stream decodes");
+
+        Interlocked.Exchange(ref failNext, 1);
+        WaitFor(() => Volatile.Read(ref failNext) == 0, "the failing reading was taken");
+        reader.Packets.Enqueue(FirstPacketTests.Packet(false, 177, 24, FirstPacketTests.Bundle(0x2222)));
+        WaitFor(() => Volatile.Read(ref delivered) >= 2, "the stream keeps decoding");
+
+        monitor.Stop();
+        Assert.Empty(faults);
+        Assert.Equal(0, Volatile.Read(ref closures));
+    }
+
+    /// <summary>
+    /// Audit 2026-10-03, CS3a-X1. A direction the buffer gives up is forwarded with its own
+    /// connection, whichever connection that is and while the others still decode: whether the
+    /// loss touches the run is the parser's question, and it needs to know which connection to ask
+    /// it about.
+    /// </summary>
+    [Fact]
+    public void AnAbandonedDirectionIsForwardedWithItsOwnConnection()
+    {
+        var reader = new Reader();
+        var delivered = 0;
+        var damaged = new ConcurrentQueue<(ushort LocalPort, bool Inbound)>();
+        using var monitor = new FirstPacketMonitor(
+            Options,
+            (_, _, _, _) => Interlocked.Increment(ref delivered),
+            _ => { },
+            reader,
+            () => new[] { FirstPacketTests.Owned(), FirstPacketTests.Owned(41001) },
+            () => { },
+            directionDamaged: (connection, inbound) => damaged.Enqueue((connection.LocalPort, inbound)));
+        reader.Packets.Enqueue(FirstPacketTests.Packet(false, 100, 2));
+        reader.Packets.Enqueue(FirstPacketTests.Packet(false, 101, 24, FirstPacketTests.Bundle(0x1111)));
+        reader.Packets.Enqueue(FirstPacketTests.Packet(false, 200, 2, port: 41001));
+        reader.Packets.Enqueue(
+            FirstPacketTests.Packet(false, 201, 24, FirstPacketTests.Bundle(0x2222), port: 41001));
+        monitor.Prepare();
+        monitor.Start();
+        WaitFor(() => Volatile.Read(ref delivered) >= 2, "both connections deliver");
+
+        // Half the sequence space ahead of what the second connection expects next (277): that
+        // direction cannot be followed any more. The first connection is untouched.
+        reader.Packets.Enqueue(
+            FirstPacketTests.Packet(false, 0x80000115u, 24, FirstPacketTests.Bundle(0x3333), port: 41001));
+        reader.Packets.Enqueue(FirstPacketTests.Packet(false, 177, 24, FirstPacketTests.Bundle(0x4444)));
+        WaitFor(() => !damaged.IsEmpty && Volatile.Read(ref delivered) >= 3, "the loss is reported, the rest decodes");
+
+        monitor.Stop();
+        Assert.Equal(((ushort)41001, false), Assert.Single(damaged));
+    }
+
+    /// <summary>A table that stays unreadable is still a fault: ownership can no longer be confirmed.</summary>
+    [Fact]
+    public void AConnectionTableThatStaysUnreadableStillFaultsTheCapture()
+    {
+        using var failed = new ManualResetEventSlim();
+        var reader = new Reader();
+        using var monitor = new FirstPacketMonitor(Options, (_, _, _, _) => { }, _ => failed.Set(), reader,
+            () => throw new System.ComponentModel.Win32Exception(122, "simulated TCP table failure"), () => { });
+        monitor.Prepare();
+        monitor.Start();
+        Assert.True(failed.Wait(TimeSpan.FromSeconds(10)));
+        monitor.Stop();
     }
 
     private static void WaitFor(Func<bool> condition, string because)

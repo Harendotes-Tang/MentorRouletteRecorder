@@ -90,7 +90,7 @@ ApplicationWindow {
     ReflectionDialog { id: reflection; objectName: "reflection" }
     Connections {
         target: App
-        function onReflectionPromptRequested(run) { reflection.openForRun(run, "刚刚完成") }
+        function onReflectionPromptRequested(run) { reflection.openForPrompt(run, "刚刚完成") }
     }
 })",
                           QUrl());
@@ -289,6 +289,64 @@ private Q_SLOTS:
         QCOMPARE(fixture.dialog()->property("runId").toString(), QStringLiteral("run-old"));
         QCOMPARE(fixture.dialog()->property("runRevision").toInt(), 2);
         QCOMPARE(fixture.note(), QStringLiteral("这段笔记还没有保存。"));
+    }
+
+    /// A 心得 prompt the busy window could not show is offered again as soon as
+    /// that window closes, through the same hand-shake the result question has
+    /// (review OH-6 / S2-5). Before, the run was marked as offered the moment
+    /// the prompt was raised, so the dropped prompt never came back.
+    void aCompletionPromptDroppedByABusyDialogIsOfferedWhenItCloses()
+    {
+        DialogFixture fixture;
+        QVERIFY2(fixture.create(), qPrintable(fixture.errors));
+        QSignalSpy prompts(&fixture.controller, &mr::AppController::reflectionPromptRequested);
+
+        // The user is writing up an earlier run.
+        QVERIFY(fixture.openForRun(finishedRun(QStringLiteral("run-old"),
+                                               QStringLiteral("邪龙坠巢"), 2),
+                                   QStringLiteral("补录笔记")));
+        fixture.type(QStringLiteral("路上讲了机制。"));
+
+        // Another run is cleared meanwhile.
+        auto completed = finishedRun(QStringLiteral("run-b"), QStringLiteral("水晶塔"), 3);
+        completed.insert(QStringLiteral("result"), QStringLiteral("COMPLETED"));
+        completed.insert(QStringLiteral("pending_review"), false);
+        auto event = runFinishedEvent(completed);
+        event.insert(QStringLiteral("state"), QStringLiteral("COMPLETED"));
+        Q_EMIT fixture.backend.liveEvent(event);
+        QTRY_COMPARE(prompts.count(), 1);
+        QCOMPARE(fixture.dialog()->property("runId").toString(), QStringLiteral("run-old"));
+
+        // The earlier note closes; now the prompt is offered, and shown.
+        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "close"));
+        QTRY_COMPARE_WITH_TIMEOUT(prompts.count(), 2, 3000);
+        QTRY_VERIFY(fixture.dialog()->property("visible").toBool());
+        QCOMPARE(fixture.dialog()->property("runId").toString(), QStringLiteral("run-b"));
+        QCOMPARE(fixture.dialog()->property("kicker").toString(), QStringLiteral("刚刚完成"));
+        QCOMPARE(fixture.note(), QString());
+
+        // Shown once is asked: closing it does not raise it again.
+        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "close"));
+        QTRY_VERIFY(!fixture.dialog()->property("visible").toBool());
+        QTest::qWait(150);
+        QCOMPARE(prompts.count(), 2);
+    }
+
+    // 审查 OD-5：结果问题的窗口复位了错误提示，却没复位图片错误，于是乙的「本次导随
+    // 结果」里显示着甲那次添加图片失败的原因。
+    void aResultQuestionStartsWithoutTheLastRunsImageError()
+    {
+        DialogFixture fixture;
+        QVERIFY2(fixture.create(), qPrintable(fixture.errors));
+        QVERIFY(fixture.openForRun(finishedRun(QStringLiteral("run-a"), QStringLiteral("水晶塔"), 3),
+                                   QStringLiteral("补录笔记")));
+        fixture.dialog()->setProperty("noteImageError", QString::fromUtf8("图片太大，没有添加。"));
+        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "close"));
+        QTRY_VERIFY(!fixture.dialog()->property("visible").toBool());
+
+        QVERIFY(fixture.openForResult(finishedRun(QStringLiteral("run-b"), QStringLiteral("石卫塔"), 1)));
+        QTRY_VERIFY(fixture.dialog()->property("visible").toBool());
+        QVERIFY(fixture.dialog()->property("noteImageError").toString().isEmpty());
     }
 
     void liveRevisionsDoNotAdvanceTheOpenResultFormsBaseline()

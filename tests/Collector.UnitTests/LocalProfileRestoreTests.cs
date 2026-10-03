@@ -166,6 +166,57 @@ public sealed class LocalProfileRestoreTests : IDisposable
         pipeline.OnCaptureStopped(session, CaptureEndReason.UserStop);
     }
 
+    /// <summary>
+    /// Audit 2026-10-03, CS-8. A queue-inferred profile that comes back beside a shared one reading
+    /// the server's match is outranked (protocol-profile-format §11.2), not unusable. It stays back
+    /// under its own name, the shared profile goes on recording without its run being cut, and the
+    /// player is told exactly that - not that their calibration no longer works.
+    /// </summary>
+    [Fact]
+    public void ARestoredProfileTheCatalogueRanksBelowTheOneInUseStaysRestoredAndIsAnsweredTruthfully()
+    {
+        WriteLocalProfile(CalibrationTrafficCases.QueueRequest);
+        // Retired through 重新校准 on an earlier evening.
+        File.Move(ProfilePath, RetiredPath);
+        var retired = File.ReadAllBytes(RetiredPath);
+        var code = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
+        SharedProfileFiles.Write(
+            SharedProfileBuilder.Build(code.Payload, Bed.Template, Bed.Confirmed, new Dictionary<string, int>()),
+            _bed.SharedRoot);
+        var pipeline = _bed.Pipeline(Services());
+        Assert.Equal(ProfileOrigin.Shared, pipeline.Refresh(Bed.Game()).Origin);
+        var session = _bed.Start(pipeline);
+        var shared = pipeline.Current.ProfileId;
+        Assert.True(pipeline.CalibrationStatus().RetiredLocalProfileAvailable);
+
+        // A mentor roulette is matched and in flight when the player asks.
+        Bed.Feed(pipeline, session, CalibrationObserverTests.Cluster(5_000, 5000)
+            .Concat(CalibrationObserverTests.QueueAndPop(100_000, 9, 110_000)));
+        var inFlight = pipeline.RunState;
+        Assert.NotEqual(RunState.Idle, inFlight);
+
+        var answer = Assert.Throws<CollectorException>(
+            () => pipeline.DiscardCalibration(restoreLocalProfile: true));
+
+        Assert.Equal(ErrorCodes.CalibrationNotReady, answer.Code);
+        Assert.Contains("已经放回", answer.Message, StringComparison.Ordinal);
+        Assert.Contains("匹配通知", answer.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("无法使用", answer.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("重新校准", answer.Message, StringComparison.Ordinal);
+
+        // Back under its own name, byte for byte, and not offered again: nothing is left to restore.
+        Assert.Equal(retired, File.ReadAllBytes(ProfilePath));
+        Assert.False(File.Exists(RetiredPath));
+        Assert.False(pipeline.CalibrationStatus().RetiredLocalProfileAvailable);
+
+        // What was recording records on, with the run it had in flight.
+        Assert.Equal(ProfileOrigin.Shared, pipeline.Current.Origin);
+        Assert.Equal(shared, pipeline.Current.ProfileId);
+        Assert.Equal(ProfileStatus.Verified, pipeline.Current.Status);
+        Assert.Equal(inFlight, pipeline.RunState);
+        pipeline.OnCaptureStopped(session, CaptureEndReason.UserStop);
+    }
+
     // ------------------------------------------------------------------ what it refuses
 
     [Fact]
@@ -259,6 +310,39 @@ public sealed class LocalProfileRestoreTests : IDisposable
         Assert.Contains("重新校准", refused.Message, StringComparison.Ordinal);
         Assert.False(File.Exists(ProfilePath));
         Assert.True(File.Exists(RetiredPath));
+    }
+
+    /// <summary>
+    /// Audit 2026-10-03, CS-8. A file the loader refuses changes nothing the catalogue selects, so
+    /// what is recording is not stopped for it: the run in flight goes on under the same profile.
+    /// </summary>
+    [Fact]
+    public void AFileTheLoaderRefusesDoesNotInterruptTheProfileInUse()
+    {
+        var code = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
+        SharedProfileFiles.Write(
+            SharedProfileBuilder.Build(code.Payload, Bed.Template, Bed.Confirmed, new Dictionary<string, int>()),
+            _bed.SharedRoot);
+        Directory.CreateDirectory(Path.GetDirectoryName(RetiredPath)!);
+        File.WriteAllText(RetiredPath, "{\"schema_version\": 1}");
+        var pipeline = _bed.Pipeline(Services());
+        Assert.Equal(ProfileOrigin.Shared, pipeline.Refresh(Bed.Game()).Origin);
+        var session = _bed.Start(pipeline);
+        var shared = pipeline.Current.ProfileId;
+        Bed.Feed(pipeline, session, CalibrationObserverTests.Cluster(5_000, 5000)
+            .Concat(CalibrationObserverTests.QueueAndPop(100_000, 9, 110_000)));
+        var inFlight = pipeline.RunState;
+        Assert.NotEqual(RunState.Idle, inFlight);
+
+        var refused = Assert.Throws<CollectorException>(
+            () => pipeline.DiscardCalibration(restoreLocalProfile: true));
+
+        Assert.Contains("重新校准", refused.Message, StringComparison.Ordinal);
+        Assert.False(File.Exists(ProfilePath));
+        Assert.True(File.Exists(RetiredPath));
+        Assert.Equal(shared, pipeline.Current.ProfileId);
+        Assert.Equal(inFlight, pipeline.RunState);
+        pipeline.OnCaptureStopped(session, CaptureEndReason.UserStop);
     }
 
     /// <summary>

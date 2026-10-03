@@ -18,16 +18,30 @@ not buy a second code. The same id is already public on the issue the account op
 
 Submission rules (``add_submission``):
 
+* the build has the shape of a real client build (``is_game_build``), not merely one the client reads,
+  and is dated no later than the day after the submission (``BUILD_DATE_SLACK``, for the build's own
+  time zone): a build from the future is no build any client runs;
 * the account is at least ``MIN_ACCOUNT_AGE`` old;
 * a revoked code is never published again, by anybody;
 * one *live* code per account per (region, build): the same code again changes nothing, and a
   different code **replaces** the account's earlier one (rollback plan section 2). Replacing takes
   the account off the old code: its last submitter revokes it, another only lowers ``submitters``.
-  A revoked code therefore frees the slot on its own, because its row is superseded like any other;
-* no slot limit: a new code from a new account is a new entry; the same code from another account
-  adds that account to ``submitters``;
-* a code whose 12-digit file name is taken by another code is refused;
+  A code revoked that way never holds anybody, because its last submitter's row is superseded;
+* a code a maintainer revoked (``revoke``) holds every account still on it: none of them submits
+  anything more for that region and build until a maintainer has reviewed it (``lift_hold``). The
+  hold is the account's ledger row still naming the revoked code, so it needs no field of its own;
+* one account submits at most ``MAX_CODES_PER_ACCOUNT_BUILD`` different codes for one region and
+  build, and for at most ``MAX_BUILDS_PER_ACCOUNT_DAY`` regions and builds per UTC day, so no single
+  account can fill the index every client downloads;
+* no slot limit across accounts: a new code from a new account is a new entry; the same code from
+  another account adds that account to ``submitters``;
+* a code whose 12-digit file name is taken by another code in use is refused; a name held only by
+  revoked codes is free again, so a revoked squatter cannot block an honest code for ever;
 * nothing is written that would take the index past the client's caps.
+
+Entries leave the index only through ``prune``, which a maintainer runs to take out whole builds
+that no client runs any more, named one by one: a build's date is the submitter's to choose, so no
+order of dates can tell a real build from an invented one dated today.
 
 The index format does not change: a code taken out of use is ``revoked: true``, which a client that
 predates replacement already reads correctly. Only the ledger gains an optional ``replaced``, the
@@ -62,8 +76,16 @@ MAX_CANDIDATES = 8
 # stops accounts trading codes back and forth from growing the file without end.
 MAX_REPLACED = 16
 MAX_LEDGER_BYTES = 4 * 1024 * 1024
+# Per-account submission limits, also ours. Entries are never deleted by a submission and the client
+# refuses the whole index past its caps, so without them one account could fill MAX_INDEX_BYTES in an
+# afternoon and stop every later submission. An honest player shares one code per patch and corrects it
+# once or twice. The per-build limit stays below MAX_REPLACED, so a chain never has to drop a code.
+MAX_CODES_PER_ACCOUNT_BUILD = 3
+MAX_BUILDS_PER_ACCOUNT_DAY = 2
 CODE_EXTENSION = ".mrc"
 MIN_ACCOUNT_AGE = _dt.timedelta(days=30)
+# How far past the submission's UTC date a build's own date may lie: a build is dated in its own time zone.
+BUILD_DATE_SLACK = _dt.timedelta(days=1)
 INDEX_FILE = "index.json"
 LEDGER_FILE = "submissions.json"
 
@@ -89,7 +111,11 @@ REFUSED = "refused"
 CODE_INVALID = "CODE_INVALID"
 PAYLOAD_MISMATCH = "PAYLOAD_MISMATCH"
 BUILD_NOT_INDEXABLE = "BUILD_NOT_INDEXABLE"
+BUILD_IN_FUTURE = "BUILD_IN_FUTURE"
 ACCOUNT_TOO_NEW = "ACCOUNT_TOO_NEW"
+ACCOUNT_HELD = "ACCOUNT_HELD"
+ACCOUNT_BUILD_LIMIT = "ACCOUNT_BUILD_LIMIT"
+ACCOUNT_DAILY_LIMIT = "ACCOUNT_DAILY_LIMIT"
 REVOKED = "REVOKED"
 PATH_COLLISION = "PATH_COLLISION"
 INDEX_FULL_ENTRIES = "INDEX_FULL_ENTRIES"
@@ -99,6 +125,10 @@ MAINTAINER_REFUSALS = frozenset({PATH_COLLISION, INDEX_FULL_ENTRIES, INDEX_FULL_
 
 _REGION_DIRECTORIES = {"CN": "cn", "GLOBAL": "global"}
 _BUILD = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
+# What every real client build looks like (ffxivgame.ver, e.g. 2026.09.01.0000.0000): a date and two
+# four-digit counters. The client reads any _BUILD, and so does every reader here; only add_submission
+# demands this shape, so an index written before it existed still reads.
+_GAME_BUILD = re.compile(r"([0-9]{4})\.([0-9]{2})\.([0-9]{2})\.[0-9]{4}\.[0-9]{4}")
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 _COMMIT = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
 _STAMP = re.compile(r"([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})(?:\.([0-9]{1,7}))?Z")
@@ -164,6 +194,22 @@ def region_directory(region: str) -> str:
 
 def is_build(text: Any) -> bool:
     return isinstance(text, str) and _BUILD.fullmatch(text) is not None
+
+
+def build_date(text: Any) -> _dt.date | None:
+    """The calendar date a real client build carries, or None when ``text`` does not have that shape."""
+    match = _GAME_BUILD.fullmatch(text) if isinstance(text, str) else None
+    if match is None:
+        return None
+    try:
+        return _dt.date(*(int(part) for part in match.groups()))
+    except ValueError:
+        return None
+
+
+def is_game_build(text: Any) -> bool:
+    """True for the shape of a real client build on a real calendar date; every such build ``is_build``."""
+    return build_date(text) is not None
 
 
 def is_sha256(text: Any) -> bool:
@@ -297,8 +343,12 @@ def is_conflicting(entry: Mapping) -> bool:
 
 
 def pick_key(entry: Mapping) -> tuple:
-    """The client's pick order: conflicting last, then more submitters, then published earlier, then hash."""
-    return (is_conflicting(entry), -entry["submitters"], parse_stamp(entry["first_published_at"]), entry["code_sha256"])
+    """The client's pick order: more submitters, then unmarked before conflicting, then published earlier, then hash.
+
+    The conflict mark only breaks a tie in submitters (audit 2026-10-03, ON1-1): one more account publishing a
+    differing code must not push a code many players submitted behind codes from one or two accounts.
+    """
+    return (-entry["submitters"], is_conflicting(entry), parse_stamp(entry["first_published_at"]), entry["code_sha256"])
 
 
 def select(entries: Iterable[Mapping], region: str, build: str) -> tuple:
@@ -403,9 +453,11 @@ def check_consistent(index: Index) -> None:
     shas = [entry["code_sha256"] for entry in index.entries]
     if len(shas) != len(set(shas)):
         raise IndexCorrupt("index.json lists a code twice")
-    paths = [entry["path"] for entry in index.entries]
+    # A revoked code keeps its entry, so a file name it held may be taken again; the client downloads every
+    # code at its own commit and skips revoked ones, so only two codes in use may never share a name.
+    paths = [entry["path"] for entry in index.entries if not entry["revoked"]]
     if len(paths) != len(set(paths)):
-        raise IndexCorrupt("index.json lists one code path twice")
+        raise IndexCorrupt("index.json lists one code path for two codes in use")
     by_sha = {entry["code_sha256"]: entry for entry in index.entries}
     seen = set()
     for row in index.submissions:
@@ -514,8 +566,10 @@ def add_submission(
     payload, sha = decoded.payload, decoded.code_sha256
     if (payload["region"], payload["game_build"]) != (region, build):
         return SubmissionOutcome(REFUSED, PAYLOAD_MISMATCH, code_sha256=sha, payload=payload)
-    if not is_build(build):
+    if not is_game_build(build):
         return SubmissionOutcome(REFUSED, BUILD_NOT_INDEXABLE, code_sha256=sha, payload=payload)
+    if build_date(build) > now.date() + BUILD_DATE_SLACK:
+        return SubmissionOutcome(REFUSED, BUILD_IN_FUTURE, code_sha256=sha, payload=payload)
     if now - created < MIN_ACCOUNT_AGE:
         return SubmissionOutcome(REFUSED, ACCOUNT_TOO_NEW, code_sha256=sha, payload=payload)
 
@@ -526,6 +580,9 @@ def add_submission(
                  if (row["region"], row["game_build"], row["account"]) == (region, build, account)), None)
     if mine is not None and mine["code_sha256"] == sha:
         return SubmissionOutcome(DUPLICATE, index=index, entry=existing, code_sha256=sha, payload=payload)
+    limit = _account_limit(index, mine, (region, build, account), sha, now)
+    if limit is not None:
+        return SubmissionOutcome(REFUSED, limit, code_sha256=sha, payload=payload)
 
     row = {"region": region, "game_build": build, "account": account, "code_sha256": sha,
            "submitted_at": format_stamp(now), "issue": issue}
@@ -544,7 +601,7 @@ def add_submission(
         status, path = ADDED, None
     else:
         path = code_path(region, build, sha)
-        if any(item["path"] == path for item in entries):
+        if any(item["path"] == path and not item["revoked"] for item in entries):
             return SubmissionOutcome(REFUSED, PATH_COLLISION, code_sha256=sha, payload=payload)
         entry = {
             "region": region, "game_build": build, "code_sha256": sha, "match_source": payload["match_source"],
@@ -570,8 +627,9 @@ def _release(entries: tuple, code_sha256: str) -> tuple:
     submitters left only the count drops. ``submitters`` never falls below one, which is what the
     client reads: a code nobody submits any more is revoked, not counted down to zero.
     """
-    # check_consistent guarantees every ledger row's code is listed, and entries are never deleted,
-    # so the lookup cannot miss; a default would only turn a broken invariant into a silent no-op.
+    # check_consistent guarantees every ledger row's code is listed, and an entry is only ever deleted
+    # together with every row of its build (prune), so the lookup cannot miss; a default would only
+    # turn a broken invariant into a silent no-op.
     current = next(entry for entry in entries if entry["code_sha256"] == code_sha256)
     if current["submitters"] > 1:
         freed, revoked = dict(current, submitters=current["submitters"] - 1), ()
@@ -593,6 +651,33 @@ def _replaced_chain(superseded: Mapping, current: str) -> tuple:
     chain = list(superseded.get(REPLACED, ())) + [superseded["code_sha256"]]
     kept = [code for code in dict.fromkeys(chain) if code != current]
     return tuple(kept[-MAX_REPLACED:])
+
+
+def _account_limit(index: Index, mine: Mapping | None, where: tuple, code_sha256: str, now: _dt.datetime) -> str | None:
+    """Why this account may not submit ``code_sha256`` for this (region, build) now, or None when it may.
+
+    ``where`` is ``(region, build, account)`` and ``mine`` the account's row for that region and build.
+    A row whose code is revoked can only be one a maintainer revoked: a code revoked by a replacement
+    loses its last row in the same step (``_release``). Both counts read only the ledger, so a limit
+    holds for a code that would join another account's entry just as for a new one.
+    """
+    region, build, account = where
+    if mine is not None and any(entry["revoked"] for entry in index.entries if entry["code_sha256"] == mine["code_sha256"]):
+        return ACCOUNT_HELD
+    codes = {code_sha256}
+    if mine is not None:
+        codes.update(mine.get(REPLACED, ()), (mine["code_sha256"],))
+    if len(codes) > MAX_CODES_PER_ACCOUNT_BUILD:
+        return ACCOUNT_BUILD_LIMIT
+    today = now.date()
+    elsewhere_today = sum(
+        1 for row in index.submissions
+        if row["account"] == account and (row["region"], row["game_build"]) != (region, build)
+        and parse_stamp(row["submitted_at"]).date() == today
+    )
+    if elsewhere_today >= MAX_BUILDS_PER_ACCOUNT_DAY:
+        return ACCOUNT_DAILY_LIMIT
+    return None
 
 
 def _cap_refusal(index: Index) -> str | None:
@@ -657,9 +742,67 @@ def _set_conflicting(entry: Mapping, flag: bool) -> Mapping:
 
 
 def revoke(index: Index, code_sha256: str) -> Index:
-    """Marks every entry of a code revoked; idempotent; KeyError when the index does not list it."""
+    """Marks every entry of a code revoked; idempotent; KeyError when the index does not list it.
+
+    The ledger rows on the code stay as they are, and that is what holds their accounts for this
+    region and build (``add_submission``) until a maintainer lifts the hold.
+    """
     if not any(entry["code_sha256"] == code_sha256 for entry in index.entries):
         raise KeyError(code_sha256)
     return replace(index, entries=tuple(
         dict(entry, revoked=True) if entry["code_sha256"] == code_sha256 else entry for entry in index.entries
     ))
+
+
+def lift_hold(index: Index, region: str, build: str, account: str) -> Index:
+    """Lets an account a maintainer's revocation holds submit for this region and build again, after review.
+
+    The hold is the account's row still naming the revoked code, so lifting it removes that row and takes
+    the account off the code's ``submitters``, which never falls below one (the client refuses less). The
+    code itself stays revoked. KeyError when the account has no row there, or its code is not revoked.
+    """
+    row = next((row for row in index.submissions
+                if (row["region"], row["game_build"], row["account"]) == (region, build, account)), None)
+    if row is None or not any(entry["revoked"] for entry in index.entries if entry["code_sha256"] == row["code_sha256"]):
+        raise KeyError(account)
+    entries = tuple(
+        dict(entry, submitters=entry["submitters"] - 1)
+        if entry["code_sha256"] == row["code_sha256"] and entry["submitters"] > 1 else entry
+        for entry in index.entries
+    )
+    return Index(entries, tuple(item for item in index.submissions if item is not row))
+
+
+def prune(index: Index, region: str, builds: Iterable[str]) -> tuple:
+    """``(index, removed)``: exactly the named ``builds`` of ``region`` taken out; ``removed`` lists them, sorted.
+
+    The maintainer names every build; nothing is chosen by date. A build's date is whatever its submitter
+    wrote, and submission accepts one dated today, so "keep the newest" would let an invented build dated
+    today push the real one out. A removed build takes its entries and its ledger rows with it, and no
+    chain that stays names one of its codes, so the result passes ``check_consistent`` and reads back.
+    ValueError for an unknown region or no build at all; KeyError, with nothing removed, for a build
+    neither file lists for that region, so a mistyped build cannot pass for one already gone.
+    """
+    region_directory(region)
+    named = {builds} if isinstance(builds, str) else set(builds)
+    if not named:
+        raise ValueError("name at least one build to remove")
+    listed = {item["game_build"] for item in index.entries + index.submissions if item["region"] == region}
+    unknown = sorted(named - listed, key=str)
+    if unknown:
+        raise KeyError(unknown[0])
+    removed = {(region, build) for build in named}
+    gone = {item["code_sha256"] for item in index.entries if (item["region"], item["game_build"]) in removed}
+    entries = tuple(item for item in index.entries if (item["region"], item["game_build"]) not in removed)
+    submissions = tuple(_without_codes(row, gone) for row in index.submissions
+                        if (row["region"], row["game_build"]) not in removed)
+    return Index(entries, submissions), tuple(sorted(removed))
+
+
+def _without_codes(row: Mapping, codes: set) -> Mapping:
+    """The row with every code of ``codes`` taken out of its chain, and the chain dropped once it is empty."""
+    if not set(row.get(REPLACED, ())) & codes:
+        return row
+    chain = [code for code in row[REPLACED] if code not in codes]
+    trimmed = {name: value for name, value in row.items() if name != REPLACED}
+    return dict(trimmed, replaced=chain) if chain else trimmed

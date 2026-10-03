@@ -344,13 +344,14 @@ public sealed class SemanticEventProcessor : ISemanticEventSink, ICaptureLifecyc
     }
 
     /// <inheritdoc />
-    public void OnCaptureStopped(bool gameExited, DateTimeOffset observedAtUtc, TimeSpan mono) =>
+    public void OnCaptureStopped(bool gameExited, DateTimeOffset observedAtUtc, TimeSpan mono, bool faulted = false) =>
         Accept(new CaptureStopped
         {
             Key = LifecycleKey("CAPTURE_STOPPED", mono),
             ObservedAtUtc = observedAtUtc,
             Mono = mono,
             GameExited = gameExited,
+            Faulted = faulted,
         });
 
     /// <inheritdoc />

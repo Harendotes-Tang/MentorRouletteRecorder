@@ -5,7 +5,7 @@ namespace MentorRecorder.Collector.Capture;
 /// <summary>
 /// Reads a process's executable path without opening a handle to that process.
 ///
-/// <see cref="System.Diagnostics.Process.MainModule"/> (BOUNDARY-ALLOW: named here only to say
+/// <see cref="System.Diagnostics.Process.MainModule"/> (BOUNDARY-ALLOW(INJ-008): named here only to say
 /// why it is not used) enumerates the target's modules and so needs
 /// <c>PROCESS_QUERY_INFORMATION | PROCESS_VM_READ</c>. That is a handle on the game, which
 /// docs/privacy-boundary.md section 2, rule 3b forbids outright, so it is not a matter of

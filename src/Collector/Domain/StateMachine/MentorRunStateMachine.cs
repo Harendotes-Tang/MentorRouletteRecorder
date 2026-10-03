@@ -480,7 +480,14 @@ public sealed partial class MentorRunStateMachine
                 return TransitionResult.Ignored(_state, _runId);
 
             // The duty was never entered, so the run can never be an attempt whatever
-            // happened to the capture or to the connection.
+            // happened to the capture or to the connection. A capture an error ended, though,
+            // stopped watching while the player could still enter: like a lost connection, the
+            // match nobody saw end waits for the player (audit 2026-10-03, ODp-2).
+            case CaptureStopped { Faulted: true }:
+                return Finish(
+                    ev, RunState.CancelledBeforeEntry, RunResult.CancelledBeforeEntry,
+                    DetectionConfidence.Low, pendingReview: true);
+
             case CaptureStopped:
                 return Finish(
                     ev, RunState.CancelledBeforeEntry, RunResult.CancelledBeforeEntry,
@@ -730,7 +737,13 @@ public sealed partial class MentorRunStateMachine
 
     private TransitionResult LoseProfile(ProfileLost lost)
     {
-        var result = Finish(lost, RunState.UnknownFinalState, RunResult.Unknown, DetectionConfidence.None);
+        // A run that never entered was cancelled before entry, whatever ended it, and nobody saw
+        // how: low and pending review. UNKNOWN with no entry time is a row the correction rules
+        // refuse to let the player confirm or annotate (audit 2026-10-03, OG-5).
+        var result = _state == RunState.MentorMatched
+            ? Finish(lost, RunState.CancelledBeforeEntry, RunResult.CancelledBeforeEntry, DetectionConfidence.Low,
+                pendingReview: true)
+            : Finish(lost, RunState.UnknownFinalState, RunResult.Unknown, DetectionConfidence.None);
         _profileLost = true;
         return result;
     }

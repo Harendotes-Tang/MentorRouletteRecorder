@@ -56,6 +56,7 @@ public sealed class MachinaCaptureSource : ICaptureSource
     private OodleSignatureRuntime? _oodleSignatureRuntime;
     private IMachinaMonitor? _monitor;
     private readonly Func<CaptureStartOptions, IMachinaMonitor>? _monitorFactory;
+    private readonly Func<int, System.Net.IPAddress?, int?> _connectionCounter = GameTcpConnectionProbe.TryCount;
     private MachinaTraceListener? _traceListener;
     private ICaptureSourceObserver? _observer;
     private CaptureStartOptions? _options;
@@ -105,8 +106,13 @@ public sealed class MachinaCaptureSource : ICaptureSource
             oodleTempManifestPath);
     }
 
-    internal MachinaCaptureSource(Func<CaptureStartOptions, IMachinaMonitor> monitorFactory)
-        : this() => _monitorFactory = monitorFactory;
+    internal MachinaCaptureSource(Func<CaptureStartOptions, IMachinaMonitor> monitorFactory,
+        Func<int, System.Net.IPAddress?, int?>? connectionCounter = null)
+        : this()
+    {
+        _monitorFactory = monitorFactory;
+        _connectionCounter = connectionCounter ?? GameTcpConnectionProbe.TryCount;
+    }
 
     /// <inheritdoc />
     public string Kind => _monitorFactory is null ? "machina-npcap" : "synthetic-machina-adapter";
@@ -205,9 +211,7 @@ public sealed class MachinaCaptureSource : ICaptureSource
                 _traceSummaryAtMs = Environment.TickCount64;
             }
 
-            Volatile.Write(
-                ref _preexistingTcpConnections,
-                GameTcpConnectionProbe.TryCount(options.ProcessId, options.BindAddress) ?? -1);
+            Volatile.Write(ref _preexistingTcpConnections, -1);
             ReadsGameExecutable = options.Oodle == OodleMode.FfxivTcp;
         }
 
@@ -224,6 +228,12 @@ public sealed class MachinaCaptureSource : ICaptureSource
         try
         {
             monitor.Prepare();
+            // Counted only now that the device is open: a connection opened before this point
+            // had its handshake missed, one opened after it is captured. Counting earlier lets a
+            // connection opened in between be neither (audit 2026-10-03, OA-9).
+            Volatile.Write(
+                ref _preexistingTcpConnections,
+                _connectionCounter(options.ProcessId, options.BindAddress) ?? -1);
             // Own both resources before startup can fail. A rollback failure must leave
             // references on the source so its owner can retry instead of releasing Oodle.
             var signatureRuntime = OodleSignatureRuntime.TryCreate(options, logger: _logger, cleaner: _cleaner);
@@ -274,16 +284,9 @@ public sealed class MachinaCaptureSource : ICaptureSource
     /// <inheritdoc />
     public void Stop()
     {
+        // The copies this capture made are deleted through its cleaner's registration; Machina's
+        // temp folder is not swept by file name (audit 2026-10-03, OB-6, OodleTempCopyCleaner).
         lock (_lifecycleGate) StopCore();
-        // Machina copies the game executable into its own temp folder on every start; the
-        // copy of a start that faulted is not registered anywhere and would stay forever.
-        var swept = _cleaner.SweepOrphansHere((name, count) =>
-            _logger.Write(LogLevel.Info, "capture", name, new Dictionary<string, object?> { ["removed"] = count }));
-        if (swept.Locked > 0)
-        {
-            _logger.Write(LogLevel.Info, "capture", "oodle_temp_orphans_locked",
-                new Dictionary<string, object?> { ["locked"] = swept.Locked });
-        }
     }
 
     private void StopCore()
@@ -346,7 +349,8 @@ public sealed class MachinaCaptureSource : ICaptureSource
             inbound ? MessageDirection.Inbound : MessageDirection.Outbound),
         reason => { ICaptureSourceObserver? sink; lock (_gate) sink = _observer; sink?.OnFault(reason, null); },
         cleaner: _cleaner,
-        connectionClosed: OnConnectionClosed);
+        connectionClosed: OnConnectionClosed,
+        directionDamaged: OnDirectionDamaged);
 
     /// <summary>
     /// One connection that had been delivering decoded game messages is over: it was closed
@@ -364,6 +368,34 @@ public sealed class MachinaCaptureSource : ICaptureSource
 
         _logger.Write(LogLevel.Warn, "capture", "game_connection_closed", new Dictionary<string, object?>());
         observer?.OnConnectionClosed();
+    }
+
+    /// <summary>
+    /// One direction of a game connection was given up after a gap it could not fill. Reported
+    /// under the key the connection's decoded messages carry, so the parser can tell whether the
+    /// connection was carrying the run (audit 2026-10-03, CS3a-X1); the session-wide count in the
+    /// ingress counters says only how many.
+    /// </summary>
+    /// <param name="connection">Connection that lost the direction.</param>
+    /// <param name="inbound">True when the server-to-client direction was given up.</param>
+    private void OnDirectionDamaged(TCPConnection connection, bool inbound)
+    {
+        ICaptureSourceObserver? observer;
+        CaptureStartOptions? options;
+        lock (_gate)
+        {
+            observer = _observer;
+            options = _options;
+        }
+
+        if (observer is null || options is null)
+        {
+            return;
+        }
+
+        observer.OnDirectionDamaged(
+            Key(options.CaptureSessionId, connection),
+            inbound ? MessageDirection.Inbound : MessageDirection.Outbound);
     }
 
     private void OnMessage(TCPConnection? connection, long epoch, byte[]? message, MessageDirection direction)
@@ -678,16 +710,19 @@ public sealed class MachinaCaptureSource : ICaptureSource
         }
 
         // Machina raises its pcap failures as ApplicationException subclasses. The user-facing
-        // answer is the same for all of them: Npcap is not usable from here.
-        var message = error.GetType().Name.Contains("Pcap", StringComparison.OrdinalIgnoreCase)
-            || error.Message.Contains("pcap", StringComparison.OrdinalIgnoreCase)
-            ? "无法通过 Npcap 打开网卡。请确认 Npcap 已安装并勾选了 WinPcap 兼容模式，" +
-              "必要时以管理员身份运行本软件。"
-            : "启动抓包监视器失败，抓包未开始。详情见本机诊断日志。";
+        // answer is the same for all of them: Npcap is not usable from here. Anything else --
+        // an unsupported link type, a reader that never came up, the Oodle setup -- is not
+        // about the driver, and ERR_NPCAP_MISSING would send the user to reinstall a working
+        // one (audit 2026-10-03, OA-7).
+        var pcap = error.GetType().Name.Contains("Pcap", StringComparison.OrdinalIgnoreCase)
+            || error.Message.Contains("pcap", StringComparison.OrdinalIgnoreCase);
 
         return new CollectorException(
-            ErrorCodes.NpcapMissing,
-            message,
+            pcap ? ErrorCodes.NpcapMissing : ErrorCodes.Internal,
+            pcap
+                ? "无法通过 Npcap 打开网卡。请确认 Npcap 已安装并勾选了 WinPcap 兼容模式，" +
+                  "必要时以管理员身份运行本软件。"
+                : "启动抓包监视器失败，抓包未开始。详情见本机诊断日志。",
             new Dictionary<string, object?> { ["monitor"] = "START_FAILED" },
             inner: error);
     }

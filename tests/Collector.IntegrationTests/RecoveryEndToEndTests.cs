@@ -189,7 +189,7 @@ public sealed class RecoveryEndToEndTests : IDisposable
             "--db",
             databasePath);
 
-        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(0, result.ExitCode); // BOUNDARY-ALLOW(INJ-009): ExitCode of the fixture's ProcessResult record, not a Process member
 
         using var database = SqliteDatabase.Open(databasePath, SystemClock.Instance);
         var runs = new RunRepository(database);

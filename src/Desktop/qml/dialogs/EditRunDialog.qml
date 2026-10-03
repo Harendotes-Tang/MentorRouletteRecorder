@@ -20,6 +20,25 @@ Dialog {
     property var runData: null
     property bool editMode: false
     property string externalErrorText: ""
+    /// The code of the failure written to externalErrorText next; set first.
+    property string externalErrorCode: ""
+    /// The run that failure names ("" for a creation); set first as well, so a
+    /// correction's refusal for another record is not taken as this form's
+    /// (review DT3-X1).
+    property string externalErrorRunId: ""
+    /// That failure is of a request that never left the Desktop - no
+    /// connection, a refused write - so it cannot have been saved (review
+    /// V4-1); set first as well.
+    property bool externalErrorNeverSent: false
+    /// The last submission got no answer - the client stopped waiting or the
+    /// pipe dropped (ERR_INTERNAL) - so the Collector may have saved it. Until
+    /// an answer arrives the form is frozen and 保存 resends that very request:
+    /// HistoryController sends identical content under the same request_id and
+    /// the Collector's idempotency answers it once. Edited content would get an
+    /// id of its own and could become a second record (review DT2-X1).
+    property bool awaitingRetry: false
+    /// { create, payload, reason } of the request sent last.
+    property var lastSubmission: null
     /// True between "save" and the backend's answer; the buttons disable so a
     /// second click cannot send the same correction twice.
     property bool submitting: false
@@ -80,6 +99,15 @@ Dialog {
     /// time fields themselves are always on step 3.
     property bool showTimeDetails: false
     property bool estimatedEntry: false
+    /// The 进本 date and time 「估算进本」 wrote. The estimate stands only while
+    /// the fields still hold them: a real entry time typed over it is a measured
+    /// one, with a duration (review OL-2).
+    property string estimatedEntryAt: ""
+    /// The estimate added its explanation to 备注, and takes it back with it.
+    property bool estimateNoted: false
+    readonly property string estimateNote: qsTr("进本时间按匹配时间估算；实际耗时不详，不计入平均耗时。")
+    onEnteredDateChanged: dialog.dropReplacedEstimate()
+    onEnteredTimeChanged: dialog.dropReplacedEstimate()
     /// 跨天: shows the separate 进本日期 / 结束日期 fields even while they
     /// equal 日期. They show on their own whenever they differ.
     property bool dayFieldsOpen: false
@@ -223,16 +251,17 @@ Dialog {
 
     readonly property string reasonLabel: editMode ? qsTr("修正原因") : qsTr("新增原因")
 
-    // The form as the validator sees it.
+    // The form as the validator sees it. Times in one spelling (canonicalTime):
+    // leaving a time field writes 20:41 for the 20:41:00 the record reads back as.
     readonly property var formState: ({
         reason: dialog.reasonText,
         reason_label: dialog.reasonLabel,
         date: dialog.matchedDate,
-        matched: dialog.matchedTime,
+        matched: dialog.canonicalTime(dialog.matchedTime),
         entered_date: dialog.enteredDate,
-        entered: dialog.enteredTime,
+        entered: dialog.canonicalTime(dialog.enteredTime),
         ended_date: dialog.endedDate,
-        ended: dialog.endedTime,
+        ended: dialog.canonicalTime(dialog.endedTime),
         result: dialog.resultCode,
         duty_name: dialog.selectedDutyName(),
         job_name: dialog.selectedJobName(),
@@ -244,11 +273,11 @@ Dialog {
     readonly property var beforeState: editMode && runData ? ({
         reason: "",
         date: Fmt.localDate(runData.matched_at_utc),
-        matched: dialog.timeOrEmpty(runData.matched_at_utc),
+        matched: dialog.canonicalTime(dialog.timeOrEmpty(runData.matched_at_utc)),
         entered_date: dialog.dateOrEmpty(runData.entered_at_utc),
-        entered: dialog.timeOrEmpty(runData.entered_at_utc),
+        entered: dialog.canonicalTime(dialog.timeOrEmpty(runData.entered_at_utc)),
         ended_date: dialog.dateOrEmpty(runData.ended_at_utc),
-        ended: dialog.timeOrEmpty(runData.ended_at_utc),
+        ended: dialog.canonicalTime(dialog.timeOrEmpty(runData.ended_at_utc)),
         result: runData.result || "UNKNOWN",
         duty_name: runData.duty_name || qsTr("未知副本"),
         job_name: runData.job_name || qsTr("未知"),
@@ -528,7 +557,7 @@ Dialog {
     }
 
     function goToStep(step) {
-        if (recordSaved && step !== 3)
+        if ((recordSaved || awaitingRetry) && step !== 3)
             return
         const next = Math.max(1, Math.min(3, step))
         if (next === currentStep)
@@ -580,11 +609,25 @@ Dialog {
         enteredDate = matchedDate
         enteredTime = matchedTime
         estimatedEntry = true
+        estimatedEntryAt = enteredDate + " " + canonicalTime(enteredTime)
         errorText = ""
         errorCode = ""
-        const explanation = qsTr("进本时间按匹配时间估算；实际耗时不详，不计入平均耗时。")
-        if (noteText.indexOf(explanation) < 0)
-            noteText = noteText.trim() ? noteText.trim() + "\n" + explanation : explanation
+        if (noteText.indexOf(estimateNote) < 0) {
+            noteText = noteText.trim() ? noteText.trim() + "\n" + estimateNote : estimateNote
+            estimateNoted = true
+        }
+    }
+
+    function dropReplacedEstimate() {
+        if (!estimatedEntry || enteredDate + " " + canonicalTime(enteredTime) === estimatedEntryAt)
+            return
+        estimatedEntry = false
+        estimatedEntryAt = ""
+        if (estimateNoted) {
+            noteText = noteText.split("\n").filter(function(line) { return line !== estimateNote })
+                               .join("\n")
+            estimateNoted = false
+        }
     }
 
     function timeOrEmpty(utc) {
@@ -598,6 +641,27 @@ Dialog {
     function dateOrEmpty(utc) {
         const value = Fmt.localDate(utc)
         return value === Fmt.dash() ? "" : value
+    }
+
+    /// One spelling per time of day, HH:mm:ss[.zzz]: 20:41, 20:41:00 and
+    /// 20:41:00.000 are the same instant. TimeField drops a zero ":00" when the
+    /// player leaves it while a record reads back as HH:mm:ss, so the form
+    /// compares and builds times in this spelling and an untouched field is no
+    /// edit (review OL-3). Text that is not a time stays as typed, for the
+    /// validator to refuse.
+    function canonicalTime(value) {
+        const text = value === undefined || value === null ? "" : String(value).trim()
+        const match = /^(\d{1,2}):(\d{1,2})(?::(\d{1,2})(?:\.(\d{1,3}))?)?$/.exec(text)
+        if (!match)
+            return text
+        const hour = Number(match[1]), minute = Number(match[2])
+        const second = match[3] === undefined ? 0 : Number(match[3])
+        if (hour > 23 || minute > 59 || second > 59)
+            return text
+        const msec = match[4] === undefined ? 0 : Number(match[4].padEnd(3, "0"))
+        const pad = function(number) { return String(number).padStart(2, "0") }
+        return pad(hour) + ":" + pad(minute) + ":" + pad(second)
+               + (msec > 0 ? "." + String(msec).padStart(3, "0") : "")
     }
 
     function optionIndex(list, key, value) {
@@ -662,7 +726,7 @@ Dialog {
     function buildUtc(dateText, timeText) {
         if (!timeText || timeText.trim().length === 0)
             return null
-        const value = RunForm.toDateTime(dateText, timeText)
+        const value = RunForm.toDateTime(dateText, canonicalTime(timeText))
         return value ? new Date(value).toISOString() : null
     }
 
@@ -671,7 +735,7 @@ Dialog {
         // Leave untouched UTC text intact, including subsecond precision and
         // the original instant if local daylight-saving time is ambiguous.
         if (original && dateText.trim() === dateOrEmpty(original)
-                && timeText.trim() === timeOrEmpty(original))
+                && canonicalTime(timeText) === canonicalTime(timeOrEmpty(original)))
             return original
         return buildUtc(dateText, timeText)
     }
@@ -709,11 +773,18 @@ Dialog {
         jobIndex = 0
         errorText = ""
         errorCode = ""
+        externalErrorCode = ""
+        externalErrorRunId = ""
+        externalErrorNeverSent = false
         externalErrorText = ""
         submitting = false
+        awaitingRetry = false
+        lastSubmission = null
         ++openSerial
         submissionTicket = ""
         estimatedEntry = false
+        estimatedEntryAt = ""
+        estimateNoted = false
         showTimeDetails = true
         resetWizard()
         refreshRecentDuties()
@@ -742,11 +813,18 @@ Dialog {
         jobIndex = optionIndex(jobOptionList, "job_id", run.job_id)
         errorText = ""
         errorCode = ""
+        externalErrorCode = ""
+        externalErrorRunId = ""
+        externalErrorNeverSent = false
         externalErrorText = ""
         submitting = false
+        awaitingRetry = false
+        lastSubmission = null
         ++openSerial
         submissionTicket = ""
         estimatedEntry = false
+        estimatedEntryAt = ""
+        estimateNoted = false
         showTimeDetails = false
         resetWizard()
         refreshRecentDuties()
@@ -857,6 +935,13 @@ Dialog {
         close()
     }
 
+    /// The fields a correction can carry: HistoryController's contractRunFields,
+    /// less pending_review, which this form never edits.
+    readonly property var correctionFields: [
+        "content_id", "duty_name", "duty_category", "job_id", "matched_at_utc", "entered_at_utc",
+        "ended_at_utc", "duration_ms", "result", "contributes_to_goal", "note"
+    ]
+
     function collectFields() {
         const duty = lookupByIndex(dutyOptionList, dutyIndex)
         const preserveDuty = editMode && runData && duty && (duty.preservesRunDuty
@@ -910,6 +995,17 @@ Dialog {
             finishWithImages(savedRunId)
             return
         }
+        if (awaitingRetry && lastSubmission) {
+            errorCode = ""
+            errorText = ""
+            submitting = true
+            submissionTicket = currentTicket
+            if (lastSubmission.create)
+                createRequested(lastSubmission.payload, lastSubmission.reason)
+            else
+                correctRequested(lastSubmission.payload, lastSubmission.reason)
+            return
+        }
         const verdict = RunForm.validate(formState, beforeState)
         // An unchanged form with staged images is not "nothing to do": the
         // images alone are applied, without a correction and without a revision.
@@ -931,18 +1027,32 @@ Dialog {
             // to land in this form, not only in a toast that replaces it.
             submitting = true
             submissionTicket = currentTicket
+            lastSubmission = { create: true, payload: fields, reason: reasonText.trim() }
             createRequested(fields, reasonText.trim())
             return
         }
 
         const changes = { }
         for (const key in fields) {
+            // Display-only fields (role, job_name, territory_id, duty_level …)
+            // never reach the Collector - HistoryController sends only these -
+            // so they can neither make a correction nor stop "no changes" from
+            // being noticed (review OL-3).
+            if (dialog.correctionFields.indexOf(key) < 0)
+                continue
             // An untouched empty note is "" here and null in the record: not a change.
             if (key === "note" && !fields.note && !runData.note)
                 continue
             if (JSON.stringify(fields[key]) !== JSON.stringify(runData[key]))
                 changes[key] = fields[key]
         }
+        // 未知副本 clears the duty, the zone it was recognised by included, and
+        // the Collector does that only for an explicit content_id: null. A run
+        // known by its zone alone already has a null content_id, so it is named
+        // all the same (review OG-1).
+        if (dutyIndex === 0 && !("content_id" in changes)
+                && (runData.content_id != null || runData.territory_id != null || !!runData.duty_name))
+            changes.content_id = null
         // A null duration must be explicit when a timestamp changed, otherwise the
         // Collector derives it and counts queue time as if it were measured duty time.
         if (fields.duration_ms === null && (fields.entered_at_utc !== runData.entered_at_utc
@@ -962,12 +1072,13 @@ Dialog {
 
         submitting = true
         submissionTicket = currentTicket
+        lastSubmission = { create: false, payload: changes, reason: reasonText.trim() }
         correctRequested(changes, reasonText.trim())
     }
 
     /// True when a reply that just arrived belongs to the submission this form
     /// is still waiting for. \a runId is the run the reply names, or "" when it
-    /// carries none - mutationFailed carries no run id at all.
+    /// carries none - a creation's reply, accepted or refused.
     function ownsReply(runId) {
         if (!visible || !submitting || submissionTicket.length === 0
             || submissionTicket !== currentTicket)
@@ -987,6 +1098,8 @@ Dialog {
             return false
         submitting = false
         submissionTicket = ""
+        awaitingRetry = false
+        lastSubmission = null
         // The images follow the record. A failure keeps the dialog open with
         // the reason, and savedRunId makes the next 保存 retry only the images.
         const target = runId && runId.length > 0 ? runId
@@ -1005,13 +1118,35 @@ Dialog {
         if (externalErrorText.length === 0)
             return
         const text = externalErrorText
-        const mine = ownsReply("")
+        const code = externalErrorCode
+        const neverSent = externalErrorNeverSent
+        const mine = ownsReply(externalErrorRunId)
         // 读完就清空，这个属性因而是一只"收件箱"：下一条内容相同的失败也会触发
         // 这里，而属于上一次提交的那条到此为止。
         externalErrorText = ""
+        externalErrorCode = ""
+        externalErrorRunId = ""
+        externalErrorNeverSent = false
         if (!mine)
             return
-        errorText = text
+        // ERR_INTERNAL is the client's own "no answer" (timeout, dropped pipe) as
+        // well as the Collector's: either way nobody knows whether it was saved.
+        // Any other code is the Collector's answer, so the record was not saved
+        // and the form may be edited again. A request that never left the
+        // Desktop (no connection, a refused write) cannot have been saved and
+        // tells nothing new: an editable form stays editable, and one frozen by
+        // an earlier submission that went out unanswered stays frozen (review V4-1).
+        if (!neverSent)
+            awaitingRetry = code === "ERR_INTERNAL" && !!lastSubmission
+        errorText = neverSent
+                    ? text + "\n" + (awaitingRetry
+                                     ? qsTr("这次重试没有发给采集服务。之前那次提交可能已经保存，为免重复，"
+                                            + "只能原样重试或关闭窗口；关闭后请先在历史记录中确认，再决定是否重新填写。")
+                                     : qsTr("这次提交没有发给采集服务，记录没有保存。"))
+                    : awaitingRetry
+                      ? text + "\n" + qsTr("这次提交没有收到采集服务的回应，记录可能已经保存。为免重复，"
+                                           + "只能原样重试或关闭窗口；关闭后请先在历史记录中确认，再决定是否重新填写。")
+                      : text
         submitting = false
         submissionTicket = ""
     }
@@ -1084,7 +1219,7 @@ Dialog {
 
             RowLayout {
                 objectName: "wizardStepBar"
-                enabled: !dialog.submitting && !dialog.recordSaved
+                enabled: !dialog.submitting && !dialog.recordSaved && !dialog.awaitingRetry
                 Layout.fillWidth: true
                 spacing: 8
 
@@ -1202,7 +1337,7 @@ Dialog {
                 y: 18
                 width: formScroll.width - formScroll.gutter
                 spacing: 16
-                enabled: !dialog.submitting
+                enabled: !dialog.submitting && !dialog.awaitingRetry
 
                 // ------------------------------------------ 第 1 步：结果 --
                 RunWizardResultStep {
@@ -1276,7 +1411,7 @@ Dialog {
                 objectName: "prevStepButton"
                 visible: dialog.currentStep > 1
                 text: qsTr("上一步")
-                enabled: !dialog.submitting && !dialog.recordSaved
+                enabled: !dialog.submitting && !dialog.recordSaved && !dialog.awaitingRetry
                 onClicked: dialog.prevStep()
             }
 
@@ -1294,10 +1429,12 @@ Dialog {
                 objectName: "saveRunButton"
                 visible: dialog.currentStep === 3
                 enabled: !dialog.submitting
-                         && (dialog.recordSaved || !dialog.editMode || dialog.diffRows.length > 0 || dialog.imagesDirty)
+                         && (dialog.recordSaved || dialog.awaitingRetry || !dialog.editMode
+                             || dialog.diffRows.length > 0 || dialog.imagesDirty)
                 text: dialog.submitting
                       ? qsTr("提交中…")
                       : dialog.recordSaved ? qsTr("重试图片")
+                      : dialog.awaitingRetry ? qsTr("原样重试")
                       : (dialog.editMode ? qsTr("保存为新修订") : qsTr("添加记录"))
                 onClicked: dialog.submit()
             }

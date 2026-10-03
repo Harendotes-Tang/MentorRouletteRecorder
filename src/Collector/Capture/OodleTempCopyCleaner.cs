@@ -7,22 +7,12 @@ using Machina.FFXIV.Oodle;
 
 namespace MentorRecorder.Collector.Capture;
 
-public sealed record OodleTempSweepReading(int Removed, long Bytes, int Locked)
-{
-    /// <summary>Nothing found.</summary>
-    public static OodleTempSweepReading Empty { get; } = new(0, 0, 0);
-}
-
 /// <summary>
 /// What a manifest of owned temp copies says right now.
 /// </summary>
 /// <param name="Present">Registered paths that still exist on disk.</param>
 /// <param name="Bytes">Total size of those files.</param>
 /// <param name="Missing">Registered paths that are already gone.</param>
-/// <summary>What one sweep of Machina's temp folder found and removed.</summary>
-/// <param name="Removed">Copies deleted.</param>
-/// <param name="Bytes">Bytes reclaimed.</param>
-/// <param name="Locked">Copies a process still holds open; they stay for the next sweep.</param>
 public sealed record OodleTempManifestReading(int Present, long Bytes, int Missing)
 {
     /// <summary>Nothing registered, or no manifest at all.</summary>
@@ -40,6 +30,16 @@ public sealed record OodleTempManifestReading(int Present, long Bytes, int Missi
 /// subdirectory. The manifest is needed because each copy is 49.5 MiB and the ordinary Desktop
 /// exit kills this process outright, so a finally-block deletion never runs
 /// (review finding H-2).
+///
+/// Registration sees every copy Machina makes. Machina 2.4.7.7 stores the copy's path in
+/// <c>_libraryTempPath</c> before it copies the file, publishes the native instance before
+/// initializing it, and writes a trace line on the initializing thread before any failure path
+/// clears the path again; <see cref="TrackInitialization"/> reads the path on each of those lines.
+/// That is why Machina's temp folder is not swept by file name: a copy no cleaner registered is
+/// not this software's, and deleting one by its name once removed another Machina-based program's
+/// copy between its copy and its load (audit 2026-10-03, OB-6). Several cleaners can share one
+/// manifest - every capture start has its own - so each adds and removes its own entries and never
+/// rewrites the others'.
 /// </summary>
 public sealed class OodleTempCopyCleaner
 {
@@ -95,7 +95,7 @@ public sealed class OodleTempCopyCleaner
             var full = Path.GetFullPath(path);
             var expectedParent = Path.Combine(_directory, MachinaTempFolderName);
             if (!string.Equals(Path.GetDirectoryName(full), expectedParent, StringComparison.OrdinalIgnoreCase)) return;
-            if (_owned.Add(full)) WriteManifest();
+            if (_owned.Add(full)) UpdateManifest(Array.Empty<string>());
         }
         catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException or MemberAccessException or TargetException)
         {
@@ -170,7 +170,7 @@ public sealed class OodleTempCopyCleaner
     public int Sweep()
     {
         var removed = 0;
-        var forgotten = false;
+        var released = new List<string>();
         foreach (var path in _owned.ToArray())
         {
             try
@@ -178,12 +178,12 @@ public sealed class OodleTempCopyCleaner
                 var existed = File.Exists(path);
                 File.Delete(path);
                 _owned.Remove(path);
-                forgotten = true;
+                released.Add(path);
                 if (existed) removed++;
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
         }
-        if (forgotten) WriteManifest();
+        if (released.Count > 0) UpdateManifest(released);
         if (removed > 0) _log?.Invoke("oodle_temp_copy_removed", removed);
         return removed;
     }
@@ -192,153 +192,31 @@ public sealed class OodleTempCopyCleaner
     public void Disarm() => _armed = false;
 
     /// <summary>
-    /// Deletes every copy left in Machina's own temp folder, not only the ones this process
-    /// registered. Machina copies the game executable there on each capture start and copies it
-    /// failed to register are invisible to this program: a capture that faults during start
-    /// leaves one behind, and a retry loop leaves one every time. At fifty megabytes each they
-    /// fill the system drive, and a full system drive is what makes Windows itself stop
-    /// (screen recording first). A copy another process still holds open is counted, never
-    /// forced.
-    /// </summary>
-    /// <param name="temporaryDirectory">Temp root; the machine's own when null.</param>
-    /// <param name="log">Optional sink for the outcome.</param>
-    public static OodleTempSweepReading SweepOrphans(
-        string? temporaryDirectory = null, Action<string, int>? log = null)
-    {
-        string folder;
-        try
-        {
-            folder = Path.Combine(
-                Path.GetFullPath(temporaryDirectory ?? Path.GetTempPath()), MachinaTempFolderName);
-            if (!Directory.Exists(folder))
-            {
-                return OodleTempSweepReading.Empty;
-            }
-        }
-        catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException or NotSupportedException)
-        {
-            return OodleTempSweepReading.Empty;
-        }
-
-        var removed = 0;
-        var locked = 0;
-        long bytes = 0;
-        IEnumerable<string> files;
-        try
-        {
-            // Machina names each copy with a fresh GUID. Anything else in that folder was put
-            // there by someone else and is none of this program's business.
-            files = Directory.EnumerateFiles(folder, "*.exe", SearchOption.TopDirectoryOnly)
-                .Where(IsMachinaCopyName)
-                .Take(MaxSweptFiles);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            return OodleTempSweepReading.Empty;
-        }
-
-        foreach (var path in files.ToArray())
-        {
-            try
-            {
-                var size = new FileInfo(path).Length;
-                File.Delete(path);
-                removed++;
-                bytes += size;
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                // Held open by a running capture - this one or another program's. Leave it.
-                locked++;
-            }
-        }
-
-        if (removed > 0)
-        {
-            log?.Invoke("oodle_temp_orphans_removed", removed);
-        }
-
-        return new OodleTempSweepReading(removed, bytes, locked);
-    }
-
-    private static bool IsMachinaCopyName(string path) =>
-        Guid.TryParse(Path.GetFileNameWithoutExtension(path), out _);
-
-    /// <summary>Reports what Machina's temp folder holds without deleting anything.</summary>
-    /// <param name="temporaryDirectory">Temp root; the machine's own when null.</param>
-    public static OodleTempSweepReading InspectOrphans(string? temporaryDirectory = null)
-    {
-        try
-        {
-            var folder = Path.Combine(
-                Path.GetFullPath(temporaryDirectory ?? Path.GetTempPath()), MachinaTempFolderName);
-            if (!Directory.Exists(folder))
-            {
-                return OodleTempSweepReading.Empty;
-            }
-
-            var files = Directory.EnumerateFiles(folder, "*.exe", SearchOption.TopDirectoryOnly)
-                .Where(IsMachinaCopyName)
-                .Take(MaxSweptFiles)
-                .Select(path =>
-                {
-                    try
-                    {
-                        return new FileInfo(path).Length;
-                    }
-                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-                    {
-                        return 0L;
-                    }
-                })
-                .ToArray();
-            return new OodleTempSweepReading(files.Length, files.Sum(), 0);
-        }
-        catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException or NotSupportedException)
-        {
-            return OodleTempSweepReading.Empty;
-        }
-    }
-
-    /// <summary>Upper bound on files one sweep looks at, so a strange folder cannot stall startup.</summary>
-    public const int MaxSweptFiles = 4096;
-
-    /// <summary>
-    /// Sweeps orphans out of the temp folder this cleaner was pointed at, so a test never
-    /// reaches the developer's own temp directory and production still sweeps the real one.
-    /// </summary>
-    /// <param name="log">Optional sink for the outcome.</param>
-    public OodleTempSweepReading SweepOrphansHere(Action<string, int>? log = null) =>
-        SweepOrphans(_directory, log ?? _log);
-
-    /// <summary>
-    /// Rewrites the manifest from the paths currently owned. Best effort.
+    /// Adds the paths this cleaner owns to the manifest and takes out the ones it has released,
+    /// leaving every other entry alone. Best effort.
     ///
-    /// An empty set removes the file rather than writing an empty array, so "there is no
+    /// Merged, not rewritten: every capture start has a cleaner of its own on the same manifest,
+    /// and rewriting it from one cleaner's set erased the entries of another - typically the copy
+    /// that could not be deleted yet because it was still loaded, which only the manifest lets a
+    /// later start remove (audit 2026-10-03, OB-6). A released path is one that is gone from disk,
+    /// so taking it out is right whoever registered it.
+    ///
+    /// An empty result removes the file rather than writing an empty array, so "there is no
     /// manifest" and "this software owns nothing" are the same observable state on every path
     /// and not only on the startup sweep (review finding R-14).
     /// </summary>
-    private void WriteManifest()
+    /// <param name="released">Paths deleted, or found already gone, since the last update.</param>
+    private void UpdateManifest(IReadOnlyCollection<string> released)
     {
         if (_manifestPath is null) return;
         try
         {
-            if (_owned.Count == 0)
-            {
-                File.Delete(_manifestPath);
-                return;
-            }
-
-            var paths = new JsonArray();
-            foreach (var path in _owned.OrderBy(value => value, StringComparer.OrdinalIgnoreCase))
-            {
-                paths.Add(path);
-            }
-
-            var document = new JsonObject { ["version"] = 1, ["paths"] = paths };
+            var registered = new HashSet<string>(ReadManifest(_manifestPath), StringComparer.OrdinalIgnoreCase);
+            registered.UnionWith(_owned);
+            registered.ExceptWith(released);
             var directory = Path.GetDirectoryName(_manifestPath);
-            if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
-            File.WriteAllText(_manifestPath, document.ToJsonString(), new UTF8Encoding(false));
+            if (registered.Count > 0 && !string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
+            RewriteManifest(_manifestPath, registered.OrderBy(value => value, StringComparer.OrdinalIgnoreCase).ToArray());
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
         {

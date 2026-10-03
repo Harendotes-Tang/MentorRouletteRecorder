@@ -1,5 +1,4 @@
 using System.ComponentModel;
-using System.Diagnostics;
 using MentorRecorder.Collector.Domain;
 
 namespace MentorRecorder.Collector.Capture;
@@ -31,6 +30,10 @@ public interface IGameProcessProvider
 {
     /// <summary>Lists running processes with the given name (no extension).</summary>
     /// <param name="processName">Process name such as <c>ffxiv_dx11</c>.</param>
+    /// <exception cref="InvalidOperationException">
+    /// The listing itself failed. That is a different answer from an empty list, which says no
+    /// such process is running, and the two must not be merged (docs/state-machine.md 3.6).
+    /// </exception>
     IReadOnlyList<GameProcessCandidate> ByName(string processName);
 }
 
@@ -78,9 +81,13 @@ public sealed record GameProcessDetection(
     string? ExecutablePath,
     IReadOnlyList<string> Warnings)
 {
-    /// <summary>Whether recording is waiting for an explicit client choice.</summary>
+    /// <summary>
+    /// Whether recording is waiting for an explicit client choice. Only ever true while
+    /// <see cref="Processes"/> lists a client to choose; with none listed the reason alone says
+    /// why nothing is locked.
+    /// </summary>
     public bool SelectionRequired { get; init; }
-    /// <summary>NONE, MULTIPLE, EXITED, or IDENTITY_UNAVAILABLE.</summary>
+    /// <summary>NONE, MULTIPLE, EXITED, or IDENTITY_UNAVAILABLE; kept for diagnostics even when no choice is asked for.</summary>
     public string SelectionReason { get; init; } = "NONE";
     /// <summary>Ephemeral choices; no paths or window titles cross IPC.</summary>
     public IReadOnlyList<GameProcessOption> Processes { get; init; } = Array.Empty<GameProcessOption>();
@@ -97,7 +104,9 @@ public sealed record GameProcessDetection(
 /// the executable. Specifically: the client build comes from the launcher's
 /// <c>ffxivgame.ver</c>, **a text file read from disk**, and the install path comes from the
 /// kernel's process table (<see cref="ProcessImagePath"/>), which needs no process handle and
-/// therefore also works when the launcher started the client elevated. This code never reads
+/// therefore also works when the launcher started the client elevated. The listing itself --
+/// process ids and start times -- is one snapshot of the same table (<see cref="ProcessTable"/>),
+/// so identifying a client opens no handle on it either. This code never reads
 /// the game's memory and never attaches to it in any way (docs/privacy-boundary.md section 2,
 /// items 2 and 3). A path that still cannot be read is simply left unknown -- the region and
 /// the build then stay unknown too, and the profile layer refuses to parse, which is the
@@ -138,6 +147,7 @@ public sealed class GameProcessLocator
     private readonly IGameFileReader _files;
     private readonly Func<Region?>? _regionOverride;
     private readonly IGameInstallMemory _installMemory;
+    private readonly Action<bool>? _listingObserved;
 
     /// <summary>Creates a locator.</summary>
     /// <param name="processes">Process listing source; the real machine when null.</param>
@@ -158,11 +168,22 @@ public sealed class GameProcessLocator
         IGameFileReader? files = null,
         Func<Region?>? regionOverride = null,
         IGameInstallMemory? installMemory = null)
+        : this(processes, files, regionOverride, installMemory, listingObserved: null)
+    {
+    }
+
+    private GameProcessLocator(
+        IGameProcessProvider? processes,
+        IGameFileReader? files,
+        Func<Region?>? regionOverride,
+        IGameInstallMemory? installMemory,
+        Action<bool>? listingObserved)
     {
         _processes = processes ?? WindowsGameProcessProvider.Instance;
         _files = files ?? WindowsGameFileReader.Instance;
         _regionOverride = regionOverride;
         _installMemory = installMemory ?? NullGameInstallMemory.Instance;
+        _listingObserved = listingObserved;
     }
 
     /// <summary>Returns a copy of this locator that consults an explicit region override.</summary>
@@ -170,7 +191,19 @@ public sealed class GameProcessLocator
     public GameProcessLocator WithRegionOverride(Func<Region?> regionOverride)
     {
         ArgumentNullException.ThrowIfNull(regionOverride);
-        return new GameProcessLocator(_processes, _files, regionOverride, _installMemory);
+        return new GameProcessLocator(_processes, _files, regionOverride, _installMemory, _listingObserved);
+    }
+
+    /// <summary>
+    /// Returns a copy of this locator that reports the outcome of every process listing: true when
+    /// the table was read, false when it could not be. A failed listing is "cannot tell" everywhere,
+    /// so this is the only place it becomes visible (audit 2026-10-03, CS1-X1).
+    /// </summary>
+    /// <param name="listingObserved">Called once per listing, on the listing thread; must not throw.</param>
+    public GameProcessLocator WithListingObserver(Action<bool> listingObserved)
+    {
+        ArgumentNullException.ThrowIfNull(listingObserved);
+        return new GameProcessLocator(_processes, _files, _regionOverride, _installMemory, listingObserved);
     }
 
     /// <summary>True when this locator has somewhere to remember the install path.</summary>
@@ -181,7 +214,7 @@ public sealed class GameProcessLocator
     public GameProcessLocator WithInstallMemory(IGameInstallMemory installMemory)
     {
         ArgumentNullException.ThrowIfNull(installMemory);
-        return new GameProcessLocator(_processes, _files, _regionOverride, installMemory);
+        return new GameProcessLocator(_processes, _files, _regionOverride, installMemory, _listingObserved);
     }
 
     /// <summary>
@@ -190,7 +223,9 @@ public sealed class GameProcessLocator
     /// </summary>
     public GameProcessDetection Locate()
     {
-        var candidates = ListCandidates();
+        // A process listing that fails is a diagnostic, not a crash: this caller simply learns
+        // that the game is not visible from here.
+        var candidates = ListCandidates() ?? Array.Empty<GameProcessCandidate>();
 
         if (candidates.Count == 0)
         {
@@ -208,12 +243,30 @@ public sealed class GameProcessLocator
         return Describe(chosen, candidates.Count);
     }
 
-    /// <summary>Lists candidates without selecting or remembering an installation.</summary>
-    public IReadOnlyList<GameProcessCandidate> ListCandidates() =>
-        new[] { Dx11ProcessName, LegacyProcessName }.SelectMany(Safe)
-            .DistinctBy(candidate => candidate.ProcessId)
+    /// <summary>
+    /// Lists candidates without selecting or remembering an installation, or returns null when
+    /// the process listing itself failed. Null is not "no client is running": a caller deciding
+    /// whether a client exited must read it as "cannot tell" (docs/state-machine.md 3.6).
+    /// </summary>
+    public IReadOnlyList<GameProcessCandidate>? ListCandidates()
+    {
+        var listed = new List<GameProcessCandidate>();
+        foreach (var name in new[] { Dx11ProcessName, LegacyProcessName })
+        {
+            if (Safe(name) is not { } candidates)
+            {
+                _listingObserved?.Invoke(false);
+                return null;
+            }
+
+            listed.AddRange(candidates);
+        }
+
+        _listingObserved?.Invoke(true);
+        return listed.DistinctBy(candidate => candidate.ProcessId)
             .OrderBy(candidate => candidate.StartedAtUtc ?? DateTimeOffset.MaxValue)
             .ThenBy(candidate => candidate.ProcessId).ToArray();
+    }
 
     /// <summary>Reads metadata for this exact candidate, including its own client build.</summary>
     public GameProcessDetection Describe(GameProcessCandidate chosen, int instanceCount)
@@ -250,10 +303,13 @@ public sealed class GameProcessLocator
         else if (detected == Region.Unknown && chosen.ExecutablePath is not null)
         {
             // Distinct from "the path is unreadable": the path was read fine, it simply
-            // carries none of the markers. That is a permanent condition and waiting will
-            // never fix it, so the message has to say what the user can actually do (H-9).
+            // carries none of the markers, or markers of both regions. That is a permanent
+            // condition and waiting will never fix it, so the message has to say what the
+            // user can actually do (H-9).
             warnings.Add(
-                "无法从安装路径判断区服（路径可读，但不含可识别的区服标记）。" +
+                (HasMarkersOfBothRegions(chosen.ExecutablePath)
+                    ? "无法从安装路径判断区服（路径同时含有国服与国际服的标记）。"
+                    : "无法从安装路径判断区服（路径可读，但不含可识别的区服标记）。") +
                 "请到设置里手动指定区服（国服 / 国际服）；在此之前不会进行任何自动记录（fail-closed）。");
         }
 
@@ -307,7 +363,7 @@ public sealed class GameProcessLocator
     /// over it -- an unplugged drive is not an uninstall, and the next run of the game rewrites
     /// it anyway.
     /// </summary>
-    private GameProcessDetection FromRememberedInstall()
+    internal GameProcessDetection FromRememberedInstall()
     {
         string? remembered;
         try
@@ -335,7 +391,9 @@ public sealed class GameProcessLocator
 
     /// <summary>
     /// Guesses the service region from the install path. Only a confident match answers; an
-    /// unrecognised path stays <see cref="Region.Unknown"/> rather than defaulting to one.
+    /// unrecognised path stays <see cref="Region.Unknown"/> rather than defaulting to one, and
+    /// so does a path carrying markers of both regions (a Global client in a folder named
+    /// 最终幻想, say): which one wins would be a guess.
     /// </summary>
     /// <param name="executablePath">Main module path, or null.</param>
     public static Region GuessRegion(string? executablePath)
@@ -346,23 +404,18 @@ public sealed class GameProcessLocator
         }
 
         var lowered = executablePath.ToLowerInvariant();
-        foreach (var marker in CnMarkers)
-        {
-            if (lowered.Contains(marker, StringComparison.Ordinal))
-            {
-                return Region.Cn;
-            }
-        }
+        var cn = CnMarkers.Any(marker => lowered.Contains(marker, StringComparison.Ordinal));
+        var global = GlobalMarkers.Any(marker => lowered.Contains(marker, StringComparison.Ordinal));
+        return cn == global ? Region.Unknown : cn ? Region.Cn : Region.Global;
+    }
 
-        foreach (var marker in GlobalMarkers)
-        {
-            if (lowered.Contains(marker, StringComparison.Ordinal))
-            {
-                return Region.Global;
-            }
-        }
-
-        return Region.Unknown;
+    /// <summary>True when the path carries markers of both regions.</summary>
+    /// <param name="executablePath">Main module path.</param>
+    private static bool HasMarkersOfBothRegions(string executablePath)
+    {
+        var lowered = executablePath.ToLowerInvariant();
+        return CnMarkers.Any(marker => lowered.Contains(marker, StringComparison.Ordinal)) &&
+               GlobalMarkers.Any(marker => lowered.Contains(marker, StringComparison.Ordinal));
     }
 
     private Region? SafeRegionOverride()
@@ -437,51 +490,36 @@ public sealed class GameProcessLocator
     }
 
     /// <summary>
-    /// Whether a client process with this id is still in the process listing.
+    /// Whether this client incarnation is still in the process listing. Reads only; it never
+    /// changes which client is selected.
     ///
-    /// Asked at exactly one moment: a game connection has ended, and the answer decides
-    /// between "the network dropped" (DISCONNECTED) and "the player closed the game"
-    /// (INTERRUPTED). It is the same process-listing fact <see cref="Locate"/> already reads,
-    /// nothing is opened and nothing is read out of the process, and a listing that fails
-    /// answers "still running" so a diagnostic failure can never manufacture a terminal state.
+    /// Asked when a game connection has ended, where the answer decides between "the network
+    /// dropped" (DISCONNECTED) and "the player closed the game" (INTERRUPTED), and after a
+    /// client switch, to tell the user whether the chosen client is still there. It is the
+    /// same process-listing fact <see cref="Locate"/> already reads,
+    /// nothing is opened and nothing is read out of the process. A listing that fails, and the
+    /// same process id listed without a readable start time, both answer "still running", so a
+    /// diagnostic failure can never manufacture a terminal state (docs/state-machine.md 3.6).
     /// </summary>
     /// <param name="processId">Process id to look for; non-positive is never running.</param>
-    public bool IsRunning(int processId)
+    /// <param name="startedAtUtc">
+    /// Start time the incarnation was identified by. A process listed under the same id with a
+    /// different start time is a reuse of the id, not this client; null matches any.
+    /// </param>
+    public bool IsRunning(int processId, DateTimeOffset? startedAtUtc)
     {
         if (processId <= 0)
         {
             return false;
         }
 
-        var listed = false;
-        foreach (var name in new[] { Dx11ProcessName, LegacyProcessName })
-        {
-            IReadOnlyList<GameProcessCandidate> candidates;
-            try
-            {
-                candidates = _processes.ByName(name);
-            }
-            catch (Exception ex)
-                when (ex is InvalidOperationException or Win32Exception or NotSupportedException)
-            {
-                // Cannot tell. Say yes: the caller only ever uses "no" to withhold evidence.
-                return true;
-            }
-
-            listed = true;
-            foreach (var candidate in candidates)
-            {
-                if (candidate.ProcessId == processId)
-                {
-                    return true;
-                }
-            }
-        }
-
-        return !listed;
+        // Cannot tell. Say yes: the caller only ever uses "no" to withhold evidence.
+        return ListCandidates() is not { } candidates || candidates.Any(candidate =>
+            candidate.ProcessId == processId &&
+            (candidate.StartedAtUtc is null || startedAtUtc is null || candidate.StartedAtUtc == startedAtUtc));
     }
 
-    private IReadOnlyList<GameProcessCandidate> Safe(string processName)
+    private IReadOnlyList<GameProcessCandidate>? Safe(string processName)
     {
         try
         {
@@ -489,16 +527,33 @@ public sealed class GameProcessLocator
         }
         catch (Exception ex) when (ex is InvalidOperationException or Win32Exception or NotSupportedException)
         {
-            // A process listing that fails is a diagnostic, not a crash: the caller simply
-            // learns that the game is not visible from here.
-            return Array.Empty<GameProcessCandidate>();
+            // A process listing that fails is a diagnostic, not a crash -- and not an empty
+            // list either: the caller learns that it cannot tell.
+            return null;
         }
     }
 }
 
-/// <summary>Lists processes with <see cref="Process.GetProcessesByName(string)"/>.</summary>
+/// <summary>
+/// Lists processes from one snapshot of the kernel's process table (<see cref="ProcessTable"/>):
+/// process id, name and start time come from the same row, and no process is opened to read
+/// any of them.
+/// </summary>
 public sealed class WindowsGameProcessProvider : IGameProcessProvider
 {
+    private readonly Func<IReadOnlyList<ProcessTableEntry>?> _readTable;
+
+    /// <summary>Creates a provider over the real process table.</summary>
+    public WindowsGameProcessProvider()
+        : this(ProcessTable.TryRead)
+    {
+    }
+
+    /// <summary>Creates a provider over a table source a test controls.</summary>
+    /// <param name="readTable">One table snapshot, or null when it could not be read.</param>
+    internal WindowsGameProcessProvider(Func<IReadOnlyList<ProcessTableEntry>?> readTable) =>
+        _readTable = readTable;
+
     /// <summary>Shared instance.</summary>
     public static WindowsGameProcessProvider Instance { get; } = new();
 
@@ -507,52 +562,27 @@ public sealed class WindowsGameProcessProvider : IGameProcessProvider
     {
         ArgumentException.ThrowIfNullOrEmpty(processName);
 
-        var results = new List<GameProcessCandidate>();
-        Process[] processes;
-        try
-        {
-            processes = Process.GetProcessesByName(processName);
-        }
-        catch (Exception ex) when (ex is InvalidOperationException or Win32Exception)
-        {
-            return results;
-        }
+        // A table that could not be read is not an empty one; say so instead of reporting "no
+        // game", which would read as the client having exited.
+        var table = _readTable()
+            ?? throw new InvalidOperationException("The kernel process table could not be read.");
 
-        foreach (var process in processes)
+        var results = new List<GameProcessCandidate>();
+        foreach (var entry in table)
         {
-            try
+            var name = ProcessTable.ShortName(entry.ImageName);
+            if (!string.Equals(name, processName, StringComparison.OrdinalIgnoreCase))
             {
-                results.Add(Describe(process));
+                continue;
             }
-            catch (Exception ex) when (ex is InvalidOperationException or Win32Exception)
-            {
-                // The process exited between the listing and the read. Skip it.
-            }
-            finally
-            {
-                process.Dispose();
-            }
+
+            // AccessDenied is false by construction: the process-table read is the only source
+            // and it cannot report a permission failure (see GameProcessCandidate.AccessDenied).
+            var path = ResolveExecutablePath(() => ProcessImagePath.TryRead(entry.ProcessId), name);
+            results.Add(new GameProcessCandidate(entry.ProcessId, name, entry.CreatedAtUtc, path, AccessDenied: false));
         }
 
         return results;
-    }
-
-    private static GameProcessCandidate Describe(Process process)
-    {
-        DateTimeOffset? started = null;
-        try
-        {
-            started = new DateTimeOffset(process.StartTime.ToUniversalTime(), TimeSpan.Zero);
-        }
-        catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or NotSupportedException)
-        {
-            // Start time needs a query handle we may not have. Not fatal.
-        }
-
-        // AccessDenied is false by construction: the process-table read is the only source and
-        // it cannot report a permission failure (see GameProcessCandidate.AccessDenied).
-        var path = ResolveExecutablePath(() => ProcessImagePath.TryRead(process.Id), process.ProcessName);
-        return new GameProcessCandidate(process.Id, process.ProcessName, started, path, AccessDenied: false);
     }
 
     /// <summary>

@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <utility>
 
 using namespace mr::mock;
 
@@ -129,6 +130,88 @@ QJsonObject changeEntry(const QString &field, const QJsonValue &oldValue,
     return object;
 }
 
+/// SemanticEventProcessor.CreateRun + DescribeCreation: the SYSTEM CREATE_AUTO revision
+/// a run capture recorded opens its chain with (review DT4-X4). The Collector writes it
+/// in the transaction that creates the row at the match, so it describes the run as it
+/// stood then - the duty the match named, no job, no entry or end, result UNKNOWN - and
+/// nothing that was learned or corrected afterwards.
+QJsonObject creationRevision(const QJsonObject &run)
+{
+    const QJsonValue null(QJsonValue::Null);
+    const QJsonValue matched = run.value(QStringLiteral("matched_at_utc"));
+    const std::pair<const char *, QJsonValue> created[] = {
+        {"run_id", run.value(QStringLiteral("run_id"))},
+        {"revision", 1},
+        {"capture_session_id", run.value(QStringLiteral("capture_session_id"))},
+        {"region", run.value(QStringLiteral("region"))},
+        {"protocol_profile_id", run.value(QStringLiteral("protocol_profile_id"))},
+        {"mentor_roulette_id", run.value(QStringLiteral("mentor_roulette_id"))},
+        {"content_id", run.value(QStringLiteral("content_id"))},
+        {"territory_id", run.value(QStringLiteral("territory_id"))},
+        {"duty_name", run.value(QStringLiteral("duty_name"))},
+        {"duty_category", run.value(QStringLiteral("duty_category"))},
+        {"job_id", null},
+        {"job_name", null},
+        {"role", QStringLiteral("UNKNOWN")},
+        {"matched_at_utc", matched},
+        {"entered_at_utc", null},
+        {"ended_at_utc", null},
+        {"duration_ms", null},
+        {"result", QStringLiteral("UNKNOWN")},
+        {"detection_confidence", QStringLiteral("MEDIUM")},
+        {"source", QStringLiteral("AUTO_NETWORK")},
+        {"contributes_to_goal", true},
+        {"manually_created", false},
+        {"manually_corrected", false},
+        {"soft_deleted", false},
+        {"created_at_utc", matched},
+        {"updated_at_utc", matched},
+    };
+    QJsonArray changes;
+    for (const auto &[field, value] : created)
+        changes.append(changeEntry(QString::fromLatin1(field), null, value));
+
+    QJsonObject revision;
+    revision.insert(QStringLiteral("revision_id"),
+                    mockUuid(run.value(QStringLiteral("run_id")).toString() + QStringLiteral(":revision:1")));
+    revision.insert(QStringLiteral("run_id"), run.value(QStringLiteral("run_id")));
+    revision.insert(QStringLiteral("revision"), 1);
+    revision.insert(QStringLiteral("changed_at_utc"), matched);
+    revision.insert(QStringLiteral("change_kind"), QStringLiteral("CREATE_AUTO"));
+    revision.insert(QStringLiteral("reason"), null);
+    revision.insert(QStringLiteral("actor"), QStringLiteral("SYSTEM"));
+    revision.insert(QStringLiteral("changes"), changes);
+    return revision;
+}
+
+/// RunMutationRules.ValidateFinalValue, with the Collector's own sentences
+/// (Application/Mutations/RunMutationValidation.cs).
+bool acceptableFinalValue(const QJsonObject &run, QString *errorCode, QString *errorMessage)
+{
+    const QDateTime matched = fromIso(run.value(QStringLiteral("matched_at_utc")));
+    const QDateTime entered = fromIso(run.value(QStringLiteral("entered_at_utc")));
+    const QDateTime ended = fromIso(run.value(QStringLiteral("ended_at_utc")));
+    const QString result = run.value(QStringLiteral("result")).toString();
+    const auto refuse = [errorCode, errorMessage](const char *code, const char *message) {
+        *errorCode = QString::fromLatin1(code);
+        *errorMessage = QString::fromUtf8(message);
+        return false;
+    };
+    if (matched.isValid() && entered.isValid() && matched > entered)
+        return refuse("ERR_TIME_ORDER", "匹配时间不能晚于进入副本的时间。");
+    if (entered.isValid() && ended.isValid() && entered > ended)
+        return refuse("ERR_TIME_ORDER", "进入副本的时间不能晚于结束时间。");
+    if (result != QLatin1String("CANCELLED_BEFORE_ENTRY") && !entered.isValid())
+        return refuse("ERR_BAD_REQUEST",
+                      "只有「未进入副本即取消」可以没有进入时间，其余结果都必须填写进入时间。");
+    if (result == QLatin1String("COMPLETED") && !ended.isValid())
+        return refuse("ERR_BAD_REQUEST", "判定为「已完成」的记录必须填写结束时间。");
+    const QJsonValue duration = run.value(QStringLiteral("duration_ms"));
+    if (duration.isDouble() && duration.toDouble() < 0.0)
+        return refuse("ERR_NEGATIVE_DURATION", "时长不能为负数。");
+    return true;
+}
+
 } // namespace
 
 namespace mr {
@@ -136,6 +219,8 @@ namespace mr {
 MockBackend::MockBackend(QObject *parent)
     : IBackend(parent), m_now(QDate(2026, 9, 4), QTime(21, 40, 12), QTimeZone::LocalTime)
 {
+    // The sample player entered the baseline before the 60 days the dataset spans.
+    m_baselineEffectiveAt = m_now.addDays(-60).toUTC();
     generateRuns();
 }
 
@@ -185,6 +270,14 @@ void MockBackend::setUpdateAvailable(bool available)
     m_updateAvailable = available;
 }
 
+void MockBackend::setReplyDelay(int milliseconds, const QString &messageType)
+{
+    if (milliseconds > 0)
+        m_replyDelays.insert(messageType, milliseconds);
+    else
+        m_replyDelays.remove(messageType);
+}
+
 void MockBackend::setMidstreamSuspected(bool suspected)
 {
     if (m_midstreamSuspected == suspected)
@@ -201,13 +294,18 @@ void MockBackend::setMidstreamSuspected(bool suspected)
 ///
 /// event_id is required by the contract and is what the shell de-duplicates a
 /// reconnect replay by; sequence is monotonic per subscription.
+///
+/// emitted_at_utc is the real clock, not the dataset's fixed m_now: the shell
+/// ignores state events emitted before it started (review OH-1) and capture
+/// events older than its last answer, so a stamp from the fixture date made
+/// every mock announcement silent (review DT2-X4).
 QVariantMap MockBackend::liveEventEnvelope(const QString &eventType, const QString &kind)
 {
     QVariantMap event;
     event.insert(QStringLiteral("event_id"), ipc::newRequestId());
     event.insert(QStringLiteral("event_type"), eventType);
     event.insert(QStringLiteral("kind"), kind);
-    event.insert(QStringLiteral("emitted_at_utc"), isoUtc(m_now));
+    event.insert(QStringLiteral("emitted_at_utc"), isoUtc(QDateTime::currentDateTimeUtc()));
     event.insert(QStringLiteral("sequence"), ++m_liveSequence);
     return event;
 }
@@ -559,6 +657,14 @@ void MockBackend::generateRuns()
     noDuty.insert(QStringLiteral("detection_confidence"), QStringLiteral("MEDIUM"));
     m_runs.replace(71, noDuty);
 
+    // Every run capture recorded opens its chain with its creation; the manual one
+    // above opens with its CREATE_MANUAL.
+    for (const QJsonValue &value : std::as_const(m_runs)) {
+        const QJsonObject run = value.toObject();
+        if (run.value(QStringLiteral("source")).toString() == QLatin1String("AUTO_NETWORK"))
+            m_revisions.append(creationRevision(run));
+    }
+
     seedReflections();
 }
 
@@ -899,9 +1005,20 @@ QJsonObject MockBackend::captureStatus() const
             : m_recordingFixture == QLatin1String("multiple-exited") ? QStringLiteral("EXITED") : QStringLiteral("MULTIPLE");
         status["ffxiv_process_id"] = chosen ? QJsonValue(m_selectedGameProcessId) : QJsonValue(QJsonValue::Null);
         status["ffxiv_running"] = chosen;
-        status["state"] = chosen ? QStringLiteral("RUNNING") : QStringLiteral("IDLE");
-        status["profile_status"] = QStringLiteral("VERIFIED");
-        if (!chosen) status["capture_session_id"] = QJsonValue::Null;
+        status["state"] = chosen ? QStringLiteral("RUNNING") : QStringLiteral("STOPPED");
+        status["profile_status"] = chosen ? QStringLiteral("VERIFIED") : QStringLiteral("NONE");
+        if (!chosen) {
+            // Nothing is locked, so nothing runs and no client's build or region
+            // is read: the Collector reports GameProcessDetection.NotRunning and
+            // matches no profile (review OX-6).
+            status["capture_session_id"] = QJsonValue::Null;
+            status["started_at_utc"] = QJsonValue::Null;
+            status["game_build"] = QJsonValue::Null;
+            status["region"] = QStringLiteral("UNKNOWN");
+            status["profile_id"] = QJsonValue::Null;
+            status["profile_origin"] = QJsonValue::Null;
+            status["profile_matches_build"] = false;
+        }
     }
     return status;
 }
@@ -954,52 +1071,70 @@ QJsonArray MockBackend::runEvents(const QString &runId) const
     if (run.value(QStringLiteral("manually_created")).toBool(false))
         return {};
 
+    // The Collector's own names (Domain/Events/SemanticEvent.cs) and the fields
+    // SemanticEventProcessor.DetailJson keeps for them (review DT3-X2). The pop
+    // opens the run, the zone load enters the duty, and the run ends with
+    // whatever closed it - the result screen only for a clear. opcode null is
+    // an event the Collector generates itself.
     struct Step {
-        const char *kind;
+        const char *type;
         const char *field;
         const char *opcode;
     };
-    static const Step kSteps[] = {
-        {"MENTOR_MATCH", "matched_at_utc", "0x0142"},
-        {"DUTY_ENTER", "entered_at_utc", "0x01A3"},
-        {"DUTY_RESULT", "ended_at_utc", "0x0271"},
+    const QString result = run.value(QStringLiteral("result")).toString();
+    const Step end = result == QLatin1String("COMPLETED")
+                         ? Step{"DUTY_RESULT", "ended_at_utc", "0x0271"}
+                     : result == QLatin1String("CANCELLED_BEFORE_ENTRY")
+                         ? Step{"MATCH_CANCELLED", "ended_at_utc", "0x0142"}
+                     : result == QLatin1String("DISCONNECTED")
+                         ? Step{"CONNECTION_LOST", "ended_at_utc", nullptr}
+                         : Step{"INSTANCE_LEFT", "ended_at_utc", "0x02A4"};
+    const Step steps[] = {
+        {"CONTENT_FINDER_POP", "matched_at_utc", "0x0142"},
+        {"ZONE_INITIALIZATION", "entered_at_utc", "0x01A3"},
+        end,
     };
 
     QJsonArray events;
     int ordinal = 0;
-    for (const Step &step : kSteps) {
+    for (const Step &step : steps) {
         const QJsonValue at = run.value(QLatin1String(step.field));
         if (!at.isString())
             continue;
         ++ordinal;
+        const QLatin1String type(step.type);
+        const bool observed = step.opcode != nullptr;
 
-        QJsonObject parsed;
-        if (QLatin1String(step.kind) == QLatin1String("MENTOR_MATCH")) {
-            parsed.insert(QStringLiteral("roulette_id"),
-                          run.value(QStringLiteral("mentor_roulette_id")));
-        } else if (QLatin1String(step.kind) == QLatin1String("DUTY_ENTER")) {
-            parsed.insert(QStringLiteral("content_id"),
-                          run.value(QStringLiteral("content_id")));
-            parsed.insert(QStringLiteral("territory_id"),
-                          run.value(QStringLiteral("territory_id")));
-        } else {
-            parsed.insert(QStringLiteral("result"), run.value(QStringLiteral("result")));
+        QJsonValue parsed(QJsonValue::Null);
+        if (type == QLatin1String("CONTENT_FINDER_POP")) {
+            parsed = QJsonObject{
+                {QStringLiteral("roulette_id"), run.value(QStringLiteral("mentor_roulette_id"))},
+                {QStringLiteral("content_id"), run.value(QStringLiteral("content_id"))}};
+        } else if (type == QLatin1String("ZONE_INITIALIZATION")) {
+            parsed = QJsonObject{
+                {QStringLiteral("content_id"), run.value(QStringLiteral("content_id"))},
+                {QStringLiteral("territory_id"), run.value(QStringLiteral("territory_id"))}};
         }
 
         QJsonObject entry;
         entry.insert(QStringLiteral("event_id"),
                      mockUuid(QStringLiteral("event-%1-%2").arg(index).arg(ordinal)));
-        entry.insert(QStringLiteral("event_type"), QString::fromLatin1(step.kind));
+        entry.insert(QStringLiteral("event_type"), QString(type));
         entry.insert(QStringLiteral("observed_at_utc"), at);
-        entry.insert(QStringLiteral("direction"), QStringLiteral("S2C"));
-        entry.insert(QStringLiteral("opcode"), QString::fromLatin1(step.opcode));
+        entry.insert(QStringLiteral("direction"),
+                     observed ? QJsonValue(QStringLiteral("S2C")) : QJsonValue(QJsonValue::Null));
+        entry.insert(QStringLiteral("opcode"), observed ? QJsonValue(QString::fromLatin1(step.opcode))
+                                                        : QJsonValue(QJsonValue::Null));
         // A 12-hex-digit prefix of a payload hash, exactly like the trace sink
         // writes: never the payload itself.
         entry.insert(QStringLiteral("payload_hash"),
-                     mockUuid(QStringLiteral("hash-%1-%2").arg(index).arg(ordinal))
-                         .remove(QLatin1Char('-'))
-                         .left(12));
-        entry.insert(QStringLiteral("parser_status"), QStringLiteral("OK"));
+                     observed ? QJsonValue(mockUuid(QStringLiteral("hash-%1-%2").arg(index).arg(ordinal))
+                                               .remove(QLatin1Char('-'))
+                                               .left(12))
+                              : QJsonValue(QJsonValue::Null));
+        // $defs/RunEventEntry.parser_status: PARSED / SYNTHETIC / UNKNOWN.
+        entry.insert(QStringLiteral("parser_status"),
+                     observed ? QStringLiteral("PARSED") : QStringLiteral("SYNTHETIC"));
         entry.insert(QStringLiteral("protocol_profile_id"),
                      run.value(QStringLiteral("protocol_profile_id")));
         entry.insert(QStringLiteral("parsed"), parsed);
@@ -1262,15 +1397,23 @@ QJsonObject MockBackend::applyMutation(const QString &messageType,
     }
 
     if (messageType == QLatin1String("UpdateAchievementBaseline")) {
+        const int baseline = qMax(0, payload.value(QStringLiteral("baseline_completed_count"))
+                                         .toInt(m_baselineCompletedCount));
+        // RunMutationService.UpdateAchievementBaseline (audit 2026-10-03, CS-7): only a
+        // changed baseline moves its effective time. The same count - a goal-only edit,
+        // or the number entered again - keeps the stored time, whatever the request says.
+        if (baseline != m_baselineCompletedCount) {
+            const QDateTime requested =
+                fromIso(payload.value(QStringLiteral("baseline_effective_at")));
+            m_baselineEffectiveAt =
+                requested.isValid() ? requested.toUTC() : QDateTime::currentDateTimeUtc();
+        }
         m_goalCount = qMax(1, payload.value(QStringLiteral("goal_count")).toInt(m_goalCount));
-        m_baselineCompletedCount =
-            qMax(0, payload.value(QStringLiteral("baseline_completed_count"))
-                        .toInt(m_baselineCompletedCount));
+        m_baselineCompletedCount = baseline;
         QJsonObject result;
         result.insert(QStringLiteral("goal_count"), m_goalCount);
         result.insert(QStringLiteral("baseline_completed_count"), m_baselineCompletedCount);
-        result.insert(QStringLiteral("baseline_effective_at"),
-                      isoUtc(QDateTime::currentDateTimeUtc()));
+        result.insert(QStringLiteral("baseline_effective_at"), isoUtc(m_baselineEffectiveAt));
         result.insert(QStringLiteral("updated_at_utc"),
                       isoUtc(QDateTime::currentDateTimeUtc()));
         result.insert(QStringLiteral("audit_event_id"), ipc::newRequestId());
@@ -1293,6 +1436,38 @@ QJsonObject MockBackend::applyMutation(const QString &messageType,
         run.insert(QStringLiteral("updated_at_utc"), isoUtc(QDateTime::currentDateTimeUtc()));
         if (!run.contains(QStringLiteral("contributes_to_goal")))
             run.insert(QStringLiteral("contributes_to_goal"), true);
+        // RunMutationService.CreateManualRun (review DT4-X4): the duty catalogue
+        // supplies the zone, and the duty's name and category the request left out;
+        // the job catalogue the job's name and role. An omitted duration is derived
+        // from the two times - an explicit null stays unknown - and
+        // RunMutationRules.ValidateFinalValue refuses a record that cannot exist
+        // before anything is stored.
+        const QVariantMap duty =
+            DutyCatalog::shared()->lookup(run.value(QStringLiteral("content_id")).toVariant());
+        const QVariant territory = duty.value(QStringLiteral("territory_id"));
+        run.insert(QStringLiteral("territory_id"), territory.isValid()
+                                                       ? QJsonValue(territory.toLongLong())
+                                                       : QJsonValue(QJsonValue::Null));
+        for (const auto *field : {"duty_name", "duty_category"}) {
+            const QString key = QString::fromLatin1(field);
+            if (!run.value(key).isString())
+                run.insert(key, QJsonValue::fromVariant(duty.value(key)));
+        }
+        const JobCatalog jobs;
+        const QVariant jobId = run.value(QStringLiteral("job_id")).toVariant();
+        run.insert(QStringLiteral("job_name"), jobs.jobName(jobId));
+        run.insert(QStringLiteral("role"), jobs.role(jobId));
+        run.insert(QStringLiteral("role_group"), jobs.roleGroup(jobId));
+        if (!run.contains(QStringLiteral("duration_ms"))) {
+            const QDateTime enteredAt = fromIso(run.value(QStringLiteral("entered_at_utc")));
+            const QDateTime endedAt = fromIso(run.value(QStringLiteral("ended_at_utc")));
+            run.insert(QStringLiteral("duration_ms"),
+                       enteredAt.isValid() && endedAt.isValid()
+                           ? QJsonValue(double(enteredAt.msecsTo(endedAt)))
+                           : QJsonValue(QJsonValue::Null));
+        }
+        if (!acceptableFinalValue(run, errorCode, errorMessage))
+            return {};
         m_runs.append(run);
 
         QJsonObject revision;
@@ -1403,12 +1578,34 @@ QJsonObject MockBackend::applyMutation(const QString &messageType,
         }
         if (changes.contains(QStringLiteral("content_id"))) {
             const auto duty = DutyCatalog::shared()->lookup(changes.value(QStringLiteral("content_id")).toVariant());
+            // RunMutationService.ApplyChangeSet: the zone moves with the duty; a
+            // duty the catalogue does not know keeps the zone that was observed.
+            const QVariant territory = duty.value(QStringLiteral("territory_id"));
+            if (territory.isValid())
+                derive(QStringLiteral("territory_id"), QJsonValue(territory.toLongLong()));
             for (const auto *field : {"duty_name", "duty_category"}) {
                 const QString key = QString::fromLatin1(field);
                 if (!changes.contains(key))
                     derive(key, QJsonValue::fromVariant(duty.value(key)));
             }
         }
+        // RunMutationRules.ValidateFinalValue: a moved end point re-derives the
+        // duration unless the request names one, and the corrected record as a
+        // whole must be one that can exist (review OJ-6).
+        const QJsonObject before = m_runs.at(index).toObject();
+        const bool endpointsMoved =
+            run.value(QStringLiteral("entered_at_utc")) != before.value(QStringLiteral("entered_at_utc"))
+            || run.value(QStringLiteral("ended_at_utc")) != before.value(QStringLiteral("ended_at_utc"));
+        if (endpointsMoved && !changes.contains(QStringLiteral("duration_ms"))) {
+            const QDateTime enteredAt = fromIso(run.value(QStringLiteral("entered_at_utc")));
+            const QDateTime endedAt = fromIso(run.value(QStringLiteral("ended_at_utc")));
+            derive(QStringLiteral("duration_ms"),
+                   enteredAt.isValid() && endedAt.isValid()
+                       ? QJsonValue(double(enteredAt.msecsTo(endedAt)))
+                       : QJsonValue(QJsonValue::Null));
+        }
+        if (!acceptableFinalValue(run, errorCode, errorMessage))
+            return {};
         // A note/job/time edit does not decide the outcome. Supplying the same
         // result still acknowledges a pending record and produces an audit row.
         if (acknowledgesReview && run.value(reviewKey).toBool(false)) {
@@ -1458,7 +1655,9 @@ QJsonObject MockBackend::applyMutation(const QString &messageType,
             *errorMessage = QString::fromUtf8("上一次修正没有可回放的字段。");
             return {};
         }
-        touchRun(run, QStringLiteral("UNDO"), reason, applied);
+        // RunMutationService.UndoRevision commits an ordinary correction: the
+        // contract's change_kind has no UNDO (review OJ-6).
+        touchRun(run, QStringLiteral("CORRECT"), reason, applied);
     } else {
         *errorCode = QStringLiteral("ERR_BAD_REQUEST");
         *errorMessage = QString::fromUtf8("不支持的消息类型：") + messageType;
@@ -1775,18 +1974,40 @@ BackendReply *MockBackend::request(const QString &messageType, const QJsonObject
     } else if (messageType == QLatin1String("ExportCandidateEvidence")) {
         result = exportCandidatePayload(payload);
     } else if (messageType == QLatin1String("GetRunRevisions")) {
+        // MessageDispatcher.GetRunRevisions + RunRevisionRepository.ListForRun:
+        // oldest first, page / page_size defaulting to 1 / 50 and refused out
+        // of range, the page asked for even when it is past the end, and an
+        // unknown run is ERR_NOT_FOUND (review DT1-X1).
         const QString runId = payload.value(QStringLiteral("run_id")).toString();
-        QJsonArray items;
-        for (const QJsonValue &value : std::as_const(m_revisions)) {
-            if (value.toObject().value(QStringLiteral("run_id")).toString() == runId)
-                items.append(value);
+        const int page = payload.value(QStringLiteral("page")).toInt(1);
+        const int pageSize = payload.value(QStringLiteral("page_size")).toInt(50);
+        if (indexOfRun(runId) < 0) {
+            errorCode = QStringLiteral("ERR_NOT_FOUND");
+            errorMessage = QString::fromUtf8("找不到该记录，请刷新列表后重试。");
+        } else if (page < 1 || pageSize < 1 || pageSize > 200) {
+            errorCode = QStringLiteral("ERR_BAD_REQUEST");
+            errorMessage = QString::fromUtf8("page 必须大于等于 1，page_size 必须在 1 到 200 之间。");
+        } else {
+            QList<QJsonObject> chain;
+            for (const QJsonValue &value : std::as_const(m_revisions)) {
+                if (value.toObject().value(QStringLiteral("run_id")).toString() == runId)
+                    chain.append(value.toObject());
+            }
+            std::stable_sort(chain.begin(), chain.end(), [](const QJsonObject &a, const QJsonObject &b) {
+                return a.value(QStringLiteral("revision")).toInt()
+                       < b.value(QStringLiteral("revision")).toInt();
+            });
+            QJsonArray items;
+            const qint64 first = qint64(page - 1) * pageSize;
+            for (qint64 i = first; i < qMin(qint64(chain.size()), first + pageSize); ++i)
+                items.append(chain.at(int(i)));
+            QJsonObject pageInfo;
+            pageInfo.insert(QStringLiteral("page"), page);
+            pageInfo.insert(QStringLiteral("page_size"), pageSize);
+            pageInfo.insert(QStringLiteral("total"), int(chain.size()));
+            result.insert(QStringLiteral("items"), items);
+            result.insert(QStringLiteral("page_info"), pageInfo);
         }
-        QJsonObject pageInfo;
-        pageInfo.insert(QStringLiteral("page"), 1);
-        pageInfo.insert(QStringLiteral("page_size"), qMax(1, int(items.size())));
-        pageInfo.insert(QStringLiteral("total"), int(items.size()));
-        result.insert(QStringLiteral("items"), items);
-        result.insert(QStringLiteral("page_info"), pageInfo);
     } else if (messageType == QLatin1String("GetRunEvents")) {
         const QString runId = payload.value(QStringLiteral("run_id")).toString();
         if (indexOfRun(runId) < 0) {
@@ -1889,9 +2110,11 @@ BackendReply *MockBackend::request(const QString &messageType, const QJsonObject
     }
 
     // Deliver on the next event-loop turn so callers always observe the same
-    // asynchronous behaviour as the real IPC backend.
+    // asynchronous behaviour as the real IPC backend - or later, when a test
+    // asked for this type's answer to be held back (setReplyDelay).
     const bool failed = !errorCode.isEmpty();
-    QTimer::singleShot(0, reply, [reply, failed, result, errorCode, errorMessage, errorDetails] {
+    const int delay = m_replyDelays.value(messageType, m_replyDelays.value(QString(), 0));
+    QTimer::singleShot(delay, reply, [reply, failed, result, errorCode, errorMessage, errorDetails] {
         if (failed)
             reply->fail(errorCode, errorMessage, errorDetails);
         else

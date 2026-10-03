@@ -28,6 +28,9 @@ class StatsRowsModel : public QAbstractListModel
     Q_PROPERTY(int maxAttemptCount READ maxAttemptCount NOTIFY countChanged)
     Q_PROPERTY(int totalAttemptCount READ totalAttemptCount NOTIFY countChanged)
     Q_PROPERTY(bool loading READ isLoading NOTIFY loadingChanged)
+    /// Why the last read failed, or empty after an answer. While it is set the
+    /// counts are not a result, and the page must not show them as one.
+    Q_PROPERTY(QString loadError READ loadError NOTIFY loadErrorChanged)
 
 public:
     enum Roles { RowRole = Qt::UserRole + 1 };
@@ -47,6 +50,7 @@ public:
     /// Sum of attempt_count over every row, for share percentages.
     int totalAttemptCount() const;
     bool isLoading() const { return m_loading; }
+    QString loadError() const { return m_loadError; }
 
 public Q_SLOTS:
     void setFilter(const QVariantMap &filter);
@@ -59,6 +63,7 @@ Q_SIGNALS:
     void countChanged();
     void loadingChanged();
     void loadFailed(const QString &code, const QString &message);
+    void loadErrorChanged();
 
 protected:
     /// Message type this model requests, e.g. "GetDungeonStats".
@@ -74,10 +79,12 @@ protected:
     QJsonObject m_filter;
     int m_distinctCount = 0;
     bool m_loading = false;
+    QString m_loadError;
 
 private:
     void loadPage(quint64 generation, int page, QList<QJsonObject> rows, int total = -1);
     void failLoad(quint64 generation, const QString &code, const QString &message);
+    void setLoadError(const QString &error);
     quint64 m_loadGeneration = 0;
 };
 

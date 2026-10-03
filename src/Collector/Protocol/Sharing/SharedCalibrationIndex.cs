@@ -20,7 +20,8 @@ namespace MentorRecorder.Collector.Protocol.Sharing;
 /// <param name="Revoked">True when the maintainer withdrew the code.</param>
 /// <param name="Conflicting">
 /// True when another published code of the same build, template and match source differs from this one
-/// (plan §18.6): at least one of them is wrong, so both are picked last. Optional in the index; absent reads as false.
+/// (plan §18.6): at least one of them is wrong, so neither binds on the login burst alone, and each is picked after an
+/// equally attested code without the mark (audit 2026-10-03, ON1-1). Optional in the index; absent reads as false.
 /// </param>
 public sealed record SharedIndexEntry(
     Region Region,
@@ -221,7 +222,10 @@ public static class SharedCalibrationIndex
     /// <summary>
     /// What to download for a region and build: entries that are not revoked (a revocation of a code
     /// anywhere in the index wins over every other entry for it), each code once, ordered by
-    /// submitters descending, then first published ascending, then hash; at most <see cref="MaxCandidates"/>.
+    /// submitters descending, then codes without the conflict mark first, then first published ascending,
+    /// then hash; at most <see cref="MaxCandidates"/>. The conflict mark only breaks a tie: one more account
+    /// publishing a differing code must not push a code many players submitted out of the download, behind
+    /// codes of another kind from one or two accounts (audit 2026-10-03, ON1-1).
     /// </summary>
     /// <param name="entries">Entries of a readable index.</param>
     /// <param name="region">Region of the running client.</param>
@@ -232,8 +236,8 @@ public static class SharedCalibrationIndex
         var revoked = forBuild.Where(entry => entry.Revoked).Select(entry => entry.CodeSha256).ToHashSet(StringComparer.Ordinal);
         return forBuild
             .Where(entry => !revoked.Contains(entry.CodeSha256))
-            .OrderBy(entry => entry.Conflicting)
-            .ThenByDescending(entry => entry.Submitters)
+            .OrderByDescending(entry => entry.Submitters)
+            .ThenBy(entry => entry.Conflicting)
             .ThenBy(entry => entry.FirstPublishedAtUtc)
             .ThenBy(entry => entry.CodeSha256, StringComparer.Ordinal)
             .DistinctBy(entry => entry.CodeSha256, StringComparer.Ordinal)

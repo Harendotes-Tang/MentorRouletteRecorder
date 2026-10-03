@@ -218,6 +218,81 @@ public sealed class MigrationTests
     }
 
     /// <summary>
+    /// Audit 2026-10-03 OF-4. A file that is not an SQLite database fails inside SQLite on the very
+    /// first statement. That used to leave Open as a raw SqliteException, which nothing above it
+    /// caught; it is a refusal to open like every other, under the documented code.
+    /// </summary>
+    [Fact]
+    public void Open_RefusesAFileThatIsNotADatabase()
+    {
+        using var fixture = new TestDatabase();
+        fixture.Database.Dispose();
+        File.Delete(fixture.Path + "-wal");
+        File.Delete(fixture.Path + "-shm");
+        File.WriteAllText(fixture.Path, new string('x', 4096));
+
+        var error = Assert.Throws<CollectorException>(() =>
+            SqliteDatabase.Open(fixture.Path, fixture.Clock));
+
+        Assert.Equal(ErrorCodes.DbIntegrity, error.Code);
+        Assert.IsType<SqliteException>(error.InnerException);
+        AssertRefusalIsHonest(error, fixture);
+    }
+
+    /// <summary>
+    /// Another program holding the file locked is not damage: the same refusal to start, under the
+    /// busy code, and still naming the file.
+    /// </summary>
+    [Fact]
+    public void Open_RefusesALockedFileAsBusy()
+    {
+        using var fixture = new TestDatabase();
+        fixture.Database.Dispose();
+        using var holder = new SqliteConnection(new SqliteConnectionStringBuilder
+        {
+            DataSource = fixture.Path,
+            Mode = SqliteOpenMode.ReadWrite,
+            Pooling = false,
+        }.ConnectionString);
+        holder.Open();
+        using (var command = holder.CreateCommand())
+        {
+            command.CommandText = "PRAGMA locking_mode = EXCLUSIVE; BEGIN EXCLUSIVE;";
+            command.ExecuteNonQuery();
+        }
+
+        var error = Assert.Throws<CollectorException>(() =>
+            SqliteDatabase.Open(fixture.Path, fixture.Clock));
+
+        Assert.Equal(ErrorCodes.DbBusy, error.Code);
+        Assert.Contains("无法启动", error.Message, StringComparison.Ordinal);
+        Assert.Contains(System.IO.Path.GetFileName(fixture.Path), error.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A failed migration names the file to copy, like every other refusal to open.
+    /// </summary>
+    [Fact]
+    public void Open_AFailedMigrationNamesTheFile()
+    {
+        using var fixture = new TestDatabase();
+        using (var command = fixture.Database.CreateCommand())
+        {
+            // Version 8 was applied; forget it so the next open runs it again against the
+            // column it already added, which fails inside the migration transaction.
+            command.CommandText = "DELETE FROM schema_migrations WHERE version = 8;";
+            command.ExecuteNonQuery();
+        }
+
+        fixture.Database.Dispose();
+        var error = Assert.Throws<CollectorException>(() =>
+            SqliteDatabase.Open(fixture.Path, fixture.Clock));
+
+        Assert.Equal(ErrorCodes.DbIntegrity, error.Code);
+        AssertRefusalIsHonest(error, fixture);
+    }
+
+    /// <summary>
     /// Every refusal to open ends the process before the pipe is up, so the message may not
     /// promise a read-only mode nothing implements (2026-09-21 full audit, finding 15). It has to
     /// say the software will not start and name the file the user should copy first - that copy is

@@ -54,6 +54,30 @@ public sealed record CalibrationRejections(IReadOnlySet<ushort> PopOpcodes, IRea
     /// have rests on the request.
     /// </summary>
     public IReadOnlySet<ushort> TimedOpcodes { get; init; } = new HashSet<ushort>();
+
+    /// <summary>
+    /// States of a queue reply rejected as "matched": a popup line of a draft that read the match
+    /// off the reply. The reply opcode itself keeps pairing with the request - it still answers
+    /// every queue - so another roulette can still lead somewhere (audit 2026-10-03, OCal-2).
+    /// </summary>
+    public IReadOnlyList<(ushort Opcode, IReadOnlyList<CalibrationSelectorReading> Selectors)> MatchStates { get; init; } =
+        Array.Empty<(ushort, IReadOnlyList<CalibrationSelectorReading>)>();
+
+    /// <summary>
+    /// Times of 排本 lines the player rejected. The request/echo pairs such a line stood for are not
+    /// queue requests, and the pairs of every other request still are.
+    /// </summary>
+    public IReadOnlySet<DateTimeOffset> Requests { get; init; } = new HashSet<DateTimeOffset>();
+
+    /// <summary>
+    /// Load starts of bursts rejected as the duty a match led to (a 进入副本 line). The burst is still
+    /// a zone load for everything else - the zone marker included, which a duty line says nothing
+    /// about.
+    /// </summary>
+    public IReadOnlySet<DateTimeOffset> Entries { get; init; } = new HashSet<DateTimeOffset>();
+
+    /// <summary>Load starts of bursts rejected as the exit of that duty (a 离开副本 line).</summary>
+    public IReadOnlySet<DateTimeOffset> Exits { get; init; } = new HashSet<DateTimeOffset>();
 }
 
 /// <summary>One line of the timeline the user is asked to confirm.</summary>
@@ -127,6 +151,20 @@ public sealed partial record CalibrationDraft(
     /// own request and the duty that followed it, and says so everywhere it is shown.
     /// </summary>
     public CalibrationMatchSource MatchSource { get; init; } = CalibrationMatchSource.ReplyState;
+
+    /// <summary>
+    /// The reply state that means "matched" on a draft that read the match off the queue reply
+    /// (<see cref="CalibrationMatchSource.ReplyState"/>); empty on every other draft. A 匹配弹窗 line
+    /// of such a draft is about this state, and that is what marking it wrong rejects.
+    /// </summary>
+    public IReadOnlyList<CalibrationSelectorReading> MatchSelectors { get; init; } =
+        Array.Empty<CalibrationSelectorReading>();
+
+    /// <summary>
+    /// How close two queue requests are shown as one 排本 line, and so how far around a rejected
+    /// line its request/echo pairs are left out.
+    /// </summary>
+    internal static readonly TimeSpan RequestLineSpan = TimeSpan.FromSeconds(2);
 
     /// <summary>
     /// Bursts that must contain the zone marker exactly once before it may be declared, and the
@@ -242,11 +280,15 @@ public sealed partial record CalibrationDraft(
         var samples = new Dictionary<string, int>(StringComparer.Ordinal);
         var region = template.Region;
 
-        // 1. The pop: a request/echo pair locked on one opcode pair.
-        var pairs = snapshot.Pairs.Where(pair => !rejections.PopOpcodes.Contains(pair.ReplyOpcode)).ToArray();
+        // 1. The pop: a request/echo pair locked on one opcode pair. A rejected 排本 line takes the
+        // pairs it stood for with it, and a rejected reply state can no longer be the match.
+        var pairs = snapshot.Pairs.Where(pair => !rejections.PopOpcodes.Contains(pair.ReplyOpcode))
+            .Where(pair => !rejections.Requests.Any(line => (RequestAt(pair) - line).Duration() < RequestLineSpan))
+            .ToArray();
         var matches = pairs.GroupBy(pair => pair.ReplyOpcode).ToDictionary(group => group.Key,
-            group => MatchedState.From(snapshot.Pops.Where(pop => pop.Opcode == group.Key).ToArray(),
-                snapshot.Clusters, group.ToArray(), template.MatchWindow));
+            group => MatchedState.From(
+                snapshot.Pops.Where(pop => pop.Opcode == group.Key && !RejectedState(pop, rejections)).ToArray(),
+                snapshot.Clusters, group.ToArray(), template.MatchWindow, rejections.Entries));
         var lockedReply = LockPop(snapshot, pairs, matches, out var lockReason, out var ambiguous);
         var matched = lockedReply is { } reply ? matches[reply] : MatchedState.None;
         // Contradictory positive duty evidence must remain visible even when it cannot
@@ -275,7 +317,7 @@ public sealed partial record CalibrationDraft(
         // everywhere it appears, and it exists so that a build whose announcement nobody can
         // find still records mentor roulettes instead of recording nothing at all.
         var queued = searchable && announcement is null && marker is null && lockedReply is not null
-            ? InferFromQueue(snapshot, pairs, lockedReply.Value)
+            ? InferFromQueue(snapshot, pairs, lockedReply.Value, rejections.Entries)
             : null;
         // Last of all, and only on top of the inferred match: the server's announcement
         // recognised by when it arrives rather than by anything it carries. It adds the moment
@@ -352,7 +394,9 @@ public sealed partial record CalibrationDraft(
         // 2. Zone-load bursts, and which of them is the duty.
         var clusters = snapshot.Clusters;
         ZoneCluster? entry = announcement?.Entry ?? marker?.Entry ?? queued?.Entry ?? matched.Entry;
-        var exit = entry is null ? null : FindExit(entry, clusters);
+        var exit = entry is null
+            ? null
+            : FindExit(entry, clusters.Where(cluster => !rejections.Exits.Contains(cluster.LoadStartedAtUtc)).ToArray());
 
         if (clusters.Count == 0)
         {
@@ -532,8 +576,18 @@ public sealed partial record CalibrationDraft(
         {
             MatchSource = source,
             TimedAnnouncement = status == CalibrationDraftStatus.Ready ? timed : null,
+            MatchSelectors = source == CalibrationMatchSource.ReplyState
+                ? matched.Selectors
+                : Array.Empty<CalibrationSelectorReading>(),
         };
     }
+
+    /// <summary>True for a pop carrying a reply state the player rejected as "matched" on its opcode.</summary>
+    /// <param name="pop">Pop-shaped sample.</param>
+    /// <param name="rejections">Candidates the user already rejected.</param>
+    private static bool RejectedState(PopHit pop, CalibrationRejections rejections) =>
+        !pop.WithinEcho && rejections.MatchStates.Any(state =>
+            state.Opcode == pop.Opcode && CalibrationObserver.SameSelectors(state.Selectors, pop.Selectors));
 
     private static ushort? LockPop(
         CalibrationSnapshot snapshot,
@@ -575,10 +629,12 @@ public sealed partial record CalibrationDraft(
             }
 
             // A shape that travels hundreds of times a session is ordinary traffic that
-            // happened to echo a byte; one that is also a genuine pop is not.
+            // happened to echo a byte; one that is also a genuine pop is not. The request asked
+            // about is the one the pairs agree on: the first pair can be a stray, and pairs are
+            // kept for the life of the build (audit 2026-10-03, OCal-4).
             if (!corroborated &&
                 (TooFrequent(snapshot, PacketDirection.ServerToClient, reply) ||
-                 TooFrequent(snapshot, PacketDirection.ClientToServer, group.First().RequestOpcode)))
+                 TooFrequent(snapshot, PacketDirection.ClientToServer, dominant)))
             {
                 continue;
             }
@@ -649,7 +705,9 @@ public sealed partial record CalibrationDraft(
         CalibrationSnapshot snapshot, CalibrationTemplate template, FinderPairHit[] pairs,
         IEnumerable<ushort> replyOpcodes, CalibrationRejections rejections)
     {
-        var entries = snapshot.Clusters.Where(cluster => cluster.TerritoryHits.Count > 0).ToArray();
+        var entries = snapshot.Clusters
+            .Where(cluster => cluster.TerritoryHits.Count > 0 && !rejections.Entries.Contains(cluster.LoadStartedAtUtc))
+            .ToArray();
         if (entries.Length == 0 || pairs.Length == 0)
         {
             return null;
@@ -832,6 +890,12 @@ public sealed partial record CalibrationDraft(
             // number, which roughly one message in 256 does.
             .Where(candidate => snapshot.MarkerShapeTotals.TryGetValue(
                 (candidate.Opcode, candidate.Length), out var total) && total == candidate.Hits)
+            // An announcement can carry the queued roulette at more than one offset. Positions of
+            // one shape that agree on every sighting are one answer rather than an ambiguity, and
+            // the lowest offset is taken so that every machine on the build writes the same
+            // profile and share code, as with the job's twins (audit 2026-10-03, OCal-7).
+            .GroupBy(candidate => candidate.Shape)
+            .SelectMany(Twins)
             .ToArray();
         if (candidates.Length > 1)
         {
@@ -858,10 +922,23 @@ public sealed partial record CalibrationDraft(
         }
 
         var entries = snapshot.Clusters
-            .Where(cluster => cluster.TerritoryHits.Count > 0)
+            .Where(cluster => cluster.TerritoryHits.Count > 0 && !rejections.Entries.Contains(cluster.LoadStartedAtUtc))
             .Where(cluster => pops.Any(pop => pop.AtUtc < cluster.LoadStartedAtUtc &&
                 cluster.LoadStartedAtUtc - pop.AtUtc <= template.MatchWindow));
         return new MarkedMatch(chosen.Shape, chosen.Offset, pops, PreferredEntry(entries, snapshot.Clusters));
+    }
+
+    /// <summary>
+    /// The positions of one shape that qualified, collapsed to the lowest when they all agree on
+    /// every sighting; left as they are, and so ambiguous, when any two of them part company.
+    /// </summary>
+    /// <param name="shape">Qualifying positions of one opcode and length.</param>
+    private static IEnumerable<MarkerCandidate> Twins(IGrouping<MessageKey, MarkerCandidate> shape)
+    {
+        var ordered = shape.OrderBy(candidate => candidate.Offset).ToArray();
+        return ordered.All(candidate => candidate.Sightings.SequenceEqual(ordered[0].Sightings))
+            ? ordered[..1]
+            : ordered;
     }
 
     /// <summary>A match taken from the player's own request, with the duty that confirms it.</summary>
@@ -895,8 +972,12 @@ public sealed partial record CalibrationDraft(
     /// <param name="snapshot">Frozen observations.</param>
     /// <param name="pairs">Request/echo pairs; the request is the message that stands in.</param>
     /// <param name="lockedReply">The reply opcode, so only vouched-for requests are used.</param>
+    /// <param name="rejectedEntries">
+    /// Load starts of entries the player said no request of theirs led to. Such an entry explains
+    /// nothing, and it still stands between an older request and any later entry.
+    /// </param>
     private static QueuedMatch? InferFromQueue(
-        CalibrationSnapshot snapshot, FinderPairHit[] pairs, ushort lockedReply)
+        CalibrationSnapshot snapshot, FinderPairHit[] pairs, ushort lockedReply, IReadOnlySet<DateTimeOffset> rejectedEntries)
     {
         var entries = snapshot.Clusters
             .Where(cluster => cluster.TerritoryHits.Count > 0)
@@ -913,7 +994,7 @@ public sealed partial record CalibrationDraft(
         }
 
         var chains = new List<(PopHit Pop, ZoneCluster Entry)>();
-        foreach (var entry in entries)
+        foreach (var entry in entries.Where(entry => !rejectedEntries.Contains(entry.LoadStartedAtUtc)))
         {
             // The request that explains an entry is the last one before it, and only when no
             // other duty stands between them: an older queue has already been spent.
@@ -1133,9 +1214,10 @@ public sealed partial record CalibrationDraft(
         /// <param name="clusters">Zone-load bursts, to exclude anything that arrived inside one.</param>
         /// <param name="pairs">Pairs, for the roulette ids the player actually asked for.</param>
         /// <param name="matchWindow">Maximum candidate-to-entry interval from the template.</param>
+        /// <param name="rejectedEntries">Load starts of entries the player said no match led to; they support nothing.</param>
         public static MatchedState From(
             IReadOnlyList<PopHit> pops, IReadOnlyList<ZoneCluster> clusters, IReadOnlyList<FinderPairHit> pairs,
-            TimeSpan matchWindow)
+            TimeSpan matchWindow, IReadOnlySet<DateTimeOffset> rejectedEntries)
         {
             if (pops.Count == 0 || DominantRequest(pairs) is not { } dominant)
             {
@@ -1166,6 +1248,7 @@ public sealed partial record CalibrationDraft(
                 }
 
                 var entries = clusters.Where(cluster => cluster.TerritoryHits.Count > 0 &&
+                    !rejectedEntries.Contains(cluster.LoadStartedAtUtc) &&
                     cluster.LoadStartedAtUtc > pop.AtUtc &&
                     cluster.LoadStartedAtUtc - pop.AtUtc <= matchWindow).ToArray();
                 if (entries.Length == 0)
@@ -1265,7 +1348,7 @@ public sealed partial record CalibrationDraft(
         foreach (var pair in pairs.Where(pair => pair.ReplyOpcode == lockedReply).OrderBy(pair => pair.ReplyAtUtc))
         {
             var requestedAt = pair.ReplyAtUtc - TimeSpan.FromMilliseconds(pair.ReplyTMs - pair.RequestTMs);
-            if (lastRequest is { } last && requestedAt - last < TimeSpan.FromSeconds(2))
+            if (lastRequest is { } last && requestedAt - last < RequestLineSpan)
             {
                 continue;
             }

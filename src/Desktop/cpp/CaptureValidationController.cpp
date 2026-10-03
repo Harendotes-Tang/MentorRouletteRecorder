@@ -31,7 +31,9 @@ CaptureValidationController::CaptureValidationController(Host *host, QObject *pa
 {
     m_pollTimer.setInterval(kBasePollMs);
     connect(&m_pollTimer, &QTimer::timeout, this, [this] {
-        if (m_profileStale || !m_profileLoaded)
+        // A profile query that has used up its retries is not asked again until
+        // 重新扫描; a running validation still has its status polled.
+        if ((m_profileStale || !m_profileLoaded) && m_profileRetryCount < kMaxRetries)
             refreshProfile();
         refreshStatusSnapshot();
     });
@@ -205,13 +207,25 @@ void CaptureValidationController::setAdapterId(const QString &adapterId)
 
 void CaptureValidationController::scheduleRetry()
 {
-    if (m_retryCount >= kMaxRetries) {
+    // The two refreshes count their failures apart and the backoff follows the
+    // worse one: a status that answers says nothing about a profile query that
+    // keeps failing, and must not reset its count (review OI-7).
+    const int failures = qMax(m_retryCount, m_profileRetryCount);
+    if (failures >= kMaxRetries) {
         m_retriesExhausted = true;
+        // Only the profile query gave up: a running validation still needs its
+        // own status read, at the ordinary period.
+        if (active() && m_retryCount < kMaxRetries) {
+            m_pollTimer.setInterval(kBasePollMs);
+            if (!m_pollTimer.isActive())
+                m_pollTimer.start();
+            return;
+        }
         m_pollTimer.stop();
         return;
     }
     // 750 / 1500 / 3000 / 6000 ms, then flat. Backoff, not a fixed drum beat.
-    const int shift = qMin(m_retryCount, 3);
+    const int shift = qMin(failures, 3);
     m_pollTimer.setInterval(kBasePollMs * (1 << shift));
     if (!m_pollTimer.isActive())
         m_pollTimer.start();
@@ -220,6 +234,7 @@ void CaptureValidationController::scheduleRetry()
 void CaptureValidationController::clearRetry()
 {
     m_retryCount = 0;
+    m_profileRetryCount = 0;
     m_retriesExhausted = false;
     m_pollTimer.setInterval(kBasePollMs);
 }
@@ -265,20 +280,24 @@ void CaptureValidationController::refreshProfile()
                 m_profile = QJsonObject::fromVariantMap(payload);
                 m_profileLoaded = true;
                 m_profileStale = false;
-                clearRetry();
+                m_profileRetryCount = 0;
+                if (m_retryCount == 0)
+                    clearRetry();
             } else if (isUnsupportedCode(code)) {
                 // A refusal is an answer: this Collector has no profile status
                 // to give, and that is a stable fact, not a hiccup.
                 m_profile = QJsonObject();
                 m_profileLoaded = true;
                 m_profileStale = false;
-                clearRetry();
+                m_profileRetryCount = 0;
+                if (m_retryCount == 0)
+                    clearRetry();
             } else {
                 // Transient: keep the last known snapshot, or one timeout
                 // disables the capture button permanently, and retry on the
                 // shared poll timer.
                 m_profileStale = true;
-                ++m_retryCount;
+                ++m_profileRetryCount;
                 scheduleRetry();
             }
             Q_EMIT changed();
@@ -348,9 +367,15 @@ void CaptureValidationController::applyStatus(const QVariantMap &payload, bool c
     if (clearError || m_errorFromStatus)
         m_error.clear();
     m_errorFromStatus = false;
-    clearRetry();
+    // The status answered; a profile query still failing keeps its own count.
+    m_retryCount = 0;
+    if (m_profileRetryCount == 0)
+        clearRetry();
 
     if (active()) {
+        // A running validation is read at the ordinary period, whatever the
+        // profile query's backoff is doing.
+        m_pollTimer.setInterval(kBasePollMs);
         if (!m_pollTimer.isActive())
             m_pollTimer.start();
     } else if (m_profileStale) {

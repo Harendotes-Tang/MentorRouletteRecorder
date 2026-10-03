@@ -33,14 +33,26 @@ public sealed record LiveRunSnapshot(RunState State, MentorRun? Run, long? Elaps
 /// machine and persistence path.
 ///
 /// A profile is selected from the exact <see cref="GameProcessDetection"/> used by capture
-/// pre-flight. The selection is frozen for the lifetime of a capture session: a client update
-/// or a changed profile directory can never silently reinterpret packets halfway through a
-/// run. The one exception is a one-way upgrade from "no profile" to a VERIFIED local profile
-/// the user just confirmed through calibration (<see cref="ConfirmCalibration"/>): it binds a
-/// parser only when the session has been a pure counting sink so far, and only to the file as
-/// re-loaded from disk, never to an in-memory draft. When no verified profile matches, this
-/// bridge behaves as a bounded counting sink and writes no run data, preserving the
-/// diagnostics-only fail-closed path.
+/// pre-flight, and a capture session never re-selects on its own: a client update or a changed
+/// profile directory cannot silently reinterpret packets halfway through a run. The parser does
+/// change inside a session, always over a file re-loaded from disk and never over an in-memory
+/// draft, on these occasions only:
+/// <list type="bullet">
+/// <item>a session that has been a pure counting sink binds a local profile the player just
+/// confirmed (<see cref="ConfirmCalibration"/>), replaying first what it saw of that profile's
+/// messages while the card waited, or a shared profile that passed verification, draining what
+/// it staged meanwhile;</item>
+/// <item>a confirmation that rewrites the profile in force, or takes over from a shared one, and a
+/// shared profile that outranks the one in force are swapped in only between runs - owed while a
+/// run is in flight or a queue request is parked, and settled after the message that ends it;</item>
+/// <item>a profile taken out of use - disproved by this machine's traffic, revoked or
+/// contradicted as a shared code, refused or retired by the player, or set aside for a retired
+/// local profile the player restores - stops recording at once, the run in flight closed as a
+/// stopped capture closes it, and whatever the reloaded catalogue then selects binds in its
+/// place.</item>
+/// </list>
+/// When no verified profile matches, this bridge behaves as a bounded counting sink and writes no
+/// run data, preserving the diagnostics-only fail-closed path.
 /// </summary>
 public sealed partial class LiveProtocolPipeline :
     IDecodedMessageSink,
@@ -79,8 +91,23 @@ public sealed partial class LiveProtocolPipeline :
     /// Evidence frozen under the lock and still owed a write outside it, with the generation
     /// it was frozen in. Staged and flushed within one <see cref="Accept"/> call.
     /// </summary>
-    private (Region Region, string Build, string TemplateSha256, CalibrationSnapshot Evidence, int Generation)?
+    private (Region Region, string Build, string TemplateSha256, CalibrationSnapshot Evidence, int Generation, long Frozen)?
         _calibrationSavePending;
+
+    /// <summary>
+    /// Counts the snapshots frozen for writing, under <see cref="_gate"/>. A later freeze holds at
+    /// least what an earlier one did - the final save after a stop also holds the loads the stop
+    /// closed, with the same message count - so its number is what orders two writes.
+    /// </summary>
+    private long _evidenceFrozen;
+
+    /// <summary>
+    /// The freeze last written, or the last freeze before the file was deleted; under
+    /// <see cref="_evidenceGate"/>. A write of a freeze no later than that is refused: a periodic save that only
+    /// got going after the stop's final save carried the same message count, passed the store's
+    /// "never poorer" check and put the earlier snapshot back (audit 2026-10-03, OCal-8).
+    /// </summary>
+    private long _evidenceWritten;
 
     /// <summary>
     /// True from the moment a periodic save is staged until its write is done with. A second
@@ -215,6 +242,21 @@ public sealed partial class LiveProtocolPipeline :
     private string? _sessionId;
     private bool _active;
 
+    /// <summary>
+    /// Directions of connections, by the opaque key their messages carry, that delivered at least one
+    /// message the bound parser turned into an event this session. Giving up one of them is a gap in
+    /// the run's sequence; giving up any other - the chat server's connection, or the zone connection's
+    /// outbound direction on a profile that parses nothing the client sends - is not (see
+    /// <see cref="OnDirectionDamaged"/>; audit 2026-10-03, V2-1).
+    /// </summary>
+    private readonly HashSet<(string ConnectionKey, MessageDirection Direction)> _profileConnections = new();
+
+    /// <summary>
+    /// Directions remembered in <see cref="_profileConnections"/> before every damaged direction
+    /// counts as a gap again: past it the set can no longer say which direction carries the run.
+    /// </summary>
+    internal const int MaxProfileConnections = 256;
+
     /// <summary>Creates a bridge with an injectable, deterministic profile selector.</summary>
     /// <param name="database">Collector database; the sole writer remains this process.</param>
     /// <param name="clock">Clock for persisted diagnostics and lifecycle events.</param>
@@ -278,7 +320,7 @@ public sealed partial class LiveProtocolPipeline :
             services);
     }
 
-    /// <summary>普通捕获中的档案被冻结，必须先停止该会话才能切入候选模式。</summary>
+    /// <summary>候选观察器只在捕获会话开始时建立，因此捕获进行中不能开启候选档案验证，须先停止捕获；关闭不受此限。</summary>
     public void ValidateCandidateModeChange(bool enabled)
     {
         lock (_gate)
@@ -455,6 +497,7 @@ public sealed partial class LiveProtocolPipeline :
             _sessionTimer = Stopwatch.StartNew();
             _runTimer = null;
             _lastMessageMono = null;
+            _profileConnections.Clear();
             _counting = new CountingSink();
 
             // The player's job survives a capture retry only when both sessions belong to
@@ -468,8 +511,10 @@ public sealed partial class LiveProtocolPipeline :
             _processor = null;
             _boundProfileId = null;
             _sharedSwapOwed = null;
+            _localRebindOwed = null;
             _sharedIdleAgain = false;
             ForgetPopWatch();
+            ForgetCardWait();
             _sessionCarried = carried;
             _candidateObserver = _candidateEnabled && _candidateProfile is { } candidate
                 ? new CandidateObserver(candidate, captureSessionId, observation => CandidateObserved?.Invoke(observation), _researchOpcodes)
@@ -542,6 +587,8 @@ public sealed partial class LiveProtocolPipeline :
         // records, so traffic that disproves it can take it out of use (WatchPops).
         _parser = new ProfileMessageParser(profile, WatchPops(profile, _processor));
         _boundProfileId = profile.ProfileId;
+        // Kept only for a parser bound by a confirmation, and only until one is bound by any path.
+        ForgetCardWait();
     }
 
     /// <inheritdoc />
@@ -574,6 +621,7 @@ public sealed partial class LiveProtocolPipeline :
                 if (_parser is null || _processor is null)
                 {
                     _counting.Accept(message);
+                    KeepWhileCardWaits(message);
                     return;
                 }
 
@@ -581,10 +629,11 @@ public sealed partial class LiveProtocolPipeline :
                 // advance the state machine after the first missing observation while the
                 // controller's asynchronous fault path is stopping the source.
                 ThrowIfStorageFailed();
-                var beforeFailed = _parser.GetParserStats().ParseFailed;
+                var beforeStats = _parser.GetParserStats();
                 ApplyAndPublish(() => _parser.Accept(message));
                 var afterStats = _parser.GetParserStats();
-                if (afterStats.ParseFailed > beforeFailed && afterStats.RecentErrors.Count > 0)
+                NoteProfileConnection(message, beforeStats.ParseOk, afterStats.ParseOk);
+                if (afterStats.ParseFailed > beforeStats.ParseFailed && afterStats.RecentErrors.Count > 0)
                 {
                     PersistParserError(afterStats.RecentErrors[^1]);
                 }
@@ -603,6 +652,7 @@ public sealed partial class LiveProtocolPipeline :
                 }
 
                 SettleOwedSharedSwap();
+                SettleOwedLocalRebind();
             }
         }
         finally
@@ -633,8 +683,10 @@ public sealed partial class LiveProtocolPipeline :
 
             if (_processor is null)
             {
-                // Nothing bound yet: the hole goes into every candidate's staging, in sequence.
+                // Nothing bound yet: the hole goes into every candidate's staging, in sequence, and
+                // among the messages kept while the calibration card waits.
                 _shared.EventsDropped(droppedCount, _clock.UtcNow, LifecycleMono());
+                KeepLossWhileCardWaits(CardWaitKind.EventsDropped, droppedCount);
                 return;
             }
 
@@ -660,12 +712,82 @@ public sealed partial class LiveProtocolPipeline :
             if (_processor is null)
             {
                 _shared.ConnectionLost(_clock.UtcNow, LifecycleMono());
+                KeepLossWhileCardWaits(CardWaitKind.ConnectionLost);
                 return;
             }
 
             ApplyAndPublish(() => _processor.OnConnectionLost(_clock.UtcNow, LifecycleMono()));
         }
     }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// A direction given up delivers nothing more this session, so a match or a duty that
+    /// connection was carrying can no longer be followed to its end: the same loss as a queue
+    /// overflow, handed to the state machine the same way (docs/state-machine.md 3.3 rule 3, 3.7
+    /// rule 3; audit 2026-10-03, ODp-2). The client keeps several connections open, though, and a
+    /// direction that never delivered a message the bound profile parses - either direction of the
+    /// chat server's connection, or the outbound direction of the zone connection when the profile
+    /// reads only what the server sends - loses nothing a run is followed by (CS3a-X1, V2-1). With
+    /// nothing bound yet the hole goes into every candidate's staging in sequence, as an overflow
+    /// does: no parser has said which direction carries the run. It is kept among the messages the
+    /// calibration card waits with, too, and judged by direction when they are replayed (V2-2).
+    /// </remarks>
+    public void OnDirectionDamaged(string captureSessionId, string connectionKey, MessageDirection direction)
+    {
+        ArgumentNullException.ThrowIfNull(connectionKey);
+        lock (_gate)
+        {
+            if (!SessionMatches(captureSessionId))
+            {
+                return;
+            }
+
+            if (_processor is null)
+            {
+                _shared.EventsDropped(1, _clock.UtcNow, LifecycleMono());
+                KeepLossWhileCardWaits(CardWaitKind.DirectionDamaged, connectionKey: connectionKey, direction: direction);
+                return;
+            }
+
+            if (!CarriesProfileMessages(connectionKey, direction))
+            {
+                return;
+            }
+
+            ApplyAndPublish(() => _processor.OnEventsDropped(1, _clock.UtcNow, LifecycleMono()));
+        }
+    }
+
+    /// <summary>
+    /// Remembers the connection and the direction a message arrived on when the bound parser turned
+    /// it into an event, so that direction, given up later, counts as a gap
+    /// (<see cref="OnDirectionDamaged"/>).
+    /// </summary>
+    /// <param name="message">Message the parser was just given.</param>
+    /// <param name="parsedBefore">The parser's successful parses before it.</param>
+    /// <param name="parsedAfter">The parser's successful parses after it.</param>
+    private void NoteProfileConnection(DecodedMessage message, long parsedBefore, long parsedAfter)
+    {
+        if (parsedAfter > parsedBefore && _profileConnections.Count < MaxProfileConnections)
+        {
+            _profileConnections.Add((message.ConnectionKey, message.Direction));
+        }
+    }
+
+    /// <summary>
+    /// True when giving up <paramref name="direction"/> of <paramref name="connectionKey"/> may have
+    /// cost the run something: that direction delivered a message the bound parser turned into an
+    /// event. Also true while no direction has done so yet this session - a run a shared bind
+    /// replayed from its staging came through no parser that could say which direction carried it -
+    /// and once too many directions were remembered to tell.
+    /// </summary>
+    /// <param name="connectionKey">Opaque key of the connection that lost a direction.</param>
+    /// <param name="direction">The direction it lost.</param>
+    private bool CarriesProfileMessages(string connectionKey, MessageDirection direction) =>
+        _profileConnections.Count == 0 ||
+        _profileConnections.Count >= MaxProfileConnections ||
+        _profileConnections.Contains((connectionKey, direction));
 
     /// <inheritdoc />
     public void OnCaptureStopped(string captureSessionId, CaptureEndReason reason)
@@ -680,7 +802,8 @@ public sealed partial class LiveProtocolPipeline :
                     ApplyAndPublish(() => _processor.OnCaptureStopped(
                         reason == CaptureEndReason.ProcessExit,
                         _clock.UtcNow,
-                        LifecycleMono()));
+                        LifecycleMono(),
+                        faulted: reason == CaptureEndReason.Error));
                 }
             }
             finally
@@ -688,6 +811,8 @@ public sealed partial class LiveProtocolPipeline :
                 _active = false;
                 _sessionId = null;
                 _sharedSwapOwed = null;
+                _localRebindOwed = null;
+                ForgetCardWait();
                 _candidateObserver?.Flush();
                 _candidateObserver = null;
                 _calibration.Stop();
@@ -897,11 +1022,17 @@ public sealed partial class LiveProtocolPipeline :
     private bool SessionMatches(string captureSessionId) =>
         string.Equals(captureSessionId, _sessionId, StringComparison.Ordinal);
 
-    private ProfileSelection SafeSelect(GameProcessDetection game)
+    private ProfileSelection SafeSelect(GameProcessDetection game) => SafeSelect(_select, game);
+
+    /// <summary>Asks <paramref name="select"/>; a selector that throws selects nothing.</summary>
+    /// <param name="select">Selector to ask, not necessarily the one in force.</param>
+    /// <param name="game">Client to select for.</param>
+    private static ProfileSelection SafeSelect(
+        Func<GameProcessDetection, ProfileSelection> select, GameProcessDetection game)
     {
         try
         {
-            return _select(game);
+            return select(game);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
         {
@@ -995,7 +1126,10 @@ public sealed partial class LiveProtocolPipeline :
     /// <summary>
     /// The user confirmed the calibration timeline. Writes the local profile, re-selects from
     /// disk, and binds a parser inside the running session when it has been a pure counting
-    /// sink and its session row can be updated. Any "wrong" verdict voids the draft instead.
+    /// sink and its session row can be updated, replaying first what the session saw of the
+    /// profile's messages while the card waited. A session already recording with an earlier
+    /// version of the same profile is rebuilt over the new one between runs (see
+    /// <see cref="RebindConfirmed"/>). Any "wrong" verdict voids the draft instead.
     /// </summary>
     /// <param name="verdicts">CORRECT, WRONG or RELABEL per event id.</param>
     public CalibrationConfirmation ConfirmCalibration(IReadOnlyDictionary<string, CalibrationVerdict> verdicts)
@@ -1038,9 +1172,13 @@ public sealed partial class LiveProtocolPipeline :
             throw new CollectorException(ErrorCodes.ExportFailed, "无法写出本机校准档案：" + ex.Message, inner: ex);
         }
 
-        var select = _calibrationServices.ReloadSelect();
+        var select = WithoutWithdrawn(_calibrationServices.ReloadSelect());
         lock (_gate)
         {
+            // The file under this id is now the one the player has just vouched for, whatever
+            // was withdrawn under the same id before (a local profile id names a build).
+            _withdrawnLocalProfiles.Remove(written.ProfileId);
+
             // Anything that changed what is being calibrated while the lock was released --
             // a discard, the setting turned off, the game coming back on another build --
             // wins over this confirmation. The file already on disk is harmless: the next
@@ -1065,6 +1203,7 @@ public sealed partial class LiveProtocolPipeline :
                     new Dictionary<string, object?> { ["profile_id"] = written.ProfileId, ["reason"] = selection.Reason });
             }
 
+            var replaced = _selection;
             _selection = selection;
             var bound = false;
             if (_active && _parser is null && _processor is null && _sessionId is { } sessionId)
@@ -1076,22 +1215,25 @@ public sealed partial class LiveProtocolPipeline :
                     // The job was announced at login and on every zone change while the
                     // observer watched, so the machine need not wait for the next one; a pop
                     // straight after binding would otherwise make a job-less record.
+                    var waited = TakeCardWait();
                     BindParser(profile, sessionId, JobRemembered(profile));
                     _calibrationBoundAt = _clock.UtcNow;
                     bound = true;
+                    // A player who confirmed while queued, or while the duty loaded, is already in
+                    // the run this machine is about to record (audit 2026-10-03, ODp-1).
+                    ReplayWhileCardWaited(waited);
                 }
             }
-            else if (_active && _processor is { } recording && _sessionId is { } running &&
-                     string.Equals(_boundProfileId, profile.ProfileId, StringComparison.Ordinal) &&
-                     recording.Machine.State == RunState.Idle)
+            else if (_active && _processor is { } recording && _sessionId is not null &&
+                     (string.Equals(_boundProfileId, profile.ProfileId, StringComparison.Ordinal) ||
+                      (replaced is { Origin: ProfileOrigin.Shared, Profile: { } shared } &&
+                       string.Equals(_boundProfileId, shared.ProfileId, StringComparison.Ordinal))))
             {
                 // The confirmation rewrote the profile this session is already recording with (it
-                // gained a message it lacked). Between runs the parser can simply be rebuilt over
-                // the new file; with a run in flight it waits for the next session instead, because
-                // a fresh machine would drop the run.
-                BindParser(profile, running, JobRemembered(profile) ?? recording.Machine.Memory);
-                _calibrationBoundAt = _clock.UtcNow;
-                bound = true;
+                // gained a message it lacked), or wrote the local profile that takes over from the
+                // shared one in force (audit 2026-10-03, OCal-3): rebuilt now between runs, owed
+                // while a run is in flight or a queue request is parked (audit 2026-10-03, ODp-1).
+                bound = RebindConfirmed(recording, profile);
             }
 
             var provisional = draft.MatchSource == CalibrationMatchSource.QueueRequest;
@@ -1303,6 +1445,8 @@ public sealed partial class LiveProtocolPipeline :
             lock (_evidenceGate)
             {
                 _calibrationServices.DeleteEvidence(region, build);
+                // Nothing frozen before the delete may bring the file back.
+                _evidenceWritten = Math.Max(_evidenceWritten, _evidenceFrozen);
             }
         }
         catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
@@ -1319,7 +1463,7 @@ public sealed partial class LiveProtocolPipeline :
             return;
         }
 
-        WriteCalibrationEvidence(_game.Region, build, template.Source.ProfileSha256, evidence);
+        WriteCalibrationEvidence(_game.Region, build, template.Source.ProfileSha256, evidence, ++_evidenceFrozen);
     }
 
     /// <summary>Writes one frozen snapshot. Failure is never allowed to matter.</summary>
@@ -1327,15 +1471,27 @@ public sealed partial class LiveProtocolPipeline :
     /// <param name="build">Client build the evidence belongs to.</param>
     /// <param name="templateSha256">Hash of the template it was collected under.</param>
     /// <param name="evidence">Frozen snapshot to write.</param>
+    /// <param name="frozen">Number of the freeze, from <see cref="_evidenceFrozen"/>.</param>
     /// <returns>True when the file was written.</returns>
     private bool WriteCalibrationEvidence(
-        Region region, string build, string templateSha256, CalibrationSnapshot evidence)
+        Region region, string build, string templateSha256, CalibrationSnapshot evidence, long frozen)
     {
         try
         {
             lock (_evidenceGate)
             {
-                return _calibrationServices.SaveEvidence(region, build, templateSha256, evidence);
+                if (frozen <= _evidenceWritten)
+                {
+                    return false;
+                }
+
+                var written = _calibrationServices.SaveEvidence(region, build, templateSha256, evidence);
+                if (written)
+                {
+                    _evidenceWritten = frozen;
+                }
+
+                return written;
             }
         }
         catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
@@ -1375,7 +1531,7 @@ public sealed partial class LiveProtocolPipeline :
         _calibrationLastSave = mono;
         _calibrationSaveInFlight = true;
         _calibrationSavePending =
-            (_game.Region, build, template.Source.ProfileSha256, evidence, _calibration.Generation);
+            (_game.Region, build, template.Source.ProfileSha256, evidence, _calibration.Generation, ++_evidenceFrozen);
     }
 
     /// <summary>
@@ -1400,8 +1556,14 @@ public sealed partial class LiveProtocolPipeline :
         }
 
         _calibrationSavePending = null;
-        Volatile.Write(ref _calibrationFlush, Task.Run(() => FlushCalibrationEvidence(pending)));
+        Volatile.Write(ref _calibrationFlush, RunCalibrationFlush(() => FlushCalibrationEvidence(pending)));
     }
+
+    /// <summary>
+    /// Starts the periodic save's write off the delivery thread: <see cref="Task.Run(Action)"/>. A test
+    /// replaces it to decide when the write lands relative to everything else.
+    /// </summary>
+    internal Func<Action, Task> RunCalibrationFlush { get; init; } = static write => Task.Run(write);
 
     /// <summary>
     /// Waits, briefly, for a periodic save that is still in the air.
@@ -1440,10 +1602,10 @@ public sealed partial class LiveProtocolPipeline :
     /// </summary>
     /// <param name="pending">Evidence frozen under the lock, with the generation it came from.</param>
     private void FlushCalibrationEvidence(
-        (Region Region, string Build, string TemplateSha256, CalibrationSnapshot Evidence, int Generation) pending)
+        (Region Region, string Build, string TemplateSha256, CalibrationSnapshot Evidence, int Generation, long Frozen) pending)
     {
         var written = WriteCalibrationEvidence(
-            pending.Region, pending.Build, pending.TemplateSha256, pending.Evidence);
+            pending.Region, pending.Build, pending.TemplateSha256, pending.Evidence, pending.Frozen);
         lock (_gate)
         {
             _calibrationSaveInFlight = false;
@@ -1488,6 +1650,8 @@ public sealed partial class LiveProtocolPipeline :
         {
             NotifyCalibrationChanged(signature);
         }
+
+        NoteReadyDraft();
     }
 
     /// <summary>Announces calibration and remembers what was announced.</summary>

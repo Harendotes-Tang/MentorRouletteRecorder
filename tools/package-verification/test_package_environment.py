@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import base64
 import json
 import os
 from pathlib import Path
@@ -24,8 +23,10 @@ def ps_literal(value):
 @unittest.skipUnless(os.name == "nt", "Windows package verification")
 class PackageEnvironmentTests(unittest.TestCase):
     def test_child_search_paths_are_isolated_and_parent_environment_is_unchanged(self):
-        shells = [path for name in ("powershell", "pwsh") if (path := shutil.which(name))]
-        self.assertTrue(shells, "a PowerShell runtime is required to test Windows packaging")
+        # PowerShell 7 only: scripts/package-runtime.ps1 declares #Requires -Version 7.0, like
+        # every script it serves (tools/package-verification/test_script_requirements.py).
+        shells = [path for name in ("pwsh",) if (path := shutil.which(name))]
+        self.assertTrue(shells, "PowerShell 7 (pwsh) is required to test Windows packaging")
         for shell in shells:
             with self.subTest(shell=shell), tempfile.TemporaryDirectory(prefix="mr package args ") as directory:
                 child = Path(directory) / "inspect environment.py"
@@ -71,10 +72,14 @@ foreach ($name in $parentBefore.Keys) {{
     [Environment]::GetFolderPath([Environment+SpecialFolder]::Windows)) -join ';' }} |
     ConvertTo-Json -Depth 8 -Compress
 """
-                encoded = base64.b64encode(script.encode("utf-16-le")).decode("ascii")
+                # A script file, not -EncodedCommand: endpoint protection commonly stalls or
+                # kills an encoded command, which fails this test for a reason that has
+                # nothing to do with the helper under test.
+                probe = Path(directory) / "probe.ps1"
+                probe.write_text(script, encoding="utf-8-sig")
                 run = subprocess.run(
                     [shell, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
-                     "-EncodedCommand", encoded],
+                     "-File", str(probe)],
                     capture_output=True, timeout=45, check=False)
                 self.assertEqual(0, run.returncode, run.stderr.decode(errors="replace"))
                 result = json.loads(run.stdout)

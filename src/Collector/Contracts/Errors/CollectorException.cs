@@ -45,7 +45,11 @@ public static class ErrorCodes
     /// </summary>
     public const string UndoNotAllowed = "ERR_UNDO_NOT_ALLOWED";
 
-    /// <summary>Npcap is not installed. This software never bundles or downloads it.</summary>
+    /// <summary>
+    /// Npcap is not installed. This software never bundles it and the running program never downloads
+    /// it; only the installer, when Npcap is missing, fetches the official Npcap installer and starts
+    /// it, and the user completes its wizard (docs/privacy-boundary.md section 2, item 14).
+    /// </summary>
     public const string NpcapMissing = "ERR_NPCAP_MISSING";
 
     /// <summary>The game process was not found.</summary>

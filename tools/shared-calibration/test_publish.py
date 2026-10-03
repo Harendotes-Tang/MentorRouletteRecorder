@@ -139,16 +139,55 @@ class FlowTests(PublishTestCase):
         self.assertEqual((False, 1), tuple(next(e for e in state.entries if e["code_sha256"] == self.sha)[name]
                                            for name in ("revoked", "submitters")))
 
-    def test_a_revoked_code_frees_the_slot_and_is_never_published_again(self):
+    def test_an_account_whose_code_a_maintainer_revoked_waits_for_review_before_it_submits_again(self):
+        """ON1-1, publisher side. This used to publish the second code at once: revoking freed the slot."""
         self.publish_as(4242, "Octo-Cat")
         self.assertEqual(0, self.call("revoke", "--repo", self.repo, "--code-sha256", self.sha)[0])
         _, refused, comment, _ = self.decide("check", self.issue(number=8), self.account())
         self.assertEqual(("refused", "REVOKED"), (refused["status"], refused["reason"]))
         self.assertIn("已被维护者撤销", comment)
-        other = sharecode.encode(testsupport.payload("MARKER_OFFSET", 2))
-        result = self.publish_as(4242, "Octo-Cat", number=9, code=other)
-        self.assertEqual("published", result["status"])
-        self.assertEqual([self.sha[:12]], result["replaced"])
+        payload = testsupport.payload("MARKER_OFFSET", 2)
+        other, other_sha = sharecode.encode(payload), sharecode.code_sha256(payload)
+        held = self.publish_as(4242, "Octo-Cat", number=9, code=other)
+        self.assertEqual(("refused", "ACCOUNT_HELD", "rejected", "not planned"),
+                         (held["status"], held["reason"], held["label"], held["close_reason"]))
+        self.assertIn("已被维护者撤回", held["comment"])
+        self.assertIn("维护者复核", held["comment"])
+        self.assertIn("请在本 Issue 下留言", held["comment"])
+        self.assertNotIn("修正后请重新提交", held["comment"])
+        self.assertEqual([self.path], [path.relative_to(self.repo).as_posix() for path in self.repo.rglob("*.mrc")])
+
+        exit_code, stdout = self.call("lift", "--repo", self.repo, "--account", "id:4242", "--region", "CN", "--build", BUILD)
+        self.assertEqual((0, {"lifted": "id:4242", "region": "CN", "game_build": BUILD}), (exit_code, json.loads(stdout)))
+        result = self.publish_as(4242, "Octo-Cat", number=10, code=other)
+        self.assertEqual(("published", []), (result["status"], result["replaced"]))
+        state = repo_index.load(self.repo)
+        self.assertEqual({self.sha: True, other_sha: False}, {e["code_sha256"]: e["revoked"] for e in state.entries})
+
+    def test_lift_refuses_an_account_that_is_not_held(self):
+        self.publish_as(4242, "Octo-Cat")
+        before = [(self.repo / name).read_bytes() for name in ("index.json", "submissions.json")]
+        for account, region in (("id:4242", "CN"), ("id:5151", "CN"), ("id:4242", "GLOBAL"), ("someone", "CN")):
+            with self.subTest(account=account, region=region), contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual((2, ""), self.call("lift", "--repo", self.repo, "--account", account,
+                                                    "--region", region, "--build", BUILD))
+        self.assertEqual(before, [(self.repo / name).read_bytes() for name in ("index.json", "submissions.json")])
+
+    def test_a_file_name_held_only_by_a_revoked_code_is_taken_over(self):
+        """ON1-4: the revoked squatter's file is replaced by the new code, and both entries read back."""
+        squatter = self.sha[:12] + ("0" if self.sha[12] != "0" else "1") + self.sha[13:]
+        revoked = {"region": "CN", "game_build": BUILD, "code_sha256": squatter, "match_source": "ANNOUNCEMENT",
+                   "submitters": 1, "first_published_at": "2026-09-01T00:00:00Z", "path": self.path,
+                   "commit": "b" * 40, "revoked": True}
+        repo_index.write_files(self.repo, repo_index.Index((revoked,), ()))
+        (self.repo / self.path).parent.mkdir(parents=True)
+        (self.repo / self.path).write_text(sharecode.encode(testsupport.payload("ANNOUNCEMENT", 5)), encoding="ascii")
+        result = self.publish_as(4242, "Octo-Cat")
+        self.assertEqual(("published", self.path), (result["status"], result["file"]))
+        self.assertEqual(self.code.encode("ascii"), (self.repo / self.path).read_bytes())
+        state = repo_index.load(self.repo)
+        self.assertEqual({squatter: True, self.sha: False}, {e["code_sha256"]: e["revoked"] for e in state.entries})
+        self.assertEqual((self.sha,), tuple(e["code_sha256"] for e in repo_index.select(state.entries, "CN", BUILD)))
 
     def test_update_index_needs_a_commit_for_a_new_code(self):
         self.decide("check", self.issue(), self.account())
@@ -241,6 +280,42 @@ class RefusalTests(PublishTestCase):
         bad = sharecode.encode(testsupport.payload("ANNOUNCEMENT", pop={"opcode": 7, "length": 16}))
         self.assertRefused("STRUCTURE_INVALID", event=self.issue(body=testsupport.issue_body(bad)))
 
+    def test_a_build_that_is_not_a_real_client_build(self):
+        invented = sharecode.encode(testsupport.payload("ANNOUNCEMENT", 1, build="synthetic-build-1"))
+        _, comment = self.assertRefused("BUILD_NOT_INDEXABLE", event=self.issue(body=testsupport.issue_body(invented)))
+        self.assertIn("2026.09.01.0000.0000", comment)
+
+    def test_a_build_dated_after_the_day_after_submission(self):
+        future = sharecode.encode(testsupport.payload("ANNOUNCEMENT", 1, build="2026.09.18.0000.0000"))
+        _, comment = self.assertRefused("BUILD_IN_FUTURE", event=self.issue(body=testsupport.issue_body(future)))
+        self.assertIn("不是已经发布的游戏客户端版本", comment)
+
+
+class LimitReplyTests(PublishTestCase):
+    """ON1-2: the per-account limits are refusals the submitter can read, never a maintainer's problem."""
+
+    def code_for(self, number, build=BUILD) -> str:
+        return sharecode.encode(testsupport.payload("ANNOUNCEMENT", number, build=build))
+
+    def test_a_fourth_code_for_one_build_is_refused_and_names_the_limit(self):
+        for offset in range(3):
+            self.assertEqual("published", self.publish_as(4242, "Octo-Cat", number=7 + offset, code=self.code_for(1 + offset))["status"])
+        result = self.publish_as(4242, "Octo-Cat", number=11, code=self.code_for(9))
+        self.assertEqual(("refused", "ACCOUNT_BUILD_LIMIT", "rejected", "not planned"),
+                         (result["status"], result["reason"], result["label"], result["close_reason"]))
+        self.assertIn("3 份", result["comment"])
+        self.assertIn(BUILD, result["comment"])
+        self.assertFalse((self.repo / repo_index.code_path("CN", BUILD, sharecode.decode(self.code_for(9)).code_sha256)).exists())
+
+    def test_a_third_build_in_one_day_is_refused_until_the_next_day(self):
+        builds = (BUILD, "2026.09.10.0000.0000", "2026.09.15.0000.0000")
+        for offset, build in enumerate(builds[:2]):
+            self.assertEqual("published", self.publish_as(4242, "Octo-Cat", number=7 + offset, code=self.code_for(1, build))["status"])
+        result = self.publish_as(4242, "Octo-Cat", number=9, code=self.code_for(1, builds[2]))
+        self.assertEqual(("refused", "ACCOUNT_DAILY_LIMIT", "rejected"), (result["status"], result["reason"], result["label"]))
+        self.assertIn("2 个区服与客户端版本", result["comment"])
+        self.assertIn("北京时间每天 8:00", result["comment"])
+
     def test_the_title_only_raises_a_note_and_is_never_echoed(self):
         _, _, comment, _ = self.decide("check", self.issue(title="[共享校准] GLOBAL " + BUILD), self.account())
         self.assertIn("标题里写的区服或客户端版本与校准码不一致", comment)
@@ -261,6 +336,39 @@ class SkipAndErrorTests(PublishTestCase):
                 _, result, comment, _ = self.decide("check", event, self.account())
                 self.assertEqual(("skipped", reason, "", "", ""),
                                  (result["status"], result["reason"], result["label"], result["close_reason"], comment))
+
+    def test_an_issue_that_already_carries_an_answer_label_is_skipped(self):
+        """ON1-5: an issue left open for a maintainer must not be answered again on an edit or a relabel."""
+        for label in (publish.LABEL_PUBLISHED, publish.LABEL_REJECTED, publish.LABEL_MAINTAINER):
+            with self.subTest(label):
+                _, result, comment, _ = self.decide("check", self.issue(labels=("share-calibration", label)), self.account())
+                self.assertEqual(("skipped", "ALREADY_ANSWERED", "", "", ""),
+                                 (result["status"], result["reason"], result["label"], result["close_reason"], comment))
+        self.assertEqual([], list(self.repo.rglob("*.mrc")))
+
+    def decide_live(self, live, event=None) -> tuple:
+        path = self.root / "live.json"
+        path.write_text(live if isinstance(live, str) else json.dumps(live), encoding="utf-8")
+        return self.decide("check", event or self.issue(), self.account(), "--live", path)
+
+    def test_with_a_live_view_the_issue_as_it_is_now_decides_not_the_event(self):
+        """The event remembers the labels of the moment it fired; the run that answered it came later."""
+        labelled = [{"name": "share-calibration"}]
+        cases = (
+            ({"state": "OPEN", "labels": labelled + [{"name": "needs-maintainer"}]}, "ALREADY_ANSWERED"),
+            ({"state": "CLOSED", "labels": labelled}, "NOT_OPEN"),
+            ({"state": "OPEN", "labels": []}, "NOT_LABELLED"),
+            ("not json", "NOT_OPEN"),
+            ({"state": "OPEN"}, "NOT_OPEN"),
+            ({"state": 7, "labels": labelled}, "NOT_OPEN"),
+        )
+        for live, reason in cases:
+            with self.subTest(reason=reason, live=repr(live)[:40]):
+                _, result, comment, _ = self.decide_live(live)
+                self.assertEqual(("skipped", reason, ""), (result["status"], result["reason"], comment))
+        self.assertEqual([], list(self.repo.rglob("*.mrc")))
+        _, result, _, _ = self.decide_live({"state": "OPEN", "labels": labelled}, event=self.issue(labels=()))
+        self.assertEqual("published", result["status"], "a label added after the event fired still counts")
 
     def test_repository_side_problems_keep_the_issue_open_for_a_maintainer(self):
         cases = []
@@ -479,6 +587,55 @@ class HelperCommandTests(PublishTestCase):
         with contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(2, self.call("wrap-event", "--issue", source, "--out", target)[0])
 
+    def test_prune_takes_old_builds_out_with_their_rows_and_code_files(self):
+        """ON1-2: the maintainer's way out of a full index; what is left loads, and so the Action keeps running."""
+        old_build = "2026.08.01.0000.0000"
+        old = sharecode.encode(testsupport.payload("ANNOUNCEMENT", 2, build=old_build))
+        self.assertEqual("published", self.publish_as(5151, "Other-One", number=8, code=old)["status"])
+        self.assertEqual("published", self.publish_as(4242, "Octo-Cat")["status"])
+        old_path = self.repo / repo_index.code_path("CN", old_build, sharecode.decode(old).code_sha256)
+        self.assertTrue(old_path.is_file())
+
+        before = self.snapshot()
+        plan = {"removed": [{"region": "CN", "game_build": old_build}], "entries": 1, "submissions": 1,
+                "files": [repo_index.code_path("CN", old_build, sharecode.decode(old).code_sha256)]}
+
+        # V5-1: without --apply the plan is printed and nothing is touched, so it can be read before anything goes.
+        exit_code, stdout = self.call("prune", "--repo", self.repo, "--region", "CN", "--build", old_build)
+        self.assertEqual((0, dict(plan, applied=False)), (exit_code, json.loads(stdout)))
+        self.assertEqual(before, self.snapshot())
+
+        exit_code, stdout = self.call("prune", "--repo", self.repo, "--region", "CN", "--build", old_build, "--apply")
+
+        self.assertEqual((0, dict(plan, applied=True)), (exit_code, json.loads(stdout)))
+        state = repo_index.load(self.repo)
+        self.assertEqual([(BUILD, self.sha)], [(e["game_build"], e["code_sha256"]) for e in state.entries])
+        self.assertEqual([("id:4242", BUILD)], [(row["account"], row["game_build"]) for row in state.submissions])
+        self.assertFalse(old_path.exists())
+        self.assertFalse(old_path.parent.exists(), "an emptied build directory goes too")
+        self.assertTrue((self.repo / self.path).is_file())
+
+    def test_prune_names_its_builds_and_refuses_one_the_index_does_not_list(self):
+        """V5-1: no build is chosen by date, so an invented build dated today cannot push the real one out."""
+        self.assertEqual("published", self.publish_as(4242, "Octo-Cat")["status"])
+        before = self.snapshot()
+        for argv in (("--region", "CN", "--build", "2026.08.01.0000.0000", "--apply"),
+                     ("--region", "GLOBAL", "--build", BUILD, "--apply"),
+                     ("--region", "CN", "--build", BUILD, "--build", "2026.08.01.0000.0000", "--apply"),
+                     ("--region", "CN", "--apply"), ("--build", BUILD, "--apply"), ("--keep", "1")):
+            with self.subTest(argv=argv), contextlib.redirect_stderr(io.StringIO()):
+                try:
+                    exit_code = self.call("prune", "--repo", self.repo, *argv)[0]
+                except SystemExit as stop:  # argparse refuses a missing or unknown option this way
+                    exit_code = stop.code
+                self.assertEqual(2, exit_code)
+                self.assertEqual(before, self.snapshot())
+
+    def snapshot(self) -> dict:
+        """Every file of the repository checkout, by relative path."""
+        return {path.relative_to(self.repo).as_posix(): path.read_bytes()
+                for path in sorted(self.repo.rglob("*")) if path.is_file()}
+
     def test_revoke_marks_the_code_and_keeps_its_entry(self):
         self.publish_as(4242, "Octo-Cat")
         self.assertEqual(0, self.call("revoke", "--repo", self.repo, "--code-sha256", self.sha)[0])
@@ -523,7 +680,7 @@ class HelperCommandTests(PublishTestCase):
         options = set()
         for action in publish._parser()._subparsers._group_actions[0].choices["check"]._actions:
             options.update(action.option_strings)
-        self.assertEqual({"-h", "--help", "--repo", "--event", "--account", "--out", "--now"}, options)
+        self.assertEqual({"-h", "--help", "--repo", "--event", "--account", "--live", "--out", "--now"}, options)
 
 
 if __name__ == "__main__":

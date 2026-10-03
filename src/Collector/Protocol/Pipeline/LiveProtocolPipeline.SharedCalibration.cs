@@ -108,10 +108,18 @@ public sealed partial class LiveProtocolPipeline
         lock (_gate)
         {
             // Only the running session's readings are kept; the observer merges them to the worst.
-            if (_active && SessionMatches(health.CaptureSessionId))
+            if (!_active || !SessionMatches(health.CaptureSessionId))
             {
-                _calibration.RecordSessionHealth(health);
+                return;
             }
+
+            // The reading ends no run. Its damaged-direction count is session-wide and says nothing of which
+            // connection lost a direction, so ending the run in flight on it let damage on the chat server's
+            // connection close a duty whose own connection was fine. Each damaged direction reaches the state
+            // machine on its own instead, queued behind its connection's messages (OnDirectionDamaged; audit
+            // 2026-10-03, ODp-2, CS3a-X1). The adapter's own drop counter covers every program's traffic on the
+            // address and ends nothing either.
+            _calibration.RecordSessionHealth(health);
         }
     }
 
@@ -139,8 +147,10 @@ public sealed partial class LiveProtocolPipeline
         _calibration.UseProvisional(
             upgrading,
             upgrading ? _selection.Profile?.ProfileId : null,
-            // Only a profile this machine wrote can be rewritten by a confirmation here.
-            lacking: _selection.Origin != ProfileOrigin.Local || _selection.Profile is not { } profile
+            // A shared profile is offered them too: a share code never carries the announcement, so
+            // the receiver is promised its own, and confirming writes a local profile, which outranks
+            // the shared one (audit 2026-10-03, OCal-3).
+            lacking: _selection.Profile is not { } profile
                 ? null
                 : CalibrationCoordinator.Upgradable
                     .Where(name => profile.Message(name) is null)
@@ -151,11 +161,11 @@ public sealed partial class LiveProtocolPipeline
         _calibration.UseCompleting(completing, completing ? _selection.Profile?.Messages : null);
     }
 
-    private bool HasFinishedRun(string profileId)
+    private bool HasFinishedRun(string profileId, DateTimeOffset? sinceUtc)
     {
         try
         {
-            return _runs.AnyEnteredAndExited(profileId);
+            return _runs.AnyEnteredAndExited(profileId, sinceUtc);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
         {
@@ -230,7 +240,7 @@ public sealed partial class LiveProtocolPipeline
 
     void ISharedCalibrationHost.UnregisterSharedCandidate(string candidateId) => _calibration.UnregisterCandidate(candidateId);
 
-    bool ISharedCalibrationHost.HasFinishedSharedRun(string profileId) => HasFinishedRun(profileId);
+    bool ISharedCalibrationHost.HasFinishedSharedRun(string profileId, DateTimeOffset? sinceUtc) => HasFinishedRun(profileId, sinceUtc);
 
     /// <inheritdoc />
     bool ISharedCalibrationHost.SharedRunInFlight() =>
@@ -253,14 +263,19 @@ public sealed partial class LiveProtocolPipeline
     /// </summary>
     SharedBindResult ISharedCalibrationHost.CommitSharedBind(SharedBindRequest request)
     {
-        _select = request.Select;
-        var selection = SafeSelect(_game);
+        // Installed only once the check below passes: a refused bind keeps the selector in force, which
+        // a selector straight off the disk could not replace without handing back a local profile this
+        // process withdrew (audit 2026-10-03, ODp-4).
+        var select = WithoutWithdrawn(request.Select);
+        var selection = SafeSelect(select, _game);
         if (!selection.IsUsable || selection.Profile is not { Status: ProfileCompatibilityStatus.Verified } profile ||
             selection.Origin != ProfileOrigin.Shared ||
             !string.Equals(profile.ProfileId, request.ProfileId, StringComparison.Ordinal))
         {
             return new SharedBindResult(SharedBindOutcome.NotSelected, "NOT_SELECTED: " + selection.Reason);
         }
+
+        _select = select;
 
         var bindNow = _active && _parser is null && _processor is null;
         if (bindNow && (request.Stage is not { Overflowed: false } stage || !SessionMatches(stage.CaptureSessionId)))
@@ -283,6 +298,10 @@ public sealed partial class LiveProtocolPipeline
         UseCalibrationRole(upgrading: profile.MatchFromQueue, retaining: true);
         _sharedSwapOwed = null;
         var outcome = SharedBindOutcome.Selected;
+
+        // Every code of the build records under this one profile id, so what this binding records is told apart by
+        // creation time: from the first entry its staging hands over, else from now (audit 2026-10-03, OE-2/OE-4).
+        var recordsFrom = _clock.UtcNow - SharedBindResult.ClockAllowance;
         if (swapNow)
         {
             outcome = SwapParser(profile) ? SharedBindOutcome.Bound : SharedBindOutcome.Selected;
@@ -299,13 +318,22 @@ public sealed partial class LiveProtocolPipeline
             // when a local calibration is confirmed.
             BindParser(profile, sessionId, request.Stage!.HoldsJob ? _sessionCarried : JobRemembered(profile) ?? _sessionCarried);
             _calibrationBoundAt = _clock.UtcNow;
+            if (request.Stage!.FirstAtUtc is { } first && first < recordsFrom)
+            {
+                // A duty replayed from the staging was matched before the bind, and is this binding's all the same.
+                recordsFrom = first;
+            }
+
             DrainStaged(request.Stage!);
             outcome = SharedBindOutcome.Bound;
         }
 
         // A duty the drained staging finished proves the profile only when nothing was left to audit (plan §18.4);
-        // otherwise the session keeps watching and settles the watch once the audit passes.
-        var ranComplete = HasFinishedRun(profile.ProfileId);
+        // otherwise the session keeps watching and settles the watch once the audit passes. Only this binding's own
+        // duties count: an earlier code of the build proves nothing about this one. Kept to the millisecond, as the
+        // run rows are, so the first replayed match is never read as earlier than itself.
+        recordsFrom = UtcTimestamp.Truncate(recordsFrom);
+        var ranComplete = HasFinishedRun(profile.ProfileId, recordsFrom);
         var proven = ranComplete && !request.AuditPending;
         if (proven)
         {
@@ -313,7 +341,7 @@ public sealed partial class LiveProtocolPipeline
         }
 
         var reason = outcome == SharedBindOutcome.Bound ? "BOUND" : _sharedSwapOwed is null ? "FROM_NEXT_SESSION" : "AFTER_THIS_RUN";
-        return new SharedBindResult(outcome, reason, proven, ranComplete);
+        return new SharedBindResult(outcome, reason, proven, ranComplete, recordsFrom, SwapOwed: _sharedSwapOwed is not null);
     }
 
     /// <summary>
@@ -399,8 +427,8 @@ public sealed partial class LiveProtocolPipeline
     /// crash recovery marks an unfinished run. The trail stays append-only, a run a human already resolved keeps
     /// that decision (<see cref="ManualRunFieldProtection"/>), and a run already pending is left alone. The
     /// profile id is shared by every code of the build, so <paramref name="sinceUtc"/> limits the marking to
-    /// what this binding recorded; a profile adopted from disk has no bound time and marks everything under
-    /// the id.
+    /// what this binding recorded - staged duties it replayed included - as kept with the profile document
+    /// across a restart; only a document written before that was kept marks everything under the id.
     /// </summary>
     int ISharedCalibrationHost.FlagSharedRecords(string profileId, DateTimeOffset? sinceUtc, string reason) =>
         FlagRecords(profileId, sinceUtc, SharedWithdrawalReason(reason), "其他玩家分享的校准已撤下，");
@@ -535,6 +563,9 @@ public sealed partial class LiveProtocolPipeline
                 // A latched storage failure; nothing more can be written through this processor anyway.
             }
 
+            // Only the run in flight ends here. What the machine read about the player this session goes to
+            // whatever is bound next in it, or the next run is recorded job-less (audit 2026-10-03, ODp-5).
+            _sessionCarried = processor.Machine.Memory;
             _parser = null;
             _processor = null;
             _boundProfileId = null;
@@ -561,7 +592,7 @@ public sealed partial class LiveProtocolPipeline
 
     /// <inheritdoc />
     void ISharedCalibrationHost.ReselectAfterSharedChange(Func<GameProcessDetection, ProfileSelection> select) =>
-        ReselectAfterProfileChange(select);
+        ReselectAfterProfileChange(WithoutWithdrawn(select));
 
     /// <summary>
     /// After a withdrawn profile's file is gone: adopt the reloaded catalogue and re-arm
@@ -602,7 +633,7 @@ public sealed partial class LiveProtocolPipeline
         if (_selection.IsUsable && _selection.Profile is { } profile &&
             TryUpdateSessionProfile(sessionId, profile.ProfileId, ProfileStatus.Verified))
         {
-            BindParser(profile, sessionId, _sessionCarried);
+            BindParser(profile, sessionId, JobRemembered(profile) ?? _sessionCarried);
         }
     }
 }

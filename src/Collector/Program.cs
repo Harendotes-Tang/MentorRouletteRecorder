@@ -51,7 +51,8 @@ namespace MentorRecorder.Collector;
 ///   <item><description>2 -- the command line could not be parsed, or a profile check could
 ///   not run;</description></item>
 ///   <item><description>3 -- the process could not do its job: database integrity, an
-///   unwritable path, an I/O failure;</description></item>
+///   unwritable path, an I/O failure, a database another program holds locked, or a pipe name
+///   held by a process of another account;</description></item>
 ///   <item><description>4 -- another Collector is already serving this pipe
 ///   (<c>ERR_ALREADY_RUNNING</c>). Distinct from 3 because the response is to talk to the
 ///   running instance, not to treat the machine as faulty;</description></item>
@@ -200,10 +201,26 @@ public static class Program
             Console.Error.WriteLine($"{ErrorCodes.AlreadyRunning}: {ex.Message}");
             return ExitCodeAlreadyRunningUnresponsive;
         }
+        catch (PipeHeldByAnotherAccountException ex)
+        {
+            // Nothing to reuse and nothing of ours to end: a refusal to start (audit 2026-10-03, OF-2).
+            Console.Error.WriteLine($"{ErrorCodes.AlreadyRunning}: {ex.Message}");
+            return 3;
+        }
         catch (CollectorException ex)
         {
             Console.Error.WriteLine($"{ex.Code}: {ex.Message}");
             return ex.Code == ErrorCodes.AlreadyRunning ? ExitCodeAlreadyRunning : 3;
+        }
+        catch (Microsoft.Data.Sqlite.SqliteException ex)
+        {
+            // Last line of defence: SqliteDatabase.Open and ServeAsync map what they can reach,
+            // and no SQLite failure may end the process as an unhandled exception (0xE0434352),
+            // which tells a launcher nothing (audit 2026-10-03, OF-4).
+            var refusal = SqliteDatabase.RefusalToOpen(
+                ex, Path.GetFullPath(options.DatabasePath ?? DatabasePaths.DefaultDatabasePath));
+            Console.Error.WriteLine($"{refusal.Code}: {refusal.Message}");
+            return 3;
         }
         catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException)
         {
@@ -433,7 +450,7 @@ public static class Program
         // Declare the watchdog before every resource whose disposal it supervises. Its
         // hard-exit deadline must survive a blocked pipe, capture or database shutdown.
         using var watchdog = StartParentWatchdog(options, stopping, logger);
-        using var host = CollectorHost.Open(options.DatabasePath, logger: logger);
+        using var host = OpenHost(options, logger);
 
         logger.Write(LogLevel.Info, "startup", "database_ready", new Dictionary<string, object?>
         {
@@ -442,16 +459,6 @@ public static class Program
             ["closed_sessions"] = host.Recovery.ClosedSessionCount,
         });
         PruneLocalProfiles(logger);
-        var sweptOrphans = Capture.OodleTempCopyCleaner.SweepOrphans();
-        if (sweptOrphans.Removed > 0 || sweptOrphans.Locked > 0)
-        {
-            logger.Write(LogLevel.Info, "startup", "oodle_temp_orphans", new Dictionary<string, object?>
-            {
-                ["removed"] = sweptOrphans.Removed,
-                ["bytes"] = sweptOrphans.Bytes,
-                ["locked"] = sweptOrphans.Locked,
-            });
-        }
 
         var dispatcher = new MessageDispatcher(host);
         await using var server = new PipeServer(
@@ -530,6 +537,57 @@ public static class Program
             ["accepted_connections"] = server.AcceptedCount,
         });
         return 0;
+    }
+
+    /// <summary>
+    /// Opens the host, and records in the rotating log why it would not open.
+    ///
+    /// A database that is refused - damaged, from a newer build, not a database at all, locked by
+    /// another program - ends the process before the pipe exists, so standard error used to be the
+    /// only place the reason went. The Desktop shows that line, and its message, like
+    /// contracts/error-codes.md, sends the user to the local log for the rest: the log has to have
+    /// it (audit 2026-10-03, OF-1). A raw SQLite failure from anywhere in the opening work is
+    /// mapped to the same documented refusal here rather than left to end the process unhandled
+    /// (OF-4).
+    /// </summary>
+    /// <param name="options">Parsed command line; names the database.</param>
+    /// <param name="logger">The rotating log, already open.</param>
+    private static CollectorHost OpenHost(CommandLineOptions options, RotatingFileLogger logger)
+    {
+        try
+        {
+            return CollectorHost.Open(options.DatabasePath, logger: logger);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        {
+            var path = Path.GetFullPath(options.DatabasePath ?? DatabasePaths.DefaultDatabasePath);
+            var refusal = ex switch
+            {
+                Microsoft.Data.Sqlite.SqliteException sqlite => SqliteDatabase.RefusalToOpen(sqlite, path),
+
+                // A lock met after the file opened - crash recovery, label maintenance - refuses the
+                // start just the same. The transaction's own sentence asks an IPC client to resend a
+                // request, which is not what the person reading it can do.
+                CollectorException { Code: ErrorCodes.DbBusy, InnerException: Microsoft.Data.Sqlite.SqliteException sqlite }
+                    => SqliteDatabase.RefusalToOpen(sqlite, path),
+                _ => ex,
+            };
+            logger.Write(LogLevel.Error, "startup", "open_failed", new Dictionary<string, object?>
+            {
+                ["code"] = (refusal as CollectorException)?.Code,
+                ["error_type"] = refusal.GetType().Name,
+                ["error_message"] = refusal.Message,
+                ["cause_type"] = refusal.InnerException?.GetType().Name,
+                ["cause_message"] = refusal.InnerException?.Message,
+            });
+
+            if (ReferenceEquals(refusal, ex))
+            {
+                throw;
+            }
+
+            throw refusal;
+        }
     }
 
     /// <summary>
@@ -902,24 +960,60 @@ public static class Program
         RotatingFileLogger logger, string gate, string pipeName, PipePresence presence)
     {
         var probed = presence == PipePresence.Present;
-        var responsive = !probed || ProbeHolder(pipeName);
+        var holder = probed ? ProbeHolder(pipeName) : HolderAnswer.Answered;
+        var responsive = holder != HolderAnswer.Silent;
         logger.Write(LogLevel.Warn, "startup", "already_running", new Dictionary<string, object?>
         {
             ["gate"] = gate,
             ["pipe"] = presence.ToString().ToUpperInvariant(),
             ["probed"] = probed,
+            ["holder"] = holder switch
+            {
+                HolderAnswer.OtherAccount => "OTHER_ACCOUNT",
+                HolderAnswer.Silent => "SILENT",
+                _ => "ANSWERED",
+            },
             ["holder_responsive"] = responsive,
-            ["exit_code"] = responsive ? ExitCodeAlreadyRunning : ExitCodeAlreadyRunningUnresponsive,
+            ["exit_code"] = holder switch
+            {
+                HolderAnswer.OtherAccount => 3,
+                HolderAnswer.Silent => ExitCodeAlreadyRunningUnresponsive,
+                _ => ExitCodeAlreadyRunning,
+            },
         });
 
-        return responsive
-            ? new CollectorException(
-                ErrorCodes.AlreadyRunning,
-                "Collector 已在本机运行。请复用现有实例，而不是再次启动。")
-            : new UnresponsiveCollectorException(
+        return holder switch
+        {
+            HolderAnswer.OtherAccount => new PipeHeldByAnotherAccountException(
+                "本机的通信管道已被另一个 Windows 账户（或以管理员身份运行）的程序占用，" +
+                "本软件不会连接它，采集服务因此无法启动。" +
+                "请先结束那个程序（例如在另一个账户中退出本软件）后重试。"),
+            HolderAnswer.Silent => new UnresponsiveCollectorException(
                 "本机已有一个 Collector 占用着通信管道，但它没有响应，无法复用。" +
                 "请在任务管理器中结束 MentorRecorder.Collector 后重试；" +
-                "它的进程号记录在日志目录下的 " + ServePidFileNameFor(pipeName) + "。");
+                "它的进程号记录在日志目录下的 " + ServePidFileNameFor(pipeName) + "。"),
+            _ => new CollectorException(
+                ErrorCodes.AlreadyRunning,
+                "Collector 已在本机运行。请复用现有实例，而不是再次启动。"),
+        };
+    }
+
+    /// <summary>What the liveness probe learned about the process holding the pipe.</summary>
+    internal enum HolderAnswer
+    {
+        /// <summary>It answered <c>GetVersion</c>: a Collector of this user, to reuse.</summary>
+        Answered,
+
+        /// <summary>It accepted no connection and answered nothing within the probe's budget.</summary>
+        Silent,
+
+        /// <summary>
+        /// The connection was refused because the pipe belongs to another account: its access list
+        /// does not admit this user, or its owner is not this user (<see cref="PipeClient"/> opens
+        /// with <c>CurrentUserOnly</c>, which compares the owner). Never a Collector of this user to
+        /// reuse or to end (audit 2026-10-03, OF-2).
+        /// </summary>
+        OtherAccount,
     }
 
     /// <summary>
@@ -928,19 +1022,20 @@ public static class Program
     /// <see cref="LivenessProbeAttempts"/> attempts of <see cref="LivenessProbeTimeout"/>
     /// each, three seconds in total: long enough to cover a large database being opened or a
     /// capture being stopped, and unnoticeable in the common case, where the first attempt
-    /// succeeds against a healthy Collector.
+    /// succeeds against a healthy Collector. A refusal on ownership is final at once: waiting
+    /// does not change who owns the pipe.
     /// </summary>
     /// <param name="pipeName">Pipe the holder is serving.</param>
-    /// <returns>True when the holder answered.</returns>
-    internal static bool ProbeHolder(string pipeName)
+    internal static HolderAnswer ProbeHolder(string pipeName)
     {
         for (var attempt = 0; attempt < LivenessProbeAttempts; attempt++)
         {
             try
             {
-                if (ProbeHolderAsync(pipeName).GetAwaiter().GetResult())
+                var answer = ProbeHolderAsync(pipeName).GetAwaiter().GetResult();
+                if (answer != HolderAnswer.Silent)
                 {
-                    return true;
+                    return answer;
                 }
             }
             catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
@@ -949,10 +1044,10 @@ public static class Program
             }
         }
 
-        return false;
+        return HolderAnswer.Silent;
     }
 
-    private static async Task<bool> ProbeHolderAsync(string pipeName)
+    private static async Task<HolderAnswer> ProbeHolderAsync(string pipeName)
     {
         await using var client = new PipeClient(pipeName);
         using var deadline = new CancellationTokenSource(LivenessProbeTimeout);
@@ -964,11 +1059,15 @@ public static class Program
                 new JsonObject(),
                 timeout: LivenessProbeTimeout,
                 cancellationToken: deadline.Token).ConfigureAwait(false);
-            return response.Ok;
+            return response.Ok ? HolderAnswer.Answered : HolderAnswer.Silent;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return HolderAnswer.OtherAccount;
         }
         catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
         {
-            return false;
+            return HolderAnswer.Silent;
         }
     }
 
@@ -978,6 +1077,13 @@ public static class Program
     /// without inspecting the message.
     /// </summary>
     private sealed class UnresponsiveCollectorException(string message) : Exception(message);
+
+    /// <summary>
+    /// The pipe name is held by a process of another account. Its own type so <see cref="Main"/>
+    /// can map it to exit code 3 - nothing to reuse, nothing of ours to end - without inspecting
+    /// the message.
+    /// </summary>
+    private sealed class PipeHeldByAnotherAccountException(string message) : Exception(message);
 
     private static void PrintUsage() =>
         Console.Error.WriteLine(

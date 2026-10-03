@@ -12,8 +12,19 @@ Run by tools/publish_issue.sh and tools/sweep_issues.sh, which .github/workflows
   event-field    print the issue number or the submitter's login from an event file, validated
   pending        list open submissions nobody has answered yet, from `gh api --paginate` output
   wrap-event     wrap a REST issue object as an event file
-  revoke         maintainer: mark a code revoked in index.json, recomputing the conflict flags
+  revoke         maintainer: mark a code revoked in index.json, recomputing the conflict flags; every
+                 account on it is then held for that region and build until `lift`
+  lift           maintainer: after review, let one held account submit for that region and build again
+  prune          maintainer: take the builds named with --region and --build out, with their entries,
+                 ledger rows and code files; prints the plan and changes nothing unless --apply is given
   report         validate one "report a wrong calibration" issue, for labelling and one reply
+
+``check`` and ``update-index`` read whether the issue is still open and still unanswered from
+``--live`` (``gh issue view --json state,labels``, taken just now) when it is given, as ``report``
+does. A submission left open for a maintainer carries an answer label, and the event of an edit, a
+relabel or a delivery queued behind the run that answered it still shows the labels of the moment it
+fired, so only the issue as it is now can tell that it was answered. Without ``--live`` the event's
+own state and labels decide, and an answer label skips the issue just the same.
 
 ``report`` publishes nothing and revokes nothing: a report is a reason for a maintainer to look, and
 a count of reports must never be able to take a working calibration down. It only decides whether the
@@ -118,7 +129,15 @@ _REFUSALS = {
                                 "也可以把校准码交给注册满 30 天的玩家代为提交。",
     repo_index.REVOKED: "完全相同的校准码之前发布过，但已被维护者撤销，不再发布。",
     repo_index.PAYLOAD_MISMATCH: "校准码里的客户端版本号无法作为仓库目录名（需要以字母或数字开头），因此无法发布。",
-    repo_index.BUILD_NOT_INDEXABLE: "校准码里的客户端版本号无法作为仓库目录名（需要以字母或数字开头），因此无法发布。",
+    repo_index.BUILD_NOT_INDEXABLE: "校准码里的客户端版本号不是游戏客户端的版本号格式（形如 2026.09.01.0000.0000），因此无法发布。",
+    repo_index.BUILD_IN_FUTURE: "校准码里的客户端版本号所含的日期晚于提交日（按 UTC 计算）的次日，不是已经发布的游戏客户端版本，"
+                                "因此无法发布。",
+    repo_index.ACCOUNT_HELD: "这个 GitHub 账号此前为 {where} 提交的校准码已被维护者撤回。为避免有误的校准码反复出现，"
+                             "这个账号为该区服与客户端版本提交的校准码须先经维护者复核，复核之前不再受理。",
+    repo_index.ACCOUNT_BUILD_LIMIT: "这个 GitHub 账号已为 {where} 先后提交过 %d 份不同的校准码，达到上限，不再受理新的一份。"
+                                    % repo_index.MAX_CODES_PER_ACCOUNT_BUILD,
+    repo_index.ACCOUNT_DAILY_LIMIT: "每个 GitHub 账号每天最多为 %d 个区服与客户端版本提交校准码，这个账号今天的次数已经用完。"
+                                    "日期按 UTC 计算，即北京时间每天 8:00 起算新的一天。" % repo_index.MAX_BUILDS_PER_ACCOUNT_DAY,
     ACCOUNT_MISMATCH: "无法确认提交这个 Issue 的 GitHub 账号（账号可能刚改过名或已被删除），因此没有受理。",
     ACCOUNT_NOT_PERSONAL: "只受理个人 GitHub 账号的提交，机器人与组织账号不受理。",
     NOT_CONFIRMED: "没有勾选「我在软件里逐条核对过校准时间线」。请先在软件里核对校准时间线，确认无误后再提交。",
@@ -126,6 +145,14 @@ _REFUSALS = {
                       "请先把软件更新到最新版本再分享；如果已经是最新版本，请等待维护者更新本仓库。",
     STRUCTURE_INVALID: "校准码与它依据的随包模板对不上（例如字段超出了报文长度，或两条报文用了同一个编号），"
                        "不是软件正常生成的校准码。",
+}
+_REFUSAL_TAIL = "本 Issue 自动关闭。修正后请重新提交一个新的 Issue；编辑已经关闭的 Issue 不会被重新处理。"
+# Refusals that no edit of the code can fix get their own last line.
+_REFUSAL_TAILS = {
+    repo_index.ACCOUNT_HELD: "本 Issue 自动关闭。如认为撤回有误，请在本 Issue 下留言说明情况；"
+                             "维护者复核并解除限制后，可以重新提交一个新的 Issue。",
+    repo_index.ACCOUNT_BUILD_LIMIT: "本 Issue 自动关闭。如确有必要再提交一份，请在本 Issue 下留言说明情况，维护者会查看。",
+    repo_index.ACCOUNT_DAILY_LIMIT: "本 Issue 自动关闭。次数恢复后请重新提交一个新的 Issue；编辑已经关闭的 Issue 不会被重新处理。",
 }
 
 
@@ -234,7 +261,9 @@ def compose_comment(result: Result) -> str:
     if result.status == PUBLISHED:
         opening = ("**已发布，并%s**" % _replacement(result)) if result.replaced else "**已发布。** 谢谢分享！"
         lines = [opening, "", *_summary(result), "",
-                 "其他玩家的软件在游戏更新后会自动下载它，并先在自己的本机流量里逐条核实，核实通过才会用来记录。",
+                 "其他玩家的软件在游戏更新后会自动下载它，先在自己的本机流量里按结构核实：至少要等登录时的换区报文核实通过，"
+                 "才会用它记录；开始记录后，排本与进本报文仍会继续核实。之后若被判出与本机流量矛盾，软件会停用它，"
+                 "并把它生成的记录标记为待复核。",
                  "下载源有缓存：raw.githubusercontent.com 几分钟内可见，jsDelivr 最多约 12 小时。", "", "本 Issue 自动关闭。"]
     elif result.status == ADDED:
         lines = ["**已计入。** 完全相同的校准码之前已经有人发布过，你的提交已计入：现在共有 %d 个 GitHub 账号提交了它，"
@@ -245,8 +274,7 @@ def compose_comment(result: Result) -> str:
     elif result.status == DUPLICATE:
         lines = ["**没有重复计数。** 这个 GitHub 账号之前已经提交过这份校准码。", "", *_summary(result), "", "本 Issue 自动关闭。"]
     elif result.status == REFUSED:
-        lines = ["**没有受理。** " + _refusal_text(result), "",
-                 "本 Issue 自动关闭。修正后请重新提交一个新的 Issue；编辑已经关闭的 Issue 不会被重新处理。"]
+        lines = ["**没有受理。** " + _refusal_text(result), "", _REFUSAL_TAILS.get(result.reason, _REFUSAL_TAIL)]
     else:
         lines = ["**自动发布遇到了仓库这边的问题**（`%s`），这不是你的校准码的问题。" % result.reason, "",
                  "本 Issue 保持打开，维护者会处理；请不要重复提交。"]
@@ -376,17 +404,38 @@ def _label_names(issue: dict) -> set:
     return {label.get("name") for label in labels if isinstance(label, dict) and isinstance(label.get("name"), str)}
 
 
-def _read_issue(event: Any) -> tuple:
+# ``evaluate`` without a live view of the issue: the event's own state and labels decide.
+FROM_EVENT = object()
+
+
+def _issue_now(issue: dict, live: Any) -> tuple:
+    """``(open, labels)`` as the issue is now: from ``live`` when the shell read it, else from the event.
+
+    A ``live`` that cannot be read is "not open", as in ``evaluate_report``: a missed answer is picked up
+    by a maintainer or the sweep, while a second answer cannot be taken back.
+    """
+    if live is FROM_EVENT:
+        return issue.get("state") == "open", _label_names(issue)
+    state = live.get("state") if isinstance(live, dict) else None
+    if not isinstance(state, str) or not isinstance(live.get("labels"), list):
+        return False, set()
+    return state.upper() == "OPEN", _label_names(live)
+
+
+def _read_issue(event: Any, live: Any = FROM_EVENT) -> tuple:
     issue = event.get("issue") if isinstance(event, dict) else None
     if not isinstance(issue, dict) or not _positive_int(issue.get("number")):
         return None, Result(ERROR, EVENT_UNREADABLE)
     number = issue["number"]
     if "pull_request" in issue:
         return None, Result(SKIPPED, NOT_AN_ISSUE, issue=number)
-    if issue.get("state") != "open":
+    is_open, labels = _issue_now(issue, live)
+    if not is_open:
         return None, Result(SKIPPED, NOT_OPEN, issue=number)
-    if SUBMISSION_LABEL not in _label_names(issue):
+    if SUBMISSION_LABEL not in labels:
         return None, Result(SKIPPED, NOT_LABELLED, issue=number)
+    if labels & ANSWER_LABELS:
+        return None, Result(SKIPPED, ALREADY_ANSWERED, issue=number)
     user = issue.get("user")
     if not isinstance(user, dict) or not _positive_int(user.get("id")) or not isinstance(user.get("login"), str):
         return None, Result(ERROR, EVENT_UNREADABLE, issue=number)
@@ -463,9 +512,12 @@ def _from_outcome(number: int, outcome: repo_index.SubmissionOutcome) -> Result:
     return base
 
 
-def evaluate(repo: Path, event: Any, account: Any, now: dt.datetime, commit: str | None) -> tuple:
-    """``(Result, SubmissionOutcome or None, code text or None)`` for one issue event."""
-    submitted, stop = _read_issue(event)
+def evaluate(repo: Path, event: Any, account: Any, now: dt.datetime, commit: str | None, live: Any = FROM_EVENT) -> tuple:
+    """``(Result, SubmissionOutcome or None, code text or None)`` for one issue event.
+
+    ``live`` is ``gh issue view --json state,labels`` taken just now, or ``FROM_EVENT``.
+    """
+    submitted, stop = _read_issue(event, live)
     if stop is not None:
         return stop, None, None
     created, stop = _check_account(submitted, account)
@@ -543,7 +595,9 @@ def _emit(out: str, result: Any) -> None:
 def _decide(args: argparse.Namespace, commit: str | None) -> tuple:
     _, event = _load_json(args.event)
     _, account = _load_json(args.account)
-    return evaluate(Path(args.repo), event, account, _now(args.now), commit)
+    # An unreadable --live file loads as None, which _issue_now reads as "not open": never as "use the event".
+    live = FROM_EVENT if args.live is None else _load_json(args.live)[1]
+    return evaluate(Path(args.repo), event, account, _now(args.now), commit, live)
 
 
 def _code_file_holds(repo: Path, relative: str, code_sha256: str) -> bool | None:
@@ -554,14 +608,23 @@ def _code_file_holds(repo: Path, relative: str, code_sha256: str) -> bool | None
     return sharecode.decode(target.read_bytes().decode("utf-8", "replace")).code_sha256 == code_sha256
 
 
+def _held_only_by_revoked(repo: Path, relative: str) -> bool:
+    """True when index.json lists this code path, and only for revoked codes: its file may be replaced.
+
+    A file nothing in the index accounts for still needs a maintainer, as before.
+    """
+    holders = [entry for entry in repo_index.load(repo).entries if entry["path"] == relative]
+    return bool(holders) and all(entry["revoked"] for entry in holders)
+
+
 def command_check(args: argparse.Namespace) -> int:
     result, outcome, code = _decide(args, None)
     if result.status == PUBLISHED:
         repo = Path(args.repo)
         held = _code_file_holds(repo, outcome.new_code_path, outcome.code_sha256)
-        if held is False:
+        if held is False and not _held_only_by_revoked(repo, outcome.new_code_path):
             result = replace(result, status=ERROR, reason=repo_index.PATH_COLLISION)
-        elif held is None:
+        elif held is not True:
             target = repo / outcome.new_code_path
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(code.encode("ascii"))
@@ -724,6 +787,50 @@ def command_revoke(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_lift(args: argparse.Namespace) -> int:
+    repo = Path(args.repo)
+    state = repo_index.load(repo)
+    try:
+        updated = repo_index.lift_hold(state, args.region, args.build, args.account)
+    except KeyError as error:
+        raise UsageError("submissions.json holds no revoked code for that account, region and build") from error
+    repo_index.write_files(repo, updated)
+    print(json.dumps({"lifted": args.account, "region": args.region, "game_build": args.build}))
+    return 0
+
+
+def command_prune(args: argparse.Namespace) -> int:
+    repo = Path(args.repo)
+    state = repo_index.load(repo)
+    try:
+        pruned, removed = repo_index.prune(state, args.region, args.build)
+    except KeyError as error:
+        raise UsageError("index.json and submissions.json list no build %s for %s; nothing was removed"
+                         % (error.args[0], args.region)) from error
+    builds = set(removed)
+    gone = sorted({entry["path"] for entry in state.entries if (entry["region"], entry["game_build"]) in builds})
+    # The plan is printed first, and without --apply it is all that happens, so the maintainer reads what
+    # goes before anything does.
+    print(json.dumps({
+        "applied": args.apply,
+        "removed": [{"region": region, "game_build": build} for region, build in removed],
+        "entries": len(state.entries) - len(pruned.entries),
+        "submissions": len(state.submissions) - len(pruned.submissions),
+        "files": gone,
+    }))
+    if not args.apply:
+        return 0
+    repo_index.write_files(repo, pruned)
+    # The paths come from entries read_index accepted, so each is <cn|global>/<build>/<12 hex>.mrc and
+    # stays inside the checkout. Git history keeps every file, and clients download codes by commit.
+    for relative in gone:
+        (repo / relative).unlink(missing_ok=True)
+    for directory in sorted({(repo / relative).parent for relative in gone}):
+        if directory.is_dir() and not any(directory.iterdir()):
+            directory.rmdir()
+    return 0
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="publish.py", description=__doc__.splitlines()[0])
     commands = parser.add_subparsers(dest="command", required=True)
@@ -733,6 +840,8 @@ def _parser() -> argparse.ArgumentParser:
         sub.add_argument("--repo", required=True, help="root of the calibration repository checkout")
         sub.add_argument("--event", required=True, help="path of the GitHub issues event JSON")
         sub.add_argument("--account", required=True, help="path of `gh api users/<login>` output")
+        sub.add_argument("--live", help="path of `gh issue view --json state,labels` output; "
+                                        "default: the event's own state and labels")
         sub.add_argument("--out", required=True, help="directory for result.json and comment.md")
         sub.add_argument("--now", help="UTC time to decide at (tests); default: the clock")
         return sub
@@ -776,6 +885,22 @@ def _parser() -> argparse.ArgumentParser:
     revoke.add_argument("--repo", required=True)
     revoke.add_argument("--code-sha256", required=True)
     revoke.set_defaults(run=command_revoke)
+
+    lift = commands.add_parser("lift")
+    lift.add_argument("--repo", required=True)
+    lift.add_argument("--account", required=True, help="the account as submissions.json names it: id:<number>")
+    lift.add_argument("--region", required=True, help="CN or GLOBAL")
+    lift.add_argument("--build", required=True, help="the client build the hold is for")
+    lift.set_defaults(run=command_lift)
+
+    prune = commands.add_parser("prune")
+    prune.add_argument("--repo", required=True)
+    prune.add_argument("--region", required=True, choices=("CN", "GLOBAL"), help="the region the builds belong to")
+    prune.add_argument("--build", required=True, action="append",
+                       help="a client build to take out, with its entries, ledger rows and code files; repeatable")
+    prune.add_argument("--apply", action="store_true",
+                       help="write the change; without it, only print what would be removed")
+    prune.set_defaults(run=command_prune)
     return parser
 
 

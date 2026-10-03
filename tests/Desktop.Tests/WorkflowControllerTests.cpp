@@ -1,11 +1,15 @@
 #include "HistoryController.h"
+#include "RunListModel.h"
 #include "StatisticsController.h"
 #include "IBackend.h"
+
+#include "IpcBackend.h"
 
 #include <QCoreApplication>
 #include <QJsonArray>
 #include <QSignalSpy>
 #include <QTest>
+#include <QUuid>
 #include <memory>
 
 namespace {
@@ -19,6 +23,9 @@ public:
         QString type;
         QJsonObject payload;
         QPointer<mr::BackendReply> reply;
+        /// The request_id the envelope would carry: the caller's, or a fresh
+        /// one when it named none, as IpcBackend does.
+        QString requestId;
     };
     QList<Call> calls;
     bool synchronous = false;
@@ -30,13 +37,21 @@ public:
     mr::BackendReply *request(const QString &type, const QJsonObject &payload) override
     {
         auto *reply = new mr::BackendReply(QString::number(calls.size()), type, this);
-        calls.append({type, payload, reply});
+        calls.append({type, payload, reply, QUuid::createUuid().toString(QUuid::WithoutBraces)});
         if (synchronous) {
             if (reject)
                 reply->fail(QStringLiteral("ERR_TEST"), QStringLiteral("refused"));
             else
                 reply->succeed(answer);
         }
+        return reply;
+    }
+    mr::BackendReply *requestWithId(const QString &type, const QJsonObject &payload,
+                                    const QString &requestId) override
+    {
+        auto *reply = request(type, payload);
+        if (!requestId.isEmpty())
+            calls.last().requestId = requestId;
         return reply;
     }
     Call last(const QString &type) const
@@ -93,6 +108,40 @@ QJsonObject dashboard(int count)
             {QStringLiteral("trend"), QJsonObject{
                 {QStringLiteral("granularity"), QStringLiteral("day")},
                 {QStringLiteral("buckets"), buckets}}}};
+}
+
+/// A dashboard answer carrying the achievement settings and the Collector's progress.
+QJsonObject achievement(int goal, int baseline, int progress)
+{
+    return {{QStringLiteral("goal_count"), goal},
+            {QStringLiteral("baseline_completed_count"), baseline},
+            {QStringLiteral("achievement_progress"), progress},
+            {QStringLiteral("remaining"), qMax(0, goal - progress)}};
+}
+
+/// $defs/IpcResponsePayloads.UpdateAchievementBaseline: no achievement_progress.
+QJsonObject baselineSaved(int goal, int baseline)
+{
+    return {{QStringLiteral("goal_count"), goal},
+            {QStringLiteral("baseline_completed_count"), baseline},
+            {QStringLiteral("baseline_effective_at"), QStringLiteral("2026-10-03T08:00:00.000Z")},
+            {QStringLiteral("updated_at_utc"), QStringLiteral("2026-10-03T08:00:00.000Z")},
+            {QStringLiteral("audit_event_id"), QStringLiteral("00000000-0000-4000-8000-000000000001")}};
+}
+
+/// What the Collector answers to one GetRunRevisions request for a chain of
+/// \a total revisions: ascending, page 1 and 50 rows unless asked otherwise.
+QJsonObject revisionPage(const QJsonObject &request, int total)
+{
+    const int page = request.value(QStringLiteral("page")).toInt(1);
+    const int size = request.value(QStringLiteral("page_size")).toInt(50);
+    QJsonArray items;
+    for (int revision = (page - 1) * size + 1; revision <= qMin(page * size, total); ++revision)
+        items.append(QJsonObject{{QStringLiteral("revision"), revision}});
+    return {{QStringLiteral("items"), items},
+            {QStringLiteral("page_info"), QJsonObject{{QStringLiteral("page"), page},
+                                                      {QStringLiteral("page_size"), size},
+                                                      {QStringLiteral("total"), total}}}};
 }
 
 QJsonObject statsPage(int page, int total, int firstId = 1)
@@ -245,6 +294,130 @@ private Q_SLOTS:
         QCOMPARE(failures.count(), 1);
     }
 
+    // 审查 OD-3 / OI-1：读取失败要有自己的状态，页面据此说「读取失败」，而不是把
+    // 清空的模型当成真实的「0 条 / 0 个副本」。下一次成功读取清除它。
+    void aFailedLoadIsAStateOfItsOwn()
+    {
+        ControlledBackend backend;
+        mr::RunListModel runs;
+        mr::DungeonStatsModel dungeons;
+        runs.setBackend(&backend);
+        dungeons.setBackend(&backend);
+        QVERIFY(runs.loadError().isEmpty());
+        QVERIFY(dungeons.loadError().isEmpty());
+
+        runs.reload();
+        backend.last(QStringLiteral("QueryRuns")).reply->fail(
+            QStringLiteral("ERR_BAD_REQUEST"), QStringLiteral("text 超过 200 个字符的上限。"));
+        QCOMPARE(runs.loadError(), QStringLiteral("text 超过 200 个字符的上限。"));
+        dungeons.reload();
+        backend.last(QStringLiteral("GetDungeonStats")).reply->fail(QStringLiteral("ERR_INTERNAL"), QString());
+        QVERIFY(!dungeons.loadError().isEmpty());
+
+        runs.reload();
+        backend.last(QStringLiteral("QueryRuns")).reply->succeed(
+            {{"items", QJsonArray{}}, {"page_info", QJsonObject{{"page", 1}, {"total", 0}}}});
+        QVERIFY(runs.loadError().isEmpty());
+        dungeons.reload();
+        backend.last(QStringLiteral("GetDungeonStats")).reply->succeed(statsPage(1, 1));
+        QVERIFY(dungeons.loadError().isEmpty());
+    }
+
+    // 审查 S2-2：副本统计读取失败不得清空历史页的副本选项（副本 chip 会变成「指定副本」）。
+    void aFailedDungeonReadKeepsTheDutyOptions()
+    {
+        ControlledBackend backend;
+        mr::StatisticsController statistics(&backend);
+        statistics.dungeons()->reload();
+        backend.last(QStringLiteral("GetDungeonStats")).reply->succeed(statsPage(1, 3));
+        QCOMPARE(statistics.dutyOptions().size(), 3);
+        statistics.dungeons()->reload();
+        backend.last(QStringLiteral("GetDungeonStats")).reply->fail(QStringLiteral("ERR_INTERNAL"),
+                                                                     QStringLiteral("gone"));
+        QCOMPARE(statistics.dutyOptions().size(), 3);
+    }
+
+    // 审查 OI-1：读取失败不是「待复核记录没了」，也不是「趋势归零」。
+    void aFailedReadKeepsThePendingReviewRunAndTheTrend()
+    {
+        ControlledBackend backend;
+        mr::HistoryController history(&backend);
+        history.refreshPendingReviewRun();
+        backend.last(QStringLiteral("QueryRuns")).reply->succeed(
+            {{QStringLiteral("items"), QJsonArray{QJsonObject::fromVariantMap(run(QStringLiteral("A"), 3))}}});
+        QCOMPARE(history.pendingReviewRun().value(QStringLiteral("run_id")).toString(), QStringLiteral("A"));
+        history.refreshPendingReviewRun();
+        backend.last(QStringLiteral("QueryRuns")).reply->fail(QStringLiteral("ERR_INTERNAL"),
+                                                              QStringLiteral("timeout"));
+        QCOMPARE(history.pendingReviewRun().value(QStringLiteral("run_id")).toString(), QStringLiteral("A"));
+        // An answer that there is nothing left still empties it.
+        history.refreshPendingReviewRun();
+        backend.last(QStringLiteral("QueryRuns")).reply->succeed({{QStringLiteral("items"), QJsonArray{}}});
+        QVERIFY(history.pendingReviewRun().isEmpty());
+
+        mr::StatisticsController statistics(&backend);
+        statistics.setTrendMode(QStringLiteral("week"));
+        backend.last(QStringLiteral("GetDashboardStats")).reply->succeed({{QStringLiteral("trend"), QJsonObject{
+            {QStringLiteral("granularity"), QStringLiteral("week")},
+            {QStringLiteral("buckets"), QJsonArray{QJsonObject{
+                {QStringLiteral("start_utc"), QStringLiteral("2026-09-07T00:00:00Z")},
+                {QStringLiteral("completed_count"), 4}}}}}}});
+        QCOMPARE(statistics.trendBuckets().size(), 1);
+        statistics.refreshTrend();
+        backend.last(QStringLiteral("GetDashboardStats")).reply->fail(QStringLiteral("ERR_INTERNAL"),
+                                                                       QStringLiteral("timeout"));
+        QCOMPARE(statistics.trendBuckets().size(), 1);
+        QCOMPARE(statistics.trendBuckets().first().toMap().value(QStringLiteral("count")).toInt(), 4);
+    }
+
+    // 审查 OI-5：修订链按页读取（默认第 1 页、50 条、升序）。超过一页时最新的
+    // 修订必须读到，否则修正历史缺最新几条，「撤销」永远不出现。
+    void theRevisionListReachesTheNewestOfALongChain()
+    {
+        ControlledBackend backend;
+        mr::HistoryController history(&backend);
+        history.selectRun(run(QStringLiteral("A"), 260));
+        int answered = 0;
+        for (int index = 0; index < backend.calls.size() && answered < 10; ++index) {
+            const auto call = backend.calls.at(index);
+            if (call.type != QLatin1String("GetRunRevisions"))
+                continue;
+            call.reply->succeed(revisionPage(call.payload, 260));
+            ++answered;
+        }
+        QCOMPARE(history.selectedRunRevisions().size(), 260);
+        QCOMPARE(history.selectedRunRevisions().last().toMap().value(QStringLiteral("revision")).toInt(), 260);
+        QVERIFY(history.selectedRunCanUndo());
+        for (const auto &call : backend.calls) {
+            if (call.type == QLatin1String("GetRunRevisions"))
+                QVERIFY(call.payload.value(QStringLiteral("page_size")).toInt() <= 200);
+        }
+    }
+
+    // 审查 S2-6：实时事件把选中记录推进到新修订时，修订列表也要跟着重读，否则
+    // 修正历史停在旧的一条，「撤销」按钮消失直到重新选中。
+    void aLiveRevisionReloadsTheRevisionList()
+    {
+        ControlledBackend backend;
+        mr::HistoryController history(&backend);
+        history.selectRun(run(QStringLiteral("A"), 2));
+        auto call = backend.last(QStringLiteral("GetRunRevisions"));
+        call.reply->succeed(revisionPage(call.payload, 2));
+        QVERIFY(history.selectedRunCanUndo());
+        const int before = backend.count(QStringLiteral("GetRunRevisions"));
+
+        history.adoptRunRevisionFromEvent({{"run_id", "A"}, {"revision", 3}, {"result", "COMPLETED"}});
+        QCOMPARE(backend.count(QStringLiteral("GetRunRevisions")), before + 1);
+        call = backend.last(QStringLiteral("GetRunRevisions"));
+        call.reply->succeed(revisionPage(call.payload, 3));
+        QCOMPARE(history.selectedRunRevisions().size(), 3);
+        QVERIFY(history.selectedRunCanUndo());
+
+        // The same revision again changes nothing and reads nothing.
+        history.adoptRunRevisionFromEvent({{"run_id", "A"}, {"revision", 3}, {"result", "COMPLETED"}});
+        QCOMPARE(backend.count(QStringLiteral("GetRunRevisions")), before + 1);
+    }
+
     void anOpenFormKeepsItsRevisionWhileTheSelectedRecordRefreshes()
     {
         ControlledBackend backend;
@@ -374,6 +547,9 @@ private Q_SLOTS:
     {
         ControlledBackend backend;
         mr::StatisticsController statistics(&backend);
+        // A save is sent only once the stored settings have been read (CS7-D3).
+        statistics.refreshDashboard();
+        backend.last(QStringLiteral("GetDashboardStats")).reply->succeed(achievement(2000, 0, 0));
         QStringList order;
         connect(&statistics, &mr::StatisticsController::baselineFailed, this,
                 [&] { order << QStringLiteral("baseline"); });
@@ -386,10 +562,86 @@ private Q_SLOTS:
             QStringLiteral("ERR_BAD_REQUEST"), QStringLiteral("invalid"));
         QCOMPARE(order, (QStringList{QStringLiteral("baseline"), QStringLiteral("mutation"),
                                     QStringLiteral("toast")}));
-        QCOMPARE(backend.count(QStringLiteral("GetDashboardStats")), 0);
+        QCOMPARE(backend.count(QStringLiteral("GetDashboardStats")), 1);
         statistics.updateAchievementBaseline(2000, 12, QStringLiteral("reason"));
         backend.last(QStringLiteral("UpdateAchievementBaseline")).reply->succeed({});
-        QCOMPARE(backend.count(QStringLiteral("GetDashboardStats")), 1);
+        QCOMPARE(backend.count(QStringLiteral("GetDashboardStats")), 2);
+    }
+
+    // CS7-D1：保存成功后的提示从 UpdateAchievementBaseline 的回应里读进度，可那份回应
+    // 不带 achievement_progress（contracts/ipc-v1.schema.json），于是总是「进度 0」。
+    // 进度取自保存之后重读的统计；重读失败时提示里不给进度，而不是给一个错的。
+    void theSaveToastTakesItsProgressFromTheReReadDashboard()
+    {
+        ControlledBackend backend;
+        mr::StatisticsController statistics(&backend);
+        QStringList toasts;
+        connect(&statistics, &mr::StatisticsController::toastRequested, this,
+                [&](const QString &message) { toasts << message; });
+        statistics.refreshDashboard();
+        backend.last(QStringLiteral("GetDashboardStats")).reply->succeed(achievement(2000, 100, 104));
+
+        statistics.updateAchievementBaseline(2000, 120, QStringLiteral("reason"));
+        backend.last(QStringLiteral("UpdateAchievementBaseline")).reply->succeed(baselineSaved(2000, 120));
+        // The reply has no progress to tell; the re-read has.
+        QVERIFY2(toasts.isEmpty(), qPrintable(toasts.join(QLatin1Char('\n'))));
+        QCOMPARE(backend.count(QStringLiteral("GetDashboardStats")), 2);
+        backend.last(QStringLiteral("GetDashboardStats")).reply->succeed(achievement(2000, 120, 131));
+        QCOMPARE(toasts, QStringList{QString::fromUtf8("基数已设为 120 · 目标 2000 · 进度 131 · 已重算")});
+
+        // The re-read fails: the save stands, and no figure is made up for it.
+        toasts.clear();
+        statistics.updateAchievementBaseline(1800, 120, QStringLiteral("reason"));
+        backend.last(QStringLiteral("UpdateAchievementBaseline")).reply->succeed(baselineSaved(1800, 120));
+        QCOMPARE(backend.count(QStringLiteral("GetDashboardStats")), 3);
+        backend.last(QStringLiteral("GetDashboardStats")).reply->fail(QStringLiteral("ERR_INTERNAL"),
+                                                                      QStringLiteral("gone"));
+        QCOMPARE(toasts, QStringList{QString::fromUtf8("基数已设为 120 · 目标 1800 · 已保存")});
+    }
+
+    // CS7-D3：第一份统计读回之前，目标与基数只是默认值；这时的保存会把基数写成 0。
+    // 读回之前不发送；连接断开后，在新连接里重新读回之前同样不发送，断开前发出、断开
+    // 之后才回来的读取不算数。
+    void aBaselineSaveWaitsForTheStoredSettingsOfThisConnection()
+    {
+        ControlledBackend backend;
+        mr::StatisticsController statistics(&backend);
+        QSignalSpy refused(&statistics, &mr::StatisticsController::baselineFailed);
+        QSignalSpy loaded(&statistics, &mr::StatisticsController::achievementSettingsLoadedChanged);
+        QVERIFY(!statistics.achievementSettingsLoaded());
+        statistics.updateAchievementBaseline(1500, 0, QStringLiteral("reason"));
+        QCOMPARE(backend.count(QStringLiteral("UpdateAchievementBaseline")), 0);
+        QCOMPARE(refused.count(), 1);
+
+        // A failed read tells nothing about what is stored.
+        statistics.refreshDashboard();
+        backend.last(QStringLiteral("GetDashboardStats")).reply->fail(QStringLiteral("ERR_INTERNAL"),
+                                                                      QStringLiteral("gone"));
+        QVERIFY(!statistics.achievementSettingsLoaded());
+
+        statistics.refreshDashboard();
+        backend.last(QStringLiteral("GetDashboardStats")).reply->succeed(achievement(1000, 640, 650));
+        QVERIFY(statistics.achievementSettingsLoaded());
+        QCOMPARE(loaded.count(), 1);
+        statistics.updateAchievementBaseline(1500, 640, QStringLiteral("reason"));
+        QCOMPARE(backend.count(QStringLiteral("UpdateAchievementBaseline")), 1);
+
+        // The connection drops while a read is out; its late answer is not this connection's.
+        statistics.refreshDashboard();
+        const QPointer<mr::BackendReply> stale = backend.last(QStringLiteral("GetDashboardStats")).reply;
+        statistics.forgetAchievementSettings();
+        QVERIFY(!statistics.achievementSettingsLoaded());
+        QCOMPARE(loaded.count(), 2);
+        stale->succeed(achievement(1000, 640, 650));
+        QVERIFY(!statistics.achievementSettingsLoaded());
+        statistics.updateAchievementBaseline(1500, 640, QStringLiteral("reason"));
+        QCOMPARE(backend.count(QStringLiteral("UpdateAchievementBaseline")), 1);
+        QCOMPARE(refused.count(), 2);
+
+        statistics.refreshDashboard();
+        backend.last(QStringLiteral("GetDashboardStats")).reply->succeed(achievement(1000, 640, 650));
+        QVERIFY(statistics.achievementSettingsLoaded());
+        QCOMPARE(loaded.count(), 3);
     }
 
     void oldSelectionRepliesCannotOverwriteNewRecord()
@@ -610,6 +862,69 @@ private Q_SLOTS:
         QCOMPARE(backend.count(QStringLiteral("CorrectRun")), 3);
         QCOMPARE(failed.count(), 1);
         QCOMPARE(revised.last().at(1).toInt(), 205);
+    }
+
+    /// A create or a correction the client stopped waiting for may still have
+    /// been applied - the Collector answers one connection in order, and a
+    /// backup ahead of it can outlast the 8 s deadline. Pressing 提交 again must
+    /// resend it under the same request_id, so the Collector's idempotency
+    /// answers with the first result instead of writing a second record
+    /// (review OH-2).
+    void aMutationTheClientGaveUpOnIsResentUnderItsOwnRequestId()
+    {
+        ControlledBackend backend;
+        mr::HistoryController history(&backend);
+        const QVariantMap fields{{QStringLiteral("content_id"), 1036},
+                                 {QStringLiteral("result"), QStringLiteral("COMPLETED")}};
+        const QString reason = QString::fromUtf8("补录遗漏的导随记录");
+
+        history.createManualRun(fields, reason);
+        const auto first = backend.last(QStringLiteral("CreateManualRun"));
+        first.reply->fail(QStringLiteral("ERR_INTERNAL"),
+                          QString::fromUtf8("Collector 未在超时时间内响应。"));
+        history.createManualRun(fields, reason);
+        const auto resent = backend.last(QStringLiteral("CreateManualRun"));
+        QCOMPARE(resent.requestId, first.requestId);
+
+        // Answered: the next record is a request of its own.
+        resent.reply->succeed({{QStringLiteral("run_id"), QStringLiteral("run-1")},
+                               {QStringLiteral("revision"), 1}});
+        history.createManualRun(fields, reason);
+        const auto next = backend.last(QStringLiteral("CreateManualRun"));
+        QVERIFY(next.requestId != first.requestId);
+
+        // Different content never borrows an unanswered id: the Collector
+        // would refuse it as ERR_IDEMPOTENCY_CONFLICT.
+        next.reply->fail(QStringLiteral("ERR_INTERNAL"), QStringLiteral("timeout"));
+        QVariantMap other = fields;
+        other.insert(QStringLiteral("content_id"), 1037);
+        history.createManualRun(other, reason);
+        QVERIFY(backend.last(QStringLiteral("CreateManualRun")).requestId != next.requestId);
+
+        // The same holds for a correction of the record a form is showing.
+        history.selectRun(run(QStringLiteral("A"), 2));
+        const QVariantMap changes{{QStringLiteral("note"), QStringLiteral("x")}};
+        history.correctSelectedRun(changes, reason, QStringLiteral("A"), 2);
+        const auto correction = backend.last(QStringLiteral("CorrectRun"));
+        correction.reply->fail(QStringLiteral("ERR_INTERNAL"), QStringLiteral("timeout"));
+        history.correctSelectedRun(changes, reason, QStringLiteral("A"), 2);
+        QCOMPARE(backend.last(QStringLiteral("CorrectRun")).requestId, correction.requestId);
+    }
+
+    /// The id a caller names is the one on the wire.
+    void theIpcBackendSendsTheRequestIdItIsGiven()
+    {
+        mr::IpcBackend backend(nullptr,
+                               QStringLiteral("\\\\.\\pipe\\MentorRecorderTest.no-such-pipe.%1")
+                                   .arg(QCoreApplication::applicationPid()));
+        const QString id = QStringLiteral("6f8f4c7e-2a71-4f0e-9b6e-0f2a5f9f9f11");
+        QCOMPARE(backend.correctRun(QStringLiteral("A"), 2, {}, QStringLiteral("r"), id)->requestId(),
+                 id);
+        QCOMPARE(backend.createManualRun({}, QStringLiteral("r"), id)->requestId(), id);
+        // Without one, every request gets a fresh id of its own.
+        const QString a = backend.getStatus()->requestId();
+        const QString b = backend.getStatus()->requestId();
+        QVERIFY(!a.isEmpty() && a != b);
     }
 
     void synchronousMutationAndEventFailureAreObservedOnce()

@@ -196,13 +196,24 @@ class ReaderTests(unittest.TestCase):
         self.assertEqual([None, True, False], [item.get("conflicting") for item in read.entries])
         self.assertEqual([False, True, False], [repo_index.is_conflicting(item) for item in read.entries])
 
-    def test_a_conflicting_entry_is_picked_after_every_entry_that_is_not(self):
+    def test_the_conflict_mark_only_breaks_a_tie_in_submitters(self):
+        # ConflictingEntriesAreOptionalReadAsFalseWhenAbsentAndOnlyBreakATieInSubmitters (audit 2026-10-03, ON1-1).
+        # Until then a marked code went last whatever its submitters, and an earlier version of this test pinned that.
         read = repo_index.read_index(index_bytes(
-            entry(sha("a"), submitters=9, conflicting=True),
-            entry(sha("b"), submitters=8, published="2026-09-02T00:00:00Z", conflicting=True),
-            entry(sha("c"), submitters=1, published="2026-09-03T00:00:00Z"),
-            entry(sha("d"), submitters=1, published="2026-09-02T00:00:00Z", conflicting=False)))
-        self.assertEqual([sha("d"), sha("c"), sha("a"), sha("b")],
+            entry(sha("c"), submitters=9, conflicting=True),
+            entry(sha("d"), submitters=3, conflicting=False),
+            entry(sha("e"), submitters=1),
+            entry(sha("a"), submitters=3, conflicting=True)))
+        self.assertEqual([sha("c"), sha("d"), sha("a"), sha("e")],
+                         [item["code_sha256"] for item in repo_index.select(read.entries, "CN", BUILD)])
+
+    def test_among_equal_submitters_the_mark_outranks_first_publication_and_hash(self):
+        read = repo_index.read_index(index_bytes(
+            entry(sha("a"), submitters=2, published="2026-09-01T00:00:00Z", conflicting=True),
+            entry(sha("b"), submitters=2, published="2026-09-05T00:00:00Z"),
+            entry(sha("c"), submitters=1, published="2026-09-01T00:00:00Z", conflicting=False),
+            entry(sha("d"), submitters=4, published="2026-09-09T00:00:00Z", conflicting=True)))
+        self.assertEqual([sha("d"), sha("b"), sha("a"), sha("c")],
                          [item["code_sha256"] for item in repo_index.select(read.entries, "CN", BUILD)])
 
     def test_stamps_are_what_the_client_parses(self):
@@ -318,9 +329,12 @@ class ReplacementTests(unittest.TestCase):
     def entry_for(state, code_sha) -> dict:
         return next(item for item in state.entries if item["code_sha256"] == code_sha)
 
-    def test_a_revoked_code_frees_the_accounts_slot(self):
+    def test_a_code_a_maintainer_revoked_frees_the_accounts_slot_only_once_the_hold_is_lifted(self):
+        """ON1-1: a maintainer's revocation holds the account; a reviewed hold frees the slot as before."""
         state = repo_index.revoke(self.first(), sharecode.code_sha256(testsupport.payload("ANNOUNCEMENT", 1)))
-        again = self.second(state)
+        held = self.second(state)
+        self.assertEqual((repo_index.REFUSED, repo_index.ACCOUNT_HELD), (held.status, held.reason))
+        again = self.second(repo_index.lift_hold(state, "CN", BUILD, "id:1"))
         self.assertEqual(repo_index.PUBLISHED, again.status)
         self.assertEqual(1, len(again.index.submissions), "the freed row is superseded, never doubled")
         self.assertEqual(sharecode.code_sha256(testsupport.payload("ANNOUNCEMENT", 2)),
@@ -435,11 +449,14 @@ class ReplacementTests(unittest.TestCase):
                 repo_index.dump(repo_index.Index(state.entries, (dict(row, replaced=chain),)))
 
     def test_only_the_most_recent_replacements_are_kept(self):
+        # MAX_CODES_PER_ACCOUNT_BUILD now stops an account long before its chain reaches MAX_REPLACED; the chain
+        # cap still guards every ledger written before that limit existed, so it is exercised with the limit off.
         state, account = repo_index.empty_index(), 1
-        for number in range(repo_index.MAX_REPLACED + 3):
-            outcome = _submit(state, number=number, account=account, when=NOW + dt.timedelta(hours=number))
-            self.assertEqual(repo_index.PUBLISHED, outcome.status)
-            state = outcome.index
+        with mock.patch.object(repo_index, "MAX_CODES_PER_ACCOUNT_BUILD", repo_index.MAX_REPLACED + 3):
+            for number in range(repo_index.MAX_REPLACED + 3):
+                outcome = _submit(state, number=number, account=account, when=NOW + dt.timedelta(hours=number))
+                self.assertEqual(repo_index.PUBLISHED, outcome.status)
+                state = outcome.index
         chain = self.row_for(state)["replaced"]
         expected = [sharecode.code_sha256(testsupport.payload("ANNOUNCEMENT", number))
                     for number in range(repo_index.MAX_REPLACED + 2)]
@@ -460,10 +477,11 @@ class ReplacementTests(unittest.TestCase):
         impostor = real[:12] + ("0" if real[12] != "0" else "1") + real[13:]
         state = self.first()
         crowded = repo_index.Index(state.entries + (entry(impostor, published="2026-09-01T00:00:00Z"),), state.submissions)
+        before = repo_index.dump(crowded)
         outcome = self.second(crowded)
         self.assertEqual((repo_index.REFUSED, repo_index.PATH_COLLISION), (outcome.status, outcome.reason))
         self.assertIsNone(outcome.index)
-        self.assertEqual(repo_index.dump(crowded), repo_index.dump(crowded), "nothing was mutated in place")
+        self.assertEqual(before, repo_index.dump(crowded), "nothing was mutated in place")
         self.assertEqual((False, 1), (crowded.entries[0]["revoked"], crowded.entries[0]["submitters"]))
 
     def test_a_replacement_refused_over_a_cap_leaves_the_old_code_exactly_as_it_was(self):
@@ -537,6 +555,34 @@ class ReplacementTests(unittest.TestCase):
         self.assertEqual((repo_index.REFUSED, repo_index.PATH_COLLISION), (outcome.status, outcome.reason))
         self.assertIn(repo_index.PATH_COLLISION, repo_index.MAINTAINER_REFUSALS)
 
+    def test_a_file_name_held_only_by_a_revoked_code_is_free_again(self):
+        """ON1-4: a revoked code that squats a 12-digit file name must not block an honest code for ever."""
+        real = sharecode.decode(_code(1)).code_sha256
+        squatter = real[:12] + ("0" if real[12] != "0" else "1") + real[13:]
+        state = repo_index.Index((entry(squatter, published="2026-09-01T00:00:00Z", revoked=True),), ())
+        outcome = _submit(state, number=1)
+        self.assertEqual(repo_index.PUBLISHED, outcome.status)
+        self.assertEqual(state.entries[0]["path"], outcome.new_code_path)
+        files = repo_index.dump(outcome.index)
+        self.assertEqual(outcome.index, repo_index.parse(files[repo_index.INDEX_FILE], files[repo_index.LEDGER_FILE]))
+        read = repo_index.read_index(files[repo_index.INDEX_FILE])
+        self.assertEqual((), read.skipped)
+        self.assertEqual([real], [item["code_sha256"] for item in repo_index.select(read.entries, "CN", BUILD)])
+        self.assertEqual((squatter,), repo_index.revoked_codes(read.entries, "CN", BUILD))
+
+    def test_two_codes_in_use_never_share_a_file_name(self):
+        first = sha(1)
+        second = first[:12] + "f" * 52
+        for revoked, corrupt in ((False, True), (True, False)):
+            with self.subTest(first_revoked=revoked):
+                state = repo_index.Index((entry(first, revoked=revoked), entry(second)), ())
+                if corrupt:
+                    with self.assertRaises(repo_index.IndexCorrupt):
+                        repo_index.dump(state)
+                else:
+                    files = repo_index.dump(state)
+                    self.assertEqual(state, repo_index.parse(files[repo_index.INDEX_FILE], files[repo_index.LEDGER_FILE]))
+
     def test_a_code_that_does_not_decode_or_does_not_match_its_region_and_build_is_refused(self):
         bad = repo_index.add_submission(repo_index.empty_index(), "CN", BUILD, "MRC1.@@", None, OLD_ACCOUNT, NOW, COMMIT, account_id=1)
         self.assertEqual((repo_index.CODE_INVALID, sharecode.E_CHARACTERS), (bad.reason, bad.detail))
@@ -585,6 +631,249 @@ class ReplacementTests(unittest.TestCase):
         self.assertEqual((code_sha,), repo_index.revoked_codes(once.entries, "CN", BUILD))
         with self.assertRaises(KeyError):
             repo_index.revoke(state, sha("e"))
+
+
+BUILD_B = "2026.09.10.0000.0000"
+BUILD_C = "2026.09.15.0000.0000"
+
+
+class BuildShapeTests(unittest.TestCase):
+    """ON1-2: only the shape every real client build has is published, so builds cannot be invented freely."""
+
+    def test_a_build_that_is_not_a_real_client_build_is_refused(self):
+        for build in ("synthetic-build-1", "2026.9.1.0.0", "2026.09.01.0000", "2026.09.01.0000.0000.0000",
+                      "2026.13.01.0000.0000", "2026.02.30.0000.0000", "0000.01.01.0000.0000", "2026-09-01-0000-0000",
+                      "x2026.09.01.0000.0000", "2026.09.01.0000.000a", "2026.09.01.00000.000"):
+            with self.subTest(build):
+                outcome = repo_index.add_submission(repo_index.empty_index(), "CN", build, _code(build=build), None,
+                                                    OLD_ACCOUNT, NOW, COMMIT, account_id=1)
+                self.assertEqual((repo_index.REFUSED, repo_index.BUILD_NOT_INDEXABLE), (outcome.status, outcome.reason))
+                self.assertIsNone(outcome.index)
+
+    def test_a_build_dated_after_the_day_after_submission_is_refused(self):
+        # V5-1: no client runs a build from the future; one day of slack for the build's own time zone.
+        late = dt.datetime(2026, 9, 16, 23, 59, 59, tzinfo=dt.timezone.utc)
+        for build, when, expected in (
+                ("2026.09.16.0000.0000", NOW, repo_index.PUBLISHED),
+                ("2026.09.17.0000.0000", NOW, repo_index.PUBLISHED),
+                ("2026.09.17.0000.0000", late, repo_index.PUBLISHED),
+                ("2026.09.18.0000.0000", NOW, repo_index.BUILD_IN_FUTURE),
+                ("2026.09.18.0000.0000", late, repo_index.BUILD_IN_FUTURE),
+                ("2099.12.31.0000.0000", NOW, repo_index.BUILD_IN_FUTURE)):
+            with self.subTest(build=build, when=when):
+                outcome = repo_index.add_submission(repo_index.empty_index(), "CN", build, _code(build=build), None,
+                                                    OLD_ACCOUNT, when, COMMIT, account_id=1)
+                self.assertEqual(expected, outcome.reason or outcome.status)
+                if expected == repo_index.BUILD_IN_FUTURE:
+                    self.assertEqual((repo_index.REFUSED, None), (outcome.status, outcome.index))
+
+    def test_the_shape_rejects_what_a_pattern_without_anchors_would_let_through(self):
+        for text in (BUILD + "\n", "２" + BUILD[1:], " " + BUILD, None, 20260901, b"2026.09.01.0000.0000"):
+            with self.subTest(repr(text)):
+                self.assertFalse(repo_index.is_game_build(text))
+
+    def test_every_build_in_the_fixtures_has_the_shape_and_the_shape_is_one_the_client_reads(self):
+        sample = json.loads((testsupport.REPO / "tests" / "Fixtures" / "shared-calibration" / "index-sample.json")
+                            .read_text(encoding="utf-8"))
+        builds = {item["game_build"] for item in sample["entries"]} | {BUILD, BUILD_B, BUILD_C}
+        self.assertGreaterEqual(len(builds), 3)
+        for build in sorted(builds):
+            with self.subTest(build):
+                self.assertTrue(repo_index.is_game_build(build))
+                self.assertTrue(repo_index.is_build(build), "the client must be able to read what is published")
+
+
+class AccountLimitTests(unittest.TestCase):
+    """ON1-2: one account cannot fill the index every client downloads."""
+
+    def test_an_account_may_submit_at_most_three_different_codes_for_one_build(self):
+        state = repo_index.empty_index()
+        for number in range(repo_index.MAX_CODES_PER_ACCOUNT_BUILD):
+            outcome = _submit(state, number=number, account=1, when=NOW + dt.timedelta(minutes=number))
+            self.assertEqual(repo_index.PUBLISHED, outcome.status)
+            state = outcome.index
+        refused = _submit(state, number=9, account=1, when=NOW + dt.timedelta(hours=1))
+        self.assertEqual((repo_index.REFUSED, repo_index.ACCOUNT_BUILD_LIMIT), (refused.status, refused.reason))
+        self.assertIsNone(refused.index)
+        self.assertEqual(repo_index.PUBLISHED, _submit(state, number=9, account=2, when=NOW + dt.timedelta(hours=1)).status)
+        self.assertEqual(repo_index.PUBLISHED,
+                         _submit(state, number=9, account=1, build=BUILD_B, when=NOW + dt.timedelta(hours=1)).status)
+
+    def test_joining_another_accounts_code_counts_towards_the_same_limit(self):
+        state = _submit(repo_index.empty_index(), number=7, account=9).index
+        for number in range(repo_index.MAX_CODES_PER_ACCOUNT_BUILD):
+            state = _submit(state, number=number, account=1, when=NOW + dt.timedelta(minutes=1 + number)).index
+        joined = _submit(state, number=7, account=1, when=NOW + dt.timedelta(hours=1))
+        self.assertEqual((repo_index.REFUSED, repo_index.ACCOUNT_BUILD_LIMIT), (joined.status, joined.reason))
+        self.assertEqual(1, next(item for item in state.entries if item["code_sha256"] == sharecode.decode(_code(7)).code_sha256)["submitters"])
+
+    def test_an_account_may_submit_for_at_most_two_builds_a_day(self):
+        state = _submit(repo_index.empty_index(), number=1, account=1).index
+        state = _submit(state, number=2, account=1, build=BUILD_B, when=NOW + dt.timedelta(hours=1)).index
+        third = _submit(state, number=3, account=1, build=BUILD_C, when=NOW + dt.timedelta(hours=2))
+        self.assertEqual((repo_index.REFUSED, repo_index.ACCOUNT_DAILY_LIMIT), (third.status, third.reason))
+        self.assertIsNone(third.index)
+        # A build it already submitted for today is not a third one; another account is not limited by this one;
+        # and the next UTC day the count starts again.
+        self.assertEqual(repo_index.PUBLISHED, _submit(state, number=4, account=1, when=NOW + dt.timedelta(hours=3)).status)
+        self.assertEqual(repo_index.PUBLISHED,
+                         _submit(state, number=3, account=2, build=BUILD_C, when=NOW + dt.timedelta(hours=2)).status)
+        self.assertEqual(repo_index.PUBLISHED,
+                         _submit(state, number=3, account=1, build=BUILD_C, when=NOW + dt.timedelta(days=1)).status)
+
+    def test_one_account_adds_only_a_handful_of_entries_in_a_day_however_hard_it_tries(self):
+        builds = ["2026.08.%02d.0000.0000" % day for day in range(1, 29)]
+        state = repo_index.empty_index()
+        for attempt in range(240):
+            outcome = _submit(state, number=attempt, account=1, build=builds[attempt % len(builds)],
+                              when=NOW + dt.timedelta(minutes=attempt))
+            if outcome.index is not None:
+                state = outcome.index
+        ceiling = repo_index.MAX_BUILDS_PER_ACCOUNT_DAY * repo_index.MAX_CODES_PER_ACCOUNT_BUILD
+        self.assertLessEqual(len(state.entries), ceiling)
+        files = repo_index.dump(state)
+        self.assertEqual(state, repo_index.parse(files[repo_index.INDEX_FILE], files[repo_index.LEDGER_FILE]))
+
+
+class MaintainerRevocationTests(unittest.TestCase):
+    """ON1-1, publisher side: a code a maintainer revoked holds the accounts on it, for that build, until review."""
+
+    def setUp(self):
+        self.old = sharecode.decode(_code(1)).code_sha256
+        self.state = repo_index.revoke(_submit(repo_index.empty_index(), number=1, account=1).index, self.old)
+
+    def test_an_account_whose_code_a_maintainer_revoked_cannot_submit_another_for_that_build(self):
+        outcome = _submit(self.state, number=2, account=1, when=NOW + dt.timedelta(hours=1))
+        self.assertEqual((repo_index.REFUSED, repo_index.ACCOUNT_HELD), (outcome.status, outcome.reason))
+        self.assertIsNone(outcome.index)
+        live = _submit(self.state, number=3, account=2, when=NOW + dt.timedelta(minutes=5)).index
+        joined = _submit(live, number=3, account=1, when=NOW + dt.timedelta(hours=1))
+        self.assertEqual((repo_index.REFUSED, repo_index.ACCOUNT_HELD), (joined.status, joined.reason))
+        self.assertEqual((repo_index.REFUSED, repo_index.REVOKED), _status(_submit(self.state, number=1, account=1)))
+
+    def test_the_hold_is_kept_in_the_ledger_only_and_survives_a_round_trip(self):
+        files = repo_index.dump(self.state)
+        reread = repo_index.parse(files[repo_index.INDEX_FILE], files[repo_index.LEDGER_FILE])
+        self.assertEqual([("id:1", self.old)], [(row["account"], row["code_sha256"]) for row in reread.submissions])
+        self.assertNotIn(b"id:1", files[repo_index.INDEX_FILE], "the index names no account")
+        self.assertEqual((repo_index.REFUSED, repo_index.ACCOUNT_HELD),
+                         _status(_submit(reread, number=2, account=1, when=NOW + dt.timedelta(days=40))))
+
+    def test_the_hold_covers_only_that_build_and_only_the_accounts_on_the_revoked_code(self):
+        state = _submit(repo_index.empty_index(), number=1, account=1).index
+        state = _submit(state, number=1, account=2, when=NOW + dt.timedelta(minutes=1)).index
+        state = repo_index.revoke(state, self.old)
+        later = NOW + dt.timedelta(hours=1)
+        self.assertEqual((repo_index.REFUSED, repo_index.ACCOUNT_HELD), _status(_submit(state, number=2, account=2, when=later)))
+        self.assertEqual(repo_index.PUBLISHED, _submit(state, number=2, account=1, build=BUILD_B, when=later).status)
+        self.assertEqual(repo_index.PUBLISHED, _submit(state, number=2, account=3, when=later).status)
+
+    def test_replacing_ones_own_code_is_no_revocation_by_a_maintainer(self):
+        state = _submit(repo_index.empty_index(), number=1, account=1).index
+        state = _submit(state, number=2, account=1, when=NOW + dt.timedelta(minutes=1)).index
+        self.assertTrue(next(item for item in state.entries if item["code_sha256"] == self.old)["revoked"])
+        self.assertEqual(repo_index.PUBLISHED, _submit(state, number=3, account=1, when=NOW + dt.timedelta(minutes=2)).status)
+
+    def test_a_maintainer_lifts_the_hold_after_review(self):
+        state = _submit(repo_index.empty_index(), number=1, account=1).index
+        state = repo_index.revoke(_submit(state, number=1, account=2, when=NOW + dt.timedelta(minutes=1)).index, self.old)
+        lifted = repo_index.lift_hold(state, "CN", BUILD, "id:1")
+        revoked = next(item for item in lifted.entries if item["code_sha256"] == self.old)
+        self.assertEqual((True, 1), (revoked["revoked"], revoked["submitters"]))
+        self.assertEqual(["id:2"], [row["account"] for row in lifted.submissions])
+        files = repo_index.dump(lifted)
+        self.assertEqual(lifted, repo_index.parse(files[repo_index.INDEX_FILE], files[repo_index.LEDGER_FILE]))
+        self.assertEqual(repo_index.PUBLISHED, _submit(lifted, number=2, account=1, when=NOW + dt.timedelta(hours=1)).status)
+        self.assertEqual((repo_index.REFUSED, repo_index.REVOKED), _status(_submit(lifted, number=1, account=1)))
+        alone = repo_index.lift_hold(lifted, "CN", BUILD, "id:2")
+        self.assertEqual((), alone.submissions)
+        self.assertEqual(1, alone.entries[0]["submitters"], "the client refuses submitters below one")
+        repo_index.dump(alone)
+
+    def test_lifting_needs_an_account_that_is_actually_held(self):
+        live = _submit(repo_index.empty_index(), number=1, account=1).index
+        for state, account in ((live, "id:1"), (self.state, "id:2"), (self.state, "login:id-1")):
+            with self.subTest(account=account, held=state is self.state), self.assertRaises(KeyError):
+                repo_index.lift_hold(state, "CN", BUILD, account)
+        with self.assertRaises(KeyError):
+            repo_index.lift_hold(self.state, "GLOBAL", BUILD, "id:1")
+
+
+def _status(outcome) -> tuple:
+    return outcome.status, outcome.reason
+
+
+class PruneTests(unittest.TestCase):
+    """ON1-2: a maintainer takes old builds out of the index, with their ledger rows, and the files still read back."""
+
+    def setUp(self):
+        state, step = repo_index.empty_index(), 0
+        for region, build, number, account in (
+                ("CN", "2026.07.01.0000.0000", 1, 1), ("CN", "2026.07.01.0000.0000", 2, 1),
+                ("CN", "2026.07.01.0000.0000", 2, 2), ("CN", "2026.08.01.0000.0000", 3, 3),
+                ("CN", BUILD, 4, 1), ("CN", BUILD, 5, 2), ("CN", BUILD, 6, 2),
+                ("GLOBAL", "2026.08.01.0000.0000", 7, 4), ("GLOBAL", BUILD, 8, 4)):
+            step += 1
+            outcome = _submit(state, number=number, account=account, region=region, build=build,
+                              when=NOW + dt.timedelta(days=step))
+            self.assertIn(outcome.status, (repo_index.PUBLISHED, repo_index.ADDED), (region, build, number, account))
+            state = outcome.index
+        self.state = state
+
+    @staticmethod
+    def builds(state) -> set:
+        return {(item["region"], item["game_build"]) for item in state.entries} | {
+            (row["region"], row["game_build"]) for row in state.submissions}
+
+    def test_prune_takes_out_exactly_the_named_build_with_its_rows(self):
+        pruned, removed = repo_index.prune(self.state, "CN", ["2026.07.01.0000.0000"])
+        self.assertEqual((("CN", "2026.07.01.0000.0000"),), removed)
+        self.assertEqual(self.builds(self.state) - set(removed), self.builds(pruned))
+        kept = lambda item: (item["region"], item["game_build"]) not in removed  # noqa: E731
+        self.assertEqual(tuple(item for item in self.state.entries if kept(item)), pruned.entries)
+        self.assertEqual(tuple(row for row in self.state.submissions if kept(row)), pruned.submissions)
+        files = repo_index.dump(pruned)
+        self.assertEqual(pruned, repo_index.parse(files[repo_index.INDEX_FILE], files[repo_index.LEDGER_FILE]))
+        self.assertEqual((), repo_index.read_index(files[repo_index.INDEX_FILE]).skipped)
+        with self.assertRaises(KeyError, msg="a build already gone is not quietly gone again"):
+            repo_index.prune(pruned, "CN", ["2026.07.01.0000.0000"])
+
+    def test_several_builds_go_at_once_and_the_rest_keeps_its_chains(self):
+        pruned, removed = repo_index.prune(self.state, "CN", ("2026.07.01.0000.0000", "2026.08.01.0000.0000"))
+        pruned, removed_too = repo_index.prune(pruned, "GLOBAL", "2026.08.01.0000.0000")
+        self.assertEqual({("CN", BUILD), ("GLOBAL", BUILD)}, self.builds(pruned))
+        self.assertEqual(3, len(removed + removed_too))
+        self.assertTrue(all(row["game_build"] == BUILD for row in pruned.submissions))
+        self.assertTrue(any(repo_index.REPLACED in row for row in pruned.submissions))
+        repo_index.dump(pruned)
+
+    def test_an_invented_build_dated_today_never_pushes_the_real_build_out(self):
+        # V5-1: submission accepts a build dated today, so any "keep the newest" rule would keep the invented
+        # build and take the real one out. Nothing is chosen by date: only the named build goes.
+        today = "2026.10.03.0000.0000"
+        outcome = _submit(self.state, number=9, account=99, build=today,
+                          when=dt.datetime(2026, 10, 3, 12, 0, tzinfo=dt.timezone.utc))
+        self.assertEqual(repo_index.PUBLISHED, outcome.status)
+        pruned, removed = repo_index.prune(outcome.index, "CN", ["2026.07.01.0000.0000"])
+        self.assertEqual((("CN", "2026.07.01.0000.0000"),), removed)
+        self.assertIn(("CN", BUILD), self.builds(pruned))
+        self.assertIn(("CN", today), self.builds(pruned))
+
+    def test_a_build_of_another_shape_from_an_older_index_can_still_be_named(self):
+        junk = entry(sha("d"), build="synthetic-build-1")
+        pruned, removed = repo_index.prune(repo_index.Index(self.state.entries + (junk,), self.state.submissions),
+                                           "CN", ["synthetic-build-1"])
+        self.assertEqual((("CN", "synthetic-build-1"),), removed)
+        self.assertEqual(self.state, pruned)
+
+    def test_prune_needs_a_region_and_builds_that_are_listed_there(self):
+        for region, builds in (("MARS", [BUILD]), ("CN", []), ("CN", ())):
+            with self.subTest(region=region, builds=builds), self.assertRaises(ValueError):
+                repo_index.prune(self.state, region, builds)
+        for region, builds in (("CN", ["2026.06.01.0000.0000"]), ("GLOBAL", ["2026.07.01.0000.0000"]),
+                               ("CN", ["2026.07.01.0000.0000", "2026.07.02.0000.0000"])):
+            with self.subTest(region=region, builds=builds), self.assertRaises(KeyError):
+                repo_index.prune(self.state, region, builds)
 
 
 class ConflictTests(unittest.TestCase):

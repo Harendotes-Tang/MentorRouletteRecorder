@@ -57,6 +57,8 @@ namespace mr {
 SpeechController::SpeechController(QObject *parent)
     : QObject(parent)
 {
+    m_settingsRetry.setSingleShot(true);
+    connect(&m_settingsRetry, &QTimer::timeout, this, &SpeechController::refresh);
 }
 
 void SpeechController::setBackend(IBackend *backend)
@@ -77,6 +79,8 @@ void SpeechController::setBackend(IBackend *backend)
         // it supports is asked again on the next connect. Replies still on
         // the wire are dropped by the generation check.
         ++m_generation;
+        m_settingsRetry.stop();
+        m_settingsRetryDelayMs = m_settingsRetryFirstMs;
         const bool wasVisible = m_loaded || m_busy;
         m_loaded = false;
         m_supported = true;
@@ -263,12 +267,27 @@ void SpeechController::refresh()
                 Q_EMIT changed();
                 return;
             }
+            // Not an answer about the message - a timeout, a busy Collector.
+            // Without settings every online sentence is spoken locally, so the
+            // question is asked again rather than left for the next reconnect
+            // (review OJ-2).
             qCInfo(lcSpeech) << "GetSpeechSettings failed:" << code;
+            scheduleSettingsRetry();
         });
+}
+
+void SpeechController::scheduleSettingsRetry()
+{
+    if (m_settingsRetry.isActive())
+        return;
+    m_settingsRetry.start(m_settingsRetryDelayMs);
+    m_settingsRetryDelayMs = qMin(m_settingsRetryDelayMs * 2, kSettingsRetryMaxMs);
 }
 
 void SpeechController::adopt(const QJsonObject &settings)
 {
+    m_settingsRetry.stop();
+    m_settingsRetryDelayMs = m_settingsRetryFirstMs;
     m_settings = settings;
     const QString provider = settings.value(QStringLiteral("provider")).toString();
     m_provider = (provider == kAzure || provider == kOpenAi) ? provider : QStringLiteral("none");
@@ -381,6 +400,12 @@ void SpeechController::noteTestResult(bool ok, const QString &code, bool spokenO
     }
     Q_EMIT changed();
     maybeSyncVoice();
+}
+
+void SpeechController::setSettingsRetryDelayMs(int milliseconds)
+{
+    m_settingsRetryFirstMs = qMax(1, milliseconds);
+    m_settingsRetryDelayMs = m_settingsRetryFirstMs;
 }
 
 void SpeechController::setResult(const QString &state, const QString &text)

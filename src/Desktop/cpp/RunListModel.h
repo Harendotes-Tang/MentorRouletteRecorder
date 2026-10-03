@@ -27,6 +27,9 @@ class RunListModel : public QAbstractListModel
     Q_PROPERTY(int pageSize READ pageSize WRITE setPageSize NOTIFY pagingChanged)
     Q_PROPERTY(int total READ total NOTIFY pagingChanged)
     Q_PROPERTY(bool loading READ isLoading NOTIFY loadingChanged)
+    /// Why the last query failed, or empty after an answer. While it is set the
+    /// rows and total are not a result, and the page must not call them one.
+    Q_PROPERTY(QString loadError READ loadError NOTIFY loadErrorChanged)
     Q_PROPERTY(QString sortField READ sortField NOTIFY sortChanged)
     Q_PROPERTY(bool sortAscending READ sortAscending NOTIFY sortChanged)
 
@@ -46,6 +49,7 @@ public:
     int pageSize() const { return m_pageSize; }
     int total() const { return m_total; }
     bool isLoading() const { return m_loading; }
+    QString loadError() const { return m_loadError; }
     QString sortField() const { return m_sortField; }
     bool sortAscending() const { return m_sortAscending; }
 
@@ -68,9 +72,11 @@ Q_SIGNALS:
     void loadingChanged();
     void sortChanged();
     void loadFailed(const QString &code, const QString &message);
+    void loadErrorChanged();
 
 private:
     void setLoading(bool loading);
+    void setLoadError(const QString &error);
 
     IBackend *m_backend = nullptr;
     QList<QJsonObject> m_rows;
@@ -84,6 +90,7 @@ private:
     int m_anchorRow = 0;
     int m_total = 0;
     bool m_loading = false;
+    QString m_loadError;
     quint64 m_loadGeneration = 0;
 };
 

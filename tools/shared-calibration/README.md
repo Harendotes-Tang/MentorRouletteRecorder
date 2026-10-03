@@ -5,8 +5,9 @@
 该仓库名与客户端 `SharedCalibrationClient.Owner` / `Repository` 一致。
 公开仓库中的副本由 `sync_public_repo.py` 生成，不在公开仓库内手工修改。
 
-> 本目录中没有任何脚本会创建仓库、推送或调用 GitHub API。
-> 建仓与推送属于下文「需要用户确认后才能执行的手工步骤」，须经用户确认后执行。
+> 在本机运行的 `sync_public_repo.py`、`generate_index_sample.py` 与 `publish.py` 只读写本机文件，不创建仓库、不推送，也不调用 GitHub API。
+> 推送 `main` 并通过 `gh` 回复、打标签、关闭 Issue 的只有 `publish_issue.sh`、`sweep_issues.sh` 与 `report_issue.sh`，
+> 它们只在公开仓库的 GitHub Action 中运行。建仓与向公开仓库推送属于下文「需要用户确认后才能执行的手工步骤」，须经用户确认后执行。
 
 本目录只使用 Python 标准库。Action 使用 3.12，本机 3.11 亦可运行。
 
@@ -16,10 +17,10 @@
 |---|---|---|
 | `sharecode.py` | `MRC1.` 校准码的解码、编码、规范化、`code_sha256` 与载荷规则；逐条移植 `ShareCode.cs` | 是 |
 | `rebuild.py` | 按随包模板结构重建校准码并拒绝无效内容；文件开头列明已移植的 C# 规则与留给客户端本机核实的部分 | 是 |
-| `index.py` | `index.json`（客户端读取格式的精确移植）与 `submissions.json` 台账；`add_submission`、`revoke`、`update_conflicts` | 是 |
+| `index.py` | `index.json`（客户端读取格式的精确移植）与 `submissions.json` 台账；`add_submission`、`revoke`、`lift_hold`、`prune`、`update_conflicts` | 是 |
 | `issue.py` | 读两个 Issue 表单的正文（提交表单、报告表单）；标题只用来发现不一致；回显内容的转义 | 是 |
-| `publish.py` | Action 的命令行：`check`、`update-index`、`push-failed`、`field`、`event-field`、`pending`、`wrap-event`、`revoke`、`report` | 是 |
-| `publish_issue.sh` | 处理一个提交 Issue：查状态 → 查账号 → 校验、提交、推送（推送被拒时从新的 main 重新开始）→ 回复、打标签、关闭 | 是 |
+| `publish.py` | Action 的命令行：`check`、`update-index`、`push-failed`、`field`、`event-field`、`pending`、`wrap-event`、`report`；维护者命令 `revoke`、`lift`、`prune` | 是 |
+| `publish_issue.sh` | 处理一个提交 Issue：现查状态与标签 → 查账号 → 校验、提交、推送（推送被拒时从新的 main 重新开始）→ 回复、打标签、关闭 | 是 |
 | `sweep_issues.sh` | 定时补处理：逐个处理尚未回复的提交 | 是 |
 | `report_issue.sh` | 处理一个「报告校准有误」Issue：现查状态与标签 → 校验栏目 → 回复一次、打两个标签；不改任何文件，不关闭 Issue | 是 |
 | `public-repo/` | 公开仓库的 README、LICENSE、两个 Issue 表单、两个工作流、`.gitattributes`（`dot-` 前缀的文件同步时改名为点文件） | 是（改名后） |
@@ -34,9 +35,11 @@
   UTF-16 计长、截断或带尾部数据的 DEFLATE 流、BOM、JSON 嵌套深度 8、`TryGetInt64` 的整数判定。
   规范化 JSON 复制自 `tools/protocol-profile-validator/validate.py`，以使公开仓库能够独立运行；测试比对两份输出一致。
 - **索引**：`index.read_index` / `select` / `revoked_codes` 移植 `SharedCalibrationIndex`，`test_index.py` 复用 C# 测试的输入。
-  可选字段 `conflicting`（§18.6）两端一致：读到非布尔值都记 `INVALID:conflicting`，挑选顺序都把带标记的条目排到末尾；
+  可选字段 `conflicting`（§18.6）两端一致：读到非布尔值都记 `INVALID:conflicting`；挑选顺序都先按 `submitters` 从多到少，
+  人数相同时不带标记的条目在前，再按首次发布时间从早到晚、编号排列，即标记只在提交人数相同时起作用；
   `index.update_conflicts` 只在 `update-index` 与 `revoke` 写文件前重算，字段缺省即「无冲突」，旧索引因此逐字节不变。
-  `generate_index_sample.py` 只通过 `index.add_submission` 生成样本索引与校准码文件，
+  `generate_index_sample.py` 只通过 `index.add_submission` 与 `index.revoke` 生成样本索引与校准码文件，
+  并像 `update-index`、`revoke` 一样在每一步之后用 `index.update_conflicts` 重算标记，因此样本含带标记与不带标记的条目；
   `SharedCalibrationPublicRepoSampleTests.cs` 用已发布的 `SharedCalibrationIndex` 与 `SharedCalibrationClient` 读取它，
   要求挑选顺序与 Python 完全一致；`test_index_sample.py` 保证夹具即生成器的输出，不得手工修改。重新生成：
 
@@ -50,19 +53,40 @@
 
 ## Action 执行的规则
 
-1. 只处理带 `share-calibration` 标签、仍然打开的 Issue（事件可能过时，脚本会重新查询状态）。
+1. 只处理带 `share-calibration` 标签、仍然打开、尚无结果标签（`published` / `rejected` / `needs-maintainer`）的 Issue。
+   **状态与标签一律现查**（`gh issue view --json state,labels`，交给 `publish.py` 的 `--live`），不取事件里的那一份：
+   同一个 Issue 的 `labeled` 事件、编辑、重投的事件都可能排在已经作答的那次运行之后，事件里记着的却是它触发那一刻的标签。
+   转交维护者的 Issue 保持打开、带着 `needs-maintainer`，因此只有现查的标签能挡住第二次回复（结果为 `skipped`，原因 `ALREADY_ANSWERED`）。
 2. 提交者必须是个人账号，`gh api users/<login>` 返回的数字编号必须等于 Issue 作者的编号，账号注册满 **30 天**（正好 30 天算满）。
 3. 正文必须恰好有一个「校准码」栏目、一个「确认」栏目，并勾选「我在软件里逐条核对过校准时间线」；栏目缺失或重复一律拒绝，不作推测。
 4. 校准码按客户端规则解码；模板必须是 `templates/` 里的某一个；按结构重建必须成立。
+   客户端版本号必须是真实客户端的格式 `YYYY.MM.DD.NNNN.NNNN`，且日期是真实的日历日期（`index.is_game_build`）；
+   日期也不得晚于提交日（UTC）的次日（`BUILD_IN_FUTURE`），多出的一天留给版本号所用的时区。
+   客户端本身能读的版本号更宽，读取一侧（`read_index`、台账）因此仍按客户端的规则，只有受理新提交时从严。
 5. **每个 GitHub 账号，每个区服与客户端版本，同时只有一份在用的校准码**（按数字编号判定，改名无效）。
    同一份重复提交不重复计数；**另一份则替换先前那一份**，见下表。
-6. 不设名额上限；同一份码（`code_sha256` 相同）由不同账号提交时 `submitters` 加一，`commit` 与 `first_published_at` 不变。
-7. **已撤销的码不再发布**，无论由谁提交，也无论它是被维护者撤销还是被替换撤下。
-   文件名（编号前 12 位）被另一份码占用、或写入后索引会超过客户端上限（64 KB、512 条）时，
+6. **每个账号的提交量有上限**，防止单个账号把客户端下载的索引写满：同一区服与版本最多先后提交
+   `MAX_CODES_PER_ACCOUNT_BUILD`（3）份不同的码（加入别人已发布的码也算一份）；每个 UTC 日最多为
+   `MAX_BUILDS_PER_ACCOUNT_DAY`（2）个区服与版本提交。超出时拒绝（`ACCOUNT_BUILD_LIMIT`、`ACCOUNT_DAILY_LIMIT`），不转交维护者。
+   两条合起来，一个账号一天最多新增 6 个条目；没有这两条时，一个账号一小时即可新增约 60 条，约占 64 KB 上限的三分之一。
+   条目只能由维护者用 `publish.py prune --region <CN|GLOBAL> --build <版本> [--build <版本> …]` 成批移除：
+   只移除逐个写明的客户端版本，连同其条目、台账行与 `.mrc` 文件，结果仍能被 `index.load` 读回。
+   不加 `--apply` 时只打印将要移除的版本、条目数、台账行数与文件，不改动任何文件；核对无误后加 `--apply` 执行。
+   写明的版本在该区服下不存在时，退出码为 2，什么也不删除。工具不按日期自行挑选保留哪些版本：
+   版本号由提交者给出，当天日期的版本照常受理，按日期排序会让编造的当天版本排在真实版本之前。
+7. 不设名额上限；同一份码（`code_sha256` 相同）由不同账号提交时 `submitters` 加一，`commit` 与 `first_published_at` 不变。
+8. **已撤销的码不再发布**，无论由谁提交，也无论它是被维护者撤销还是被替换撤下。
+   **被维护者撤销的码会暂停它的每个提交账号**在该区服与版本下的提交（`ACCOUNT_HELD`，拒绝并请提交者留言申请复核），
+   直到维护者执行 `publish.py lift`。暂停不需要台账新增字段：账号那一行仍指向被撤销的码，就是暂停；
+   被替换撤下的码不会留下这样的行，因为它最后一个提交者的那一行在同一步里被新的一行取代。
+9. 文件名（编号前 12 位）被另一份**在用的**码占用、或写入后索引会超过客户端上限（64 KB、512 条）时，
    转交维护者（标签 `needs-maintainer`，Issue 保持打开）。按当前的条目长度，64 KB 约在 190 条左右先达到上限。
-8. 新码先单独提交 `.mrc` 文件，再把这次提交的 sha 写进索引条目的 `commit` 并提交 `index.json` 与 `submissions.json`；
-   写文件前重算该区服与版本的 `conflicting` 标记；不调用 jsDelivr 清缓存。
-9. 回复中文说明；结果打标签 `published`（已发布、已计入、重复）或 `rejected`（拒绝，关闭为 not planned）；仓库侧问题打 `needs-maintainer`。
+   只被已撤销的码占用的文件名可以重新使用：新码覆盖该文件，旧条目仍按自己的提交号指向原来的文件内容。
+   客户端读取这样的索引没有问题（撤销按编号判定，下载按提交号）；本机此前已存下同名旧码文件的客户端，
+   在所读索引撤销了该旧码时用新码覆盖这个文件；同名文件存着未被撤销的另一份码时仍不覆盖（`NAME_TAKEN`）。
+10. 新码先单独提交 `.mrc` 文件，再把这次提交的 sha 写进索引条目的 `commit` 并提交 `index.json` 与 `submissions.json`；
+    写文件前重算该区服与版本的 `conflicting` 标记；不调用 jsDelivr 清缓存。
+11. 回复中文说明；结果打标签 `published`（已发布、已计入、重复）或 `rejected`（拒绝，关闭为 not planned）；仓库侧问题打 `needs-maintainer`。
 
 ### 同账号再次提交时的判定
 
@@ -72,12 +96,16 @@
 |---|---|
 | 新码与旧码相同，且未撤销 | `duplicate`，不重复计数，文件与索引都不变 |
 | 新码已被撤销（任何人、任何原因） | `refused`（`REVOKED`），旧码原样保留 |
+| 旧码已被维护者撤销 | `refused`（`ACCOUNT_HELD`），台账行原样保留，直到维护者 `lift` |
+| 旧码、`replaced` 与新码合计超过 3 份不同的码 | `refused`（`ACCOUNT_BUILD_LIMIT`），旧码原样保留 |
 | 新码是一份全新的码 | `published`：旧码按下面两行处理，新码照常发布 |
 | 新码已由别的账号发布且未撤销 | `added`：该码 `submitters` 加一，旧码按下面两行处理 |
 | ——旧码只有这一个提交者 | 旧码标 `revoked: true`（条目不删除，`submitters` 仍为 1） |
 | ——旧码还有别的账号提交过 | 旧码不撤销，只把该账号移出台账，`submitters` 减一 |
 
-旧码若**本来就已撤销**，同样按「替换」处理：台账记录被新的一条取代，因此**撤销即释放名额**，该账号可以再提交一份。
+旧码**被维护者撤销**时不再按「替换」处理：台账行留在被撤销的码上，该账号在这个区服与版本下暂停受理。
+维护者复核后执行 `publish.py lift --repo . --account id:<数字编号> --region <CN|GLOBAL> --build <版本>`：
+这一行被删除，被撤销条目的 `submitters` 相应减一（最少为 1），该账号随后的提交按全新提交处理，份数上限也重新计算。
 台账行增加可选字段 `replaced`（该账号此前提交过的码，旧在前），仅供审计；`index.json` 的格式**不变**，
 被取代的码就是 `revoked: true`，旧版客户端按撤销处理，语义正确。
 
@@ -125,8 +153,9 @@
 - 推送被拒绝时**不执行 rebase**。索引按提交 sha 指向码文件，rebase 会改写该提交，因此每次重试都从新的 main 重新判定、
   重新生成两个提交，最多 5 次；仍失败则回复并转交维护者。
 - 脚本的全部语句写在函数内，最后一行以 `exit` 结尾，因为 `git reset --hard` 可能在运行中替换脚本文件本身。
-- 所用 Action 与主仓库 CI 取自同一集合（`test_public_repo_files.py` 比对 `.github/workflows/ci.yml` 中的 `uses:`），
-  目前为 `actions/checkout@v7` 与 `actions/setup-python@v7`。
+- 每个 `uses:` 都按提交号固定，版本写在行尾注释里；标签可以被改指向别的提交，而这里的任务持有可写本仓库的令牌。
+  所用 Action 与主仓库 CI 取自同一组提交号（`test_public_repo_files.py` 比对 `.github/workflows/ci.yml` 中的 `uses:`），
+  目前为 `actions/checkout`（v7.0.1，按提交号固定）与 `actions/setup-python`（v7.0.0，按提交号固定）。
 
 **定时补处理（`sweep`）的原因。** GitHub 的并发组中**只保留一个排队中的任务**，较新的排队任务会取消较早的任务
 （`cancel-in-progress: false` 只保护正在运行的任务）。补丁日大量玩家同时分享时，部分 Issue 的任务会在开始前被取消。
@@ -174,6 +203,10 @@ pwsh -NoProfile -File scripts/run-python-tool-tests.ps1   # verify.ps1 的工具
 > `.github/ISSUE_TEMPLATE/report-calibration.yml`、`.github/workflows/report-calibration.yml` 与 `README.md`
 > 同步到公开仓库并推送；补建标签 `calibration-report`（第 6 步）。
 > 索引与台账的既有文件不需要改写：格式向后兼容，旧台账没有 `replaced` 字段也能照常读写。
+>
+> **2026-10-03 审计修复需要补做的同步**，同样须先向用户确认：`tools/index.py`、`tools/publish.py`、`tools/publish_issue.sh`、
+> `tools/rebuild.py`、`.github/ISSUE_TEMPLATE/share-calibration.yml` 与 `README.md`。不需要新标签，也不需要改写既有的索引与台账：
+> 两者的格式都没有变化。此前被维护者撤销的码，如果它的提交账号之后没有再提交，台账行仍指向它，同步后这些账号即按新规则暂停受理。
 
 以下每一步都会对外产生效果，**执行前逐项向用户确认**：
 
@@ -221,6 +254,7 @@ pwsh -NoProfile -File scripts/run-python-tool-tests.ps1   # verify.ps1 的工具
    若仓库或账号策略将令牌限制为只读，选择 "Read and write permissions"。不需要任何 secret。
 8. **验收（plan §8 阶段 D）**：在公开宣布前用测试 Issue 走通以下场景：合法码发布；非法码拒绝并回复原因；标题与正文中的注入
    （`$(…)`、反引号、`@提及`、Markdown 链接、`### 校准码` 重复栏目）既不被执行也不被回显；两份并发提交不丢失更新；
-   非协作者账号创建的 Issue 可正常发布（plan §9 待实测项）。测试数据建议使用不存在的客户端版本号，
-   例如 `9999.12.31.0000.0000`。验收后撤销测试数据，或在公开前重建仓库，由用户决定。
+   非协作者账号创建的 Issue 可正常发布（plan §9 待实测项）。测试数据建议使用不存在的过去的客户端版本号，
+   例如 `2000.01.01.0000.0000`；日期晚于提交日次日的版本号会被拒绝（`BUILD_IN_FUTURE`）。
+   验收后撤销测试数据，或在公开前重建仓库，由用户决定。
 9. 公开仓库 60 天无提交时，GitHub 会停用定时工作流（`sweep`）。发现停用后，在 Actions 页重新启用。

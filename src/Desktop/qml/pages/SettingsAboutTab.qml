@@ -77,14 +77,16 @@ ColumnLayout {
             columnSpacing: 12
             rowSpacing: 12
 
+            // In words: the mode is a C# enum name and DEC-OODLE-01 a design
+            // record's number, neither of them for players (review OK-8).
             FactTile {
                 label: qsTr("Oodle 解压")
-                value: App.oodleMode || Fmt.dash()
+                value: Fmt.oodleModeLabel(App.oodleMode || "")
             }
             FactTile {
                 objectName: "readsGameExecutableTile"
                 label: qsTr("读取游戏可执行文件")
-                value: App.readsGameExecutable ? qsTr("是（DEC-OODLE-01）") : qsTr("否")
+                value: App.readsGameExecutable ? qsTr("是（读取磁盘上的一份副本）") : qsTr("否")
                 valueColor: App.readsGameExecutable ? Theme.orangeText : Theme.textPrimary
             }
             FactTile {

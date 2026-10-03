@@ -25,7 +25,7 @@ class IndexSampleTests(unittest.TestCase):
         expected = json.loads(files[sample.EXPECTED_NAME].decode("utf-8"))
         read = repo_index.read_index(files[sample.INDEX_NAME])
         self.assertEqual((True, ()), (read.readable, read.skipped))
-        self.assertEqual(13, expected["entries"])
+        self.assertEqual(15, expected["entries"])
         groups = {(group["region"], group["game_build"]): group for group in expected["builds"]}
         crowded = groups[("CN", sample.BUILD_A)]
         self.assertEqual(repo_index.MAX_CANDIDATES, len(crowded["picks"]))
@@ -34,7 +34,12 @@ class IndexSampleTests(unittest.TestCase):
         self.assertEqual(2, len(crowded["revoked"]))
         self.assertEqual([], [pick for pick in crowded["picks"] if pick["code_sha256"] in crowded["revoked"]])
         self.assertEqual(([], 1), (groups[("CN", sample.BUILD_B)]["picks"], len(groups[("CN", sample.BUILD_B)]["revoked"])))
-        self.assertEqual(1, len(groups[("GLOBAL", sample.BUILD_A)]["picks"]))
+        # The conflict mark only breaks a tie in submitters: a marked code with more submitters comes first, and of
+        # two with one submitter each the unmarked one, though published later. "Marked codes last" or "first
+        # publication before the mark" would each pick these three in another order.
+        marked = {entry["code_sha256"]: repo_index.is_conflicting(entry) for entry in read.entries}
+        self.assertEqual([(2, True), (1, False), (1, True)],
+                         [(pick["submitters"], marked[pick["code_sha256"]]) for pick in groups[("GLOBAL", sample.BUILD_A)]["picks"]])
         codes = [name for name in files if name.startswith(sample.CODES_DIRECTORY + "/")]
         self.assertEqual(sorted(sample.CODES_DIRECTORY + "/" + entry["path"] for entry in read.entries), sorted(codes))
 
