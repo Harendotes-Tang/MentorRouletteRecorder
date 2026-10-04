@@ -55,14 +55,16 @@ public sealed class MessageDispatcher
         "GetCalibrationShareCode", "CheckSharedCalibration", "ImportCalibrationCode", "AcceptSharedQueueInference",
         "RejectSharedCalibration",
         "GetSpeechSettings", "UpdateSpeechSettings", "SynthesizeSpeech", "CheckDatabaseIntegrity",
-        "CheckUpdateNow",
+        "CheckUpdateNow", "StartUpdateDownload", "CancelUpdateDownload",
     };
 
     /// <summary>
     /// Message types answered off the connection's read loop, because they wait on something slower
     /// than the database: <c>SynthesizeSpeech</c> can wait for a queue slot and a network request, and
     /// <c>CheckUpdateNow</c> waits for the update check's one request. The connection keeps answering
-    /// other requests meanwhile and writes this answer when it is ready.
+    /// other requests meanwhile and writes this answer when it is ready. <c>StartUpdateDownload</c> and
+    /// <c>CancelUpdateDownload</c> are not among them: they wait on nothing - the download runs on a
+    /// background task of its own - and answer at once like a status poll.
     /// </summary>
     public static IReadOnlySet<string> AsynchronousMessageTypes { get; } =
         new HashSet<string>(StringComparer.Ordinal) { "SynthesizeSpeech", "CheckDatabaseIntegrity", "CheckUpdateNow" };
@@ -133,6 +135,8 @@ public sealed class MessageDispatcher
                 .GetAwaiter().GetResult(),
             "CheckUpdateNow" => UpdateHandlers.CheckNowAsync(_host, reader, CancellationToken.None)
                 .GetAwaiter().GetResult(),
+            "StartUpdateDownload" => UpdateHandlers.StartDownload(_host, reader),
+            "CancelUpdateDownload" => UpdateHandlers.CancelDownload(_host, reader),
             _ => throw UnknownMessageType(request.MessageType),
         };
     }
@@ -263,8 +267,9 @@ public sealed class MessageDispatcher
             ["warnings"] = Wire.Strings(messages),
 
             // Poll-driven: reading the status is what makes a check fall due, and the answer comes
-            // from the cache whether or not one was scheduled (docs/privacy-boundary.md §8.4).
-            ["update"] = Update.UpdateWire.Status(_host.Updates.Observe()),
+            // from the cache whether or not one was scheduled (docs/privacy-boundary.md §8.4). The
+            // download's progress is read here too: the Desktop polls this while one runs.
+            ["update"] = Update.UpdateWire.Status(_host.Updates.Observe(), _host.UpdateDownloads.Snapshot()),
         };
 
         // The game, Npcap and the two Oodle disclosures. The last two exist because

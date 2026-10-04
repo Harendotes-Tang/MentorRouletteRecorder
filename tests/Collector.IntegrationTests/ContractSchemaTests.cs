@@ -304,6 +304,13 @@ public sealed class ContractSchemaTests
             var checkedUpdate = (await client.SendAsync("CheckUpdateNow")).Require();
             Assert.Equal("CHECKED", checkedUpdate["outcome"]!.GetValue<string>());
             Assert.True(checkedUpdate["update"]!["enabled"]!.GetValue<bool>());
+            Assert.Equal("IDLE", checkedUpdate["update"]!["download"]!["state"]!.GetValue<string>());
+
+            // No version was learned, so there is nothing to download and nothing is sent; the answer says why.
+            var startedDownload = (await client.SendAsync("StartUpdateDownload")).Require();
+            Assert.Equal("NO_UPDATE", startedDownload["update"]!["download"]!["failure"]!.GetValue<string>());
+            var cancelledDownload = (await client.SendAsync("CancelUpdateDownload")).Require();
+            Assert.Equal("FAILED", cancelledDownload["update"]!["download"]!["state"]!.GetValue<string>());
 
             // target_path omitted on purpose: the managed backups folder, and pruned_count.
             var backup = await client.SendAsync("BackupDatabase", new JsonObject());

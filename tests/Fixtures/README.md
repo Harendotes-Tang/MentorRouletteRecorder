@@ -241,8 +241,8 @@ tests/Fixtures/
   3. 每个样本都被一个**真实运行的 Collector** 接受。业务性拒绝可以接受，
      `ERR_BAD_REQUEST` 则不可接受，它意味着两端对形状的理解已经不一致。
 
-当前 23 个样本，与 [`../../docs/architecture.md`](../../docs/architecture.md) §3.1
-的 23 条业务消息一一对应。
+样本与契约 `$defs/MessageType` 中的业务消息（分组见 [`../../docs/architecture.md`](../../docs/architecture.md) §3.1）
+一一对应，数量以契约为准，由上述第 1 项检查核对。
 
 `StartCapture.json` 在第 3 步中被**跳过**。该样本刻意填入合成的
 `adapter_id`（`NPF_TEST_ADAPTER`），仅为覆盖该字段而不绑定真实网卡。

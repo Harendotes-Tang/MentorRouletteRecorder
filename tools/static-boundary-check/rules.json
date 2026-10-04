@@ -122,7 +122,7 @@
     "repository-relative, forward-slash FILE paths matched exactly (not by file",
     "or directory name); 'allow_path_prefixes' lists directory prefixes that must",
     "end in '/'. Each allowance lifts only its own rule, and every one must be",
-    "explained in docs/privacy-boundary.md (NET-006/NET-007: sections 8.2, 8.3 and 8.4; NET-010:",
+    "explained in docs/privacy-boundary.md (NET-006/NET-007: sections 8.2, 8.3, 8.4 and 8.6; NET-010:",
     "the development-time downloads named under section 8).",
     "",
     "A rule id may be declared more than once when every entry names a distinct",
@@ -378,7 +378,7 @@
       "id": "NET-006",
       "category": "outbound-network",
       "pattern": "\\bHttpClient\\b|\\bWebClient\\b|\\bQNetworkAccessManager\\b|\\bQRestAccessManager\\b|\\bHttpMessageInvoker\\b|\\bSocketsHttpHandler\\b|\\bHttpClientHandler\\b|\\bWinHttp\\w+|\\bHttpWebRequest\\b|\\bFtpWebRequest\\b|\\bWebRequest\\s*(?:\\]\\s*::|\\.)\\s*Create|\\bInternet(?:Open(?:Url)?|Connect)[AW]?\\b|\\bHttp(?:OpenRequest|SendRequest)(?:Ex)?[AW]?\\b|\\bURLDownloadTo(?:Cache)?File[AW]?\\b|\\bURLOpen\\w*Stream[AW]?\\b",
-      "message": "禁止外发网络请求（HttpClient、HttpMessageInvoker、SocketsHttpHandler、WebRequest、WinHTTP、WinINet、URLDownloadToFile、QNetworkAccessManager 等 HTTP 客户端）；例外只有共享校准获取客户端、在线语音客户端与更新检查客户端（docs/privacy-boundary.md §8.2、§8.3、§8.4） / no outbound network requests (HttpClient, HttpMessageInvoker, SocketsHttpHandler, WebRequest, WinHTTP, WinINet, URLDownloadToFile, QNetworkAccessManager and the other HTTP clients); the only exceptions are the shared-calibration fetch client, the online-speech client and the update-check client (docs/privacy-boundary.md sections 8.2, 8.3 and 8.4)",
+      "message": "禁止外发网络请求（HttpClient、HttpMessageInvoker、SocketsHttpHandler、WebRequest、WinHTTP、WinINet、URLDownloadToFile、QNetworkAccessManager 等 HTTP 客户端）；例外只有共享校准获取客户端、在线语音客户端与更新检查客户端（docs/privacy-boundary.md §8.2、§8.3、§8.4、§8.6） / no outbound network requests (HttpClient, HttpMessageInvoker, SocketsHttpHandler, WebRequest, WinHTTP, WinINet, URLDownloadToFile, QNetworkAccessManager and the other HTTP clients); the only exceptions are the shared-calibration fetch client, the online-speech client and the update-check client (docs/privacy-boundary.md sections 8.2, 8.3, 8.4 and 8.6)",
       "allow_paths": [
         "src/Collector/Protocol/Sharing/SharedCalibrationClient.cs",
         "src/Collector/Speech/OnlineSpeechClient.cs",
@@ -404,7 +404,7 @@
       "variant": "github-content-hosts",
       "category": "outbound-network",
       "pattern": "(?i:githubusercontent)",
-      "message": "内容分发主机名只允许出现在共享校准获取客户端、更新检查客户端、公开仓库脚本目录与开发期数据生成器（docs/privacy-boundary.md §8.2、§8.4） / the content host name may only appear in the shared-calibration fetch client, the update-check client, tools/shared-calibration/ and the dev-time duty-data generator (docs/privacy-boundary.md sections 8.2 and 8.4)",
+      "message": "内容分发主机名只允许出现在共享校准获取客户端、更新检查客户端、公开仓库脚本目录与开发期数据生成器（docs/privacy-boundary.md §8.2、§8.4、§8.6） / the content host name may only appear in the shared-calibration fetch client, the update-check client, tools/shared-calibration/ and the dev-time duty-data generator (docs/privacy-boundary.md sections 8.2, 8.4 and 8.6)",
       "allow_paths": [
         "src/Collector/Protocol/Sharing/SharedCalibrationClient.cs",
         "src/Collector/Update/UpdateCheckClient.cs",

@@ -117,9 +117,16 @@ public sealed class CollectorHost : IDisposable
 
     /// <summary>
     /// The update check: the switch, the cached answer and the once-a-day background request
-    /// (docs/privacy-boundary.md §8.4). Notification only; nothing is downloaded or run.
+    /// (docs/privacy-boundary.md §8.4). Notification only; the download the user may ask for is
+    /// <see cref="UpdateDownloads"/>, and nothing is ever run.
     /// </summary>
     public UpdateCheckService Updates { get; private set; } = null!;
+
+    /// <summary>
+    /// 下载并安装: the installer of the newer version, downloaded only when the user asks, checked against its
+    /// published SHA-256 and kept in <c>updates\</c> beside the database for the Desktop to start. Never run here.
+    /// </summary>
+    public UpdateDownloadService UpdateDownloads { get; private set; } = null!;
 
     /// <summary>
     /// The capture pipeline: Npcap detection, adapter selection, the Machina monitor and the
@@ -213,11 +220,17 @@ public sealed class CollectorHost : IDisposable
                 speechClient ?? OnlineSpeechClient.CreateDefault(),
                 () => host._logger,
                 effectiveClock);
+            var updateClient = updateCheckClient ?? UpdateCheckClient.CreateDefault();
             host.Updates = new UpdateCheckService(
                 host.Settings,
-                updateCheckClient ?? UpdateCheckClient.CreateDefault(),
+                updateClient,
                 Program.Version,
                 effectiveClock);
+            host.UpdateDownloads = new UpdateDownloadService(
+                host.Updates, updateClient, new UpdateDownloadFiles(dataDirectory), effectiveClock, () => host._logger);
+
+            // What an earlier run left in updates\: a .part a crash or a kill abandoned, installers no longer offered.
+            host.UpdateDownloads.RemoveLeftovers();
 
             // The settings the user chose apply from the first line this process writes, not
             // from the first time they open the settings page.
@@ -389,6 +402,12 @@ public sealed class CollectorHost : IDisposable
         LiveProtocol?.ApplyCalibrationSetting(settings.AutoCalibrationEnabled);
         LiveProtocol?.ApplySharedCalibrationSetting(settings.SharedCalibrationEnabled);
         Updates?.ApplySetting(settings.UpdateCheckEnabled);
+        if (!settings.UpdateCheckEnabled)
+        {
+            // Switched off, nothing is offered (§8.4): a download in flight stops and a ready installer goes.
+            UpdateDownloads?.Withdraw();
+        }
+
         if (applyCandidateMode) LiveProtocol?.ApplyCandidateSettings(settings.CandidateValidationEnabled,
             researchPayloadOpcodes: settings.ResearchPayloadOpcodes);
     }
@@ -414,6 +433,10 @@ public sealed class CollectorHost : IDisposable
             // A download in flight is cancelled before anything it could claim into is torn down.
             LiveProtocol?.StopSharedCalibration();
             Speech?.Dispose();
+
+            // A download in flight is cancelled and its partial file removed; it writes nothing to the database,
+            // but the process should not exit with a .part half-written.
+            UpdateDownloads?.Dispose();
 
             // The update check writes settings from a background task; it is stopped and waited for
             // before the database below can start closing under it.

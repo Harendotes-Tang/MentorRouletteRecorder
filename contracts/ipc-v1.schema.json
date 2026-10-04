@@ -45,7 +45,7 @@
         "GetCalibrationShareCode", "CheckSharedCalibration", "ImportCalibrationCode", "AcceptSharedQueueInference",
         "RejectSharedCalibration",
         "GetSpeechSettings", "UpdateSpeechSettings", "SynthesizeSpeech", "CheckDatabaseIntegrity",
-        "CheckUpdateNow",
+        "CheckUpdateNow", "StartUpdateDownload", "CancelUpdateDownload",
         "Event", "Error"
       ]
     },
@@ -668,17 +668,42 @@
       }
     },
 
+    "StartUpdateDownloadRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Asks the Collector to download the installer of latest_version (docs/privacy-boundary.md §8.6).",
+      "properties": {
+        "reinstall": { "type": "boolean", "default": false, "description": "false or absent: only a version strictly newer than this build is downloaded (NO_UPDATE otherwise). true: the newest published version is downloaded whatever this build is, as long as one is known - a maintainer's way to fetch the published installer again. The Desktop offers it in the maintainer tools only." }
+      }
+    },
+    "UpdateDownload": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The download of the newer version's installer the user asked for (docs/privacy-boundary.md §8.6). Started only by StartUpdateDownload, never by the Collector on its own. The Collector fetches the installer and its published SHA-256 from this project's release assets, keeps the file only when the two agree, and never runs it: the Desktop starts the installer when the user asks. Always present in UpdateStatus from a Collector that knows the feature; state IDLE when nothing was asked.",
+      "required": ["state"],
+      "properties": {
+        "state": { "type": "string", "enum": ["IDLE", "DOWNLOADING", "VERIFYING", "READY", "FAILED"], "description": "IDLE: nothing asked, the last download was cancelled, or a ready installer was found gone or changed. DOWNLOADING: bytes are arriving. VERIFYING: the file is complete and its SHA-256 is being compared. READY: file_path holds the verified installer of version. FAILED: failure and message say why; nothing usable was kept (DISABLED also when the update check is turned off while a download runs or an installer is ready: the download stops and the installer is removed)." },
+        "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$", "description": "The version being downloaded or downloaded. Absent while IDLE." },
+        "received_bytes": { "type": "integer", "minimum": 0, "description": "Bytes written so far. Present while DOWNLOADING, VERIFYING and READY." },
+        "total_bytes": { "type": "integer", "minimum": 0, "description": "The size the server declared. Absent when it declared none." },
+        "file_path": { "type": "string", "description": "READY only: absolute path of the verified installer, inside the Collector's data directory (updates/MentorRecorder-<version>-setup.exe)." },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$", "description": "READY only: SHA-256 of the file at file_path, equal to the published one. The Desktop compares the file with it once more before starting it." },
+        "failure": { "type": "string", "description": "FAILED only. NO_UPDATE (no newer version is known), DISABLED (update check turned off or the kill switch), HOST_REFUSED, REDIRECT_REFUSED, NOT_FOUND, RATE_LIMITED, HTTP_STATUS, TOO_LARGE, TIMEOUT, DNS_OR_CONNECT, TLS_FAILED, TRANSPORT_FAILED, CHECKSUM_UNAVAILABLE (the published SHA-256 could not be read), CHECKSUM_MISMATCH, DISK_FAILED. Not an enum: a build may learn new ones." },
+        "message": { "type": "string", "description": "FAILED only: a sentence for the user saying what went wrong and what they can do." }
+      }
+    },
     "UpdateStatus": {
       "type": "object",
       "additionalProperties": false,
-      "description": "The update check as it stands (docs/privacy-boundary.md §8.4). Notification only: the Collector reads one small published metadata document and reports what it said. Nothing is downloaded, written or executed, and release_url is opened by the user, never by the software. Answered from a cache; reading the status is also what makes the next check fall due, at most once a day. Absent from Collectors before the update check.",
+      "description": "The update check as it stands (docs/privacy-boundary.md §8.4). The check itself is notification only: the Collector reads one small published metadata document and reports what it said. An installer is downloaded only when the user asks (StartUpdateDownload, docs/privacy-boundary.md §8.6), and the Collector never executes it; release_url is opened by the user, never by the software. Answered from a cache; reading the status is also what makes the next check fall due, at most once a day. Absent from Collectors before the update check.",
       "required": ["enabled", "update_available"],
       "properties": {
         "enabled": { "type": "boolean", "description": "Whether update_check_enabled allows a check at all. Default true." },
         "update_available": { "type": "boolean", "description": "True when latest_version is strictly newer than this build. A running prerelease counts as older than the release it was cut towards. Always false while enabled is false, whatever an earlier check found." },
         "latest_version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$", "description": "Newest published version this installation has learned of. Absent until a check has succeeded; kept across a failed check and across restarts." },
         "release_url": { "type": "string", "description": "The release page to show the user. A constant of this build, always present." },
-        "installer_url": { "type": "string", "description": "Where the installer of latest_version is published: this project's release asset MentorRecorder-<version>-setup.exe under releases/download/v<version>/. Present exactly when latest_version is. The user's browser opens it when they ask to download; the software itself fetches nothing from it." },
+        "installer_url": { "type": "string", "description": "Where the installer of latest_version is published: this project's release asset MentorRecorder-<version>-setup.exe under releases/download/v<version>/. Present exactly when latest_version is. The update check never requests it. The Collector fetches it only after StartUpdateDownload (docs/privacy-boundary.md §8.6); the Desktop hands it to the user's browser when the download is left to the browser." },
+        "download": { "$ref": "#/$defs/UpdateDownload" },
         "last_checked_at_utc": { "type": "string", "description": "When a check was last attempted, successfully or not. Absent until one has been." },
         "last_outcome": { "type": "string", "description": "How that attempt ended: OK, NOT_FOUND (the ordinary answer while nothing is published), RATE_LIMITED, HTTP_STATUS, REDIRECT_REFUSED, HOST_REFUSED, TOO_LARGE, TIMEOUT, DNS_OR_CONNECT, TLS_FAILED, MALFORMED, TRANSPORT_FAILED, CANCELLED, DISABLED (the MR_DISABLE_UPDATE_CHECK kill switch). Not an enum: a build may learn new outcomes." }
       }
@@ -787,7 +812,8 @@
         { "if": { "properties": { "message_type": { "const": "GetRunEvents" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/GetRunEventsRequest" } } } },
         { "if": { "properties": { "message_type": { "const": "GetCaptureSettings" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/EmptyPayload" } } } },
         { "if": { "properties": { "message_type": { "const": "UpdateCaptureSettings" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/UpdateCaptureSettingsRequest" } } } },
-        { "if": { "properties": { "message_type": { "enum": ["GetSpeechSettings", "CheckDatabaseIntegrity", "CheckUpdateNow"] } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/EmptyPayload" } } } },
+        { "if": { "properties": { "message_type": { "enum": ["GetSpeechSettings", "CheckDatabaseIntegrity", "CheckUpdateNow", "CancelUpdateDownload"] } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/EmptyPayload" } } } },
+        { "if": { "properties": { "message_type": { "const": "StartUpdateDownload" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/StartUpdateDownloadRequest" } } } },
         { "if": { "properties": { "message_type": { "const": "UpdateSpeechSettings" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/UpdateSpeechSettingsRequest" } } } },
         { "if": { "properties": { "message_type": { "const": "SynthesizeSpeech" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/SynthesizeSpeechRequest" } } } }
       ]
@@ -1291,7 +1317,7 @@
         "candidate_validation_enabled": { "type": "boolean", "description": "Explicit candidate metadata observation only; never enables formal parsing or recording." },
         "auto_calibration_enabled": { "type": "boolean", "description": "Whether a client build with no profile is calibrated automatically from the shipped template. Default true. Off means fail-closed silence on every patch day." },
         "shared_calibration_enabled": { "type": "boolean", "description": "Whether a build with no usable profile fetches other players' shared calibrations (docs/privacy-boundary.md §8.2). Default true. Off cancels a download in flight and drops downloaded candidates; a shared profile already verified stays, and ImportCalibrationCode is not affected. Absent from Collectors before shared calibration." },
-        "update_check_enabled": { "type": "boolean", "description": "Whether the software asks once a day whether a newer version has been published (docs/privacy-boundary.md §8.4). Default true. Notification only: the answer is one version string, nothing is downloaded or run, and off stops every check. Absent from Collectors before the update check." },
+        "update_check_enabled": { "type": "boolean", "description": "Whether the software asks once a day whether a newer version has been published (docs/privacy-boundary.md §8.4). Default true. The check itself is notification only: the answer is one version string. Off stops every check, refuses StartUpdateDownload (DISABLED), stops a running download and removes a ready installer (docs/privacy-boundary.md §8.6). Absent from Collectors before the update check." },
         "research_payload_opcodes": { "type": "array", "maxItems": 32, "uniqueItems": true, "items": { "type": "string", "pattern": "^0x[0-9a-f]{4}$" } },
         "follow_game": { "type": "boolean", "description": "Start capture automatically as soon as the game process appears." },
         "autostart": { "type": "boolean", "description": "Legacy name of follow_game, still honoured as a fallback when follow_game was never written." },
@@ -1677,6 +1703,20 @@
           "outcome": { "type": "string", "enum": ["CHECKED", "DISABLED", "BLOCKED"], "description": "CHECKED: a check ran, or one already in flight was waited for; update.last_outcome says how it ended. DISABLED: update_check_enabled is off. BLOCKED: MR_DISABLE_UPDATE_CHECK stops every check of this process." },
           "update": { "$ref": "#/$defs/UpdateStatus" }
         }
+      },
+      "StartUpdateDownload": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["update"],
+        "description": "The user asked to download the installer of the newer version (docs/privacy-boundary.md §8.6). Answered at once with the status as it now stands: download.state is DOWNLOADING when a download was started or is already running; VERIFYING while an installer of that version already on disk is checked again (READY follows if it still matches, a new download if it does not); READY at once when that installer was verified moments ago; FAILED (NO_UPDATE / DISABLED) when there is nothing to download. Nothing new is started, and the state is reported unchanged (IDLE or the earlier FAILED), while a cancelled download is still finishing or within a few seconds of the last start. Progress is read from GetStatus.",
+        "properties": { "update": { "$ref": "#/$defs/UpdateStatus" } }
+      },
+      "CancelUpdateDownload": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["update"],
+        "description": "Stops a running download and removes what was written; download.state is IDLE afterwards. Does nothing in any other state.",
+        "properties": { "update": { "$ref": "#/$defs/UpdateStatus" } }
       }
     },
 

@@ -485,6 +485,285 @@ public sealed class UpdateCheckClientTests
         return transport.On(UpdateCheckClient.MetadataUri(), (_, _) => Task.FromException<UpdateTransportResponse>(error));
     }
 
+    // ------------------------------------------------------------- the installer download
+
+    private const string Digest = "f258e2f34a883fa01d88b69fba3095ec80d9807c466a46d22027caa825917d8e";
+
+    private static Uri ChecksumUri(string version) => new(UpdateCheckClient.ChecksumUrl(version)!, UriKind.Absolute);
+
+    private static Uri InstallerUri(string version) => new(UpdateCheckClient.InstallerUrl(version)!, UriKind.Absolute);
+
+    /// <summary>The checksum is published beside the installer, under the installer's own name plus <c>.sha256</c>.</summary>
+    [Fact]
+    public void TheChecksumAddressIsTheInstallerAddressWithItsSuffix()
+    {
+        Assert.Equal(".sha256", UpdateCheckClient.ChecksumSuffix);
+        Assert.Equal(UpdateCheckClient.InstallerUrl("1.5.12") + ".sha256", UpdateCheckClient.ChecksumUrl("1.5.12"));
+        Assert.Equal(string.Empty, ChecksumUri("1.5.12").Query);
+        Assert.Equal(1024, UpdateCheckClient.MaxChecksumBytes);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("1.5.1-beta.2")]
+    [InlineData("1.5.1/../../evil")]
+    [InlineData("1.5.1?x=1")]
+    public void TheChecksumAddressIsRefusedForAnythingButThreePlainNumbers(string? version) =>
+        Assert.Null(UpdateCheckClient.ChecksumUrl(version));
+
+    [Fact]
+    public async Task APublishedChecksumIsReadThroughTheSameRedirectRules()
+    {
+        var signed = ContentHost("/release/asset?token=abc&expires=1");
+        var transport = new FakeTransport()
+            .On(ChecksumUri("9.9.9"), (uri, _) => Task.FromResult(Redirect(uri, signed)))
+            .On(signed, Digest.ToUpperInvariant() + "  MentorRecorder-9.9.9-setup.exe\r\n");
+
+        var result = await Client(transport).FetchChecksumAsync("9.9.9");
+
+        Assert.Equal(Outcome.Ok, result.Outcome);
+        Assert.Equal(Digest, result.Sha256);
+        Assert.Equal(new[] { ChecksumUri("9.9.9"), signed }, transport.Requests);
+    }
+
+    [Fact]
+    public async Task AChecksumThatIsNoChecksumIsMalformed()
+    {
+        var transport = new FakeTransport().On(ChecksumUri("9.9.9"), "<html>not found</html>");
+
+        var result = await Client(transport).FetchChecksumAsync("9.9.9");
+
+        Assert.Equal(Outcome.Malformed, result.Outcome);
+        Assert.Null(result.Sha256);
+    }
+
+    [Fact]
+    public async Task AChecksumOverItsCapIsRefusedWhetherDeclaredOrNot()
+    {
+        var oversized = Encoding.ASCII.GetBytes(Digest.PadRight(UpdateCheckClient.MaxChecksumBytes + 1, ' '));
+        var declared = new FakeTransport().On(
+            ChecksumUri("9.9.9"),
+            (uri, _) => Task.FromResult(new UpdateTransportResponse(
+                200, uri, null, UpdateCheckClient.MaxChecksumBytes + 1, new MemoryStream(new byte[8]))));
+        var undeclared = new FakeTransport().On(
+            ChecksumUri("9.9.9"),
+            (uri, _) => Task.FromResult(new UpdateTransportResponse(200, uri, null, null, new MemoryStream(oversized))));
+
+        Assert.Equal(Outcome.TooLarge, (await Client(declared).FetchChecksumAsync("9.9.9")).Outcome);
+        Assert.Equal(Outcome.TooLarge, (await Client(undeclared).FetchChecksumAsync("9.9.9")).Outcome);
+    }
+
+    [Fact]
+    public async Task AChecksumRedirectAnywhereElseIsRefused()
+    {
+        var elsewhere = new Uri("https://" + UpdateCheckClient.MetadataUri().Host + ".attacker.example/x", UriKind.Absolute);
+        var transport = new FakeTransport().On(ChecksumUri("9.9.9"), (uri, _) => Task.FromResult(Redirect(uri, elsewhere)));
+
+        var result = await Client(transport).FetchChecksumAsync("9.9.9");
+
+        Assert.Equal(Outcome.HostRefused, result.Outcome);
+        Assert.Single(transport.Requests);
+    }
+
+    [Fact]
+    public async Task TheChecksumRequestRunsUnderTheCheckBudget()
+    {
+        var transport = new FakeTransport().On(
+            ChecksumUri("9.9.9"),
+            async (uri, token) =>
+            {
+                await Task.Delay(Timeout.Infinite, token).ConfigureAwait(false);
+                return Status(uri, 200);
+            });
+
+        var result = await Client(transport, TimeSpan.FromMilliseconds(50)).FetchChecksumAsync("9.9.9");
+
+        Assert.Equal(Outcome.Timeout, result.Outcome);
+    }
+
+    [Fact]
+    public async Task TheKillSwitchStopsBothDownloadRequestsBeforeAnythingIsSent()
+    {
+        var transport = new FakeTransport();
+        var client = new UpdateCheckClient(transport.Send, TimeSpan.FromSeconds(5), _ => "1");
+
+        var checksum = await client.FetchChecksumAsync("9.9.9");
+        using var installer = await client.OpenInstallerAsync("9.9.9", 1024);
+
+        Assert.Equal(Outcome.Disabled, checksum.Outcome);
+        Assert.Equal(Outcome.Disabled, installer.Result.Outcome);
+        Assert.Null(installer.Body);
+        Assert.Empty(transport.Requests);
+    }
+
+    [Fact]
+    public async Task TheInstallerIsOpenedWithItsBodyUnreadAfterTheRedirect()
+    {
+        var signed = ContentHost("/release/installer?token=abc");
+        var body = new MemoryStream(new byte[] { 1, 2, 3, 4 });
+        var transport = new FakeTransport()
+            .On(InstallerUri("9.9.9"), (uri, _) => Task.FromResult(Redirect(uri, signed)))
+            .On(signed, (uri, _) => Task.FromResult(new UpdateTransportResponse(200, uri, null, 4, body)));
+
+        using var installer = await Client(transport).OpenInstallerAsync("9.9.9", 1024);
+
+        Assert.Equal(Outcome.Ok, installer.Result.Outcome);
+        Assert.Equal(4, installer.ContentLength);
+        Assert.Same(body, installer.Body);
+        Assert.Equal(0, body.Position);
+        Assert.Equal(new[] { InstallerUri("9.9.9"), signed }, transport.Requests);
+    }
+
+    [Fact]
+    public async Task AnInstallerDeclaringMoreThanTheCapIsRefusedAndReleased()
+    {
+        var body = new MemoryStream(new byte[8]);
+        var transport = new FakeTransport().On(
+            InstallerUri("9.9.9"),
+            (uri, _) => Task.FromResult(new UpdateTransportResponse(200, uri, null, 1025, body)));
+
+        using var installer = await Client(transport).OpenInstallerAsync("9.9.9", 1024);
+
+        Assert.Equal(Outcome.TooLarge, installer.Result.Outcome);
+        Assert.Null(installer.Body);
+        Assert.False(body.CanRead);
+    }
+
+    [Theory]
+    [InlineData(404, Outcome.NotFound)]
+    [InlineData(429, Outcome.RateLimited)]
+    [InlineData(500, Outcome.HttpStatus)]
+    public async Task AnInstallerAnswerThatIsNoInstallerIsReported(int status, Outcome expected)
+    {
+        var transport = new FakeTransport().On(
+            InstallerUri("9.9.9"), (uri, _) => Task.FromResult(Status(uri, status)));
+
+        using var installer = await Client(transport).OpenInstallerAsync("9.9.9", 1024);
+
+        Assert.Equal(expected, installer.Result.Outcome);
+        Assert.Equal(status, installer.Result.StatusCode);
+        Assert.Null(installer.Body);
+    }
+
+    [Fact]
+    public async Task OnlyAPublishedVersionCanBeAsked()
+    {
+        var client = Client(new FakeTransport());
+
+        await Assert.ThrowsAsync<ArgumentException>(() => client.FetchChecksumAsync("1.0.0/../x"));
+        await Assert.ThrowsAsync<ArgumentException>(() => client.OpenInstallerAsync("1.0.0-beta.1", 1024));
+    }
+
+    // ----------------------------------------------------- where a download may be redirected
+
+    /// <summary>The content host's domain, built from the client's own list rather than spelled here (NET-007).</summary>
+    private static string ContentDomain => UpdateCheckClient.AllowedHosts.Single(name =>
+        !string.Equals(name, UpdateCheckClient.MetadataUri().Host, StringComparison.OrdinalIgnoreCase));
+
+    private static Uri OnReleaseHost(string path) =>
+        new("https://" + UpdateCheckClient.MetadataUri().Host + path, UriKind.Absolute);
+
+    private const string ReleaseFolder =
+        "/" + UpdateCheckClient.Owner + "/" + UpdateCheckClient.Repository + "/releases/download/v9.9.9/";
+
+    /// <summary>Asks for the checksum and for the installer through one redirect to <paramref name="target"/>, which answers.</summary>
+    private static async Task<(Outcome Checksum, Outcome Installer, int Requests)> RedirectedAsync(Uri target)
+    {
+        var checksum = new FakeTransport()
+            .On(ChecksumUri("9.9.9"), (uri, _) => Task.FromResult(Redirect(uri, target)))
+            .On(target, Digest + "  MentorRecorder-9.9.9-setup.exe\r\n");
+        var installer = new FakeTransport()
+            .On(InstallerUri("9.9.9"), (uri, _) => Task.FromResult(Redirect(uri, target)))
+            .On(target, (uri, _) => Task.FromResult(
+                new UpdateTransportResponse(200, uri, null, 4, new MemoryStream(new byte[] { 1, 2, 3, 4 }))));
+
+        var fetched = await Client(checksum).FetchChecksumAsync("9.9.9");
+        using var opened = await Client(installer).OpenInstallerAsync("9.9.9", 1024);
+        return (fetched.Outcome, opened.Result.Outcome, checksum.Requests.Count + installer.Requests.Count);
+    }
+
+    /// <summary>
+    /// The file a download fetches is run with administrator rights, so its content may come only from where GitHub
+    /// serves this project's release assets - not from any other subdomain of the content host, several of which
+    /// carry what any GitHub user publishes.
+    /// </summary>
+    [Theory]
+    [InlineData("raw.")]
+    [InlineData("gist.")]
+    [InlineData("user-images.")]
+    [InlineData("media.")]
+    [InlineData("")]
+    public async Task ADownloadIsNotFollowedToAnyOtherContentHost(string subdomain)
+    {
+        var target = new Uri("https://" + subdomain + ContentDomain + "/owner/repo/main/setup.exe", UriKind.Absolute);
+
+        var (checksum, installer, requests) = await RedirectedAsync(target);
+
+        Assert.Equal(Outcome.HostRefused, checksum);
+        Assert.Equal(Outcome.HostRefused, installer);
+        Assert.Equal(2, requests);
+    }
+
+    /// <summary>On the release host, a download's redirect may only stay inside that version's own release folder.</summary>
+    [Theory]
+    [InlineData("/Someone-Else/" + UpdateCheckClient.Repository + "/releases/download/v9.9.9/MentorRecorder-9.9.9-setup.exe")]
+    [InlineData("/" + UpdateCheckClient.Owner + "/Another-Repository/releases/download/v9.9.9/MentorRecorder-9.9.9-setup.exe")]
+    [InlineData("/" + UpdateCheckClient.Owner + "/" + UpdateCheckClient.Repository + "/releases/download/v9.9.8/MentorRecorder-9.9.8-setup.exe")]
+    [InlineData("/" + UpdateCheckClient.Owner + "/" + UpdateCheckClient.Repository + "/releases/latest/download/MentorRecorder-9.9.9-setup.exe")]
+    [InlineData("/" + UpdateCheckClient.Owner + "/" + UpdateCheckClient.Repository + "/releases/download/v9.9.9")]
+    [InlineData(ReleaseFolder + "../../../../Someone-Else/x/releases/download/v9.9.9/setup.exe")]
+    [InlineData(ReleaseFolder + "%2e%2e/%2e%2e/v1.0.0/MentorRecorder-1.0.0-setup.exe")]
+    [InlineData(ReleaseFolder + "%2Fx")]
+    public async Task ADownloadIsNotFollowedOutsideItsReleaseFolder(string path)
+    {
+        var (checksum, installer, requests) = await RedirectedAsync(OnReleaseHost(path));
+
+        Assert.Equal(Outcome.HostRefused, checksum);
+        Assert.Equal(Outcome.HostRefused, installer);
+        Assert.Equal(2, requests);
+    }
+
+    /// <summary>The hosts GitHub serves release assets from are followed, as is a hop that stays in the release folder.</summary>
+    [Theory]
+    [InlineData("https://release-assets.")]
+    [InlineData("https://objects.")]
+    [InlineData("https://RELEASE-ASSETS.")]
+    [InlineData(null)]
+    public async Task ADownloadIsFollowedToWhereReleaseAssetsAreServed(string? scheme)
+    {
+        var target = scheme is null
+            ? OnReleaseHost(ReleaseFolder + "MentorRecorder-9.9.9-setup.exe.mirror")
+            : new Uri(scheme + ContentDomain + "/a1b2/asset?sp=r&sig=abc", UriKind.Absolute);
+
+        var (checksum, installer, requests) = await RedirectedAsync(target);
+
+        Assert.Equal(Outcome.Ok, checksum);
+        Assert.Equal(Outcome.Ok, installer);
+        Assert.Equal(4, requests);
+    }
+
+    [Fact]
+    public void ReleaseAssetsAreServedFromTwoHostsOfTheContentDomain()
+    {
+        Assert.Equal(
+            new[] { "release-assets." + ContentDomain, "objects." + ContentDomain },
+            UpdateCheckClient.AssetHosts);
+    }
+
+    /// <summary>The metadata check keeps its own, wider rule: the narrower one is for the two download requests.</summary>
+    [Fact]
+    public async Task TheMetadataCheckKeepsItsOwnRedirectRule()
+    {
+        var target = new Uri("https://raw." + ContentDomain + "/owner/repo/main/BUILD-METADATA.json", UriKind.Absolute);
+        var transport = new FakeTransport()
+            .On(UpdateCheckClient.MetadataUri(), (uri, _) => Task.FromResult(Redirect(uri, target)))
+            .On(target, Metadata);
+
+        var result = await Client(transport).FetchAsync();
+
+        Assert.Equal(Outcome.Ok, result.Outcome);
+    }
+
     // ------------------------------------------------------------------------- test doubles
 
     private sealed class FakeTransport

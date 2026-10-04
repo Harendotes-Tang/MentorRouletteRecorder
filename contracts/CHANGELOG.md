@@ -1,6 +1,14 @@
 # IPC 契约变更记录 / IPC contract changelog
 
-## 2026-10-05 · 成就进度恢复为基数加全部已记录完成；更新状态给出安装包地址
+## 2026-10-04 · 软件内下载更新：`StartUpdateDownload` / `CancelUpdateDownload`（两条新消息）
+
+附加式变更：两条新消息、`UpdateStatus` 的一个新对象。`$defs/MessageType` 现共 **52** 个业务消息 + `Event` + `Error`。此前的约定「更新只提示，不下载」改为「只在用户要求时下载，采集服务从不执行所下载的文件」（docs/privacy-boundary.md §8.6）。
+
+- **新消息 `StartUpdateDownload { reinstall? }`** → `{ update: UpdateStatus }`。用户要求下载 `latest_version` 的安装程序。立即应答，下载在后台进行：`update.download.state` 为 `DOWNLOADING`（已开始或正在进行）、`VERIFYING`（本机已有该版本的安装程序，正在重新校验；仍一致则转为 `READY`，否则重新下载）或 `FAILED`（`NO_UPDATE`：没有获知更新的版本；`DISABLED`：更新检查已关闭或被环境变量停用，此时不发出任何请求）。`reinstall = true` 时不要求 `latest_version` 比本程序新，只要已获知即可，供维护者重新取得已发布的安装程序。该版本的安装程序刚刚校验过时直接答 `READY`；被取消的下载尚未收尾，或距上一次开始不足数秒时，不开始新的下载，原样报告当前状态。
+- **新消息 `CancelUpdateDownload {}`** → `{ update: UpdateStatus }`。停止正在进行的下载并删除已写入的内容，之后 `state` 为 `IDLE`；其他状态下不做任何事。
+- **`UpdateStatus.download`**（`$defs/UpdateDownload`）：`state`（`IDLE` / `DOWNLOADING` / `VERIFYING` / `READY` / `FAILED`）、`version`、`received_bytes`、`total_bytes`、`file_path` 与 `sha256`（仅 `READY`）、`failure` 与 `message`（仅 `FAILED`）。凡报告 `UpdateStatus` 之处（`GetStatus`、`CheckUpdateNow` 与上述两条消息的应答）都带有它，进度通过 `GetStatus` 读取。采集服务从本项目发布页取得安装程序及其公布的 SHA-256，两者一致才保留文件；它从不运行该文件，由桌面端在用户再次点击时启动。下载进行中或安装程序已就绪时把 `update_check_enabled` 设为 `false`，下载随即停止、安装程序随之删除，`state` 为 `FAILED`（`DISABLED`）。下载的两个请求只接受本项目该版本的发布目录与 GitHub 的发布资产服务器。旧桌面端忽略该对象即可；旧采集服务没有该对象，对两条新消息答 `ERR_BAD_REQUEST`，桌面端退回到由浏览器下载。
+
+## 2026-10-04 · 成就进度恢复为基数加全部已记录完成；更新状态给出安装包地址
 
 一项取值规则恢复为 1.5.0 的口径，一个新的可选字段。不新增消息类型。
 

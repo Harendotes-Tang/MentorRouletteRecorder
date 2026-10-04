@@ -1,0 +1,8 @@
+{
+    "message_type": "StartUpdateDownload",
+    "payload": {
+        "reinstall": true
+    },
+    "protocol_version": 1,
+    "request_id": "11111111-2222-4333-8444-666666666706"
+}
