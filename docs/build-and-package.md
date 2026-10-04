@@ -182,7 +182,10 @@ ctest --test-dir build --output-on-failure
 | `MentorRecorderDesktopTests` | IPC framing、格式化、分页模型、职业统计（含契约字段 → 职能分组推导）、AppController、`RunFormValidator`（全部校验分支与前后对比 diff） |
 | `MentorRecorderTtsService` | `TtsService` 模板替换与语速/音量映射（会发声的用例使用 Qt 的静音测试语音引擎，不经过本机语音；缺少该插件时这些用例明确跳过）、MockBackend 的 live 事件、契约 `$defs/LiveEvent` 每个 `kind` 的路由 |
 | `MentorRecorderIpcRequests` | 每种消息的请求样本与 `tests/Fixtures/ipc-requests/` 对拍 |
-| `MentorRecorderLifecycle` | `CollectorProcess` 的重启退避、单实例租约复用、主动停止；首次运行说明的持久化与版本失效 |
+| `MentorRecorderLifecycle` | `CollectorProcess` 的重启退避、单实例租约复用、主动停止；IPC 请求的时限；旧版本留下的设置文件（含已不再使用的说明确认记录）照常读取 |
+| `MentorRecorderUpdateInstall` | 下载并安装：`update.download` 的投影与下载期间的状态重读、「立即安装」启动任何程序之前的三项核对（位置、普通文件、SHA-256）、安装程序从核对校验值到启动始终被持有且每一条放弃的路径都释放它、启动之后的退出（退出时才释放）、正式构建交给系统外壳而模拟运行什么也不启动（按程序库实际的组合检查，而非由测试替换）、采集服务原样答回时的「没有开始下载，请稍候几秒再试。」、模拟后端，以及三处界面 |
+| `MentorRecorderInstallerHold` | 在真实文件上检验 `InstallerHold`：按「立即安装」的方式持有的程序仍能启动（`whoami.exe` 的副本运行至退出码 0），持有期间及运行之后都不能以写入方式打开、改名、删除，也不能改名其所在文件夹，释放后可以删除；正被写入的文件无法持有；文件夹不能被持有；经由联接点到达的文件不被视为该路径上的文件；符号链接按链接本身持有且不算普通文件；经由持有读取的内容就是文件内容。本机无法创建所需的链接时相应用例跳过：创建文件符号链接需要相应权限，没有时符号链接一例跳过 |
+| `MentorRecorderQmlUpdateDownload_<阶段>` | 软件内下载四个阶段的模拟截图：`downloading` 与 `verifying` 在总览横幅，`ready` 在设置页「通用」，`failed` 在「关于」；以 `--verify-text` 断言玩家读到的那一句 |
 | `MentorRecorderIpcIntegration` | **拉起真实 Collector 子进程**（使用临时数据库），运行 `GetVersion` / `GetStatus` / `QueryRuns` / `CorrectRun` 的三条错误路径 / `GetRunRevisions` / `BackupDatabase` / live 事件 / 字段白名单 |
 | `MentorRecorderQmlLoad` | 离屏加载整个场景图并抓帧 |
 | `MentorRecorderQmlDetailPanel` | 打开历史记录详情浮层 |
@@ -215,7 +218,10 @@ build\src\Desktop\MentorRecorder.Desktop.exe --screenshot out.png --page 5 --the
 `--mock-shared fetching|verifying|consent|verified|verified-auditing|imported-published|imported-unpublished|rejected|unavailable|user-rejected|none-for-build|share`
 （校准卡片的共享校准一节；未提供 `--mock-calibration` 时自动补一个观察中或已完成的本机校准，且不执行任何下载。
 `verified-auditing` 为登录时已核实、排本与进本仍在核对；`imported-published` 与 `imported-unpublished`
-为导入后命中／未命中公开仓库索引的校准码）。
+为导入后命中／未命中公开仓库索引的校准码）、
+`--mock-update-available`（更新检查报告有新版本）、
+`--mock-update-download downloading|verifying|ready|failed`（软件内下载停在指定阶段，隐含 `--mock-update-available`；
+不联网，模拟运行从不启动安装程序）。
 两种后端都可用：`--open-detail`、`--open-edit`、`--show-disclosure`、
 `--mock-open-create`（打开「新增遗漏记录」向导）、`--mock-wizard-step 1|2|3`（向导停留的步骤序号）、
 `--mock-detail-tab info|events|revs|refl`（详情浮层默认页签，会一并打开浮层）、
@@ -535,6 +541,11 @@ pwsh -File scripts/package.ps1 -Force -Verify   # 再解包运行一次，证明
 （0.9.1 已经如此）：更新检查读取的地址是 `releases/latest/download/BUILD-METADATA.json`
 （[privacy-boundary.md](privacy-boundary.md) §8.4）。该资产缺失时，检查只会得到"未找到"并静默降级，
 用户不会收到任何新版本提示。
+
+安装程序 `MentorRecorder-<版本>-setup.exe` 与其校验和 `MentorRecorder-<版本>-setup.exe.sha256`（§5.3 生成，内容为
+64 位十六进制 SHA-256、两个空格与文件名）同样必须作为发布资产上传到标签为 `v<版本>` 的发布页：
+「下载并安装」先读取 `.sha256`，读不到或内容不是校验值时不下载安装程序；下载到的安装程序与之不一致时被删除
+（[privacy-boundary.md](privacy-boundary.md) §8.6）。浏览器下载使用的是同一个安装程序地址。
 
 另有一条按**内容**而非文件名判定的断言 `Assert-NoLocalPathLeak`：以 UTF-8 与 UTF-16LE
 两种编码扫描产物中是否出现仓库根路径，命中即失败；`.md`、`.txt`、`.json` 不在扫描范围内，

@@ -64,7 +64,8 @@
 - Desktop 通过 `GetVersion` 完成握手，校验 `protocol_version == 1`；不匹配则拒绝继续。
 - Desktop 定期发送 `GetStatus` 心跳。Collector 崩溃时，Desktop 显示明确的故障态并提供重启按钮。
 - Desktop 正常退出时先置位 Collector 的停止事件 `Local\<管道名>.stop`，最多等待 10 秒；
-  未退出再结束子进程（先 `terminate()`，0.5 秒后 `kill()`）。
+  未退出再结束子进程（先 `terminate()`，0.5 秒后 `kill()`）。托盘菜单的「退出」、关闭窗口（未开启最小化到托盘时），
+  以及「立即安装」成功启动安装程序之后，都经由同一个 `TrayController::quitApplication()` 走这条路径。
 - Desktop **被强制结束**时（任务管理器、`Stop-Process -Force`、会话结束），
   上述停止请求不会发出，因此 Collector 同时监视 Desktop 的存活状态。
   `--parent-pid` 启用 `Diagnostics/ParentProcessWatchdog.cs`，
@@ -206,7 +207,7 @@
 
 | 分组 | 消息 |
 |---|---|
-| 版本与状态 | `GetVersion` `GetStatus` `GetCaptureStatus` `GetProtocolProfileStatus` `CheckUpdateNow` |
+| 版本、状态与更新 | `GetVersion` `GetStatus` `GetCaptureStatus` `GetProtocolProfileStatus` `CheckUpdateNow` `StartUpdateDownload` `CancelUpdateDownload` |
 | 抓包控制 | `ListCaptureAdapters` `StartCapture` `StopCapture` `GetCaptureSettings` `UpdateCaptureSettings` `SelectGameProcess` |
 | 抓包验证 | `StartCaptureValidation` `GetCaptureValidationStatus` `AddCaptureValidationMarker` `StopCaptureValidation` |
 | 实时 | `GetCurrentRun` `SubscribeLiveEvents` |
@@ -395,6 +396,7 @@ payload: <LiveEvent>}`。
 | Capture / Validation | `src/Collector/Capture/` | 显式开启的被动验证会话：脱敏 opcode 级 trace、标记、保留策略（最近 10 次会话 / 7 天）、界面会话 2 小时上限 | `CaptureValidationController` `CaptureTraceRunner` `CaptureTraceSink` |
 | Export | `src/Collector/Export/` | CSV / JSON 导出、数据库备份与保留 | `RunExporter` `BackupService` `ExportPaths` |
 | Diagnostics | `src/Collector/Diagnostics/` | 结构化轮转日志（**无报文正文**）、速率估计 | `RotatingFileLogger` `ExponentialRateEstimator` |
+| Update | `src/Collector/Update/` | 更新检查（每日至多一次读取发布元数据，[privacy-boundary.md](privacy-boundary.md) §8.4）；用户要求时下载新版本的安装程序，从不执行（§8.6）。网络请求只经由 `UpdateCheckClient.cs`：下载的两个请求按 `ReleaseAsset(version)` 判定每一跳，`github.com` 上只接受本项目该版本的发布目录，其余只接受 `AssetHosts` 中的两个发布资产主机，比检查所用的 `*.githubusercontent.com` 更窄。`UpdateDownloadTransfer.cs` 先取公布的 SHA-256，再把安装程序写入数据目录下 `updates\` 的 `.part`，核对一致才改名，改名后对保留的文件再算一次 SHA-256，仍一致才报告 `READY`。`UpdateDownloadFiles.cs` 在使用 `updates` 期间以不共享删除的方式持有该文件夹的句柄（`CreateFileW`，不跟随重解析点），文件夹是重解析点时拒绝。`UpdateDownloadService.cs` 同一时刻只运行一个后台任务，上一个任务完全结束之前、以及距上一次开始不足 `UpdateDownloadLimits.StartInterval`（5 秒）时不开始新的下载；`CollectorHost.ApplyCaptureSettings` 在 `update_check_enabled` 关闭时调用 `Withdraw()`，停止进行中的下载并删除已就绪的安装程序。下载不经过抓包线程与数据库；`StartUpdateDownload` / `CancelUpdateDownload` 在读循环上立即应答，进度经 `GetStatus` 读取；采集服务停止时取消进行中的下载，最多等待 5 秒 | `UpdateCheckClient` `UpdateCheckService` `UpdateDownloadService` `UpdateDownloadTransfer` `UpdateDownloadFiles` `UpdateChecksum` |
 
 ### 7.2 自动记录的数据流
 

@@ -152,16 +152,67 @@ IBM Plex Mono 随程序分发，许可为 SIL OFL 1.1。字体文件位于 `src/
   数据桶来自 `GetDashboardStats.trend`，由 Collector 在 SQL 中聚合。
   桌面端只把每个桶的 `start_utc` 按**本地时区**渲染成标签，不自行分桶。
   统计口径见 [statistics-definitions.md](statistics-definitions.md) §12.1。
-* `components/UpdateNotice.qml`（`updateNotice`）位于页头之下，仅在 `App.update.updateAvailable`
-  为真且本机未忽略该版本时可见，内容全部来自 `GetStatus` 应答中的可选对象 `update`。
+* `components/UpdateNotice.qml`（`updateNotice`）位于页头之下，在 `App.update.updateAvailable` 为真、
+  且本机未忽略该版本或用户已开始下载该版本（`App.update.downloadEngaged`：下载中、校验中或已就绪）时可见，
+  内容全部来自 `GetStatus` 应答中的可选对象 `update`。
   「检查新版本并提示」关闭时采集服务报告的 `update_available` 恒为假，此前查到的新版本横幅随即消失。
-  卡片上是主按钮「下载新版本」（`downloadInstallerButton`）、「忽略此版本」（`dismissUpdateButton`）
+  卡片自上而下为标题「有新版本 x.y.z」、一行说明、下载状态（`UpdateDownloadStatus`，前缀 `updateNotice`，见下文）
+  与按钮行：主按钮（`downloadInstallerButton`）、「忽略此版本」（`dismissUpdateButton`，下载开始后隐藏）
   与幽灵按钮「查看更新说明」（`openReleasePageButton`）。
-  「下载新版本」把采集服务给出的安装程序地址（`update.installer_url`）交给系统浏览器，由浏览器下载，安装程序由用户自行运行。
+  说明一行在采集服务支持软件内下载时为「当前 <版本>。只有在你点「下载并安装」之后才会下载，下载完成后还要再点「立即安装」才会安装；
+  本软件不会自行下载或安装。」，否则为「当前 <版本>。更新需要用户自行下载安装，本软件不会自动下载或替换任何文件。」。
+  主按钮的文字与作用随下载阶段（`App.update.downloadPhase`）变化，三处更新位置（本横幅、设置页「通用」与「关于」）相同，
+  见 [privacy-boundary.md](privacy-boundary.md) §8.6：
+
+  | 阶段 | 出现条件（`update.download.state`） | 主按钮 | 下载状态中的一句（`<前缀>DownloadStatusText`） |
+  |---|---|---|---|
+  | `offer` | 有新版本，`IDLE` | 「下载并安装」：发出 `StartUpdateDownload`（采集服务没有开始下载时只给一句提示，见下文） | 无 |
+  | `downloading` | `DOWNLOADING` | 「取消」（横幅中改为次要按钮）：发出 `CancelUpdateDownload` | 「<名称>：已下载 P%（R / T MB）」；服务器未声明大小时为「<名称>：已下载 R MB」，不显示进度条 |
+  | `verifying` | `VERIFYING` | 「取消」 | 「<名称>：已下载完毕，正在核对发布时公布的校验值…」，进度条满格 |
+  | `ready` | `READY` | 「立即安装」；桌面端自行核对期间为「正在校验…」且不可用 | 「<名称>：已下载并通过校验。点「立即安装」后本软件会关闭，由安装程序完成更新；Windows 会请你批准它以管理员身份运行。」；核对期间为「<名称>：正在校验，通过后启动安装程序并关闭本软件。」 |
+  | `failed` | 有新版本，`FAILED` | 「重试」：再次发出 `StartUpdateDownload`（同上） | 采集服务给出的 `download.message`，橙色；没有时为「下载没有完成。可以点「重试」，或点「在浏览器中下载」改用浏览器下载。」 |
+  | `browser` | 有新版本，采集服务不报告 `download`，或对 `StartUpdateDownload` 答 `ERR_BAD_REQUEST` / `ERR_UNKNOWN_MESSAGE` | 「下载新版本」：交给系统浏览器下载 | 无 |
+
+  其中「<名称>」为「x.y.z 版的安装程序」（版本未知时为「新版本的安装程序」），P、R、T 为百分比、已下载与总大小的兆字节数（保留一位小数）。
+  `components/UpdateDownloadStatus.qml` 是三处共用的下载状态：大小已知时的进度条（`<前缀>DownloadProgress`）、上表的一句、
+  「立即安装」没有启动安装程序时的原因（`<前缀>InstallProblemText`，红色），以及幽灵按钮「在浏览器中下载」
+  （`<前缀>BrowserDownloadButton`，只在 `failed` 阶段、或「立即安装」没有启动安装程序之后出现）。
+  下载或校验进行中，`UpdateController` 约每秒请总控重读一次 `GetStatus`（`kDownloadPollMs`），状态改变、管道断开或程序退出时停止。
+  没有新版本时（例如维护者工具重新下载最新正式版时）失败的说明只以提示给出一次。
+  采集服务两次开始下载之间至少相隔 5 秒，取消的下载收尾之前也不开始新的下载；这时它原样答回当前状态
+  （仍为 `IDLE`，或与点击前相同的失败），桌面端只以提示「没有开始下载，请稍候几秒再试。」说明一次，不显示为失败。
+
+  「立即安装」只在 `ready` 阶段可用。桌面端先确认当前没有正在进行的导随，再按报告的路径核对文件：
+  路径位于数据目录（`CollectorProcess::collectorDataDirectory`）下的 `updates\`、文件名恰为该版本的安装程序名，
+  是普通文件且本身与所在文件夹都不是链接（`InstallerVerifier`）。随后以 `InstallerHold` 打开该文件：只读打开，
+  只允许其他程序读取，路径末端是链接时打开链接本身而不跟随。从此直到安装程序已经启动、程序退出，或这次安装被放弃，
+  文件始终被持有，期间任何程序都不能写入、改名或删除它，也不能改名它的上级文件夹。普通文件与位置两项核对在持有的文件上
+  再做一次：它须是磁盘上的普通文件，系统为它解析出的完整路径（沿途链接全部展开）须与报告的路径相同（只忽略字母大小写）。
+  SHA-256 通过同一次打开以每次 1 MiB、分多轮事件循环读取计算，与报告的值比较。全部通过、并再次确认没有正在进行的导随
+  且持有的文件仍在原路径之后，在持有的状态下经系统外壳启动该文件（Windows 随即请求管理员批准），
+  启动成功即经 `TrayController::quitApplication()` 正常退出，退出时才释放文件（`stopForQuit`）。
+  任何一项不通过都不启动，立即释放文件（`refuseInstall`），原因以提示与红字给出，同时出现「在浏览器中下载」：
+  「还没有读到当前是否在导随中，暂时不能安装，请稍后再试。」；
+  「正在导随（已匹配或已在副本中），现在安装会中断这次记录。请在这次导随结束后再点「立即安装」。」；
+  报告的路径不在数据目录下的 `updates\` 时为
+  「下载的安装程序不在本软件的数据目录中，为安全起见没有启动它。可以改为在浏览器中下载。」；
+  持有的文件解析出的路径与报告的路径不同时（数据目录经由链接、SUBST 映射的盘符或映射的网络驱动器到达即属此类）为
+  「无法确认下载的安装程序位于本软件的数据目录中（数据目录可能经由链接或映射的盘符到达），为安全起见没有启动它。可以改为在浏览器中下载。」；
+  「下载的安装程序不是一个普通文件，为安全起见没有启动它。可以改为在浏览器中下载。」；
+  无法这样打开（例如另有程序正以写入方式打开它）或读取失败时为
+  「无法读取下载的安装程序，没有启动它。可以改为在浏览器中下载。」；
+  「下载的安装程序与发布时公布的校验值不一致，为安全起见没有启动它。可以改为在浏览器中下载。」；
+  启动失败（例如在 Windows 的确认窗口中选择了「否」）时为
+  「安装程序没有启动（可能是在 Windows 的确认窗口中选择了「否」）。本软件继续运行，可以再点「立即安装」，或改为在浏览器中下载。」。
+  模拟运行从不启动安装程序：使用模拟数据时，`AppController` 为「立即安装」换上一个什么也不启动的启动函数，
+  其他后端使用系统外壳。
+
+  「在浏览器中下载」与 `browser` 阶段的「下载新版本」把采集服务给出的安装程序地址（`update.installer_url`）交给系统浏览器，
+  由浏览器下载，安装程序由用户自行运行。
   桌面端只接受本项目仓库 `releases/download/<标签>/` 下以 `-setup.exe` 结尾、不带查询串与片段的地址
   （`UpdateController::isInstallerUrl`）；没有这样的地址时改为打开发布页，并以提示说明已改为打开发布页。
   「查看更新说明」把固定的公开发布页交给系统浏览器。「忽略此版本」只对该版本有效，升到更高的版本后会再次提示。
-  本软件自身不下载、不安装任何内容，见 [privacy-boundary.md](privacy-boundary.md) §8.4。
+  不点击就不下载、不安装；采集服务从不执行它下载的文件，见 [privacy-boundary.md](privacy-boundary.md) §8.4、§8.6。
 * 「当前导随」卡片的**当前职业**一栏始终显示：存在职业编号时显示职业图标、职业名与职能图标，
   职业尚未识别时显示「未知」（职业报文在登录与换职业时出现，识别后该栏随记录更新）。
   结束后的结果与心得对话框提供可选的职业补录，与确认结果一并保存；
@@ -620,20 +671,25 @@ kicker `padding: 12px 0 4px`；`freeLayout` 面板 `padding: 20px 24px`，间距
   `App.captureSettingsError` 以橙色显示在该面板底部。
 * **更新**：开关「检查新版本并提示」（`updateCheckToggle`，写入
   `UpdateCaptureSettings.update_check_enabled`，由采集服务持有，默认开启）。
-  描述写明这是第三类联网请求：每天最多一次，只从本项目的发布页读取一个仅含版本号的小文件，
-  与当前版本比较；请求不带账号、安装编号或任何可识别信息，本软件也从不自动下载或安装新版本，
-  见 [privacy-boundary.md](privacy-boundary.md) §8.4。已检查过时，面板下方以小字给出
-  「最近检查：<时间> · 最新版本 <版本号>」（`updateCheckStatusText`）。
+  描述写明这是默认开启的联网请求：每天最多一次，只从本项目的 GitHub 发布页读取一个只含版本号的小文件，
+  有新版本时在总览页提示；请求不带账号、安装编号或任何可识别信息；只有在用户点「下载并安装」之后，
+  后台进程才会从本项目的发布页下载安装程序并与发布时公布的校验值核对，安装还要再点「立即安装」；
+  本软件从不自行下载或安装新版本，见 [privacy-boundary.md](privacy-boundary.md) §8.4、§8.6。
+  已检查过时，面板下方以小字给出「最近检查：<时间> · 最新版本 <版本号>」（`updateCheckStatusText`）。
   该行右侧是「检查更新」（`checkUpdateNowButton`）：点击发出 `CheckUpdateNow`，
-  采集服务随即检查一次，不受每日节流限制，结果以一句提示说明。有新版本时同一位置改为
-  「下载新版本」，与总览横幅上的同名按钮相同，把安装程序的地址交给系统浏览器、由浏览器下载
-  （没有可用的安装程序地址时改为打开发布页），不在本软件内下载任何东西；
+  采集服务随即检查一次，不受每日节流限制，结果以一句提示说明。有可下载的新版本时（`App.update.downloadPhase` 非空）
+  同一位置改为随下载阶段变化的按钮，文字与作用和总览横幅的主按钮相同（「下载并安装」「取消」「立即安装」「重试」，
+  或所连接的采集服务不支持软件内下载时的「下载新版本」，见 §4.1），这时它在请求尚未返回或桌面端正在校验时停用；
+  其下是同一个下载状态组件（前缀 `settingsUpdate`）。
   其旁另有幽灵按钮「查看更新说明」（`updateReleaseNotesButton`），只在有新版本时出现，打开发布页。
-  按钮在开关关闭、采集服务未给出更新信息，或上一次检查尚未返回时停用，
+  作为「检查更新」时，按钮在开关关闭、采集服务未给出更新信息，或上一次检查尚未返回时停用，
   判据是 `App.update.canCheck`（`available && enabled && !checking`）。
-  提示共五句，分别对应：有新版本、已是最新版本、没有检查成功、开关已关闭、
-  本机已通过环境变量禁用；其中失败一句不区分具体原因，也不出现地址或协议标记。
+  提示共五句，分别对应：有新版本（写明可以点「下载并安装」，不支持软件内下载时写「下载新版本」）、已是最新版本、
+  没有检查成功、开关已关闭、本机已通过环境变量禁用；其中失败一句不区分具体原因，也不出现地址或协议标记。
   新版本的横幅提示本身在总览页（§4.1），设置页不重复呈现。
+  打开维护者工具时，面板底部另有一行小字「维护者工具：下载已发布的最新正式版的安装程序，即使它不比当前版本新。」
+  与幽灵按钮「重新下载最新正式版」（`reinstallLatestButton`），只在采集服务支持软件内下载时出现：
+  点击发出 `StartUpdateDownload { reinstall: true }`，下载进行中、请求尚未返回或桌面端正在校验时停用。
 * **外观**（`appearanceSettingsCard`）：界面风格（`uiStyleSettingControl`，取值 经典 / 艾欧泽亚，
   副标题「经典：圆角卡片 · 艾欧泽亚：游戏窗口配色 · Harendotes：夜色与橙焰」，绑定 `Settings.uiStyle`；
   分段控件显示的是**屏幕上实际生效的**风格，`--mock-ui-style` 固定风格时同样如此）、
@@ -798,6 +854,9 @@ MockBackend 在模拟状态切换以及开始或停止捕获时发出这些事�
 并提供 `simulateRunTransitions()` 供测试驱动完整流程，其中包含最后一条 `RunFinished`。
 
 **成就**（`achievementSettingsCard`）分为目标值与安装前已完成次数（基数）两列，修改原因为必填项。
+总览成就卡片上「含安装前基数 N 次 · 修改」中的「修改」直接打开本分页（`SettingsPage.editBaseline()`），
+并把光标放进基数栏（`baselineField`）、选中其中的数字，直接输入即可替换；已保存的值尚未读到、输入框还不可用时，
+读到之后再放入光标，届时已离开本分页则不再放入。
 两个输入框预填的是从采集服务读到的已保存值（`GetDashboardStats` 的 `goal_count` 与 `baseline_completed_count`）。
 在当前连接上读到第一份统计之前（`App.achievementSettingsLoaded` 为假，与采集服务断开后重新变为假），
 两个输入框与「保存」均不可用，下方以灰字说明「还没有从采集服务读到已保存的目标与基数，读到之后才能修改和保存。」：
@@ -854,17 +913,17 @@ MockBackend 回 `{passed: true, detail: "ok", checked_at_utc: 现在}`。
 
 **关于**（`aboutSettingsCard`）包含 kicker「导随记录器」与 `v<App.appVersion> · GPL-3.0 或更高版本`。
 版本号一行（`aboutVersionText`）在 `GetStatus.update.update_available` 为真时附带
-「有新版本 x.y.z」，其右侧另有幽灵按钮「查看更新说明」（`aboutOpenReleasePageButton`）与「下载新版本」
-（`aboutDownloadInstallerButton`），同样只在有新版本时出现，作用与总览横幅上的同名按钮相同。
-没有新版本时，该位置是「检查更新」（`aboutCheckUpdateButton`），与设置页「通用」的同名按钮
+「有新版本 x.y.z」，其右侧另有幽灵按钮「查看更新说明」（`aboutOpenReleasePageButton`，只在有新版本时出现）
+与随下载阶段变化的按钮（`aboutDownloadInstallerButton`），文字与作用和总览横幅的主按钮相同（§4.1）；
+版本号一行之下是同一个下载状态组件（前缀 `about`）。
+没有可下载的新版本时（`App.update.downloadPhase` 为空），该位置是「检查更新」（`aboutCheckUpdateButton`），与设置页「通用」的同名按钮
 发出同一条 `CheckUpdateNow`、遵循同一套停用规则，结果同样以一句提示说明。
-小标题「隐私与边界」下有三块内嵌信息：Oodle 解压（`GetStatus.oodle_mode` 经
+小标题「隐私与边界」下有两块内嵌信息：Oodle 解压（`GetStatus.oodle_mode` 经
 `Fmt.oodleModeLabel` 换成中文说明，不显示模式名与决策编号）、
-读取游戏可执行文件（`reads_game_executable`，为真时以橙色显示「是（读取磁盘上的一份副本）」）、
-首次运行说明（「已确认 · 时间」或「未确认」）。
-按钮为「重新查看首次运行说明」与「打开捕获诊断」（ghost）。
+读取游戏可执行文件（`reads_game_executable`，为真时以橙色显示「是（读取磁盘上的一份副本）」）。
+按钮为「查看软件说明」（`aboutExplanationButton`，打开 §4.6 的说明窗口）与「打开捕获诊断」（ghost）。
 其下是 **版权与来源**（`copyrightCard`），保留四段完整表述，较原型的缩写更为准确。
-早先独立的「隐私与边界」卡片，其内容已全部并入上述三块信息与两个按钮。
+早先独立的「隐私与边界」卡片已并入上述两块信息与两个按钮。
 
 ### 4.5.1 导随心得（reflections）
 
@@ -921,44 +980,43 @@ MockBackend 回 `{passed: true, detail: "ok", checked_at_utc: 现在}`。
 `App.pendingReviewRun` 是最近一条待确认的记录，仅在 `pendingReviewCount > 0` 时才查询。
 每条记录只询问一次；`ended_at_utc` 早于本次启动的记录（重连时被重放的旧事件）不再询问。
 
-### 4.6 首次运行说明（DEC-OODLE-01）
+### 4.6 首次启动与软件说明（DEC-OODLE-01）
 
-首次启动的顺序是**先显示说明、后显示 baseline**：`Main.qml` 在 `Component.onCompleted` 中
-先打开 `DisclosureDialog`，用户确认后才打开 `BaselineDialog`。
+首次启动时，`Main.qml` 在 `Component.onCompleted` 中直接打开基数引导 `BaselineDialog`（见 §5 中「首次启动的
+baseline 对话框」一段），此前不显示任何说明，也不要求任何确认。是否为首次启动取自 `AppSettings` 的
+`ui/first_run_completed`，基数引导保存成功后记为完成。
 
-说明页共六条，取值全部来自 `GetStatus`，而非硬编码的默认值：
+说明窗口 `DisclosureDialog`（kicker「隐私与边界」，标题「这个软件做什么、不做什么」）是一个普通的说明窗口，
+只由设置页「关于」的「查看软件说明」打开：没有勾选项，不需要确认，底部只有主按钮「关闭」（`disclosureCloseButton`），
+Esc 同样关闭，左侧小字为「此说明可随时在「设置 → 关于」中点「查看软件说明」重新打开。」；窗口不记录任何内容。
+只有正文滚动，「关闭」固定在底部：720 像素高的窗口容纳不下整页。
 
-1. 只被动监听网卡流量 — `capture.monitor_type`
-2. **会读取游戏可执行文件的一份副本** — `oodle_mode` / `reads_game_executable`
-3. 不注入、不读取游戏进程内存 — `capture.injected_hook_enabled`
+正文分为「注意事项」与「运行顺序」两组。「注意事项」各条如下，其中第 2 条句末写出本机当前的 Oodle 解压方式与
+是否读取游戏可执行文件，取自 `GetStatus` 的 `oodle_mode` 与 `reads_game_executable`，而非硬编码的默认值：
+
+1. 只被动监听网卡流量
+2. **会读取游戏可执行文件的一份副本**
+3. 不注入、不读取游戏进程内存
 4. 数据只留在本机 — 无遥测、无云同步、从不上传
-5. **只有三种联网，且均由后台进程发出**，分四段叙述：总述；
-   **联网一：游戏更新后获取共享校准**（默认开启），说明发送时机、不携带的内容，
+5. **只有三种联网，都由后台进程发出**，分四段叙述：总述；
+   **联网一：游戏更新后获取共享校准**（默认开启，可关），说明发送时机、不携带的内容，
    以及在「设置 → 通用」中的关闭方式（docs/privacy-boundary.md §8.2）；
    **联网二：在线语音**（默认关闭），仅在选择在线语音并填写自有密钥后才发送，
    发送内容为当前这一句播报，改回本机语音即停止（§8.3）；
-   **联网三：检查新版本**（默认开启，可关），每 24 小时最多一次，只读取发布页上的版本号并与当前版本比较，
-   不下载安装包、不自动安装，可在「设置 → 通用 → 更新」中关闭（§8.4）
-6. 尚未在真实游戏流量上验证 — `LIVE_CAPTURE_STATUS`
+   **联网三：检查新版本（默认开启，可关），以及你要求时下载新版本**：每天最多一次，只读取发布页上一个只含版本号的小文件，
+   有新版本时在总览页提示；只有点「下载并安装」之后才下载安装程序并与发布时公布的校验值核对，
+   只有再点「立即安装」才启动安装程序、本软件随即关闭；本软件从不自行下载或安装新版本，
+   可在「设置 → 通用 → 更新」中关闭「检查新版本并提示」（§8.4、§8.6）
 
-说明正文可以滚动，确认开关与「我已了解」固定在底部；
-加入第 5 条之后，720 像素高的窗口无法容纳整页。
-第 5 条使 `AppSettings::kDisclosureVersion` 提升至 3，
-此前的确认针对的是「没有任何出站网络请求」的版本。
-在线语音并入第 5 条时**未**再次提升版本号：该功能默认关闭，选用时另有确认框（§4.5「播报」），
-已确认版本 3 的用户不会因此被再次拦截。
-更新检查并入第 5 条时**再次**提升了版本号：它默认开启，且没有单独的确认框，
-因此每一位既有用户在升级之后都会再看到一次该页。
-「联网一」写明在用的共享校准或按排本推断的校准会被再次核对时，版本号提升至 5：
-此前的文案写的是「已经有可用档案时不会联网」，与新的行为不符（§8.2）。
+「运行顺序」三条：先打开本软件，再启动游戏；已经登录的，登出到标题画面再登录一次；
+正常排指导者任务，打完后到"待复核"里填结果。
 
-必须先打开「我已阅读并理解」开关，「我已了解」按钮才可用。
-确认结果写入 `AppSettings` 的 `ui/disclosure_acknowledged_version` 与 `ui/disclosure_acknowledged_at`。
-存储的是**版本号**而非布尔值，因此 `AppSettings::kDisclosureVersion` 一旦提高，
-旧的确认自动失效、说明页重新出现，对旧文案的同意不会被用于替代新文案。
+此前的版本在首次启动时先显示该窗口，须打开「我已阅读并理解」开关再点「我已了解」，确认按说明的版本号
+（`AppSettings::kDisclosureVersion`）记在 `desktop.ini` 的 `ui/disclosure_acknowledged_version` 与
+`ui/disclosure_acknowledged_at` 中，设置页「关于」另显示确认状态。确认步骤、版本号与这两个设置项现已全部取消；
+旧版本写下的这两项可能仍留在 `desktop.ini` 中，读取时不使用（`LifecycleTests::aSettingsFileWithTheRetiredConfirmationStillLoads`）。
 
-设置页的「重新查看首次运行说明」先清除确认，再打开对话框。
-`--show-disclosure` 命令行开关在两种后端下均可强制打开该页，用于截图与复查。
+`--show-disclosure` 命令行开关在启动时打开该窗口，与「查看软件说明」打开的相同，两种后端均可使用，用于截图与复查。
 
 ## 4.7 真实后端行为对照表（Phase 4）
 
@@ -982,6 +1040,7 @@ MockBackend 回 `{passed: true, detail: "ok", checked_at_utc: 现在}`。
 | 捕获诊断：开始 / 停止捕获 | `StartCapture` / `StopCapture` | 本机无 Npcap ⇒ `ERR_NPCAP_MISSING` |
 | 捕获诊断：导出脱敏诊断报告 | `ExportDiagnosticsReport`（`target_path` 可省略）| 见 4.4 |
 | 设置：成就进度保存 | `UpdateAchievementBaseline`（reason 必填）| 成功后重算总览与趋势 |
+| 总览横幅 · 设置「通用」与「关于」的更新按钮 | `CheckUpdateNow` / `StartUpdateDownload` / `CancelUpdateDownload` | 下载或校验进行中约每秒重读一次 `GetStatus` 取进度；「立即安装」不发消息，见 4.1 |
 | 设置：立即备份数据库 | `BackupDatabase`（不带 `target_path`）| 见 4.5 |
 | 新增记录 | `CreateManualRun`（`source = MANUAL`）| |
 | 手动修正 | `CorrectRun`（带 `expected_revision`）| 成功后刷新 `GetRunRevisions` |
@@ -1427,11 +1486,16 @@ build/src/Desktop/MentorRecorder.Desktop.exe --screenshot <png> --page N
     [--mock-open-speech-confirm]
                              # 以本机语音起步，打开在线语音确认框（与 --mock-speech 同用时问的是该状态的音色）
     [--mock-speech-preview]  # 启动 0.4 秒后播一次「试听」，配 --mock-speech fail 可截到回退提示
+    [--mock-update-available]
+                             # 采集服务的更新检查报告有新版本（版本号与地址均为虚构，不联网）
+    [--mock-update-download downloading|verifying|ready|failed]
+                             # 软件内下载停在指定阶段（§4.1），隐含 --mock-update-available；不联网，
+                             # 模拟的“安装程序”是写在模拟数据目录 updates\ 下的文本文件，模拟运行从不启动安装程序
 
   两种后端都可用：
     [--open-detail]          # 同上，但不要求 mock 数据
     [--open-edit]
-    [--show-disclosure]      # 强制打开首次运行说明页
+    [--show-disclosure]      # 启动时打开软件说明窗口（与「设置 → 关于」的「查看软件说明」相同）
     [--mock-open-create]     # 打开「新增遗漏记录」三步向导
     [--mock-wizard-step 1|2|3]
                              # 向导停在第几步（配合 --mock-open-create / --mock-open-edit，默认 1）

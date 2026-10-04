@@ -117,7 +117,8 @@ FFXIV 流量经 Oodle 压缩。Machina 的 `OodleImplementation` 枚举取自上
 决策项 `DEC-OODLE-01` 已定稿：**默认取 `FfxivTcp`，用户自备库时优先取 `LibraryTcp`**。
 三个选项及其取舍见 [privacy-boundary.md](privacy-boundary.md) §4.1。无论采用哪一项，
 本软件都不分发 `oo2net_9_win64.dll`（RAD Game Tools 专有），不分发游戏文件，
-临时副本使用后立即删除，并在首次运行页面明确告知用户。
+临时副本使用后立即删除，并明确告知用户：设置页"关于"常驻显示是否读取游戏可执行文件，该页「查看软件说明」
+打开的说明窗口「这个软件做什么、不做什么」写明这一点，README 与 [privacy-boundary.md](privacy-boundary.md) §4 同样写明。
 
 ## 3. Qt 6.11.2
 
@@ -329,8 +330,9 @@ IPC 契约不存在这一层顾虑，因此测试侧直接使用成熟的库，�
 
 对外发布二进制之前，以下每一项都必须落实：
 
-1. **`DEC-OODLE-01` 用户告知**：方案已定稿，仍须在首次运行页面明确告知用户，
-   本软件会读取并加载游戏可执行文件的副本。
+1. **`DEC-OODLE-01` 用户告知**：方案已定稿，须明确告知用户本软件会读取并加载游戏可执行文件的副本。
+   现由设置页"关于"的常驻信息、该页「查看软件说明」打开的说明窗口「这个软件做什么、不做什么」、README
+   与 [privacy-boundary.md](privacy-boundary.md) §4.1 告知；首次启动不再先显示这份说明（2026-10-04 起）。
 2. **完整对应源码的分发渠道**：公开仓库或随包提供源码归档，满足 GPLv3 第 6 条。
 3. **`THIRD_PARTY_NOTICES.md` 校对完毕**，并随二进制一同分发。
 4. **确认发布包中不含**：Npcap、`oo2net_9_win64.dll`、`deucalion-*.dll`、

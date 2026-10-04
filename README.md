@@ -34,8 +34,10 @@
 > a read-only download of shared calibrations from a public GitHub repository after a game patch
 > (enabled by default, can be disabled in Settings), optional online text-to-speech using the
 > user's own Azure or OpenAI-compatible key (disabled by default; only the sentence being announced
-> is sent), and a notify-only update check that reads the version number of the latest release at
-> most once a day (enabled by default, can be disabled; nothing is downloaded or installed).
+> is sent), and an update check that reads the version number of the latest release at most once a
+> day (enabled by default, can be disabled). The installer of a newer version is downloaded only
+> when the user clicks 「下载并安装」, kept only if it matches the SHA-256 published beside it, and
+> started only when the user clicks 「立即安装」; nothing is downloaded or installed automatically.
 > Setting `MR_DISABLE_SHARED_FETCH=1`, `MR_DISABLE_ONLINE_SPEECH=1` and `MR_DISABLE_UPDATE_CHECK=1`
 > disables all three.
 > Supported client: Chinese server (国服) `2026.08.05`; see
@@ -109,7 +111,7 @@
 **游戏程序副本。** 为解压游戏流量，软件会将游戏可执行文件复制到临时目录，并在自身进程中加载该副本；
 软件不读取游戏进程的内存。副本在停止监听时删除；因文件被占用或软件被强制结束而未能删除的副本
 会登记在清单中，于下次启动时删除。运行 `MentorRecorder.Collector.exe --capture-doctor`，
-可在"游戏程序临时副本"一节查看剩余副本。首次运行时的说明页也会列出此项。
+可在"游戏程序临时副本"一节查看剩余副本。"设置 → 关于"中「查看软件说明」打开的说明同样列出此项。
 
 ## 工作原理
 
@@ -146,8 +148,11 @@
     播报时只将当前这句播报文本发送至所选语音服务。密钥仅保存在本机，并由 Windows 加密。
     详见[隐私边界](docs/privacy-boundary.md) §8.3。
   - **检查新版本**（默认开启）：每次启动检查一次，之后每 24 小时最多一次，也可在"设置 → 通用 → 更新"中点「检查更新」；
-    只读取发布页上的版本号文件，与当前版本比较，发现新版本时在总览页提示一句，由用户自行在浏览器中下载。
-    本软件不下载安装包，也不自动安装。可在同一处关闭「检查新版本并提示」。详见[隐私边界](docs/privacy-boundary.md) §8.4。
+    只读取发布页上的版本号文件，与当前版本比较，发现新版本时在总览页提示一句。
+    只有点击「下载并安装」后，后台采集服务才从本项目发布页下载该版本的安装程序，并与发布时公布的 SHA-256 核对，一致才保留；
+    只有再点击「立即安装」，界面进程才启动该安装程序（Windows 会请求管理员批准）并退出，由安装程序完成更新。
+    不点击就不会下载，也不会安装；下载失败时可改由浏览器下载。可在同一处关闭「检查新版本并提示」，关闭后检查与下载都不再发生。
+    详见[隐私边界](docs/privacy-boundary.md) §8.4、§8.6。
 - 如需禁止一切出站请求，将系统环境变量 `MR_DISABLE_SHARED_FETCH`、`MR_DISABLE_ONLINE_SPEECH`
   与 `MR_DISABLE_UPDATE_CHECK` 设为 `1` 后重启软件。
 - 不长期保存原始报文。
