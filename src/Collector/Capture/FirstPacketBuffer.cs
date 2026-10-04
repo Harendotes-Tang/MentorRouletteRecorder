@@ -253,14 +253,19 @@ internal sealed class FirstPacketBuffer
     /// stream or direction it gave up delivers nothing more, and what this pump decodes came off the
     /// wire around or after it. Reported after, a stream replaced on its own four-tuple was told over
     /// only once the new stream on that tuple had started delivering (audit 2026-10-03, V2-3).
+    /// The reader keeps running while those reports are made, so the decode starts only under a lock
+    /// that finds nothing queued; what the reader found meanwhile is reported first, still outside the
+    /// lock (audit 2026-10-03, S33-6).
     /// </summary>
     /// <param name="owned">Connections the operating system currently attributes to the game.</param>
     internal void Pump(IReadOnlyCollection<TCPConnection> owned)
     {
-        Report();
         try
         {
-            PumpCore(owned);
+            while (TakeReportsOrPump(owned) is { } found)
+            {
+                Report(found);
+            }
         }
         finally
         {
@@ -268,17 +273,47 @@ internal sealed class FirstPacketBuffer
         }
     }
 
+    /// <summary>
+    /// Under one lock: takes the reports queued so far, or, when there are none, decodes. Taking and
+    /// decoding are one step for the reader thread, so nothing it finds before the decode can be
+    /// reported after it.
+    /// </summary>
+    /// <param name="owned">Connections the operating system currently attributes to the game.</param>
+    /// <returns>The reports to make before decoding, in the order they were found; null once decoded.</returns>
+    private (TCPConnection Connection, StreamReport Kind)[]? TakeReportsOrPump(IReadOnlyCollection<TCPConnection> owned)
+    {
+        lock (_gate)
+        {
+            if (TakeReports() is { } found) return found;
+            PumpCore(owned);
+            return null;
+        }
+    }
+
+    /// <summary>Takes the reports queued so far, in the order they were found; null when none are. Under the lock.</summary>
+    private (TCPConnection Connection, StreamReport Kind)[]? TakeReports()
+    {
+        if (_reports.Count == 0) return null;
+        var reports = _reports.ToArray();
+        _reports.Clear();
+        return reports;
+    }
+
     /// <summary>Makes the reports queued so far, in the order they were found, outside the lock.</summary>
     private void Report()
     {
-        (TCPConnection Connection, StreamReport Kind)[] reports;
+        (TCPConnection Connection, StreamReport Kind)[]? reports;
         lock (_gate)
         {
-            if (_reports.Count == 0) return;
-            reports = _reports.ToArray();
-            _reports.Clear();
+            reports = TakeReports();
         }
 
+        if (reports is not null) Report(reports);
+    }
+
+    /// <summary>Makes <paramref name="reports"/>, in order. Never under the lock: the listeners reach the state machine.</summary>
+    private void Report((TCPConnection Connection, StreamReport Kind)[] reports)
+    {
         foreach (var (connection, kind) in reports)
         {
             if (kind == StreamReport.Ended)

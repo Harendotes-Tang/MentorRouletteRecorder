@@ -604,6 +604,87 @@ public sealed class MutationTests
         Assert.Equal("2026-01-01T00:00:00.000Z", audit[1].BaselineEffectiveAt);
     }
 
+    /// <summary>
+    /// Audit 2026-10-03, S33-3. Saving the achievement settings as they are - the same goal and the
+    /// same baseline, whatever time and reason come with them - changes nothing, so nothing is
+    /// written: no history entry pushes an older one out of the capped history, and the stored row
+    /// keeps its time. The answer is what is stored, under the history entry that stored it.
+    /// </summary>
+    [Fact]
+    public void UpdateAchievementBaseline_UnchangedSave_WritesNothingAndAnswersTheStoredValues()
+    {
+        using var fixture = new Fixture();
+        var effective = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var first = fixture.Service.UpdateAchievementBaseline(new UpdateAchievementBaselineCommand(
+            Fixture.NewId(), 2000, 1500, effective, "开始使用本软件前已完成 1500 次"));
+        var stored = fixture.Settings.GetAchievementSettings();
+        fixture.Database.Clock.UtcNow = fixture.Database.Clock.UtcNow.AddHours(1);
+
+        var again = fixture.Service.UpdateAchievementBaseline(new UpdateAchievementBaselineCommand(
+            Fixture.NewId(), 2000, 1500, effective.AddMonths(9), "原样保存"));
+
+        Assert.Equal(first.AuditEventId, Assert.Single(fixture.Settings.ReadBaselineAudit()).AuditEventId);
+        Assert.Equal(stored, fixture.Settings.GetAchievementSettings());
+        Assert.Equal(stored, again.Settings);
+        Assert.Equal(first.AuditEventId, again.AuditEventId);
+        Assert.False(again.IdempotentReplay);
+    }
+
+    /// <summary>
+    /// A database whose defaults were never saved has no history entry to name. Saving the defaults
+    /// as they are writes nothing all the same, and the answer carries an identifier of its own that
+    /// a replay of the request repeats.
+    /// </summary>
+    [Fact]
+    public void UpdateAchievementBaseline_SavingTheUnsavedDefaultsAsTheyAre_WritesNothing()
+    {
+        using var fixture = new Fixture();
+        var defaults = fixture.Settings.GetAchievementSettings();
+        fixture.Database.Clock.UtcNow = fixture.Database.Clock.UtcNow.AddHours(1);
+        var save = new UpdateAchievementBaselineCommand(
+            Fixture.NewId(), defaults.GoalCount, 0, fixture.Database.Clock.UtcNow, "从 0 开始");
+
+        var outcome = fixture.Service.UpdateAchievementBaseline(save);
+        var replay = fixture.Service.UpdateAchievementBaseline(save);
+
+        Assert.Empty(fixture.Settings.ReadBaselineAudit());
+        Assert.Equal(defaults, fixture.Settings.GetAchievementSettings());
+        Assert.Equal(defaults, outcome.Settings);
+        Assert.True(Guid.TryParseExact(outcome.AuditEventId, "D", out _));
+        Assert.True(replay.IdempotentReplay);
+        Assert.Equal(outcome.AuditEventId, replay.AuditEventId);
+    }
+
+    /// <summary>
+    /// A save that changed nothing is still answered by its request id: replayed after a later change,
+    /// it repeats its own answer and does not put its numbers back, and the same id with other numbers
+    /// is refused.
+    /// </summary>
+    [Fact]
+    public void UpdateAchievementBaseline_UnchangedSave_IsReplayedByItsRequestId()
+    {
+        using var fixture = new Fixture();
+        var effective = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        fixture.Service.UpdateAchievementBaseline(new UpdateAchievementBaselineCommand(
+            Fixture.NewId(), 2000, 1500, effective, "开始使用本软件前已完成 1500 次"));
+        var unchanged = new UpdateAchievementBaselineCommand(
+            Fixture.NewId(), 2000, 1500, effective.AddDays(1), "原样保存");
+        var answered = fixture.Service.UpdateAchievementBaseline(unchanged);
+        fixture.Service.UpdateAchievementBaseline(new UpdateAchievementBaselineCommand(
+            Fixture.NewId(), 2000, 1600, effective.AddDays(2), "游戏内显示 1600 次"));
+
+        var replay = fixture.Service.UpdateAchievementBaseline(unchanged);
+        var conflict = Assert.Throws<CollectorException>(() =>
+            fixture.Service.UpdateAchievementBaseline(unchanged with { GoalCount = 2500 }));
+
+        Assert.True(replay.IdempotentReplay);
+        Assert.Equal(answered.Settings, replay.Settings);
+        Assert.Equal(answered.AuditEventId, replay.AuditEventId);
+        Assert.Equal(1600, fixture.Settings.GetAchievementSettings().BaselineCompletedCount);
+        Assert.Equal(2, fixture.Settings.ReadBaselineAudit().Count);
+        Assert.Equal(ErrorCodes.IdempotencyConflict, conflict.Code);
+    }
+
     [Theory]
     [InlineData(0, 0, ErrorCodes.BadRequest)]
     [InlineData(2000, -1, ErrorCodes.BadRequest)]

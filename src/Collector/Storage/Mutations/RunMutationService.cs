@@ -320,13 +320,13 @@ public sealed class RunMutationService
         var reason = RunMutationValidation.RequireReason(command.Reason);
         if (command.GoalCount < 1)
         {
-            throw CollectorException.BadRequest("goal_count 必须大于等于 1。", "goal_count");
+            throw CollectorException.BadRequest("目标值必须大于等于 1。", "goal_count");
         }
 
         if (command.BaselineCompletedCount < 0)
         {
             throw CollectorException.BadRequest(
-                "baseline_completed_count 不能为负数。", "baseline_completed_count");
+                "已完成次数不能为负数。", "baseline_completed_count");
         }
 
         var fingerprint = MutationSnapshotCodec.Fingerprint(
@@ -336,14 +336,31 @@ public sealed class RunMutationService
             UtcTimestamp.ToText(command.BaselineEffectiveAt),
             reason);
 
+        var changed = false;
         var snapshot = ApplySnapshot(command.RequestId, "UpdateAchievementBaseline", fingerprint, tx =>
         {
+            var stored = _settings.GetAchievementSettings(tx);
+
+            // The same goal and the same baseline change nothing - the effective time stays with an
+            // unchanged baseline - so nothing is written: no history entry pushes an older one out of
+            // the capped history, and the clients are not told to read their statistics again. The
+            // answer is what is stored, under the history entry that stored it. The idempotency row is
+            // still kept, so a replay repeats this answer instead of putting these numbers back over a
+            // later change (audit 2026-10-03, S33-3).
+            if (command.GoalCount == stored.GoalCount &&
+                command.BaselineCompletedCount == stored.BaselineCompletedCount)
+            {
+                changed = false;
+                return new MutationSnapshot(fingerprint, null, 0, StoredAuditEventId(stored, tx), null, stored);
+            }
+
+            changed = true;
+
             // The baseline is the in-game total at its effective time, so only a new baseline
             // moves that time. The Desktop sends the save time with every save, a goal-only edit
             // included; taken as given, it dropped every completion recorded since the baseline
             // out of the progress (audit 2026-10-03, CS-7). The same number entered again is no
             // change either.
-            var stored = _settings.GetAchievementSettings(tx);
             var effectiveAt = command.BaselineCompletedCount == stored.BaselineCompletedCount
                 ? stored.BaselineEffectiveAt
                 : UtcTimestamp.Truncate(command.BaselineEffectiveAt);
@@ -380,7 +397,30 @@ public sealed class RunMutationService
         return new BaselineMutationOutcome(
             snapshot.Snapshot.Settings ?? _settings.GetAchievementSettings(),
             snapshot.Snapshot.AuditEventId,
-            snapshot.Replayed);
+            snapshot.Replayed,
+            changed && !snapshot.Replayed);
+    }
+
+    /// <summary>
+    /// The baseline history entry that stored <paramref name="stored"/>: the newest, when it records
+    /// exactly these values. A database whose defaults were never saved has none; the save that
+    /// changed nothing then gets an identifier of its own, which its idempotency row keeps for a replay.
+    /// </summary>
+    /// <param name="stored">The achievement row as stored.</param>
+    /// <param name="transaction">Enclosing transaction.</param>
+    private string StoredAuditEventId(AchievementSettings stored, SqliteTransaction transaction)
+    {
+        var history = _settings.ReadBaselineAudit(transaction);
+        if (history.Count > 0 && history[^1] is { } newest &&
+            newest.GoalCount == stored.GoalCount &&
+            newest.BaselineCompletedCount == stored.BaselineCompletedCount &&
+            UtcTimestamp.TryParse(newest.BaselineEffectiveAt, out var effectiveAt) &&
+            effectiveAt == stored.BaselineEffectiveAt)
+        {
+            return newest.AuditEventId;
+        }
+
+        return Guid.NewGuid().ToString("D");
     }
 
     private RunMutationOutcome SetDeleted(
@@ -576,7 +616,7 @@ public sealed class RunMutationService
 
         throw new CollectorException(
             ErrorCodes.RevisionConflict,
-            $"该记录已被修改（当前 revision = {run.Revision}），请刷新后重试。",
+            "这条记录已在别处被修改，请刷新后重试。",
             new Dictionary<string, object?>
             {
                 ["run_id"] = run.RunId,

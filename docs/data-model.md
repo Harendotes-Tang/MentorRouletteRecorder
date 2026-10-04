@@ -233,7 +233,9 @@ INDEX ix_revisions_run ON run_revisions(run_id, revision)
 | `updated_at_utc` | TEXT | NOT NULL | |
 
 基线的每次修改都必须带 `reason`，并写入 `application_settings` 的审计或独立审计行；
-`UpdateAchievementBaseline` 返回 `audit_event_id`。
+`UpdateAchievementBaseline` 返回 `audit_event_id`。目标与基数都与已保存的相同的保存不算修改：
+除用于重发判定的幂等记录外不写入任何内容，返回的 `audit_event_id` 是写下当前值的那条审计记录的编号
+（审计记录中没有这样一条时为新编号）。
 
 1.5.0 及更早版本在只修改目标或原样保存同一基数时也会把 `baseline_effective_at` 改为保存时刻。
 采集服务在本版本首次启动时按基数的审计记录（`application_settings` 的 `achievement.baseline_history`，最多保留

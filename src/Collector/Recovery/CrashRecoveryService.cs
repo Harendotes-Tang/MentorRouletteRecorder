@@ -98,7 +98,7 @@ public static class CrashRecoveryService
                         // UI must be able to say why a row changed without the user guessing.
                         Reason = (repaired.Result, repaired.PendingReview) switch
                         {
-                            (RunResult.Interrupted, true) => "程序重启时发现未完结记录，已置为 INTERRUPTED 并标记待复核。",
+                            (RunResult.Interrupted, true) => "程序重启时发现未完结记录，已记为中断并标记待复核。",
                             (RunResult.CancelledBeforeEntry, true) =>
                                 "程序重启时发现未完结记录，它尚未进入副本，已记为进本前取消并标记待复核。",
                             _ => "程序重启时发现未完结记录，已保留人工决定并处理未保护的结束字段。",

@@ -580,6 +580,57 @@ public sealed class PipeServerTests
         Assert.Equal(1600, dashboard["achievement_progress"]!.GetValue<int>());
     }
 
+    /// <summary>
+    /// Audit 2026-10-03 S33-3: saving the achievement settings as they are - the same goal and the
+    /// same baseline, sent with a later time as the Desktop always does - changes nothing. It is
+    /// answered with what is stored, as a fresh request rather than a replay, and no client is told
+    /// to read its statistics again.
+    /// </summary>
+    [Fact]
+    public async Task UpdateAchievementBaseline_UnchangedSave_AnswersTheStoredValuesAndPublishesNothing()
+    {
+        await using var fixture = ServerFixture.Start();
+        await using var client = await fixture.ConnectAsync();
+
+        JsonObject Save(string effectiveAt, string reason) => new()
+        {
+            ["goal_count"] = 2000,
+            ["baseline_completed_count"] = 1500,
+            ["baseline_effective_at"] = effectiveAt,
+            ["reason"] = reason,
+        };
+
+        var first = (await client.SendAsync(
+            "UpdateAchievementBaseline", Save("2026-09-01T00:00:00.000Z", "开始使用前已完成 1500 次"))).Require();
+        var again = (await client.SendAsync(
+            "UpdateAchievementBaseline", Save("2026-10-04T08:00:00.000Z", "原样保存"))).Require();
+
+        Assert.False(again["idempotent_replay"]!.GetValue<bool>());
+        foreach (var field in new[]
+            { "goal_count", "baseline_completed_count", "baseline_effective_at", "updated_at_utc", "audit_event_id" })
+        {
+            Assert.Equal(first[field]!.ToJsonString(), again[field]!.ToJsonString());
+        }
+
+        using var events = fixture.Host.LiveEvents.Subscribe(NewId());
+        var invalidated = 0;
+        for (var read = 0; read < LiveEventBus.ReplayCapacity; read++)
+        {
+            if (await events.ReadAsync(TimeSpan.FromMilliseconds(200), CancellationToken.None) is not { } live)
+            {
+                break;
+            }
+
+            if (live["kind"]?.GetValue<string>() == "stats_invalidated" &&
+                live["message"]?.GetValue<string>() == "成就基线已更新，统计需要重新查询。")
+            {
+                invalidated++;
+            }
+        }
+
+        Assert.Equal(1, invalidated);
+    }
+
     [Fact]
     public async Task EveryContractMessageTypeIsAnswered()
     {

@@ -147,13 +147,47 @@ public sealed class SharedCalibrationPipelineTests : IDisposable
     }
 
     /// <summary>
-    /// Audit 2026-10-03, CS3a-X1. The duty a shared bind replays from its staging came through no parser that
-    /// could say which connection carried it. Until a connection delivers a message the bound profile parses, a
-    /// direction given up on any connection is therefore still a gap: the duty ends INTERRUPTED at LOW rather
-    /// than being followed blind.
+    /// Audit 2026-10-03, S33-5. A direction lost while nothing is bound is staged with its connection, and
+    /// judged when the bind drains it the way the replay after a confirmed local calibration judges it: against
+    /// the connections and directions the events drained before it came from. Every staged event of this duty
+    /// came in on the zone connection from the server, so the chat server's connection, or the zone
+    /// connection's outbound direction, losing a direction costs the duty nothing, and it is entered.
     /// </summary>
-    [Fact]
-    public async Task ADirectionLostRightAfterASharedBindEndsTheReplayedDutyWhicheverConnectionLostIt()
+    [Theory]
+    [InlineData("chat", Protocol.Decoded.MessageDirection.Inbound)]
+    [InlineData("zone", Protocol.Decoded.MessageDirection.Outbound)]
+    public async Task ADirectionLostBeforeASharedBindThatNoStagedEventCameFromIsNoGap(
+        string connection, Protocol.Decoded.MessageDirection direction)
+    {
+        using var release = new ManualResetEventSlim();
+        var (pipeline, session) = await StartWithTheBindHeldAsync(release);
+        var evening = Bed.Evening().ToArray();
+        Bed.Feed(pipeline, session, Bed.Before(evening, 122_000));
+        pipeline.OnDirectionDamaged(session, connection, direction);
+        Bed.Feed(pipeline, session, Bed.From(Bed.Before(evening, 200_000), 122_000));
+
+        release.Set();
+        await Bed.Idle(pipeline);
+
+        Assert.Equal(ProfileOrigin.Shared, pipeline.Current.Origin);
+        Assert.Equal(RunState.EnteredDuty, pipeline.RunState);
+        var run = Assert.Single(RunsOf(session));
+        Assert.Equal(9, run.MentorRouletteId);
+        Assert.NotNull(run.EnteredAtUtc);
+        Assert.Null(run.EndedAtUtc);
+    }
+
+    /// <summary>
+    /// Audit 2026-10-03, CS3a-X1 and S33-5. Once a shared bind has drained its staging, the connections and
+    /// directions the drained events came from are known, as they are after the replay of a confirmed local
+    /// calibration: losing one of them ends the replayed duty INTERRUPTED at LOW, and losing a direction of the
+    /// chat server's connection leaves it alone.
+    /// </summary>
+    [Theory]
+    [InlineData("zone", RunResult.Interrupted)]
+    [InlineData("chat", null)]
+    public async Task ADirectionLostRightAfterASharedBindIsJudgedByWhereTheDrainedEventsCameFrom(
+        string connection, RunResult? expected)
     {
         using var release = new ManualResetEventSlim();
         var (pipeline, session) = await StartWithTheBindHeldAsync(release);
@@ -162,11 +196,19 @@ public sealed class SharedCalibrationPipelineTests : IDisposable
         await Bed.Idle(pipeline);
         Assert.Equal(RunState.EnteredDuty, pipeline.RunState);
 
-        pipeline.OnDirectionDamaged(session, "chat", Protocol.Decoded.MessageDirection.Inbound);
+        pipeline.OnDirectionDamaged(session, connection, Protocol.Decoded.MessageDirection.Inbound);
 
         var run = Assert.Single(RunsOf(session));
-        Assert.Equal(RunResult.Interrupted, run.Result);
-        Assert.Equal(DetectionConfidence.Low, run.DetectionConfidence);
+        if (expected is { } result)
+        {
+            Assert.Equal(result, run.Result);
+            Assert.Equal(DetectionConfidence.Low, run.DetectionConfidence);
+        }
+        else
+        {
+            Assert.Equal(RunState.EnteredDuty, pipeline.RunState);
+            Assert.Null(run.EndedAtUtc);
+        }
     }
 
     /// <summary>

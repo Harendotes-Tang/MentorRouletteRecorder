@@ -1483,8 +1483,8 @@
           "goal_count": { "type": "integer", "minimum": 1 },
           "baseline_completed_count": { "type": "integer", "minimum": 0 },
           "baseline_effective_at": { "$ref": "#/$defs/UtcTimestamp", "description": "The effective time as stored: the requested one when the baseline changed, otherwise the time kept from before." },
-          "updated_at_utc": { "$ref": "#/$defs/UtcTimestamp" },
-          "audit_event_id": { "$ref": "#/$defs/Uuid" },
+          "updated_at_utc": { "$ref": "#/$defs/UtcTimestamp", "description": "When the stored settings last changed. A save whose goal and baseline both equal the stored values changes nothing and answers the stored time." },
+          "audit_event_id": { "$ref": "#/$defs/Uuid", "description": "The history entry this save wrote. A save that changed nothing writes none and answers the entry that stored the current values, or a new id when the history has no such entry." },
           "idempotent_replay": { "type": "boolean", "default": false }
         }
       },

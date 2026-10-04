@@ -88,7 +88,8 @@ achievement_progress =
 ```
 
 - `baseline_completed_count` 是用户自行申报的、截至 `baseline_effective_at` 时游戏内已完成的次数，
-  经 `UpdateAchievementBaseline` 设置。该消息必须携带 `reason`，并写入审计。
+  经 `UpdateAchievementBaseline` 设置。该消息必须携带 `reason`；目标或基数有变化时写入审计。
+  目标与基数都与已保存的相同时不算修改：不写入设置与审计，也不发布 `stats_invalidated`，应答给出已保存的值。
 - 基数大于 0 时，它已经包含生效时间之前结束的全部完成，因此只有**在生效时间当刻或之后结束**的
   完成叠加在基数之上，更早结束的完成不再重复计入（`StatisticsRepository.CountedFrom`）。
   记录缺少结束时间时依次以进本时间、匹配时间定位；这两个时间都早于真实的结束时刻，

@@ -260,10 +260,15 @@ public sealed record ReflectionMutationOutcome(
 /// <param name="Settings">Settings as stored after the change.</param>
 /// <param name="AuditEventId">Identifier of the audit record.</param>
 /// <param name="IdempotentReplay">True when this replays an earlier request with the same id.</param>
+/// <param name="Changed">
+/// True when this request changed the stored settings; false for a save that left the goal and the
+/// baseline as they were, and for a replay.
+/// </param>
 public sealed record BaselineMutationOutcome(
     AchievementSettings Settings,
     string AuditEventId,
-    bool IdempotentReplay);
+    bool IdempotentReplay,
+    bool Changed);
 
 /// <summary>Helpers shared by the mutation validators.</summary>
 public static class MutationText

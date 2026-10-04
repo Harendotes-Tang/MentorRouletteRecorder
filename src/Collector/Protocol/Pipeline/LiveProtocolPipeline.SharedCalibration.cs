@@ -189,7 +189,10 @@ public sealed partial class LiveProtocolPipeline
     /// <summary>
     /// Hands the staged entries to the state machine through the path live events take, in order. What was
     /// staged more than <see cref="FreshMatchAge"/> ago, on the capture source's clock, is replayed rather
-    /// than announced (see <see cref="ApplyAndPublish"/>).
+    /// than announced (see <see cref="ApplyAndPublish"/>). The connection and direction each event came in on
+    /// are remembered as the bound parser's would be, and a direction lost while nothing was bound is judged
+    /// against them as it reaches the machine: the way the replay after a confirmed local calibration judges
+    /// it (<see cref="ReplayWhileCardWaited"/>; audit 2026-10-03, S33-5).
     /// </summary>
     private void DrainStaged(SharedCandidateStage stage)
     {
@@ -203,12 +206,20 @@ public sealed partial class LiveProtocolPipeline
                 {
                     case StagedEntryKind.Event when entry.Event is { } semanticEvent:
                         ApplyAndPublish(() => processor.Accept(semanticEvent), replayed: now - entry.Mono > FreshMatchAge);
+                        if (entry.ConnectionKey is { } connectionKey)
+                        {
+                            NoteProfileConnection(connectionKey, entry.Direction);
+                        }
+
                         break;
                     case StagedEntryKind.EventsDropped:
                         ApplyAndPublish(() => processor.OnEventsDropped(entry.DroppedCount, entry.AtUtc, entry.Mono));
                         break;
                     case StagedEntryKind.ConnectionLost:
                         ApplyAndPublish(() => processor.OnConnectionLost(entry.AtUtc, entry.Mono));
+                        break;
+                    case StagedEntryKind.DirectionDamaged when CarriesProfileMessages(entry.ConnectionKey!, entry.Direction):
+                        ApplyAndPublish(() => processor.OnEventsDropped(1, entry.AtUtc, entry.Mono));
                         break;
                 }
             }

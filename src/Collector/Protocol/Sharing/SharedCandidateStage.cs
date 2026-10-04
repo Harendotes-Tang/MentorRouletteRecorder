@@ -16,6 +16,12 @@ internal enum StagedEntryKind
 
     /// <summary>The game connection that had been delivering messages ended.</summary>
     ConnectionLost,
+
+    /// <summary>
+    /// The capture gave up one direction of one connection; a hole in the sequence only if the events
+    /// drained before it came in that way (audit 2026-10-03, S33-5).
+    /// </summary>
+    DirectionDamaged,
 }
 
 /// <summary>
@@ -28,8 +34,14 @@ internal enum StagedEntryKind
 /// <param name="Mono">Monotonic reading on the capture clock.</param>
 /// <param name="Event">The event, for <see cref="StagedEntryKind.Event"/>.</param>
 /// <param name="DroppedCount">Observations lost, for <see cref="StagedEntryKind.EventsDropped"/>.</param>
+/// <param name="ConnectionKey">
+/// Opaque key of the connection the event's message arrived on, or of the connection that lost a
+/// direction, for <see cref="StagedEntryKind.Event"/> and <see cref="StagedEntryKind.DirectionDamaged"/>.
+/// </param>
+/// <param name="Direction">The direction that message travelled in, or the direction lost.</param>
 internal sealed record StagedEntry(
-    StagedEntryKind Kind, DateTimeOffset AtUtc, TimeSpan Mono, SemanticEvent? Event = null, long DroppedCount = 0);
+    StagedEntryKind Kind, DateTimeOffset AtUtc, TimeSpan Mono, SemanticEvent? Event = null, long DroppedCount = 0,
+    string? ConnectionKey = null, MessageDirection Direction = MessageDirection.Inbound);
 
 /// <summary>
 /// A candidate parser and its bounded staging list for one capture session.
@@ -52,6 +64,9 @@ internal sealed class SharedCandidateStage
 
     private readonly List<StagedEntry> _entries = new();
     private readonly ProfileMessageParser _parser;
+
+    /// <summary>The message being parsed, so the event it yields is staged with its connection and direction.</summary>
+    private DecodedMessage? _parsing;
 
     /// <summary>Stages what <paramref name="profile"/> parses out of one session's messages.</summary>
     /// <param name="captureSessionId">Session whose messages are staged; others are ignored.</param>
@@ -86,7 +101,15 @@ internal sealed class SharedCandidateStage
         ArgumentNullException.ThrowIfNull(message);
         if (!Overflowed && string.Equals(message.CaptureSessionId, CaptureSessionId, StringComparison.Ordinal))
         {
-            _parser.Accept(message);
+            _parsing = message;
+            try
+            {
+                _parser.Accept(message);
+            }
+            finally
+            {
+                _parsing = null;
+            }
         }
     }
 
@@ -97,6 +120,11 @@ internal sealed class SharedCandidateStage
     /// <summary>Stages the end of the game connection.</summary>
     public void ConnectionLost(DateTimeOffset atUtc, TimeSpan mono) =>
         Add(new StagedEntry(StagedEntryKind.ConnectionLost, atUtc, mono));
+
+    /// <summary>Stages the loss of one direction of one connection, in its place among the events.</summary>
+    public void DirectionDamaged(string connectionKey, MessageDirection direction, DateTimeOffset atUtc, TimeSpan mono) =>
+        Add(new StagedEntry(
+            StagedEntryKind.DirectionDamaged, atUtc, mono, ConnectionKey: connectionKey, Direction: direction));
 
     /// <summary>Hands over every staged entry in arrival order and empties the list.</summary>
     public IReadOnlyList<StagedEntry> Drain()
@@ -131,6 +159,9 @@ internal sealed class SharedCandidateStage
         public Sink(SharedCandidateStage stage) => _stage = stage;
 
         public void Accept(SemanticEvent semanticEvent) =>
-            _stage.Add(new StagedEntry(StagedEntryKind.Event, semanticEvent.ObservedAtUtc, semanticEvent.Mono, semanticEvent));
+            _stage.Add(new StagedEntry(
+                StagedEntryKind.Event, semanticEvent.ObservedAtUtc, semanticEvent.Mono, semanticEvent,
+                ConnectionKey: _stage._parsing?.ConnectionKey,
+                Direction: _stage._parsing?.Direction ?? MessageDirection.Inbound));
     }
 }

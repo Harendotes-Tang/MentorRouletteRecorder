@@ -96,7 +96,7 @@ public sealed class RunRepository
 
         throw new CollectorException(
             ErrorCodes.RevisionConflict,
-            $"该记录已被修改（当前 revision = {current.Revision}），请刷新后重试。",
+            "这条记录已在别处被修改，请刷新后重试。",
             new Dictionary<string, object?>
             {
                 ["run_id"] = run.RunId,

@@ -244,10 +244,10 @@ public sealed partial class LiveProtocolPipeline :
 
     /// <summary>
     /// Directions of connections, by the opaque key their messages carry, that delivered at least one
-    /// message the bound parser turned into an event this session. Giving up one of them is a gap in
-    /// the run's sequence; giving up any other - the chat server's connection, or the zone connection's
-    /// outbound direction on a profile that parses nothing the client sends - is not (see
-    /// <see cref="OnDirectionDamaged"/>; audit 2026-10-03, V2-1).
+    /// message the bound parser - or the staging a shared bind drained - turned into an event this
+    /// session. Giving up one of them is a gap in the run's sequence; giving up any other - the chat
+    /// server's connection, or the zone connection's outbound direction on a profile that parses
+    /// nothing the client sends - is not (see <see cref="OnDirectionDamaged"/>; audit 2026-10-03, V2-1).
     /// </summary>
     private readonly HashSet<(string ConnectionKey, MessageDirection Direction)> _profileConnections = new();
 
@@ -729,9 +729,10 @@ public sealed partial class LiveProtocolPipeline :
     /// direction that never delivered a message the bound profile parses - either direction of the
     /// chat server's connection, or the outbound direction of the zone connection when the profile
     /// reads only what the server sends - loses nothing a run is followed by (CS3a-X1, V2-1). With
-    /// nothing bound yet the hole goes into every candidate's staging in sequence, as an overflow
-    /// does: no parser has said which direction carries the run. It is kept among the messages the
-    /// calibration card waits with, too, and judged by direction when they are replayed (V2-2).
+    /// nothing bound yet no parser has said which direction carries the run, so the loss is kept with
+    /// its connection and direction in its place: in every candidate's staging, and among the messages
+    /// the calibration card waits with. Either is judged by direction when it reaches the state machine,
+    /// against what was handed over before it (V2-2, S33-5).
     /// </remarks>
     public void OnDirectionDamaged(string captureSessionId, string connectionKey, MessageDirection direction)
     {
@@ -745,7 +746,7 @@ public sealed partial class LiveProtocolPipeline :
 
             if (_processor is null)
             {
-                _shared.EventsDropped(1, _clock.UtcNow, LifecycleMono());
+                _shared.DirectionDamaged(connectionKey, direction, _clock.UtcNow, LifecycleMono());
                 KeepLossWhileCardWaits(CardWaitKind.DirectionDamaged, connectionKey: connectionKey, direction: direction);
                 return;
             }
@@ -769,18 +770,32 @@ public sealed partial class LiveProtocolPipeline :
     /// <param name="parsedAfter">The parser's successful parses after it.</param>
     private void NoteProfileConnection(DecodedMessage message, long parsedBefore, long parsedAfter)
     {
-        if (parsedAfter > parsedBefore && _profileConnections.Count < MaxProfileConnections)
+        if (parsedAfter > parsedBefore)
         {
-            _profileConnections.Add((message.ConnectionKey, message.Direction));
+            NoteProfileConnection(message.ConnectionKey, message.Direction);
+        }
+    }
+
+    /// <summary>
+    /// Remembers a direction that delivered a message turned into an event: by the bound parser, or by
+    /// the staging a shared bind drains (<see cref="DrainStaged"/>).
+    /// </summary>
+    /// <param name="connectionKey">Opaque key of the connection the message arrived on.</param>
+    /// <param name="direction">The direction it travelled in.</param>
+    private void NoteProfileConnection(string connectionKey, MessageDirection direction)
+    {
+        if (_profileConnections.Count < MaxProfileConnections)
+        {
+            _profileConnections.Add((connectionKey, direction));
         }
     }
 
     /// <summary>
     /// True when giving up <paramref name="direction"/> of <paramref name="connectionKey"/> may have
-    /// cost the run something: that direction delivered a message the bound parser turned into an
-    /// event. Also true while no direction has done so yet this session - a run a shared bind
-    /// replayed from its staging came through no parser that could say which direction carried it -
-    /// and once too many directions were remembered to tell.
+    /// cost the run something: that direction delivered a message the bound parser, or the staging a
+    /// shared bind drained, turned into an event. Also true while no direction has done so yet this
+    /// session - nothing has said yet which direction carries a run - and once too many directions were
+    /// remembered to tell.
     /// </summary>
     /// <param name="connectionKey">Opaque key of the connection that lost a direction.</param>
     /// <param name="direction">The direction it lost.</param>

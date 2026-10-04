@@ -378,6 +378,45 @@ public sealed class FirstPacketTests
         Assert.Equal(new[] { "message 1", "ended 41000", "message 2" }, reports);
     }
 
+    /// <summary>
+    /// Audit 2026-10-03, S33-6. The reader thread keeps going while a pump makes the reports it found
+    /// earlier. What it finds meanwhile - here a second connection reconnecting on its own four-tuple -
+    /// still came before anything that pump decodes, so it is told before that pump's messages as well.
+    /// It used to wait for the end of the pump, behind the first message of the new stream on that tuple.
+    /// </summary>
+    [Fact]
+    public void WhatTheReaderFindsWhileAPumpReportsIsToldBeforeThatPumpsMessages()
+    {
+        var reports = new List<string>();
+        var reconnected = false;
+        FirstPacketBuffer? buffer = null;
+        buffer = new FirstPacketBuffer(Local, 42, c => new FirstPacketDecoder(c,
+            (_, _, bytes, _) => reports.Add("message " + BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(18)))),
+            ownedStreamEnded: connection =>
+            {
+                reports.Add("ended " + connection.LocalPort);
+                if (reconnected) return;
+                reconnected = true;
+                // The reader thread, between this report and the decode.
+                buffer!.Offer(Packet(false, 3000, 2, port: 41001), 101);
+                buffer.Offer(Packet(false, 3001, 24, Bundle(3), port: 41001), 101);
+            });
+        foreach (var port in new ushort[] { 41000, 41001 })
+        {
+            buffer.Offer(Packet(false, 100, 2, port: port), 101);
+            buffer.Offer(Packet(false, 101, 24, Bundle(1), port: port), 101);
+        }
+        buffer.Pump(new[] { Owned(), Owned(41001) });
+        Assert.Equal(new[] { "message 1", "message 1" }, reports);
+
+        buffer.Offer(Packet(false, 2000, 2), 101);
+        buffer.Offer(Packet(false, 2001, 24, Bundle(2)), 101);
+        buffer.Pump(new[] { Owned(), Owned(41001) });
+
+        Assert.Equal(new[] { "ended 41000", "ended 41001" }, reports.Skip(2).Take(2));
+        Assert.Equal(new[] { "message 2", "message 3" }, reports.Skip(4).Order());
+    }
+
     [Theory]
     [InlineData(1)]
     [InlineData(4)]

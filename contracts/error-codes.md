@@ -15,14 +15,14 @@
   "ok": false,
   "error": {
     "code": "ERR_REVISION_CONFLICT",
-    "message": "该记录已被修改（当前 revision = 4），请刷新后重试。",
+    "message": "这条记录已在别处被修改，请刷新后重试。",
     "details": { "run_id": "…", "current_revision": 4, "expected_revision": 3 },
     "field": null,
     "retryable": false
   },
   "payload": {
     "code": "ERR_REVISION_CONFLICT",
-    "message": "该记录已被修改（当前 revision = 4），请刷新后重试。",
+    "message": "这条记录已在别处被修改，请刷新后重试。",
     "details": { "run_id": "…", "current_revision": 4, "expected_revision": 3 },
     "field": null,
     "retryable": false

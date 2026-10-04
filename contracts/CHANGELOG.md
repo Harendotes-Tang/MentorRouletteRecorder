@@ -1,5 +1,11 @@
 # IPC 契约变更记录 / IPC contract changelog
 
+## 2026-10-04 · 原样保存成就设置不再算作修改
+
+行为说明，线上格式不变，不新增消息类型。
+
+- `UpdateAchievementBaseline`：`goal_count` 与 `baseline_completed_count` 都与已保存的值相同时，不写入设置与修改记录，也不发布 `stats_invalidated`；应答给出已保存的值——`updated_at_utc` 与 `baseline_effective_at` 为已保存的时间，`audit_event_id` 为写下当前值的那条修改记录的编号（修改记录中没有这样一条时为新编号），`idempotent_replay` 为 `false`。同一 `request_id` 重发仍按幂等约定返回首次的结果。
+
 ## 2026-10-03 · 请求字段与契约对齐、存储与启动拒绝的约定修正
 
 删除一个从未生效的可选请求字段，`GetResultStats` 改用自己的请求定义，其余是既有字段的取值规则、错误约定与说明文字。不新增消息类型，消息数目不变。

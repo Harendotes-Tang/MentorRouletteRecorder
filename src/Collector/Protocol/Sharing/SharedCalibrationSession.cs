@@ -315,6 +315,15 @@ internal sealed partial class SharedCalibrationSession
         }
     }
 
+    /// <summary>One direction of one connection was given up while nothing was bound.</summary>
+    public void DirectionDamaged(string connectionKey, MessageDirection direction, DateTimeOffset atUtc, TimeSpan mono)
+    {
+        foreach (var candidate in _candidates)
+        {
+            candidate.Stage?.DirectionDamaged(connectionKey, direction, atUtc, mono);
+        }
+    }
+
     /// <summary>
     /// A run finished. True when it was the first complete duty of the shared profile in use and nothing is
     /// left to audit, so the watch ends now; a published code whose match is still being audited stays

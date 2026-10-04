@@ -518,7 +518,9 @@ public sealed class MessageDispatcher
         var outcome = _host.Mutations.UpdateAchievementBaseline(
             RequestParsers.UpdateBaseline(requestId, reader));
 
-        if (!outcome.IdempotentReplay)
+        // A replay, or a save that left the goal and the baseline as they were, changed nothing the
+        // statistics read (audit 2026-10-03, S33-3).
+        if (outcome.Changed)
         {
             _host.LiveEvents.PublishStatsInvalidated("成就基线已更新，统计需要重新查询。");
         }
