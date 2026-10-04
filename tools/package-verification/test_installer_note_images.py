@@ -28,9 +28,12 @@ IMAGE_DIRECTORY = r"{app}\note-images"
 ADMINISTRATORS = "S-1-5-32-544"
 SYSTEM = "S-1-5-18"
 USERS = "S-1-5-32-545"
-# Rights that let an account change a program file, its ACL or its owner. Only these two
-# well-known administrative principals may hold them on the install folder.
-WRITE_RIGHTS = {"F", "M", "W", "D", "DC", "WD", "AD", "WDAC", "WO", "GA", "GW"}
+# Rights that let an account change a program file, its ACL or its owner: FILE_WRITE_DATA
+# (FILE_ADD_FILE), FILE_APPEND_DATA (FILE_ADD_SUBDIRECTORY), FILE_DELETE_CHILD, DELETE,
+# WRITE_DAC, WRITE_OWNER. Only Administrators and SYSTEM may hold them on the install folder.
+WRITE_MASK = 0x2 | 0x4 | 0x40 | 0x10000 | 0x40000 | 0x80000
+FULL_CONTROL, MODIFY, READ_EXECUTE = 0x1F01FF, 0x1301BF, 0x1200A9
+SDDL_FILE_RIGHTS = {"FA": FULL_CONTROL}
 
 
 def installer_text():
@@ -157,6 +160,54 @@ def sdk_by_handle_layout():
     return ctypes.sizeof(layout), {name: getattr(layout, name).offset for name, _ in fields}
 
 
+def sddl_dacl(sddl):
+    """(control flags, [(type, flags, mask, trustee)]) of a DACL-only SDDL string."""
+    match = re.fullmatch(r"D:([A-Z]*)((?:\([^)]*\))+)", sddl)
+    if not match:
+        raise AssertionError(f"not a DACL-only SDDL string: {sddl}")
+    entries = []
+    for ace_type, flags, rights, trustee in re.findall(r"\((\w+);(\w*);(\w+);;;([\w-]+)\)",
+                                                        match.group(2)):
+        mask = int(rights, 16) if rights.lower().startswith("0x") else SDDL_FILE_RIGHTS[rights]
+        entries.append((ace_type, flags, mask, trustee))
+    return match.group(1), entries
+
+
+def sddl_aces(sddl):
+    """(trustee, mask) of every entry of a DACL-only SDDL string."""
+    return [(trustee, mask) for _, _, mask, trustee in sddl_dacl(sddl)[1]]
+
+
+def apply_dacl_like_setup(path, sddl, numbers):
+    """What ApplyDacl does: convert the SDDL with SddlRevision1, SetFileSecurityW with
+    ProtectedDaclInformation, LocalFree. Returns 0 or the Windows error code."""
+    from ctypes import wintypes
+    advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    convert = advapi32.ConvertStringSecurityDescriptorToSecurityDescriptorW
+    convert.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, ctypes.POINTER(wintypes.LPVOID),
+                        ctypes.POINTER(wintypes.ULONG)]
+    convert.restype = wintypes.BOOL
+    advapi32.SetFileSecurityW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.LPVOID]
+    advapi32.SetFileSecurityW.restype = wintypes.BOOL
+    kernel32.LocalFree.argtypes = [wintypes.LPVOID]
+    descriptor = wintypes.LPVOID()
+    if not convert(sddl, numbers["SddlRevision1"], ctypes.byref(descriptor), None):
+        return ctypes.get_last_error() or -1
+    try:
+        if advapi32.SetFileSecurityW(str(path), numbers["ProtectedDaclInformation"], descriptor):
+            return 0
+        return ctypes.get_last_error() or -1
+    finally:
+        kernel32.LocalFree(descriptor)
+
+
+def staged_packages():
+    """Unpacked packages under artifacts/ (absent on a clean checkout)."""
+    return sorted(path for path in (REPO / "artifacts").glob("MentorRecorder-*-win-x64")
+                  if path.is_dir())
+
+
 def matching_end(code, start):
     """Index just past the `end` that closes the first begin/try/case at or after start."""
     depth = 0
@@ -201,16 +252,25 @@ def icacls_grants(arguments):
 
 class InstallerNoteImageTests(unittest.TestCase):
     def test_only_image_directory_receives_ordinary_user_modify_permission(self):
+        # A Permissions parameter in any section goes through SetNamedSecurityInfo, which
+        # pushes the grant onto every file already below - including a file that is merely a
+        # hard link to a file elsewhere. None may remain; note-images gets its grant from
+        # [Code] (ApplyDacl with NoteImagesSddl, no propagation), and nothing else does.
         sections = installer_sections()
-        permission_entries = [(section, entry_fields(line))
-                              for section, lines in sections.items() if section != "code"
-                              for line in lines if "permissions:" in line.lower()]
-        self.assertEqual(1, len(permission_entries),
-                         "Only note-images may receive an explicit writable ACL")
-        section, entry = permission_entries[0]
-        self.assertEqual("dirs", section)
-        self.assertEqual(IMAGE_DIRECTORY, entry.get("name"))
-        self.assertEqual("users-modify", entry.get("permissions"))
+        permission_entries = [(section, line) for section, lines in sections.items()
+                              if section != "code" for line in lines
+                              if "permissions:" in line.lower()]
+        self.assertEqual([], permission_entries)
+        code = pascal_code()
+        constants = pascal_constants(code)
+        writable = [name for name, value in constants.items() if name.endswith("Sddl")
+                    and any(sid not in ("BA", "SY") and mask & WRITE_MASK
+                            for sid, mask in sddl_aces(value))]
+        self.assertEqual(["NoteImagesSddl"], writable)
+        self.assertRegex(routine(code, "ProtectInstallDirectory"),
+                         r"ApplyDacl\(Images,\s*NoteImagesSddl\)")
+        self.assertRegex(routine(code, "ProtectInstallDirectory"),
+                         r"Images\s*:=\s*AddBackslash\(Dir\)\s*\+\s*NoteImagesDirName")
 
     def test_image_directory_is_retained_on_uninstall(self):
         entries = [entry_fields(line) for line in installer_sections().get("dirs", [])]
@@ -308,31 +368,32 @@ class InstallDirectoryProtectionTests(unittest.TestCase):
     def setUp(self):
         self.code = pascal_code()
         self.constants = pascal_constants(self.code)
+        self.numbers = pascal_numbers(self.code)
 
     def icacls_arguments(self):
         arguments = {name: value for name, value in self.constants.items()
                      if name.startswith("Icacls")}
-        self.assertEqual({"IcaclsOwnerArgs", "IcaclsResetArgs", "IcaclsProtectArgs"},
-                         set(arguments))
+        self.assertEqual({"IcaclsOwnerArgs", "IcaclsResetArgs"}, set(arguments))
         return arguments
 
     def test_protection_runs_before_any_file_is_copied(self):
         # ssInstall comes before [InstallDelete], [Dirs] and [Files] ("Installation Order"
-        # in the Inno Setup help), so every file Setup writes inherits the protected ACL,
-        # and the note-images grant in [Dirs] is added on top of it.
+        # in the Inno Setup help), so every file and folder Setup creates afterwards inherits
+        # the protected entries on creation.
         install = branch(routine(self.code, "CurStepChanged"), r"CurStep\s*=\s*ssInstall")
         self.assertRegex(install, r"ProtectInstallDirectory\(ExpandConstant\('\{app\}'\)\)")
         self.assertRegex(install, r"SuppressibleMsgBox\(")
         self.assertRegex(install, r"(?i)\bAbort\s*;")
 
-    def test_icacls_is_the_system32_copy_and_its_exit_code_is_checked(self):
+    def test_icacls_is_the_system32_copy_and_every_failure_is_checked(self):
         runner = routine(self.code, "RunIcacls")
         self.assertIn(r"ExpandConstant('{sys}\icacls.exe')", runner)
         protect = routine(self.code, "ProtectInstallDirectory")
-        for name in ("IcaclsOwnerArgs", "IcaclsResetArgs", "IcaclsProtectArgs"):
-            self.assertIn(f"RunIcacls(Dir, {name})", protect)
+        self.assertIn("RunIcacls(Dir, IcaclsOwnerArgs)", protect)
+        self.assertIn("ApplyDacl(Dir, AppDirSddl)", protect)
         self.assertRegex(protect, r"Code\s*<>\s*0")
         self.assertRegex(protect, r"CustomMessage\('InstallDirProtectFailed'\)")
+        self.assertRegex(protect, r"CustomMessage\('NoteImagesGrantFailed'\)")
 
     def test_icacls_names_accounts_by_well_known_sid_only(self):
         # Account names are localised ("Users" is "用户" on a Chinese Windows); a SID is not.
@@ -341,43 +402,116 @@ class InstallDirectoryProtectionTests(unittest.TestCase):
                 for token in re.findall(r"(?:/grant(?::r)?|/setowner)\s+((?:[^/\s]+\s*)+)", arguments):
                     for principal in token.split():
                         self.assertRegex(principal, r"^\*S-1-[0-9-]+(:.*)?$")
+        # The DACLs name accounts by well-known SID alias only (BA, SY, BU).
+        for name in ("AppDirSddl", "NoteImagesSddl"):
+            with self.subTest(constant=name):
+                self.assertEqual({"BA", "SY", "BU"},
+                                 {trustee for trustee, _ in sddl_aces(self.constants[name])})
 
     def test_the_install_folder_gets_a_protected_dacl(self):
+        control, entries = sddl_dacl(self.constants["AppDirSddl"])
+        self.assertEqual("PAI", control)
+        self.assertEqual([("A", "OICI", FULL_CONTROL, "BA"), ("A", "OICI", FULL_CONTROL, "SY"),
+                          ("A", "OICI", READ_EXECUTE, "BU")], entries)
+        self.assertEqual(1, self.numbers["SddlRevision1"])
+        # DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION
+        self.assertEqual(0x80000004, self.numbers["ProtectedDaclInformation"])
         arguments = self.icacls_arguments()
-        protect = arguments["IcaclsProtectArgs"]
-        self.assertIn("/inheritance:r", protect)
-        self.assertIn("/grant:r", protect)
-        grants = dict((sid, rights) for sid, rights in icacls_grants(protect))
-        self.assertEqual({ADMINISTRATORS: {"F"}, SYSTEM: {"F"}, USERS: {"RX"}}, grants)
-        self.assertEqual(3, len(re.findall(r"\(OI\)\(CI\)", protect)))
-        self.assertIn("/reset", arguments["IcaclsResetArgs"])
+        self.assertIn("/reset", arguments["IcaclsResetArgs"].split())
         self.assertIn(f"/setowner *{ADMINISTRATORS}", arguments["IcaclsOwnerArgs"])
         for name, value in arguments.items():
             with self.subTest(constant=name):
-                # /L: act on a link itself, never on the folder it points to.
+                # /L: act on a link itself, never on what it points to. Neither grants anything.
                 self.assertIn("/L", value.split())
+                self.assertEqual([], icacls_grants(value))
 
     def test_note_images_is_the_only_user_writable_grant(self):
-        for name, arguments in self.icacls_arguments().items():
-            for sid, rights in icacls_grants(arguments):
-                if sid not in (ADMINISTRATORS, SYSTEM):
-                    with self.subTest(constant=name, sid=sid):
-                        self.assertFalse(rights & WRITE_RIGHTS, rights)
+        for trustee, mask in sddl_aces(self.constants["AppDirSddl"]):
+            if trustee not in ("BA", "SY"):
+                with self.subTest(trustee=trustee):
+                    self.assertFalse(mask & WRITE_MASK, hex(mask))
+        control, entries = sddl_dacl(self.constants["NoteImagesSddl"])
+        self.assertEqual("PAI", control)
+        # Users get exactly the mask Inno's own "users-modify" granted in 1.5.0 ($1301BF).
+        self.assertEqual([("A", "OICI", FULL_CONTROL, "BA"), ("A", "OICI", FULL_CONTROL, "SY"),
+                          ("A", "OICI", MODIFY, "BU")], entries)
 
     def test_links_are_refused_before_anything_is_granted(self):
         protect = routine(self.code, "ProtectInstallDirectory")
         probe = routine(self.code, "IsReparsePoint")
         self.assertIn("FILE_ATTRIBUTE_REPARSE_POINT", probe)
         self.assertEqual("note-images", self.constants.get("NoteImagesDirName"))
-        # {app} itself before icacls touches it; note-images after {app} is protected (so
-        # no ordinary user can swap it any more) and before [Dirs] grants users-modify on it.
+        # {app} itself before icacls touches it; note-images after {app} is protected (so no
+        # ordinary user can swap it any more) and before its own grant is applied.
         app_check = protect.index("IsReparsePoint(Dir)")
-        images_check = protect.index("IsReparsePoint(AddBackslash(Dir) + NoteImagesDirName)")
-        first_icacls = protect.index("RunIcacls(")
-        last_icacls = protect.rindex("RunIcacls(")
-        self.assertLess(app_check, first_icacls)
-        self.assertGreater(images_check, last_icacls)
+        self.assertLess(app_check, protect.index("RunIcacls("))
+        images_check = protect.index("IsReparsePoint(Images)")
+        self.assertGreater(images_check, protect.index("ApplyDacl(Dir, AppDirSddl)"))
+        self.assertLess(images_check, protect.index("ApplyDacl(Images, NoteImagesSddl)"))
+        self.assertLess(images_check, protect.index("CreateDir(Images)"))
         self.assertRegex(protect, r"CustomMessage\('NoteImagesIsLink'\)")
+
+    def test_no_propagating_acl_call_reaches_app_or_note_images(self):
+        # No ACL change Setup makes may reach a file that is merely hard-linked into the install
+        # folder. icacls (other than /setowner, which sets one object's owner, and a bare listing)
+        # and SetNamedSecurityInfo/SetSecurityInfo propagate to what already sits below; the
+        # folders' DACLs must go through ApplyDacl (SetFileSecurityW) instead.
+        protect = routine(self.code, "ProtectInstallDirectory")
+        owner_calls = [call.strip() for call in re.findall(r"RunIcacls\(([^)]*)\)", protect)]
+        # Both folders are re-owned (and nothing else is done to them through icacls): a folder an
+        # ordinary user created before Setup ran would otherwise keep that user as its owner.
+        self.assertEqual(["Dir, IcaclsOwnerArgs", "Images, IcaclsOwnerArgs"], owner_calls)
+        self.assertLess(protect.index("RunIcacls(Images, IcaclsOwnerArgs)"),
+                        protect.index("ApplyDacl(Images, NoteImagesSddl)"))
+        self.assertNotRegex(self.code, r"(?i)SetNamedSecurityInfo|SetSecurityInfo\b|SetEntriesInAcl")
+        self.assertNotRegex(self.code, r"/grant|/inheritance|/deny|/remove")
+        calls = re.findall(r"(?<!function )RunIcacls\(([^,()]+),\s*([^)]*)\)", self.code)
+        self.assertTrue(calls)
+        for target, arguments in calls:
+            with self.subTest(target=target, arguments=arguments):
+                self.assertIn(arguments.strip(), ("IcaclsOwnerArgs", "IcaclsResetArgs", "''"))
+        self.assertIn("RunIcacls(Path, '')", routine(self.code, "LogAcl"))
+        apply = routine(self.code, "ApplyDacl")
+        self.assertIn("SetFileSecurityW(Path, ProtectedDaclInformation, Descriptor)", apply)
+        self.assertRegex(apply, r"(?is)ConvertStringSecurityDescriptorToSecurityDescriptorW\(Sddl,\s*"
+                                r"SddlRevision1,\s*Descriptor,\s*0\)")
+        self.assertRegex(apply, r"(?is)\bfinally\s+LocalFree\(Descriptor\)")
+        self.assertRegex(apply, r"(?i)\bexcept\b")
+        for name, dll in (("ConvertStringSecurityDescriptorToSecurityDescriptorW", "advapi32"),
+                          ("SetFileSecurityW", "advapi32"), ("LocalFree", "kernel32")):
+            with self.subTest(function=name):
+                self.assertRegex(self.code, rf"(?s)function {name}\(.*?\)\s*:\s*Longint;\s*"
+                                            rf"external '{name}@{dll}\.dll stdcall setuponly';")
+        self.assertRegex(self.code, r"var SecurityDescriptor:\s*Longint;")
+
+    def test_the_resulting_acls_are_written_to_the_setup_log(self):
+        protect = routine(self.code, "ProtectInstallDirectory")
+        sweep = protect.index("ProtectTopLevelFiles(Dir)")
+        self.assertGreater(protect.index("LogAcl(Dir)"), sweep)
+        self.assertGreater(protect.index("LogAcl(Images)"), sweep)
+
+    def test_every_folder_a_package_ever_shipped_is_cleared_on_install(self):
+        # Without propagation, a code folder that survived an upgrade would keep its old ACL.
+        # Every folder any staged package put directly in {app} must therefore be removed by
+        # [InstallDelete] (and recreated by [Files]). Skipped on a checkout without artifacts/.
+        packages = staged_packages()
+        if not packages:
+            self.skipTest("no unpacked package under artifacts/")
+        cleared = {entry.get("name") for entry in
+                   (entry_fields(line) for line in installer_sections().get("installdelete", []))
+                   if entry.get("type") == "filesandordirs"}
+        for package in packages:
+            for folder in (path for path in package.iterdir() if path.is_dir()):
+                with self.subTest(package=package.name, folder=folder.name):
+                    self.assertIn("{app}\\" + folder.name.lower(), cleared)
+
+    def test_the_note_images_grant_failure_message_exists_in_both_languages(self):
+        messages = _custom_messages()
+        for language in ("chinesesimplified", "english"):
+            with self.subTest(language=language):
+                text = messages[f"{language}.noteimagesgrantfailed"]
+                self.assertIn("%1", text)
+                self.assertIn("%2", text)
 
     def test_a_folder_holding_other_files_is_refused_on_the_directory_page(self):
         # Protecting a folder that already holds someone's other files would make those
@@ -429,7 +563,7 @@ class InstallDirectoryProtectionTests(unittest.TestCase):
         # let an ordinary user rename {app} away). Once {app} is protected, that it is still a
         # real directory and not a link is checked again, before any file is copied into it.
         protect = routine(self.code, "ProtectInstallDirectory")
-        last_app_icacls = protect.rindex("RunIcacls(Dir,")
+        last_app_icacls = protect.index("ApplyDacl(Dir, AppDirSddl)")
         tail = protect[last_app_icacls:]
         self.assertIn("IsReparsePoint(Dir)", tail,
                       "{app} must be re-checked for being a link after it is protected")
@@ -442,7 +576,7 @@ class InstallDirectoryProtectionTests(unittest.TestCase):
         protect = routine(self.code, "ProtectInstallDirectory")
         self.assertRegex(protect, r"ProtectTopLevelFiles\(Dir\)")
         self.assertGreater(protect.index("ProtectTopLevelFiles(Dir)"),
-                           protect.rindex("RunIcacls(Dir, IcaclsProtectArgs)"))
+                           protect.index("ApplyDacl(Dir, AppDirSddl)"))
         sweep = routine(self.code, "ProtectTopLevelFiles")
         self.assertIn("FindFirst(", sweep)
         self.assertIn("FILE_ATTRIBUTE_DIRECTORY", sweep)
@@ -543,13 +677,46 @@ def is_elevated():
 
 @unittest.skipUnless(os.name == "nt" and shutil.which("pwsh"), "Windows ACLs and pwsh")
 class InstallDirectoryAclRunTests(unittest.TestCase):
-    """Runs the installer's own icacls arguments against a scratch folder."""
+    """Runs the installer's own icacls arguments and DACLs against a scratch folder."""
 
     ICACLS = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "icacls.exe"
 
     def icacls(self, target, arguments):
         return subprocess.run([str(self.ICACLS), str(target), *arguments.split()],
                               capture_output=True, timeout=60).returncode
+
+    def protect_app_like_setup(self):
+        """ProtectInstallDirectory steps 2 and 3: /setowner, then ApplyDacl(Dir, AppDirSddl)."""
+        code = pascal_code()
+        constants, numbers = pascal_constants(code), pascal_numbers(code)
+        owner = self.icacls(self.app, constants["IcaclsOwnerArgs"])
+        # Setting the owner to Administrators needs an elevated token, which Setup has.
+        self.assertIn(owner, (0,) if is_elevated() else (0, 1307))
+        self.assertEqual(0, apply_dacl_like_setup(self.app, constants["AppDirSddl"], numbers))
+
+    def grant_images_like_setup(self):
+        """ProtectInstallDirectory step 5: ApplyDacl(Images, NoteImagesSddl)."""
+        code = pascal_code()
+        self.assertEqual(0, apply_dacl_like_setup(self.images, pascal_constants(code)["NoteImagesSddl"],
+                                                  pascal_numbers(code)))
+
+    def descriptor(self, path):
+        """The whole security descriptor - owner, group, DACL - as SDDL."""
+        literal = "'" + str(path).replace("'", "''") + "'"
+        completed = subprocess.run([shutil.which("pwsh"), "-NoProfile", "-NonInteractive",
+                                    "-Command", f"(Get-Acl -LiteralPath {literal}).Sddl"],
+                                   capture_output=True, text=True, encoding="utf-8",
+                                   errors="replace", timeout=60)
+        self.assertEqual(0, completed.returncode, completed.stderr)
+        return completed.stdout.strip()
+
+    def assert_exact_acl(self, path, expected):
+        acl = self.acl(path)
+        self.assertTrue(acl["protected"])
+        self.assertFalse([rule for rule in acl["rules"] if rule["inherited"]], acl["rules"])
+        self.assertEqual(sorted(expected), sorted((rule["sid"], rule["rights"]) for rule in acl["rules"]))
+        self.assertTrue(all(rule["flags"] == "ContainerInherit, ObjectInherit"
+                            and rule["allow"] == "Allow" for rule in acl["rules"]), acl["rules"])
 
     def acl(self, path):
         literal = "'" + str(path).replace("'", "''") + "'"
@@ -596,42 +763,26 @@ class InstallDirectoryAclRunTests(unittest.TestCase):
             self.icacls(self.root, f"/grant *{me}:(OI)(CI)F /T /C /Q")
         shutil.rmtree(self.root, ignore_errors=True)
 
-    def test_the_installer_arguments_produce_the_intended_acl(self):
-        constants = pascal_constants(pascal_code())
-        owner = self.icacls(self.app, constants["IcaclsOwnerArgs"])
-        # Setting the owner to Administrators needs an elevated token, which Setup has.
-        self.assertIn(owner, (0,) if is_elevated() else (0, 1307))
-        self.assertEqual(0, self.icacls(self.app, constants["IcaclsResetArgs"]))
-        self.assertEqual(0, self.icacls(self.app, constants["IcaclsProtectArgs"]))
+    def test_the_installer_dacls_are_exact_and_reach_nothing_below(self):
+        # The folder gets exactly the protected DACL; nothing that already sat below it is
+        # touched (no propagation): an existing program file and a code folder's file keep
+        # their old ACLs - they are re-owned/reset by the sweep or removed by [InstallDelete] -
+        # and neither the junction's target nor the user's image changes.
+        untouched = (self.app / "MentorRecorder.Desktop.exe", self.app / "qml" / "Main.qml",
+                     self.images / "image.png", self.outside / "elsewhere.txt")
+        before = {path: self.descriptor(path) for path in untouched}
 
-        app = self.acl(self.app)
-        self.assertTrue(app["protected"])
-        self.assertFalse([rule for rule in app["rules"] if rule["inherited"]])
-        full_control, read_execute = 0x1F01FF, 0x1200A9
-        self.assertEqual(
-            sorted([(ADMINISTRATORS, full_control), (SYSTEM, full_control), (USERS, read_execute)]),
-            sorted((rule["sid"], rule["rights"]) for rule in app["rules"]))
-        self.assertTrue(all(rule["flags"] == "ContainerInherit, ObjectInherit" for rule in app["rules"]))
-
-        write_mask = 0x2 | 0x4 | 0x40 | 0x10000 | 0x40000 | 0x80000  # write/append data, delete child, delete, WRITE_DAC, WRITE_OWNER
-        for path in (self.app / "MentorRecorder.Desktop.exe", self.app / "qml" / "Main.qml"):
-            with self.subTest(program_file=path.name):
-                rules = self.acl(path)["rules"]
-                self.assertFalse([rule for rule in rules
-                                  if rule["sid"] not in (ADMINISTRATORS, SYSTEM)
-                                  and rule["allow"] == "Allow" and rule["rights"] & write_mask],
-                                 rules)
-
-        # The earlier note-images grant and the user's image are left as they were.
-        images = self.acl(self.images)["rules"]
-        self.assertTrue([rule for rule in images
-                         if rule["sid"] == USERS and not rule["inherited"] and rule["rights"] & 0x2])
-        image = self.acl(self.images / "image.png")["rules"]
-        self.assertTrue([rule for rule in image if rule["sid"] == USERS and rule["rights"] & 0x2])
-
-        # The junction inside {app} was not followed.
-        outside = self.acl(self.outside / "elsewhere.txt")
-        self.assertFalse([rule for rule in outside["rules"] if rule["sid"] == USERS])
+        self.protect_app_like_setup()
+        self.assert_exact_acl(self.app, [(ADMINISTRATORS, FULL_CONTROL), (SYSTEM, FULL_CONTROL),
+                                         (USERS, READ_EXECUTE)])
+        self.grant_images_like_setup()
+        # note-images already carried the 1.5.0 [Dirs] grant plus entries inherited from the old
+        # {app}: it ends with exactly the intended three entries, no duplicate, nothing stale.
+        self.assert_exact_acl(self.images, [(ADMINISTRATORS, FULL_CONTROL), (SYSTEM, FULL_CONTROL),
+                                            (USERS, MODIFY)])
+        for path in untouched:
+            with self.subTest(unchanged=path.name):
+                self.assertEqual(before[path], self.descriptor(path))
 
     def test_the_top_level_file_sweep_re_owns_and_strips_a_planted_grant(self):
         # ProtectTopLevelFiles runs the owner + reset arguments on each file directly in {app}
@@ -654,9 +805,7 @@ class InstallDirectoryAclRunTests(unittest.TestCase):
             self.assertTrue([r for r in self.acl(path)["rules"]
                              if r["sid"] == "S-1-1-0" and not r["inherited"]], path.name)
 
-        self.icacls(self.app, constants["IcaclsOwnerArgs"])
-        self.assertEqual(0, self.icacls(self.app, constants["IcaclsResetArgs"]))
-        self.assertEqual(0, self.icacls(self.app, constants["IcaclsProtectArgs"]))
+        self.protect_app_like_setup()
 
         # Mirror ProtectTopLevelFiles: every top-level FILE, directories skipped (so the
         # junction 'link' and note-images are never touched, never followed), *.dll and qt.conf
@@ -673,10 +822,13 @@ class InstallDirectoryAclRunTests(unittest.TestCase):
             self.assertIn(owner, (0,) if is_elevated() else (0, 1307, 5))
             self.assertEqual(0, self.icacls(Path(entry.path), constants["IcaclsResetArgs"]))
 
-        write_mask = 0x2 | 0x4 | 0x40 | 0x10000 | 0x40000 | 0x80000
         rules = self.acl(planted)["rules"]
         self.assertFalse([r for r in rules if r["sid"] not in (ADMINISTRATORS, SYSTEM)
-                          and r["allow"] == "Allow" and r["rights"] & write_mask], rules)
+                          and r["allow"] == "Allow" and r["rights"] & WRITE_MASK], rules)
+        # /reset re-derived the file's entries from the protected {app}.
+        self.assertEqual(sorted([(ADMINISTRATORS, FULL_CONTROL), (SYSTEM, FULL_CONTROL),
+                                 (USERS, READ_EXECUTE)]),
+                         sorted((r["sid"], r["rights"]) for r in rules if r["inherited"]))
         self.assertFalse([r for r in rules if not r["inherited"]],
                          "the explicit Everyone grant must be gone after /reset")
         # The skipped DLL was never passed to icacls: its own explicit grant is still there
@@ -716,9 +868,7 @@ class InstallDirectoryAclRunTests(unittest.TestCase):
         os.link(victim, self.app / "linked.txt")     # before Setup, as an ordinary user could
         ordinary = self.app / "MentorRecorder.Desktop.exe"
 
-        self.icacls(self.app, constants["IcaclsOwnerArgs"])
-        self.assertEqual(0, self.icacls(self.app, constants["IcaclsResetArgs"]))
-        self.assertEqual(0, self.icacls(self.app, constants["IcaclsProtectArgs"]))
+        self.protect_app_like_setup()
 
         self.assertEqual(1, probe_link_count(ordinary, numbers)[0])
         self.assertEqual(2, probe_link_count(self.app / "linked.txt", numbers)[0])
@@ -727,25 +877,59 @@ class InstallDirectoryAclRunTests(unittest.TestCase):
                    if not entry.is_dir() and probe_link_count(entry.path, numbers)[0] != 1]
         self.assertEqual(["linked.txt"], refused)
 
-    @unittest.expectedFailure
     def test_protecting_app_leaves_a_hard_linked_file_elsewhere_alone(self):
-        # KNOWN OPEN DEFECT (pinned, owner decision pending - see the TL-5 follow-up report).
-        # Step 3 of ProtectInstallDirectory runs icacls on {app} itself; icacls sets the DACL
-        # through SetNamedSecurityInfo, which propagates the new inherited entries to every
-        # existing child of {app}, at any depth. A child that is a hard link to a file elsewhere
-        # shares that file's descriptor, so the other file is re-ACLed (Users RX, its own
-        # inherited grants dropped) before the per-file guard in ProtectTopLevelFiles ever runs.
-        # Setting {app}'s DACL with a non-propagating call (SetFileSecurityW) avoids it; when
-        # that lands, remove @expectedFailure (an unexpected success fails the suite).
-        constants = pascal_constants(pascal_code())
+        # A child of {app} that is a hard link to a file elsewhere shares that file's security
+        # descriptor. A propagating DACL change on {app} (icacls, SetNamedSecurityInfo) rewrote
+        # it - the other file lost its own entries and became Users-RX. The {app} steps (owner,
+        # then ApplyDacl) must leave its whole descriptor exactly as it was.
         victim = self.outside / "victim.txt"
         victim.write_text("x", encoding="utf-8")
         os.link(victim, self.app / "linked.txt")
-        before = self.acl(victim)
-        self.icacls(self.app, constants["IcaclsOwnerArgs"])
-        self.assertEqual(0, self.icacls(self.app, constants["IcaclsResetArgs"]))
-        self.assertEqual(0, self.icacls(self.app, constants["IcaclsProtectArgs"]))
-        self.assertEqual(before, self.acl(victim))
+        before = self.descriptor(victim)
+        self.protect_app_like_setup()
+        self.assertEqual(before, self.descriptor(victim))
+
+    def test_granting_note_images_leaves_a_hard_linked_file_elsewhere_alone(self):
+        # note-images is writable by every user by design, so a hard link to a file elsewhere
+        # can be placed in it. Its grant used to come from [Dirs] Permissions, which propagates
+        # (SetNamedSecurityInfo) and would have given Users modify on the other file. Applying
+        # the {app} and note-images DACLs as Setup does must leave that file exactly as it was.
+        victim = self.outside / "victim.txt"
+        victim.write_text("x", encoding="utf-8")
+        os.link(victim, self.images / "linked.png")
+        before = self.descriptor(victim)
+        self.protect_app_like_setup()
+        self.grant_images_like_setup()
+        self.assertEqual(before, self.descriptor(victim))
+        self.assert_exact_acl(self.images, [(ADMINISTRATORS, FULL_CONTROL), (SYSTEM, FULL_CONTROL),
+                                            (USERS, MODIFY)])
+
+    def test_users_can_still_add_and_delete_images_after_an_upgrade_from_1_5_0(self):
+        # setUp leaves note-images as 1.5.0 did ([Dirs] users-modify) with an image created
+        # under it. After the new grant, an ordinary member of Users can add an image (which
+        # inherits Users modify), delete it, and delete the earlier image (whose own ACL, from
+        # its creation under the old grant, is not touched).
+        # Bytes: whoami writes in the console code page (GBK on a Chinese system); a SID is ASCII.
+        groups = subprocess.run(["whoami", "/groups", "/fo", "csv", "/nh"],
+                                capture_output=True).stdout
+        if USERS.encode("ascii") not in groups:
+            self.skipTest("the test account is not a member of BUILTIN\\Users")
+        old_image = self.images / "image.png"
+        before = self.descriptor(old_image)
+        self.protect_app_like_setup()
+        self.grant_images_like_setup()
+        self.assertEqual(before, self.descriptor(old_image))
+
+        new_image = self.images / "run-1" / "new.png"
+        new_image.parent.mkdir()
+        new_image.write_text("x", encoding="utf-8")
+        inherited = [(r["sid"], r["rights"]) for r in self.acl(new_image)["rules"] if r["inherited"]]
+        self.assertEqual(sorted([(ADMINISTRATORS, FULL_CONTROL), (SYSTEM, FULL_CONTROL),
+                                 (USERS, MODIFY)]), sorted(inherited))
+        new_image.unlink()
+        new_image.parent.rmdir()
+        old_image.unlink()
+        self.assertFalse(old_image.exists())
 
 
 if __name__ == "__main__":

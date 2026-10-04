@@ -122,6 +122,7 @@ chinesesimplified.InstallDirCreateFailed=无法创建安装文件夹“%1”，�
 chinesesimplified.InstallDirProtectFailed=无法为安装文件夹“%1”设置访问权限（错误码 %2），安装已停止。%n%n安装程序必须把该文件夹设为只有管理员可以修改，否则本机的其他用户可以篡改程序文件。该位置可能不在本机的 NTFS 磁盘上（例如 U 盘、FAT32 或 exFAT 分区、网络位置）。请重新运行安装程序，选择本机 NTFS 磁盘上的文件夹。
 chinesesimplified.InstallDirFileIsLink=安装文件夹中的文件“%1”是指向别处文件的链接（硬链接或符号链接），或者安装程序无法确认它不是链接，安装已停止。%n%n安装程序会把安装文件夹中原有的文件设为只有管理员可以修改；如果这个文件是链接，这项改动就会落到与它相连的另一个文件上。请删除这个文件（如果它是链接，与它相连的文件不受影响），然后重新运行安装程序。
 chinesesimplified.NoteImagesIsLink=安装文件夹中的“%1”是一个链接（联接点或符号链接），而不是普通文件夹，安装已停止。%n%n安装程序会允许本机所有用户在这个文件夹中保存备注图片；如果它是链接，这项写入权限就会落到链接所指的位置。请删除这个链接（链接所指的文件夹不受影响），然后重新运行安装程序。
+chinesesimplified.NoteImagesGrantFailed=无法为安装文件夹中的“%1”设置访问权限（错误码 %2），安装已停止。%n%n这个文件夹用来保存备注图片，安装程序需要允许本机所有用户在其中保存和删除图片，但没有设置成功。请重新运行安装程序。
 chinesesimplified.LaunchAfterInstall=启动 {#AppName}
 chinesesimplified.WindowsTooOld=这台电脑的 Windows 版本太旧（%1）。%n%n{#AppName} 需要 {#MinWindowsName}（内部版本 {#MinWindowsBuild}）或更新的 64 位 Windows 10 / Windows 11。请先通过 Windows 更新升级系统，再运行本安装程序。
 chinesesimplified.Arm64Windows10=这台电脑是 ARM 处理器上的 Windows 10。%n%n{#AppName} 是 64 位 x86 程序，Windows 10 on ARM 不能运行它；需要 Windows 11 on ARM 或 x64 电脑。
@@ -140,6 +141,7 @@ english.InstallDirCreateFailed=The installation folder "%1" could not be created
 english.InstallDirProtectFailed=The access permissions of the installation folder "%1" could not be set (error code %2), so Setup has stopped.%n%nSetup must make this folder modifiable by administrators only; otherwise other users of this computer could tamper with the program files. The location may not be on a local NTFS disk (for example a USB drive, a FAT32 or exFAT partition, or a network location). Please run Setup again and choose a folder on a local NTFS disk.
 english.InstallDirFileIsLink=The file "%1" in the installation folder is a link to a file elsewhere (a hard link or a symbolic link), or Setup could not confirm that it is not one, so Setup has stopped.%n%nSetup makes the files already in the installation folder modifiable by administrators only; if this file is a link, that change would land on the other file it is linked to. Please delete this file (if it is a link, the file it is linked to is not affected), then run Setup again.
 english.NoteImagesIsLink=The "%1" folder in the installation folder is a link (a junction or symbolic link), not an ordinary folder, so Setup has stopped.%n%nSetup lets every user of this computer save note images in this folder; if it were a link, that write access would land wherever it points. Please delete the link (the folder it points to is not affected), then run Setup again.
+english.NoteImagesGrantFailed=The access permissions of "%1" in the installation folder could not be set (error code %2), so Setup has stopped.%n%nThis folder holds note images, and Setup must allow every user of this computer to save and delete images in it, but could not. Please run Setup again.
 english.LaunchAfterInstall=Launch {#AppNameEn}
 english.WindowsTooOld=This version of Windows is too old (%1).%n%n{#AppNameEn} needs {#MinWindowsName} (build {#MinWindowsBuild}) or later, 64-bit Windows 10 or Windows 11. Please update Windows first, then run Setup again.
 english.Arm64Windows10=This is Windows 10 on an ARM processor.%n%n{#AppNameEn} is a 64-bit x86 application, which Windows 10 on ARM cannot run; it needs Windows 11 on ARM or an x64 PC.
@@ -193,10 +195,13 @@ Source: "{#StageDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs c
 
 [Dirs]
 ; Note images are user data stored beside the application. The rest of {app} is writable by
-; administrators only (ProtectInstallDirectory in [Code], applied before this section runs);
-; this subtree alone grants ordinary users write access, including in Program Files. Keep it
-; when upgrading or uninstalling.
-Name: "{app}\note-images"; Permissions: users-modify; Flags: uninsneveruninstall
+; administrators only; this subtree alone lets ordinary users write, including in Program
+; Files. Both are set by ProtectInstallDirectory in [Code], before this section runs, and
+; without propagation: a Permissions parameter here would go through SetNamedSecurityInfo,
+; which pushes the grant onto every file already inside - including a file that is merely a
+; hard link to a file elsewhere. This entry is kept for its flag: the folder survives upgrades
+; and uninstalls.
+Name: "{app}\note-images"; Flags: uninsneveruninstall
 
 [Icons]
 Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExe}"
@@ -218,13 +223,26 @@ const
   // The subfolder of {app} that holds note images (see [Dirs]): the only part of the
   // install folder ordinary users may write to.
   NoteImagesDirName = 'note-images';
-  // The install folder's ACL, applied by ProtectInstallDirectory. Accounts are named by
-  // well-known SID, never by name, because Windows localises the names ("Users" is "用户"
-  // on a Chinese system): S-1-5-32-544 Administrators, S-1-5-18 SYSTEM, S-1-5-32-545 Users.
-  // /L makes icacls act on a link itself, never on the folder a link points to.
+  // Ownership and per-file resets, applied by ProtectInstallDirectory and ProtectTopLevelFiles.
+  // Accounts are named by well-known SID, never by name, because Windows localises the names
+  // ("Users" is "用户" on a Chinese system): S-1-5-32-544 is Administrators. /L makes icacls act
+  // on a link itself, never on what a link points to. Neither propagates: an owner is not
+  // inherited, and /reset on a single file has nothing below it to reach.
   IcaclsOwnerArgs = '/setowner *S-1-5-32-544 /L /Q';
   IcaclsResetArgs = '/reset /L /Q';
-  IcaclsProtectArgs = '/inheritance:r /grant:r *S-1-5-32-544:(OI)(CI)F *S-1-5-18:(OI)(CI)F *S-1-5-32-545:(OI)(CI)RX /L /Q';
+  // The DACLs of {app} and of note-images, set by ApplyDacl through SetFileSecurityW, which -
+  // unlike icacls and SetNamedSecurityInfo - changes the named folder only and propagates
+  // nothing to what already sits below it. SDDL: P protected (nothing inherited from the
+  // parent), AI auto-inherit marker, every entry OICI (inherited by the files and folders created
+  // inside afterwards); BA Administrators and SY SYSTEM full control (FA); BU Users read and
+  // execute (0x1200a9) in {app}, modify (0x1301bf, the mask Inno's own "users-modify" grants) in
+  // note-images. Well-known SID aliases, so no account name is localised.
+  AppDirSddl = 'D:PAI(A;OICI;FA;;;BA)(A;OICI;FA;;;SY)(A;OICI;0x1200a9;;;BU)';
+  NoteImagesSddl = 'D:PAI(A;OICI;FA;;;BA)(A;OICI;FA;;;SY)(A;OICI;0x1301bf;;;BU)';
+  // SDDL_REVISION_1 (sddl.h); DACL_SECURITY_INFORMATION (4) combined with
+  // PROTECTED_DACL_SECURITY_INFORMATION ($80000000) (winnt.h).
+  SddlRevision1 = 1;
+  ProtectedDaclInformation = $80000004;
   // CreateFileW arguments for LinkCountOf: ask for the attributes only (FILE_READ_ATTRIBUTES),
   // share everything (FILE_SHARE_READ, _WRITE and _DELETE), open an existing entry
   // (OPEN_EXISTING), and open a reparse point itself rather than what it names
@@ -275,6 +293,21 @@ function GetFileInformationByHandle(hFile: Longint;
   external 'GetFileInformationByHandle@kernel32.dll stdcall setuponly';
 function CloseHandle(hObject: Longint): Longint;
   external 'CloseHandle@kernel32.dll stdcall setuponly';
+
+// For ApplyDacl, with the same 32-bit conventions. The converter returns, through its var
+// argument, a pointer to a self-relative security descriptor it allocated with LocalAlloc;
+// that pointer is handed to SetFileSecurityW and released with LocalFree. The optional size
+// output is not wanted and is passed as 0 (NULL). BOOL results: non-zero is success, and the
+// Windows error of a failure is read with DLLGetLastError right after the call.
+function ConvertStringSecurityDescriptorToSecurityDescriptorW(StringSecurityDescriptor: String;
+  StringSDRevision: Cardinal; var SecurityDescriptor: Longint;
+  SecurityDescriptorSize: Longint): Longint;
+  external 'ConvertStringSecurityDescriptorToSecurityDescriptorW@advapi32.dll stdcall setuponly';
+function SetFileSecurityW(lpFileName: String; SecurityInformation: Cardinal;
+  pSecurityDescriptor: Longint): Longint;
+  external 'SetFileSecurityW@advapi32.dll stdcall setuponly';
+function LocalFree(hMem: Longint): Longint;
+  external 'LocalFree@kernel32.dll stdcall setuponly';
 
 var
   NpcapPage: TOutputMsgWizardPage;
@@ -434,6 +467,62 @@ begin
   Result := ResultCode;
 end;
 
+// Writes the ACL of Path to the Setup log (icacls with no arguments only lists it), so the
+// log of a real installation shows what was applied. A failure here changes nothing.
+procedure LogAcl(const Path: String);
+begin
+  RunIcacls(Path, '');
+end;
+
+// Replaces the DACL of the folder Path with the protected one Sddl describes, through
+// SetFileSecurityW. That call changes Path only: unlike icacls, SetNamedSecurityInfo and Inno's
+// own [Dirs] Permissions, it does not re-derive the entries of anything already below Path - and
+// a file below that is a hard link to a file elsewhere shares that file's security descriptor,
+// so propagation would change the other file as well. Files and folders created inside Path
+// afterwards still inherit the OICI entries, as Windows applies inheritance on creation. The
+// descriptor the converter allocates is always released. Returns 0 on success, otherwise a
+// non-zero Windows error code.
+function ApplyDacl(const Path, Sddl: String): Integer;
+var
+  Descriptor: Longint;
+begin
+  Result := -1;
+  Descriptor := 0;
+  try
+    if ConvertStringSecurityDescriptorToSecurityDescriptorW(Sddl, SddlRevision1, Descriptor, 0) = 0 then
+    begin
+      Result := DLLGetLastError;
+      if Result = 0 then
+        Result := -1;
+    end
+    else
+      try
+        if SetFileSecurityW(Path, ProtectedDaclInformation, Descriptor) <> 0 then
+          Result := 0
+        else
+        begin
+          Result := DLLGetLastError;
+          if Result = 0 then
+            Result := -1;
+        end;
+      finally
+        LocalFree(Descriptor);
+      end;
+  except
+    Log(GetExceptionMessage);
+    Result := -1;
+  end;
+  if Result = 0 then
+    Log(Format('DACL of "%s" set to %s', [Path, Sddl]))
+  else
+  begin
+    if Result > 0 then
+      Log(Format('Setting the DACL of "%s" failed: %s', [Path, SysErrorMessage(Result)]))
+    else
+      Log(Format('Setting the DACL of "%s" failed', [Path]));
+  end;
+end;
+
 // True for the names [InstallDelete] removes right after ssInstall: every "{app}\*.dll" and
 // "{app}\qt.conf". A long name ends in ".dll" exactly when it matches the *.dll wildcard, and
 // both comparisons ignore case as Windows does, so every name skipped here is one that
@@ -478,9 +567,10 @@ begin
 end;
 
 // Make every file sitting directly in Dir administrator-owned and inheriting Dir's ACL.
-// The ACL reset on Dir above re-derives inherited entries, but a file another account placed
-// here before Setup ran keeps its OWNER (an owner can always rewrite its own ACL) and any
-// explicit grant it carries, so each top-level file is re-owned and /reset one by one. Only
+// Dir's own DACL is set without propagation (ApplyDacl), so a file another account placed here
+// before Setup ran keeps its OWNER (an owner can always rewrite its own ACL), its explicit
+// grants and its old inherited entries; each top-level file is therefore re-owned and /reset
+// (which re-derives that one file's entries from Dir) one by one. Only
 // files are touched: directories are left to [InstallDelete] (which removes the code folders
 // without following a link) and to note-images (whose own grant and images must never change),
 // so a junction planted in Dir is skipped, never traversed - there is no recursion and no /T.
@@ -547,39 +637,65 @@ end;
 // [InstallDelete], [Dirs] and [Files] run ("Installation Order" in the Inno Setup help):
 //   0. refuse a drive root: it has no parent whose ACL we could trust and cannot be protected;
 //   1. refuse a folder that is a link: everything below would land where it points;
-//   2. make Administrators the owner: an owner can always rewrite the ACL, and a folder
-//      created before Setup ran may belong to an ordinary user;
-//   3. drop the explicit grants anyone added (/reset), then replace the inherited ACL with
-//      a protected one: Administrators and SYSTEM full control, Users read and execute,
-//      inherited by everything below. Windows re-derives the inherited entries of what is
-//      already there, which is how an upgrade over an older install sheds the drive root's
-//      grants, and it does not follow links while doing so. Explicit entries below are
-//      left alone: note-images keeps its own grant and the user's images keep theirs. Every
-//      file Setup writes afterwards, the uninstaller included, inherits the protected ACL;
+//   2. make Administrators the owner (icacls /setowner, which sets the owner of Dir alone - an
+//      owner is never inherited): an owner can always rewrite the ACL, and a folder created
+//      before Setup ran may belong to an ordinary user;
+//   3. replace Dir's DACL with a protected one - Administrators and SYSTEM full control, Users
+//      read and execute, inheritable - through ApplyDacl (SetFileSecurityW), which changes Dir
+//      only. No ACL change Setup makes may reach a file that is merely hard-linked into the
+//      folder, and a propagating call (icacls, SetNamedSecurityInfo) would rewrite the shared
+//      descriptor of such a file. From here on no ordinary user can create, delete or rename
+//      entries in Dir;
 //   4. re-check, now that the protected ACL is in place, that Dir is still a real directory
 //      and not a link: a swap between the earlier checks and here (its parent may let users
 //      rename it - see docs) would otherwise go unnoticed;
-//   5. refuse a note-images that is a link, before [Dirs] grants users-modify on it;
+//   5. note-images: refuse it if it is a link, create it if it is missing, then give it its own
+//      protected DACL in which Users may also modify - again through ApplyDacl, so the images
+//      already inside keep the ACLs they were created with and are never touched;
 //   6. re-own and reset every file already sitting directly in Dir, so one an ordinary user
 //      placed here before Setup ran cannot keep its owner or an explicit grant - except the
 //      *.dll and qt.conf names [InstallDelete] deletes next; a file that is a link (reparse
 //      point or extra hard link), or whose link count cannot be read, stops Setup instead
-//      (ProtectTopLevelFiles). From step 3 on no ordinary user can create or rename entries
-//      in the folder any more.
+//      (ProtectTopLevelFiles);
+//   7. write the resulting ACLs of Dir and note-images to the Setup log.
 // Returns '' when the folder is protected, otherwise the message that stops Setup.
 //
-// To check on a real installation (Get-Acl, or icacls, on each path) - a fresh install to
-// D:\, an upgrade over an install made before this protection existed, and Program Files:
-//   {app}                            protected; Administrators F, SYSTEM F, Users RX; owner
-//                                    Administrators
+// What no longer happens: because step 3 does not propagate, nothing that already sits below
+// Dir has its inherited entries re-derived from the new DACL. Each kind of existing entry is
+// covered as follows:
+//   - code folders (protocol-profiles, qml, the Qt plugin folders, docs): [InstallDelete]
+//     removes them whole (a link among them is removed, not followed) and [Files] recreates
+//     them; a folder Setup creates inherits Dir's entries on creation;
+//   - files directly in Dir: re-owned and reset in step 6, or - *.dll and qt.conf - deleted by
+//     [InstallDelete] and, for ours, copied again;
+//   - files [Files] replaces: Setup writes each one to a new temporary file in the destination
+//     folder, deletes the old file and renames the new one into place (Inno Setup source,
+//     Setup.Install.pas, ProcessFileEntry: GenerateUniqueName ... TFile.Create(TempFile,
+//     fdCreateAlways) ... DeleteFile(DestFile) ... MoveFile(TempFile, DestFile)), so a replaced
+//     file is a new file and inherits the protected entries; the uninstaller EXE is replaced
+//     the same way (MoveFileReplace). The uninstall log is the exception: when Setup appends
+//     to an existing unins???.dat it reopens it in place (Setup.UninstallLog.pas,
+//     TUninstallLog.Save: fdOpenExisting), keeping its old ACL - it sits directly in Dir, so
+//     step 6 has already re-owned and reset it;
+//   - note-images and the images in it: step 5;
+//   - any other folder in Dir that is neither ours nor listed in [InstallDelete] keeps the ACL it
+//     had. The programs load nothing from such a folder.
+//
+// To check on a real installation (Get-Acl, or icacls, on each path; the Setup log also lists
+// {app} and note-images) - a fresh install to D:\, an upgrade over 1.5.0, and Program Files:
+//   {app}                            protected; Administrators F, SYSTEM F, Users RX, each
+//                                    (OI)(CI); owner Administrators
 //   {app}\*.exe, {app}\unins000.exe  inherited entries only; no write right for Users,
-//                                    Authenticated Users or Everyone; owner Administrators
+//   {app}\unins000.dat               Authenticated Users or Everyone; owner Administrators
 //   {app}\*.dll, loose top-level     a planted one is gone ([InstallDelete]); ours are
 //                                    inherited entries only, owner Administrators
-//   {app}\note-images                Users Modify (explicit) on top of the inherited entries
+//   {app}\qml\... and plugin folders inherited entries only (recreated by Setup)
+//   {app}\note-images                protected; Administrators F, SYSTEM F, Users M, each
+//                                    (OI)(CI); no other entry
 function ProtectInstallDirectory(const Dir: String): String;
 var
   Code: Integer;
+  Images: String;
 begin
   Result := '';
   if IsDriveRoot(Dir) then
@@ -603,9 +719,7 @@ begin
 
   Code := RunIcacls(Dir, IcaclsOwnerArgs);
   if Code = 0 then
-    Code := RunIcacls(Dir, IcaclsResetArgs);
-  if Code = 0 then
-    Code := RunIcacls(Dir, IcaclsProtectArgs);
+    Code := ApplyDacl(Dir, AppDirSddl);
   if Code <> 0 then
   begin
     Result := FmtMessage(CustomMessage('InstallDirProtectFailed'), [Dir, IntToStr(Code)]);
@@ -625,13 +739,37 @@ begin
     Exit;
   end;
 
-  if IsReparsePoint(AddBackslash(Dir) + NoteImagesDirName) then
+  // note-images: a link is refused before anything is granted; a missing folder is created
+  // here (by Setup, inside the now protected Dir) so that its grant is set by ApplyDacl rather
+  // than by [Dirs].
+  Images := AddBackslash(Dir) + NoteImagesDirName;
+  if IsReparsePoint(Images) then
   begin
-    Result := FmtMessage(CustomMessage('NoteImagesIsLink'), [AddBackslash(Dir) + NoteImagesDirName]);
+    Result := FmtMessage(CustomMessage('NoteImagesIsLink'), [Images]);
+    Exit;
+  end;
+  if not DirExists(Images) then
+    CreateDir(Images);
+  if IsReparsePoint(Images) or (not DirExists(Images)) then
+  begin
+    Result := FmtMessage(CustomMessage('InstallDirCreateFailed'), [Images]);
+    Exit;
+  end;
+  // Administrators own the folder (the call changes the folder alone, nothing below it): an
+  // ordinary user who created it before Setup ran would otherwise stay its owner, and an owner
+  // can rewrite the grant.
+  Code := RunIcacls(Images, IcaclsOwnerArgs);
+  if Code = 0 then
+    Code := ApplyDacl(Images, NoteImagesSddl);
+  if Code <> 0 then
+  begin
+    Result := FmtMessage(CustomMessage('NoteImagesGrantFailed'), [Images, IntToStr(Code)]);
     Exit;
   end;
 
   Result := ProtectTopLevelFiles(Dir);
+  LogAcl(Dir);
+  LogAcl(Images);
 end;
 
 function NpcapInstalled: Boolean;

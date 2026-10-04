@@ -180,7 +180,7 @@ ctest --test-dir build --output-on-failure
 | 测试 | 内容 |
 |---|---|
 | `MentorRecorderDesktopTests` | IPC framing、格式化、分页模型、职业统计（含契约字段 → 职能分组推导）、AppController、`RunFormValidator`（全部校验分支与前后对比 diff） |
-| `MentorRecorderTtsService` | `TtsService` 模板替换与语速/音量映射（无语音引擎时同样可运行）、MockBackend 的 live 事件、契约 `$defs/LiveEvent` 每个 `kind` 的路由 |
+| `MentorRecorderTtsService` | `TtsService` 模板替换与语速/音量映射（会发声的用例使用 Qt 的静音测试语音引擎，不经过本机语音；缺少该插件时这些用例明确跳过）、MockBackend 的 live 事件、契约 `$defs/LiveEvent` 每个 `kind` 的路由 |
 | `MentorRecorderIpcRequests` | 每种消息的请求样本与 `tests/Fixtures/ipc-requests/` 对拍 |
 | `MentorRecorderLifecycle` | `CollectorProcess` 的重启退避、单实例租约复用、主动停止；首次运行说明的持久化与版本失效 |
 | `MentorRecorderIpcIntegration` | **拉起真实 Collector 子进程**（使用临时数据库），运行 `GetVersion` / `GetStatus` / `QueryRuns` / `CorrectRun` 的三条错误路径 / `GetRunRevisions` / `BackupDatabase` / live 事件 / 字段白名单 |
@@ -198,6 +198,8 @@ QML 测试通过 `QQmlApplicationEngine::objectCreationFailed` 将 QML 错误转
 每个截图用例还以 `--verify-text` 断言名称所指的内容确实出现在画面上（否则退出码 8）；
 截图运行期间出现任何 QML / JavaScript 运行时警告时，画面照常写出，进程以退出码 10 结束，
 ctest 另以 `FAIL_REGULAR_EXPRESSION` 匹配警告输出，两者任一都使用例失败。
+模拟后端的截图用例若断言了文字、却让并非它所要求的「无法自动记录」提示盖住了被测页面，画面同样写出，
+进程以退出码 13 结束；主题不是该提示的截图用例因此都带 `--mock-recording-state listening`。
 
 ### 3.3 截图
 
@@ -638,21 +640,27 @@ Windows 10/11；没有内嵌清单或任一项不符即打包失败。可执行�
   下一条的保护不依赖它，磁盘根目录与链接在 `ssInstall` 还会再检查一次，静默安装同样适用。
 - **安装文件夹的访问权限。** 数据盘（如 `D:\`）上的文件夹沿用盘符根目录的权限，常见情况下本机任何用户
   都可以修改其中的程序与卸载程序。安装与升级在写入任何文件之前（`CurStepChanged(ssInstall)` 中的
-  `ProtectInstallDirectory`）以 `System32\icacls.exe` 处理 `{app}`：所有者设为 Administrators，
-  清除显式授权，再以受保护的 ACL 取代继承的 ACL——Administrators 与 SYSTEM 完全控制、Users 读取和执行，
-  向下继承。账户按众所周知的 SID 指定，不依赖本地化的账户名；`/L` 使 icacls 只作用于链接本身，
-  icacls 以隐藏窗口运行，全程不使用递归（`/T`）。受保护的 ACL 生效之后，安装程序再次确认 `{app}`
-  仍是真实的文件夹而不是链接，然后逐个处理此前已直接位于 `{app}` 中的文件：所有者改为 Administrators，
-  并清除其显式授权，使其只继承上述 ACL——安装之前由其他账户放入的文件因此不能保留原属主或自带的授权。
-  子文件夹不在此列（代码目录由下一条的 `[InstallDelete]` 整个清除，`note-images` 及其中的图片保持不变），
-  随后即被 `[InstallDelete]` 删除的 `*.dll` 与 `qt.conf` 也跳过。处理每个文件之前先读取其硬链接数：
-  文件是重解析点、另有硬链接，或链接数无法读取时，安装停止并指出该文件，不删除也不改动任何内容，
-  以免权限改动落到与它相连的另一个文件上。
+  `ProtectInstallDirectory`）保护 `{app}`：先以 `System32\icacls.exe /setowner` 把文件夹的所有者设为
+  Administrators，再通过 `SetFileSecurityW` 把它的 ACL 整个换成受保护的一份——Administrators 与 SYSTEM
+  完全控制、Users 读取和执行，可向下继承。这两步都只改动文件夹自身，不会把权限传播给其下已有的文件和
+  文件夹：硬链接与它所链接的文件共用同一份安全描述符，传播会连带改动安装文件夹之外的那个文件。此后新建的
+  文件和文件夹在创建时继承这份 ACL。账户按众所周知的 SID 指定，不依赖本地化的账户名；`/L` 使 icacls
+  只作用于链接本身，icacls 以隐藏窗口运行，全程不使用递归（`/T`）。
+  ACL 生效之后，安装程序再次确认 `{app}` 仍是真实的文件夹而不是链接，然后逐个处理此前已直接位于 `{app}`
+  中的文件：所有者改为 Administrators，并清除其显式授权，使其只继承上述 ACL——安装之前由其他账户放入的
+  文件因此不能保留原属主或自带的授权。随后即被 `[InstallDelete]` 删除的 `*.dll` 与 `qt.conf` 跳过。
+  处理每个文件之前先读取其硬链接数：文件是重解析点、另有硬链接，或链接数无法读取时，安装停止并指出该文件，
+  不删除也不改动任何内容。子文件夹的处理各不相同：代码与资源目录由下一条的 `[InstallDelete]` 整个清除后
+  重新建立，随之继承新的 ACL；`note-images` 见下；既不属于本软件、也不在 `[InstallDelete]` 之列的其他
+  子文件夹保持原有的权限，程序不从其中加载任何内容。
+  `note-images` 是唯一允许普通用户写入的子文件夹。它不存在时由安装程序创建；它若是指向别处的链接，
+  安装停止并提示删除该链接，以免写入权限落到链接所指的位置。它的所有者同样设为 Administrators，ACL 以同样
+  不传播的方式换成受保护的一份——Administrators 与 SYSTEM 完全控制、Users 修改，可向下继承；其中已有的
+  备注图片保持原有的权限不变。`[Dirs]` 中的 `note-images` 条目只保留 `uninsneveruninstall`，不再经由
+  `Permissions` 授权。
   上述任一步失败（例如该位置不是本机 NTFS 磁盘），或 `{app}` 是链接或磁盘根目录，安装即停止并说明原因。
-  `note-images` 是唯一允许普通用户写入的子文件夹（`[Dirs]` 的 `users-modify`）；它若是指向别处的
-  链接，安装同样停止并提示删除该链接，以免写入权限落到链接所指的位置。`.iss` 另以
-  `RedirectionGuard=yes` 在 Windows 11 与 Windows 10 22H2 上阻止安装与卸载程序跟随非提升进程创建的
-  链接；更早的系统靠上述自行检查。
+  两个文件夹最终的 ACL 会以 `icacls` 列表的形式写入 Setup 日志。`.iss` 另以 `RedirectionGuard=yes` 在
+  Windows 11 与 Windows 10 22H2 上阻止安装与卸载程序跟随非提升进程创建的链接；更早的系统靠上述自行检查。
 - **`[InstallDelete]` 在复制文件之前清除旧内容。** 除各代码与资源子文件夹外，还删除直接位于 `{app}` 的
   全部 `*.dll` 与 `qt.conf`：安装包不附带 `qt.conf`，自带的 DLL 随后照常写回，安装之前被放入该文件夹的
   DLL 或 `qt.conf` 因此不会被程序加载。可执行文件不在此列（卸载程序 `unins*.exe` 由 Setup 在每次升级时
@@ -661,10 +669,8 @@ Windows 10/11；没有内嵌清单或任一项不符即打包失败。可执行�
 - **这项保护的范围。** 它针对的是安装文件夹自身，以下情形不在其内，与不受信任的用户共用的电脑应安装到
   `Program Files`：上级目录若允许普通用户删除或重命名其中的条目（例如对 Users 授予完全控制的数据盘根目录），
   其他本机用户仍可在软件未运行时把整个安装文件夹改名并换成自己的文件夹；`[InstallDelete]` 的删除失败时
-  Setup 不报错，被其他进程占用而删不掉的外来 DLL 会留在原处；设置 `{app}` 的 ACL 以及 `note-images` 的
-  写入授权时，Windows 会把继承项传播到其下已有的文件，在允许普通用户为自己无权写入的文件创建硬链接的
-  旧版 Windows 上，事先放入的硬链接会使这一改动落到所链接的文件上；从文件夹可被任何用户写入的 1.5.0
-  升级时，原有的卸载日志 `unins000.dat` 会被沿用一次。
+  Setup 不报错，被其他进程占用而删不掉的外来 DLL 会留在原处；从文件夹可被任何用户写入的 1.5.0 升级时，
+  原有的卸载日志 `unins000.dat` 会被沿用一次。
 - **最低要求在 `InitializeSetup`（`[Code]`）中检查**：低于 Windows 10 版本 1809（内部版本 17763，Qt 6.11 的下限；
   .NET 8 只需 1607）直接拒绝并说明所需版本；ARM 处理器上的 Windows 10 拒绝安装，因为没有 x64 模拟；
   Windows 11 on ARM 提示抓包未验证后继续；`System32\mfplat.dll` 不存在（Windows “N” 版本）时提示
