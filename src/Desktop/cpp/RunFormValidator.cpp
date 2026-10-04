@@ -76,7 +76,7 @@ QVariantMap RunFormValidator::validate(const QVariantMap &form, const QVariantMa
 
     if (text(form, "reason").isEmpty()) {
         return failure(QStringLiteral("ERR_REASON_REQUIRED"),
-                       QString::fromUtf8("必须填写%1，请求已拒绝（ERR_REASON_REQUIRED）。")
+                       QString::fromUtf8("必须填写%1，请求已拒绝。")
                            .arg(reasonLabel));
     }
     // The Collector's own limits, counted the way it counts them (UTF-16 code
@@ -144,18 +144,15 @@ QVariantMap RunFormValidator::validate(const QVariantMap &form, const QVariantMa
 
     if (entered.isValid() && entered < matched) {
         return failure(QStringLiteral("ERR_TIME_ORDER"),
-                       QString::fromUtf8(
-                           "时间顺序错误：进本时间早于匹配时间（ERR_TIME_ORDER）。"));
+                       QString::fromUtf8("时间顺序错误：进本时间早于匹配时间。"));
     }
     if (ended.isValid() && entered.isValid() && ended < entered) {
         return failure(QStringLiteral("ERR_NEGATIVE_DURATION"),
-                       QString::fromUtf8("时间顺序错误：结束时间早于进本时间，耗时为负"
-                                         "（ERR_NEGATIVE_DURATION）。"));
+                       QString::fromUtf8("时间顺序错误：结束时间早于进本时间，耗时为负。"));
     }
     if (ended.isValid() && !entered.isValid() && ended < matched) {
         return failure(QStringLiteral("ERR_TIME_ORDER"),
-                       QString::fromUtf8(
-                           "时间顺序错误：结束时间早于匹配时间（ERR_TIME_ORDER）。"));
+                       QString::fromUtf8("时间顺序错误：结束时间早于匹配时间。"));
     }
 
     const QString result = form.value(QStringLiteral("result")).toString();

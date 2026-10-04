@@ -53,7 +53,8 @@ public:
     /// \a before is the same shape for the record being corrected; it is only
     /// consulted when edit_mode is true, to detect "nothing changed".
     ///
-    /// Returns { ok, code, message }. \a code is empty when ok is true.
+    /// Returns { ok, code, message }. \a code is empty when ok is true. \a message is
+    /// the sentence alone; the dialog adds the code for a maintainer (AppController::errorText).
     Q_INVOKABLE static QVariantMap validate(const QVariantMap &form,
                                             const QVariantMap &before = {});
 

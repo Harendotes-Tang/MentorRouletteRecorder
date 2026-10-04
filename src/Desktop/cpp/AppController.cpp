@@ -66,14 +66,14 @@ bool isCaptureSettingKey(const QString &key)
 namespace mr {
 
 AppController::AppController(IBackend *backend, AppSettings *settings, QObject *parent,
-                             CollectorProcess *collector)
+                             CollectorProcess *collector, TtsService::EngineMode speechEngine)
     : QObject(parent)
     , m_backend(backend)
     , m_settings(settings)
     , m_collector(collector)
     , m_history(new HistoryController(backend, this))
     , m_statistics(new StatisticsController(backend, this))
-    , m_tts(new TtsService(settings, this))
+    , m_tts(new TtsService(settings, this, speechEngine))
     , m_promptCutoffUtc(QDateTime::currentDateTimeUtc())
 {
     m_capture = new CaptureValidationController(this, this);
@@ -617,7 +617,7 @@ void AppController::refreshCaptureSettings()
                 m_captureSettingsLoaded = false;
                 m_captureSettingsSupported = false;
                 m_captureSettingsError =
-                    tr("当前采集器不支持捕获设置（%1），以下开关不可用。").arg(code);
+                    errorText(tr("当前采集器不支持捕获设置，以下开关不可用。"), code);
             } else {
                 m_captureSettingsError =
                     message.isEmpty() ? tr("读取捕获设置失败：%1").arg(code) : message;
@@ -2093,6 +2093,15 @@ void AppController::showToast(const QString &message)
     m_toastMessage = message;
     Q_EMIT toastChanged();
     m_toastTimer.start(kToastMs);
+}
+
+QString AppController::errorText(const QString &message, const QString &code) const
+{
+    const QString sentence =
+        message.isEmpty() ? QString::fromUtf8("操作没有完成，原因不明。") : message;
+    if (!m_maintainerToolsVisible || code.isEmpty())
+        return sentence;
+    return sentence + QStringLiteral(" (") + code + QLatin1Char(')');
 }
 
 } // namespace mr

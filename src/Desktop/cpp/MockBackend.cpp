@@ -184,6 +184,117 @@ QJsonObject creationRevision(const QJsonObject &run)
     return revision;
 }
 
+/// RunMutationService.InitialChanges: a CREATE_MANUAL revision records the whole initial
+/// value set, every old value null (docs/manual-correction.md section 2), so what the
+/// player first entered stays readable in 修正历史 (review S33-1).
+QJsonArray manualCreationChanges(const QJsonObject &run)
+{
+    const QJsonValue null(QJsonValue::Null);
+    const auto value = [&run, &null](const char *field) {
+        const QJsonValue stored = run.value(QLatin1String(field));
+        return stored.isUndefined() ? null : stored;
+    };
+    const auto flag = [&run](const char *field, bool fallback) {
+        return QJsonValue(run.value(QLatin1String(field)).toBool(fallback));
+    };
+    const std::pair<const char *, QJsonValue> created[] = {
+        {"content_id", value("content_id")},
+        {"duty_name", value("duty_name")},
+        {"duty_category", value("duty_category")},
+        {"job_id", value("job_id")},
+        {"job_name", value("job_name")},
+        {"role", value("role")},
+        {"matched_at_utc", value("matched_at_utc")},
+        {"entered_at_utc", value("entered_at_utc")},
+        {"ended_at_utc", value("ended_at_utc")},
+        {"duration_ms", value("duration_ms")},
+        {"result", value("result")},
+        {"contributes_to_goal", flag("contributes_to_goal", true)},
+        {"note", value("note")},
+        {"soft_deleted", flag("soft_deleted", false)},
+        {"pending_review", flag("pending_review", false)},
+        {"manually_corrected", flag("manually_corrected", false)},
+    };
+    QJsonArray changes;
+    for (const auto &[field, initial] : created)
+        changes.append(changeEntry(QString::fromLatin1(field), null, initial));
+    return changes;
+}
+
+/// One revision of a sample run, written the way the Collector writes it.
+QJsonObject sampleRevision(const QJsonObject &run, const QString &changedAt, const char *kind,
+                           const char *actor, const QString &reason, const QJsonArray &changes)
+{
+    const int number = run.value(QStringLiteral("revision")).toInt();
+    QJsonObject revision;
+    revision.insert(QStringLiteral("revision_id"),
+                    mockUuid(run.value(QStringLiteral("run_id")).toString()
+                             + QStringLiteral(":revision:%1").arg(number)));
+    revision.insert(QStringLiteral("run_id"), run.value(QStringLiteral("run_id")));
+    revision.insert(QStringLiteral("revision"), number);
+    revision.insert(QStringLiteral("changed_at_utc"), changedAt);
+    revision.insert(QStringLiteral("change_kind"), QString::fromLatin1(kind));
+    revision.insert(QStringLiteral("reason"), reason);
+    revision.insert(QStringLiteral("actor"), QString::fromLatin1(actor));
+    revision.insert(QStringLiteral("changes"), changes);
+    return revision;
+}
+
+/// RunMutationRules.ReadsAsInFlight: an automatic run still in flight - UNKNOWN, no end,
+/// not pending review - which every statistic and the review list leave out.
+bool readsAsInFlight(const QJsonObject &run)
+{
+    return run.value(QStringLiteral("source")).toString() == QLatin1String("AUTO_NETWORK")
+           && run.value(QStringLiteral("result")).toString() == QLatin1String("UNKNOWN")
+           && !run.value(QStringLiteral("ended_at_utc")).isString()
+           && !run.value(QStringLiteral("pending_review")).toBool(false);
+}
+
+/// RunMutationRules.OverrulesTheRecord: whether a correction overrules what the software
+/// recorded, and so marks the run 已修正. Saying how a run pending review went, filling a
+/// duty or job the software left blank (null, or the 未知 / UNKNOWN placeholder), and the
+/// note correct nothing; the zone moves with the duty, like the Collector's duty-identity
+/// audit field. Everything else - a recorded duty, job or time, a settled outcome - does.
+bool overrulesTheRecord(bool wasPendingReview, const QJsonArray &changes)
+{
+    static const QSet<QString> outcome{QStringLiteral("result"), QStringLiteral("pending_review"),
+                                       QStringLiteral("contributes_to_goal")};
+    static const QSet<QString> fillable{
+        QStringLiteral("job_id"),      QStringLiteral("job_name"),     QStringLiteral("role"),
+        QStringLiteral("role_group"),  QStringLiteral("content_id"),   QStringLiteral("duty_name"),
+        QStringLiteral("duty_category")};
+    static const QSet<QString> neverACorrection{QStringLiteral("manually_corrected"),
+                                                QStringLiteral("note"),
+                                                QStringLiteral("territory_id")};
+    const auto blank = [](const QJsonValue &value) {
+        return value.isUndefined() || value.isNull() || value.toString() == QString::fromUtf8("未知")
+               || value.toString() == QLatin1String("UNKNOWN")
+               || (value.isString() && value.toString().isEmpty());
+    };
+    for (const QJsonValue &value : changes) {
+        const QJsonObject change = value.toObject();
+        const QString field = change.value(QStringLiteral("field")).toString();
+        if (neverACorrection.contains(field))
+            continue;
+        if (outcome.contains(field) ? !wasPendingReview
+            : fillable.contains(field) ? !blank(change.value(QStringLiteral("old_value")))
+                                       : true) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/// RunMutationService.IsUnsettledShape: the two shapes a closed run must never be put back
+/// into - one that reads as still in flight, and one with no entry time whose result is
+/// not 进本前取消, which the correction rules refuse to touch.
+bool isUnsettledShape(const QJsonObject &run)
+{
+    return readsAsInFlight(run)
+           || (run.value(QStringLiteral("result")).toString() != QLatin1String("CANCELLED_BEFORE_ENTRY")
+               && !run.value(QStringLiteral("entered_at_utc")).isString());
+}
+
 /// RunMutationRules.ValidateFinalValue, with the Collector's own sentences
 /// (Application/Mutations/RunMutationValidation.cs).
 bool acceptableFinalValue(const QJsonObject &run, QString *errorCode, QString *errorMessage)
@@ -221,6 +332,8 @@ MockBackend::MockBackend(QObject *parent)
 {
     // The sample player entered the baseline before the 60 days the dataset spans.
     m_baselineEffectiveAt = m_now.addDays(-60).toUTC();
+    m_achievementUpdatedAt = m_baselineEffectiveAt;
+    m_baselineAuditEventId = mockUuid(QStringLiteral("baseline-audit-1"));
     generateRuns();
 }
 
@@ -365,6 +478,8 @@ void MockBackend::setAchievement(int goalCount, int baselineCompletedCount)
 {
     m_goalCount = goalCount;
     m_baselineCompletedCount = baselineCompletedCount;
+    // Set behind the history's back: no entry stored these values.
+    m_baselineAuditEventId.clear();
 }
 
 // ---------------------------------------------------------------------------
@@ -452,8 +567,12 @@ void MockBackend::generateRuns()
             const double minutes = draft.result == QLatin1String("COMPLETED")
                                        ? base * (0.8 + rng.next() * 0.5)
                                        : base * (0.15 + rng.next() * 0.6);
-            if (draft.result != QLatin1String("INTERRUPTED")
-                && draft.result != QLatin1String("UNKNOWN")) {
+            // An UNKNOWN run is one the state machine closed without a result
+            // (UNKNOWN_FINAL_STATE), so it has an end like the others. Without one
+            // it would read as still in flight for good (RunMutationRules
+            // .ReadsAsInFlight): left out of every statistic and listed as 进行中.
+            // No draw is spent here, so the random stream is unchanged.
+            if (draft.result != QLatin1String("INTERRUPTED")) {
                 draft.ended = draft.entered.addMSecs(qint64(minutes * 60000.0));
                 draft.hasDuration = true;
                 draft.durationMs = draft.entered.msecsTo(draft.ended);
@@ -618,27 +737,55 @@ void MockBackend::generateRuns()
     manualRevision.insert(QStringLiteral("change_kind"), QStringLiteral("CREATE_MANUAL"));
     manualRevision.insert(QStringLiteral("reason"), QString::fromUtf8("程序未运行时手动补录"));
     manualRevision.insert(QStringLiteral("actor"), QStringLiteral("USER"));
-    manualRevision.insert(QStringLiteral("changes"), QJsonArray());
+    manualRevision.insert(QStringLiteral("changes"), manualCreationChanges(manual));
     m_revisions.append(manualRevision);
 
-    // Two runs the crash-recovery service closed without evidence. They keep
-    // their captured result and carry pending_review, exactly as
-    // CrashRecoveryService writes them, so the dashboard banner, the history
+    // Two runs the crash-recovery service closed without evidence, exactly as
+    // CrashRecoveryService closes a run left open: INTERRUPTED, or 进本前取消 when it
+    // never entered, at LOW confidence and pending review, ended at the restart, through
+    // a SYSTEM revision whose changes say what it was before - still in flight. It never
+    // infers a clear and leaves the duration unknown. The dashboard banner, the history
     // marker and the 确认 action have something real-shaped to render.
     for (int index : {62, 63}) {
         QJsonObject review = m_runs.at(index).toObject();
+        const bool entered = review.value(QStringLiteral("entered_at_utc")).isString();
+        const QJsonValue restartedAt = review.value(QStringLiteral("ended_at_utc"));
+        const QString closedAs = entered ? QStringLiteral("INTERRUPTED")
+                                         : QStringLiteral("CANCELLED_BEFORE_ENTRY");
+        const QJsonArray changes{
+            changeEntry(QStringLiteral("ended_at_utc"), QJsonValue(QJsonValue::Null), restartedAt),
+            changeEntry(QStringLiteral("result"), QStringLiteral("UNKNOWN"), closedAs),
+            changeEntry(QStringLiteral("pending_review"), false, true),
+            changeEntry(QStringLiteral("detection_confidence"),
+                        review.value(QStringLiteral("detection_confidence")), QStringLiteral("LOW")),
+        };
+        review.insert(QStringLiteral("result"), closedAs);
+        review.insert(QStringLiteral("duration_ms"), QJsonValue(QJsonValue::Null));
         review.insert(QStringLiteral("pending_review"), true);
         review.insert(QStringLiteral("detection_confidence"), QStringLiteral("LOW"));
-        review.insert(QStringLiteral("note"),
-                      QString::fromUtf8("进程异常退出后由崩溃恢复关闭，结果待人工确认"));
+        review.insert(QStringLiteral("revision"), 2);
+        review.insert(QStringLiteral("updated_at_utc"), restartedAt);
         m_runs.replace(index, review);
+        m_revisions.append(sampleRevision(
+            review, restartedAt.toString(), "CORRECT", "SYSTEM",
+            entered ? QString::fromUtf8("程序重启时发现未完结记录，已记为中断并标记待复核。")
+                    : QString::fromUtf8("程序重启时发现未完结记录，它尚未进入副本，已记为进本前取消并标记待复核。"),
+            changes));
     }
 
-    // A soft-deleted duplicate: listed only on request, never counted.
+    // A soft-deleted duplicate: listed only on request, never counted. The player
+    // deleted it, and said why, through a revision like every other change
+    // (RunMutationService.SoftDeleteRun).
     QJsonObject deleted = m_runs.at(55).toObject();
+    const QString deletedAt =
+        isoUtc(fromIso(deleted.value(QStringLiteral("matched_at_utc"))).addSecs(3 * 3600));
     deleted.insert(QStringLiteral("soft_deleted"), true);
-    deleted.insert(QStringLiteral("note"), QString::fromUtf8("重复记录（replay 测试产生）"));
+    deleted.insert(QStringLiteral("revision"), 2);
+    deleted.insert(QStringLiteral("updated_at_utc"), deletedAt);
     m_runs.replace(55, deleted);
+    m_revisions.append(sampleRevision(deleted, deletedAt, "SOFT_DELETE", "USER",
+                                      QString::fromUtf8("重复记录"),
+                                      QJsonArray{changeEntry(QStringLiteral("soft_deleted"), false, true)}));
 
     // Two runs with a missing field, so the "unknown" buckets are populated.
     QJsonObject noJob = m_runs.at(70).toObject();
@@ -1397,26 +1544,50 @@ QJsonObject MockBackend::applyMutation(const QString &messageType,
     }
 
     if (messageType == QLatin1String("UpdateAchievementBaseline")) {
-        const int baseline = qMax(0, payload.value(QStringLiteral("baseline_completed_count"))
-                                         .toInt(m_baselineCompletedCount));
-        // RunMutationService.UpdateAchievementBaseline (audit 2026-10-03, CS-7): only a
-        // changed baseline moves its effective time. The same count - a goal-only edit,
-        // or the number entered again - keeps the stored time, whatever the request says.
-        if (baseline != m_baselineCompletedCount) {
-            const QDateTime requested =
-                fromIso(payload.value(QStringLiteral("baseline_effective_at")));
-            m_baselineEffectiveAt =
-                requested.isValid() ? requested.toUTC() : QDateTime::currentDateTimeUtc();
+        const int baseline = payload.value(QStringLiteral("baseline_completed_count"))
+                                 .toInt(m_baselineCompletedCount);
+        const int goal = payload.value(QStringLiteral("goal_count")).toInt(m_goalCount);
+        // RunMutationService.UpdateAchievementBaseline refuses these, with its own
+        // sentences, rather than storing something else than was asked.
+        if (goal < 1) {
+            *errorCode = QStringLiteral("ERR_BAD_REQUEST");
+            *errorMessage = QString::fromUtf8("目标值必须大于等于 1。");
+            return {};
         }
-        m_goalCount = qMax(1, payload.value(QStringLiteral("goal_count")).toInt(m_goalCount));
-        m_baselineCompletedCount = baseline;
+        if (baseline < 0) {
+            *errorCode = QStringLiteral("ERR_BAD_REQUEST");
+            *errorMessage = QString::fromUtf8("已完成次数不能为负数。");
+            return {};
+        }
+        // RunMutationService.UpdateAchievementBaseline (audit 2026-10-03, S33-3): the same
+        // goal and the same baseline change nothing, so nothing is written. The answer is
+        // what is stored, under the history entry that stored it - a fresh id only when no
+        // entry did - and, like the Collector, this backend announces nothing for it.
+        const bool changed = goal != m_goalCount || baseline != m_baselineCompletedCount;
+        QString auditEventId = m_baselineAuditEventId;
+        if (changed) {
+            // CS-7: only a changed baseline moves its effective time. The same count - a
+            // goal-only edit - keeps the stored time, whatever the request says.
+            if (baseline != m_baselineCompletedCount) {
+                const QDateTime requested =
+                    fromIso(payload.value(QStringLiteral("baseline_effective_at")));
+                m_baselineEffectiveAt =
+                    requested.isValid() ? requested.toUTC() : QDateTime::currentDateTimeUtc();
+            }
+            m_goalCount = goal;
+            m_baselineCompletedCount = baseline;
+            m_achievementUpdatedAt = QDateTime::currentDateTimeUtc();
+            m_baselineAuditEventId = ipc::newRequestId();
+            auditEventId = m_baselineAuditEventId;
+        } else if (auditEventId.isEmpty()) {
+            auditEventId = ipc::newRequestId();
+        }
         QJsonObject result;
         result.insert(QStringLiteral("goal_count"), m_goalCount);
         result.insert(QStringLiteral("baseline_completed_count"), m_baselineCompletedCount);
         result.insert(QStringLiteral("baseline_effective_at"), isoUtc(m_baselineEffectiveAt));
-        result.insert(QStringLiteral("updated_at_utc"),
-                      isoUtc(QDateTime::currentDateTimeUtc()));
-        result.insert(QStringLiteral("audit_event_id"), ipc::newRequestId());
+        result.insert(QStringLiteral("updated_at_utc"), isoUtc(m_achievementUpdatedAt));
+        result.insert(QStringLiteral("audit_event_id"), auditEventId);
         result.insert(QStringLiteral("idempotent_replay"), false);
         return result;
     }
@@ -1479,7 +1650,7 @@ QJsonObject MockBackend::applyMutation(const QString &messageType,
         revision.insert(QStringLiteral("change_kind"), QStringLiteral("CREATE_MANUAL"));
         revision.insert(QStringLiteral("reason"), reason);
         revision.insert(QStringLiteral("actor"), QStringLiteral("USER"));
-        revision.insert(QStringLiteral("changes"), QJsonArray());
+        revision.insert(QStringLiteral("changes"), manualCreationChanges(run));
         m_revisions.append(revision);
 
         QJsonObject result;
@@ -1503,7 +1674,7 @@ QJsonObject MockBackend::applyMutation(const QString &messageType,
     const int expected = payload.value(QStringLiteral("expected_revision")).toInt(-1);
     if (expected >= 0 && expected != run.value(QStringLiteral("revision")).toInt()) {
         *errorCode = QStringLiteral("ERR_REVISION_CONFLICT");
-        *errorMessage = QString::fromUtf8("该记录已被修改，请刷新后重试。");
+        *errorMessage = QString::fromUtf8("这条记录已在别处被修改，请刷新后重试。");
         return {};
     }
 
@@ -1514,8 +1685,14 @@ QJsonObject MockBackend::applyMutation(const QString &messageType,
             return {};
         }
         run.insert(QStringLiteral("soft_deleted"), true);
-        touchRun(run, QStringLiteral("SOFT_DELETE"), reason,
-                 QJsonArray{changeEntry(QStringLiteral("soft_deleted"), false, true)});
+        QJsonArray changes{changeEntry(QStringLiteral("soft_deleted"), false, true)};
+        // RunMutationService.SoftDeleteRun commits with clearPendingReview: a deleted
+        // run leaves the review list, and its revision records that as well.
+        if (run.value(QStringLiteral("pending_review")).toBool(false)) {
+            run.insert(QStringLiteral("pending_review"), false);
+            changes.append(changeEntry(QStringLiteral("pending_review"), true, false));
+        }
+        touchRun(run, QStringLiteral("SOFT_DELETE"), reason, changes);
     } else if (messageType == QLatin1String("RestoreRun")) {
         if (!isSoftDeleted(run)) {
             *errorCode = QStringLiteral("ERR_NOT_DELETED");
@@ -1617,26 +1794,36 @@ QJsonObject MockBackend::applyMutation(const QString &messageType,
             *errorMessage = QString::fromUtf8("没有任何字段被修改。");
             return {};
         }
-        run.insert(QStringLiteral("manually_corrected"), true);
+        // RunMutationService.CorrectRun: only a correction that overrules the record marks
+        // the run, and once marked it stays marked; the revision records the change.
+        if (overrulesTheRecord(before.value(reviewKey).toBool(false), applied)
+            && !run.value(QStringLiteral("manually_corrected")).toBool(false)) {
+            applied.append(changeEntry(QStringLiteral("manually_corrected"), false, true));
+            run.insert(QStringLiteral("manually_corrected"), true);
+        }
         touchRun(run, QStringLiteral("CORRECT"), reason, applied);
     } else if (messageType == QLatin1String("UndoRevision")) {
         // Replay the newest revision's old_value as a *new* revision.
         // run_revisions stays append-only; nothing is ever deleted.
-        int newest = 0;
+        // RunMutationService.UndoRevision: revision 1 is the record's creation.
+        const int newest = run.value(QStringLiteral("revision")).toInt();
+        if (newest <= 1) {
+            *errorCode = QStringLiteral("ERR_UNDO_NOT_ALLOWED");
+            *errorMessage =
+                QString::fromUtf8("第 1 条修订是创建记录本身，无法撤销；如需移除请使用软删除。");
+            return {};
+        }
         QJsonObject target;
         for (const QJsonValue &value : std::as_const(m_revisions)) {
             const QJsonObject entry = value.toObject();
-            if (entry.value(QStringLiteral("run_id")).toString() != runId)
-                continue;
-            const int revision = entry.value(QStringLiteral("revision")).toInt();
-            if (revision > newest) {
-                newest = revision;
+            if (entry.value(QStringLiteral("run_id")).toString() == runId
+                && entry.value(QStringLiteral("revision")).toInt() == newest) {
                 target = entry;
             }
         }
-        if (newest <= 1 || target.isEmpty()) {
-            *errorCode = QStringLiteral("ERR_UNDO_NOT_ALLOWED");
-            *errorMessage = QString::fromUtf8("首个修订不可撤销。");
+        if (target.isEmpty()) {
+            *errorCode = QStringLiteral("ERR_NOT_FOUND");
+            *errorMessage = QString::fromUtf8("找不到该记录，请刷新列表后重试。");
             return {};
         }
 
@@ -1644,12 +1831,28 @@ QJsonObject MockBackend::applyMutation(const QString &messageType,
         for (const QJsonValue &value : target.value(QStringLiteral("changes")).toArray()) {
             const QJsonObject change = value.toObject();
             const QString field = change.value(QStringLiteral("field")).toString();
-            if (field.isEmpty())
+            // manually_corrected is provenance: RunMutationService.Commit keeps it set
+            // through an undo, so the undone correction's mark stays.
+            if (field.isEmpty() || field == QLatin1String("manually_corrected"))
                 continue;
             const QJsonValue restored = change.value(QStringLiteral("old_value"));
             applied.append(changeEntry(field, run.value(field), restored));
             run.insert(field, restored);
         }
+        // The SYSTEM revision that closed an unfinished run cannot be taken back into the
+        // shape it closed: no statistic would count the run, and no restart closes it again.
+        if (target.value(QStringLiteral("actor")).toString() == QLatin1String("SYSTEM")
+            && isUnsettledShape(run)) {
+            *errorCode = QStringLiteral("ERR_UNDO_NOT_ALLOWED");
+            *errorMessage = QString::fromUtf8(
+                "这条修订是程序为未完结的记录自动写下的。撤销它会让记录回到无法统计、也无法确认的状态，"
+                "因此不能撤销；如果判断有误，请直接更正这条记录。");
+            return {};
+        }
+        // RunMutationRules.ValidateFinalValue: the restored run as a whole must be one
+        // that can exist, whatever it was before.
+        if (!acceptableFinalValue(run, errorCode, errorMessage))
+            return {};
         if (applied.isEmpty()) {
             *errorCode = QStringLiteral("ERR_NO_CHANGES");
             *errorMessage = QString::fromUtf8("上一次修正没有可回放的字段。");

@@ -342,7 +342,10 @@ void ReflectionTests::appController_promptsOncePerCompletedRun()
     settings.setReflectPrompt(true);
 
     mr::MockBackend backend;
-    mr::AppController controller(&backend, &settings);
+    // The transitions are announced as well: on Qt's silent mock engine, never on the
+    // machine's own voice (review S33-10).
+    mr::AppController controller(&backend, &settings, nullptr, nullptr,
+                                 mr::TtsService::EngineMode::Mock);
     controller.setReflectionPromptCutoffForTest(fixtureCutoff());
     QSignalSpy prompts(&controller, &mr::AppController::reflectionPromptRequested);
 

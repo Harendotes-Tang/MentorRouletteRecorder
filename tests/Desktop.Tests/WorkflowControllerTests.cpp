@@ -944,6 +944,21 @@ private Q_SLOTS:
         QCOMPARE(history.runEventsMessage(), QStringLiteral("refused"));
     }
 
+    // DT-10：采集服务不提供逐事件摘要时，详情页「事件」一栏的说明此前句中带着机器码
+    // （ERR_UNKNOWN_MESSAGE）。普通用户从不看到机器码，这一栏也不知道维护者工具是否打开。
+    void anUnsupportedEventSummaryIsExplainedWithoutACode()
+    {
+        ControlledBackend backend;
+        mr::HistoryController history(&backend);
+        history.selectRun(run(QStringLiteral("A")));
+        history.refreshRunEvents();
+        auto *reply = backend.last(QStringLiteral("GetRunEvents")).reply.data();
+        QVERIFY(reply);
+        reply->fail(QStringLiteral("ERR_UNKNOWN_MESSAGE"), QStringLiteral("unknown message_type"));
+        QCOMPARE(history.runEventsState(), QStringLiteral("unsupported"));
+        QCOMPARE(history.runEventsMessage(), QString::fromUtf8("当前 Collector 不提供逐事件摘要。"));
+    }
+
     void destructionDisconnectsPendingRepliesAndBackendLossIsSafe()
     {
         ControlledBackend backend;

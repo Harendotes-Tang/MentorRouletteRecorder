@@ -7,7 +7,8 @@
 // (DOC/mentor-recorder-v2.dc.html, genRuns()): the same LCG seeded with
 // 20260904, 96 runs spread over 60 days, the same result weights, ~2 % unknown
 // duty, ~6 % unknown job, one corrected run carrying a revision, one manual
-// run and one soft-deleted run.
+// run and one soft-deleted run. Unlike the prototype, an UNKNOWN run has an
+// end time: a stored run the Collector let go never reads as still in flight.
 //
 // Every statistic is computed with the definitions of
 // docs/statistics-definitions.md - including the parts that are easy to get
@@ -273,6 +274,11 @@ private:
     /// achievement_settings.baseline_effective_at (UTC). Set in the constructor to before
     /// the dataset's first run, so every generated completion counts on top of 1374.
     QDateTime m_baselineEffectiveAt;
+    /// achievement_settings.updated_at_utc, and the id of the baseline history entry that
+    /// stored the current values - empty when none did (setAchievement). A save that
+    /// changes nothing answers these (RunMutationService.UpdateAchievementBaseline).
+    QDateTime m_achievementUpdatedAt;
+    QString m_baselineAuditEventId;
     bool m_npcapMissing = false;
     bool m_capturing = true;
     bool m_midstreamSuspected = false;

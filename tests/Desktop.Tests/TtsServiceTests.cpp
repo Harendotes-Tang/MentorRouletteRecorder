@@ -1,9 +1,11 @@
 // ---------------------------------------------------------------------------
 // tst_ttsservice - template substitution and rate/volume mapping.
 //
-// These tests must pass on a machine with no speech engine at all, so nothing
-// here asks the service to actually produce sound: the pure helpers are static,
-// and the announcement path is observed through TtsService::spoke().
+// Nothing here may produce sound: the pure helpers are static, and the
+// announcement path is observed through TtsService::spoke(). Whatever does speak
+// - a TtsService, or the one inside an AppController - is given Qt's silent "mock"
+// engine; a test that makes it speak is skipped where that plugin is missing,
+// never run on the machine's own voice (review S33-10).
 // ---------------------------------------------------------------------------
 
 #include "TestCollectorGuard.h"
@@ -321,7 +323,22 @@ QVariantMap stateChangedEvent(const QString &state, const QVariantMap &run)
     return event;
 }
 
+/// Every TtsService and AppController here speaks through Qt's "mock" engine, which
+/// plays no sound: a test run must not talk through the machine's own voice (review
+/// S33-10). What a test asserts is the spoke() signal, which does not depend on it.
+constexpr auto kSilentSpeech = mr::TtsService::EngineMode::Mock;
+
 } // namespace
+
+/// A test that makes \a tts speak runs on the silent engine, and is skipped, visibly,
+/// where Qt's mock engine plugin is missing - never run on the machine's own voice.
+#define REQUIRE_SILENT_SPEECH(tts)                                                     \
+    do {                                                                                \
+        const auto *silentEngine = (tts)->findChild<QTextToSpeech *>();                 \
+        if (!silentEngine || !(tts)->isAvailable())                                     \
+            QSKIP("Qt's mock speech engine plugin is not installed.");                  \
+        QCOMPARE(silentEngine->engine(), QStringLiteral("mock"));                       \
+    } while (false)
 
 class TtsServiceTests : public QObject
 {
@@ -333,7 +350,7 @@ private Q_SLOTS:
         mr::AppSettings settings;
         EventOnlyBackend backend;
         backend.setConnected(false);
-        mr::AppController controller(&backend, &settings);
+        mr::AppController controller(&backend, &settings, nullptr, nullptr, kSilentSpeech);
         QVERIFY(!controller.collectorForTest());
         QVERIFY(controller.findChildren<mr::CollectorProcess *>().isEmpty());
         for (int attempt = 0; attempt < 6; ++attempt)
@@ -347,7 +364,7 @@ private Q_SLOTS:
         mr::AppSettings settings;
         EventOnlyBackend backend;
         auto supervisor = std::make_unique<mr::CollectorProcess>();
-        mr::AppController controller(&backend, &settings, nullptr, supervisor.get());
+        mr::AppController controller(&backend, &settings, nullptr, supervisor.get(), kSilentSpeech);
         QCOMPARE(controller.collectorForTest(), supervisor.get());
         QVERIFY(!supervisor->parent());
         supervisor.reset();
@@ -466,7 +483,8 @@ void TtsServiceTests::announce_usesTemplatesAndHonoursMasterSwitch()
     settings.setTtsEnabled(true);
     settings.setTemplateEntered(QString::fromUtf8("进入 {duty}"));
 
-    mr::TtsService service(&settings);
+    mr::TtsService service(&settings, nullptr, kSilentSpeech);
+    REQUIRE_SILENT_SPEECH(&service);
     QSignalSpy spy(&service, &mr::TtsService::spoke);
 
     QVariantMap values;
@@ -498,7 +516,8 @@ void TtsServiceTests::preview_speaksEvenWhenTheMasterSwitchIsOff()
     settings.setTemplateCompleted(
         QString::fromUtf8("导随完成，当前 {progress} 次，剩余 {remaining}"));
 
-    mr::TtsService service(&settings);
+    mr::TtsService service(&settings, nullptr, kSilentSpeech);
+    REQUIRE_SILENT_SPEECH(&service);
     QSignalSpy spy(&service, &mr::TtsService::spoke);
 
     service.preview(QStringLiteral("completed"));
@@ -555,7 +574,8 @@ void TtsServiceTests::appController_announcesEveryLiveTransition()
     settings.setTtsEnabled(true);
 
     mr::MockBackend backend;
-    mr::AppController controller(&backend, &settings);
+    mr::AppController controller(&backend, &settings, nullptr, nullptr, kSilentSpeech);
+    REQUIRE_SILENT_SPEECH(controller.tts());
     QVERIFY(controller.tts() != nullptr);
 
     QSignalSpy spy(controller.tts(), &mr::TtsService::spoke);
@@ -600,7 +620,8 @@ void TtsServiceTests::appController_speaksAgainWhenTheSameMatchIsOfferedAgain()
     mr::AppSettings settings;
     settings.setTtsEnabled(true);
     EventOnlyBackend backend;
-    mr::AppController controller(&backend, &settings);
+    mr::AppController controller(&backend, &settings, nullptr, nullptr, kSilentSpeech);
+    REQUIRE_SILENT_SPEECH(controller.tts());
     QSignalSpy spoke(controller.tts(), &mr::TtsService::spoke);
     const auto run = freshRun(QStringLiteral("offered-again"));
     auto first = stateChangedEvent(QStringLiteral("MENTOR_MATCHED"), run);
@@ -646,7 +667,8 @@ void TtsServiceTests::appController_onlyAnnouncesExplicitServerMatches()
     mr::AppSettings settings;
     settings.setTtsEnabled(true);
     EventOnlyBackend backend;
-    mr::AppController controller(&backend, &settings);
+    mr::AppController controller(&backend, &settings, nullptr, nullptr, kSilentSpeech);
+    REQUIRE_SILENT_SPEECH(controller.tts());
     controller.calibration()->refreshFromCaptureStatus({
         {QStringLiteral("calibration"), QVariantMap{
             {QStringLiteral("state"), calibrationState},
@@ -677,7 +699,8 @@ void TtsServiceTests::appController_routesEveryContractEventKind()
     settings.setTtsEnabled(true);
 
     EventOnlyBackend backend;
-    mr::AppController controller(&backend, &settings);
+    mr::AppController controller(&backend, &settings, nullptr, nullptr, kSilentSpeech);
+    REQUIRE_SILENT_SPEECH(controller.tts());
     QSignalSpy spoke(controller.tts(), &mr::TtsService::spoke);
 
     // run_state_changed: re-reads the current run and announces the transition.
@@ -778,7 +801,8 @@ void TtsServiceTests::appController_announcesTerminalStatesFromRunFinishedOnly()
 
     EventOnlyBackend backend;
     backend.setDashboard(10, 1400, 2000);
-    mr::AppController controller(&backend, &settings);
+    mr::AppController controller(&backend, &settings, nullptr, nullptr, kSilentSpeech);
+    REQUIRE_SILENT_SPEECH(controller.tts());
     QSignalSpy spoke(controller.tts(), &mr::TtsService::spoke);
 
     // 1. The same terminal state on StateChanged says nothing at all.
@@ -817,7 +841,8 @@ void TtsServiceTests::appController_finishedLineCarriesTheRefreshedProgress()
 
     EventOnlyBackend backend;
     backend.setDashboard(45, 1400, 2000);
-    mr::AppController controller(&backend, &settings);
+    mr::AppController controller(&backend, &settings, nullptr, nullptr, kSilentSpeech);
+    REQUIRE_SILENT_SPEECH(controller.tts());
     QSignalSpy spoke(controller.tts(), &mr::TtsService::spoke);
 
     // The Collector counted the run before it published RunFinished.
@@ -850,7 +875,8 @@ void TtsServiceTests::appController_speaksTheCollectorsAchievementProgress()
 
     EventOnlyBackend backend;
     backend.setDashboard(46, 1400, 2000, 0, 1445);
-    mr::AppController controller(&backend, &settings);
+    mr::AppController controller(&backend, &settings, nullptr, nullptr, kSilentSpeech);
+    REQUIRE_SILENT_SPEECH(controller.tts());
     QSignalSpy spoke(controller.tts(), &mr::TtsService::spoke);
 
     backend.emitEvent(runFinishedEvent(QStringLiteral("UNKNOWN_FINAL_STATE"),
@@ -870,7 +896,8 @@ void TtsServiceTests::appController_ignoresReplayedAndOutOfOrderEvents()
     settings.setConfirmPrompt(false);
 
     EventOnlyBackend backend;
-    mr::AppController controller(&backend, &settings);
+    mr::AppController controller(&backend, &settings, nullptr, nullptr, kSilentSpeech);
+    REQUIRE_SILENT_SPEECH(controller.tts());
     QSignalSpy spoke(controller.tts(), &mr::TtsService::spoke);
 
     QVariantMap matched = stateChangedEvent(QStringLiteral("MENTOR_MATCHED"),
@@ -912,7 +939,8 @@ void TtsServiceTests::appController_speaksTheDutyCarriedByTheStateEvent()
     // This backend answers GetCurrentRun with nothing at all, so anything the
     // line says about the duty can only have come from the event.
     EventOnlyBackend backend;
-    mr::AppController controller(&backend, &settings);
+    mr::AppController controller(&backend, &settings, nullptr, nullptr, kSilentSpeech);
+    REQUIRE_SILENT_SPEECH(controller.tts());
     QSignalSpy spoke(controller.tts(), &mr::TtsService::spoke);
 
     backend.emitEvent(stateChangedEvent(QStringLiteral("ENTERED_DUTY"),
@@ -945,7 +973,8 @@ void TtsServiceTests::appController_ignoresTheSameEventsReplayedAfterAReconnect(
 
     EventOnlyBackend backend;
     backend.setDashboard(45, 1400, 2000);
-    mr::AppController controller(&backend, &settings);
+    mr::AppController controller(&backend, &settings, nullptr, nullptr, kSilentSpeech);
+    REQUIRE_SILENT_SPEECH(controller.tts());
     QSignalSpy spoke(controller.tts(), &mr::TtsService::spoke);
 
     const QVariantMap matched = stateChangedEvent(QStringLiteral("MENTOR_MATCHED"),
@@ -983,7 +1012,8 @@ void TtsServiceTests::appController_acceptsARestartedCollectorsLowSequences()
     settings.setConfirmPrompt(false);
 
     EventOnlyBackend backend;
-    mr::AppController controller(&backend, &settings);
+    mr::AppController controller(&backend, &settings, nullptr, nullptr, kSilentSpeech);
+    REQUIRE_SILENT_SPEECH(controller.tts());
     QSignalSpy spoke(controller.tts(), &mr::TtsService::spoke);
 
     backend.emitEvent(stateChangedEvent(QStringLiteral("MENTOR_MATCHED"),
@@ -1015,7 +1045,8 @@ void TtsServiceTests::appController_keepsTheDashboardAndDropsTheNumbersWhenItCan
 
     EventOnlyBackend backend;
     backend.setDashboard(45, 1400, 2000);
-    mr::AppController controller(&backend, &settings);
+    mr::AppController controller(&backend, &settings, nullptr, nullptr, kSilentSpeech);
+    REQUIRE_SILENT_SPEECH(controller.tts());
     QSignalSpy spoke(controller.tts(), &mr::TtsService::spoke);
     QTRY_VERIFY_WITH_TIMEOUT(!controller.dashboard().isEmpty(), 3000);
 
@@ -1042,7 +1073,8 @@ void TtsServiceTests::appController_speaksNoNumbersWhenTheDashboardWasNeverRead(
 
     EventOnlyBackend backend;
     backend.failDashboard = true;
-    mr::AppController controller(&backend, &settings);
+    mr::AppController controller(&backend, &settings, nullptr, nullptr, kSilentSpeech);
+    REQUIRE_SILENT_SPEECH(controller.tts());
     QSignalSpy spoke(controller.tts(), &mr::TtsService::spoke);
 
     backend.emitEvent(runFinishedEvent(QStringLiteral("UNKNOWN_FINAL_STATE"),
@@ -1063,7 +1095,7 @@ void TtsServiceTests::appController_queuesAResultQuestionRaisedWhileTheDialogIsB
 
     EventOnlyBackend backend;
     backend.setDashboard(10, 1400, 2000, 1);
-    mr::AppController controller(&backend, &settings);
+    mr::AppController controller(&backend, &settings, nullptr, nullptr, kSilentSpeech);
     QSignalSpy asked(&controller, &mr::AppController::resultConfirmationRequested);
 
     backend.emitEvent(runFinishedEvent(QStringLiteral("UNKNOWN_FINAL_STATE"),
@@ -1105,7 +1137,7 @@ void TtsServiceTests::appController_retriesAResultConfirmationAfterARevisionConf
          QJsonArray{QJsonObject{{QStringLiteral("revision"), 1}},
                     QJsonObject{{QStringLiteral("revision"), 7}}}}};
 
-    mr::AppController controller(&backend, &settings);
+    mr::AppController controller(&backend, &settings, nullptr, nullptr, kSilentSpeech);
     QSignalSpy succeeded(&controller, &mr::AppController::mutationSucceeded);
     QSignalSpy failed(&controller, &mr::AppController::mutationFailed);
     QSignalSpy revisions(&controller, &mr::AppController::runRevisionChanged);
@@ -1138,7 +1170,7 @@ void TtsServiceTests::appController_adoptsTheRevisionARunUpdatedCarries()
 {
     mr::AppSettings settings;
     EventOnlyBackend backend;
-    mr::AppController controller(&backend, &settings);
+    mr::AppController controller(&backend, &settings, nullptr, nullptr, kSilentSpeech);
     QTest::qWait(80);
 
     QVariantMap selected;
@@ -1174,7 +1206,7 @@ void TtsServiceTests::appController_runsTheDailyBackupOnTheFirstConnection()
 
     EventOnlyBackend backend;
     backend.setConnected(false);
-    mr::AppController controller(&backend, &settings);
+    mr::AppController controller(&backend, &settings, nullptr, nullptr, kSilentSpeech);
     QTest::qWait(80);
     backend.resetCounts();
 
@@ -1206,7 +1238,7 @@ void TtsServiceTests::appController_runsTheDailyBackupAgainOnTheNextDay()
     settings.setLastAutoBackupDate(QString());
 
     EventOnlyBackend backend;
-    mr::AppController controller(&backend, &settings);
+    mr::AppController controller(&backend, &settings, nullptr, nullptr, kSilentSpeech);
     QDate today(2026, 10, 3);
     controller.setTodayForTest([&today] { return today; });
     QTest::qWait(80);
@@ -1275,7 +1307,7 @@ void TtsServiceTests::appController_leavesTheDailyBackupAWhileAfterADutyEnds()
 
     EventOnlyBackend backend;
     backend.currentRun = QJsonObject{{QStringLiteral("state"), QStringLiteral("ENTERED_DUTY")}};
-    mr::AppController controller(&backend, &settings);
+    mr::AppController controller(&backend, &settings, nullptr, nullptr, kSilentSpeech);
     controller.setBackupAfterDutyMsForTest(600);
     QTRY_COMPARE(controller.currentRunState(), QStringLiteral("ENTERED_DUTY"));
     backend.resetCounts();
@@ -1339,7 +1371,7 @@ void TtsServiceTests::appController_neverRelaunchesAReusedCollectorOnEveryFailed
     EventOnlyBackend backend;
     backend.setConnected(false);
     mr::CollectorProcess supervisor(stub, nullptr);
-    mr::AppController controller(&backend, &settings, nullptr, &supervisor);
+    mr::AppController controller(&backend, &settings, nullptr, &supervisor, kSilentSpeech);
     auto *collector = controller.collectorForTest();
     QVERIFY(collector);
     // The takeover must never reach the real system tools, nor the stop event
@@ -1404,7 +1436,7 @@ void TtsServiceTests::appController_takesAVacatedLeaseOnTheFirstFailedConnect()
     EventOnlyBackend backend;
     backend.setConnected(false);
     mr::CollectorProcess supervisor(stub, nullptr);
-    mr::AppController controller(&backend, &settings, nullptr, &supervisor);
+    mr::AppController controller(&backend, &settings, nullptr, &supervisor, kSilentSpeech);
     auto *collector = controller.collectorForTest();
     QVERIFY(collector);
     collector->setStopEventNameForTest(
@@ -1440,7 +1472,8 @@ void TtsServiceTests::appController_staysSilentAboutTransitionsFromBeforeItStart
     mr::AppSettings settings;
     settings.setTtsEnabled(true);
     EventOnlyBackend backend;
-    mr::AppController controller(&backend, &settings);
+    mr::AppController controller(&backend, &settings, nullptr, nullptr, kSilentSpeech);
+    REQUIRE_SILENT_SPEECH(controller.tts());
     QSignalSpy spoke(controller.tts(), &mr::TtsService::spoke);
 
     const QVariantMap run = freshRun(QStringLiteral("replayed"));
@@ -1477,7 +1510,7 @@ void TtsServiceTests::appController_keepsANewerCaptureAnswerOverAnOlderStatusEve
                                   QJsonObject{{QStringLiteral("state"), QStringLiteral("RUNNING")},
                                               {QStringLiteral("ffxiv_running"), true},
                                               {QStringLiteral("ffxiv_process_id"), 200}}}};
-    mr::AppController controller(&backend, &settings);
+    mr::AppController controller(&backend, &settings, nullptr, nullptr, kSilentSpeech);
     QTRY_COMPARE_WITH_TIMEOUT(
         controller.captureStatus().value(QStringLiteral("ffxiv_process_id")).toInt(), 200, 3000);
 
@@ -1537,7 +1570,7 @@ void TtsServiceTests::appController_reportsAChosenGameThatExitedDuringTheSwitch(
                      {QStringLiteral("ffxiv_process_id"), 101},
                      {QStringLiteral("game_selection_required"), false},
                      {QStringLiteral("game_processes"), both}}}};
-    mr::AppController controller(&backend, &settings);
+    mr::AppController controller(&backend, &settings, nullptr, nullptr, kSilentSpeech);
     QTRY_VERIFY_WITH_TIMEOUT(controller.capturing(), 3000);
     auto *selection = controller.gameSelection();
     QCOMPARE(selection->choices().size(), 2);
@@ -1588,7 +1621,7 @@ void TtsServiceTests::appController_neverRelaunchesACollectorThatRefusedToStart(
     EventOnlyBackend backend;
     backend.setConnected(false);
     mr::CollectorProcess supervisor(stub, nullptr);
-    mr::AppController controller(&backend, &settings, nullptr, &supervisor);
+    mr::AppController controller(&backend, &settings, nullptr, &supervisor, kSilentSpeech);
     QTRY_VERIFY_WITH_TIMEOUT(
         controller.toastMessage().contains(QStringLiteral("database check failed")), 10000);
 
@@ -1809,7 +1842,7 @@ void TtsServiceTests::appController_ignoresHeartbeats()
     // every five seconds.
     mr::AppSettings settings;
     EventOnlyBackend backend;
-    mr::AppController controller(&backend, &settings);
+    mr::AppController controller(&backend, &settings, nullptr, nullptr, kSilentSpeech);
     // Let the start-up refresh finish first, or its own GetStatus would be
     // mistaken for one a heartbeat caused.
     QTest::qWait(80);
@@ -1835,7 +1868,7 @@ void TtsServiceTests::appController_asksToConfirmTheResultOfAFinishedMentorDuty(
 
     EventOnlyBackend backend;
     backend.setDashboard(10, 1400, 2000, 1);
-    mr::AppController controller(&backend, &settings);
+    mr::AppController controller(&backend, &settings, nullptr, nullptr, kSilentSpeech);
     QSignalSpy asked(&controller, &mr::AppController::resultConfirmationRequested);
 
     // A run that really did end in a confirmed COMPLETED needs no question.
@@ -1877,7 +1910,7 @@ void TtsServiceTests::appController_confirmingSendsOneAuditedCorrection()
 {
     mr::AppSettings settings;
     EventOnlyBackend backend;
-    mr::AppController controller(&backend, &settings);
+    mr::AppController controller(&backend, &settings, nullptr, nullptr, kSilentSpeech);
 
     backend.resetCounts();
     controller.resolveRunResult(QStringLiteral("run-ask"), 3, QStringLiteral("COMPLETED"),

@@ -384,7 +384,8 @@ private Q_SLOTS:
         fixture.dialog()->setProperty("noteText", QString::fromUtf8("乙的备注"));
 
         // 甲的失败此刻才到：乙的表单还没提交，这条提示不属于它。
-        fixture.dialog()->setProperty("externalErrorText", "ERR_TIME_ORDER (ERR_TIME_ORDER)");
+        fixture.dialog()->setProperty("externalErrorText",
+                                      QString::fromUtf8("匹配时间不能晚于进入副本的时间。"));
         QVERIFY(fixture.dialog()->property("errorText").toString().isEmpty());
         QVERIFY(fixture.dialog()->property("visible").toBool());
 
@@ -834,11 +835,14 @@ private Q_SLOTS:
         QCOMPARE(creations.count(), 1);
         QVERIFY(fixture.dialog()->property("submitting").toBool());
         QVERIFY(fixture.goToStep(1));
-        fixture.dialog()->setProperty("externalErrorText", "ERR_TIME_ORDER (ERR_TIME_ORDER)");
+        // The shell hands the text over as a player reads it (AppController::errorText):
+        // the Collector's sentence, without its code.
+        fixture.dialog()->setProperty("externalErrorText",
+                                      QString::fromUtf8("匹配时间不能晚于进入副本的时间。"));
         QCOMPARE(fixture.step(), 3);
         QVERIFY(!fixture.dialog()->property("submitting").toBool());
         QCOMPARE(fixture.dialog()->property("errorText").toString(),
-                 QStringLiteral("ERR_TIME_ORDER (ERR_TIME_ORDER)"));
+                 QString::fromUtf8("匹配时间不能晚于进入副本的时间。"));
     }
 
     void changingTheDayMovesOnlyTheTimesStillOnIt()

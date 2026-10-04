@@ -27,7 +27,9 @@
 // --settings-tab and --screenshot-size work with either backend. --export-target
 // replaces the interactive file chooser with a fixed directory, so an unattended
 // run never blocks on a modal dialog. A screenshot run that logged a QML or
-// JavaScript runtime warning still writes its frame and then exits 10.
+// JavaScript runtime warning still writes its frame and then exits 10. A mock run
+// that asserts text with --verify-text while the 无法自动记录 notice it did not ask
+// for (--mock-recording-state) covers the page writes its frame and exits 13.
 //
 // It never opens a listening socket and never performs a network request.
 // ---------------------------------------------------------------------------
@@ -1121,6 +1123,18 @@ int main(int argc, char *argv[])
                 std::fprintf(stdout, "wrote %s (%dx%d)\n", qPrintable(target),
                              frame.width(), frame.height());
             }
+        }
+        // --verify-text also finds text under the 无法自动记录 notice, which the mock
+        // raises whenever no --mock-recording-state says recording works: such a frame
+        // shows the notice, not the page it asserts (review S33-2). A test whose subject
+        // is that notice asks for its state. The frame is still written to be looked at.
+        const auto *alert = window->findChild<QObject *>(QStringLiteral("automaticRecordingAlert"));
+        if (exitCode == 0 && mockBackend && !parser.values(verifyTextOption).isEmpty()
+            && !parser.isSet(recordingOption) && !parser.isSet(alertFlowOption) && alert
+            && alert->property("visible").toBool()) {
+            std::fputs("the automatic-recording notice covers the page under test; "
+                       "pass --mock-recording-state\n", stderr);
+            exitCode = 13;
         }
         QCoreApplication::quit();
     });

@@ -259,6 +259,152 @@ struct Shell {
     }
 };
 
+/// One refusal, as the place that explains it receives it.
+struct Refusal {
+    const char *place;
+    const char *code;
+    const char *sentence;
+};
+
+/// Every place that explains a refusal, and the refusal each one gets below: the Collector's
+/// sentence, or the form's own check.
+const Refusal kRefusals[] = {
+    {"reason", "ERR_REVISION_CONFLICT", "该记录已被修改，请刷新后重试。"},
+    {"wizardCheck", "ERR_REASON_REQUIRED", "必须填写新增原因，请求已拒绝。"},
+    {"wizard", "ERR_TIME_ORDER", "匹配时间不能晚于进入副本的时间。"},
+    {"guide", "ERR_BAD_REQUEST", "基数必须是大于等于 0 的整数。"},
+    {"cardCheck", "ERR_REASON_REQUIRED", "修改成就进度前必须填写原因。"},
+    {"card", "ERR_DB_BUSY", "本地数据库正忙，请稍后重试。"},
+    {"result", "ERR_NOT_FOUND", "找不到该记录，请刷新列表后重试。"},
+    {"note", "ERR_DB_BUSY", "本地数据库正忙，笔记没有保存。"},
+};
+
+QString refusalSentence(const char *place)
+{
+    for (const Refusal &refusal : kRefusals) {
+        if (qstrcmp(refusal.place, place) == 0)
+            return QString::fromUtf8(refusal.sentence);
+    }
+    return {};
+}
+
+/// Refuses the unanswered request of \a type the way \a place expects; false when none is out.
+bool refuse(ShellBackend &backend, const QString &type, const char *place)
+{
+    mr::BackendReply *reply = backend.held(type);
+    for (const Refusal &refusal : kRefusals) {
+        if (reply && qstrcmp(refusal.place, place) == 0) {
+            reply->fail(QString::fromLatin1(refusal.code), QString::fromUtf8(refusal.sentence));
+            return true;
+        }
+    }
+    return false;
+}
+
+/// Refuses each place of kRefusals once on the shipping window - the 原因 dialog, the
+/// record wizard (its own check, then the Collector), the first-run guide, the 成就 card
+/// (its own check, then the Collector) and 本次导随结果 (the result, then the note) - and
+/// collects what each one shows.
+void refuseEverywhere(bool maintainer, QHash<QString, QString> &shown)
+{
+    Shell shell;
+    shell.backend.holdTypes << QStringLiteral("SoftDeleteRun") << QStringLiteral("CreateManualRun")
+                            << QStringLiteral("UpdateAchievementBaseline") << QStringLiteral("CorrectRun")
+                            << QStringLiteral("SetRunReflection");
+    QVERIFY2(shell.create(), qPrintable(shell.errors));
+    shell.controller->setMaintainerToolsVisible(maintainer);
+    QTRY_VERIFY(shell.controller->achievementSettingsLoaded());
+
+    // 原因: a 软删除 the Collector refuses.
+    shell.controller->selectRun(selectedRun(QStringLiteral("run-a")));
+    QVERIFY(shell.call("openReasonDialog", QStringLiteral("delete")));
+    auto *reason = shell.named(QStringLiteral("reasonDialog"));
+    QVERIFY(reason);
+    QTRY_VERIFY(reason->property("visible").toBool());
+    shell.item(QStringLiteral("reasonField"))->setProperty("text", QString::fromUtf8("重复记录"));
+    QVERIFY(shell.click(QStringLiteral("reasonConfirmButton")));
+    QVERIFY(refuse(shell.backend, QStringLiteral("SoftDeleteRun"), "reason"));
+    QTRY_VERIFY(!shell.root->property("reasonSubmitting").toBool());
+    shown.insert(QStringLiteral("reason"), shell.root->property("reasonDialogError").toString());
+    QVERIFY(QMetaObject::invokeMethod(reason, "close"));
+    QTRY_VERIFY(!reason->property("visible").toBool());
+
+    // 新增遗漏记录: refused by its own check, then by the Collector.
+    auto *wizard = shell.named(QStringLiteral("editRunDialog"));
+    QVERIFY(wizard);
+    QVERIFY(shell.call("openCreateDialog"));
+    QTRY_VERIFY(wizard->property("visible").toBool());
+    wizard->setProperty("matchedTime", QStringLiteral("20:00:00"));
+    wizard->setProperty("enteredTime", QStringLiteral("20:01:00"));
+    wizard->setProperty("endedTime", QStringLiteral("20:20:00"));
+    wizard->setProperty("reasonText", QString());
+    QVERIFY(QMetaObject::invokeMethod(wizard, "submit"));
+    QCOMPARE(wizard->property("errorCode").toString(), QStringLiteral("ERR_REASON_REQUIRED"));
+    shown.insert(QStringLiteral("wizardCheck"), wizard->property("errorText").toString());
+    wizard->setProperty("reasonText", QString::fromUtf8("补录"));
+    QVERIFY(QMetaObject::invokeMethod(wizard, "submit"));
+    QCOMPARE(shell.backend.callsOf(QStringLiteral("CreateManualRun")).size(), 1);
+    QVERIFY(refuse(shell.backend, QStringLiteral("CreateManualRun"), "wizard"));
+    QTRY_VERIFY(!wizard->property("submitting").toBool());
+    shown.insert(QStringLiteral("wizard"), wizard->property("errorText").toString());
+    QVERIFY(QMetaObject::invokeMethod(wizard, "close"));
+    QTRY_VERIFY(!wizard->property("visible").toBool());
+
+    // The first-run guide, reopened: its save is refused.
+    auto *guide = shell.named(QStringLiteral("baselineDialog"));
+    QVERIFY(guide);
+    QVERIFY(QMetaObject::invokeMethod(guide, "openDialog", Q_ARG(QVariant, true)));
+    QTRY_VERIFY(guide->property("visible").toBool());
+    QVERIFY(shell.click(QStringLiteral("baselineSaveButton")));
+    QVERIFY(refuse(shell.backend, QStringLiteral("UpdateAchievementBaseline"), "guide"));
+    QTRY_VERIFY(!guide->property("saving").toBool());
+    shown.insert(QStringLiteral("guide"), guide->property("errorText").toString());
+    QVERIFY(shell.click(QStringLiteral("baselineCancelButton")));
+    QTRY_VERIFY(!guide->property("visible").toBool());
+
+    // 设置 · 成就: refused by its own check (no reason), then by the Collector.
+    shell.controller->navigate(5);
+    auto *goalTab = shell.item(QStringLiteral("settingsTab_goal"));
+    QVERIFY(goalTab);
+    QVERIFY(QMetaObject::invokeMethod(goalTab, "clicked"));
+    QQuickItem *line = nullptr;
+    QTRY_VERIFY((line = shell.item(QStringLiteral("baselineErrorText"))));
+    QVERIFY(shell.click(QStringLiteral("saveAchievementButton")));
+    QCOMPARE(shell.backend.callsOf(QStringLiteral("UpdateAchievementBaseline")).size(), 1);
+    shown.insert(QStringLiteral("cardCheck"), line->property("text").toString());
+    shell.item(QStringLiteral("baselineReasonField"))->setProperty("text", QString::fromUtf8("核对"));
+    QVERIFY(shell.click(QStringLiteral("saveAchievementButton")));
+    QVERIFY(refuse(shell.backend, QStringLiteral("UpdateAchievementBaseline"), "card"));
+    QTRY_VERIFY(!shell.controller->baselineSaving());
+    shown.insert(QStringLiteral("card"), line->property("text").toString());
+
+    // 本次导随结果: the 通关 answer is refused, then the note.
+    auto *result = shell.named(QStringLiteral("reflectionDialog"));
+    QVERIFY(result);
+    QVariantMap runB = selectedRun(QStringLiteral("run-b"));
+    runB.insert(QStringLiteral("job_id"), 24);
+    QVERIFY(QMetaObject::invokeMethod(result, "openForResult", Q_ARG(QVariant, runB)));
+    QTRY_VERIFY(result->property("visible").toBool());
+    QVERIFY(QMetaObject::invokeMethod(result, "resolveWith",
+                                      Q_ARG(QVariant, QStringLiteral("COMPLETED")),
+                                      Q_ARG(QVariant, QString::fromUtf8("用户确认通关"))));
+    QTRY_COMPARE(shell.backend.callsOf(QStringLiteral("CorrectRun")).size(), 1);
+    QVERIFY(refuse(shell.backend, QStringLiteral("CorrectRun"), "result"));
+    QTRY_VERIFY(!result->property("resolving").toBool());
+    shown.insert(QStringLiteral("result"), result->property("errorText").toString());
+    QVERIFY(QMetaObject::invokeMethod(result, "close"));
+    QTRY_VERIFY(!result->property("visible").toBool());
+
+    QVERIFY(QMetaObject::invokeMethod(result, "openForRun", Q_ARG(QVariant, runB),
+                                      Q_ARG(QVariant, QString())));
+    QTRY_VERIFY(result->property("visible").toBool());
+    QVERIFY(shell.click(QStringLiteral("saveReflectionButton")));
+    QTRY_COMPARE(shell.backend.callsOf(QStringLiteral("SetRunReflection")).size(), 1);
+    QVERIFY(refuse(shell.backend, QStringLiteral("SetRunReflection"), "note"));
+    QTRY_VERIFY(!result->property("submitting").toBool());
+    shown.insert(QStringLiteral("note"), result->property("errorText").toString());
+}
+
 } // namespace
 
 class ShellDialogTests : public QObject
@@ -781,6 +927,69 @@ private Q_SLOTS:
         QVERIFY(dialog->property("saving").toBool());
     }
 
+    // S33-4：设置 · 成就卡片的错误行显示每一次基数保存的拒绝，连从设置重开的首次引导自己那次
+    // 保存的拒绝也显示：同一个原因同时出现在引导窗和它背后的卡片上。卡片只显示它自己那次
+    // 保存的拒绝；引导窗照旧认领自己的拒绝。
+    void theAchievementCardShowsOnlyTheRefusalOfItsOwnSave()
+    {
+        Shell shell;
+        shell.backend.holdTypes << QStringLiteral("UpdateAchievementBaseline");
+        QVERIFY2(shell.create(), qPrintable(shell.errors));
+        QTRY_VERIFY(shell.controller->achievementSettingsLoaded());
+        shell.controller->navigate(5);
+        auto *goalTab = shell.item(QStringLiteral("settingsTab_goal"));
+        QVERIFY(goalTab);
+        QVERIFY(QMetaObject::invokeMethod(goalTab, "clicked"));
+        QQuickItem *line = nullptr;
+        QTRY_VERIFY((line = shell.item(QStringLiteral("baselineErrorText"))));
+        auto *dialog = shell.named(QStringLiteral("baselineDialog"));
+        QVERIFY(dialog);
+
+        // The guide, reopened from the card, saves and is refused: its own refusal.
+        QQuickItem *reopen = nullptr;
+        QTRY_VERIFY((reopen = shell.itemWithText(QString::fromUtf8("重新打开首次引导"))));
+        QVERIFY(QMetaObject::invokeMethod(reopen, "clicked"));
+        QTRY_VERIFY(dialog->property("visible").toBool());
+        QVERIFY(shell.click(QStringLiteral("baselineSaveButton")));
+        shell.backend.held(QStringLiteral("UpdateAchievementBaseline"))
+            ->fail(QStringLiteral("ERR_BAD_REQUEST"), QString::fromUtf8("引导的保存被拒"));
+        QTRY_VERIFY(dialog->property("errorText").toString().contains(QString::fromUtf8("引导的保存被拒")));
+        QVERIFY2(line->property("text").toString().isEmpty(), qPrintable(line->property("text").toString()));
+        QVERIFY(!line->isVisible());
+        QVERIFY(shell.click(QStringLiteral("baselineCancelButton")));
+        QTRY_VERIFY(!dialog->property("visible").toBool());
+
+        // A save the card did not send is not the card's either.
+        shell.controller->updateAchievementBaseline(2000, 10, QString::fromUtf8("别处"));
+        shell.backend.held(QStringLiteral("UpdateAchievementBaseline"))
+            ->fail(QStringLiteral("ERR_BAD_REQUEST"), QString::fromUtf8("别处的保存被拒"));
+        QTRY_VERIFY(!shell.controller->baselineSaving());
+        QVERIFY(line->property("text").toString().isEmpty());
+
+        // The card's own save is refused: shown on the card, and only there.
+        shell.item(QStringLiteral("baselineReasonField"))->setProperty("text", QString::fromUtf8("核对"));
+        QVERIFY(shell.click(QStringLiteral("saveAchievementButton")));
+        shell.backend.held(QStringLiteral("UpdateAchievementBaseline"))
+            ->fail(QStringLiteral("ERR_DB_BUSY"), QString::fromUtf8("卡片的保存被拒"));
+        QTRY_VERIFY(line->property("text").toString().contains(QString::fromUtf8("卡片的保存被拒")));
+        QVERIFY(line->isVisible());
+        QVERIFY(!dialog->property("errorText").toString().contains(QString::fromUtf8("卡片的保存被拒")));
+
+        // Accepted the next time: what the card waits for is answered, so a later guide's
+        // refusal is the guide's again.
+        QVERIFY(shell.click(QStringLiteral("saveAchievementButton")));
+        shell.backend.held(QStringLiteral("UpdateAchievementBaseline"))
+            ->succeed({{QStringLiteral("goal_count"), 2000}, {QStringLiteral("baseline_completed_count"), 0}});
+        QTRY_VERIFY(!shell.controller->baselineSaving());
+        QVERIFY(QMetaObject::invokeMethod(reopen, "clicked"));
+        QTRY_VERIFY(dialog->property("visible").toBool());
+        QVERIFY(shell.click(QStringLiteral("baselineSaveButton")));
+        shell.backend.held(QStringLiteral("UpdateAchievementBaseline"))
+            ->fail(QStringLiteral("ERR_BAD_REQUEST"), QString::fromUtf8("又一次引导的保存被拒"));
+        QTRY_VERIFY(dialog->property("errorText").toString().contains(QString::fromUtf8("又一次引导的保存被拒")));
+        QVERIFY(!line->property("text").toString().contains(QString::fromUtf8("又一次引导的保存被拒")));
+    }
+
     // DT6-X2：「从 0 开始」发出的是已存的目标，引导窗里改过的目标被悄悄丢掉。它发出的
     // 应是窗里显示的目标，并像「保存并开始」一样先校验。
     void startingFromZeroSendsTheGoalTheGuideShows()
@@ -886,7 +1095,14 @@ private Q_SLOTS:
         first->fail(QStringLiteral("ERR_INTERNAL"), QString::fromUtf8("Collector 未在超时时间内响应。"));
         QTRY_VERIFY(!dialog->property("submitting").toBool());
         QVERIFY(dialog->property("visible").toBool());
-        QVERIFY(!dialog->property("errorText").toString().isEmpty());
+        // DT-10：同一句话也用于采集服务自己答复了内部错误的情形，所以它说的是「发出了、结果不明」，
+        // 而不是「没有回应」。
+        const QString shown = dialog->property("errorText").toString();
+        QVERIFY2(shown.contains(QString::fromUtf8(
+                     "这次提交已经发出，但没有收到能说明是否保存成功的回应，记录可能已经保存。"
+                     "为免重复，只能原样重试或关闭窗口；关闭后请先在历史记录中确认，再决定是否重新填写。")),
+                 qPrintable(shown));
+        QVERIFY2(!shown.contains(QString::fromUtf8("没有收到采集服务的回应")), qPrintable(shown));
 
         // The user changes the note and presses 保存 again.
         dialog->setProperty("noteText", QString::fromUtf8("改过的备注"));
@@ -991,6 +1207,73 @@ private Q_SLOTS:
         QVERIFY2(shown.contains(QString::fromUtf8("这次提交没有发给采集服务，记录没有保存。")),
                  qPrintable(shown));
         QVERIFY2(!shown.contains(QString::fromUtf8("可能已经保存")), qPrintable(shown));
+    }
+
+    // DT-10：拒绝的机器码（ERR_…）是给维护者看的。原因对话框、新增记录向导、首次引导、
+    // 成就卡片与「本次导随结果」此前在那句话后面一律加上括号里的错误码，普通用户也看得到。
+    // 维护者工具没有打开时，每一处只显示那句话。
+    void aRefusalShowsAPlayerOnlyItsSentence()
+    {
+        QHash<QString, QString> shown;
+        refuseEverywhere(false, shown);
+        if (QTest::currentTestFailed())
+            return;
+        for (const Refusal &refusal : kRefusals) {
+            QCOMPARE(shown.value(QString::fromLatin1(refusal.place)), refusalSentence(refusal.place));
+        }
+    }
+
+    // DT-10：维护者工具打开时，同样每一处都在那句话之后用括号附上机器码。
+    void aRefusalShowsAMaintainerItsCodeAfterTheSentence()
+    {
+        QHash<QString, QString> shown;
+        refuseEverywhere(true, shown);
+        if (QTest::currentTestFailed())
+            return;
+        for (const Refusal &refusal : kRefusals) {
+            QCOMPARE(shown.value(QString::fromLatin1(refusal.place)),
+                     refusalSentence(refusal.place) + QStringLiteral(" (")
+                         + QString::fromLatin1(refusal.code) + QLatin1Char(')'));
+        }
+    }
+
+    // DT-10：一句没有说明原因的拒绝不会把机器码当作说明交给普通用户。
+    void aRefusalWithoutASentenceShowsNoCodeToAPlayer()
+    {
+        mr::AppSettings settings;
+        ShellBackend backend;
+        mr::AppController controller(&backend, &settings);
+        QCOMPARE(controller.errorText(QString::fromUtf8("该记录已被修改，请刷新后重试。"),
+                                      QStringLiteral("ERR_REVISION_CONFLICT")),
+                 QString::fromUtf8("该记录已被修改，请刷新后重试。"));
+        QCOMPARE(controller.errorText(QString(), QStringLiteral("ERR_INTERNAL")),
+                 QString::fromUtf8("操作没有完成，原因不明。"));
+        controller.setMaintainerToolsVisible(true);
+        QCOMPARE(controller.errorText(QString(), QStringLiteral("ERR_INTERNAL")),
+                 QString::fromUtf8("操作没有完成，原因不明。 (ERR_INTERNAL)"));
+        QCOMPARE(controller.errorText(QString::fromUtf8("与采集服务的连接已断开。"), QString()),
+                 QString::fromUtf8("与采集服务的连接已断开。"));
+    }
+
+    // DT-10：采集服务不认识读取捕获设置的请求时，设置页「校准」一栏说明开关不可用，此前句中
+    // 总带着机器码（当前采集器不支持捕获设置（ERR_UNKNOWN_MESSAGE）……）。
+    void aCollectorWithoutCaptureSettingsIsExplainedWithTheCodeForAMaintainerOnly()
+    {
+        for (const bool maintainer : {false, true}) {
+            ShellBackend backend;
+            backend.holdTypes << QStringLiteral("GetCaptureSettings");
+            mr::AppController controller(&backend, nullptr);
+            controller.setMaintainerToolsVisible(maintainer);
+            controller.refreshCaptureSettings();
+            QVERIFY(backend.held(QStringLiteral("GetCaptureSettings")));
+            while (mr::BackendReply *reply = backend.held(QStringLiteral("GetCaptureSettings")))
+                reply->fail(QStringLiteral("ERR_UNKNOWN_MESSAGE"), QStringLiteral("unknown message_type"));
+            QTRY_VERIFY(!controller.captureSettingsError().isEmpty());
+            QVERIFY(!controller.captureSettingsSupported());
+            const QString sentence = QString::fromUtf8("当前采集器不支持捕获设置，以下开关不可用。");
+            QCOMPARE(controller.captureSettingsError(),
+                     maintainer ? sentence + QStringLiteral(" (ERR_UNKNOWN_MESSAGE)") : sentence);
+        }
     }
 
     // 审查 OK-9：总览页头的日期只在启动时算一次，托盘里挂到第二天仍显示昨天。

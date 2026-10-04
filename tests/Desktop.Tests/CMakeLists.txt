@@ -104,8 +104,8 @@ add_test(NAME MentorRecorderStyledComboBox
 
 # ---------------------------------------------------------------------------
 # tst_ttsservice - template substitution, rate/volume mapping, live events.
-# Kept in its own binary so it can run on a machine with no speech engine and
-# still prove the desktop-local announcement path.
+# Kept in its own binary. Its announcements go to Qt's silent mock speech engine
+# and never to the machine's own voice; without that plugin they are skipped.
 # ---------------------------------------------------------------------------
 add_executable(MentorRecorderTtsTests
     TtsServiceTests.cpp)
@@ -268,6 +268,7 @@ set_tests_properties(MentorRecorderIpcIntegration PROPERTIES
 add_test(NAME MentorRecorderQmlLoad
     COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
         --screenshot "${CMAKE_CURRENT_BINARY_DIR}/qml-smoke.png"
+        --mock-recording-state listening
         --page 1
         --theme dark
         --screenshot-delay 150
@@ -278,6 +279,7 @@ add_test(NAME MentorRecorderQmlLoad
 add_test(NAME MentorRecorderQmlDetailPanel
     COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
         --screenshot "${CMAKE_CURRENT_BINARY_DIR}/qml-detail.png"
+        --mock-recording-state listening
         --page 2
         --theme dark
         --mock-open-detail
@@ -288,6 +290,7 @@ add_test(NAME MentorRecorderQmlDetailPanel
 add_test(NAME MentorRecorderQmlEditDialog
     COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
         --screenshot "${CMAKE_CURRENT_BINARY_DIR}/qml-edit.png"
+        --mock-recording-state listening
         --page 2
         --theme dark
         --mock-open-edit
@@ -299,6 +302,7 @@ add_test(NAME MentorRecorderQmlEditDialog
 add_test(NAME MentorRecorderQmlCreateWizard
     COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
         --screenshot "${CMAKE_CURRENT_BINARY_DIR}/qml-create-wizard.png"
+        --mock-recording-state listening
         --page 1
         --theme light
         --mock-open-create
@@ -312,6 +316,7 @@ add_test(NAME MentorRecorderQmlCreateWizard
 add_test(NAME MentorRecorderQmlMockNoteImageFolder
     COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
         --screenshot "${CMAKE_CURRENT_BINARY_DIR}/qml-mock-note-images.png"
+        --mock-recording-state listening
         --page 1
         --theme light
         --mock-open-create
@@ -325,6 +330,7 @@ add_test(NAME MentorRecorderQmlMockNoteImageFolder
 add_test(NAME MentorRecorderQmlBaselineDialog
     COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
         --screenshot "${CMAKE_CURRENT_BINARY_DIR}/qml-baseline.png"
+        --mock-recording-state listening
         --page 1
         --theme light
         --mock-first-run
@@ -388,7 +394,9 @@ foreach(MR_VALIDATION_STATE waiting recording stopping completed failed)
 endforeach()
 
 # The midstream banner: capture RUNNING, nothing decoded, decode errors rising.
-# docs/live-validation-guide.md section 6.
+# docs/live-validation-guide.md section 6. Recording is otherwise possible (a
+# verified profile), so the 无法自动记录 notice on screen is the midstream one the
+# player sees in this situation, not an unrelated profile mismatch.
 add_test(NAME MentorRecorderQmlMidstreamBanner
     COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
         --backend mock
@@ -398,6 +406,7 @@ add_test(NAME MentorRecorderQmlMidstreamBanner
         --screenshot-size 1100x900
         --screenshot-delay 1000
         --mock-midstream
+        --mock-recording-state listening
         --verify-text "当前连接")
 
 # The pending-review banner on the dashboard reads the count the Collector
@@ -406,6 +415,7 @@ add_test(NAME MentorRecorderQmlPendingReviewBanner
     COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
         --backend mock
         --screenshot "${CMAKE_CURRENT_BINARY_DIR}/dashboard-pending-review.png"
+        --mock-recording-state listening
         --page 1
         --theme dark
         --screenshot-size 1280x900
@@ -420,6 +430,7 @@ add_test(NAME MentorRecorderQmlRunEventsTab
     COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
         --backend mock
         --screenshot "${CMAKE_CURRENT_BINARY_DIR}/history-events-tab.png"
+        --mock-recording-state listening
         --page 2
         --theme dark
         --screenshot-size 1280x900
@@ -485,7 +496,7 @@ add_test(NAME MentorRecorderQmlCandidateCapture
         --verify-text "排本登记" --verify-text "选用推荐")
 add_test(NAME MentorRecorderQmlCandidateDisclosure
     COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
-        --backend mock --show-disclosure --theme dark
+        --backend mock --show-disclosure --mock-recording-state listening --theme dark
         --screenshot "${CMAKE_CURRENT_BINARY_DIR}/candidate-disclosure.png"
         --screenshot-size 1100x720 --screenshot-delay 1200
         --verify-text "运行顺序")
@@ -584,7 +595,7 @@ set(MR_SETTINGS_QML_TESTS)
 foreach(MR_SETTINGS_TAB general tts goal data about)
     add_test(NAME MentorRecorderQmlSettings_${MR_SETTINGS_TAB}
         COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
-            --backend mock --mock-live none --page 6 --theme dark
+            --backend mock --mock-recording-state listening --mock-live none --page 6 --theme dark
             --settings-tab ${MR_SETTINGS_TAB}
             --screenshot "${CMAKE_CURRENT_BINARY_DIR}/settings-${MR_SETTINGS_TAB}.png"
             --screenshot-size 1280x800 --screenshot-delay 900
@@ -601,7 +612,7 @@ set(MR_SPEECH_QML_TESTS)
 foreach(MR_SPEECH_STATE azure openai unconfigured)
     add_test(NAME MentorRecorderQmlSpeech_${MR_SPEECH_STATE}
         COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
-            --backend mock --mock-live none --page 6 --theme dark
+            --backend mock --mock-recording-state listening --mock-live none --page 6 --theme dark
             --settings-tab tts --mock-speech ${MR_SPEECH_STATE}
             --screenshot "${CMAKE_CURRENT_BINARY_DIR}/settings-speech-${MR_SPEECH_STATE}.png"
             --screenshot-size 1280x800 --screenshot-delay 900
@@ -610,7 +621,7 @@ foreach(MR_SPEECH_STATE azure openai unconfigured)
 endforeach()
 add_test(NAME MentorRecorderQmlSpeechConfirm
     COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
-        --backend mock --mock-live none --page 6 --theme light
+        --backend mock --mock-recording-state listening --mock-live none --page 6 --theme light
         --settings-tab tts --mock-open-speech-confirm
         --screenshot "${CMAKE_CURRENT_BINARY_DIR}/settings-speech-confirm.png"
         --screenshot-size 1280x800 --screenshot-delay 900

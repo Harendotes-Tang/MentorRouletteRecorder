@@ -217,8 +217,7 @@ ApplicationWindow {
         // form takes only its own - not one from 本次导随结果 or 设置 meanwhile
         // (review DT3-X1).
         function onMutationFailed(code, message, kind, runId, neverSent) {
-            const text = (message && message.length > 0 ? message : code)
-                         + " (" + code + ")"
+            const text = App.errorText(message, code)
             if (reasonDialog.visible && reasonSubmitting
                 && kind === reasonAction && runId === reasonRunId) {
                 reasonDialogError = text

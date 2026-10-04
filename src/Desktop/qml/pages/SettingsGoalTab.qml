@@ -19,6 +19,12 @@ ColumnLayout {
     // Set as soon as the user types and cleared on submit, so a dashboard
     // refresh never overwrites a half-finished edit.
     property bool achievementEdited: false
+    // The card's own saves still unanswered. The first-run guide, reopened from
+    // here, saves through the same request, and its refusal is the guide's to show
+    // (review S33-4). The guide never sends beside another baseline save and the
+    // card cannot send while the guide is open, so the next baseline answer while
+    // one of these is out is the card's.
+    property int ownSavesOut: 0
     // Until the stored goal and baseline have been read on this connection the
     // fields hold defaults; saving them would overwrite the stored baseline
     // (audit 2026-10-03, CS7-D3), so they can be neither edited nor saved.
@@ -40,10 +46,17 @@ ColumnLayout {
             tab.goalText = String(App.goalCount)
         }
         // The Collector's own refusal (ERR_REASON_REQUIRED, ERR_BAD_REQUEST …)
-        // is shown next to the field, not only in a toast that scrolls away.
+        // of this card's save is shown next to the field, not only in a toast
+        // that scrolls away.
         function onBaselineFailed(code, message) {
-            tab.baselineErrorText = (message && message.length > 0 ? message : code)
-                                    + " (" + code + ")"
+            if (tab.ownSavesOut === 0)
+                return
+            tab.ownSavesOut -= 1
+            tab.baselineErrorText = App.errorText(message, code)
+        }
+        function onBaselineSaved(goal, baseline) {
+            if (tab.ownSavesOut > 0)
+                tab.ownSavesOut -= 1
         }
     }
 
@@ -59,11 +72,13 @@ ColumnLayout {
             return
         }
         if (!baselineReasonText.trim()) {
-            baselineErrorText = qsTr("修改成就进度前必须填写原因（ERR_REASON_REQUIRED）。")
+            baselineErrorText = App.errorText(qsTr("修改成就进度前必须填写原因。"), "ERR_REASON_REQUIRED")
             return
         }
         baselineErrorText = ""
         achievementEdited = false
+        // Counted before the request: a refusal can arrive inside the call.
+        ownSavesOut += 1
         App.updateAchievementBaseline(Math.floor(goal), Math.floor(baseline),
                                       baselineReasonText.trim())
     }
@@ -181,7 +196,7 @@ ColumnLayout {
                 }
                 Text {
                     Layout.fillWidth: true
-                    text: qsTr("修改后立即重算 · 导入按 run_id 去重")
+                    text: qsTr("修改后立即重算 · 导入时按记录编号去重")
                     color: Theme.textSecondary
                     opacity: Theme.dimOpacity(0.5)
                     font.pixelSize: Theme.fs(12)

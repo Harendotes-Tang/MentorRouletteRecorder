@@ -22,10 +22,12 @@
 #include <QHash>
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QScopeGuard>
 #include <QSet>
 #include <QSignalSpy>
 #include <QStandardPaths>
 #include <QTest>
+#include <QTextToSpeech>
 
 namespace {
 
@@ -34,6 +36,7 @@ struct Answer {
     bool ok = false;
     QJsonObject payload;
     QString code;
+    QString message;
 };
 
 /// One request, waited for.
@@ -41,11 +44,12 @@ Answer ask(mr::IBackend &backend, const QString &type, const QJsonObject &payloa
 {
     Answer answer;
     backend.request(type, payload)->whenDone(&backend,
-        [&answer](bool ok, const QVariantMap &result, const QString &code, const QString &) {
+        [&answer](bool ok, const QVariantMap &result, const QString &code, const QString &message) {
             answer.done = true;
             answer.ok = ok;
             answer.payload = QJsonObject::fromVariantMap(result);
             answer.code = code;
+            answer.message = message;
         });
     if (!QTest::qWaitFor([&answer] { return answer.done; }, 3000))
         answer.code = QStringLiteral("TEST_NO_REPLY");
@@ -136,15 +140,21 @@ private Q_SLOTS:
     {
         mr::AppSettings settings;
         const bool wasEnabled = settings.ttsEnabled();
+        const auto restore = qScopeGuard([&settings, wasEnabled] { settings.setTtsEnabled(wasEnabled); });
         settings.setTtsEnabled(true);
         mr::MockBackend backend;
-        mr::AppController controller(&backend, &settings);
+        // Qt's silent mock engine, never the machine's own voice (review S33-10).
+        mr::AppController controller(&backend, &settings, nullptr, nullptr,
+                                     mr::TtsService::EngineMode::Mock);
+        const auto *engine = controller.tts()->findChild<QTextToSpeech *>();
+        if (!engine || !controller.tts()->isAvailable())
+            QSKIP("Qt's mock speech engine plugin is not installed.");
+        QCOMPARE(engine->engine(), QStringLiteral("mock"));
         QSignalSpy spoke(controller.tts(), &mr::TtsService::spoke);
         backend.simulateRunTransitions(QString());
         QCOMPARE(spoke.size(), 2);
         QCOMPARE(spoke.at(0).at(0).toString(), QStringLiteral("matched"));
         QCOMPARE(spoke.at(1).at(0).toString(), QStringLiteral("entered"));
-        settings.setTtsEnabled(wasEnabled);
     }
 
     // OX-6: CaptureController / CaptureWire. While several clients wait for a
@@ -594,6 +604,53 @@ private Q_SLOTS:
         QCOMPARE(sameAgain.payload.value(QStringLiteral("goal_count")).toInt(), 2000);
     }
 
+    // S33-3 (mock parity): RunMutationService.UpdateAchievementBaseline - a save with the
+    // stored goal and the stored baseline writes nothing. It answers what is stored - the
+    // update time and the effective time - under the id of the history entry that stored
+    // them, is no replay, and announces nothing. A real change gets an entry and a time of
+    // its own, and the next save that changes nothing answers those. The mock answered a
+    // fresh id and the current time every time.
+    void aBaselineSaveThatChangesNothingAnswersWhatIsStored()
+    {
+        mr::MockBackend backend;
+        QSignalSpy events(&backend, &mr::IBackend::liveEvent);
+        const auto save = [&backend](int goal, int baseline, const QString &at) {
+            return ask(backend, QStringLiteral("UpdateAchievementBaseline"),
+                       {{QStringLiteral("goal_count"), goal},
+                        {QStringLiteral("baseline_completed_count"), baseline},
+                        {QStringLiteral("baseline_effective_at"), at},
+                        {QStringLiteral("reason"), QString::fromUtf8("核对")}});
+        };
+        const auto field = [](const Answer &answer, const char *key) {
+            return answer.payload.value(QLatin1String(key)).toString();
+        };
+
+        // The sample player's settings, saved again unchanged: stored long before today.
+        const Answer unchanged = save(2000, 1374, QStringLiteral("2026-10-01T08:00:00.000Z"));
+        QVERIFY(unchanged.ok);
+        QVERIFY(!unchanged.payload.value(QStringLiteral("idempotent_replay")).toBool());
+        const QDateTime storedAt = QDateTime::fromString(field(unchanged, "updated_at_utc"), Qt::ISODateWithMs);
+        QVERIFY2(storedAt.isValid() && storedAt < QDateTime::currentDateTimeUtc().addDays(-1),
+                 qPrintable(field(unchanged, "updated_at_utc")));
+        QVERIFY(!field(unchanged, "audit_event_id").isEmpty());
+        const Answer again = save(2000, 1374, QStringLiteral("2026-10-02T09:30:00.000Z"));
+        QCOMPARE(field(again, "audit_event_id"), field(unchanged, "audit_event_id"));
+        QCOMPARE(field(again, "updated_at_utc"), field(unchanged, "updated_at_utc"));
+        QCOMPARE(field(again, "baseline_effective_at"), field(unchanged, "baseline_effective_at"));
+
+        // A changed goal is stored under an entry of its own, and saved again it answers that.
+        const Answer changed = save(1800, 1374, QStringLiteral("2026-10-03T10:00:00.000Z"));
+        QVERIFY(changed.ok);
+        QVERIFY(field(changed, "audit_event_id") != field(unchanged, "audit_event_id"));
+        QVERIFY(QDateTime::fromString(field(changed, "updated_at_utc"), Qt::ISODateWithMs) > storedAt);
+        const Answer repeated = save(1800, 1374, QStringLiteral("2026-10-04T10:00:00.000Z"));
+        QCOMPARE(field(repeated, "audit_event_id"), field(changed, "audit_event_id"));
+        QCOMPARE(field(repeated, "updated_at_utc"), field(changed, "updated_at_utc"));
+        QCOMPARE(field(repeated, "baseline_effective_at"), field(changed, "baseline_effective_at"));
+        QCOMPARE(repeated.payload.value(QStringLiteral("goal_count")).toInt(), 1800);
+        QCOMPARE(events.count(), 0);
+    }
+
     // CS7-D4: StatisticsRepository.CountedFrom / CountContributingCompleted - on top of a
     // baseline above 0 only completions that ended at or after its effective time are
     // added (a missing end falls back to the entry, then the match; a row with no time at
@@ -648,6 +705,464 @@ private Q_SLOTS:
         QVERIFY(zero.ok);
         stats = backend.dashboardStats({});
         QCOMPARE(stats.value(QStringLiteral("achievement_progress")).toInt(), 5);
+    }
+
+    // S33-1a: RunMutationService.InitialChanges - a CREATE_MANUAL revision records the
+    // whole initial value set, every old value null (docs/manual-correction.md section 2),
+    // so what the player first entered stays readable in 修正历史. The mock wrote an
+    // empty list, for the runs it created and for its sample one alike.
+    void aManualRunsCreationRevisionRecordsEveryInitialValue()
+    {
+        mr::MockBackend backend;
+        const Answer created = ask(backend, QStringLiteral("CreateManualRun"), {
+            {QStringLiteral("content_id"), 17},
+            {QStringLiteral("job_id"), 24},
+            {QStringLiteral("matched_at_utc"), QStringLiteral("2026-09-02T12:00:00.000Z")},
+            {QStringLiteral("entered_at_utc"), QStringLiteral("2026-09-02T12:01:00.000Z")},
+            {QStringLiteral("ended_at_utc"), QStringLiteral("2026-09-02T12:20:00.000Z")},
+            {QStringLiteral("result"), QStringLiteral("COMPLETED")},
+            {QStringLiteral("reason"), QString::fromUtf8("补录")}});
+        QVERIFY(created.ok);
+        const Answer samples = ask(backend, QStringLiteral("QueryRuns"),
+                                   {{QStringLiteral("filter"),
+                                     QJsonObject{{QStringLiteral("source"), QJsonArray{QStringLiteral("MANUAL")}}}},
+                                    {QStringLiteral("page"), 1}, {QStringLiteral("page_size"), 200}});
+        QJsonArray manual = samples.payload.value(QStringLiteral("items")).toArray();
+        QCOMPARE(manual.size(), 2);
+
+        const QStringList fields{
+            QStringLiteral("content_id"), QStringLiteral("duty_name"), QStringLiteral("duty_category"),
+            QStringLiteral("job_id"), QStringLiteral("job_name"), QStringLiteral("role"),
+            QStringLiteral("matched_at_utc"), QStringLiteral("entered_at_utc"),
+            QStringLiteral("ended_at_utc"), QStringLiteral("duration_ms"), QStringLiteral("result"),
+            QStringLiteral("contributes_to_goal"), QStringLiteral("note"), QStringLiteral("soft_deleted"),
+            QStringLiteral("pending_review"), QStringLiteral("manually_corrected")};
+        for (const QJsonValue &item : std::as_const(manual)) {
+            const QJsonObject run = item.toObject();
+            const QJsonObject first = ask(backend, QStringLiteral("GetRunRevisions"),
+                                          {{QStringLiteral("run_id"), run.value(QStringLiteral("run_id"))}})
+                                          .payload.value(QStringLiteral("items")).toArray().first().toObject();
+            QCOMPARE(first.value(QStringLiteral("change_kind")).toString(), QStringLiteral("CREATE_MANUAL"));
+            const QJsonArray changes = first.value(QStringLiteral("changes")).toArray();
+            QStringList named;
+            for (const QJsonValue &value : changes) {
+                const QJsonObject change = value.toObject();
+                const QString field = change.value(QStringLiteral("field")).toString();
+                named.append(field);
+                QVERIFY2(change.value(QStringLiteral("old_value")).isNull(), qPrintable(field));
+                QVERIFY2(change.contains(QStringLiteral("new_value")), qPrintable(field));
+                const QJsonValue stored = run.value(field);
+                if (field == QLatin1String("pending_review") || field == QLatin1String("soft_deleted")
+                    || field == QLatin1String("manually_corrected")) {
+                    QCOMPARE(change.value(QStringLiteral("new_value")), QJsonValue(stored.toBool(false)));
+                } else {
+                    QCOMPARE(change.value(QStringLiteral("new_value")),
+                             stored.isUndefined() ? QJsonValue(QJsonValue::Null) : stored);
+                }
+            }
+            QCOMPARE(named, fields);
+        }
+    }
+
+    // S33-1b: RunFilterSql.AddContentIds - a duty asked for by its content id also finds
+    // the runs that observed only a zone hosting that duty and no other (capture never
+    // back-infers the content id). A zone several duties share is never expanded.
+    void aContentIdFilterAlsoFindsRunsKnownOnlyByTheDutysOwnZone()
+    {
+        const mr::DutyCatalog *catalog = mr::DutyCatalog::shared();
+        const qint64 ownZone = catalog->lookup(17).value(QStringLiteral("territory_id")).toLongLong();
+        const qint64 sharedZone = catalog->lookup(482).value(QStringLiteral("territory_id")).toLongLong();
+        QVERIFY(ownZone > 0);
+        QVERIFY(sharedZone > 0);
+        // The precondition: several duties share that zone, so it names none of them.
+        QVERIFY(!catalog->lookupByTerritory(sharedZone).contains(QStringLiteral("duty_name")));
+        QVERIFY(catalog->lookupByTerritory(ownZone).contains(QStringLiteral("duty_name")));
+
+        const auto run = [](const QString &id, const QJsonValue &content, qint64 zone) {
+            QJsonObject row = autoRun(id, QStringLiteral("COMPLETED"), true);
+            row.insert(QStringLiteral("content_id"), content);
+            row.insert(QStringLiteral("territory_id"), zone);
+            return row;
+        };
+        const QJsonValue none(QJsonValue::Null);
+        mr::MockBackend backend;
+        backend.resetRuns(QJsonArray{
+            run(QStringLiteral("11111111-1111-4111-8111-111111111111"), 17, ownZone),
+            run(QStringLiteral("22222222-2222-4222-8222-222222222222"), none, ownZone),
+            run(QStringLiteral("33333333-3333-4333-8333-333333333333"), 482, sharedZone),
+            run(QStringLiteral("44444444-4444-4444-8444-444444444444"), none, sharedZone)});
+
+        const auto found = [&backend](int contentId) {
+            const QJsonObject filter{{QStringLiteral("content_id"), QJsonArray{contentId}}};
+            QStringList ids;
+            for (const QJsonValue &item : ask(backend, QStringLiteral("QueryRuns"),
+                                              {{QStringLiteral("filter"), filter},
+                                               {QStringLiteral("page"), 1},
+                                               {QStringLiteral("page_size"), 200}})
+                                              .payload.value(QStringLiteral("items")).toArray())
+                ids.append(item.toObject().value(QStringLiteral("run_id")).toString().left(1));
+            ids.sort();
+            return ids;
+        };
+        QCOMPARE(found(17), (QStringList{QStringLiteral("1"), QStringLiteral("2")}));
+        QCOMPARE(found(482), QStringList{QStringLiteral("3")});
+        // Statistics take the same filter.
+        QCOMPARE(backend.dashboardStats({{QStringLiteral("content_id"), QJsonArray{17}}})
+                     .value(QStringLiteral("attempt_count")).toInt(), 2);
+    }
+
+    // S33-1c: the sample run the player deleted carries its SOFT_DELETE revision
+    // (RunMutationService.SoftDeleteRun), and the sample runs crash recovery closed carry
+    // the SYSTEM revision CrashRecoveryService writes: before it the run was still in
+    // flight (UNKNOWN, no end, not pending review); it closed the run as INTERRUPTED, or
+    // as 进本前取消 when it never entered, at LOW confidence and pending review. Recovery
+    // never infers a clear.
+    void theSampleDeletionAndRecoveriesAreInTheirRevisionChains()
+    {
+        mr::MockBackend backend;
+        const Answer page = ask(backend, QStringLiteral("QueryRuns"),
+                                {{QStringLiteral("filter"),
+                                  QJsonObject{{QStringLiteral("include_deleted"), true}}},
+                                 {QStringLiteral("page"), 1}, {QStringLiteral("page_size"), 200}});
+        int deleted = 0;
+        int recovered = 0;
+        for (const QJsonValue &item : page.payload.value(QStringLiteral("items")).toArray()) {
+            const QJsonObject run = item.toObject();
+            const bool isDeleted = run.value(QStringLiteral("soft_deleted")).toBool();
+            const bool isPending = run.value(QStringLiteral("pending_review")).toBool();
+            if (!isDeleted && !isPending)
+                continue;
+            const QJsonArray chain = ask(backend, QStringLiteral("GetRunRevisions"),
+                                         {{QStringLiteral("run_id"), run.value(QStringLiteral("run_id"))}})
+                                         .payload.value(QStringLiteral("items")).toArray();
+            const QJsonObject last = chain.last().toObject();
+            QCOMPARE(last.value(QStringLiteral("revision")).toInt(), run.value(QStringLiteral("revision")).toInt());
+            QCOMPARE(run.value(QStringLiteral("revision")).toInt(), 2);
+            QHash<QString, QJsonObject> changes;
+            for (const QJsonValue &value : last.value(QStringLiteral("changes")).toArray())
+                changes.insert(value.toObject().value(QStringLiteral("field")).toString(), value.toObject());
+            if (isDeleted) {
+                ++deleted;
+                QCOMPARE(last.value(QStringLiteral("change_kind")).toString(), QStringLiteral("SOFT_DELETE"));
+                QCOMPARE(last.value(QStringLiteral("actor")).toString(), QStringLiteral("USER"));
+                QCOMPARE(changes.size(), 1);
+                QCOMPARE(changes.value(QStringLiteral("soft_deleted")).value(QStringLiteral("old_value")),
+                         QJsonValue(false));
+                QCOMPARE(changes.value(QStringLiteral("soft_deleted")).value(QStringLiteral("new_value")),
+                         QJsonValue(true));
+                continue;
+            }
+            ++recovered;
+            QCOMPARE(last.value(QStringLiteral("change_kind")).toString(), QStringLiteral("CORRECT"));
+            QCOMPARE(last.value(QStringLiteral("actor")).toString(), QStringLiteral("SYSTEM"));
+            const QString result = run.value(QStringLiteral("result")).toString();
+            const bool entered = run.value(QStringLiteral("entered_at_utc")).isString();
+            // CrashRecoveryService's own sentences, which name no result token (DT-10).
+            QCOMPARE(last.value(QStringLiteral("reason")).toString(),
+                     entered ? QString::fromUtf8("程序重启时发现未完结记录，已记为中断并标记待复核。")
+                             : QString::fromUtf8("程序重启时发现未完结记录，它尚未进入副本，"
+                                                 "已记为进本前取消并标记待复核。"));
+            QCOMPARE(result, entered ? QStringLiteral("INTERRUPTED") : QStringLiteral("CANCELLED_BEFORE_ENTRY"));
+            QCOMPARE(run.value(QStringLiteral("detection_confidence")).toString(), QStringLiteral("LOW"));
+            QVERIFY(run.value(QStringLiteral("ended_at_utc")).isString());
+            const auto was = [&changes](const char *field) {
+                return changes.value(QLatin1String(field)).value(QStringLiteral("old_value"));
+            };
+            const auto became = [&changes](const char *field) {
+                return changes.value(QLatin1String(field)).value(QStringLiteral("new_value"));
+            };
+            QCOMPARE(was("result"), QJsonValue(QStringLiteral("UNKNOWN")));
+            QCOMPARE(became("result"), QJsonValue(result));
+            QVERIFY(changes.contains(QStringLiteral("ended_at_utc")));
+            QVERIFY(was("ended_at_utc").isNull());
+            QCOMPARE(became("ended_at_utc"), run.value(QStringLiteral("ended_at_utc")));
+            QCOMPARE(was("pending_review"), QJsonValue(false));
+            QCOMPARE(became("pending_review"), QJsonValue(true));
+            QCOMPARE(became("detection_confidence"), QJsonValue(QStringLiteral("LOW")));
+            QCOMPARE(last.value(QStringLiteral("changed_at_utc")), run.value(QStringLiteral("ended_at_utc")));
+        }
+        QCOMPARE(deleted, 1);
+        QCOMPARE(recovered, 2);
+    }
+
+    // S33-1d: RunMutationService.UndoRevision - revision 1 is the record's creation, and a
+    // SYSTEM revision that closed an unfinished run cannot be taken back into the shape it
+    // closed (no statistic would count the run and no restart would close it again). Both
+    // answer ERR_UNDO_NOT_ALLOWED with the Collector's own sentence; the player's own
+    // correction of that run can still be undone.
+    void anUndoIsRefusedWhereTheCollectorRefusesIt()
+    {
+        mr::MockBackend backend;
+        const auto undo = [&backend](const QString &runId, int revision) {
+            return ask(backend, QStringLiteral("UndoRevision"),
+                       {{QStringLiteral("run_id"), runId},
+                        {QStringLiteral("expected_revision"), revision},
+                        {QStringLiteral("reason"), QString::fromUtf8("撤销")}});
+        };
+
+        const QString created = createManualRun(backend);
+        const Answer creation = undo(created, 1);
+        QCOMPARE(creation.code, QStringLiteral("ERR_UNDO_NOT_ALLOWED"));
+        QCOMPARE(creation.message,
+                 QString::fromUtf8("第 1 条修订是创建记录本身，无法撤销；如需移除请使用软删除。"));
+
+        const Answer pending = ask(backend, QStringLiteral("QueryRuns"),
+                                   {{QStringLiteral("filter"),
+                                     QJsonObject{{QStringLiteral("pending_review"), true}}},
+                                    {QStringLiteral("page"), 1}, {QStringLiteral("page_size"), 200}});
+        const QJsonArray recovered = pending.payload.value(QStringLiteral("items")).toArray();
+        QVERIFY(!recovered.isEmpty());
+        for (const QJsonValue &item : recovered) {
+            const QJsonObject run = item.toObject();
+            const Answer refused = undo(run.value(QStringLiteral("run_id")).toString(),
+                                        run.value(QStringLiteral("revision")).toInt());
+            QCOMPARE(refused.code, QStringLiteral("ERR_UNDO_NOT_ALLOWED"));
+            QCOMPARE(refused.message,
+                     QString::fromUtf8("这条修订是程序为未完结的记录自动写下的。撤销它会让记录回到无法统计、"
+                                       "也无法确认的状态，因此不能撤销；如果判断有误，请直接更正这条记录。"));
+        }
+
+        const QString runId = recovered.first().toObject().value(QStringLiteral("run_id")).toString();
+        const Answer noted = correct(backend, runId, {{QStringLiteral("note"), QString::fromUtf8("看过了")}});
+        QVERIFY(noted.ok);
+        const int revision = noted.payload.value(QStringLiteral("revision")).toInt();
+        const Answer undone = undo(runId, revision);
+        QVERIFY2(undone.ok, qPrintable(undone.code + QLatin1Char(' ') + undone.message));
+        QCOMPARE(undone.payload.value(QStringLiteral("revision")).toInt(), revision + 1);
+        QVERIFY(undone.payload.value(QStringLiteral("run")).toObject().value(QStringLiteral("pending_review")).toBool());
+    }
+
+    // S33-1e: MentorRun.IsConfirmedMentor / RunFilterSql - an imported run is a confirmed
+    // mentor run when it carries the roulette id, like an automatic one. The mock read a
+    // field no contract carries (import_confirmed_mentor) instead.
+    void anImportedRunCountsWhenItCarriesTheRouletteId()
+    {
+        QJsonObject withRoulette = autoRun(QStringLiteral("11111111-1111-4111-8111-111111111111"),
+                                           QStringLiteral("COMPLETED"), true);
+        withRoulette.insert(QStringLiteral("source"), QStringLiteral("IMPORT"));
+        QJsonObject withoutRoulette = autoRun(QStringLiteral("22222222-2222-4222-8222-222222222222"),
+                                              QStringLiteral("LEFT_OR_ABANDONED"), true);
+        withoutRoulette.insert(QStringLiteral("source"), QStringLiteral("IMPORT"));
+        withoutRoulette.insert(QStringLiteral("mentor_roulette_id"), QJsonValue(QJsonValue::Null));
+        withoutRoulette.insert(QStringLiteral("import_confirmed_mentor"), true);
+        mr::MockBackend backend;
+        backend.resetRuns(QJsonArray{withRoulette, withoutRoulette});
+
+        const QJsonObject stats = backend.dashboardStats({});
+        QCOMPARE(stats.value(QStringLiteral("attempt_count")).toInt(), 1);
+        QCOMPARE(stats.value(QStringLiteral("completed_count")).toInt(), 1);
+        QCOMPARE(stats.value(QStringLiteral("leave_rate")).toDouble(), 0.0);
+    }
+
+    // DT-10: RunMutationService.SoftDeleteRun commits with clearPendingReview - a deleted run
+    // leaves the review list - and its revision records that change too. Restoring it does
+    // not flag it again. The mock kept the flag.
+    void aSoftDeleteClearsThePendingReviewFlag()
+    {
+        mr::MockBackend backend;
+        const QJsonArray pending = ask(backend, QStringLiteral("QueryRuns"),
+                                       {{QStringLiteral("filter"),
+                                         QJsonObject{{QStringLiteral("pending_review"), true}}},
+                                        {QStringLiteral("page"), 1}, {QStringLiteral("page_size"), 200}})
+                                       .payload.value(QStringLiteral("items")).toArray();
+        QVERIFY(!pending.isEmpty());
+        const QJsonObject before = pending.first().toObject();
+        const QString runId = before.value(QStringLiteral("run_id")).toString();
+        const int revision = before.value(QStringLiteral("revision")).toInt();
+
+        const Answer deleted = ask(backend, QStringLiteral("SoftDeleteRun"),
+                                   {{QStringLiteral("run_id"), runId},
+                                    {QStringLiteral("expected_revision"), revision},
+                                    {QStringLiteral("reason"), QString::fromUtf8("重复记录")}});
+        QVERIFY2(deleted.ok, qPrintable(deleted.code + QLatin1Char(' ') + deleted.message));
+        const QJsonObject run = deleted.payload.value(QStringLiteral("run")).toObject();
+        QVERIFY(run.value(QStringLiteral("soft_deleted")).toBool());
+        QVERIFY(!run.value(QStringLiteral("pending_review")).toBool(true));
+        const QJsonArray chain = ask(backend, QStringLiteral("GetRunRevisions"),
+                                     {{QStringLiteral("run_id"), runId}})
+                                     .payload.value(QStringLiteral("items")).toArray();
+        QHash<QString, QJsonObject> changes;
+        for (const QJsonValue &value : chain.last().toObject().value(QStringLiteral("changes")).toArray())
+            changes.insert(value.toObject().value(QStringLiteral("field")).toString(), value.toObject());
+        QCOMPARE(changes.size(), 2);
+        QCOMPARE(changes.value(QStringLiteral("soft_deleted")).value(QStringLiteral("new_value")), QJsonValue(true));
+        QCOMPARE(changes.value(QStringLiteral("pending_review")).value(QStringLiteral("old_value")), QJsonValue(true));
+        QCOMPARE(changes.value(QStringLiteral("pending_review")).value(QStringLiteral("new_value")), QJsonValue(false));
+
+        const Answer restored = ask(backend, QStringLiteral("RestoreRun"),
+                                    {{QStringLiteral("run_id"), runId},
+                                     {QStringLiteral("expected_revision"), revision + 1},
+                                     {QStringLiteral("reason"), QString::fromUtf8("删错了")}});
+        QVERIFY(restored.ok);
+        QVERIFY(!restored.payload.value(QStringLiteral("run")).toObject()
+                     .value(QStringLiteral("pending_review")).toBool(true));
+    }
+
+    // DT-10: RunMutationService.CorrectRun marks a run 已修正 only when the correction overrules
+    // what the software recorded (RunMutationRules.OverrulesTheRecord). Answering a run pending
+    // review, filling a duty or job the software left blank, and the note are no corrections; a
+    // recorded time, or a settled outcome changed, is - and the revision then says so. Once
+    // marked, a run stays marked. The mock marked every correction.
+    void aCorrectionMarksTheRunCorrectedOnlyWhenItOverrulesTheRecord()
+    {
+        QJsonObject pending = autoRun(QStringLiteral("11111111-1111-4111-8111-111111111111"),
+                                      QStringLiteral("INTERRUPTED"), true);
+        pending.insert(QStringLiteral("pending_review"), true);
+        QJsonObject blank = autoRun(QStringLiteral("22222222-2222-4222-8222-222222222222"),
+                                    QStringLiteral("COMPLETED"), true);
+        blank.insert(QStringLiteral("job_id"), QJsonValue(QJsonValue::Null));
+        blank.insert(QStringLiteral("job_name"), QString::fromUtf8("未知"));
+        blank.insert(QStringLiteral("role"), QStringLiteral("UNKNOWN"));
+        blank.insert(QStringLiteral("content_id"), QJsonValue(QJsonValue::Null));
+        blank.insert(QStringLiteral("duty_name"), QJsonValue(QJsonValue::Null));
+        const QJsonObject settled = autoRun(QStringLiteral("33333333-3333-4333-8333-333333333333"),
+                                            QStringLiteral("COMPLETED"), true);
+        mr::MockBackend backend;
+        backend.resetRuns(QJsonArray{pending, blank, settled});
+
+        const auto marked = [](const Answer &answer) {
+            return answer.payload.value(QStringLiteral("run")).toObject()
+                .value(QStringLiteral("manually_corrected")).toBool();
+        };
+        const auto lastChanges = [&backend](const QString &runId) {
+            QStringList fields;
+            const QJsonArray chain = ask(backend, QStringLiteral("GetRunRevisions"),
+                                         {{QStringLiteral("run_id"), runId}})
+                                         .payload.value(QStringLiteral("items")).toArray();
+            for (const QJsonValue &value : chain.last().toObject().value(QStringLiteral("changes")).toArray())
+                fields.append(value.toObject().value(QStringLiteral("field")).toString());
+            return fields;
+        };
+        const QString pendingId = pending.value(QStringLiteral("run_id")).toString();
+        const QString blankId = blank.value(QStringLiteral("run_id")).toString();
+        const QString settledId = settled.value(QStringLiteral("run_id")).toString();
+
+        // How a run pending review went: an answer, not a correction.
+        Answer answer = correct(backend, pendingId, {{QStringLiteral("result"), QStringLiteral("COMPLETED")}});
+        QVERIFY2(answer.ok, qPrintable(answer.code + QLatin1Char(' ') + answer.message));
+        QVERIFY(!marked(answer));
+        QVERIFY(!lastChanges(pendingId).contains(QStringLiteral("manually_corrected")));
+
+        // A job and a duty the software left blank, filled in; then a note.
+        answer = correct(backend, blankId, {{QStringLiteral("job_id"), 24}, {QStringLiteral("content_id"), 17}});
+        QVERIFY2(answer.ok, qPrintable(answer.code + QLatin1Char(' ') + answer.message));
+        QVERIFY(!marked(answer));
+        answer = correct(backend, blankId, {{QStringLiteral("note"), QString::fromUtf8("补上职业")}});
+        QVERIFY(answer.ok);
+        QVERIFY(!marked(answer));
+
+        // A recorded time changed: a correction, and its revision says so.
+        answer = correct(backend, blankId, {{QStringLiteral("ended_at_utc"),
+                                            QStringLiteral("2026-09-01T12:12:00.000Z")}});
+        QVERIFY(answer.ok);
+        QVERIFY(marked(answer));
+        QVERIFY(lastChanges(blankId).contains(QStringLiteral("manually_corrected")));
+
+        // A settled outcome changed: a correction too.
+        answer = correct(backend, settledId, {{QStringLiteral("result"), QStringLiteral("LEFT_OR_ABANDONED")}});
+        QVERIFY(answer.ok);
+        QVERIFY(marked(answer));
+        QVERIFY(lastChanges(settledId).contains(QStringLiteral("manually_corrected")));
+
+        // Undoing it puts the values back, never the provenance (RunMutationService.Commit):
+        // a run once marked stays marked, whatever comes after.
+        const Answer undone = ask(backend, QStringLiteral("UndoRevision"),
+                                  {{QStringLiteral("run_id"), settledId},
+                                   {QStringLiteral("expected_revision"),
+                                    answer.payload.value(QStringLiteral("revision")).toInt()},
+                                   {QStringLiteral("reason"), QString::fromUtf8("撤销")}});
+        QVERIFY2(undone.ok, qPrintable(undone.code + QLatin1Char(' ') + undone.message));
+        QCOMPARE(undone.payload.value(QStringLiteral("run")).toObject()
+                     .value(QStringLiteral("result")).toString(), QStringLiteral("COMPLETED"));
+        QVERIFY(marked(undone));
+        QVERIFY(!lastChanges(settledId).contains(QStringLiteral("manually_corrected")));
+        answer = correct(backend, settledId, {{QStringLiteral("note"), QString::fromUtf8("队伍解散")}});
+        QVERIFY(answer.ok);
+        QVERIFY(marked(answer));
+    }
+
+    // DT-10: RunMutationService.UndoRevision checks the restored run as a whole
+    // (RunMutationRules.ValidateFinalValue): putting back a value the rules refuse is refused,
+    // with the Collector's own sentence, and nothing is written. Capture stored this run with
+    // its match after its entry; the player fixed the match, and undoing that is refused.
+    void anUndoIsCheckedAsAWholeLikeTheCollectorDoes()
+    {
+        QJsonObject captured = autoRun(QStringLiteral("11111111-1111-4111-8111-111111111111"),
+                                       QStringLiteral("COMPLETED"), true);
+        captured.insert(QStringLiteral("matched_at_utc"), QStringLiteral("2026-09-01T12:05:00.000Z"));
+        mr::MockBackend backend;
+        backend.resetRuns(QJsonArray{captured});
+        const QString runId = captured.value(QStringLiteral("run_id")).toString();
+
+        const Answer fixed = correct(backend, runId, {{QStringLiteral("matched_at_utc"),
+                                                      QStringLiteral("2026-09-01T12:00:00.000Z")}});
+        QVERIFY2(fixed.ok, qPrintable(fixed.code + QLatin1Char(' ') + fixed.message));
+        const Answer undone = ask(backend, QStringLiteral("UndoRevision"),
+                                  {{QStringLiteral("run_id"), runId},
+                                   {QStringLiteral("expected_revision"), 2},
+                                   {QStringLiteral("reason"), QString::fromUtf8("撤销")}});
+        QCOMPARE(undone.code, QStringLiteral("ERR_TIME_ORDER"));
+        QCOMPARE(undone.message, QString::fromUtf8("匹配时间不能晚于进入副本的时间。"));
+        const QJsonArray chain = ask(backend, QStringLiteral("GetRunRevisions"),
+                                     {{QStringLiteral("run_id"), runId}})
+                                     .payload.value(QStringLiteral("items")).toArray();
+        QCOMPARE(chain.size(), 1);
+        QCOMPARE(correct(backend, runId, {{QStringLiteral("note"), QStringLiteral("x")}})
+                     .payload.value(QStringLiteral("revision")).toInt(), 3);
+    }
+
+    // DT-10: RunMutationService.UpdateAchievementBaseline refuses a goal below 1 and a negative
+    // baseline with ERR_BAD_REQUEST, its own sentences, and stores nothing. The mock clamped
+    // them to 1 and 0 and saved.
+    void aGoalBelowOneOrANegativeBaselineIsRefused()
+    {
+        mr::MockBackend backend;
+        backend.setAchievement(2000, 1374);
+        const auto save = [&backend](int goal, int baseline) {
+            return ask(backend, QStringLiteral("UpdateAchievementBaseline"),
+                       {{QStringLiteral("goal_count"), goal},
+                        {QStringLiteral("baseline_completed_count"), baseline},
+                        {QStringLiteral("baseline_effective_at"), QStringLiteral("2026-10-01T08:00:00.000Z")},
+                        {QStringLiteral("reason"), QString::fromUtf8("核对")}});
+        };
+        const Answer noGoal = save(0, 1374);
+        QCOMPARE(noGoal.code, QStringLiteral("ERR_BAD_REQUEST"));
+        QCOMPARE(noGoal.message, QString::fromUtf8("目标值必须大于等于 1。"));
+        const Answer negative = save(2000, -1);
+        QCOMPARE(negative.code, QStringLiteral("ERR_BAD_REQUEST"));
+        QCOMPARE(negative.message, QString::fromUtf8("已完成次数不能为负数。"));
+        const QJsonObject stats = backend.dashboardStats({});
+        QCOMPARE(stats.value(QStringLiteral("goal_count")).toInt(), 2000);
+        QCOMPARE(stats.value(QStringLiteral("baseline_completed_count")).toInt(), 1374);
+        QVERIFY(save(1, 0).ok);
+    }
+
+    // DT-10: a run capture recorded and let go is closed - the state machine ends it, or the
+    // next start's crash recovery does (CrashRecoveryService). Only the run being followed now
+    // reads as in flight (RunMutationRules.ReadsAsInFlight), and that is GetCurrentRun's, not a
+    // stored sample's. Four generated UNKNOWN runs had no end and read as 进行中 for good, left
+    // out of every statistic.
+    void noSampleRunReadsAsStillInFlight()
+    {
+        mr::MockBackend backend;
+        const QJsonArray runs = ask(backend, QStringLiteral("QueryRuns"),
+                                    {{QStringLiteral("filter"),
+                                      QJsonObject{{QStringLiteral("include_deleted"), true}}},
+                                     {QStringLiteral("page"), 1}, {QStringLiteral("page_size"), 200}})
+                                    .payload.value(QStringLiteral("items")).toArray();
+        QVERIFY(runs.size() > 50);
+        int unknown = 0;
+        for (const QJsonValue &item : runs) {
+            const QJsonObject run = item.toObject();
+            QVERIFY2(!mr::Formatters::runInProgress(run.toVariantMap()),
+                     qPrintable(run.value(QStringLiteral("run_id")).toString()));
+            if (run.value(QStringLiteral("result")).toString() == QLatin1String("UNKNOWN")) {
+                ++unknown;
+                QVERIFY(run.value(QStringLiteral("ended_at_utc")).isString());
+            }
+        }
+        // The prototype's UNKNOWN runs are still there, ended.
+        QVERIFY(unknown > 0);
     }
 
     // OJ-6: a reply can be held back, so a test can let a later request

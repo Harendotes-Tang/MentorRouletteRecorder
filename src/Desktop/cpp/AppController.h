@@ -37,6 +37,7 @@
 #include "HistoryController.h"
 #include "SpeechController.h"
 #include "StatisticsController.h"
+#include "TtsService.h"
 #include "UpdateController.h"
 
 namespace mr {
@@ -248,8 +249,11 @@ class AppController final : public QObject, public CaptureValidationController::
     Q_PROPERTY(QString disclosureAcknowledgedAt READ disclosureAcknowledgedAt NOTIFY disclosureChanged)
 
 public:
+    /// \a speechEngine is the engine the announcements go to: the machine's own voice
+    /// in the program; a test passes TtsService::EngineMode::Mock, which plays no sound.
     AppController(IBackend *backend, AppSettings *settings, QObject *parent = nullptr,
-                  CollectorProcess *collector = nullptr);
+                  CollectorProcess *collector = nullptr,
+                  TtsService::EngineMode speechEngine = TtsService::EngineMode::System);
     ~AppController() override;
 
     AppSettings *settings() const { return m_settings; }
@@ -285,6 +289,11 @@ public:
         m_recording->setMaintenance(visible);
         emit maintainerToolsChanged();
     }
+    /// A refusal or failure as a reader is shown it: its sentence, and the machine code in
+    /// brackets after it only while the maintainer tools are visible - ordinary users never
+    /// see internal identifiers. One that came without a sentence reads as one whose reason
+    /// is unknown. Every place that explains a refusal goes through here.
+    Q_INVOKABLE QString errorText(const QString &message, const QString &code) const;
 
     AutomaticRecordingController *recording() const { return m_recording; }
     GameSelectionController *gameSelection() const { return m_gameSelection; }

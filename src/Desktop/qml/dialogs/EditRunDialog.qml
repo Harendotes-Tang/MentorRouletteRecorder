@@ -30,8 +30,9 @@ Dialog {
     /// connection, a refused write - so it cannot have been saved (review
     /// V4-1); set first as well.
     property bool externalErrorNeverSent: false
-    /// The last submission got no answer - the client stopped waiting or the
-    /// pipe dropped (ERR_INTERNAL) - so the Collector may have saved it. Until
+    /// The last submission got no answer that says whether it was saved - the
+    /// client stopped waiting, the pipe dropped, or the Collector answered with
+    /// an internal error (ERR_INTERNAL) - so it may have been saved. Until
     /// an answer arrives the form is frozen and 保存 resends that very request:
     /// HistoryController sends identical content under the same request_id and
     /// the Collector's idempotency answers it once. Edited content would get an
@@ -1016,7 +1017,7 @@ Dialog {
             return
         }
         errorCode = verdict.ok ? "" : verdict.code
-        errorText = verdict.ok ? "" : verdict.message
+        errorText = verdict.ok ? "" : App.errorText(verdict.message, verdict.code)
         if (!verdict.ok)
             return
 
@@ -1144,8 +1145,8 @@ Dialog {
                                             + "只能原样重试或关闭窗口；关闭后请先在历史记录中确认，再决定是否重新填写。")
                                      : qsTr("这次提交没有发给采集服务，记录没有保存。"))
                     : awaitingRetry
-                      ? text + "\n" + qsTr("这次提交没有收到采集服务的回应，记录可能已经保存。为免重复，"
-                                           + "只能原样重试或关闭窗口；关闭后请先在历史记录中确认，再决定是否重新填写。")
+                      ? text + "\n" + qsTr("这次提交已经发出，但没有收到能说明是否保存成功的回应，记录可能已经保存。"
+                                           + "为免重复，只能原样重试或关闭窗口；关闭后请先在历史记录中确认，再决定是否重新填写。")
                       : text
         submitting = false
         submissionTicket = ""

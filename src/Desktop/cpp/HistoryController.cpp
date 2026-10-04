@@ -231,8 +231,10 @@ void HistoryController::refreshRunEvents()
                     || code == QLatin1String("ERR_UNSUPPORTED")
                     || code == QLatin1String("ERR_BAD_REQUEST")) {
                     m_runEventsState = QStringLiteral("unsupported");
+                    // No machine code: ordinary users never see one, and this
+                    // controller does not know whether the maintainer tools are open.
                     m_runEventsMessage =
-                        QCoreApplication::translate("mr::AppController", "当前 Collector 不提供逐事件摘要（%1）。").arg(code);
+                        QCoreApplication::translate("mr::AppController", "当前 Collector 不提供逐事件摘要。");
                 } else {
                     m_runEventsState = QStringLiteral("error");
                     m_runEventsMessage = message.isEmpty()

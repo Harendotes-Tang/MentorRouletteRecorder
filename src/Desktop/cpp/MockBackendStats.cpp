@@ -6,9 +6,11 @@
 // ---------------------------------------------------------------------------
 
 #include "MockBackend.h"
+#include "DutyCatalog.h"
 #include "MockData.h"
 
 #include <QDateTime>
+#include <QHash>
 #include <QJsonValue>
 #include <QMap>
 #include <QSet>
@@ -46,6 +48,45 @@ bool matchesIntArray(const QJsonObject &filter, const QString &key,
             return true;
     }
     return false;
+}
+
+/// DutyCatalog.UniqueTerritoriesOf: the zones of the duties asked for that host that duty
+/// and no other. A run that observed only such a zone is a run of that duty.
+QSet<qint64> zonesOfOnly(const QJsonArray &contentIds)
+{
+    QSet<qint64> wanted;
+    for (const QJsonValue &id : contentIds) {
+        if (id.isDouble())
+            wanted.insert(qint64(id.toDouble()));
+    }
+    if (wanted.isEmpty())
+        return {};
+    QHash<qint64, QSet<qint64>> dutiesByZone;
+    for (const QVariant &row : mr::DutyCatalog::shared()->allDuties()) {
+        const QVariantMap duty = row.toMap();
+        const QVariant zone = duty.value(QStringLiteral("territory_id"));
+        if (zone.isValid())
+            dutiesByZone[zone.toLongLong()].insert(duty.value(QStringLiteral("content_id")).toLongLong());
+    }
+    QSet<qint64> zones;
+    for (auto it = dutiesByZone.constBegin(); it != dutiesByZone.constEnd(); ++it) {
+        if (it.value().size() == 1 && wanted.contains(*it.value().constBegin()))
+            zones.insert(it.key());
+    }
+    return zones;
+}
+
+/// RunFilterSql.AddContentIds: content_id IN (...), or - for a run that carries no
+/// content id, because capture never back-infers one - a zone that hosts one of those
+/// duties alone. A zone several duties share is never expanded (review S33-1).
+bool matchesContentIds(const QJsonObject &filter, const QSet<qint64> &dutyZones,
+                       const QJsonObject &run)
+{
+    if (matchesIntArray(filter, QStringLiteral("content_id"), run.value(QStringLiteral("content_id"))))
+        return true;
+    const QJsonValue zone = run.value(QStringLiteral("territory_id"));
+    return run.value(QStringLiteral("content_id")).isNull() && zone.isDouble()
+           && dutyZones.contains(qint64(zone.toDouble()));
 }
 
 QJsonValue fieldForSort(const QJsonObject &run, const QString &field)
@@ -112,6 +153,7 @@ QList<QJsonObject> MockBackend::selectRuns(const QJsonObject &filter,
                                   .toString(QStringLiteral("entered_at_utc"));
     const QDateTime from = fromIso(filter.value(QStringLiteral("from_utc")));
     const QDateTime to = fromIso(filter.value(QStringLiteral("to_utc")));
+    const QSet<qint64> contentZones = zonesOfOnly(filter.value(QStringLiteral("content_id")).toArray());
 
     QList<QJsonObject> selected;
     selected.reserve(m_runs.size());
@@ -159,8 +201,7 @@ QList<QJsonObject> MockBackend::selectRuns(const QJsonObject &filter,
                 continue;
         }
 
-        if (!matchesIntArray(filter, QStringLiteral("content_id"),
-                             run.value(QStringLiteral("content_id"))))
+        if (!matchesContentIds(filter, contentZones, run))
             continue;
         if (!matchesIntArray(filter, QStringLiteral("job_id"),
                              run.value(QStringLiteral("job_id"))))

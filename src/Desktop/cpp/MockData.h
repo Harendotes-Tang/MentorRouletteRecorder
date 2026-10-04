@@ -45,16 +45,16 @@ inline QString mockUuid(const QString &seed)
              QString::fromLatin1(hash.mid(20, 12)));
 }
 
-/// docs/statistics-definitions.md 1 - "confirmed mentor".
+/// docs/statistics-definitions.md 1 - "confirmed mentor". An imported run is one when
+/// it carries the roulette id, like an automatic one (MentorRun.IsConfirmedMentor,
+/// RunFilterSql; review S33-1).
 inline bool isConfirmedMentor(const QJsonObject &run)
 {
     const QString source = run.value(QStringLiteral("source")).toString();
     if (source == QLatin1String("MANUAL"))
         return true;
-    if (source == QLatin1String("AUTO_NETWORK"))
+    if (source == QLatin1String("AUTO_NETWORK") || source == QLatin1String("IMPORT"))
         return !run.value(QStringLiteral("mentor_roulette_id")).isNull();
-    if (source == QLatin1String("IMPORT"))
-        return run.value(QStringLiteral("import_confirmed_mentor")).toBool(false);
     return false;
 }
 

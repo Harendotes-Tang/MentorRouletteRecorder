@@ -281,8 +281,7 @@ Dialog {
                 || (kind !== "review" && kind !== "supplement_job") || runId !== dialog.runId)
                 return
             dialog.resolving = false
-            dialog.errorText = (message && message.length > 0 ? message : code)
-                               + " (" + code + ")"
+            dialog.errorText = App.errorText(message, code)
         }
 
         function onReflectionFailed(code, message) {
@@ -294,8 +293,7 @@ Dialog {
             if ((!message || message.length === 0) && (!code || code.length === 0))
                 dialog.errorText = qsTr("保存失败，请重试。")
             else
-                dialog.errorText = (message && message.length > 0 ? message : code)
-                                   + " (" + code + ")"
+                dialog.errorText = App.errorText(message, code)
         }
     }
 

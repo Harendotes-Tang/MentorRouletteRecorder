@@ -1370,10 +1370,12 @@ void DesktopTests::runFormValidator_rejectsEveryPrototypeCase()
     QCOMPARE(validationCode(noReason), QStringLiteral("ERR_REASON_REQUIRED"));
     noReason.insert(QStringLiteral("reason"), QStringLiteral("   "));
     QCOMPARE(validationCode(noReason), QStringLiteral("ERR_REASON_REQUIRED"));
-    QVERIFY(mr::RunFormValidator::validate(noReason)
-                .value(QStringLiteral("message"))
-                .toString()
-                .contains(QStringLiteral("ERR_REASON_REQUIRED")));
+    // The sentence is the player's and carries no machine code: the dialog adds the code
+    // for a maintainer only (AppController::errorText). The code itself stays in `code`.
+    const auto sentence = [](const QVariantMap &form) {
+        return mr::RunFormValidator::validate(form).value(QStringLiteral("message")).toString();
+    };
+    QCOMPARE(sentence(noReason), QString::fromUtf8("必须填写修正原因，请求已拒绝。"));
 
     // Matched time is mandatory.
     QVariantMap noMatched = baseForm();
@@ -1384,11 +1386,13 @@ void DesktopTests::runFormValidator_rejectsEveryPrototypeCase()
     QVariantMap earlyEntry = baseForm();
     earlyEntry.insert(QStringLiteral("entered"), QStringLiteral("19:59:00"));
     QCOMPARE(validationCode(earlyEntry), QStringLiteral("ERR_TIME_ORDER"));
+    QCOMPARE(sentence(earlyEntry), QString::fromUtf8("时间顺序错误：进本时间早于匹配时间。"));
 
     // ERR_NEGATIVE_DURATION - end before the entry.
     QVariantMap negative = baseForm();
     negative.insert(QStringLiteral("ended"), QStringLiteral("20:00:30"));
     QCOMPARE(validationCode(negative), QStringLiteral("ERR_NEGATIVE_DURATION"));
+    QCOMPARE(sentence(negative), QString::fromUtf8("时间顺序错误：结束时间早于进本时间，耗时为负。"));
 
     // ERR_TIME_ORDER - end before the match when there is no entry at all.
     QVariantMap cancelledBackwards = baseForm();
@@ -1397,6 +1401,7 @@ void DesktopTests::runFormValidator_rejectsEveryPrototypeCase()
     cancelledBackwards.insert(QStringLiteral("entered"), QString());
     cancelledBackwards.insert(QStringLiteral("ended"), QStringLiteral("19:30:00"));
     QCOMPARE(validationCode(cancelledBackwards), QStringLiteral("ERR_TIME_ORDER"));
+    QCOMPARE(sentence(cancelledBackwards), QString::fromUtf8("时间顺序错误：结束时间早于匹配时间。"));
 
     // Entry time is required unless the run was cancelled before entry.
     QVariantMap missingEntry = baseForm();
