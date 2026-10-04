@@ -97,7 +97,11 @@ public sealed class UpdateCheckService : IDisposable
         _lastCheckedAtUtc = UtcTimestamp.TryParse(ReadString(LastCheckedSetting), out var lastChecked)
             ? lastChecked
             : null;
-        _latestVersion = ReadString(LatestVersionSetting);
+        // Read back only in the shape a check stores: the version is reported, and the installer address is built
+        // from it, so a hand-edited or damaged value is no version at all.
+        _latestVersion = ReadString(LatestVersionSetting) is { } stored && UpdateMetadata.IsVersion(stored)
+            ? stored
+            : null;
         _lastOutcome = ReadString(LastOutcomeSetting);
     }
 
@@ -147,7 +151,13 @@ public sealed class UpdateCheckService : IDisposable
         // 2026-10-03, OE-5). The version found earlier is still reported, for the settings page and diagnostics.
         var enabled = _enabled;
         return new UpdateCheckSnapshot(
-            enabled, enabled && IsNewer(latest), latest, lastChecked, outcome, UpdateCheckClient.ReleaseUrl);
+            enabled,
+            enabled && IsNewer(latest),
+            latest,
+            lastChecked,
+            outcome,
+            UpdateCheckClient.ReleaseUrl,
+            UpdateCheckClient.InstallerUrl(latest));
     }
 
     /// <summary>What the sanitized diagnostics report may state. Never an address.</summary>

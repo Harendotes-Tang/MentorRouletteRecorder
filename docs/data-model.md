@@ -228,20 +228,14 @@ INDEX ix_revisions_run ON run_revisions(run_id, revision)
 |---|---|---|---|
 | `id` | INTEGER | PK, CHECK (`id = 1`) | 单行 |
 | `goal_count` | INTEGER | NOT NULL, `>= 1`, **default 2000** | 目标次数 |
-| `baseline_completed_count` | INTEGER | NOT NULL, `>= 0`, default 0 | 截至 `baseline_effective_at` 游戏内已完成的次数（用户自报） |
-| `baseline_effective_at` | TEXT | NOT NULL | 基线生效时间（UTC）。基数大于 0 时，早于该时刻结束的完成已含在基数中，不重复计入进度；基数为 0 时不起作用。只在基数改变时更新为请求中的时间；只改目标或重新填入同一基数时保持不变（[statistics-definitions.md](statistics-definitions.md) §4）。早期版本因此改动过的值在启动时改正一次（见表下） |
+| `baseline_completed_count` | INTEGER | NOT NULL, `>= 0`, default 0 | 开始使用本软件之前已完成的次数（用户自报）。计入进度的已记录完成不论何时结束，全部叠加在其上 |
+| `baseline_effective_at` | TEXT | NOT NULL | 基数最近一次改变的时间（UTC），从未改变时为采集服务首次启动写入该行的时间；只作记录，不参与进度或任何统计。只在基数改变时更新为请求中的时间；只改目标或重新填入同一基数时保持不变（[statistics-definitions.md](statistics-definitions.md) §4）。1.5.0 及更早版本每次保存都会改写它，由这些版本写下的值可能是最近一次保存的时间，升级后保持原样 |
 | `updated_at_utc` | TEXT | NOT NULL | |
 
 基线的每次修改都必须带 `reason`，并写入 `application_settings` 的审计或独立审计行；
 `UpdateAchievementBaseline` 返回 `audit_event_id`。目标与基数都与已保存的相同的保存不算修改：
 除用于重发判定的幂等记录外不写入任何内容，返回的 `audit_event_id` 是写下当前值的那条审计记录的编号
 （审计记录中没有这样一条时为新编号）。
-
-1.5.0 及更早版本在只修改目标或原样保存同一基数时也会把 `baseline_effective_at` 改为保存时刻。
-采集服务在本版本首次启动时按基数的审计记录（`application_settings` 的 `achievement.baseline_history`，最多保留
-最近 100 条）检查一次，能确定当前基数填入的时间且该时间更早时，把生效时间改回该时间，并在审计记录中追加一条写明原因的
-系统条目（请求标识 `system:baseline-effective-at-repair`）；审计记录无法判断时保持原值。检查之后写入 `application_settings` 的 `achievement.baseline_effective_at_checked`（§6），此后不再检查。
-何时改动、何时保持原值见 [statistics-definitions.md](statistics-definitions.md) §4。
 
 ## 5. `schema_migrations` —— 迁移记录
 
@@ -267,8 +261,9 @@ INDEX ix_revisions_run ON run_revisions(run_id, revision)
 
 默认值：`ui.language = "zh-Hans"`、`tts.enabled = false`、`capture.follow_game = true`（未写入时视为开启；
 旧键 `capture.autostart` 仍被种子为 `false`，只有显式取值 `true` 才被视为用户意图）。
-`achievement.baseline_effective_at_checked` 由采集服务在启动时写入（值为 `true`），表示 §4 所述的成就基数生效时间
-已检查过；该键存在时不再检查。
+先行版 1.5.1-beta.1 与 1.5.1-beta.2 曾在启动时检查一次成就基数的 `baseline_effective_at` 并视情况改动，可能留下键
+`achievement.baseline_effective_at_checked`，以及 `achievement.baseline_history` 中请求标识为
+`system:baseline-effective-at-repair` 的一条审计记录。现行版本不再读写前者，后者按普通审计记录对待，两者都不影响进度。
 **此表不存放任何凭据、令牌或个人身份信息。**
 
 ## 7. `capture_sessions` —— 一次抓包会话

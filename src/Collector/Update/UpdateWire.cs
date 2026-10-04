@@ -9,7 +9,8 @@ namespace MentorRecorder.Collector.Update;
 /// The optional fields are omitted rather than sent as null, because a fresh install has never
 /// checked and "absent" says that more honestly than a null version string. <c>release_url</c> is
 /// always present: it is a constant of this build, and a Desktop that reads it unconditionally must
-/// not have to guess it.
+/// not have to guess it. <c>installer_url</c> goes with <c>latest_version</c>: it names that version's
+/// installer, for the user's browser to open.
 /// </summary>
 public static class UpdateWire
 {
@@ -29,6 +30,11 @@ public static class UpdateWire
         if (snapshot.LatestVersion is { } latest)
         {
             status["latest_version"] = latest;
+        }
+
+        if (snapshot.InstallerUrl is { } installer)
+        {
+            status["installer_url"] = installer;
         }
 
         if (snapshot.LastCheckedAtUtc is { } checkedAt)

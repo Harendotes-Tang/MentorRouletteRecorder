@@ -75,9 +75,11 @@ public sealed class StatisticsRepository
         var settings = _settings.GetAchievementSettings();
 
         // Progress deliberately ignores the dashboard date/filter and always uses the full
-        // confirmed, live data set - except what the baseline already holds.
-        var contributingCompleted = CountContributingCompleted(
-            countedFrom: CountedFrom(settings.BaselineCompletedCount, settings.BaselineEffectiveAt));
+        // confirmed, live data set. The baseline counts the completions from before the software
+        // was installed, so every recorded completion is added on top, whenever it ended; the
+        // baseline's effective time only records when its count last changed (audit 2026-10-03,
+        // B3-1: a cutoff at that time dropped the recorded runs whenever the count was edited).
+        var contributingCompleted = CountContributingCompleted();
         // The wire contract remains Int32. A later completion or an older oversized
         // baseline must not make every dashboard request fail; preserve the stored
         // counts and cap only the displayed aggregate at the representable maximum.
@@ -105,55 +107,24 @@ public sealed class StatisticsRepository
     /// formal-record boundary. The caller may supply its update transaction.
     /// </summary>
     /// <param name="transaction">Existing baseline update transaction, or null for a gated read.</param>
-    /// <param name="countedFrom">
-    /// Only completions that ended at or after this moment are counted; null counts them all. See
-    /// <see cref="CountedFrom"/>.
-    /// </param>
-    internal long CountContributingCompleted(
-        SqliteTransaction? transaction = null, DateTimeOffset? countedFrom = null)
+    internal long CountContributingCompleted(SqliteTransaction? transaction = null)
     {
         if (transaction is null)
         {
-            return _database.Read(_ => CountContributingCompletedCore(null, countedFrom));
+            return _database.Read(_ => CountContributingCompletedCore(null));
         }
 
-        return CountContributingCompletedCore(transaction, countedFrom);
+        return CountContributingCompletedCore(transaction);
     }
 
-    /// <summary>
-    /// From when recorded completions are added on top of the baseline.
-    ///
-    /// The baseline is the player's in-game total at its effective time, so it already includes
-    /// every completion that ended before then; adding those again counted them twice, against
-    /// what the baseline dialog and docs/data-model.md promise (audit 2026-10-03, OG-3). A baseline
-    /// of 0 holds no completion at all, so nothing is excluded: this is also the state of a
-    /// database whose player never filled the baseline in, whose effective time is only the first
-    /// start, and runs entered by hand for the days before that still count.
-    /// </summary>
-    /// <param name="baselineCompletedCount">The baseline.</param>
-    /// <param name="baselineEffectiveAt">When it took effect.</param>
-    internal static DateTimeOffset? CountedFrom(int baselineCompletedCount, DateTimeOffset baselineEffectiveAt) =>
-        baselineCompletedCount > 0 ? baselineEffectiveAt : null;
-
-    private long CountContributingCompletedCore(SqliteTransaction? transaction, DateTimeOffset? countedFrom)
+    private long CountContributingCompletedCore(SqliteTransaction? transaction)
     {
         var filter = RunFilterSql.Build(null, forStatistics: true);
         using var command = _database.CreateCommand();
         command.Transaction = transaction;
-        // A completion is placed by when it ended. A row that lacks the end time falls back to its
-        // entry, then its match: both are earlier than the real end, so a doubtful row is left out
-        // rather than counted twice, and a row with no time at all is never counted on top.
         command.CommandText = $"SELECT COUNT(*) FROM mentor_runs WHERE {filter.Where} "
-            + "AND result = 'COMPLETED' AND contributes_to_goal = 1"
-            + (countedFrom is null
-                ? ";"
-                : " AND COALESCE(ended_at_utc, entered_at_utc, matched_at_utc) >= $counted_from;");
+            + "AND result = 'COMPLETED' AND contributes_to_goal = 1;";
         RunFilterSql.Bind(command, filter);
-        if (countedFrom is { } from)
-        {
-            command.Parameters.AddWithValue("$counted_from", UtcTimestamp.ToText(UtcTimestamp.Truncate(from)));
-        }
-
         return Convert.ToInt64(command.ExecuteScalar(), CultureInfo.InvariantCulture);
     }
 

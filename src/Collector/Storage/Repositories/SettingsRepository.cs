@@ -250,19 +250,6 @@ public sealed class SettingsRepository
         _database.RunInTransaction(tx => WriteSetting(key, valueJson, tx));
     }
 
-    /// <summary>Writes one application setting inside an enclosing transaction.</summary>
-    /// <param name="key">Setting key.</param>
-    /// <param name="valueJson">JSON-encoded value.</param>
-    /// <param name="transaction">Enclosing transaction.</param>
-    public void SetSetting(string key, string valueJson, SqliteTransaction transaction)
-    {
-        ArgumentException.ThrowIfNullOrEmpty(key);
-        ArgumentNullException.ThrowIfNull(valueJson);
-        ArgumentNullException.ThrowIfNull(transaction);
-
-        WriteSetting(key, valueJson, transaction);
-    }
-
     /// <summary>
     /// Atomically writes the supplied keys and reads their resulting projection before
     /// committing. A write or projection failure rolls back every supplied key; omitted
@@ -307,7 +294,7 @@ public sealed class SettingsRepository
 /// <param name="RequestId">Request that caused the change.</param>
 /// <param name="GoalCount">Goal after the change.</param>
 /// <param name="BaselineCompletedCount">Baseline after the change.</param>
-/// <param name="BaselineEffectiveAt">Effective moment, as stored text.</param>
+/// <param name="BaselineEffectiveAt">When the baseline count last changed, as stored text.</param>
 /// <param name="ChangedAtUtc">Change time, as stored text.</param>
 /// <param name="Reason">Mandatory explanation.</param>
 public sealed record BaselineAuditEntry(

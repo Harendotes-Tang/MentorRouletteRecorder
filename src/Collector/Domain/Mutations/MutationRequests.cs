@@ -204,8 +204,8 @@ public sealed record RunReasonCommand(
 /// <param name="GoalCount">Target completions; at least 1.</param>
 /// <param name="BaselineCompletedCount">Self-reported prior completions; at least 0.</param>
 /// <param name="BaselineEffectiveAt">
-/// When a changed baseline takes effect. A request whose baseline equals the stored one keeps the
-/// stored time instead.
+/// When the baseline was changed, stored as information only: the progress does not depend on it.
+/// A request whose baseline equals the stored one keeps the stored time instead.
 /// </param>
 /// <param name="Reason">Mandatory explanation, 1 to 500 characters.</param>
 public sealed record UpdateAchievementBaselineCommand(

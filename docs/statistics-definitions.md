@@ -82,39 +82,22 @@ achievement_progress =
       AND result = 'COMPLETED'
       AND soft_deleted = 0
       AND confirmed_mentor
-      AND (   achievement_settings.baseline_completed_count = 0
-           OR COALESCE(ended_at_utc, entered_at_utc, matched_at_utc)
-                >= achievement_settings.baseline_effective_at)
 ```
 
-- `baseline_completed_count` 是用户自行申报的、截至 `baseline_effective_at` 时游戏内已完成的次数，
+- `baseline_completed_count` 是用户自行申报的、开始使用本软件之前已完成的次数，
   经 `UpdateAchievementBaseline` 设置。该消息必须携带 `reason`；目标或基数有变化时写入审计。
   目标与基数都与已保存的相同时不算修改：不写入设置与审计，也不发布 `stats_invalidated`，应答给出已保存的值。
-- 基数大于 0 时，它已经包含生效时间之前结束的全部完成，因此只有**在生效时间当刻或之后结束**的
-  完成叠加在基数之上，更早结束的完成不再重复计入（`StatisticsRepository.CountedFrom`）。
-  记录缺少结束时间时依次以进本时间、匹配时间定位；这两个时间都早于真实的结束时刻，
-  因此存疑的记录宁可不计，也不重复计入。三个时间均为空的记录在基数大于 0 时不计入。
-- 基数为 0 时不包含任何完成，所有满足其余条件的完成一律计入，与生效时间无关。
-  从未填写基数的数据库即处于这一状态，用户为安装之前的日子补录的记录照常计入。
-- 基数改变时，`baseline_effective_at` 取 `UpdateAchievementBaseline` 请求中的值；桌面端每次保存成就设置
-  （首次引导、设置页「成就」）都以保存时刻作为生效时间提交。基数与已保存的相同时（只修改目标值，或重新填入同一个数），
-  保留原有的生效时间，请求中的值不被采用，因此已叠加在基数之上的完成不会因保存而退出进度。
+- 满足上述条件的已记录完成**全部**叠加在基数之上，不论何时结束（缺少结束时间的记录同样计入），
+  也不论基数何时填写、修改过几次。
+- `baseline_effective_at` 只记录基数最近一次改变的时间，不参与任何统计。基数改变时，它取 `UpdateAchievementBaseline`
+  请求中的值；桌面端每次保存成就设置（首次引导、设置页「成就」）都以保存时刻提交。基数与已保存的相同时
+  （只修改目标值，或重新填入同一个数），保留原有的时间，请求中的值不被采用。
   存储的值、审计记录与应答中的 `baseline_effective_at` 都是实际保留的那一个。
-- 1.5.0 及更早版本在基数不变时同样采用请求中的生效时间，只修改目标或原样保存同一基数都会把它改为保存时刻；
-  按本节的口径，基数填入之后、那次保存之前结束的完成会因此退出进度。采集服务在本版本首次启动时检查一次
-  （与 [state-machine.md](state-machine.md) §3.9 的启动恢复在同一事务中，`BaselineEffectiveTimeRepair`）：
-  基数大于 0，且基数审计记录的最新一条与存储的基数和生效时间都一致时，取审计记录末尾连续记着当前基数的各条中
-  最早一条的生效时间（基数未变的保存不改动生效时间时，存储的本应就是这个时间）；它早于存储的生效时间时，生效时间改回该时间，
-  目标与基数不变，审计记录末尾追加一条写明原因的系统条目（请求标识 `system:baseline-effective-at-repair`），
-  并通知桌面端重新读取统计。基数为 0、没有审计记录、最新一条与存储值不一致、连续记着当前基数的各条一直延伸到
-  已满 100 条的审计记录开头（更早的条目可能已被裁去），或找到的时间不早于存储值时，保持原值。无论是否改动，
-  检查之后都写入设置 `achievement.baseline_effective_at_checked`，此后不再检查，按本版本规则保存的生效时间
-  不会被改动（[data-model.md](data-model.md) §4、§6）。
 - `UpdateAchievementBaseline` 校验「基数 + 已记录完成」是否超出 Int32 时，使用与本节完全相同的口径
-  （`CountContributingCompleted`），按实际保留的生效时间只计入将叠加在新基数之上的完成。
+  （`CountContributingCompleted`），同样计入全部满足上述条件的已记录完成，不论何时结束。
 - 记录被用户取消勾选 `contributes_to_goal` 后**不计入进度**，但**仍计入**
   `attempt_count` 与 `completed_count`，因为它仍然是一次真实的完成。
-- 成就进度**不受 `RunFilter` 的时间范围影响**，始终采用全量口径，只受上文基数生效时间的约束。
+- 成就进度**不受 `RunFilter` 的时间范围影响**，始终采用全量口径。
   仪表盘上的「本周」与「本月」卡片使用 `completed_count`，而非 `achievement_progress`。
 
 ## 5. 剩余次数 `remaining`
@@ -321,13 +304,13 @@ avg_duration_ms = AVG(duration_ms) WHERE
 | 只有一条 `CANCELLED_BEFORE_ENTRY` | `attempt_count = 0`，率均为 `null`；结果分布中该桶 `count = 1`、`share = null` |
 | 一条 `COMPLETED` 但 `contributes_to_goal = 0` | `completed_count = 1`，`achievement_progress` 不增加 |
 | 一条 `COMPLETED` 被软删除 | 完全不出现在任何统计中 |
-| `baseline = 1500`，3 条 `COMPLETED` 均在基数生效之后结束 | `achievement_progress = 1503`，`remaining = 497` |
-| `baseline = 1500`，3 条 `COMPLETED` 均在基数生效之前结束 | `achievement_progress = 1500`，`remaining = 500`，`completed_count = 3` |
-| `baseline = 1500`，一条 `COMPLETED` 在生效之前进本、之后结束 | 计入，`achievement_progress = 1501` |
-| `baseline = 1500`，两条 `COMPLETED` 缺结束时间，进本时间分别在生效前后 | 只计入后者，`achievement_progress = 1501` |
+| `baseline = 1500`，3 条 `COMPLETED` | `achievement_progress = 1503`，`remaining = 497` |
+| `baseline = 1500`，3 条 `COMPLETED` 均在保存基数的时间之前结束 | `achievement_progress = 1503`，`remaining = 497`，`completed_count = 3` |
+| `baseline = 1500`，两条 `COMPLETED` 缺结束时间，进本时间分别在保存基数的时间前后 | 都计入，`achievement_progress = 1502` |
 | `baseline = 0`，2 条 `COMPLETED`（不论何时结束） | 全部计入，`achievement_progress = 2` |
-| `baseline = 1500`，一条 `COMPLETED` 在生效之后结束（进度 1501）；之后只把目标改为 2500，或原样重存 1500，请求带较晚的生效时间 | 生效时间不变，`achievement_progress = 1501`，`remaining = goal_count − 1501` |
-| `baseline = 1500`，一条 `COMPLETED` 在生效之后结束；之后把基数改为 1510，请求的生效时间晚于该完成 | 生效时间更新为请求中的值，`achievement_progress = 1510`；此后结束的完成照常叠加 |
+| `baseline = 227`，已记录 20 条 `COMPLETED`（其中 2 条在首次保存基数之前结束，进度 247）；之后把基数改为 229 | `achievement_progress = 249`，`remaining = goal_count − 249` |
+| `baseline = 1500`，一条 `COMPLETED` 在保存基数之后结束（进度 1501）；之后只把目标改为 2500，或原样重存 1500，请求带较晚的时间 | `baseline_effective_at` 不变，`achievement_progress = 1501`，`remaining = goal_count − 1501` |
+| `baseline = 1500`，一条 `COMPLETED` 在保存基数之后结束；之后把基数改为 1510，请求的时间晚于该完成 | `baseline_effective_at` 更新为请求中的值，`achievement_progress = 1511`；此后结束的完成照常叠加 |
 | `baseline` 大于 `goal_count` | `remaining = 0`（不为负） |
 | `COMPLETED` 但 `duration_ms IS NULL` | 计入 `completed_count`，**不**计入 `avg_duration_ms` |
 | 5 条尝试：3 完成 / 1 离开 / 1 掉线 | `completion_rate = 0.6`，`leave_rate = 0.2`，掉线单独成行为 0.2，两者不相加为 0.4 |

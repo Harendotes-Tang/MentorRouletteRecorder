@@ -35,8 +35,7 @@ public sealed record CrashRecoveryReport(
 /// (audit 2026-10-03, ODp-3). Rows earlier versions already stored in that shape are put right
 /// once, through a system revision like every other automatic change; so are automatic runs an
 /// earlier version left looking as if still in flight after a restart had closed them, which go
-/// back on the review list (V3-2). The same pass checks, once, the achievement baseline's
-/// effective time those versions moved on goal-only saves (<see cref="BaselineEffectiveTimeRepair"/>, V3-1).
+/// back on the review list (V3-2).
 /// A run that already has an end time was finished by the state machine -- including the
 /// <c>UNKNOWN</c> + pending review a profile without <c>DUTY_RESULT</c> produces for every
 /// duty (section 3.10) -- and is left exactly as it was.
@@ -62,7 +61,6 @@ public static class CrashRecoveryService
         var recovered = new List<MentorRun>();
         var repairedEarlier = new List<MentorRun>();
         var flaggedEarlier = new List<MentorRun>();
-        var baselineRepaired = false;
         var protection = new ManualRunFieldProtection(host.Database);
 
         var closedSessions = host.Database.RunInTransaction(tx =>
@@ -114,7 +112,6 @@ public static class CrashRecoveryService
 
             repairedEarlier.AddRange(RepairNeverEnteredRuns(host, protection, now, tx));
             flaggedEarlier.AddRange(FlagRunsLeftInFlight(host, now, tx));
-            baselineRepaired = BaselineEffectiveTimeRepair.Run(host.Settings, now, tx);
             return host.Sessions.CloseAllOpen(host.CaptureSessionId, now, CaptureEndReason.Unknown, tx);
         });
 
@@ -140,11 +137,6 @@ public static class CrashRecoveryService
         {
             host.LiveEvents.PublishStatsInvalidated(
                 $"启动时发现 {flaggedEarlier.Count} 条结果未知、没有结束时间的早期记录，已标记为待复核。");
-        }
-
-        if (baselineRepaired)
-        {
-            host.LiveEvents.PublishStatsInvalidated("启动时按基数的修改记录更正了成就基数的生效时间。");
         }
 
         return new CrashRecoveryReport(recovered.Select(run => run.RunId).ToArray(), closedSessions);

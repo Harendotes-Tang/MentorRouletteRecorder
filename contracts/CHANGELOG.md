@@ -1,5 +1,12 @@
 # IPC 契约变更记录 / IPC contract changelog
 
+## 2026-10-05 · 成就进度恢复为基数加全部已记录完成；更新状态给出安装包地址
+
+一项取值规则恢复为 1.5.0 的口径，一个新的可选字段。不新增消息类型。
+
+- `GetDashboardStats.achievement_progress` / `remaining`：进度等于 `baseline_completed_count` 加上全部计入进度的已记录完成（`result = COMPLETED` 且 `contributes_to_goal = true`），不论完成何时结束、基数何时填写或修改。2026-10-03 一节中「结束时间早于 `baseline_effective_at` 的完成不再叠加」的口径只存在于 1.5.1-beta.1 与 beta.2，现已撤回；`baseline_effective_at` 仍随请求与应答传递，只记录基数最近一次改变的时间，不参与任何统计。基数不变时保留已保存的 `baseline_effective_at`、目标与基数都不变的保存不算修改，这两条约定不变。
+- `UpdateStatus` 新增可选字段 `installer_url`：`latest_version` 对应安装包在本项目发布页上的地址（`releases/download/v<版本>/MentorRecorder-<版本>-setup.exe`），与 `latest_version` 同时出现、同时缺席。采集服务只报告这个地址，从不请求它；桌面端在用户点击下载时把它交给系统浏览器。重启后读回的 `latest_version` 现在同样必须是三段纯数字，否则视为尚未获知。旧桌面端忽略该字段即可。
+
 ## 2026-10-04 · 原样保存成就设置不再算作修改
 
 行为说明，线上格式不变，不新增消息类型。

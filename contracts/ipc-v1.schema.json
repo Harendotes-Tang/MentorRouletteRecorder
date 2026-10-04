@@ -678,6 +678,7 @@
         "update_available": { "type": "boolean", "description": "True when latest_version is strictly newer than this build. A running prerelease counts as older than the release it was cut towards. Always false while enabled is false, whatever an earlier check found." },
         "latest_version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$", "description": "Newest published version this installation has learned of. Absent until a check has succeeded; kept across a failed check and across restarts." },
         "release_url": { "type": "string", "description": "The release page to show the user. A constant of this build, always present." },
+        "installer_url": { "type": "string", "description": "Where the installer of latest_version is published: this project's release asset MentorRecorder-<version>-setup.exe under releases/download/v<version>/. Present exactly when latest_version is. The user's browser opens it when they ask to download; the software itself fetches nothing from it." },
         "last_checked_at_utc": { "type": "string", "description": "When a check was last attempted, successfully or not. Absent until one has been." },
         "last_outcome": { "type": "string", "description": "How that attempt ended: OK, NOT_FOUND (the ordinary answer while nothing is published), RATE_LIMITED, HTTP_STATUS, REDIRECT_REFUSED, HOST_REFUSED, TOO_LARGE, TIMEOUT, DNS_OR_CONNECT, TLS_FAILED, MALFORMED, TRANSPORT_FAILED, CANCELLED, DISABLED (the MR_DISABLE_UPDATE_CHECK kill switch). Not an enum: a build may learn new outcomes." }
       }
@@ -987,7 +988,7 @@
       "properties": {
         "goal_count": { "type": "integer", "minimum": 1, "default": 2000 },
         "baseline_completed_count": { "type": "integer", "minimum": 0 },
-        "baseline_effective_at": { "$ref": "#/$defs/UtcTimestamp", "description": "When a changed baseline took effect: the in-game total it states already holds every completion that ended before this moment. Used only when baseline_completed_count differs from the stored baseline; a request that leaves the count as stored (a goal-only change, or the same number entered again) keeps the stored time, whatever this field says." },
+        "baseline_effective_at": { "$ref": "#/$defs/UtcTimestamp", "description": "When the baseline count was changed. Stored and reported as information only: the progress adds every contributing completion on top of the baseline, whatever its time. Used only when baseline_completed_count differs from the stored baseline; a request that leaves the count as stored (a goal-only change, or the same number entered again) keeps the stored time, whatever this field says." },
         "reason": { "type": "string", "minLength": 1, "maxLength": 500 }
       }
     },

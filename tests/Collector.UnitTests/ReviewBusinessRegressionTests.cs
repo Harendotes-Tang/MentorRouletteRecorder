@@ -227,6 +227,26 @@ public sealed class ReviewBusinessRegressionTests
         Assert.Empty(settings.ReadBaselineAudit());
     }
 
+    /// <summary>
+    /// The check adds every contributing completion, as the dashboard does: one that ended before the
+    /// time the baseline is saved with counts as well (audit 2026-10-03, B3-1).
+    /// </summary>
+    [Fact]
+    public void BaselineOverflowCheckCountsCompletionsThatEndedBeforeTheSaveTime()
+    {
+        using var db = new TestDatabase();
+        var service = Service(db, out var settings);
+        CreateManual(service, db);
+        var before = settings.GetAchievementSettings();
+
+        var error = Assert.Throws<CollectorException>(() => service.UpdateAchievementBaseline(
+            new UpdateAchievementBaselineCommand(NewId(), 2000, int.MaxValue, db.Clock.UtcNow.AddDays(1), "极值校验")));
+
+        Assert.Equal(ErrorCodes.BadRequest, error.Code);
+        Assert.Equal("baseline_completed_count", error.Field);
+        Assert.Equal(before, settings.GetAchievementSettings());
+    }
+
     [Fact]
     public void ACompletionAfterTheMaximumBaselineDoesNotBreakTheDashboard()
     {

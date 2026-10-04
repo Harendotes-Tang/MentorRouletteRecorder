@@ -541,9 +541,9 @@ public sealed class PipeServerTests
 
     /// <summary>
     /// Audit 2026-10-03 CS-7: the Desktop sends the save time with every save, a goal-only edit
-    /// included. The answer and the next dashboard show what was stored: the unchanged baseline
-    /// keeps its effective time and the completion recorded after it still counts. Only a new
-    /// baseline takes the time it is sent with.
+    /// included. The answer shows what was stored: the unchanged baseline keeps its effective time,
+    /// and only a new baseline takes the time it is sent with. The progress adds the recorded
+    /// completion to whichever baseline is stored, also to the new one sent with a later time (B3-1).
     /// </summary>
     [Fact]
     public async Task UpdateAchievementBaseline_GoalOnlyChange_KeepsTheEffectiveTimeAndTheProgress()
@@ -577,7 +577,7 @@ public sealed class PipeServerTests
 
         Assert.Equal("2026-10-03T09:00:00.000Z", rebased["baseline_effective_at"]!.GetValue<string>());
         dashboard = (await client.SendAsync("GetDashboardStats", new JsonObject())).Require();
-        Assert.Equal(1600, dashboard["achievement_progress"]!.GetValue<int>());
+        Assert.Equal(1601, dashboard["achievement_progress"]!.GetValue<int>());
     }
 
     /// <summary>

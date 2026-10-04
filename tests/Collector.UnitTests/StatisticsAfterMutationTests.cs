@@ -114,13 +114,43 @@ public sealed class StatisticsAfterMutationTests : IDisposable
     }
 
     /// <summary>
-    /// Audit 2026-10-03 OG-3. The baseline is the in-game total at its effective time, so it
-    /// already includes every completion that ended before then; adding those again counted them
-    /// twice (the baseline dialog promises 「之前的自动记录不会重复计入」). Completions that end
-    /// later are added on top.
+    /// The owner's report (audit 2026-10-03, B3-1). With 20 completions recorded - two of them
+    /// before the baseline was first saved - the baseline was changed from 227 to 229 and the
+    /// progress fell to 229. The baseline is the number of completions from before the software was
+    /// installed, so every recorded completion is added on top of it, whenever it ended and however
+    /// often the baseline was saved or changed since.
     /// </summary>
     [Fact]
-    public void CompletionsThatEndedBeforeTheBaselineTookEffectAreNotCountedTwice()
+    public void CompletionsRecordedBeforeABaselineChangeStillCountAfterIt()
+    {
+        var firstSave = new DateTimeOffset(2026, 8, 20, 12, 0, 0, TimeSpan.Zero);
+        CreateAt(RunResult.Completed, firstSave.AddDays(-1));
+        CreateAt(RunResult.Completed, firstSave.AddDays(-1).AddHours(1));
+        SetBaseline(2000, 227, firstSave);
+        for (var hour = 1; hour <= 18; hour++)
+        {
+            CreateAt(RunResult.Completed, firstSave.AddHours(hour));
+        }
+
+        Assert.Equal(247, _statistics.GetDashboard().AchievementProgress);
+
+        var changedAt = new DateTimeOffset(2026, 9, 3, 12, 0, 0, TimeSpan.Zero);
+        var outcome = SetBaseline(2000, 229, changedAt);
+
+        var dashboard = _statistics.GetDashboard();
+        Assert.Equal(229, dashboard.BaselineCompletedCount);
+        Assert.Equal(20, dashboard.CompletedCount);
+        Assert.Equal(249, dashboard.AchievementProgress);
+        Assert.Equal(1751, dashboard.Remaining);
+        Assert.Equal(changedAt, outcome.Settings.BaselineEffectiveAt);
+    }
+
+    /// <summary>
+    /// The time a baseline is saved with decides nothing: completions that ended before it are
+    /// added on top like every later one.
+    /// </summary>
+    [Fact]
+    public void CompletionsThatEndedBeforeTheBaselineWasSavedAreAddedOnTop()
     {
         Create(RunResult.Completed);
         Create(RunResult.Completed);
@@ -131,79 +161,42 @@ public sealed class StatisticsAfterMutationTests : IDisposable
             2000,
             1500,
             new DateTimeOffset(2026, 9, 3, 12, 0, 0, TimeSpan.Zero),
-            "游戏内成就面板显示 1500 次"));
+            "开始使用本软件前已完成 1500 次"));
 
         var dashboard = _statistics.GetDashboard();
-        Assert.Equal(1500, dashboard.AchievementProgress);
-        Assert.Equal(500, dashboard.Remaining);
+        Assert.Equal(1503, dashboard.AchievementProgress);
+        Assert.Equal(497, dashboard.Remaining);
         Assert.Equal(3, dashboard.CompletedCount);
 
         CreateAt(RunResult.Completed, new DateTimeOffset(2026, 9, 3, 13, 0, 0, TimeSpan.Zero));
-        Assert.Equal(1501, _statistics.GetDashboard().AchievementProgress);
+        Assert.Equal(1504, _statistics.GetDashboard().AchievementProgress);
     }
 
     /// <summary>
-    /// The moment that decides is when the duty ended: a run that started before the baseline
-    /// and finished after it was not yet in the in-game total.
+    /// A completion that lacks its end time is added like any other, whatever its entry time.
     /// </summary>
     [Fact]
-    public void ACompletionThatEndedAfterTheBaselineTookEffectCounts()
+    public void CompletionsWithoutAnEndTimeAreAddedOnTop()
     {
-        var effective = new DateTimeOffset(2026, 9, 3, 10, 15, 0, TimeSpan.Zero);
-        Create(RunResult.Completed);
-
-        _mutations.UpdateAchievementBaseline(new UpdateAchievementBaselineCommand(
-            Guid.NewGuid().ToString("D"), 2000, 1500, effective, "副本进行中填写的基数"));
-
-        Assert.Equal(1501, _statistics.GetDashboard().AchievementProgress);
-    }
-
-    /// <summary>
-    /// A row that lacks its end time is placed by the latest time it does carry - entry, then
-    /// match. That time is never later than the real completion, so a doubtful row is left out
-    /// rather than counted twice.
-    /// </summary>
-    [Fact]
-    public void ACompletionWithoutAnEndTimeIsPlacedByItsEntry()
-    {
-        var effective = new DateTimeOffset(2026, 9, 4, 0, 0, 0, TimeSpan.Zero);
+        var saved = new DateTimeOffset(2026, 9, 4, 0, 0, 0, TimeSpan.Zero);
         var runs = new RunRepository(_database.Database);
         _database.Database.RunInTransaction(tx =>
         {
-            runs.Insert(TestDatabase.Run(enteredAt: effective.AddHours(-1)) with { EndedAtUtc = null }, tx);
-            runs.Insert(TestDatabase.Run(enteredAt: effective.AddHours(1)) with { EndedAtUtc = null }, tx);
+            runs.Insert(TestDatabase.Run(enteredAt: saved.AddHours(-1)) with { EndedAtUtc = null }, tx);
+            runs.Insert(TestDatabase.Run(enteredAt: saved.AddHours(1)) with { EndedAtUtc = null }, tx);
         });
 
         _mutations.UpdateAchievementBaseline(new UpdateAchievementBaselineCommand(
-            Guid.NewGuid().ToString("D"), 2000, 1500, effective, "基数"));
+            Guid.NewGuid().ToString("D"), 2000, 1500, saved, "基数"));
 
-        Assert.Equal(1501, _statistics.GetDashboard().AchievementProgress);
+        Assert.Equal(1502, _statistics.GetDashboard().AchievementProgress);
     }
 
     /// <summary>
-    /// A baseline of 0 holds no completion, so there is nothing a recorded run could be counted
-    /// twice against: every contributing completion counts, including those entered by hand for
-    /// days before the software was installed. This is also the state of a database whose user
-    /// never filled in the baseline, whose effective time is merely the first start.
-    /// </summary>
-    [Fact]
-    public void AZeroBaselineCountsEveryContributingCompletion()
-    {
-        Create(RunResult.Completed);
-        Create(RunResult.Completed);
-
-        _mutations.UpdateAchievementBaseline(new UpdateAchievementBaselineCommand(
-            Guid.NewGuid().ToString("D"), 2000, 0,
-            new DateTimeOffset(2026, 9, 4, 0, 0, 0, TimeSpan.Zero), "从 0 开始"));
-
-        Assert.Equal(2, _statistics.GetDashboard().AchievementProgress);
-    }
-
-    /// <summary>
-    /// Audit 2026-10-03 CS-7. The Desktop sends the save time as the effective time with every
-    /// save of the achievement settings, a goal-only edit included. A baseline that did not change
-    /// keeps the moment it took effect: moved, every completion recorded since would fall before the
-    /// new cutoff and drop out of the progress. Typing the same number in again is no change either.
+    /// Audit 2026-10-03 CS-7. The Desktop sends the save time with every save of the achievement
+    /// settings, a goal-only edit included. The stored time records when the baseline count last
+    /// changed, so a save that leaves the count as it was keeps it; typing the same number in again
+    /// is no change either. The progress is unaffected.
     /// </summary>
     [Theory]
     [InlineData(2500)]
@@ -226,8 +219,8 @@ public sealed class StatisticsAfterMutationTests : IDisposable
     }
 
     /// <summary>
-    /// A new baseline is the in-game total at the moment it is sent with: completions that ended
-    /// before then are inside that number and are no longer added, later ones are.
+    /// A new baseline count takes the time it is sent with, as the record of when it changed. The
+    /// completion recorded before that time stays in the progress, and later ones are added too.
     /// </summary>
     [Fact]
     public void AChangedBaselineMovesTheEffectiveTime()
@@ -241,16 +234,15 @@ public sealed class StatisticsAfterMutationTests : IDisposable
 
         Assert.Equal(second, outcome.Settings.BaselineEffectiveAt);
         Assert.Equal(second, _settings.GetAchievementSettings().BaselineEffectiveAt);
-        Assert.Equal(1510, _statistics.GetDashboard().AchievementProgress);
+        Assert.Equal(1511, _statistics.GetDashboard().AchievementProgress);
 
         CreateAt(RunResult.Completed, second.AddHours(1));
-        Assert.Equal(1511, _statistics.GetDashboard().AchievementProgress);
+        Assert.Equal(1512, _statistics.GetDashboard().AchievementProgress);
     }
 
     /// <summary>
-    /// A baseline of 0 counts every completion whatever its effective time, and an unchanged 0
-    /// keeps that time like any other unchanged baseline. The first positive baseline takes the
-    /// time it is sent with.
+    /// An unchanged baseline of 0 keeps its time like any other unchanged baseline, and the first
+    /// positive baseline takes the time it is sent with. Every completion counts throughout.
     /// </summary>
     [Fact]
     public void AZeroBaselineKeepsItsTimeUntilAPositiveBaselineSetsOne()
@@ -267,7 +259,7 @@ public sealed class StatisticsAfterMutationTests : IDisposable
         var outcome = SetBaseline(2500, 100, effective);
 
         Assert.Equal(effective, outcome.Settings.BaselineEffectiveAt);
-        Assert.Equal(100, _statistics.GetDashboard().AchievementProgress);
+        Assert.Equal(101, _statistics.GetDashboard().AchievementProgress);
     }
 
     private BaselineMutationOutcome SetBaseline(int goal, int baseline, DateTimeOffset effectiveAt) =>

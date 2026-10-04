@@ -569,6 +569,91 @@ public sealed class UpdateCheckServiceTests : IDisposable
         Assert.Equal(1, transport.Calls);
     }
 
+    // ------------------------------------------------------------------- installer address
+
+    /// <summary>
+    /// The installer address goes with the version learned: none before a check has read one, a failed check
+    /// does not invent one, and a successful check names that version's installer.
+    /// </summary>
+    [Fact]
+    public async Task TheInstallerAddressAppearsWithTheFirstVersionRead()
+    {
+        var transport = new Transport { Status = 404 };
+        var service = Service(transport);
+        Assert.Null(service.Snapshot().InstallerUrl);
+
+        await service.CheckNowAsync();
+        Assert.Null(service.Snapshot().LatestVersion);
+        Assert.Null(service.Snapshot().InstallerUrl);
+
+        transport.Status = 200;
+        await service.CheckNowAsync();
+
+        var snapshot = service.Snapshot();
+        Assert.Equal(Published, snapshot.LatestVersion);
+        Assert.Equal(UpdateCheckClient.InstallerUrl(Published), snapshot.InstallerUrl);
+        Assert.EndsWith("/v" + Published + "/MentorRecorder-" + Published + "-setup.exe", snapshot.InstallerUrl);
+    }
+
+    /// <summary>
+    /// Reported whenever the version is, whatever the switch and the comparison say: the address follows the
+    /// version, not the banner.
+    /// </summary>
+    [Theory]
+    [InlineData("2.0.0", true)]
+    [InlineData("2.0.0", false)]
+    [InlineData("1.0.0", true)]
+    [InlineData("0.9.0", true)]
+    public async Task TheInstallerAddressIsReportedWheneverTheVersionIs(string published, bool enabled)
+    {
+        var service = Service(new Transport { Version = published });
+        await service.CheckNowAsync();
+        service.ApplySetting(enabled);
+
+        var snapshot = service.Snapshot();
+
+        Assert.Equal(published, snapshot.LatestVersion);
+        Assert.NotNull(snapshot.InstallerUrl);
+        Assert.Equal(UpdateCheckClient.InstallerUrl(published), snapshot.InstallerUrl);
+    }
+
+    [Fact]
+    public async Task TheInstallerAddressSurvivesARestartWithTheVersion()
+    {
+        var first = Service(new Transport());
+        await first.CheckNowAsync();
+
+        _clock.UtcNow = T0.AddMinutes(30);
+        var restarted = Service(new Transport { Status = 500 });
+        var snapshot = restarted.Snapshot();
+
+        Assert.Equal(Published, snapshot.LatestVersion);
+        Assert.NotNull(snapshot.InstallerUrl);
+        Assert.Equal(UpdateCheckClient.InstallerUrl(Published), snapshot.InstallerUrl);
+    }
+
+    /// <summary>
+    /// A stored version is read back only in the shape a check stores: three plain numbers. Anything else - a hand
+    /// edit, a damaged row - is no version at all, so neither it nor an address built from it is reported.
+    /// </summary>
+    [Theory]
+    [InlineData("\"2.0.0/../../evil\"")]
+    [InlineData("\"2.0.0?x=1\"")]
+    [InlineData("\"2.0.0-beta.1\"")]
+    [InlineData("\"2.0.0\\n\"")]
+    [InlineData("\"\\u0662.0.0\"")]
+    [InlineData("\"latest\"")]
+    public void AStoredVersionOfAnyOtherShapeIsNoVersion(string storedJson)
+    {
+        _settings.SetSetting(UpdateCheckService.LatestVersionSetting, storedJson);
+
+        var snapshot = Service(new Transport()).Snapshot();
+
+        Assert.Null(snapshot.LatestVersion);
+        Assert.Null(snapshot.InstallerUrl);
+        Assert.False(snapshot.UpdateAvailable);
+    }
+
     [Fact]
     public async Task TheTestSeamRunsOneCheckAndReturnsItsOutcome()
     {

@@ -86,13 +86,19 @@ public sealed record UpdateCheckResult(
 /// <param name="LastCheckedAtUtc">When a check was last attempted, successfully or not.</param>
 /// <param name="LastOutcome">How that attempt ended, as an <see cref="UpdateCheckOutcome"/> token.</param>
 /// <param name="ReleaseUrl">The release page a human is sent to; nothing is ever downloaded or run.</param>
+/// <param name="InstallerUrl">
+/// Where the installer of <paramref name="LatestVersion"/> is published; present exactly when that version is,
+/// whatever <paramref name="Enabled"/> and <paramref name="UpdateAvailable"/> say. Opened by the user's browser
+/// when they ask to download, never by this software.
+/// </param>
 public sealed record UpdateCheckSnapshot(
     bool Enabled,
     bool UpdateAvailable,
     string? LatestVersion,
     DateTimeOffset? LastCheckedAtUtc,
     string? LastOutcome,
-    string ReleaseUrl);
+    string ReleaseUrl,
+    string? InstallerUrl);
 
 /// <summary>
 /// What the sanitized diagnostics report may say about the update check

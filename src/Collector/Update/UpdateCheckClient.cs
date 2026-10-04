@@ -97,6 +97,19 @@ public sealed class UpdateCheckClient
     /// <summary>The release page the user is sent to. Opened by a human, never by this software.</summary>
     public static string ReleaseUrl { get; } = "https://" + ReleaseHost + "/" + Owner + "/" + Repository + "/releases/latest";
 
+    /// <summary>
+    /// Where the installer of a published version is: the asset <c>MentorRecorder-&lt;version&gt;-setup.exe</c> of
+    /// the release tagged <c>v&lt;version&gt;</c>. Reported for the user's browser to open when they ask to
+    /// download; never fetched by this software. Null for anything but three plain numbers
+    /// (<see cref="UpdateMetadata.IsVersion"/>), so nothing else can end up in the address.
+    /// </summary>
+    /// <param name="version">A published version.</param>
+    public static string? InstallerUrl(string? version) =>
+        UpdateMetadata.IsVersion(version)
+            ? "https://" + ReleaseHost + "/" + Owner + "/" + Repository + "/releases/download/v" + version +
+              "/MentorRecorder-" + version + "-setup.exe"
+            : null;
+
     /// <summary>Production transport: the process-wide client, no redirects, no cookies, the system proxy.</summary>
     public static UpdateCheckTransport HttpTransport { get; } = SendAsync;
 

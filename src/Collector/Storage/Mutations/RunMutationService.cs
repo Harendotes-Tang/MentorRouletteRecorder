@@ -356,19 +356,18 @@ public sealed class RunMutationService
 
             changed = true;
 
-            // The baseline is the in-game total at its effective time, so only a new baseline
-            // moves that time. The Desktop sends the save time with every save, a goal-only edit
-            // included; taken as given, it dropped every completion recorded since the baseline
-            // out of the progress (audit 2026-10-03, CS-7). The same number entered again is no
-            // change either.
+            // The effective time records when the baseline count last changed; no statistic is
+            // computed from it. The Desktop sends the save time with every save, a goal-only edit
+            // included, so only a new count takes it (audit 2026-10-03, CS-7). The same number
+            // entered again is no change either.
             var effectiveAt = command.BaselineCompletedCount == stored.BaselineCompletedCount
                 ? stored.BaselineEffectiveAt
                 : UtcTimestamp.Truncate(command.BaselineEffectiveAt);
 
-            // The completions the dashboard will add on top of this baseline, not every one.
+            // Every contributing completion is added on top of the baseline, whenever it ended,
+            // exactly as the dashboard adds them (audit 2026-10-03, B3-1).
             var completed = new StatisticsRepository(_database, _settings, _jobs, _duties, _clock)
-                .CountContributingCompleted(tx, StatisticsRepository.CountedFrom(
-                    command.BaselineCompletedCount, effectiveAt));
+                .CountContributingCompleted(tx);
             if (completed > int.MaxValue - (long)command.BaselineCompletedCount)
             {
                 throw CollectorException.BadRequest(

@@ -73,6 +73,50 @@ public sealed class UpdateCheckClientTests
             release.AbsolutePath);
     }
 
+    /// <summary>
+    /// The installer of a published version, for the user's browser: the release asset of the release tagged
+    /// with that version, on the same host and repository as everything else. This client never asks it.
+    /// </summary>
+    [Fact]
+    public void TheInstallerAddressIsTheSetupAssetOfThatRelease()
+    {
+        var text = UpdateCheckClient.InstallerUrl("1.5.12");
+
+        Assert.NotNull(text);
+        var installer = new Uri(text, UriKind.Absolute);
+        Assert.Equal(text, installer.AbsoluteUri);
+        Assert.Equal(Uri.UriSchemeHttps, installer.Scheme);
+        Assert.True(installer.IsDefaultPort);
+        Assert.Equal(UpdateCheckClient.MetadataUri().Host, installer.Host);
+        Assert.Equal(string.Empty, installer.UserInfo);
+        Assert.Equal(string.Empty, installer.Query);
+        Assert.Equal(string.Empty, installer.Fragment);
+        Assert.Equal(
+            "/" + UpdateCheckClient.Owner + "/" + UpdateCheckClient.Repository +
+            "/releases/download/v1.5.12/MentorRecorder-1.5.12-setup.exe",
+            installer.AbsolutePath);
+    }
+
+    /// <summary>
+    /// Only three runs of ASCII digits make an address: anything else a stored or published value could carry -
+    /// a suffix, a path, a query, white space, other digits - gives none.
+    /// </summary>
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("1.5")]
+    [InlineData("1.5.1.0")]
+    [InlineData("1.5.1-beta.2")]
+    [InlineData("1.5.1/../../evil")]
+    [InlineData("1.5.1?x=1")]
+    [InlineData("1.5.1#x")]
+    [InlineData(" 1.5.1")]
+    [InlineData("1.5.1\n")]
+    [InlineData("١.5.1")]
+    [InlineData("v1.5.1")]
+    public void TheInstallerAddressIsRefusedForAnythingButThreePlainNumbers(string? version) =>
+        Assert.Null(UpdateCheckClient.InstallerUrl(version));
+
     [Fact]
     public void TheBudgetAndTheCapAreTheDeclaredOnes()
     {

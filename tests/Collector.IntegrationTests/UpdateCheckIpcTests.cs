@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json.Nodes;
 using MentorRecorder.Collector.Capture;
 using MentorRecorder.Collector.Ipc;
@@ -24,7 +25,53 @@ public sealed class UpdateCheckIpcTests
         Assert.True(update["enabled"]!.GetValue<bool>());
         Assert.False(update["update_available"]!.GetValue<bool>());
         Assert.Equal(UpdateCheckClient.ReleaseUrl, update["release_url"]!.GetValue<string>());
+        Assert.False(update.ContainsKey("installer_url"));
         ContractSchema.Validate("$defs/UpdateStatus", update, "update status");
+    }
+
+    /// <summary>
+    /// Once a check has read a version, the status names that version's installer for the user's browser,
+    /// in the answer to CheckUpdateNow and in GetStatus alike, and both still validate. The Collector only
+    /// reports the address: the one request it sent was for the metadata document.
+    /// </summary>
+    [Fact]
+    public async Task AfterASuccessfulCheckTheStatusNamesTheInstallerOfThatVersion()
+    {
+        var requested = new List<Uri>();
+        var client = new UpdateCheckClient(
+            (uri, _) =>
+            {
+                lock (requested)
+                {
+                    requested.Add(uri);
+                }
+
+                var body = Encoding.UTF8.GetBytes("{\"version\": \"9.8.7\"}");
+                return Task.FromResult(new UpdateTransportResponse(200, uri, null, body.Length, new MemoryStream(body)));
+            },
+            readEnvironment: _ => null);
+        await using var fixture = ServerFixture.Start(updateCheckClient: client);
+        Assert.Null(fixture.Host.Updates.Snapshot().InstallerUrl);
+
+        var checkedNow = (await fixture.CallAsync("CheckUpdateNow")).Require();
+        var status = (await fixture.CallAsync("GetStatus")).Require();
+
+        ContractSchema.Validate("$defs/Responses/CheckUpdateNow", checkedNow, "check now with installer");
+        ContractSchema.Validate("$defs/Responses/GetStatus", status, "status with installer");
+        var expected = UpdateCheckClient.InstallerUrl("9.8.7");
+        Assert.NotNull(expected);
+        foreach (var update in new[] { checkedNow["update"]!.AsObject(), status["update"]!.AsObject() })
+        {
+            ContractSchema.Validate("$defs/UpdateStatus", update, "update status with installer");
+            Assert.Equal("9.8.7", update["latest_version"]!.GetValue<string>());
+            Assert.Equal(expected, update["installer_url"]!.GetValue<string>());
+        }
+
+        lock (requested)
+        {
+            Assert.NotEmpty(requested);
+            Assert.All(requested, uri => Assert.Equal(UpdateCheckClient.MetadataUri(), uri));
+        }
     }
 
     [Fact]

@@ -15,7 +15,10 @@ public sealed record AchievementSettings
     /// <summary>Self-reported completions from before this software was used.</summary>
     public required int BaselineCompletedCount { get; init; }
 
-    /// <summary>When the baseline takes effect.</summary>
+    /// <summary>
+    /// When the baseline count last changed. Information only: the progress adds every recorded
+    /// completion to the baseline, whenever it ended.
+    /// </summary>
     public required DateTimeOffset BaselineEffectiveAt { get; init; }
 
     /// <summary>Time of the last change.</summary>

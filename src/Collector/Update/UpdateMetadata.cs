@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using MentorRecorder.Collector.Protocol.Profiles;
@@ -78,11 +79,18 @@ public static class UpdateMetadata
             }
 
             var text = version.ValueKind == JsonValueKind.String ? version.GetString() : null;
-            return text is not null && Version.IsMatch(text)
+            return IsVersion(text)
                 ? new UpdateMetadataReadResult(text, null)
                 : UpdateMetadataReadResult.Refuse("INVALID:version");
         }
     }
+
+    /// <summary>
+    /// True for a version in the one shape this reader accepts: three runs of ASCII digits joined by dots, with
+    /// nothing before, between or after them - no suffix, no space, no line break, no other script's digits.
+    /// </summary>
+    /// <param name="text">Candidate version.</param>
+    public static bool IsVersion([NotNullWhen(true)] string? text) => text is not null && Version.IsMatch(text);
 
     private static bool HasDuplicateKey(JsonElement root)
     {
