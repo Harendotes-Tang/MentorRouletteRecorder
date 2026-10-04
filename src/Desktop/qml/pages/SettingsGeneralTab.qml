@@ -196,20 +196,33 @@ ColumnLayout {
                 wrapMode: Text.WordWrap
             }
 
-            // 一个位置，两种用途：没有新版本时是「检查更新」，
-            // 有新版本时直接变成「打开下载页」。下载仍由用户在浏览器里自行完成。
+            // 有新版本时，旁边另有一个不那么显眼的「查看更新说明」，打开发布页。
+            AppButton {
+                objectName: "updateReleaseNotesButton"
+                Layout.fillWidth: false
+                Layout.alignment: Qt.AlignVCenter
+                visible: App.update.updateAvailable
+                compact: true
+                variant: "ghost"
+                text: qsTr("查看更新说明")
+                onClicked: App.update.openReleasePage()
+            }
+
+            // 一个位置，两种用途：没有新版本时是「检查更新」，有新版本时直接变成
+            // 「下载新版本」：把安装程序的地址交给系统浏览器，由浏览器下载（没有可用的
+            // 安装程序地址时改为打开发布页）。本软件自身不下载，安装由用户自己运行。
             AppButton {
                 objectName: "checkUpdateNowButton"
                 Layout.fillWidth: false
                 Layout.alignment: Qt.AlignVCenter
                 compact: true
-                text: App.update.updateAvailable ? qsTr("打开下载页")
+                text: App.update.updateAvailable ? qsTr("下载新版本")
                                                  : qsTr("检查更新")
                 // 开关关闭或正在检查时不可用（privacy-boundary.md §8.4）。
                 enabled: App.update.canCheck
                 onClicked: {
                     if (App.update.updateAvailable)
-                        App.update.openReleasePage()
+                        App.update.openInstallerDownload()
                     else
                         App.update.checkNow()
                 }

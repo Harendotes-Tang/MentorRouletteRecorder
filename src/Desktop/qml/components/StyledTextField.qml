@@ -16,9 +16,30 @@ TextField {
     leftPadding: 10
     rightPadding: 10
 
+    /// An example a player may take as it is: Tab on the empty field enters it
+    /// (owner's request B3-2). Only for free-text reason and note fields; in a
+    /// number or configuration field an example would be wrong data. Such a field
+    /// ends its placeholder with exampleHint, so the shortcut can be found.
+    property string exampleText: ""
+    readonly property string exampleHint: qsTr("（按 Tab 填入）")
+
     // A read-only field scrolls to the end of its text by default, which hides
     // the beginning of a long path.
     onTextChanged: if (readOnly) Qt.callLater(function() { cursorPosition = 0 })
+
+    // insert() is the path typing takes: a binding on text stays in place, the
+    // change can be undone, and whatever reacts to the text sees it as typed.
+    // Shift+Tab, a field that holds text, and a Tab while an input method is
+    // composing all move focus as before.
+    Keys.onTabPressed: function(event) {
+        event.accepted = control.exampleText.length > 0 && control.length === 0
+                         && control.preeditText.length === 0 && !control.readOnly
+                         && event.modifiers === Qt.NoModifier
+        if (!event.accepted)
+            return
+        control.insert(0, control.exampleText)
+        control.cursorPosition = control.length
+    }
 
     background: Rectangle {
         radius: Theme.radiusS

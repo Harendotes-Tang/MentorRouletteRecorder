@@ -45,13 +45,25 @@ ColumnLayout {
                 elide: Text.ElideRight
             }
 
+            // 有新版本时：「查看更新说明」打开发布页；「下载新版本」把安装程序的地址
+            // 交给系统浏览器，由浏览器下载（没有可用地址时改为打开发布页）。
             AppButton {
                 objectName: "aboutOpenReleasePageButton"
                 Layout.fillWidth: false
                 visible: App.update.updateAvailable
                 compact: true
-                text: qsTr("打开下载页")
+                variant: "ghost"
+                text: qsTr("查看更新说明")
                 onClicked: App.update.openReleasePage()
+            }
+
+            AppButton {
+                objectName: "aboutDownloadInstallerButton"
+                Layout.fillWidth: false
+                visible: App.update.updateAvailable
+                compact: true
+                text: qsTr("下载新版本")
+                onClicked: App.update.openInstallerDownload()
             }
 
             // 没有新版本时，同一个位置是主动检查（privacy-boundary.md §8.4）。

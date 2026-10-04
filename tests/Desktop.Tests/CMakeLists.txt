@@ -90,6 +90,18 @@ add_test(NAME MentorRecorderTimeField
     COMMAND MentorRecorderTimeFieldTests
         -o "${CMAKE_CURRENT_BINARY_DIR}/MentorRecorderTimeField.qtlog.txt,txt")
 
+# Tab enters a reason or note field's example (components/StyledTextField.qml), on real QML.
+add_executable(MentorRecorderStyledTextFieldTests StyledTextFieldTests.cpp)
+target_link_libraries(MentorRecorderStyledTextFieldTests PRIVATE
+    MentorRecorderDesktopLib Qt6::Gui Qt6::Test)
+target_compile_definitions(MentorRecorderStyledTextFieldTests PRIVATE
+    MR_DESKTOP_QML_DIR="${PROJECT_SOURCE_DIR}/src/Desktop/qml")
+set_target_properties(MentorRecorderStyledTextFieldTests PROPERTIES AUTOMOC TRUE)
+mr_use_ascii_autogen_dir(MentorRecorderStyledTextFieldTests)
+add_test(NAME MentorRecorderStyledTextField
+    COMMAND MentorRecorderStyledTextFieldTests
+        -o "${CMAKE_CURRENT_BINARY_DIR}/MentorRecorderStyledTextField.qtlog.txt,txt")
+
 # The combo box popup (components/StyledComboBox.qml): no stray headers, wide enough.
 add_executable(MentorRecorderStyledComboBoxTests StyledComboBoxTests.cpp)
 target_link_libraries(MentorRecorderStyledComboBoxTests PRIVATE
@@ -325,8 +337,9 @@ add_test(NAME MentorRecorderQmlMockNoteImageFolder
         --screenshot-delay 1500)
 
 # First-run baseline dialog. It opens at start-up, before the stored settings
-# are read; by the screenshot it shows them (the mock's 1374, unchanged), and the
-# line under the fields says the stored effective time stays (CS7-D2/D3).
+# are read; by the screenshot it shows them (the mock's 1374, unchanged). The mock
+# has recorded completions already, so the line under the fields previews the
+# progress they add on top of the baseline (B3-1; CS7-D3).
 add_test(NAME MentorRecorderQmlBaselineDialog
     COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
         --screenshot "${CMAKE_CURRENT_BINARY_DIR}/qml-baseline.png"
@@ -336,7 +349,7 @@ add_test(NAME MentorRecorderQmlBaselineDialog
         --mock-first-run
         --screenshot-delay 1000
         --verify-text "你已经完成了多少次导随？"
-        --verify-text "沿用原有的生效时间")
+        --verify-text "会加在基数之上")
 
 # CLI boundary. Each of these must exit with code 2 exactly *and* print the
 # refusal that names the option. WILL_FAIL would also accept a crash, a missing
@@ -760,6 +773,7 @@ set(MR_ALL_DESKTOP_TESTS
     MentorRecorderIcons
     MentorRecorderDateField
     MentorRecorderTimeField
+    MentorRecorderStyledTextField
     MentorRecorderStyledComboBox
     MentorRecorderTtsService
     MentorRecorderReflections

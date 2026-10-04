@@ -9,6 +9,10 @@ Dialog {
 
     property int goalCount: 2000
     property int baselineCount: 0
+    /// The completions this software recorded that count towards the goal: the
+    /// Collector's achievement_progress less its baseline. They are added on top of
+    /// any baseline (B3-1), and the game's own total already holds them.
+    property int recordedCount: 0
     /// True once goalCount / baselineCount are what the Collector stores, read on
     /// the current connection. Until then they are defaults and nothing may be
     /// saved: even 从 0 开始 would overwrite a stored goal (audit 2026-10-03, CS7-D3).
@@ -57,21 +61,23 @@ Dialog {
     // overwrite an answer being written.
     property bool edited: false
 
-    // Parsed the way 保存并开始 parses it, so the line below describes what is sent.
+    // Parsed the way 保存并开始 parses it, so the line below describes what is sent:
+    // a whole number of at least 0, else -1. An empty field is no number, and is
+    // not saved as 0 (从 0 开始 is there for that).
     readonly property int typedBaseline: {
         const parsed = Number(baselineText)
-        return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : -1
+        return baselineText.trim().length > 0 && Number.isFinite(parsed) && parsed >= 0
+            ? Math.floor(parsed) : -1
     }
-    // What saving the typed baseline does to its effective time, as the
-    // Collector decides it (audit 2026-10-03, CS7-D2): only a changed baseline
-    // above 0 takes effect now; the same number keeps the stored time, and 0
-    // counts every record. The stored time itself is carried by no read, so it
-    // is not named.
-    readonly property string effectiveText: typedBaseline < 0 ? ""
-        : typedBaseline === 0 ? qsTr("基数为 0 · 软件记录的通关不论何时结束都计入进度。")
-        : typedBaseline === baselineCount ? qsTr("基数未改动 · 沿用原有的生效时间，进度不受影响。")
-        : qsTr("生效时间 %1 · 此前结束的记录已含在基数中，不会重复计入。")
-              .arg(Fmt.localDate(new Date().toISOString()))
+    // The progress the typed baseline gives (B3-1): every completion this software
+    // recorded is added on top of it, whenever it ended. Shown once there are such
+    // records - a guide opened late - because the game's own total already holds
+    // them: typed in as the baseline they would count twice. Until the field holds
+    // a number the stored baseline stands.
+    readonly property int previewBaseline: typedBaseline >= 0 ? typedBaseline : baselineCount
+    readonly property string previewText: recordedCount <= 0 ? ""
+        : qsTr("软件已记录 %1 次计入进度的通关，会加在基数之上：%2 + %1 = %3。游戏内成就面板显示的完成数已包含这 %1 次，填写时请先减去，以免重复计算。")
+              .arg(recordedCount).arg(previewBaseline).arg(previewBaseline + recordedCount)
 
     function openDialog(fromSettings) {
         reopened = fromSettings === true
@@ -120,7 +126,7 @@ Dialog {
 
         Text {
             Layout.fillWidth: true
-            text: qsTr("软件只能记录安装之后的导随。填写游戏内成就面板显示的当前完成数作为基数，%1 次进度 = 基数 + 软件记录。之后可在设置中修改。")
+            text: qsTr("软件只能记录安装之后的导随。基数是安装本软件之前已完成的次数（首次启动时即游戏内成就面板显示的完成数），软件记录的通关会加在基数之上：%1 次进度 = 基数 + 软件记录。之后可在设置中修改。")
                   .arg(dialog.goalText)
             color: Theme.textSecondary
             font.pixelSize: Theme.fs(13)
@@ -133,7 +139,7 @@ Dialog {
             columnSpacing: 12
             rowSpacing: 4
 
-            FieldLabel { text: qsTr("当前已完成次数") }
+            FieldLabel { text: qsTr("安装前已完成次数") }
             FieldLabel { text: qsTr("目标") }
 
             StyledTextField {
@@ -186,10 +192,10 @@ Dialog {
         }
 
         Text {
-            objectName: "baselineEffectiveText"
+            objectName: "baselinePreviewText"
             Layout.fillWidth: true
             visible: dialog.settingsLoaded && text.length > 0
-            text: dialog.effectiveText
+            text: dialog.previewText
             color: Theme.textSecondary
             font.pixelSize: Theme.fs(12)
             wrapMode: Text.WordWrap
@@ -251,9 +257,9 @@ Dialog {
                 enabled: dialog.settingsLoaded && !dialog.saving && !dialog.busy
                 text: dialog.saving ? qsTr("保存中…") : qsTr("保存并开始")
                 onClicked: {
-                    const parsed = Number(dialog.baselineText)
+                    const parsed = dialog.typedBaseline
                     const goal = Number(dialog.goalText)
-                    if (!Number.isFinite(parsed) || parsed < 0) {
+                    if (parsed < 0) {
                         dialog.errorText = qsTr("基数必须是大于等于 0 的整数。")
                         return
                     }

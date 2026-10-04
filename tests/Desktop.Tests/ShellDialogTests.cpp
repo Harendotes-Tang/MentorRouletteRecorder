@@ -687,6 +687,75 @@ private Q_SLOTS:
         QCOMPARE(baseline->property("text").toString(), QStringLiteral("700"));
     }
 
+    // B3-1（用户报告）：基数从 227 改成 229 时，卡片的算式仍是已保存的「227 + 18 = 245」，
+    // 看不出保存后会得到什么。算式改为预览：填入的基数 + 软件记录（achievement_progress
+    // − 已存基数）。框空着时显示已保存的值，「保存」也不会把空框当成 0。
+    // B3-2（用户要求）：修改原因的提示是示例，空框按 Tab 填入它，保存照常带上这个原因。
+    void theAchievementCardPreviewsTheTypedBaselineAndTabEntersTheReasonExample()
+    {
+        Shell shell;
+        shell.backend.holdTypes << QStringLiteral("UpdateAchievementBaseline");
+        // 227 before installing, 20 completions recorded since.
+        QJsonObject recorded = dashboard(2000, 227);
+        recorded.insert(QStringLiteral("achievement_progress"), 247);
+        recorded.insert(QStringLiteral("remaining"), 1753);
+        shell.backend.answers.insert(QStringLiteral("GetDashboardStats"), recorded);
+        QVERIFY2(shell.create(), qPrintable(shell.errors));
+        QTRY_VERIFY(shell.controller->achievementSettingsLoaded());
+        shell.controller->navigate(5);
+        auto *goalTab = shell.item(QStringLiteral("settingsTab_goal"));
+        QVERIFY(goalTab);
+        QVERIFY(QMetaObject::invokeMethod(goalTab, "clicked"));
+        QQuickItem *figures = nullptr;
+        QTRY_VERIFY((figures = shell.item(QStringLiteral("progressFormulaFigures"))) && figures->isVisible());
+        QTRY_COMPARE(figures->property("text").toString(), QStringLiteral("227 + 20 = 247"));
+        auto *baseline = shell.item(QStringLiteral("baselineField"));
+        auto *reason = shell.item(QStringLiteral("baselineReasonField"));
+        auto *error = shell.item(QStringLiteral("baselineErrorText"));
+        QVERIFY(baseline && reason && error);
+
+        // Typed the way the owner did: the figures show what 保存 would give.
+        QVERIFY(shell.click(QStringLiteral("baselineField")));
+        QTRY_VERIFY(baseline->hasActiveFocus());
+        QTest::keyClick(shell.window(), Qt::Key_A, Qt::ControlModifier);
+        for (const char digit : {'2', '2', '9'})
+            QTest::keyClick(shell.window(), digit);
+        QCOMPARE(baseline->property("text").toString(), QStringLiteral("229"));
+        QCOMPARE(figures->property("text").toString(), QStringLiteral("229 + 20 = 249"));
+
+        // Emptied: the stored figures, and 保存 refuses rather than sending 0.
+        QTest::keyClick(shell.window(), Qt::Key_A, Qt::ControlModifier);
+        QTest::keyClick(shell.window(), Qt::Key_Backspace);
+        QCOMPARE(baseline->property("text").toString(), QString());
+        QCOMPARE(figures->property("text").toString(), QStringLiteral("227 + 20 = 247"));
+        reason->setProperty("text", QString::fromUtf8("核对"));
+        QVERIFY(shell.click(QStringLiteral("saveAchievementButton")));
+        QCOMPARE(shell.backend.callsOf(QStringLiteral("UpdateAchievementBaseline")).size(), 0);
+        QCOMPARE(error->property("text").toString(), QString::fromUtf8("基数必须是大于等于 0 的整数。"));
+
+        // The reason's placeholder is an example, and says that Tab enters it.
+        reason->setProperty("text", QString());
+        const QString example = QString::fromUtf8("补录安装前的历史完成数");
+        QCOMPARE(reason->property("placeholderText").toString(),
+                 QString::fromUtf8("例如：补录安装前的历史完成数（按 Tab 填入）"));
+        QVERIFY(shell.click(QStringLiteral("baselineReasonField")));
+        QTRY_VERIFY(reason->hasActiveFocus());
+        QTest::keyClick(shell.window(), Qt::Key_Tab);
+        QCOMPARE(reason->property("text").toString(), example);
+        QVERIFY(reason->hasActiveFocus());
+
+        QVERIFY(shell.click(QStringLiteral("baselineField")));
+        QTRY_VERIFY(baseline->hasActiveFocus());
+        for (const char digit : {'2', '2', '9'})
+            QTest::keyClick(shell.window(), digit);
+        QCOMPARE(figures->property("text").toString(), QStringLiteral("229 + 20 = 249"));
+        QVERIFY(shell.click(QStringLiteral("saveAchievementButton")));
+        const auto updates = shell.backend.callsOf(QStringLiteral("UpdateAchievementBaseline"));
+        QCOMPARE(updates.size(), 1);
+        QCOMPARE(updates.last().payload.value(QStringLiteral("baseline_completed_count")).toInt(), 229);
+        QCOMPARE(updates.last().payload.value(QStringLiteral("reason")).toString(), example);
+    }
+
     // CS7-D3：首次启动时引导窗在启动那一刻打开，通常早于第一份统计。读回之前不能保存，
     // 也不能把首次启动答成「从 0 开始」；连不上采集服务时，它也不能把整个窗口锁住。
     void theFirstRunGuideWaitsForTheStoredSettings()
@@ -731,41 +800,58 @@ private Q_SLOTS:
         QCOMPARE(updates.last().payload.value(QStringLiteral("baseline_completed_count")).toInt(), 640);
     }
 
-    // CS7-D2：引导窗总写「生效时间 今天 · 之前的自动记录不会重复计入」。只有填入一个
-    // 与已存基数不同、且大于 0 的基数时才是这样：基数不变时沿用原来的生效时间，基数为
-    // 0 时不论记录何时结束都计入进度。已存的生效时间没有消息带回来，不能编一个。
-    void theBaselineGuideSaysWhatTheSaveDoesToTheEffectiveTime()
+    // B3-1（用户报告，撤回 CS7-D2）：基数是安装本软件之前已完成的次数，软件记录的每一次
+    // 计入进度的通关都加在它之上，不论何时结束。引导窗此前按「生效时间」说明哪些记录
+    // 「不会重复计入」，说的是已撤回的规则。现在它说明基数是什么；软件已有记录时（晚些
+    // 才打开引导的人），预览填入的基数会得到的进度，并提醒游戏内的完成数已含这些记录，
+    // 照填会重复计算。空着或不是数字时显示已保存的值，保存也不会把空框当成 0。
+    void theBaselineGuidePreviewsTheProgressAndWarnsAgainstCountingTwice()
     {
         Shell shell;
-        shell.backend.answers.insert(QStringLiteral("GetDashboardStats"), dashboard(2000, 640));
+        shell.backend.holdTypes << QStringLiteral("UpdateAchievementBaseline");
+        // 227 before installing, 20 completions recorded since.
+        QJsonObject recorded = dashboard(2000, 227);
+        recorded.insert(QStringLiteral("achievement_progress"), 247);
+        recorded.insert(QStringLiteral("remaining"), 1753);
+        shell.backend.answers.insert(QStringLiteral("GetDashboardStats"), recorded);
         QVERIFY2(shell.create(), qPrintable(shell.errors));
-        QTRY_COMPARE(shell.controller->baselineCount(), 640);
+        QTRY_COMPARE(shell.controller->baselineCount(), 227);
         auto *dialog = shell.named(QStringLiteral("baselineDialog"));
         QVERIFY(dialog);
         QVERIFY(QMetaObject::invokeMethod(dialog, "openDialog", Q_ARG(QVariant, true)));
         QTRY_VERIFY(dialog->property("visible").toBool());
-        auto *line = shell.item(QStringLiteral("baselineEffectiveText"));
-        QVERIFY(line);
-        const QString today = mr::Formatters::localDate(
-            QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs));
+        QVERIFY(shell.itemWithText(QString::fromUtf8("安装前已完成次数")));
 
-        // The stored baseline, unchanged: its time stays, and today is not named.
+        auto *line = shell.item(QStringLiteral("baselinePreviewText"));
+        QVERIFY(line);
         QTRY_VERIFY(line->isVisible());
         QString text = line->property("text").toString();
-        QVERIFY2(!text.contains(today), qPrintable(text));
-        QVERIFY2(text.contains(QString::fromUtf8("沿用原有的生效时间")), qPrintable(text));
+        QVERIFY2(text.contains(QStringLiteral("227 + 20 = 247")), qPrintable(text));
+        QVERIFY2(text.contains(QString::fromUtf8("重复计算")), qPrintable(text));
 
-        // A new baseline above 0 takes effect now and already holds what ended before.
-        dialog->setProperty("baselineText", QStringLiteral("700"));
+        // The number typed is what the line adds up.
+        dialog->setProperty("baselineText", QStringLiteral("229"));
         text = line->property("text").toString();
-        QVERIFY2(text.contains(today), qPrintable(text));
-        QVERIFY2(text.contains(QString::fromUtf8("不会重复计入")), qPrintable(text));
+        QVERIFY2(text.contains(QStringLiteral("229 + 20 = 249")), qPrintable(text));
 
-        // 0 holds nothing, so no record is left out, whenever it ended.
-        dialog->setProperty("baselineText", QStringLiteral("0"));
+        // Nothing in the guide still speaks of an effective time.
+        for (const QString &shown : shell.visibleTexts()) {
+            QVERIFY2(!shown.contains(QString::fromUtf8("生效时间")), qPrintable(shown));
+            QVERIFY2(!shown.contains(QString::fromUtf8("不会重复计入")), qPrintable(shown));
+        }
+
+        // An empty field shows the stored figures, and is not saved as 0.
+        dialog->setProperty("baselineText", QString());
         text = line->property("text").toString();
-        QVERIFY2(!text.contains(today), qPrintable(text));
-        QVERIFY2(text.contains(QString::fromUtf8("不论何时结束")), qPrintable(text));
+        QVERIFY2(text.contains(QStringLiteral("227 + 20 = 247")), qPrintable(text));
+        QVERIFY(shell.click(QStringLiteral("baselineSaveButton")));
+        QCOMPARE(shell.backend.callsOf(QStringLiteral("UpdateAchievementBaseline")).size(), 0);
+        QCOMPARE(dialog->property("errorText").toString(), QString::fromUtf8("基数必须是大于等于 0 的整数。"));
+
+        // Nothing recorded yet - a real first run: there is nothing to preview or subtract.
+        shell.backend.answers.insert(QStringLiteral("GetDashboardStats"), dashboard(2000, 227));
+        shell.controller->refreshDashboard();
+        QTRY_VERIFY(!line->isVisible());
     }
 
     // DT6-X1：引导窗按下「保存并开始」，请求刚发出就把首次启动记为完成并关窗。保存若

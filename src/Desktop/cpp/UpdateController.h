@@ -57,6 +57,9 @@ class UpdateController final : public QObject
     /// The page the Collector named. Empty unless it passes \ref isReleaseUrl,
     /// i.e. unless it is a page of this project's GitHub repository.
     Q_PROPERTY(QString releaseUrl READ releaseUrl NOTIFY changed)
+    /// The installer of latestVersion the Collector named. Empty unless it passes
+    /// \ref isInstallerUrl - and empty from a Collector that names none.
+    Q_PROPERTY(QString installerUrl READ installerUrl NOTIFY changed)
     Q_PROPERTY(QString lastCheckedAtUtc READ lastCheckedAtUtc NOTIFY changed)
     /// The banner's two sentences. Empty headline while there is nothing to say.
     Q_PROPERTY(QString headline READ headline NOTIFY changed)
@@ -91,6 +94,7 @@ public:
     QString latestVersion() const { return m_state.latestVersion; }
     static QString currentVersion();
     QString releaseUrl() const { return m_state.releaseUrl; }
+    QString installerUrl() const { return m_state.installerUrl; }
     QString lastCheckedAtUtc() const { return m_state.lastCheckedAtUtc; }
     QString headline() const;
     QString detail() const;
@@ -105,13 +109,21 @@ public:
     /// address without credentials and on the default port: the one kind of
     /// address this process opens.
     static bool isReleaseUrl(const QUrl &url);
+    /// An \ref isReleaseUrl address that is one of this project's release
+    /// downloads of an installer: /<owner>/<repo>/releases/download/<tag>/<file>,
+    /// the file named *-setup.exe, with no query and no fragment.
+    static bool isInstallerUrl(const QUrl &url);
 
 public Q_SLOTS:
     /// Adopt one GetStatus payload. A payload without `update` resets this
     /// controller to unavailable.
     void refreshFromStatus(const QVariantMap &status);
-    /// 打开下载页. Nothing is downloaded here; the browser takes over.
+    /// 查看更新说明: the release page in the system browser.
     void openReleasePage();
+    /// 下载新版本: the installer's address in the system browser, which downloads
+    /// it; this process fetches nothing and installs nothing. Without an installer
+    /// address it would open, the release page instead.
+    void openInstallerDownload();
     /// 忽略此版本, for the version currently on offer only.
     void dismiss();
     /// 检查更新. Sends CheckUpdateNow, adopts the `update` object it answers
@@ -130,6 +142,7 @@ private:
     {
         QString latestVersion;
         QString releaseUrl;
+        QString installerUrl;
         QString lastCheckedAtUtc;
         bool available = false;
         bool enabled = false;
@@ -141,6 +154,8 @@ private:
     /// The one sentence a CheckUpdateNow answer deserves. Read from the answer
     /// and from the state it was just adopted into, never from a token.
     QString checkSentence(const QVariantMap &payload) const;
+    /// Opens the release page; \a opened is the toast once the browser took it.
+    void showReleasePage(const QString &opened);
 
     QPointer<AppSettings> m_settings;
     QPointer<IBackend> m_backend;

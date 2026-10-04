@@ -271,8 +271,9 @@ private:
     QDateTime m_now;
     int m_goalCount = 2000;
     int m_baselineCompletedCount = 1374;
-    /// achievement_settings.baseline_effective_at (UTC). Set in the constructor to before
-    /// the dataset's first run, so every generated completion counts on top of 1374.
+    /// achievement_settings.baseline_effective_at (UTC), answered with every save as
+    /// information only: the progress adds every contributing completion on top of the
+    /// baseline, whenever it ended (B3-1). Set in the constructor to before the dataset.
     QDateTime m_baselineEffectiveAt;
     /// achievement_settings.updated_at_utc, and the id of the baseline history entry that
     /// stored the current values - empty when none did (setAchievement). A save that

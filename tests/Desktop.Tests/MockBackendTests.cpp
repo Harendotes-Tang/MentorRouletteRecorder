@@ -651,11 +651,13 @@ private Q_SLOTS:
         QCOMPARE(events.count(), 0);
     }
 
-    // CS7-D4: StatisticsRepository.CountedFrom / CountContributingCompleted - on top of a
-    // baseline above 0 only completions that ended at or after its effective time are
-    // added (a missing end falls back to the entry, then the match; a row with no time at
-    // all is not added). A baseline of 0 holds nothing, so every completion counts.
-    void progressAddsOnlyCompletionsEndedSinceAPositiveBaseline()
+    // B3-1 (owner's report; withdraws CS7-D4): the baseline is the count completed before
+    // the software was installed, and every contributing completion it recorded is added
+    // on top, whenever it ended - a record ending before the effective time, or carrying
+    // no time at all, included. baseline_effective_at is still stored and answered, as
+    // information only. The mock left out what ended before a changed baseline's time, so
+    // 227 -> 229 with 5 completions recorded read 229 instead of 234.
+    void progressAddsEveryContributingCompletionOnTopOfTheBaseline()
     {
         mr::MockBackend backend;
         const auto completed = [](const QString &id, const QJsonValue &matched,
@@ -668,40 +670,57 @@ private Q_SLOTS:
         };
         const QJsonValue none(QJsonValue::Null);
         const QString effective = QStringLiteral("2026-09-05T00:00:00.000Z");
+        QJsonObject offGoal = completed(QStringLiteral("66666666-6666-4666-8666-666666666666"),
+                                        QStringLiteral("2026-09-06T13:00:00.000Z"),
+                                        QStringLiteral("2026-09-06T13:01:00.000Z"),
+                                        QStringLiteral("2026-09-06T13:20:00.000Z"));
+        offGoal.insert(QStringLiteral("contributes_to_goal"), false);
         backend.resetRuns(QJsonArray{
-            // Ended before the baseline took effect: already in it.
+            // Ended before the baseline's effective time.
             completed(QStringLiteral("11111111-1111-4111-8111-111111111111"),
                       QStringLiteral("2026-09-04T23:00:00.000Z"), QStringLiteral("2026-09-04T23:01:00.000Z"),
                       QStringLiteral("2026-09-04T23:59:59.999Z")),
-            // Ended exactly then, and later: added.
+            // Ended exactly then, and later.
             completed(QStringLiteral("22222222-2222-4222-8222-222222222222"),
                       QStringLiteral("2026-09-04T23:30:00.000Z"), QStringLiteral("2026-09-04T23:31:00.000Z"),
                       effective),
             completed(QStringLiteral("33333333-3333-4333-8333-333333333333"),
                       QStringLiteral("2026-09-06T12:00:00.000Z"), QStringLiteral("2026-09-06T12:01:00.000Z"),
                       QStringLiteral("2026-09-06T12:20:00.000Z")),
-            // No end: placed by its entry, after the effective time.
+            // No end.
             completed(QStringLiteral("44444444-4444-4444-8444-444444444444"),
                       QStringLiteral("2026-09-07T12:00:00.000Z"), QStringLiteral("2026-09-07T12:01:00.000Z"),
                       none),
-            // No time at all: never added on top of a baseline.
-            completed(QStringLiteral("55555555-5555-4555-8555-555555555555"), none, none, none)});
+            // No time at all.
+            completed(QStringLiteral("55555555-5555-4555-8555-555555555555"), none, none, none),
+            // Taken off the goal: not part of the progress (review OK-1).
+            offGoal});
 
-        const Answer set = ask(backend, QStringLiteral("UpdateAchievementBaseline"),
-                               {{QStringLiteral("goal_count"), 2000},
-                                {QStringLiteral("baseline_completed_count"), 10},
-                                {QStringLiteral("baseline_effective_at"), effective},
-                                {QStringLiteral("reason"), QString::fromUtf8("核对")}});
+        const auto save = [&backend](int baseline, const QString &at) {
+            return ask(backend, QStringLiteral("UpdateAchievementBaseline"),
+                       {{QStringLiteral("goal_count"), 2000},
+                        {QStringLiteral("baseline_completed_count"), baseline},
+                        {QStringLiteral("baseline_effective_at"), at},
+                        {QStringLiteral("reason"), QString::fromUtf8("核对")}});
+        };
+        const Answer set = save(227, effective);
         QVERIFY(set.ok);
+        QCOMPARE(set.payload.value(QStringLiteral("baseline_effective_at")).toString(), effective);
         QJsonObject stats = backend.dashboardStats({});
-        QCOMPARE(stats.value(QStringLiteral("achievement_progress")).toInt(), 13);
-        QCOMPARE(stats.value(QStringLiteral("remaining")).toInt(), 1987);
+        QCOMPARE(stats.value(QStringLiteral("achievement_progress")).toInt(), 232);
+        QCOMPARE(stats.value(QStringLiteral("remaining")).toInt(), 1768);
 
-        const Answer zero = ask(backend, QStringLiteral("UpdateAchievementBaseline"),
-                                {{QStringLiteral("goal_count"), 2000},
-                                 {QStringLiteral("baseline_completed_count"), 0},
-                                 {QStringLiteral("baseline_effective_at"), QStringLiteral("2026-10-03T00:00:00.000Z")},
-                                 {QStringLiteral("reason"), QString::fromUtf8("核对")}});
+        // The owner's change: a new baseline, effective now - every record still counts.
+        const QString now = QStringLiteral("2026-10-04T08:00:00.000Z");
+        const Answer changed = save(229, now);
+        QVERIFY(changed.ok);
+        QCOMPARE(changed.payload.value(QStringLiteral("baseline_effective_at")).toString(), now);
+        stats = backend.dashboardStats({});
+        QCOMPARE(stats.value(QStringLiteral("baseline_completed_count")).toInt(), 229);
+        QCOMPARE(stats.value(QStringLiteral("achievement_progress")).toInt(), 234);
+        QCOMPARE(stats.value(QStringLiteral("remaining")).toInt(), 1766);
+
+        const Answer zero = save(0, QStringLiteral("2026-10-04T09:00:00.000Z"));
         QVERIFY(zero.ok);
         stats = backend.dashboardStats({});
         QCOMPARE(stats.value(QStringLiteral("achievement_progress")).toInt(), 5);

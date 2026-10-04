@@ -408,14 +408,10 @@ QJsonObject MockBackend::dashboardStats(const QJsonObject &filter,
     }
 
     // achievement_progress ignores the filter entirely: it is always the
-    // whole-database count (docs/statistics-definitions.md 4).
-    // StatisticsRepository.CountedFrom / CountContributingCompleted (audit 2026-10-03,
-    // CS7-D4): a baseline above 0 already holds every completion that ended before its
-    // effective time, so only those placed at or after it are added - by the end, else
-    // the entry, else the match; a row with no time at all is not added. A baseline of
-    // 0 holds nothing, so every completion counts.
-    const QDateTime countedFrom =
-        m_baselineCompletedCount > 0 ? m_baselineEffectiveAt : QDateTime();
+    // whole-database count (docs/statistics-definitions.md 4). The baseline is what was
+    // completed before the software was installed, and every contributing completion
+    // it recorded is added on top, whenever it ended; baseline_effective_at is
+    // information only (owner's report B3-1, withdrawing the CS7-D4 cutoff).
     int goalRuns = 0;
     for (const QJsonValue &value : m_runs) {
         const QJsonObject run = value.toObject();
@@ -425,15 +421,6 @@ QJsonObject MockBackend::dashboardStats(const QJsonObject &filter,
             continue;
         if (!run.value(QStringLiteral("contributes_to_goal")).toBool(true))
             continue;
-        if (countedFrom.isValid()) {
-            QDateTime placed = fromIso(run.value(QStringLiteral("ended_at_utc")));
-            if (!placed.isValid())
-                placed = fromIso(run.value(QStringLiteral("entered_at_utc")));
-            if (!placed.isValid())
-                placed = fromIso(run.value(QStringLiteral("matched_at_utc")));
-            if (!placed.isValid() || placed < countedFrom)
-                continue;
-        }
         ++goalRuns;
     }
 

@@ -1429,6 +1429,12 @@ QJsonObject MockBackend::collectorStatus() const
              ? QJsonValue(QStringLiteral(
                    "https://github.com/Harendotes-Tang/MentorRouletteRecorder/releases/latest"))
              : QJsonValue(QJsonValue::Null)},
+        // Present exactly when latest_version is, named the way the Collector names it.
+        {QStringLiteral("installer_url"), m_updateAvailable
+             ? QJsonValue(QStringLiteral(
+                   "https://github.com/Harendotes-Tang/MentorRouletteRecorder/releases/download/"
+                   "v99.9.9/MentorRecorder-99.9.9-setup.exe"))
+             : QJsonValue(QJsonValue::Null)},
         {QStringLiteral("last_checked_at_utc"), isoUtc(m_now.addSecs(-3600))},
         {QStringLiteral("last_outcome"), QStringLiteral("OK")}});
 

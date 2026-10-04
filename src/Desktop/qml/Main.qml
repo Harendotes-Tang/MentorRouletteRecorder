@@ -974,6 +974,8 @@ ApplicationWindow {
         anchors.centerIn: Overlay.overlay
         goalCount: App.goalCount
         baselineCount: App.baselineCount
+        recordedCount: App.dashboard.achievement_progress !== undefined
+                       ? Math.max(0, Number(App.dashboard.achievement_progress) - App.baselineCount) : 0
         settingsLoaded: App.achievementSettingsLoaded
         busy: App.baselineSaving
         // The goal typed in the dialog travels with the signal: writing it into

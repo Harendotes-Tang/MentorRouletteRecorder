@@ -93,6 +93,21 @@ bool UpdateController::isReleaseUrl(const QUrl &url)
     return true;
 }
 
+bool UpdateController::isInstallerUrl(const QUrl &url)
+{
+    if (!isReleaseUrl(url) || url.hasQuery() || url.hasFragment())
+        return false;
+    // "", owner, repository, "releases", "download", tag, file - counted on the
+    // decoded path, as isReleaseUrl judges it, so an encoded "/" is one more
+    // segment and not a way into another directory.
+    static const QLatin1String kInstallerSuffix("-setup.exe");
+    const QStringList segments = url.path(QUrl::FullyDecoded).split(QLatin1Char('/'));
+    return segments.size() == 7 && segments.at(3) == QLatin1String("releases")
+           && segments.at(4) == QLatin1String("download") && !segments.at(5).isEmpty()
+           && segments.at(6).size() > kInstallerSuffix.size()
+           && segments.at(6).endsWith(kInstallerSuffix, Qt::CaseInsensitive);
+}
+
 void UpdateController::refreshFromStatus(const QVariantMap &status)
 {
     const QVariant raw = status.value(QStringLiteral("update"));
@@ -112,6 +127,9 @@ void UpdateController::refreshFromStatus(const QVariantMap &status)
     const QString url = update.value(QStringLiteral("release_url")).toString();
     if (isReleaseUrl(QUrl(url)))
         next.releaseUrl = url;
+    const QString installer = update.value(QStringLiteral("installer_url")).toString();
+    if (isInstallerUrl(QUrl(installer)))
+        next.installerUrl = installer;
 
     if (next == m_state)
         return;
@@ -119,19 +137,46 @@ void UpdateController::refreshFromStatus(const QVariantMap &status)
     Q_EMIT changed();
 }
 
-void UpdateController::openReleasePage()
+void UpdateController::showReleasePage(const QString &opened)
 {
     const QUrl url(m_state.releaseUrl);
     if (!isReleaseUrl(url)) {
-        Q_EMIT toastRequested(tr("采集器没有给出可用的下载页地址，没有打开浏览器。"));
+        Q_EMIT toastRequested(tr("采集器没有给出可用的发布页地址，没有打开浏览器。"));
         return;
     }
     if (!m_openUrl(url)) {
         Q_EMIT toastRequested(tr("无法调用系统浏览器，请自行到项目的发布页下载新版本。"));
         return;
     }
-    Q_EMIT toastRequested(tr("已在系统浏览器中打开下载页（由你手动触发）。"
-                             "是否下载安装由你决定，本软件不会自动下载或替换任何文件。"));
+    Q_EMIT toastRequested(opened);
+}
+
+void UpdateController::openReleasePage()
+{
+    showReleasePage(tr("已在系统浏览器中打开发布页（由你手动触发）。"
+                       "是否下载安装由你决定，本软件不会自动下载或替换任何文件。"));
+}
+
+void UpdateController::openInstallerDownload()
+{
+    const QUrl url(m_state.installerUrl);
+    if (!isInstallerUrl(url)) {
+        // A Collector that names no installer, or none this process would open:
+        // the release page, where the player downloads it by hand.
+        showReleasePage(tr("没有可用的安装程序地址，已改为在系统浏览器中打开发布页"
+                           "（由你手动触发），请在页面中下载新版本。"));
+        return;
+    }
+    if (!m_openUrl(url)) {
+        Q_EMIT toastRequested(tr("无法调用系统浏览器，请自行到项目的发布页下载新版本。"));
+        return;
+    }
+    // The browser downloads; this process fetched nothing and starts nothing.
+    const QString version = m_state.latestVersion.isEmpty()
+                                ? tr("新版本") : tr("%1 版").arg(m_state.latestVersion);
+    Q_EMIT toastRequested(tr("已请系统浏览器下载 %1的安装程序（由你手动触发）。"
+                             "安装需要你自己运行它；本软件自身不下载、也不替换任何文件。")
+                              .arg(version));
 }
 
 QString UpdateController::checkSentence(const QVariantMap &payload) const
@@ -147,7 +192,7 @@ QString UpdateController::checkSentence(const QVariantMap &payload) const
     // was just adopted into, so the sentence and the version row cannot
     // disagree.
     if (updateAvailable() && !m_state.latestVersion.isEmpty())
-        return tr("有新版本 %1，可以点「打开下载页」下载。").arg(m_state.latestVersion);
+        return tr("有新版本 %1，可以点「下载新版本」下载。").arg(m_state.latestVersion);
     const QVariantMap update = payload.value(QStringLiteral("update")).toMap();
     if (!updateAvailable()
         && update.value(QStringLiteral("last_outcome")).toString() == QLatin1String("OK")) {

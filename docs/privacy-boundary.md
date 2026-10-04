@@ -573,21 +573,26 @@ Action 只使用 GitHub 默认的 `GITHUB_TOKEN`。仓库中的脚本与模板�
 
 **界面呈现与关闭方式。**
 
-- 发现更高的版本时，总览页出现横幅「有新版本 x.y.z」，其上有「打开下载页」与「忽略此版本」两项。
-  「打开下载页」把固定的公开发布页 `https://github.com/Harendotes-Tang/MentorRouletteRecorder/releases/latest`
-  交给系统浏览器；桌面端先核对该地址确为本项目仓库 `https://github.com/Harendotes-Tang/MentorRouletteRecorder/`
-  之下的地址，再交给浏览器打开。
+- 发现更高的版本时，总览页出现横幅「有新版本 x.y.z」，其上有「下载新版本」「忽略此版本」与「查看更新说明」三项。
+  「下载新版本」把该版本安装程序在本项目发布页上的地址（下文的 `installer_url`）交给系统浏览器，由浏览器下载，
+  安装程序由用户自行运行；采集服务没有给出可用的安装程序地址时，改为打开下述发布页，并以一句提示说明已改为打开发布页。
+  「查看更新说明」把固定的公开发布页 `https://github.com/Harendotes-Tang/MentorRouletteRecorder/releases/latest`
+  交给系统浏览器。桌面端先核对地址确为本项目仓库 `https://github.com/Harendotes-Tang/MentorRouletteRecorder/`
+  之下的地址，安装程序的地址还须是该仓库 `releases/download/<标签>/` 下以 `-setup.exe` 结尾、不带查询串与片段的文件，
+  核对通过才交给浏览器打开。下文设置页"通用"与"关于"中的同名按钮行为相同。
   「忽略此版本」只影响本机的提示，不改变检查本身；它只对被忽略的那一个版本有效，出现更高的版本时横幅会再次出现。
 - 设置页"通用"的「更新」中，开关「检查新版本并提示」对应上述 `update_check_enabled`，默认开启。
   关闭后不再发出任何请求，横幅随之消失。该面板另以小字显示最近一次检查的时间与取到的版本号，
-  并提供「检查更新」按钮（1.1.1 起）：点击后立即检查一次，结果以一句提示说明；有新版本时该按钮变为「打开下载页」。开关关闭时按钮不可用。
-- 设置页"关于"在有新版本时，于版本号一行附带「有新版本 x.y.z」，并同样提供「打开下载页」；没有新版本时该位置是「检查更新」（1.1.1 起）。
+  并提供「检查更新」按钮（1.1.1 起）：点击后立即检查一次，结果以一句提示说明；有新版本时该按钮变为「下载新版本」，旁边另有「查看更新说明」。开关关闭时按钮不可用。
+- 设置页"关于"在有新版本时，于版本号一行附带「有新版本 x.y.z」，并同样提供「查看更新说明」与「下载新版本」；没有新版本时该位置是「检查更新」（1.1.1 起）。
 - 首次运行说明页因此改为三类联网，新增「联网三：检查新版本」（默认开启，可关闭），
   说明的版本号随之提升，已确认过旧文案的用户在升级后会再看到一次该页。
 
 **请求不携带标识信息。** 请求没有查询串、没有 Cookie、没有安装 id、没有账号，也不发送 Windows 凭据；
 除固定的 `User-Agent: MentorRecorder`（不带版本号）外不附加任何请求头。地址是固定的仓库路径，不含任何可变部分，
 因此对端无从据此得知发出请求的是哪一个版本、哪一台机器。与任何网络连接一样，对端服务可以看到请求的来源 IP 地址与发生时间。
+安装程序的地址含有新版本的版本号，但本软件从不请求它：只有用户点击「下载新版本」时，由系统浏览器请求该地址，
+与用户在发布页上自行点击下载相同。
 
 **附带流量（重定向目标的 CDN 主机）。** `releases/latest/download/` 是一个重定向地址，
 文件本身位于 `*.githubusercontent.com` 之下，具体主机名由 GitHub 决定，并会随时间变化。
@@ -608,10 +613,13 @@ Windows 可能执行代理自动发现（WPAD / PAC 脚本）；校验 TLS 证�
 - **不下载、不执行。**本软件不取回安装包，不写入可执行文件，也不替换自身的任何文件。
 
 **不上传数据。** 该类请求只有一个 `GET`，没有请求正文；不发送本软件的版本号、设置、记录或任何本机信息。
-请求由采集服务发出，桌面端继续禁止 `QNetworkAccessManager`（`NET-006`），下载页一律交由系统浏览器打开。
+请求由采集服务发出，桌面端继续禁止 `QNetworkAccessManager`（`NET-006`），发布页与安装程序的地址一律交由系统浏览器打开。
 检查结果经命名管道传给桌面端，即 `GetStatus` 应答中的可选对象 `update`（`enabled`、`update_available`、
-`latest_version`、`release_url`、`last_checked_at_utc`、`last_outcome`），不新增任何消息类型；其中 `release_url`
-即上文那个固定的公开发布页，与 `GetCalibrationShareCode.issue_url` 一样，只用于交给浏览器打开。
+`latest_version`、`release_url`、`installer_url`、`last_checked_at_utc`、`last_outcome`），不新增任何消息类型。
+其中 `release_url` 即上文那个固定的公开发布页；`installer_url` 是 `latest_version` 所指版本的安装程序，即本项目发布资产
+`https://github.com/Harendotes-Tang/MentorRouletteRecorder/releases/download/v<版本>/MentorRecorder-<版本>-setup.exe`，
+与 `latest_version` 同时出现、同时缺席（`latest_version` 只能是三段纯数字的版本号）。两者与 `GetCalibrationShareCode.issue_url` 一样，
+只用于交给浏览器打开，采集服务从不请求它们。
 脱敏诊断报告中对应 `boundary.outbound.update_check`（`enabled`、`kill_switch`、`last_checked_utc`、
 `last_outcome`、`latest_version`），其中不含主机名，也不含地址。
 
@@ -660,7 +668,7 @@ Windows 可能执行代理自动发现（WPAD / PAC 脚本）；校验 TLS 证�
    在设置中关闭「游戏更新后获取其他玩家的共享校准」与「检查新版本并提示」、并将播报的语音引擎保持为本机语音，
    或设置 `MR_DISABLE_SHARED_FETCH=1`、`MR_DISABLE_ONLINE_SPEECH=1` 与 `MR_DISABLE_UPDATE_CHECK=1` 并重启软件之后，
    两个进程都不应出现任何出站连接。
-   「分享给其他玩家」打开的网页属于系统浏览器进程，不计入其中；安装时下载 Npcap 的是安装程序（§8.5），
+   「分享给其他玩家」与「查看更新说明」打开的网页、「下载新版本」交给浏览器的下载都属于系统浏览器进程，不计入其中；安装时下载 Npcap 的是安装程序（§8.5），
    同样不属于这两个进程。
 2. 用 Process Explorer 检查本软件没有打开游戏进程的句柄：选中 `MentorRecorder.Collector.exe`，打开下方的句柄视图
    （View → Lower Pane View → Handles），类型为 Process 的条目中不应出现 `ffxiv_dx11.exe` 或 `ffxiv.exe`；

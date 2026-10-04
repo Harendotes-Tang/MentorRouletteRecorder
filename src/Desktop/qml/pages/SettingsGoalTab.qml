@@ -36,6 +36,19 @@ ColumnLayout {
     readonly property int progressCount: App.dashboard.achievement_progress !== undefined
         ? Number(App.dashboard.achievement_progress) : App.baselineCount
     readonly property int recordedCount: Math.max(0, tab.progressCount - App.baselineCount)
+    // The baseline field read the way 保存 reads it: a whole number of at least 0,
+    // else -1. An empty field is no number, and is not saved as 0.
+    readonly property int typedBaseline: tab.parseBaseline(tab.baselineText)
+    // The formula previews what 保存 would give (B3-1): the baseline is what was
+    // completed before installing, and every completion this software recorded is
+    // added on top. Until the field holds a number the stored figures stand.
+    readonly property int previewBaseline: tab.typedBaseline >= 0 ? tab.typedBaseline : App.baselineCount
+
+    function parseBaseline(text) {
+        const value = Number(text)
+        return String(text).trim().length > 0 && Number.isFinite(value) && value >= 0
+            ? Math.floor(value) : -1
+    }
 
     Connections {
         target: App
@@ -62,12 +75,12 @@ ColumnLayout {
 
     function submitAchievement() {
         const goal = Number(tab.goalText)
-        const baseline = Number(tab.baselineText)
+        const baseline = tab.typedBaseline
         if (!Number.isFinite(goal) || goal < 1) {
             baselineErrorText = qsTr("目标值必须是大于 0 的整数。")
             return
         }
-        if (!Number.isFinite(baseline) || baseline < 0) {
+        if (baseline < 0) {
             baselineErrorText = qsTr("基数必须是大于等于 0 的整数。")
             return
         }
@@ -79,7 +92,7 @@ ColumnLayout {
         achievementEdited = false
         // Counted before the request: a refusal can arrive inside the call.
         ownSavesOut += 1
-        App.updateAchievementBaseline(Math.floor(goal), Math.floor(baseline),
+        App.updateAchievementBaseline(Math.floor(goal), baseline,
                                       baselineReasonText.trim())
     }
 
@@ -155,7 +168,8 @@ ColumnLayout {
             StyledTextField {
                 objectName: "baselineReasonField"
                 Layout.fillWidth: true
-                placeholderText: qsTr("例如：补录安装前的历史完成数")
+                exampleText: qsTr("补录安装前的历史完成数")
+                placeholderText: qsTr("例如：补录安装前的历史完成数") + exampleHint
                 text: tab.baselineReasonText
                 onTextChanged: tab.baselineReasonText = text
             }
@@ -185,9 +199,9 @@ ColumnLayout {
                 }
                 Text {
                     objectName: "progressFormulaFigures"
-                    text: "%1 + %2 = %3".arg(App.baselineCount)
+                    text: "%1 + %2 = %3".arg(tab.previewBaseline)
                                          .arg(tab.recordedCount)
-                                         .arg(tab.progressCount)
+                                         .arg(tab.previewBaseline + tab.recordedCount)
                     color: Theme.gold2
                     font.family: Theme.numFamily
                     font.weight: Theme.eorzea ? Font.Bold : Font.DemiBold

@@ -695,6 +695,66 @@ private Q_SLOTS:
         QCOMPARE(asMap(corrections.at(0).at(0)).keys(), QStringList{QStringLiteral("note")});
     }
 
+    // B3-2（用户要求）：原因与备注的提示是示例。框空着时按 Tab，填入（第一个）示例，
+    // 就像打出来的一样：表单与修改前后对比随之更新，焦点留在框里。框里已有文字时，
+    // Tab 照旧移到下一项。提示末尾写明「（按 Tab 填入）」，否则没人知道。
+    void tabEntersTheReasonAndNoteExamples()
+    {
+        DialogFixture fixture;
+        QVERIFY2(fixture.create(), qPrintable(fixture.errors));
+        QVERIFY(fixture.openForRun(run(QStringLiteral("example-run"), 70, 19, QStringLiteral("COMPLETED"))));
+        QVERIFY(fixture.goToStep(3));
+        const QString hint = QString::fromUtf8("（按 Tab 填入）");
+        const QString example = QString::fromUtf8("程序未运行时手动补录");
+
+        // 修正原因 opens filled in; emptied, Tab enters the first of its two examples.
+        fixture.dialog()->setProperty("reasonText", QString());
+        QQuickItem *reason = fixture.item(QStringLiteral("reasonField"));
+        QVERIFY(reason);
+        QCOMPARE(reason->property("text").toString(), QString());
+        QVERIFY(fixture.click(QStringLiteral("reasonField")));
+        QTRY_VERIFY(reason->hasActiveFocus());
+        QTest::keyClick(fixture.window(), Qt::Key_Tab);
+        QCOMPARE(fixture.dialog()->property("reasonText").toString(), example);
+        QCOMPARE(reason->property("cursorPosition").toInt(), example.size());
+        QVERIFY(reason->hasActiveFocus());
+        QCOMPARE(reason->property("placeholderText").toString(),
+                 QString::fromUtf8("例如：程序未运行时手动补录；网络中断但实际已通关") + hint);
+
+        // Now it holds text: Tab moves on and changes nothing.
+        QTest::keyClick(fixture.window(), Qt::Key_Tab);
+        QTRY_VERIFY(!reason->hasActiveFocus());
+        QCOMPARE(fixture.dialog()->property("reasonText").toString(), example);
+
+        // 备注: entered the same way, and the comparison names it as a change.
+        QQuickItem *note = fixture.item(QStringLiteral("noteField"));
+        QVERIFY(note);
+        QCOMPARE(note->property("placeholderText").toString(),
+                 QString::fromUtf8("例如：程序未运行时手动补录") + hint);
+        const auto noteChange = [&fixture]() -> QVariantMap {
+            for (const QVariant &row : asList(fixture.dialog()->property("diffRows"))) {
+                if (asMap(row).value(QStringLiteral("k")).toString() == QString::fromUtf8("备注"))
+                    return asMap(row);
+            }
+            return {};
+        };
+        QVERIFY(noteChange().isEmpty());
+        QVERIFY(fixture.click(QStringLiteral("noteField")));
+        QTRY_VERIFY(note->hasActiveFocus());
+        QTest::keyClick(fixture.window(), Qt::Key_Tab);
+        QCOMPARE(fixture.dialog()->property("noteText").toString(), example);
+        QVERIFY(note->hasActiveFocus());
+        QCOMPARE(noteChange().value(QStringLiteral("b")).toString(), example);
+
+        // Shift+Tab on an empty field goes back and enters nothing.
+        fixture.dialog()->setProperty("noteText", QString());
+        QVERIFY(fixture.click(QStringLiteral("noteField")));
+        QTRY_VERIFY(note->hasActiveFocus());
+        QTest::keyClick(fixture.window(), Qt::Key_Backtab, Qt::ShiftModifier);
+        QTRY_VERIFY(!note->hasActiveFocus());
+        QCOMPARE(fixture.dialog()->property("noteText").toString(), QString());
+    }
+
     // 审查 OG-1（桌面端一半）：选「未知副本」必须带上 content_id: null。只在区域里认出
     // 副本的记录 content_id 本来就是 null，此前于是不发它，采集服务保留了区域，统计、
     // 历史筛选和名称仍算在原副本上。

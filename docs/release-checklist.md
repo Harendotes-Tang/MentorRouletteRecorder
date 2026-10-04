@@ -141,6 +141,10 @@ pwsh -NoProfile -File scripts/package.ps1 -Force -Verify
 `releases/latest/download/BUILD-METADATA.json`（[privacy-boundary.md](privacy-boundary.md) §8.4）；
 该资产缺失时，所有用户的检查都只会得到"未找到"并静默降级，界面上不出现任何提示。
 
+安装程序必须以 `MentorRecorder-<版本>-setup.exe` 为名，上传到标签为 `v<版本>` 的发布页：
+「下载新版本」交给浏览器的正是 `releases/download/v<版本>/MentorRecorder-<版本>-setup.exe`
+（[privacy-boundary.md](privacy-boundary.md) §8.4）。名称或标签不符时，浏览器只会得到"未找到"。
+
 ### 发布包必须不包含 / must not contain
 
 | 类别 | 模式 | 理由 |

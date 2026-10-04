@@ -241,7 +241,9 @@ ColumnLayout {
             enabled: !step.wizard.recordSaved
             Layout.fillWidth: true
             text: step.wizard.reasonText
-            placeholderText: qsTr("例如：程序未运行时手动补录；网络中断但实际已通关")
+            // Of the two examples, Tab enters the first.
+            exampleText: qsTr("程序未运行时手动补录")
+            placeholderText: qsTr("例如：程序未运行时手动补录；网络中断但实际已通关") + exampleHint
             onTextChanged: step.wizard.reasonText = text
         }
     }
@@ -255,7 +257,8 @@ ColumnLayout {
             enabled: !step.wizard.recordSaved
             Layout.fillWidth: true
             text: step.wizard.noteText
-            placeholderText: qsTr("例如：程序未运行时手动补录")
+            exampleText: qsTr("程序未运行时手动补录")
+            placeholderText: qsTr("例如：程序未运行时手动补录") + exampleHint
             onTextChanged: step.wizard.noteText = text
         }
 
