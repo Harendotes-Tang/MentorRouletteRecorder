@@ -801,7 +801,12 @@ ApplicationWindow {
                             anchors.fill: parent
                             onOpenManualRequested: window.openCreateDialog()
                             onOpenCaptureRequested: App.navigate(4)
-                            onOpenSettingsRequested: App.navigate(5)
+                            // 成就卡片上的「修改」：要改的是安装前已完成次数，所以打开
+                            // 设置 · 成就，光标放进那个输入框。
+                            onOpenSettingsRequested: {
+                                App.navigate(5)
+                                settingsPage.editBaseline()
+                            }
                             onOpenPendingReviewRequested: App.showPendingReview()
                             onReflectRequested: function(run, kicker) {
                                 window.openReflection(run, kicker)
@@ -895,12 +900,11 @@ ApplicationWindow {
                             anchors.fill: parent
 
                         SettingsPage {
+                            id: settingsPage
+
                             anchors.fill: parent
                             onOpenBaselineRequested: baselineDialog.openDialog(true)
-                            onOpenDisclosureRequested: {
-                                App.reopenDisclosure()
-                                disclosureDialog.openDialog()
-                            }
+                            onOpenDisclosureRequested: disclosureDialog.openDialog()
                         }
                         }
                     }
@@ -955,17 +959,11 @@ ApplicationWindow {
         anchors.centerIn: Overlay.overlay
     }
 
-    // The disclosure comes first on a first run: the baseline question is not
-    // asked before the user has been told what the software does.
+    // 这个软件做什么、不做什么: an information window opened from 设置 · 关于. It
+    // is no step of the first start (owner's decision, 2026-10-04).
     DisclosureDialog {
         id: disclosureDialog
         anchors.centerIn: Overlay.overlay
-        onAcknowledged: {
-            App.acceptDisclosure()
-            close()
-            if (App.firstRun && !window.suppressOnboarding)
-                baselineDialog.openDialog()
-        }
     }
 
     BaselineDialog {
@@ -1145,20 +1143,14 @@ ApplicationWindow {
     }
 
     Component.onCompleted: {
-        // --mock-first-run asks for the baseline question itself. A harness run
-        // has no acknowledged disclosure, so going through the first-run order
-        // below showed the disclosure instead and the question never came up
-        // (review OJ-7).
-        if (window.forceBaselineDialog && !window.forceDisclosure) {
-            baselineDialog.openDialog()
-            return
-        }
-        if (window.forceDisclosure
-            || (!App.disclosureAcknowledged && !suppressOnboarding)) {
+        // --show-disclosure opens the explanation for a screenshot.
+        if (window.forceDisclosure) {
             disclosureDialog.openDialog()
             return
         }
-        if (App.firstRun && !suppressOnboarding)
+        // A first start goes straight to the baseline question; --mock-first-run
+        // asks for it on any run.
+        if (window.forceBaselineDialog || (App.firstRun && !window.suppressOnboarding))
             baselineDialog.openDialog()
     }
 }

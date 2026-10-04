@@ -50,6 +50,31 @@ ColumnLayout {
             ? Math.floor(value) : -1
     }
 
+    // 总览成就卡片上的「修改」把光标放进基数输入框，已有的数字被选中，直接输入即替换。
+    // 已保存的目标与基数还没读到时输入框不可用，读到后再放进去。
+    property bool baselineFocusPending: false
+
+    function focusBaselineField() {
+        if (!tab.settingsLoaded) {
+            tab.baselineFocusPending = true
+            return
+        }
+        tab.baselineFocusPending = false
+        baselineField.forceActiveFocus(Qt.OtherFocusReason)
+        baselineField.selectAll()
+    }
+
+    onSettingsLoadedChanged: {
+        if (!tab.settingsLoaded || !tab.baselineFocusPending)
+            return
+        // Only while the tab is still on screen; called later, because the field
+        // takes the stored figure and becomes usable in the same change.
+        if (tab.visible)
+            Qt.callLater(tab.focusBaselineField)
+        else
+            tab.baselineFocusPending = false
+    }
+
     Connections {
         target: App
         function onDashboardChanged() {
@@ -134,6 +159,8 @@ ColumnLayout {
             }
 
             StyledTextField {
+                id: baselineField
+
                 objectName: "baselineField"
                 Layout.fillWidth: true
                 Layout.preferredWidth: 1

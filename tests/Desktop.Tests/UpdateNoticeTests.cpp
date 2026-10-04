@@ -10,9 +10,10 @@
 //     decides, even when it disagrees with a plain string comparison;
 //   * only an https://github.com/ address without credentials and on the
 //     default port is ever handed to the browser;
-//   * 下载新版本 hands the browser the installer the Collector named, and only
-//     when it is this project's own release download of a setup file; otherwise
-//     it opens the release page, which 查看更新说明 always opens;
+//   * 下载新版本 - a Collector without 下载并安装 - hands the browser the
+//     installer the Collector named, and only when it is this project's own
+//     release download of a setup file; otherwise it opens the release page,
+//     which 查看更新说明 always opens;
 //   * 忽略此版本 is remembered for exactly one version, and a newer one raises
 //     the banner again;
 //   * no sentence on the banner carries an address or a wire token;
@@ -23,8 +24,10 @@
 //     carries and says exactly one sentence per outcome - never a wire token -
 //     while `checking` holds the buttons down for the one request in flight;
 //   * the settings panel and the 关于 page offer that button under the same
-//     rule, and turn it into 下载新版本 once there is something to download;
-//   * the first-run disclosure names three kinds of network access.
+//     rule, and turn it into 下载并安装 once there is something to download
+//     (the download itself: tst_updateinstall);
+//   * the explanation window names three kinds of network access, the third
+//     being the update check and the download the user asks for.
 // ---------------------------------------------------------------------------
 
 #include "TestCollectorGuard.h"
@@ -65,10 +68,6 @@ constexpr auto kReleaseUrl =
 constexpr auto kInstallerUrl =
     "https://github.com/Harendotes-Tang/MentorRouletteRecorder/releases/download/v9.9.9/"
     "MentorRecorder-9.9.9-setup.exe";
-/// The installer the mock backend names for its synthetic 99.9.9.
-constexpr auto kMockInstallerUrl =
-    "https://github.com/Harendotes-Tang/MentorRouletteRecorder/releases/download/v99.9.9/"
-    "MentorRecorder-99.9.9-setup.exe";
 constexpr auto kCheckedAt = "2026-09-17T02:00:00.000Z";
 
 QQuickItem *findVisualItem(QQuickItem *root, const QString &name)
@@ -503,9 +502,11 @@ private Q_SLOTS:
         QCOMPARE(scene.opened, QStringList{QLatin1String(kInstallerUrl)});
         QTRY_VERIFY(!scene.app->toastMessage().isEmpty());
         // What happened, truthfully: the browser downloads, the player installs.
+        // (No longer "本软件自身不下载": since 下载并安装 the software can download
+        // in place, so the sentence speaks of this download only.)
         QCOMPARE(scene.app->toastMessage(),
                  QString::fromUtf8("已请系统浏览器下载 9.9.9 版的安装程序（由你手动触发）。"
-                                   "安装需要你自己运行它；本软件自身不下载、也不替换任何文件。"));
+                                   "这次由浏览器下载，安装需要你自己运行它。"));
 
         // 查看更新说明 still opens the release page.
         update->openReleasePage();
@@ -813,22 +814,24 @@ private Q_SLOTS:
         QVERIFY(!quiet.shows(QStringLiteral("updateReleaseNotesButton")));
 
         // With something to download, the same place becomes the download button:
-        // the browser gets the installer itself. 查看更新说明 beside it opens the page.
+        // 下载并安装 asks the Collector for the installer (the browser stays out of
+        // it; tst_updateinstall follows the download). 查看更新说明 beside it opens
+        // the page.
         PageScene raised;
         QVERIFY(raised.open(QStringLiteral("SettingsGeneralTab"), true));
         QTRY_VERIFY(raised.app->update()->updateAvailable());
         auto *download = raised.item(QStringLiteral("checkUpdateNowButton"));
         QVERIFY(download);
         QTRY_COMPARE(download->property("text").toString(),
-                     QString::fromUtf8("下载新版本"));
+                     QString::fromUtf8("下载并安装"));
         QVERIFY(QMetaObject::invokeMethod(download, "clicked"));
-        QTRY_COMPARE(raised.opened, QStringList{QLatin1String(kMockInstallerUrl)});
+        QTRY_COMPARE(raised.backend->startUpdateDownloadCount(), 1);
+        QVERIFY(raised.opened.isEmpty());
         QTRY_VERIFY(raised.shows(QStringLiteral("updateReleaseNotesButton")));
         auto *notes = raised.item(QStringLiteral("updateReleaseNotesButton"));
         QCOMPARE(notes->property("text").toString(), QString::fromUtf8("查看更新说明"));
         QVERIFY(QMetaObject::invokeMethod(notes, "clicked"));
-        QTRY_COMPARE(raised.opened.size(), 2);
-        QCOMPARE(raised.opened.constLast(), QLatin1String(kReleaseUrl));
+        QTRY_COMPARE(raised.opened, QStringList{QLatin1String(kReleaseUrl)});
         // And the 最近检查 line is there as soon as the Collector named a time.
         QVERIFY(raised.shows(QStringLiteral("updateCheckStatusText")));
     }
@@ -865,8 +868,8 @@ private Q_SLOTS:
         QTRY_VERIFY(!quiet.app->toastMessage().isEmpty());
         QVERIFY(quiet.opened.isEmpty());
 
-        // With something to download: 下载新版本 hands over the installer, and
-        // 查看更新说明 the release page.
+        // With something to download: 下载并安装 asks the Collector for the
+        // installer, and 查看更新说明 opens the release page.
         PageScene raised;
         QVERIFY(raised.open(QStringLiteral("SettingsAboutTab"), true));
         QTRY_VERIFY(raised.shows(QStringLiteral("aboutDownloadInstallerButton")));
@@ -874,12 +877,12 @@ private Q_SLOTS:
         QVERIFY(!raised.shows(QStringLiteral("aboutCheckUpdateButton")));
         auto *download = raised.item(QStringLiteral("aboutDownloadInstallerButton"));
         auto *notes = raised.item(QStringLiteral("aboutOpenReleasePageButton"));
-        QCOMPARE(download->property("text").toString(), QString::fromUtf8("下载新版本"));
+        QCOMPARE(download->property("text").toString(), QString::fromUtf8("下载并安装"));
         QCOMPARE(notes->property("text").toString(), QString::fromUtf8("查看更新说明"));
         QVERIFY(QMetaObject::invokeMethod(download, "clicked"));
         QVERIFY(QMetaObject::invokeMethod(notes, "clicked"));
-        QTRY_COMPARE(raised.opened,
-                     (QStringList{QLatin1String(kMockInstallerUrl), QLatin1String(kReleaseUrl)}));
+        QTRY_COMPARE(raised.backend->startUpdateDownloadCount(), 1);
+        QTRY_COMPARE(raised.opened, QStringList{QLatin1String(kReleaseUrl)});
     }
 
     void theDashboardShowsTheBannerOnlyWhenAnUpdateIsAvailable()
@@ -898,9 +901,10 @@ private Q_SLOTS:
         QCOMPARE(headline->property("text").toString(), raised.app->update()->headline());
     }
 
-    // The owner asked for 下载新版本 to download directly rather than open the release
-    // page: its main button hands the browser the installer. The page stays one
-    // click away, as the quieter 查看更新说明.
+    // The owner asked for the download to happen directly rather than through the
+    // release page: first the browser got the installer, now 下载并安装 has the
+    // Collector fetch it (tst_updateinstall follows it to 立即安装). The page stays
+    // one click away, as the quieter 查看更新说明.
     void theBannerOffersDownloadReleaseNotesAndIgnore()
     {
         PageScene scene;
@@ -910,21 +914,29 @@ private Q_SLOTS:
         QVERIFY(scene.shows(QStringLiteral("dismissUpdateButton")));
         auto *download = scene.item(QStringLiteral("downloadInstallerButton"));
         auto *notes = scene.item(QStringLiteral("openReleasePageButton"));
-        QCOMPARE(download->property("text").toString(), QString::fromUtf8("下载新版本"));
+        QTRY_COMPARE(download->property("text").toString(), QString::fromUtf8("下载并安装"));
         QCOMPARE(download->property("variant").toString(), QStringLiteral("primary"));
         QCOMPARE(notes->property("text").toString(), QString::fromUtf8("查看更新说明"));
         QVERIFY(notes->property("variant").toString() != QLatin1String("primary"));
 
-        QVERIFY(QMetaObject::invokeMethod(download, "clicked"));
-        QTRY_COMPARE(scene.opened, QStringList{QLatin1String(kMockInstallerUrl)});
         QVERIFY(QMetaObject::invokeMethod(notes, "clicked"));
-        QTRY_COMPARE(scene.opened.size(), 2);
-        QCOMPARE(scene.opened.constLast(), QLatin1String(kReleaseUrl));
-
+        QTRY_COMPARE(scene.opened, QStringList{QLatin1String(kReleaseUrl)});
         QVERIFY(QMetaObject::invokeMethod(scene.item(QStringLiteral("dismissUpdateButton")),
                                           "clicked"));
         QTRY_VERIFY(!scene.shows(QStringLiteral("updateNotice")));
         scene.settings->setDismissedUpdateVersion(QString());
+
+        // A download the player started stays in view, and is no offer to ignore.
+        PageScene started;
+        QVERIFY(started.open(QStringLiteral("DashboardPage"), true));
+        auto *start = started.item(QStringLiteral("downloadInstallerButton"));
+        QVERIFY(start);
+        QTRY_COMPARE(start->property("text").toString(), QString::fromUtf8("下载并安装"));
+        QVERIFY(QMetaObject::invokeMethod(start, "clicked"));
+        QTRY_COMPARE(started.backend->startUpdateDownloadCount(), 1);
+        QVERIFY(started.opened.isEmpty());
+        QTRY_VERIFY(!started.shows(QStringLiteral("dismissUpdateButton")));
+        QVERIFY(started.shows(QStringLiteral("updateNotice")));
     }
 
     void theSettingsToggleWritesUpdateCheckEnabled()
@@ -949,7 +961,7 @@ private Q_SLOTS:
         QTRY_VERIFY(!row->property("checked").toBool());
     }
 
-    void theDisclosureNamesThreeKindsOfNetworkAccess()
+    void theExplanationNamesThreeKindsOfNetworkAccess()
     {
         PageScene scene;
         QVERIFY(scene.open(QStringLiteral("DashboardPage"), false));
@@ -976,14 +988,22 @@ ApplicationWindow {
         QVERIFY(all.contains(QString::fromUtf8("联网二：")));
         QVERIFY(all.contains(QString::fromUtf8("联网三：检查新版本")));
         QVERIFY(all.contains(QString::fromUtf8("设置 → 通用 → 更新")));
-        // The acknowledgement is only ever valid for the text it was given for.
         QVERIFY(!all.contains(QString::fromUtf8("只有两种联网")));
         QVERIFY(!all.contains(QString::fromUtf8("没有更新检查")));
         // The recheck of a shared or queue-inferred profile is a network request
         // the version 4 text ruled out ("已经有可用档案时不会联网").
         QVERIFY(all.contains(QString::fromUtf8("还会再读一次同一份公开列表")));
         QVERIFY(!all.contains(QString::fromUtf8("通过才用来记录；已经有可用档案时不会联网")));
-        QVERIFY(mr::AppSettings::kDisclosureVersion >= 5);
+        // 下载并安装 (docs/privacy-boundary.md §8.6): the third kind also covers the
+        // installer the user asks for - from this project's release page, checked
+        // against the published checksum, started only by a second click. The old
+        // "never downloads, never installs" would now be false.
+        QVERIFY(all.contains(QString::fromUtf8("只有在你点「下载并安装」之后")));
+        QVERIFY(all.contains(QString::fromUtf8("发布时公布的校验值")));
+        QVERIFY(all.contains(QString::fromUtf8("再点「立即安装」")));
+        // About new versions only: 联网一 downloads shared calibrations by itself.
+        QVERIFY(all.contains(QString::fromUtf8("本软件从不自行下载或安装新版本")));
+        QVERIFY(!all.contains(QString::fromUtf8("本软件从不自动下载、也从不安装新版本")));
     }
 };
 

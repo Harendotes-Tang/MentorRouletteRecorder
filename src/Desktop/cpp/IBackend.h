@@ -293,6 +293,18 @@ public:
     /// through the one projection UpdateController already has. A Collector
     /// older than the message refuses it with ERR_UNKNOWN_MESSAGE.
     BackendReply *checkUpdateNow();
+    /// $defs/StartUpdateDownloadRequest -> {update: $defs/UpdateStatus}
+    /// (docs/privacy-boundary.md §8.6). 下载并安装: the Collector downloads the
+    /// installer of latest_version and its published SHA-256, and answers at once
+    /// with update.download as it now stands; progress is read from GetStatus. It
+    /// never runs the file. \a reinstall is the maintainer tools' 重新下载最新正式版
+    /// and is put on the wire only when true, so the ordinary click sends {}.
+    /// A Collector older than the message refuses it (ERR_BAD_REQUEST /
+    /// ERR_UNKNOWN_MESSAGE), and the browser downloads the installer instead.
+    BackendReply *startUpdateDownload(bool reinstall = false);
+    /// {} -> {update: $defs/UpdateStatus}. Stops a running download and removes
+    /// what was written; changes nothing in any other state.
+    BackendReply *cancelUpdateDownload();
 
 Q_SIGNALS:
     void connectionChanged();

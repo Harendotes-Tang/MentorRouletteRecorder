@@ -244,10 +244,6 @@ class AppController final : public QObject, public CaptureValidationController::
     /// Collector sent them. A key that is absent here was not measured.
     Q_PROPERTY(QVariantMap captureCounters READ captureCounters NOTIFY statusChanged)
 
-    // -- first-run disclosure (DEC-OODLE-01) ---------------------------------
-    Q_PROPERTY(bool disclosureAcknowledged READ disclosureAcknowledged NOTIFY disclosureChanged)
-    Q_PROPERTY(QString disclosureAcknowledgedAt READ disclosureAcknowledgedAt NOTIFY disclosureChanged)
-
 public:
     /// \a speechEngine is the engine the announcements go to: the machine's own voice
     /// in the program; a test passes TtsService::EngineMode::Mock, which plays no sound.
@@ -428,9 +424,6 @@ public:
     bool parserStatsAvailable() const;
     QVariantMap captureCounters() const;
 
-    bool disclosureAcknowledged() const;
-    QString disclosureAcknowledgedAt() const;
-
     /// Where the next export goes when the interactive file chooser is
     /// suppressed. Set by main() from --export-target so a test or a
     /// screenshot run never blocks on a modal dialog.
@@ -520,10 +513,6 @@ public Q_SLOTS:
     void supplementRunJob(const QString &runId, int revision, int jobId, const QString &reason);
     void updateAchievementBaseline(int goalCount, int baselineCount, const QString &reason);
     void completeFirstRun();
-    /// Persist the acknowledgement of the first-run disclosure.
-    void acceptDisclosure();
-    /// Forget it, so the page can be reviewed again from the settings page.
-    void reopenDisclosure();
 
     void exportCsv();
     void exportJson();
@@ -590,7 +579,6 @@ Q_SIGNALS:
     void captureAdapterIdChanged();
     void captureSettingsChanged();
     void integrityCheckChanged();
-    void disclosureChanged();
     void tick();
     /// A mutation was refused. \a kind names the request the way
     /// mutationSucceeded does ("create", "correct", "delete", "restore", "undo",
@@ -693,6 +681,9 @@ private:
     void requestDashboard(std::function<void(bool ok)> then);
     void refreshCaptureDetail();
     void refreshCurrentRun();
+    /// The GetStatus half of refreshStatus(): one read of the Collector status,
+    /// adopted as every status is. 下载并安装 re-reads it while a download runs.
+    void readCollectorStatus();
 
     /// True when \a event has not been seen before; remembers it if so.
     /// Bounded: only the most recent ids are kept.

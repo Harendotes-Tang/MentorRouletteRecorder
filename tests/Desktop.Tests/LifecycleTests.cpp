@@ -1,9 +1,9 @@
 // ---------------------------------------------------------------------------
-// Collector supervision, IPC request deadlines and first-run disclosure
-// persistence.
+// Collector supervision, IPC request deadlines and the settings file an older
+// build left behind.
 //
 // None of these needs a Collector: the process supervisor is driven against a
-// stub executable, the deadline policy is a pure function, and the disclosure
+// stub executable, the deadline policy is a pure function, and the settings
 // store is an INI file inside QStandardPaths' test root.
 //
 // Test mode is enabled once, in main(), before anything runs. A QVERIFY that
@@ -321,8 +321,7 @@ private Q_SLOTS:
     void exportsAndBackupsGetTheirOwnDeadline();
     void everyAnswerTheCollectorDefersGetsAnExtendedDeadline();
 
-    void disclosureAcknowledgementPersists();
-    void raisingTheDisclosureVersionInvalidatesTheAcknowledgement();
+    void aSettingsFileWithTheRetiredConfirmationStillLoads();
 };
 
 /// Two slots below remove AppSettings::filePath(). This is the guard that the
@@ -1584,63 +1583,49 @@ void LifecycleTests::everyAnswerTheCollectorDefersGetsAnExtendedDeadline()
              mr::IpcClient::kLongRequestTimeoutMs);
 }
 
-void LifecycleTests::disclosureAcknowledgementPersists()
+void LifecycleTests::aSettingsFileWithTheRetiredConfirmationStillLoads()
 {
-    // Test mode is on for the whole binary (see main); the file is removed so
-    // this test starts from "never acknowledged".
+    // Until 2026-10-04 a first start had to confirm 这个软件做什么、不做什么, and
+    // desktop.ini kept that as ui/disclosure_acknowledged_version and _at. The
+    // window is no gate any more; a file written by such a build is read without
+    // complaint, the keys are simply not used, and what else it holds is kept.
     QFile::remove(mr::AppSettings::filePath());
+    {
+        QSettings old(mr::AppSettings::filePath(), QSettings::IniFormat);
+        old.setValue(QStringLiteral("ui/disclosure_acknowledged_version"), 5);
+        old.setValue(QStringLiteral("ui/disclosure_acknowledged_at"),
+                     QStringLiteral("2026-09-04T11:00:00.000Z"));
+        old.setValue(QStringLiteral("ui/first_run_completed"), true);
+        old.setValue(QStringLiteral("ui/theme"), QStringLiteral("light"));
+        old.sync();
+        QCOMPARE(old.status(), QSettings::NoError);
+    }
 
+    QTest::failOnWarning();
     {
         mr::AppSettings settings;
-        QVERIFY(!settings.disclosureAcknowledged());
-        QVERIFY(settings.disclosureAcknowledgedAt().isEmpty());
-        QCOMPARE(settings.acknowledgedDisclosureVersion(), 0);
-
-        QSignalSpy changed(&settings, &mr::AppSettings::disclosureChanged);
-        settings.acknowledgeDisclosure(QStringLiteral("2026-09-04T11:00:00.000Z"));
-        QCOMPARE(changed.count(), 1);
-        QVERIFY(settings.disclosureAcknowledged());
-        QCOMPARE(settings.acknowledgedDisclosureVersion(),
-                 mr::AppSettings::kDisclosureVersion);
+        QVERIFY(settings.firstRunCompleted());
+        QCOMPARE(settings.themeMode(), QStringLiteral("light"));
+        ClosingBackend backend;
+        mr::AppController controller(&backend, &settings, nullptr, nullptr,
+                                     mr::TtsService::EngineMode::Mock);
+        QVERIFY(!controller.firstRun());
+        QCOMPARE(controller.themeMode(), QStringLiteral("light"));
     }
-
-    {
-        // A second object, i.e. the next launch, must still see it.
-        mr::AppSettings reopened;
-        QVERIFY(reopened.disclosureAcknowledged());
-        QCOMPARE(reopened.disclosureAcknowledgedAt(),
-                 QStringLiteral("2026-09-04T11:00:00.000Z"));
-
-        reopened.resetDisclosureAcknowledgement();
-        QVERIFY(!reopened.disclosureAcknowledged());
-        QVERIFY(reopened.disclosureAcknowledgedAt().isEmpty());
-    }
-
+    // A file that never confirmed anything starts a first run like any other.
     QFile::remove(mr::AppSettings::filePath());
-}
-
-void LifecycleTests::raisingTheDisclosureVersionInvalidatesTheAcknowledgement()
-{
-    QFile::remove(mr::AppSettings::filePath());
-
     {
-        mr::AppSettings settings;
-        settings.acknowledgeDisclosure(QStringLiteral("2026-09-04T11:00:00.000Z"));
-        QVERIFY(settings.disclosureAcknowledged());
-    }
-
-    // Simulate an acknowledgement of an older text by writing a lower version
-    // directly: the page must come back rather than carry the stale consent.
-    {
-        mr::AppSettings settings;
-        settings.setValue(QStringLiteral("ui/disclosure_acknowledged_version"),
-                          mr::AppSettings::kDisclosureVersion - 1);
+        QSettings old(mr::AppSettings::filePath(), QSettings::IniFormat);
+        old.setValue(QStringLiteral("ui/disclosure_acknowledged_version"), 0);
+        old.sync();
     }
     {
         mr::AppSettings settings;
-        QVERIFY(!settings.disclosureAcknowledged());
+        ClosingBackend backend;
+        mr::AppController controller(&backend, &settings, nullptr, nullptr,
+                                     mr::TtsService::EngineMode::Mock);
+        QVERIFY(controller.firstRun());
     }
-
     QFile::remove(mr::AppSettings::filePath());
 }
 

@@ -142,17 +142,44 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
     m_speech = new SpeechController(this);
     m_speech->setBackend(backend);
     // 检查新版本: the Collector decides whether one exists and names the page it
-    // lives on; this object only shows that decision and, on a click, hands the
-    // address to the system browser. It rides the same single status adoption
-    // path as calibration, so it cannot go stale behind one of them.
+    // lives on; this object shows that decision and acts only on a click. It
+    // rides the same single status adoption path as calibration, so it cannot go
+    // stale behind one of them.
     m_update = new UpdateController(this);
     m_update->setSettings(settings);
-    // 检查更新 is the one request it sends: CheckUpdateNow, outside the daily
-    // throttle, still behind the setting and the kill switch.
+    // The requests it sends: CheckUpdateNow (检查更新, outside the daily throttle,
+    // still behind the setting and the kill switch), StartUpdateDownload and
+    // CancelUpdateDownload (下载并安装 / 取消, docs/privacy-boundary.md §8.6).
     m_update->setBackend(backend);
     connect(this, &AppController::statusChanged, this,
             [this] { m_update->refreshFromStatus(collectorStatus()); });
     connect(m_update, &UpdateController::toastRequested, this, &AppController::showToast);
+    // 下载并安装: while the download runs, its progress comes from the status
+    // read every other part of the window uses; an answer to the two download
+    // messages is adopted into that same status.
+    connect(m_update, &UpdateController::statusRefreshRequested, this,
+            &AppController::readCollectorStatus);
+    connect(m_update, &UpdateController::updateAnswered, this, [this](const QVariantMap &update) {
+        if (m_collectorStatus.isEmpty())
+            return;
+        m_collectorStatus.insert(QStringLiteral("update"), QJsonObject::fromVariantMap(update));
+        Q_EMIT statusChanged();
+    });
+    // 立即安装 waits for a run to end: matched or in the duty is a run in
+    // progress, and until the current run has been read it is not known.
+    m_update->setRunProbe([this]() -> std::optional<bool> {
+        if (!m_currentRunKnown)
+            return std::nullopt;
+        const QString state = currentRunState();
+        return state == QLatin1String("MENTOR_MATCHED") || state == QLatin1String("ENTERED_DUTY");
+    });
+    m_update->setErrorFormatter(
+        [this](const QString &message, const QString &code) { return errorText(message, code); });
+    // The mock's "installer" is a text file it wrote itself: a mock run starts
+    // no program, whatever 立即安装's checks find. Every other backend keeps
+    // the shell, which UpdateController starts with.
+    if (usingMockData())
+        m_update->setInstallerLauncher([](const QString &) { return false; });
     m_tts->setBackend(backend);
     m_tts->setSpeech(m_speech);
     connect(m_tts, &TtsService::toastRequested, this, &AppController::showToast);
@@ -754,6 +781,16 @@ void AppController::refreshStatus()
     if (!m_backend)
         return;
 
+    readCollectorStatus();
+    refreshCurrentRun();
+    refreshCaptureDetail();
+    refreshCaptureValidation();
+}
+
+void AppController::readCollectorStatus()
+{
+    if (!m_backend)
+        return;
     m_backend->getStatus()->whenDone(
         this, [this](bool ok, const QVariantMap &payload, const QString &,
                      const QString &) {
@@ -762,10 +799,6 @@ void AppController::refreshStatus()
             Q_EMIT statusChanged();
             Q_EMIT backendChanged();
         });
-
-    refreshCurrentRun();
-    refreshCaptureDetail();
-    refreshCaptureValidation();
 }
 
 void AppController::refreshCaptureValidation()
@@ -1930,37 +1963,6 @@ void AppController::completeFirstRun()
         m_settings->setFirstRunCompleted(true);
     m_firstRun = false;
     Q_EMIT firstRunChanged();
-}
-
-// ---------------------------------------------------------------------------
-// First-run disclosure (DEC-OODLE-01)
-// ---------------------------------------------------------------------------
-
-bool AppController::disclosureAcknowledged() const
-{
-    return m_settings ? m_settings->disclosureAcknowledged() : true;
-}
-
-QString AppController::disclosureAcknowledgedAt() const
-{
-    return m_settings ? m_settings->disclosureAcknowledgedAt() : QString();
-}
-
-void AppController::acceptDisclosure()
-{
-    if (!m_settings)
-        return;
-    m_settings->acknowledgeDisclosure(
-        QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs));
-    Q_EMIT disclosureChanged();
-}
-
-void AppController::reopenDisclosure()
-{
-    if (!m_settings)
-        return;
-    m_settings->resetDisclosureAcknowledgement();
-    Q_EMIT disclosureChanged();
 }
 
 // ---------------------------------------------------------------------------

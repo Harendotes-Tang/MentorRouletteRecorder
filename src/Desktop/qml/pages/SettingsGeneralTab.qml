@@ -150,8 +150,9 @@ ColumnLayout {
     }
 
     // ------------------------------------------------------------ 更新 --
-    // 玩家可见（docs/privacy-boundary.md §8.4）：默认开启的联网请求，开关须显见。
-    // 只提示，不下载、不安装；判断在后台进程，界面只显示结论。
+    // 玩家可见（docs/privacy-boundary.md §8.4、§8.6）：默认开启的联网请求，开关须显见。
+    // 检查只提示；下载只在用户点「下载并安装」后由后台进程进行，安装只在用户再点
+    // 「立即安装」后开始。判断在后台进程，界面只显示结论。
     SettingsPanel {
         kicker: qsTr("更新")
 
@@ -162,8 +163,10 @@ ColumnLayout {
             label: qsTr("检查新版本并提示")
             description: tab.captureSettingDescription(
                 qsTr("默认开启的联网请求：每天最多一次，从本项目的 GitHub 发布页读取一个只含版本号的小文件，"
-                     + "有新版本时在总览页提示。请求不带账号、安装编号或任何可识别信息；"
-                     + "本软件从不自动下载或安装新版本。"))
+                     + "有新版本时在总览页提示。请求不带账号、安装编号或任何可识别信息。"
+                     + "只有在你点「下载并安装」之后，后台进程才会从本项目的发布页下载安装程序，"
+                     + "并与发布时公布的校验值核对；安装还要你再点「立即安装」。"
+                     + "本软件从不自行下载或安装新版本。"))
             toggleEnabled: App.captureSettingsSupported && App.captureSettingsLoaded
             checked: !App.captureSettingsLoaded
                      || App.captureSettings.update_check_enabled !== false
@@ -208,24 +211,60 @@ ColumnLayout {
                 onClicked: App.update.openReleasePage()
             }
 
-            // 一个位置，两种用途：没有新版本时是「检查更新」，有新版本时直接变成
-            // 「下载新版本」：把安装程序的地址交给系统浏览器，由浏览器下载（没有可用的
-            // 安装程序地址时改为打开发布页）。本软件自身不下载，安装由用户自己运行。
+            // 一个位置，两种用途：没有可下载的新版本时是「检查更新」；有新版本时随
+            // 下载的状态变成「下载并安装」「取消」「立即安装」或「重试」
+            // （privacy-boundary.md §8.6）。不支持软件内下载的后台进程仍是「下载新版本」：
+            // 把安装程序的地址交给系统浏览器，由浏览器下载。
             AppButton {
                 objectName: "checkUpdateNowButton"
+                readonly property bool downloadPlace: App.update.downloadPhase.length > 0
                 Layout.fillWidth: false
                 Layout.alignment: Qt.AlignVCenter
                 compact: true
-                text: App.update.updateAvailable ? qsTr("下载新版本")
-                                                 : qsTr("检查更新")
-                // 开关关闭或正在检查时不可用（privacy-boundary.md §8.4）。
-                enabled: App.update.canCheck
+                text: downloadPlace ? App.update.downloadActionText : qsTr("检查更新")
+                // 检查：开关关闭或正在检查时不可用（privacy-boundary.md §8.4）。
+                // 下载：请求在途或正在校验时不可用。
+                enabled: downloadPlace ? App.update.downloadActionEnabled : App.update.canCheck
                 onClicked: {
-                    if (App.update.updateAvailable)
-                        App.update.openInstallerDownload()
+                    if (downloadPlace)
+                        App.update.downloadAction()
                     else
                         App.update.checkNow()
                 }
+            }
+        }
+
+        UpdateDownloadStatus {
+            namePrefix: "settingsUpdate"
+            Layout.fillWidth: true
+            Layout.topMargin: 4
+            Layout.bottomMargin: 6
+        }
+
+        // 维护者工具：重新下载已发布的最新正式版，即使它不比当前版本新。
+        RowLayout {
+            Layout.fillWidth: true
+            Layout.bottomMargin: 4
+            visible: App.maintainerToolsVisible && App.update.downloadSupported
+            spacing: 12
+
+            Text {
+                Layout.fillWidth: true
+                text: qsTr("维护者工具：下载已发布的最新正式版的安装程序，即使它不比当前版本新。")
+                color: Theme.textMuted
+                font.pixelSize: Theme.fs(11)
+                wrapMode: Text.WordWrap
+            }
+
+            AppButton {
+                objectName: "reinstallLatestButton"
+                Layout.fillWidth: false
+                Layout.alignment: Qt.AlignVCenter
+                compact: true
+                variant: "ghost"
+                text: qsTr("重新下载最新正式版")
+                enabled: App.update.canReinstall
+                onClicked: App.update.reinstallLatest()
             }
         }
     }

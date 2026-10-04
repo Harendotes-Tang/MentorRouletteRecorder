@@ -166,6 +166,10 @@ add_test(NAME MentorRecorderReflections
 # Motion: 动效 - durations collapse under ReduceMotion, theme reveal lifecycle, trend transitions.
 # UpdateNotice: 检查新版本 - the projection of the Collector's verdict, the address
 #   predicate, per-version dismissal, the 总览 banner, the switch and the disclosure.
+# UpdateInstall: 下载并安装 - the download's projection and re-read, the three checks
+#   before 立即安装 starts anything, the exit after it, the mock and the three places.
+# InstallerHold: the installer held from its checksum to its start, on real files - a
+#   held program still starts (a copy of whoami.exe), and nobody can replace it meanwhile.
 # SingleInstance: one Desktop per user - the guard and the "show the first window" request.
 # ShellDialog: Main.qml's own dialogs (原因, 首次引导, the wizard's retry) on the shipping window.
 # RunDetailPanel: the history detail panel - player wording of 修正历史 / 事件摘要, clicks that stay in it.
@@ -173,8 +177,8 @@ add_test(NAME MentorRecorderReflections
 # QmlWarningCounter: the screenshot harness's own count of QML/JS runtime warnings.
 foreach(MR_REVIEW_SUITE WorkflowController RunFormValidator ExportFailure UiWorkflowRegression EditRunDialogBinding
                         ReflectionDialogBinding Calibration SharedCalibration SharedCalibrationCard Speech
-                        CapturePage Motion UpdateNotice NoteImageStore SingleInstance ShellDialog RunDetailPanel
-                        MockBackend QmlWarningCounter)
+                        CapturePage Motion UpdateNotice UpdateInstall InstallerHold NoteImageStore SingleInstance ShellDialog
+                        RunDetailPanel MockBackend QmlWarningCounter)
     add_executable(MentorRecorder${MR_REVIEW_SUITE}Tests ${MR_REVIEW_SUITE}Tests.cpp)
     target_link_libraries(MentorRecorder${MR_REVIEW_SUITE}Tests PRIVATE
         MentorRecorderDesktopLib Qt6::Gui Qt6::Test)
@@ -219,7 +223,7 @@ add_test(NAME MentorRecorderIpcRequests
 
 # ---------------------------------------------------------------------------
 # tst_lifecycle - Collector supervision (restart backoff, serve-lease reuse,
-# deliberate stop) and first-run disclosure persistence. Needs no Collector.
+# deliberate stop) and the settings file of older builds. Needs no Collector.
 # ---------------------------------------------------------------------------
 add_executable(MentorRecorderLifecycleTests
     LifecycleTests.cpp)
@@ -667,6 +671,38 @@ add_test(NAME MentorRecorderDesktopSpeechSelfTestRejectsMissingFile
         "-DMR_EXPECT_OUTPUT=speech selftest: no such file"
         -P "${MR_EXPECT_EXIT}")
 
+# 下载并安装 (docs/privacy-boundary.md §8.6) in the three places that offer it,
+# one held state each, asserted through the line a player reads. The download
+# is simulated; nothing is fetched and a mock run never starts an installer.
+set(MR_UPDATE_DOWNLOAD_ARGS_downloading --page 1)
+set(MR_UPDATE_DOWNLOAD_TEXT_downloading "已下载 45%（27.0 / 60.0 MB）")
+set(MR_UPDATE_DOWNLOAD_ARGS_verifying --page 1)
+set(MR_UPDATE_DOWNLOAD_TEXT_verifying "正在核对发布时公布的校验值")
+set(MR_UPDATE_DOWNLOAD_ARGS_ready --page 6 --settings-tab general)
+set(MR_UPDATE_DOWNLOAD_TEXT_ready "立即安装")
+set(MR_UPDATE_DOWNLOAD_ARGS_failed --page 6 --settings-tab about)
+set(MR_UPDATE_DOWNLOAD_TEXT_failed "在浏览器中下载")
+set(MR_UPDATE_QML_TESTS)
+foreach(MR_UPDATE_DOWNLOAD_STATE downloading verifying ready failed)
+    add_test(NAME MentorRecorderQmlUpdateDownload_${MR_UPDATE_DOWNLOAD_STATE}
+        COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
+            --backend mock --mock-recording-state listening --mock-live none --theme dark
+            --mock-update-download ${MR_UPDATE_DOWNLOAD_STATE}
+            ${MR_UPDATE_DOWNLOAD_ARGS_${MR_UPDATE_DOWNLOAD_STATE}}
+            --screenshot "${CMAKE_CURRENT_BINARY_DIR}/update-download-${MR_UPDATE_DOWNLOAD_STATE}.png"
+            --screenshot-size 1280x800 --screenshot-delay 900
+            --verify-text "${MR_UPDATE_DOWNLOAD_TEXT_${MR_UPDATE_DOWNLOAD_STATE}}")
+    list(APPEND MR_UPDATE_QML_TESTS MentorRecorderQmlUpdateDownload_${MR_UPDATE_DOWNLOAD_STATE})
+endforeach()
+
+add_test(NAME MentorRecorderDesktopRejectsInvalidUpdateDownloadMock
+    COMMAND ${CMAKE_COMMAND}
+        -DMR_COMMAND=$<TARGET_FILE:MentorRecorder.Desktop>
+        "-DMR_ARGS=--backend;mock;--mock-update-download;bogus"
+        -DMR_EXPECT_CODE=2
+        "-DMR_EXPECT_OUTPUT=invalid --mock-update-download value"
+        -P "${MR_EXPECT_EXIT}")
+
 add_test(NAME MentorRecorderDesktopRejectsInvalidSettingsTab
     COMMAND ${CMAKE_COMMAND}
         -DMR_COMMAND=$<TARGET_FILE:MentorRecorder.Desktop>
@@ -679,6 +715,7 @@ set(MR_QML_TESTS
     ${MR_SHARED_QML_TESTS}
     ${MR_SETTINGS_QML_TESTS}
     ${MR_SPEECH_QML_TESTS}
+    ${MR_UPDATE_QML_TESTS}
     MentorRecorderQmlLoad
     MentorRecorderQmlCalibration_observing
     MentorRecorderQmlCalibration_ready
@@ -790,6 +827,8 @@ set(MR_ALL_DESKTOP_TESTS
     MentorRecorderCapturePage
     MentorRecorderMotion
     MentorRecorderUpdateNotice
+    MentorRecorderUpdateInstall
+    MentorRecorderInstallerHold
     MentorRecorderNoteImageStore
     MentorRecorderSingleInstance
     MentorRecorderShellDialog
@@ -808,6 +847,7 @@ set(MR_ALL_DESKTOP_TESTS
     MentorRecorderDesktopRejectsInvalidSpeechMock
     MentorRecorderDesktopSpeechSelfTestRejectsMissingFile
     MentorRecorderDesktopRejectsInvalidSettingsTab
+    MentorRecorderDesktopRejectsInvalidUpdateDownloadMock
     ${MR_QML_TESTS})
 
 set(MR_VALIDATION_QML_TESTS

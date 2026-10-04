@@ -504,4 +504,19 @@ BackendReply *IBackend::checkUpdateNow()
     return request(QStringLiteral("CheckUpdateNow"));
 }
 
+BackendReply *IBackend::startUpdateDownload(bool reinstall)
+{
+    // Omitted rather than sent as false: the contract's default is false, as
+    // DiscardCalibration's flags are.
+    QJsonObject payload;
+    if (reinstall)
+        payload.insert(QStringLiteral("reinstall"), true);
+    return request(QStringLiteral("StartUpdateDownload"), payload);
+}
+
+BackendReply *IBackend::cancelUpdateDownload()
+{
+    return request(QStringLiteral("CancelUpdateDownload"));
+}
+
 } // namespace mr

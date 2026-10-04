@@ -41,6 +41,11 @@ public:
     /// Set by the close handler so 退出 can bypass minimise-to-tray.
     static bool quitRequested();
     static void requestQuit();
+    /// The application's one orderly exit: 退出, closing the window while
+    /// 关闭时最小化到托盘 is off, and 立即安装 once the installer has started.
+    /// The event loop returns and main()'s destructors stop the Collector child
+    /// through its stop event (CollectorProcess::stop).
+    static void quitApplication();
 
 public Q_SLOTS:
     void showWindow();

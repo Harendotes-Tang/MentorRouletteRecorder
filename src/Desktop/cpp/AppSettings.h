@@ -57,10 +57,6 @@ class AppSettings : public QObject
     Q_PROPERTY(int logRetentionDays READ logRetentionDays WRITE setLogRetentionDays NOTIFY dataChanged)
     Q_PROPERTY(bool diagnosticsMode READ diagnosticsMode WRITE setDiagnosticsMode NOTIFY dataChanged)
 
-    // -- 首次说明 -----------------------------------------------------------
-    Q_PROPERTY(bool disclosureAcknowledged READ disclosureAcknowledged NOTIFY disclosureChanged)
-    Q_PROPERTY(QString disclosureAcknowledgedAt READ disclosureAcknowledgedAt NOTIFY disclosureChanged)
-
 public:
     explicit AppSettings(QObject *parent = nullptr);
 
@@ -82,28 +78,12 @@ public:
     int uiScale() const;
     void setUiScale(int percent);
 
+    /// ui/first_run_completed. Builds before 2026-10-04 also kept
+    /// ui/disclosure_acknowledged_version and ui/disclosure_acknowledged_at here,
+    /// the confirmation of 这个软件做什么、不做什么 that a first start used to ask
+    /// for; a file that still holds them loads as any other and they are unused.
     bool firstRunCompleted() const;
     void setFirstRunCompleted(bool completed);
-
-    /// Version of the first-run disclosure text this build ships. Raising it
-    /// re-shows the page: an acknowledgement is only ever valid for the exact
-    /// text the user was shown (docs/privacy-boundary.md, DEC-OODLE-01).
-    // 2: the notice gained the run order and the pending-review step.
-    // 3: the notice names the one network request, the shared-calibration
-    //    download, and how to turn it off (docs/privacy-boundary.md §8.2).
-    // 4: the notice gained a third network class, the update check, which the
-    //    earlier text explicitly ruled out.
-    // 5: the shared-calibration download is no longer limited to "no usable
-    //    profile": a shared or queue-inferred profile in use is rechecked
-    //    against the public list, which the earlier text ruled out.
-    static constexpr int kDisclosureVersion = 5;
-    static int disclosureVersion();
-    int acknowledgedDisclosureVersion() const;
-    bool disclosureAcknowledged() const;
-    /// UTC ISO-8601 of the acknowledgement, empty when never acknowledged.
-    QString disclosureAcknowledgedAt() const;
-    void acknowledgeDisclosure(const QString &utcTimestamp);
-    void resetDisclosureAcknowledgement();
 
     bool autostart() const;
     void setAutostart(bool enabled);
@@ -184,7 +164,6 @@ Q_SIGNALS:
     void appearanceChanged();
     void ttsChanged();
     void dataChanged();
-    void disclosureChanged();
 
 private:
     /// Add or remove the HKCU\...\Run value. No-op off Windows.

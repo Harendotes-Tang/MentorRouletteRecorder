@@ -12,7 +12,7 @@
 //                          [--mock-detail-tab refl] [--mock-open-reflection]
 //                          [--mock-ui-style classic] [--settings-tab tts]
 //                          [--mock-calibration done] [--mock-shared consent]
-//                          [--mock-update-available]
+//                          [--mock-update-available] [--mock-update-download ready]
 //                          [--mock-recording-state waiting-verified]
 //                          [--export-target DIR] [--open-detail] [--open-edit]
 //                          [--screenshot-size WxH] [--mock-speech azure]
@@ -549,6 +549,12 @@ int main(int argc, char *argv[])
         QStringLiteral("mock-update-available"),
         QStringLiteral("Pretend the Collector's update check found a newer release. "
                        "The version and the page it names are synthetic; nothing is fetched."));
+    QCommandLineOption updateDownloadOption(
+        QStringLiteral("mock-update-download"),
+        QStringLiteral("Synthetic in-app update download: downloading, verifying, ready or "
+                       "failed. Implies --mock-update-available. Nothing is fetched, and a "
+                       "mock run never starts an installer."),
+        QStringLiteral("state"));
     QCommandLineOption liveOption(
         QStringLiteral("mock-live"),
         QStringLiteral("Live run state: none, matched or entered."),
@@ -619,8 +625,8 @@ int main(int argc, char *argv[])
         QStringLiteral("WxH"), QStringLiteral("1280x800"));
     QCommandLineOption disclosureOption(
         QStringLiteral("show-disclosure"),
-        QStringLiteral("Open the first-run disclosure page regardless of the stored "
-                       "acknowledgement. Works with either backend."));
+        QStringLiteral("Open the explanation window (what the software does and does not do) "
+                       "at start-up, as 设置 · 关于 opens it. Works with either backend."));
     QCommandLineOption verifyTextOption(
         QStringLiteral("verify-text"),
         QStringLiteral("Before grabbing, assert that some visible item shows <text>. "
@@ -669,6 +675,7 @@ int main(int argc, char *argv[])
     parser.addOption(calibrationOption);
     parser.addOption(sharedOption);
     parser.addOption(updateOption);
+    parser.addOption(updateDownloadOption);
     parser.addOption(liveOption);
     parser.addOption(validationOption);
     parser.addOption(maintainerOption);
@@ -778,6 +785,7 @@ int main(int argc, char *argv[])
             || parser.isSet(calibrationOption)
             || parser.isSet(sharedOption)
             || parser.isSet(updateOption)
+            || parser.isSet(updateDownloadOption)
             || parser.isSet(recordingOption)
             || parser.isSet(alertFlowOption)
             || parser.isSet(liveOption)
@@ -824,6 +832,13 @@ int main(int argc, char *argv[])
             QStringLiteral("rejected"), QStringLiteral("unavailable"), QStringLiteral("user-rejected"),
             QStringLiteral("none-for-build"), QStringLiteral("share")}.contains(parser.value(sharedOption))) {
         std::fputs("invalid --mock-shared value\n", stderr);
+        return 2;
+    }
+    if (parser.isSet(updateDownloadOption)
+        && !mr::MockBackend::isUpdateDownloadFixture(parser.value(updateDownloadOption))) {
+        std::fputs("invalid --mock-update-download value (expected downloading, verifying, "
+                   "ready or failed)\n",
+                   stderr);
         return 2;
     }
     const QString mockSpeech = parser.value(speechOption);
@@ -891,6 +906,8 @@ int main(int argc, char *argv[])
             mock->setSharedCalibrationFixture(parser.value(sharedOption));
         if (parser.isSet(updateOption))
             mock->setUpdateAvailable(true);
+        if (parser.isSet(updateDownloadOption))
+            mock->setUpdateDownloadFixture(parser.value(updateDownloadOption));
         if (parser.isSet(speechOption))
             mock->setSpeechFixture(mockSpeech);
         if (parser.isSet(recordingOption)) mock->setRecordingFixture(parser.value(recordingOption));
@@ -928,6 +945,8 @@ int main(int argc, char *argv[])
     if (selectedBackend == QLatin1String("ipc"))
         collector = std::make_unique<mr::CollectorProcess>();
     mr::AppController controller(backend, &settings, nullptr, collector.get());
+    // AppController chooses 立即安装's launcher: the shell for the IPC backend,
+    // one that starts nothing for the mock (pinned by UpdateInstallTests).
     // The validation and candidate scenarios exercise maintainer tools that a
     // player never sees by default, so those screenshots start with them open.
     if (parser.isSet(maintainerOption) || parser.isSet(validationOption) || parser.isSet(validationKeyboardOption)

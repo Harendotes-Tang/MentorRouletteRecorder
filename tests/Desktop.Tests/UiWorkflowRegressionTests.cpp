@@ -1624,7 +1624,7 @@ void UiWorkflowRegressionTests::settingsTabsShowTheirOwnControls_data()
                        QStringLiteral("databasePathField")};
     QTest::newRow("about") << QStringLiteral("about")
         << QStringList{QStringLiteral("copyrightCard"), QStringLiteral("readsGameExecutableTile"),
-                       QStringLiteral("disclosureTile")};
+                       QStringLiteral("aboutExplanationButton")};
 }
 
 void UiWorkflowRegressionTests::settingsTabsShowTheirOwnControls()

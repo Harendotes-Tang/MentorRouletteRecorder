@@ -225,6 +225,10 @@ QJsonObject IpcBackend::buildRequestForTest(const QString &messageType,
                                  args.value(QLatin1String("test")).toBool(false));
     else if (messageType == QLatin1String("CheckUpdateNow"))
         backend.checkUpdateNow();
+    else if (messageType == QLatin1String("StartUpdateDownload"))
+        backend.startUpdateDownload(args.value(QLatin1String("reinstall")).toBool(false));
+    else if (messageType == QLatin1String("CancelUpdateDownload"))
+        backend.cancelUpdateDownload();
     else
         return {};
 

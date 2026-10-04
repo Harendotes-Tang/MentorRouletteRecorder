@@ -1437,6 +1437,13 @@ QJsonObject MockBackend::collectorStatus() const
              : QJsonValue(QJsonValue::Null)},
         {QStringLiteral("last_checked_at_utc"), isoUtc(m_now.addSecs(-3600))},
         {QStringLiteral("last_outcome"), QStringLiteral("OK")}});
+    // update.download, always present from a Collector that knows 下载并安装
+    // (MockBackendUpdate.cpp); an older one sends none.
+    if (m_updateDownloadSupported) {
+        QJsonObject update = status.value(QStringLiteral("update")).toObject();
+        update.insert(QStringLiteral("download"), updateDownload());
+        status.insert(QStringLiteral("update"), update);
+    }
 
     QJsonArray warnings;
     warnings.append(QString::fromUtf8("这是 Phase 1 的模拟后端，数据不是真实记录。"));
@@ -2169,6 +2176,10 @@ BackendReply *MockBackend::request(const QString &messageType, const QJsonObject
                                         &errorDetails);
     } else if (isSpeechMessage(messageType)) {
         result = applySpeech(messageType, payload, &errorCode, &errorMessage, &errorDetails);
+    } else if (isUpdateDownloadMessage(messageType) && m_updateDownloadSupported) {
+        // Without the feature the message falls through to the refusal below,
+        // as an older Collector refuses it.
+        result = applyUpdateDownload(messageType, payload);
     } else if (messageType == QLatin1String("GetCurrentRun")) {
         result = currentRun();
     } else if (messageType == QLatin1String("SubscribeLiveEvents")) {

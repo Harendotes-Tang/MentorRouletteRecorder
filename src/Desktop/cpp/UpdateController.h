@@ -23,16 +23,36 @@
 //
 // 忽略此版本 is remembered per version in AppSettings, so a later release raises
 // the banner again without the user having to undo anything.
+//
+// 下载并安装 (docs/privacy-boundary.md §8.6) is two clicks, one request each.
+// The first sends StartUpdateDownload: the Collector downloads the installer and
+// its published SHA-256 and reports the download in `update.download`, which is
+// adopted through the same projection; while it is DOWNLOADING or VERIFYING the
+// status is re-read about once a second through the application's own status
+// read. The second, 立即安装, is the only place that starts a program: only in
+// READY, not while a run is in progress, and only after this process checked
+// the file itself (InstallerVerifier.h), through the one handle it then holds
+// until the start, so what is started is what was checked. The installer is
+// started through the shell - it asks for elevation itself - and the application
+// then quits through its normal exit path, which stops the Collector politely
+// and lets go of the file. A Collector without
+// the feature, or one that refuses the message, leaves 下载新版本 to the browser
+// as before.
 // ---------------------------------------------------------------------------
+
+#include "InstallerVerifier.h"
 
 #include <QObject>
 #include <QPointer>
 #include <QQmlEngine>
 #include <QString>
+#include <QTimer>
 #include <QUrl>
 #include <QVariantMap>
 
 #include <functional>
+#include <memory>
+#include <optional>
 
 namespace mr {
 
@@ -74,10 +94,55 @@ class UpdateController final : public QObject
     /// old to carry the projection is also too old to carry the message.
     Q_PROPERTY(bool canCheck READ canCheck NOTIFY changed)
 
+    // -- 下载并安装 -----------------------------------------------------------
+    /// The Collector reports `update.download` and has not refused
+    /// StartUpdateDownload as a message it does not know. Otherwise the browser
+    /// downloads the installer, as before.
+    Q_PROPERTY(bool downloadSupported READ downloadSupported NOTIFY changed)
+    /// What the three update places show: "" (nothing to download), "browser"
+    /// (下载新版本 in the browser), "offer" (下载并安装), "downloading",
+    /// "verifying", "ready" (立即安装) or "failed".
+    Q_PROPERTY(QString downloadPhase READ downloadPhase NOTIFY changed)
+    /// The label of the one button that acts on the phase; empty with none.
+    Q_PROPERTY(QString downloadActionText READ downloadActionText NOTIFY changed)
+    Q_PROPERTY(bool downloadActionEnabled READ downloadActionEnabled NOTIFY changed)
+    /// One sentence on the download: progress, verdict or the Collector's own
+    /// explanation of a failure. Empty while there is nothing to say.
+    Q_PROPERTY(QString downloadStatusText READ downloadStatusText NOTIFY changed)
+    /// 0..1 while the size is known, -1 when the server declared none.
+    Q_PROPERTY(qreal downloadProgress READ downloadProgress NOTIFY changed)
+    /// The sentence of the last 立即安装 that started nothing; empty otherwise.
+    Q_PROPERTY(QString installProblem READ installProblem NOTIFY changed)
+    /// This process is computing the installer's SHA-256 before starting it.
+    Q_PROPERTY(bool verifyingInstaller READ verifyingInstaller NOTIFY changed)
+    /// 在浏览器中下载 is offered beside the in-app download: after a failure, or
+    /// after a 立即安装 that started nothing.
+    Q_PROPERTY(bool browserFallbackOffered READ browserFallbackOffered NOTIFY changed)
+    /// A download the user started is under way or done; the 总览 banner stays
+    /// for it even after 忽略此版本.
+    Q_PROPERTY(bool downloadEngaged READ downloadEngaged NOTIFY changed)
+    /// 重新下载最新正式版 (maintainer tools) can be pressed.
+    Q_PROPERTY(bool canReinstall READ canReinstall NOTIFY changed)
+
 public:
     using UrlOpener = std::function<bool(const QUrl &)>;
+    /// Starts the installer at the given path; false when it did not start.
+    using InstallerLauncher = std::function<bool(const QString &path)>;
+    /// The application's orderly exit.
+    using Quitter = std::function<void()>;
+    /// Whether a run is in progress (matched or in the duty); no value while
+    /// that is not known.
+    using RunProbe = std::function<std::optional<bool>()>;
+    /// A refusal as a reader is shown it (AppController::errorText).
+    using ErrorFormatter = std::function<QString(const QString &message, const QString &code)>;
+    /// The Collector's data directory (CollectorProcess::collectorDataDirectory).
+    using DirectoryProvider = std::function<QString()>;
+
+    /// How often the status is re-read while a download is running.
+    static constexpr int kDownloadPollMs = 1000;
 
     explicit UpdateController(QObject *parent = nullptr);
+    ~UpdateController() override;
 
     /// Where 忽略此版本 is remembered. Without one the dismissal lasts only for
     /// this session.
@@ -87,6 +152,22 @@ public:
     void setBackend(IBackend *backend);
     /// Test seam. By default the address goes to QDesktopServices.
     void setUrlOpener(UrlOpener opener);
+    /// Test seam: by default the operating system's shell opens the file, the
+    /// way addresses are opened, and the installer asks for elevation itself;
+    /// AppController gives a mock backend's run one that starts nothing. A test
+    /// passes a function that records the path and starts nothing. The file is
+    /// held while it runs.
+    void setInstallerLauncher(InstallerLauncher launcher);
+    /// By default TrayController::quitApplication(), the path 退出 takes.
+    void setQuitter(Quitter quitter);
+    /// Without one the run state is unknown and 立即安装 is refused.
+    void setRunProbe(RunProbe probe);
+    void setErrorFormatter(ErrorFormatter formatter);
+    /// By default CollectorProcess::collectorDataDirectory().
+    void setDataDirectoryProvider(DirectoryProvider provider);
+    /// Test seams: the re-read interval and the hashing slice.
+    void setDownloadPollMs(int milliseconds);
+    void setHashSliceBytes(qint64 bytes);
 
     bool available() const { return m_state.available; }
     bool enabled() const { return m_state.enabled; }
@@ -104,6 +185,23 @@ public:
     {
         return m_backend && m_state.available && m_state.enabled && !m_checking;
     }
+
+    bool downloadSupported() const
+    {
+        return m_backend && m_state.available && m_state.download.present && !m_downloadRefused;
+    }
+    QString downloadPhase() const;
+    QString downloadActionText() const;
+    bool downloadActionEnabled() const;
+    QString downloadStatusText() const;
+    qreal downloadProgress() const;
+    QString installProblem() const { return m_installProblem; }
+    bool verifyingInstaller() const { return m_hasher != nullptr; }
+    bool browserFallbackOffered() const;
+    bool downloadEngaged() const;
+    bool canReinstall() const;
+    /// True while the status is being re-read for a running download.
+    bool polling() const { return m_polling; }
 
     /// True only for an https://github.com/Harendotes-Tang/MentorRouletteRecorder
     /// address without credentials and on the default port: the one kind of
@@ -130,13 +228,49 @@ public Q_SLOTS:
     /// with, and asks for one toast sentence. A second press while the first
     /// request is still out does nothing.
     void checkNow();
+    /// The one button of the download places: 下载新版本 (browser), 下载并安装,
+    /// 取消, 立即安装 or 重试, whichever downloadPhase calls for.
+    void downloadAction();
+    /// 下载并安装 / 重试: StartUpdateDownload for latest_version.
+    void startDownload();
+    /// 重新下载最新正式版 (maintainer tools): StartUpdateDownload with reinstall.
+    void reinstallLatest();
+    /// 取消: CancelUpdateDownload.
+    void cancelDownload();
+    /// 立即安装. Only in READY and with no run in progress; checks the file -
+    /// where it is, that it is a regular file, its SHA-256 - and only then starts
+    /// it and quits. Any failed check starts nothing and says why.
+    void install();
 
 Q_SIGNALS:
     void changed();
     /// One sentence for the toast.
     void toastRequested(const QString &message);
+    /// Re-read the Collector status now (a download is running).
+    void statusRefreshRequested();
+    /// A StartUpdateDownload / CancelUpdateDownload answer carried \a update, the
+    /// $defs/UpdateStatus the status holder should adopt, so a later status
+    /// change does not bring back the state before it.
+    void updateAnswered(const QVariantMap &update);
 
 private:
+    /// $defs/UpdateDownload as the Collector reported it.
+    struct Download
+    {
+        QString state;
+        QString version;
+        QString filePath;
+        QString sha256;
+        QString failure;
+        QString message;
+        qint64 receivedBytes = 0;
+        /// -1 when the server declared no size.
+        qint64 totalBytes = -1;
+        bool present = false;
+
+        bool operator==(const Download &) const = default;
+    };
+
     /// Everything the Collector decided, and nothing this process decided.
     struct State
     {
@@ -144,12 +278,41 @@ private:
         QString releaseUrl;
         QString installerUrl;
         QString lastCheckedAtUtc;
+        Download download;
         bool available = false;
         bool enabled = false;
         bool updateAvailable = false;
 
         bool operator==(const State &) const = default;
     };
+
+    /// The file 立即安装 checks and starts, as reported when it was pressed.
+    struct Installer
+    {
+        QString path;
+        QString sha256;
+        QString version;
+    };
+
+    static Download downloadFrom(const QVariant &raw);
+    bool downloadRunning() const;
+    /// "9.9.9 版的安装程序", or a version-less wording.
+    QString installerName() const;
+    void sendStart(bool reinstall);
+    /// Adopt a StartUpdateDownload / CancelUpdateDownload answer.
+    void adoptDownloadAnswer(const QVariantMap &payload);
+    /// Arms or stops the status re-read for the state just adopted.
+    void updatePolling(bool projectionAvailable);
+    void stopPolling();
+    /// The sentence that holds 立即安装 back, or empty when it may proceed.
+    QString runRefusal(QString *code) const;
+    /// 立即安装 started nothing: \a sentence for the reader, \a code for maintainers.
+    /// Every attempt given up passes through here and lets go of the file.
+    void refuseInstall(const QString &sentence, const QString &code);
+    void onInstallerHashed(bool ok, const QString &sha256);
+    /// Stops the re-read and the hashing and lets go of the installer: the
+    /// application is quitting.
+    void stopForQuit();
 
     /// The one sentence a CheckUpdateNow answer deserves. Read from the answer
     /// and from the state it was just adopted into, never from a token.
@@ -160,10 +323,35 @@ private:
     QPointer<AppSettings> m_settings;
     QPointer<IBackend> m_backend;
     UrlOpener m_openUrl;
+    InstallerLauncher m_launchInstaller;
+    Quitter m_quit;
+    RunProbe m_runProbe;
+    ErrorFormatter m_errorText;
+    DirectoryProvider m_dataDirectory;
     State m_state;
     /// Remembers 忽略此版本 while no AppSettings is attached.
     QString m_dismissedVersion;
     bool m_checking = false;
+
+    /// A StartUpdateDownload or CancelUpdateDownload is out.
+    bool m_downloadRequestOut = false;
+    /// The Collector refused StartUpdateDownload as unknown; cleared when the
+    /// pipe comes back, which may be a newer Collector.
+    bool m_downloadRefused = false;
+    /// The status is being re-read for a running download.
+    bool m_polling = false;
+    /// The application is quitting: nothing is re-read, hashed or started any more.
+    bool m_quitting = false;
+    QTimer m_pollTimer;
+    QString m_installProblem;
+    /// The installer 立即安装 checks and starts, held from before its checks
+    /// until it has started and the application quits, or until the attempt is
+    /// given up (refuseInstall).
+    InstallerHold m_heldInstaller;
+    /// Set while the installer is being hashed before it is started.
+    std::unique_ptr<InstallerHasher> m_hasher;
+    Installer m_pendingInstaller;
+    qint64 m_hashSliceBytes = InstallerHasher::kDefaultSliceBytes;
 };
 
 } // namespace mr

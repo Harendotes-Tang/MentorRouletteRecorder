@@ -180,6 +180,9 @@ struct Shell {
     std::unique_ptr<QQmlEngine> engine;
     std::unique_ptr<QObject> root;
     QString errors;
+    /// Start the way the program starts for a new user: the controller reads
+    /// `settings` and nothing suppresses what a first start shows.
+    bool firstStart = false;
 
     ~Shell()
     {
@@ -192,7 +195,7 @@ struct Shell {
     {
         if (!backend.answers.contains(QStringLiteral("GetDashboardStats")))
             backend.answers.insert(QStringLiteral("GetDashboardStats"), dashboard(2000, 0));
-        controller = std::make_unique<mr::AppController>(&backend, nullptr);
+        controller = std::make_unique<mr::AppController>(&backend, firstStart ? &settings : nullptr);
         engine = std::make_unique<QQmlEngine>();
         QQmlContext *context = engine->rootContext();
         context->setContextProperty(QStringLiteral("App"), controller.get());
@@ -201,7 +204,7 @@ struct Shell {
         context->setContextProperty(QStringLiteral("Roles"), &roles);
         context->setContextProperty(QStringLiteral("RunForm"), &validator);
         context->setContextProperty(QStringLiteral("Settings"), &settings);
-        context->setContextProperty(QStringLiteral("SuppressOnboarding"), true);
+        context->setContextProperty(QStringLiteral("SuppressOnboarding"), !firstStart);
         context->setContextProperty(QStringLiteral("ReduceMotion"), true);
         QQmlComponent component(engine.get(), QUrl::fromLocalFile(
             QString::fromUtf8(MR_DESKTOP_QML_DIR) + QStringLiteral("/Main.qml")));
@@ -1403,6 +1406,121 @@ private Q_SLOTS:
 
         shell.settings.setUiStyle(QStringLiteral("eorzea"));
         QTRY_VERIFY_WITH_TIMEOUT(paints.count() > 0, 2000);
+    }
+
+    // 业主要求（2026-10-04）：总览成就卡片上的「修改」此前只打开设置的第一页（通用）。
+    // 要改的是安装前已完成次数，所以它打开 设置 · 成就，并把光标放进那个输入框，
+    // 已有的数字被选中，直接输入即可替换。
+    void editOnTheAchievementCardPutsTheCursorInTheBaselineField()
+    {
+        Shell shell;
+        QVERIFY2(shell.create(), qPrintable(shell.errors));
+        QVERIFY(QTest::qWaitForWindowExposed(shell.window()));
+        QTRY_VERIFY(shell.controller->achievementSettingsLoaded());
+        QCOMPARE(shell.controller->currentPage(), 0);
+        QQuickItem *edit = nullptr;
+        QTRY_VERIFY((edit = shell.itemWithText(QString::fromUtf8("修改"))));
+        const QPointF centre = edit->mapToScene(QPointF(edit->width() / 2, edit->height() / 2));
+        QTest::mouseClick(shell.window(), Qt::LeftButton, Qt::NoModifier, centre.toPoint());
+
+        QTRY_COMPARE(shell.controller->currentPage(), 5);
+        QQuickItem *goalTab = shell.item(QStringLiteral("settingsTab_goal"));
+        QVERIFY(goalTab);
+        QTRY_VERIFY(goalTab->property("current").toBool());
+        QQuickItem *field = shell.item(QStringLiteral("baselineField"));
+        QVERIFY(field);
+        QTRY_VERIFY(field->hasActiveFocus());
+        QCOMPARE(field->property("selectedText").toString(), QStringLiteral("0"));
+
+        // Ready to type: what is typed replaces the stored figure.
+        for (const char digit : {'1', '3', '7', '4'})
+            QTest::keyClick(shell.window(), digit);
+        QTRY_COMPARE(field->property("text").toString(), QStringLiteral("1374"));
+    }
+
+    // While the stored figures are still being read the field cannot take a value
+    // (CS7-D3); the cursor goes into it as soon as they have arrived.
+    void editBeforeTheFiguresArriveFocusesTheFieldOnceTheyHave()
+    {
+        Shell shell;
+        shell.backend.holdTypes << QStringLiteral("GetDashboardStats");
+        QVERIFY2(shell.create(), qPrintable(shell.errors));
+        QVERIFY(QTest::qWaitForWindowExposed(shell.window()));
+        QVERIFY(!shell.controller->achievementSettingsLoaded());
+        QQuickItem *edit = nullptr;
+        QTRY_VERIFY((edit = shell.itemWithText(QString::fromUtf8("修改"))));
+        const QPointF centre = edit->mapToScene(QPointF(edit->width() / 2, edit->height() / 2));
+        QTest::mouseClick(shell.window(), Qt::LeftButton, Qt::NoModifier, centre.toPoint());
+        QTRY_VERIFY(shell.item(QStringLiteral("settingsTab_goal"))->property("current").toBool());
+        QQuickItem *field = shell.item(QStringLiteral("baselineField"));
+        QVERIFY(field);
+        QVERIFY(!field->isEnabled());
+
+        shell.backend.held(QStringLiteral("GetDashboardStats"))->succeed(dashboard(2000, 640));
+        QTRY_VERIFY(field->isEnabled());
+        QTRY_VERIFY(field->hasActiveFocus());
+        QCOMPARE(field->property("selectedText").toString(), QStringLiteral("640"));
+    }
+
+    // 业主决定（2026-10-04）：首次启动直接进入基数引导，「这个软件做什么、不做什么」
+    // 不再在启动时弹出，也不再需要勾选确认。设置文件里留着旧的确认记录（或没有）都
+    // 不影响这一点。
+    void theFirstStartGoesStraightToTheBaselineGuide()
+    {
+        Shell shell;
+        shell.firstStart = true;
+        shell.settings.setFirstRunCompleted(false);
+        // What a settings file that never confirmed the explanation holds.
+        shell.settings.setValue(QStringLiteral("ui/disclosure_acknowledged_version"), 0);
+        const auto restore = qScopeGuard([&shell] { shell.settings.setFirstRunCompleted(true); });
+        QVERIFY2(shell.create(), qPrintable(shell.errors));
+        QObject *guide = shell.named(QStringLiteral("baselineDialog"));
+        QObject *explanation = shell.named(QStringLiteral("disclosureDialog"));
+        QVERIFY(guide);
+        QVERIFY(explanation);
+        QTRY_VERIFY(guide->property("visible").toBool());
+        QTest::qWait(100);
+        QVERIFY(!explanation->property("visible").toBool());
+        QVERIFY(guide->property("visible").toBool());
+        QVERIFY(!guide->property("reopened").toBool());
+    }
+
+    // The explanation is an ordinary information window opened from 设置 · 关于:
+    // no switch to tick, nothing to confirm, one 关闭. The tab no longer reports a
+    // confirmation either.
+    void theExplanationIsAnInformationWindowInTheAboutTab()
+    {
+        Shell shell;
+        QVERIFY2(shell.create(), qPrintable(shell.errors));
+        shell.controller->navigate(5);
+        auto *tab = shell.item(QStringLiteral("settingsTab_about"));
+        QVERIFY(tab);
+        QVERIFY(QMetaObject::invokeMethod(tab, "clicked"));
+        QTRY_VERIFY(shell.item(QStringLiteral("aboutExplanationButton"))
+                    && shell.item(QStringLiteral("aboutExplanationButton"))->isVisible());
+        const QString about = shell.visibleTexts().join(QLatin1Char('\n'));
+        QVERIFY2(!about.contains(QString::fromUtf8("首次运行说明")), qPrintable(about));
+        QVERIFY2(!about.contains(QString::fromUtf8("已确认 ·")), qPrintable(about));
+        QVERIFY2(!about.contains(QString::fromUtf8("未确认")), qPrintable(about));
+
+        QVERIFY(shell.click(QStringLiteral("aboutExplanationButton")));
+        QObject *explanation = shell.named(QStringLiteral("disclosureDialog"));
+        QVERIFY(explanation);
+        QTRY_VERIFY(explanation->property("visible").toBool());
+        const QString window = shell.visibleTexts().join(QLatin1Char('\n'));
+        QVERIFY2(window.contains(QString::fromUtf8("这个软件做什么、不做什么")), qPrintable(window));
+        QVERIFY2(!window.contains(QString::fromUtf8("我已阅读并理解")), qPrintable(window));
+        QVERIFY2(!window.contains(QString::fromUtf8("我已了解")), qPrintable(window));
+        QVERIFY2(!window.contains(QString::fromUtf8("请先读完")), qPrintable(window));
+        // It names the place it is opened from, not one that does not exist.
+        QVERIFY2(window.contains(QString::fromUtf8("「设置 → 关于」中点「查看软件说明」")), qPrintable(window));
+        QVERIFY2(!window.contains(QString::fromUtf8("设置 → 隐私与边界")), qPrintable(window));
+        QQuickItem *close = shell.item(QStringLiteral("disclosureCloseButton"));
+        QVERIFY(close);
+        QCOMPARE(close->property("text").toString(), QString::fromUtf8("关闭"));
+        QVERIFY(close->isEnabled());
+        QVERIFY(shell.click(QStringLiteral("disclosureCloseButton")));
+        QTRY_VERIFY(!explanation->property("visible").toBool());
     }
 
     // 审查 OK-8：关于页把 C# 枚举名 FfxivTcp 与决策编号 DEC-OODLE-01 直接给玩家看。

@@ -118,12 +118,15 @@ set(MR_CPP_SOURCES
     cpp/IpcClient.h
     cpp/IpcFraming.cpp
     cpp/IpcFraming.h
+    cpp/InstallerVerifier.cpp
+    cpp/InstallerVerifier.h
     cpp/JobCatalog.cpp
     cpp/JobCatalog.h
     cpp/MockBackend.cpp
     cpp/MockBackendCandidates.cpp
     cpp/MockBackendShared.cpp
     cpp/MockBackendSpeech.cpp
+    cpp/MockBackendUpdate.cpp
     cpp/MockBackend.h
     cpp/MockBackendStats.cpp
     cpp/MockData.h
@@ -215,6 +218,7 @@ set(MR_QML_FILES
     qml/components/PageHost.qml
     qml/components/ToggleSwitch.qml
     qml/components/TrendBars.qml
+    qml/components/UpdateDownloadStatus.qml
     qml/components/UpdateNotice.qml
     qml/dialogs/BaselineDialog.qml
     qml/dialogs/DisclosureDialog.qml

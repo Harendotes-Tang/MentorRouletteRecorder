@@ -25,6 +25,8 @@
 #include <QList>
 #include <QString>
 
+class QTimer;
+
 namespace mr {
 
 class MockBackend : public IBackend
@@ -110,6 +112,29 @@ public:
     /// version and the page it names are synthetic; nothing is ever fetched.
     void setUpdateAvailable(bool available);
     bool updateAvailable() const { return m_updateAvailable; }
+
+    /// 下载并安装 (MockBackendUpdate.cpp): StartUpdateDownload and
+    /// CancelUpdateDownload against a simulated download that never touches the
+    /// network. It declares kMockInstallerBytes, counts up in eight steps of
+    /// setUpdateDownloadStepMs(), verifies for one more and is READY with a small
+    /// synthetic file under <dataDirectory()>/updates/ - not a program, and in a
+    /// folder the Desktop's own check refuses unless a test points it there.
+    /// false: an older Collector - no `download` object, both messages refused.
+    void setUpdateDownloadSupported(bool supported) { m_updateDownloadSupported = supported; }
+    bool updateDownloadSupported() const { return m_updateDownloadSupported; }
+    /// A held state for screenshots and tests: "downloading" (45 %), "verifying",
+    /// "ready" or "failed". Also makes a newer version known. A held download
+    /// does not advance until it is started again or cancelled.
+    void setUpdateDownloadFixture(const QString &state);
+    static bool isUpdateDownloadFixture(const QString &state);
+    void setUpdateDownloadStepMs(int milliseconds);
+    /// StartUpdateDownload / CancelUpdateDownload requests answered, and the
+    /// payload of the last StartUpdateDownload.
+    int startUpdateDownloadCount() const { return m_startUpdateDownloadCount; }
+    QJsonObject lastStartUpdateDownload() const { return m_lastStartUpdateDownload; }
+    int cancelUpdateDownloadCount() const { return m_cancelUpdateDownloadCount; }
+    /// The size the simulated server declares.
+    static constexpr qint64 kMockInstallerBytes = 60 * 1024 * 1024;
     /// The `changes` object of the last accepted UpdateCaptureSettings, so a
     /// test can pin what a switch actually put on the wire.
     QJsonObject lastCaptureSettingsUpdate() const { return m_lastCaptureSettingsUpdate; }
@@ -225,6 +250,18 @@ private:
                                     QString *errorMessage);
     QJsonObject synthesizePayload(const QJsonObject &payload, QString *errorCode,
                                   QString *errorMessage, QJsonObject *errorDetails);
+    // -- 下载并安装 (MockBackendUpdate.cpp) ----------------------------------
+    static bool isUpdateDownloadMessage(const QString &messageType);
+    /// {update: $defs/UpdateStatus} after one of the two messages.
+    QJsonObject applyUpdateDownload(const QString &messageType, const QJsonObject &payload);
+    /// $defs/UpdateDownload as it stands.
+    QJsonObject updateDownload() const;
+    /// One simulated step: bytes arrive, then the check, then READY.
+    void advanceUpdateDownload();
+    /// READY with a freshly written synthetic file, or FAILED / DISK_FAILED.
+    void finishUpdateDownload();
+    void failUpdateDownload(const QString &failure, const QString &message);
+    QString mockInstallerPath() const;
     QJsonObject captureValidationStatus() const;
     /// $defs/CaptureSettings, defaulted the way a fresh Collector would.
     QJsonObject captureSettings() const;
@@ -284,6 +321,20 @@ private:
     bool m_capturing = true;
     bool m_midstreamSuspected = false;
     bool m_updateAvailable = false;
+    bool m_updateDownloadSupported = true;
+    /// $defs/UpdateDownload.state, and the rest of the simulated download.
+    QString m_updateDownloadState = QStringLiteral("IDLE");
+    qint64 m_updateReceivedBytes = 0;
+    QString m_updateFilePath;
+    QString m_updateSha256;
+    QString m_updateFailure;
+    QString m_updateMessage;
+    /// Steps the simulated download; stopped while a fixture holds it.
+    QTimer *m_updateDownloadTimer = nullptr;
+    int m_updateDownloadStepMs = 150;
+    int m_startUpdateDownloadCount = 0;
+    int m_cancelUpdateDownloadCount = 0;
+    QJsonObject m_lastStartUpdateDownload;
     QJsonObject m_lastCaptureSettingsUpdate;
     int m_discardCalibrationCount = 0;
     QJsonObject m_lastDiscardCalibration;

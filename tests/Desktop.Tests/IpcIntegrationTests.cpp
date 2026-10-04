@@ -343,7 +343,7 @@ void IpcIntegrationTests::getVersionMatchesTheContract()
     const Outcome status = await(m_backend->getStatus());
     QVERIFY(status.ok);
     QVERIFY(status.payload.value(QStringLiteral("database_ready")).toBool());
-    // The two DEC-OODLE-01 disclosures the first-run page renders.
+    // The two DEC-OODLE-01 disclosures 设置 · 关于 and the explanation window render.
     QVERIFY(status.payload.contains(QStringLiteral("oodle_mode")));
     QVERIFY(status.payload.contains(QStringLiteral("reads_game_executable")));
     // Boundary constants, reported so the user can verify them at runtime.

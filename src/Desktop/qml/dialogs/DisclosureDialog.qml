@@ -4,29 +4,27 @@ import QtQuick.Layouts
 import MentorRecorder
 
 // ---------------------------------------------------------------------------
-// 首次运行说明 (DEC-OODLE-01, docs/privacy-boundary.md §4.1, §8.2)
+// 这个软件做什么、不做什么 (DEC-OODLE-01, docs/privacy-boundary.md §4.1, §8.2)
 //
-// Shown before the baseline dialog on a first run, and re-openable from the
-// settings page. The UI must state that the default decompressor reads a copy
-// of the game executable, and must name every kind of network request the
-// Collector can send - the shared-calibration download (on by default), online
-// speech (opt-in, docs/privacy-boundary.md §8.3) and the update check (on by
-// default, docs/privacy-boundary.md §8.4) - together with how to turn each off.
-// Online speech does not raise the disclosure version: it is opt-in and asks
-// for its own confirmation when chosen. The update check does, because the
-// previous text ruled it out in so many words.
+// An ordinary information window, opened from 设置 · 关于: nothing to tick,
+// nothing to confirm, one 关闭. Until 2026-10-04 it was the first thing a new
+// user had to confirm; the owner decided that a first start goes straight to
+// the baseline question instead. The window must state that the default
+// decompressor reads a copy of the game executable, and must name every kind of
+// network request the Collector can send - the shared-calibration download (on
+// by default), online speech (opt-in, docs/privacy-boundary.md §8.3) and the
+// update check (on by default, docs/privacy-boundary.md §8.4) together with the
+// installer download the user asks for (§8.6) - and how to turn each off.
 //
 // The live values (oodle_mode, reads_game_executable) come from GetStatus, so
 // the page states what this machine does rather than what the default is.
 //
-// Only the notes scroll; the acknowledgement stays put, because the page is
-// taller than a 720 px window and a button below the edge cannot be pressed.
+// Only the notes scroll; 关闭 stays put, because the page is taller than a
+// 720 px window and a button below the edge cannot be pressed.
 // ---------------------------------------------------------------------------
 Dialog {
     id: dialog
     objectName: "disclosureDialog"
-
-    signal acknowledged()
 
     modal: true
     // Qt Basic's backdrop in eorzea, workbench's .dialog-backdrop in classic.
@@ -34,7 +32,7 @@ Dialog {
     width: 640
     height: Math.min(implicitHeight, (dialog.parent ? dialog.parent.height : implicitHeight) - 32)
     padding: 20
-    closePolicy: Popup.NoAutoClose
+    closePolicy: Popup.CloseOnEscape
 
     background: DialogFrame {}
 
@@ -46,10 +44,7 @@ Dialog {
         NumberAnimation { property: "opacity"; from: 1; to: 0; duration: Theme.motionFast }
     }
 
-    property bool understood: false
-
     function openDialog() {
-        understood = false
         notesView.contentY = 0
         open()
     }
@@ -79,7 +74,7 @@ Dialog {
                 width: notesView.width - Theme.scrollGutter
                 spacing: 12
 
-                CardKicker { text: qsTr("首次运行说明 · 请先读完") }
+                CardKicker { text: qsTr("隐私与边界") }
 
                 HeadingLabel {
                     Layout.fillWidth: true
@@ -165,10 +160,13 @@ Dialog {
                                        + "取回读音在本机播放。密钥只保存在本机并由 Windows 加密。改回本机语音就不再发送。")
                         },
                         {
-                            title: qsTr("联网三：检查新版本（默认开启，可关）"),
+                            title: qsTr("联网三：检查新版本（默认开启，可关），以及你要求时下载新版本"),
                             body: qsTr("每天最多一次，后台进程从本项目公开的 GitHub 发布页读取一个只含版本号的小文件，"
-                                       + "有新版本时在总览页提示一句。请求里不带账号、安装编号或任何能认出你的信息，"
-                                       + "GitHub 与 CDN 能看到请求来自哪个 IP 地址。本软件从不自动下载、也从不安装新版本："
+                                       + "有新版本时在总览页提示一句。只有在你点「下载并安装」之后，后台进程才会从本项目的"
+                                       + "发布页下载新版本的安装程序，并与发布时公布的校验值核对，一致才保留；安装程序只有在"
+                                       + "你再点「立即安装」时才会启动，本软件随即关闭，由安装程序完成更新。"
+                                       + "请求里不带账号、安装编号或任何能认出你的信息，"
+                                       + "GitHub 与 CDN 能看到请求来自哪个 IP 地址。本软件从不自行下载或安装新版本："
                                        + "要不要更新、什么时候更新都由你自己决定。不想要可以在「设置 → 通用 → 更新」关掉"
                                        + "「检查新版本并提示」。")
                         }
@@ -216,38 +214,19 @@ Dialog {
             Layout.fillWidth: true
             spacing: 10
 
-            ToggleSwitch {
-                id: understoodSwitch
-                checked: dialog.understood
-                onToggled: function(value) { dialog.understood = value }
-            }
-
             Text {
                 Layout.fillWidth: true
-                text: qsTr("我已阅读并理解上述说明，特别是「会读取游戏可执行文件的一份副本」这一条。")
-                color: Theme.textPrimary
-                font.pixelSize: Theme.fs(12)
-                wrapMode: Text.WordWrap
-            }
-        }
-
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: 10
-
-            Text {
-                Layout.fillWidth: true
-                text: qsTr("此说明可随时在「设置 → 隐私与边界」重新打开。")
+                text: qsTr("此说明可随时在「设置 → 关于」中点「查看软件说明」重新打开。")
                 color: Theme.textSecondary
                 font.pixelSize: Theme.fs(11)
                 wrapMode: Text.WordWrap
             }
 
             AppButton {
+                objectName: "disclosureCloseButton"
                 variant: "primary"
-                text: qsTr("我已了解")
-                enabled: dialog.understood
-                onClicked: dialog.acknowledged()
+                text: qsTr("关闭")
+                onClicked: dialog.close()
             }
         }
     }

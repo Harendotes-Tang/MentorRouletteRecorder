@@ -162,6 +162,12 @@ QJsonObject argsFor(const QString &messageType)
         // No arguments: $defs/EmptyPayload. The committed sample was written on
         // the Collector side first (tests/Fixtures/README.md); this wrapper must
         // produce exactly that payload.
+    } else if (messageType == QLatin1String("StartUpdateDownload")) {
+        // The one optional field set, so the sample pins its name: the maintainer
+        // tools' 重新下载最新正式版. 下载并安装 itself sends {} (the default false).
+        args.insert(QStringLiteral("reinstall"), true);
+    } else if (messageType == QLatin1String("CancelUpdateDownload")) {
+        // No arguments: $defs/EmptyPayload.
     } else if (messageType == QLatin1String("GetSpeechSettings")) {
         // {}: the Collector side wrote this sample first (tests/Fixtures/README.md).
     } else if (messageType == QLatin1String("UpdateSpeechSettings")) {
@@ -256,6 +262,8 @@ QStringList allMessageTypes()
         QStringLiteral("UpdateSpeechSettings"),
         QStringLiteral("SynthesizeSpeech"),
         QStringLiteral("CheckUpdateNow"),
+        QStringLiteral("StartUpdateDownload"),
+        QStringLiteral("CancelUpdateDownload"),
     };
 }
 

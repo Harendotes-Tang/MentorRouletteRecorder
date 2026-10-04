@@ -49,6 +49,12 @@ void TrayController::requestQuit()
     g_quitRequested = true;
 }
 
+void TrayController::quitApplication()
+{
+    requestQuit();
+    QCoreApplication::quit();
+}
+
 TrayController::TrayController(AppController *controller, AppSettings *settings,
                                QWindow *window, QObject *parent)
     : QObject(parent)
@@ -71,10 +77,7 @@ TrayController::TrayController(AppController *controller, AppSettings *settings,
 
     m_menu->addSeparator();
     QAction *quitAction = m_menu->addAction(QString::fromUtf8("退出"));
-    connect(quitAction, &QAction::triggered, this, [] {
-        requestQuit();
-        QCoreApplication::quit();
-    });
+    connect(quitAction, &QAction::triggered, this, [] { quitApplication(); });
 
     m_tray = new QSystemTrayIcon(this);
     m_tray->setIcon(fallbackIcon());
@@ -120,8 +123,7 @@ bool TrayController::eventFilter(QObject *watched, QEvent *event)
     // 关闭时最小化到托盘 is off: closing the window ends the process. Quitting
     // explicitly is what runs the destructors that stop the Collector child,
     // so a closed window never leaves an orphaned server behind.
-    requestQuit();
-    QCoreApplication::quit();
+    quitApplication();
     return QObject::eventFilter(watched, event);
 }
 

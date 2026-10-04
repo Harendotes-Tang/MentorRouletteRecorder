@@ -4,8 +4,8 @@ import QtQuick.Layouts
 import MentorRecorder
 
 // 设置 · 关于: version and licence, the privacy facts the Collector reports
-// (GetStatus.oodle_mode / reads_game_executable, DEC-OODLE-01), the first-run
-// disclosure and 版权与来源.
+// (GetStatus.oodle_mode / reads_game_executable, DEC-OODLE-01), the window
+// 这个软件做什么、不做什么 and 版权与来源.
 ColumnLayout {
     id: tab
 
@@ -13,12 +13,6 @@ ColumnLayout {
 
     Layout.fillWidth: true
     spacing: 16
-
-    readonly property string disclosureValue: App.disclosureAcknowledged
-        ? qsTr("已确认 · %1").arg(App.disclosureAcknowledgedAt
-                                  ? Fmt.localTime(App.disclosureAcknowledgedAt)
-                                  : qsTr("时间未知"))
-        : qsTr("未确认")
 
     SettingsPanel {
         objectName: "aboutSettingsCard"
@@ -45,8 +39,9 @@ ColumnLayout {
                 elide: Text.ElideRight
             }
 
-            // 有新版本时：「查看更新说明」打开发布页；「下载新版本」把安装程序的地址
-            // 交给系统浏览器，由浏览器下载（没有可用地址时改为打开发布页）。
+            // 有新版本时：「查看更新说明」打开发布页；旁边的按钮随下载的状态变成
+            // 「下载并安装」「取消」「立即安装」或「重试」（privacy-boundary.md §8.6）。
+            // 不支持软件内下载的后台进程仍是「下载新版本」，由系统浏览器下载。
             AppButton {
                 objectName: "aboutOpenReleasePageButton"
                 Layout.fillWidth: false
@@ -60,22 +55,28 @@ ColumnLayout {
             AppButton {
                 objectName: "aboutDownloadInstallerButton"
                 Layout.fillWidth: false
-                visible: App.update.updateAvailable
+                visible: App.update.downloadPhase.length > 0
                 compact: true
-                text: qsTr("下载新版本")
-                onClicked: App.update.openInstallerDownload()
+                text: App.update.downloadActionText
+                enabled: App.update.downloadActionEnabled
+                onClicked: App.update.downloadAction()
             }
 
-            // 没有新版本时，同一个位置是主动检查（privacy-boundary.md §8.4）。
+            // 没有可下载的新版本时，同一个位置是主动检查（privacy-boundary.md §8.4）。
             AppButton {
                 objectName: "aboutCheckUpdateButton"
                 Layout.fillWidth: false
-                visible: !App.update.updateAvailable
+                visible: App.update.downloadPhase.length === 0
                 compact: true
                 text: qsTr("检查更新")
                 enabled: App.update.canCheck
                 onClicked: App.update.checkNow()
             }
+        }
+
+        UpdateDownloadStatus {
+            namePrefix: "about"
+            Layout.fillWidth: true
         }
 
         FieldLabel {
@@ -85,7 +86,7 @@ ColumnLayout {
 
         GridLayout {
             Layout.fillWidth: true
-            columns: 3
+            columns: 2
             columnSpacing: 12
             rowSpacing: 12
 
@@ -101,18 +102,15 @@ ColumnLayout {
                 value: App.readsGameExecutable ? qsTr("是（读取磁盘上的一份副本）") : qsTr("否")
                 valueColor: App.readsGameExecutable ? Theme.orangeText : Theme.textPrimary
             }
-            FactTile {
-                objectName: "disclosureTile"
-                label: qsTr("首次运行说明")
-                value: tab.disclosureValue
-            }
         }
 
         RowLayout {
             Layout.fillWidth: true
             spacing: 8
+            // 这个软件做什么、不做什么：普通的说明窗口，只有「关闭」。
             AppButton {
-                text: qsTr("重新查看首次运行说明")
+                objectName: "aboutExplanationButton"
+                text: qsTr("查看软件说明")
                 onClicked: tab.openDisclosureRequested()
             }
             AppButton {

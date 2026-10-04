@@ -42,6 +42,12 @@ Item {
         scroll.contentY = 0
     }
 
+    // 总览成就卡片上的「修改」：成就页，光标放进安装前已完成次数。
+    function editBaseline() {
+        page.selectTab("goal")
+        goalTab.focusBaselineField()
+    }
+
     ColumnLayout {
         anchors.fill: parent
         spacing: 20
@@ -109,6 +115,8 @@ Item {
                         visible: page.currentTab === "tts"
                     }
                     SettingsGoalTab {
+                        id: goalTab
+
                         objectName: "settingsGoalTab"
                         visible: page.currentTab === "goal"
                         onOpenBaselineRequested: page.openBaselineRequested()

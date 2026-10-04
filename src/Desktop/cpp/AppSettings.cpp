@@ -89,52 +89,6 @@ void AppSettings::setFirstRunCompleted(bool completed)
 }
 
 // ---------------------------------------------------------------------------
-// First-run disclosure (DEC-OODLE-01)
-//
-// The acknowledgement is stored as the version of the text the user actually
-// saw. Raising kDisclosureVersion therefore re-shows the page instead of
-// silently carrying an acknowledgement of an older, different disclosure.
-// ---------------------------------------------------------------------------
-
-int AppSettings::disclosureVersion()
-{
-    return kDisclosureVersion;
-}
-
-int AppSettings::acknowledgedDisclosureVersion() const
-{
-    return m_settings.value(QStringLiteral("ui/disclosure_acknowledged_version"), 0).toInt();
-}
-
-bool AppSettings::disclosureAcknowledged() const
-{
-    return acknowledgedDisclosureVersion() >= kDisclosureVersion;
-}
-
-QString AppSettings::disclosureAcknowledgedAt() const
-{
-    return m_settings.value(QStringLiteral("ui/disclosure_acknowledged_at"), QString())
-        .toString();
-}
-
-void AppSettings::acknowledgeDisclosure(const QString &utcTimestamp)
-{
-    m_settings.setValue(QStringLiteral("ui/disclosure_acknowledged_version"),
-                        kDisclosureVersion);
-    m_settings.setValue(QStringLiteral("ui/disclosure_acknowledged_at"), utcTimestamp);
-    m_settings.sync();
-    Q_EMIT disclosureChanged();
-}
-
-void AppSettings::resetDisclosureAcknowledgement()
-{
-    m_settings.remove(QStringLiteral("ui/disclosure_acknowledged_version"));
-    m_settings.remove(QStringLiteral("ui/disclosure_acknowledged_at"));
-    m_settings.sync();
-    Q_EMIT disclosureChanged();
-}
-
-// ---------------------------------------------------------------------------
 // 通用
 // ---------------------------------------------------------------------------
 
