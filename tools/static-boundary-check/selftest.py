@@ -88,6 +88,8 @@ SAMPLES: dict[str, str] = {
     "NET-009/downloads": "        Invoke-WebRequest -Uri $url -OutFile $target",
     "NET-009/qml-remote": '        banner.source = "https://example.invalid/banner.png"',
     "NET-009/shell-commands": "curl -fsSL $url -o $target",
+    "NET-009/xml-loads": '        var feed = XDocument.Load("https://example.invalid/feed.xml");',
+    "NET-010": "import urllib.request",
     "AUT-001": "        SendInput(1, ref input, Marshal.SizeOf(input));",
 }
 
@@ -96,6 +98,7 @@ SAMPLES: dict[str, str] = {
 SAMPLE_SITES: dict[str, str] = {
     "NET-009/qml-remote": "src/Desktop/qml/Sample.qml",
     "NET-009/shell-commands": "scripts/sample.ps1",
+    "NET-010": "tools/some-tool/sample.py",
 }
 
 # Every further alternative of a rule's pattern, each with the rule key that must report it and
@@ -106,6 +109,7 @@ SAMPLE_SITES: dict[str, str] = {
 CPP_SITE = "src/Desktop/cpp/Sample.cpp"
 PS1_SITE = "scripts/sample.ps1"
 QML_SITE = "src/Desktop/qml/Sample.qml"
+PY_SITE = "tools/some-tool/sample.py"
 MORE_SAMPLES: tuple[tuple[str, str, str], ...] = (
     ("INJ-001", "        Toolhelp32ReadProcessMemory(processId, address, buffer, size, out _);", DEFAULT_SITE),
     ("INJ-001", "        NtReadVirtualMemory(handle, address, buffer, size, out _);", DEFAULT_SITE),
@@ -180,6 +184,32 @@ MORE_SAMPLES: tuple[tuple[str, str, str], ...] = (
     ("INJ-009", "        if (game is { MinWorkingSet: var least }) { }", DEFAULT_SITE),
     ("INJ-009", "        if (game is { Handle: var raw }) { }", DEFAULT_SITE),
     ("INJ-009", "        if (game is { ExitCode: 0 }) { }", DEFAULT_SITE),
+    # S33-9: a PowerShell pipeline names the member without a dot. A process source on the line
+    # (Get-Process, gps, ps, [Process]::GetProcesses*) and, after a later '|', a cmdlet that reads
+    # or calls a member by name, in any letter case; one row per member, cmdlet and source.
+    ("INJ-009", "$started = Get-Process -Name ffxiv_dx11 | Select-Object StartTime", PS1_SITE),
+    ("INJ-009", "Get-Process ffxiv_dx11 | Select-Object -First 1 -ExpandProperty ExitTime", PS1_SITE),
+    ("INJ-009", "Get-Process | Select-Object -Property Id,SafeHandle", PS1_SITE),
+    ("INJ-009", "gps ffxiv_dx11 | ForEach-Object Handle", PS1_SITE),
+    ("INJ-009", "Get-Process | Where-Object HasExited", PS1_SITE),
+    ("INJ-009", "get-process | where exitcode -ne 0", PS1_SITE),
+    ("INJ-009", "Get-Process | ? EnableRaisingEvents", PS1_SITE),
+    ("INJ-009", "Get-Process | Group-Object PriorityClass", PS1_SITE),
+    ("INJ-009", "ps | sort PriorityBoostEnabled", PS1_SITE),
+    ("INJ-009", "Get-Process | Format-Table Id, ProcessorAffinity", PS1_SITE),
+    ("INJ-009", "Get-Process | Sort-Object TotalProcessorTime -Descending", PS1_SITE),
+    ("INJ-009", "Get-Process | Measure-Object -Property UserProcessorTime", PS1_SITE),
+    ("INJ-009", "Get-Process | Format-List Name, PrivilegedProcessorTime", PS1_SITE),
+    ("INJ-009", "Get-Process | ft Name, MaxWorkingSet", PS1_SITE),
+    ("INJ-009", "Get-Process | fl MinWorkingSet", PS1_SITE),
+    ("INJ-009", "Get-Process ffxiv_dx11 | ForEach-Object -MemberName WaitForExit -ArgumentList 1000", PS1_SITE),
+    ("INJ-009", "Get-Process ffxiv_dx11 | foreach WaitForExitAsync", PS1_SITE),
+    ("INJ-009", "Get-Process ffxiv_dx11 | % WaitForInputIdle", PS1_SITE),
+    ("INJ-009", "[System.Diagnostics.Process]::GetProcessesByName('ffxiv_dx11') | % Kill", PS1_SITE),
+    ("INJ-009", "$game = Get-Process -Name ffxiv_dx11; $game | Select-Object 'StartTime'", PS1_SITE),
+    # ...and the same pipeline handed to PowerShell in a string is still the same handle.
+    ("INJ-009", '        Run("powershell", "-Command \\"Get-Process ffxiv_dx11 | Select-Object StartTime\\"");',
+     DEFAULT_SITE),
     ("DEU-001", "        var monitor = Configure(UseDeucalion: true);", DEFAULT_SITE),
     ("DEU-001", "        monitor.UseDeucalion = 1;", DEFAULT_SITE),
     ("DEU-001", "        $monitor.UseDeucalion = $true", PS1_SITE),
@@ -234,6 +264,9 @@ MORE_SAMPLES: tuple[tuple[str, str, str], ...] = (
     ("NET-006", "        HttpSendRequestA(request, nullptr, 0, nullptr, 0);", CPP_SITE),
     ("NET-006", "        URLDownloadToFileW(nullptr, url, target, 0, nullptr);", CPP_SITE),
     ("NET-006", "        URLOpenBlockingStreamW(nullptr, url, &stream, 0, nullptr);", CPP_SITE),
+    # S33-9: PowerShell's [xml] cast of a download needs no rule of its own; the download in it
+    # trips NET-006 or NET-009 (see also the NET-009 rows below).
+    ("NET-006", "[xml]$feed = (New-Object System.Net.WebClient).DownloadString($url)", PS1_SITE),
     ("NET-008", "        using var client = new UdpClient(5000);", DEFAULT_SITE),
     ("NET-008", "        using var raw = new Socket(family, SocketType.Stream, ProtocolType.Tcp);", DEFAULT_SITE),
     ("NET-008", "        auto *socket = new QTcpSocket(this);", CPP_SITE),
@@ -274,6 +307,7 @@ MORE_SAMPLES: tuple[tuple[str, str, str], ...] = (
     # V5-6: C++ handing the QML engine a remote address.
     ("NET-009/downloads", '    engine.load(QUrl(QStringLiteral("https://example.invalid/Main.qml")));', CPP_SITE),
     ("NET-009/downloads", '    view.setSource(QUrl("https://example.invalid/Main.qml"));', CPP_SITE),
+    ("NET-009/downloads", "$feed = [xml](Invoke-WebRequest -Uri $url -UseBasicParsing).Content", PS1_SITE),
     ("NET-009/qml-remote", "        image.source = 'https://example.invalid/banner.png'", QML_SITE),
     ("NET-009/qml-remote", 'import "https://example.invalid/qml/Remote" 1.0', QML_SITE),
     # V5-6: a remote address in a url property, Qt.resolvedUrl or Qt.include.
@@ -309,6 +343,50 @@ MORE_SAMPLES: tuple[tuple[str, str, str], ...] = (
     ("NET-009/shell-commands", '& "C:\\Program Files\\Git\\mingw64\\bin\\curl.exe" -L $url', PS1_SITE),
     ("NET-009/shell-commands", "C:\\Windows\\System32\\curl.exe -L %URL% -o x", "scripts/sample.bat"),
     ("NET-009/shell-commands", "/usr/bin/wget $url", "scripts/sample.sh"),
+    ("NET-009/shell-commands", "$feed = [xml](iwr $url)", PS1_SITE),
+    # S33-9: an XML reader handed a remote address downloads it. '.Load(' / ']::Load(' with an
+    # http(s) literal first (XmlDocument, XDocument, XElement, PowerShell, MSXML in Pascal),
+    # XmlReader.Create with one, and XmlTextReader / XPathDocument whose first literal is one.
+    ("NET-009/xml-loads", '        document.Load("https://example.invalid/duties.xml");', DEFAULT_SITE),
+    ("NET-009/xml-loads", '        var root = XElement.Load(@"http://example.invalid/feed.xml");', DEFAULT_SITE),
+    ("NET-009/xml-loads", '        var feed = XDocument.Load(uri: $"https://{host}/feed.xml");', DEFAULT_SITE),
+    ("NET-009/xml-loads", "$doc.Load('https://example.invalid/feed.xml')", PS1_SITE),
+    ("NET-009/xml-loads", "$doc = [xml]::new(); $doc.load('HTTPS://example.invalid/feed.xml')", PS1_SITE),
+    ("NET-009/xml-loads", "$feed = [System.Xml.Linq.XDocument]::Load('https://example.invalid/feed.xml')", PS1_SITE),
+    ("NET-009/xml-loads", '        using var reader = XmlReader.Create("https://example.invalid/feed.xml", settings);',
+     DEFAULT_SITE),
+    ("NET-009/xml-loads", "$reader = [System.Xml.XmlReader]::Create('https://example.invalid/feed.xml')", PS1_SITE),
+    ("NET-009/xml-loads", '        using var reader = new XmlTextReader("https://example.invalid/feed.xml");',
+     DEFAULT_SITE),
+    ("NET-009/xml-loads", "$reader = New-Object System.Xml.XmlTextReader 'https://example.invalid/feed.xml'",
+     PS1_SITE),
+    ("NET-009/xml-loads", '        var document = new XPathDocument("https://example.invalid/feed.xml");',
+     DEFAULT_SITE),
+    ("NET-009/xml-loads", "  XmlDoc.load('https://example.invalid/feed.xml');", "installer/Sample.iss"),
+    # S33-9: a Python file that imports a network module or calls into one (NET-010 reads .py only).
+    ("NET-010", "from urllib.request import urlopen, Request", PY_SITE),
+    ("NET-010", "import urllib3", PY_SITE),
+    ("NET-010", "import http.client as client", PY_SITE),
+    ("NET-010", "import json, requests", PY_SITE),
+    ("NET-010", "from httpx import AsyncClient", PY_SITE),
+    ("NET-010", "import aiohttp", PY_SITE),
+    ("NET-010", "import socket", PY_SITE),
+    ("NET-010", "from ftplib import FTP_TLS", PY_SITE),
+    ("NET-010", "import smtplib", PY_SITE),
+    ("NET-010", "import poplib", PY_SITE),
+    ("NET-010", "import imaplib", PY_SITE),
+    ("NET-010", "import nntplib", PY_SITE),
+    ("NET-010", "import telnetlib", PY_SITE),
+    ("NET-010", "from xmlrpc.client import ServerProxy", PY_SITE),
+    ("NET-010", "import websockets", PY_SITE),
+    ("NET-010", '    requests = __import__("requests")', PY_SITE),
+    ("NET-010", '    client = importlib.import_module("http.client")', PY_SITE),
+    ("NET-010", "from urllib import request", PY_SITE),
+    ("NET-010", "from http import HTTPStatus, client", PY_SITE),
+    ("NET-010", "from xmlrpc import client as rpc", PY_SITE),
+    ("NET-010", "    body = generate.urllib.request.urlopen(url).read()", PY_SITE),
+    ("NET-010", '    print("fetching"); urllib.request.urlretrieve(url, target)', PY_SITE),
+    ("NET-010", "    print('connecting'); reader, writer = await asyncio.open_connection(host, 443)", PY_SITE),
     ("AUT-001", "        keybd_event(key, 0, 0, 0);", DEFAULT_SITE),
     ("AUT-001", "        mouse_event(LeftDown, 0, 0, 0, 0);", DEFAULT_SITE),
     ("AUT-001", '        SendKeys.SendWait("{ENTER}");', DEFAULT_SITE),
@@ -380,6 +458,40 @@ LOOK_ALIKES: tuple[tuple[str, str], ...] = (
     ('    engine.loadFromModule("MentorRecorder", "Main");', "src/Desktop/cpp/Sample.cpp"),
     ('    property string help: "https://npcap.com/"', "src/Desktop/qml/Sample.qml"),
     ("        var host = new WebApplicationHostOptions();", DEFAULT_SITE),
+    # S33-9, INJ-009: the same member names on objects that are not processes, a process's
+    # members that open no handle, a comment, and a variable that only starts like the alias.
+    ("$runs | Sort-Object StartTime -Descending | Select-Object -First 1", "scripts/sample.ps1"),
+    ("$jobs | Where-Object HasExited | ForEach-Object ExitCode", "scripts/sample.ps1"),
+    ("Get-Process -Id $PID | Select-Object Id, ProcessName, Handles", "scripts/sample.ps1"),
+    ("# Get-Process | Sort-Object StartTime would open a handle to every process", "scripts/sample.ps1"),
+    ("$ps = [PowerShell]::Create(); $results | Sort-Object ExitCode", "scripts/sample.ps1"),
+    ("$orphans = @(Get-Process -Name 'MentorRecorder*' -ErrorAction SilentlyContinue)", "scripts/sample.ps1"),
+    # S33-9, NET-009/xml-loads: local files, a parsed string that names a namespace URI, an address
+    # that is not the reader's first literal, and loads of our own types.
+    ('        var duties = XDocument.Load("data/duties/cn.xml");', DEFAULT_SITE),
+    ('        var duties = XDocument.Load(Path.Combine(root, "duties.xml")); // see https://example.invalid/',
+     DEFAULT_SITE),
+    ('        var ssml = XDocument.Parse("<speak xmlns=\\"https://www.w3.org/2001/10/synthesis\\"/>");', DEFAULT_SITE),
+    ('        using var reader = new XmlTextReader(Path.Combine(dir, "feed.xml")); Log("https://example.invalid/");',
+     DEFAULT_SITE),
+    ("        using var reader = XmlReader.Create(new StringReader(xml), settings);", DEFAULT_SITE),
+    ("        var catalog = ProfileCatalog.Load(directory);", DEFAULT_SITE),
+    ("[xml]$trx = Get-Content -LiteralPath $Path -Raw -Encoding UTF8", "scripts/sample.ps1"),
+    ("$doc.Load($localPath)", "scripts/sample.ps1"),
+    # S33-9, NET-010: a test that fakes the download, names it in a string or a comment, an
+    # attribute that only shares a module's name, and modules that open no connection.
+    ("        self.requests = []", "tools/some-tool/test_sample.py"),
+    ('        with mock.patch("urllib.request.urlopen", side_effect=OSError("offline")):',
+     "tools/some-tool/test_sample.py"),
+    ('        with mock.patch.object(generate, "http_get", side_effect=fake_get):', "tools/some-tool/test_sample.py"),
+    ("    def fake_urlopen(url, timeout=60):", "tools/some-tool/test_sample.py"),
+    ('        self.assertIn("urlopen(", source)', "tools/some-tool/test_sample.py"),
+    ("# urlopen(url) runs in the duty-data generator only", "tools/some-tool/sample.py"),
+    ("import urllib.parse", "tools/some-tool/sample.py"),
+    ("from urllib.parse import urlencode", "tools/some-tool/sample.py"),
+    ("from http import HTTPStatus", "tools/some-tool/sample.py"),
+    ("import ssl, hashlib", "tools/some-tool/sample.py"),
+    ("import requests", "tools/some-tool/notes.txt"),
 )
 
 # The exclusions, pinned (audit 2026-10-03, R2T-1). A name here is skipped at any depth, so it
@@ -1404,6 +1516,60 @@ def cases() -> Iterable[tuple[str, callable]]:
             expect_reported(root, f"Kill on the marked line of {installer}", "INJ-009", pins=pin_download)
 
     yield "the installer's marked line is still checked by every other rule", installer_marker_lifts_one_rule_only
+
+    # --- NET-010: the one Python file that downloads (audit 2026-10-03, S33-9) -------------------
+    # The duty-data generator downloads public game data at development time and is allowed by exact
+    # path; its tests, its siblings, the shared-calibration tools and a look-alike path are not, and
+    # the allowance lifts NET-010 only.
+    generator = "tools/duty-data-generator/generate.py"
+    generator_lines = ("import urllib.request\n"
+                       "    with urllib.request.urlopen(request, timeout=timeout, context=context) as response:")
+
+    def generator_is_allowed() -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            clean_tree(root)
+            plant(root, generator, generator_lines)
+            expect_clean(root, f"NET-010 in {generator}")
+
+    yield "NET-010 allows the duty-data generator by exact path", generator_is_allowed
+
+    for elsewhere in (
+        "tools/duty-data-generator/test_generate.py",
+        "tools/duty-data-generator/fetch.py",
+        "tools/other/duty-data-generator/generate.py",
+        "tools/shared-calibration/publish.py",
+        "scripts/generate.py",
+    ):
+
+        def python_download_elsewhere(elsewhere: str = elsewhere) -> None:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                clean_tree(root)
+                plant(root, elsewhere, generator_lines)
+                expect_violation(root, f"a Python download in {elsewhere}", "NET-010")
+
+        yield f"NET-010 still rejects {elsewhere}", python_download_elsewhere
+
+    def generator_allowance_lifts_one_rule_only() -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            clean_tree(root)
+            plant(root, generator, "    raw = socket.socket(socket.AF_INET, socket.SOCK_STREAM)")
+            expect_violation(root, f"a raw socket in {generator}", "NET-008")
+
+    yield "the duty-data generator is still checked by every other rule", generator_allowance_lifts_one_rule_only
+
+    def python_rule_reads_python_only() -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            clean_tree(root)
+            plant(root, "tools/some-tool/notes.txt", "import urllib.request")
+            expect_clean(root, "a Python import in a .txt file")
+            plant(root, "tools/some-tool/fetch.py", "import urllib.request")
+            expect_violation(root, "a Python import in a .py file", "NET-010")
+
+    yield "NET-010 reads Python files only", python_rule_reads_python_only
 
     # --- variants: one id, several entries, each with its own pattern and allowances ----
     def variant_rules(mutate) -> dict:

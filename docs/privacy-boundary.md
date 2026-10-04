@@ -28,13 +28,13 @@
 | 1 | 不做 ACT / Dalamud 插件，不以插件形态挂载到任何第三方宿主 | 人工评审 |
 | 2 | 不进行进程注入 | `INJ-*` |
 | 3 | 不读写其他进程的内存、不在其中分配内存或修改内存保护、不创建远程线程或投递 APC、不安装窗口钩子：`ReadProcessMemory` / `WriteProcessMemory` / `VirtualAllocEx` / `VirtualProtectEx` / `CreateRemoteThread` / `QueueUserAPC` / `SetWindowsHookEx`，以及对应的 `Nt*` / `Zw*` 原语、`RtlCreateUserThread` 与转储进程内存的 `MiniDumpWriteDump` | `INJ-001`…`INJ-006` |
-| 3b | 不打开游戏进程或其线程的句柄：不调用 `OpenProcess`（含 `NtOpenProcess` / `ZwOpenProcess`）/ `OpenThread`（含 `NtOpenThread` / `ZwOpenThread`）/ 按窗口取进程句柄的 `GetProcessHandleFromHwnd` / 逐个打开进程的 `NtGetNextProcess`（含 `ZwGetNextProcess`）/ `DebugActiveProcess` / `Process.EnterDebugMode`，不使用内部会打开目标进程句柄的 `Process` 成员（`MainModule` / `Modules`、`StartTime`、`HasExited`、`WaitForExit`、`Kill`、`Handle`、`Process.GetProcessById` 等；属性模式与对象初始化器中的写法同样拒绝）。涉及进程、窗口与网络的操作系统查询只允许下列几类，均不打开任何进程的句柄：内核进程表（`NtQuerySystemInformation` 的 `SystemProcessInformation` 快照读取进程编号、映像名与创建时间，`SystemProcessIdInformation` 读取单个进程的镜像路径）、系统 TCP 表（`GetExtendedTcpTable`）、系统路由表（`GetBestInterface`，与任何进程无关），以及桌面端在「点选游戏窗口」期间读取前台窗口所属的进程编号（`GetForegroundWindow` / `GetWindowThreadProcessId`）。本软件对自身进程的操作见 §2.1 | `INJ-007` `INJ-008` `INJ-009` |
+| 3b | 不打开游戏进程或其线程的句柄：不调用 `OpenProcess`（含 `NtOpenProcess` / `ZwOpenProcess`）/ `OpenThread`（含 `NtOpenThread` / `ZwOpenThread`）/ 按窗口取进程句柄的 `GetProcessHandleFromHwnd` / 逐个打开进程的 `NtGetNextProcess`（含 `ZwGetNextProcess`）/ `DebugActiveProcess` / `Process.EnterDebugMode`，不使用内部会打开目标进程句柄的 `Process` 成员（`MainModule` / `Modules`、`StartTime`、`HasExited`、`WaitForExit`、`Kill`、`Handle`、`Process.GetProcessById` 等；属性模式与对象初始化器中的写法同样拒绝，PowerShell 管道中不带点号点名这些成员的写法（`Get-Process \| Select-Object StartTime`、`ForEach-Object Kill` 等）也在其列）。涉及进程、窗口与网络的操作系统查询只允许下列几类，均不打开任何进程的句柄：内核进程表（`NtQuerySystemInformation` 的 `SystemProcessInformation` 快照读取进程编号、映像名与创建时间，`SystemProcessIdInformation` 读取单个进程的镜像路径）、系统 TCP 表（`GetExtendedTcpTable`）、系统路由表（`GetBestInterface`，与任何进程无关），以及桌面端在「点选游戏窗口」期间读取前台窗口所属的进程编号（`GetForegroundWindow` / `GetWindowThreadProcessId`）。本软件对自身进程的操作见 §2.1 | `INJ-007` `INJ-008` `INJ-009` |
 | 4 | 不发送任何数据包（`pcap_sendpacket` / `pcap_inject`、libpcap 的发送队列、Packet.dll 的 `PacketSendPacket`、SharpPcap 的 `SendPacket` / `SendQueue`），抓包严格只读 | `CAP-001` `CAP-002` |
 | 4b | 只用 Npcap/WinPCap 抓包实现，不用 raw socket 实现；不直接加载 pcap 原生库（`DllImport` / `LibraryImport` / `NativeLibrary.Load` / `LoadLibrary` / `QLibrary`），抓包只经由 SharpPcap 的 Npcap 设备 | `CAP-003` `CAP-004` `CAP-006` |
 | 4c | 不把原始报文写成抓包文件（`pcap_dump*`、SharpPcap 的 `CaptureFileWriterDevice`） | `CAP-005` |
 | 5 | 不做游戏自动化、不模拟输入（`SendInput` / `SendKeys` / `keybd_event` / `mouse_event`）、不向窗口投递消息（`PostMessage` / `SendMessage` 系列、`Process.CloseMainWindow`）、不代替玩家操作 | `AUT-001` |
 | 6 | 不做任何反检测、反封禁、隐藏自身、混淆特征的处理 | 人工评审 |
-| 7 | 无遥测、无使用统计、无崩溃上报；不自动下载更新、不自动安装更新，本软件从不替换自身的任何文件；运行时允许的出站请求只有三类：§8.2 的共享校准获取（只读下载）、§8.3 的在线语音合成（默认关闭，只发送本次要播报的文字），与 §8.4 的更新检查（默认开启，可关闭，只读取发布页上的版本号文件）。三类请求都只经由 HTTP 客户端发出，不直接使用套接字或域名解析接口；脚本与 QML 不自行下载或请求网络资源。唯一的另一处联网在安装程序中：本机没有 Npcap 时下载其官方安装程序（§8.5） | `NET-006` `NET-007` `NET-008` `NET-009` |
+| 7 | 无遥测、无使用统计、无崩溃上报；不自动下载更新、不自动安装更新，本软件从不替换自身的任何文件；运行时允许的出站请求只有三类：§8.2 的共享校准获取（只读下载）、§8.3 的在线语音合成（默认关闭，只发送本次要播报的文字），与 §8.4 的更新检查（默认开启，可关闭，只读取发布页上的版本号文件）。三类请求都只经由 HTTP 客户端发出，不直接使用套接字或域名解析接口；脚本与 QML 不自行下载或请求网络资源，任何代码不以 XML 读取接口从远程地址加载，Python 工具不自行联网（开发期的数据表生成器除外）。唯一的另一处联网在安装程序中：本机没有 Npcap 时下载其官方安装程序（§8.5） | `NET-006` `NET-007` `NET-008` `NET-009` `NET-010` |
 | 8 | 无本软件自己的服务器、无账号体系、无同步、无上传。共享校准存放于一个公开 GitHub 仓库（§8.2），本软件只从该仓库读取；发布由玩家在浏览器中提交 Issue、由仓库的 Action 完成，本软件不发送数据。在线语音合成（§8.3）发往用户选定的语音服务（Azure 语音，或用户填写地址的 OpenAI 兼容接口），发送内容仅为本次要播报的文字，密钥由用户自行提供 | `NET-006` `NET-007` `NET-008` `NET-009` |
 | 9 | 不监听任何 HTTP / TCP / WebSocket / gRPC 端口，也不直接使用 TCP / UDP / QUIC 套接字；进程间通信**只用命名管道** | `NET-001`…`NET-005` `NET-008` |
 | 10 | 不长期存储原始报文负载 | 见 §5 |
@@ -67,7 +67,11 @@
 - **`NET-009` 只放行安装程序中创建下载页的那一行。** 安装程序在缺少 Npcap 时以 Inno Setup 的下载页下载
   Npcap 官方安装程序（§8.5）。`installer/MentorRecorder.iss` 不再按路径整体放行，只有创建该下载页的一行带有登记在案的
   行内标记（登记的命中原文为 `CreateDownloadPage(`），该文件中其他任何下载写法照常报错。其余脚本、工作流、QML 与
-  桌面端不得自行下载或请求网络资源，桌面端也不得以 `load` / `setSource` 把远程地址交给 QML 引擎。
+  桌面端不得自行下载或请求网络资源，桌面端也不得以 `load` / `setSource` 把远程地址交给 QML 引擎。任何代码也不得把远程地址
+  交给 XML 读取接口（`XDocument.Load`、`XmlReader.Create` 等）。
+- **`NET-010` 只放行开发期的数据表生成器。** Python 代码不得引入或调用联网模块；按路径放行的只有
+  `tools/duty-data-generator/generate.py`，它在开发期从公开来源下载副本数据表，是仓库中唯一联网的 Python 文件。
+  `tools/shared-calibration/` 的 Python 只读取保存下来的 `gh` 输出，不需要放行。
 - **行内标记。** 一行可以用 `BOUNDARY-ALLOW(<规则编号>): <理由>` 解除**该行**上**该条**规则的**一处**命中，
   其他规则照常检查。每个标记都按「文件 + 规则编号 + 命中原文」逐个登记在 `rules.json` 的 `allow_markers` 中，
   只有该行上该规则恰好只有一处命中、且其原文与登记一致时才生效；同一行出现该规则的第二处命中，或命中换成了
@@ -338,7 +342,7 @@ opcode，按 opcode 与字段名分组，**不与轮盘编号、连接标签或�
 | 本机 IPC | 是 | 仅命名管道 `MentorRecorder.<UserSidHash>.v1`，ACL 限当前用户；桌面端连上后核对管道的所有者，不属于当前用户即断开 |
 | 抓包 | 是（只读） | Npcap，仅读取，从不发送 |
 
-开发期存在其他联网行为：NuGet 包还原、`tools/duty-data-generator` 下载公开数据表、开发者查阅文档。
+开发期存在其他联网行为：NuGet 包还原、`tools/duty-data-generator` 下载公开数据表（`NET-010` 按路径放行的唯一一个 Python 文件）、开发者查阅文档。
 发布版本在运行时只发起 §8.2、§8.3 与 §8.4 三类请求，均由采集服务发出；安装时另有 §8.5 的一次下载。
 桌面端不发起任何网络请求：打开网页一律交由系统浏览器处理，在线语音的读音由采集服务取回并写成本机文件后，
 再由桌面端播放。
@@ -472,8 +476,9 @@ Action 只使用 GitHub 默认的 `GITHUB_TOKEN`。仓库中的脚本与模板�
 `tts.speech.microsoft.com` 只能出现在在线语音客户端（§8.3）。各处放行互不通用：共享校准客户端中出现语音主机名，
 或语音客户端中出现共享校准的源，同样报错。`NET-008` 禁止直接使用套接字、域名解析、Ping 与 SmtpClient，
 没有任何放行，三个客户端同样只经由 HTTP 客户端联网；`NET-009` 禁止脚本、工作流、QML 与桌面端自行下载或请求
-网络资源，也禁止桌面端把远程地址交给 QML 引擎，只以一个登记在案的行内标记放行安装程序中创建 Npcap 下载页的那一行
-（§2.1、§8.5）。
+网络资源，也禁止桌面端把远程地址交给 QML 引擎、任何代码以 XML 读取接口从远程地址加载，只以一个登记在案的行内标记
+放行安装程序中创建 Npcap 下载页的那一行（§2.1、§8.5）；`NET-010` 禁止 Python 代码引入或调用联网模块，
+只按路径放行开发期下载公开数据表的 `tools/duty-data-generator/generate.py`。
 
 ### 8.3 在线语音合成：仅发送播报文字（2026-09-16 起的放宽，默认关闭）
 

@@ -378,6 +378,10 @@ Write-Head 'LIVE_CAPTURE_STATUS 断言 / Live capture status assertion'
 # The summary's LIVE_CAPTURE_STATUS line is hand-written and proves nothing on its own, so
 # the value is asserted against the binary here. These are the same three assertions
 # package.ps1 makes, applied to the build tree instead of the unpacked zip.
+# Of the three, only live_capture_status can vary with what was built. monitor_type and
+# injected_hook_enabled are fixed properties the Collector reports about itself, so those two
+# comparisons confirm the report still says so; they are not what keeps an injection path out
+# of the build - the static boundary check and the payload scan are.
 if (Test-GateSkipped 'live-capture-status') { }
 elseif (-not (Test-Path -LiteralPath $collectorExe)) {
     Add-Failure 'live-capture-status' ("找不到 Collector 可执行文件: {0}" -f $collectorExe)

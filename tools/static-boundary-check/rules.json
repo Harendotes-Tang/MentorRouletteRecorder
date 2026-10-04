@@ -67,6 +67,14 @@
     "INJ-008 and INJ-009 also match a member after whitespace following the dot, and in C#",
     "property patterns and object initialisers, where the name follows '{' or ',' or starts",
     "the line and is followed by ':', '.' or '=' (V5-2).",
+    "INJ-009 also matches a PowerShell pipeline that names one of its members without a dot",
+    "(S33-9): a process source on the line (Get-Process, gps, ps, or [Process]::GetProcesses*)",
+    "and, after a later '|', Select-Object, ForEach-Object, Sort-Object, Where-Object,",
+    "Group-Object, Measure-Object, Format-Table or Format-List (or select, foreach, %, sort,",
+    "where, ?, group, measure, ft, fl) with the member among its arguments, in any letter case",
+    "and not after a '#'. The process source is what tells 'Get-Process | Sort-Object StartTime'",
+    "from '$runs | Sort-Object StartTime'; inside a string the pipeline still counts, because a",
+    "string handed to powershell -Command runs it.",
     "",
     "installer/MentorRecorder.iss creates its Inno Setup download page on one line, which",
     "carries a pinned NET-009 marker (V5-4; until then the whole file was allowed): when",
@@ -87,11 +95,35 @@
     "digit, '.', '-' or '_', so prose, identifiers and tools that merely contain those words",
     "do not trip it (V5-5).",
     "",
+    "NET-009/xml-loads (S33-9) refuses an XML reader handed a remote address, which it then",
+    "downloads itself: '.Load(' or ']::Load(' whose first argument is an http(s) literal",
+    "(XmlDocument, XDocument, XElement, PowerShell's $doc.Load and [XDocument]::Load, MSXML's",
+    "load in Pascal), XmlReader.Create with such a literal, and XmlTextReader or XPathDocument",
+    "whose first string literal on the line is one; in any letter case. A local path, or an",
+    "address held in a variable, does not trip it. PowerShell's [xml] cast of a download needs",
+    "no pattern of its own: WebClient, Invoke-WebRequest and iwr / irm in it already trip NET-006",
+    "and NET-009.",
+    "",
+    "NET-010 (S33-9) reads Python files only. It refuses the import of a network module",
+    "(urllib.request, urllib3, http.client, requests, httpx, aiohttp, socket, ftplib, smtplib,",
+    "poplib, imaplib, nntplib, telnetlib, xmlrpc.client, websockets) as an import or from",
+    "statement, as 'from urllib|http|xmlrpc import request|client', or through __import__ /",
+    "importlib.import_module with the name as a literal, and a call of urlopen, urlretrieve or",
+    "asyncio.open_connection outside a '#' comment and outside a string. Matching import",
+    "statements and calls, not names, keeps the tests quiet that fake a download (a fake",
+    "function, mock.patch of a name in a string). It allows exactly one file, by exact path:",
+    "tools/duty-data-generator/generate.py, the dev-time generator that downloads the duty",
+    "tables from two public sources (XIVAPI and the thewakingsands datamining CSV) and the only",
+    "Python file that opens a connection. The shared-calibration tools need no allowance: their",
+    "Python only reads saved gh output from files; the gh calls that reach GitHub are in the",
+    "shell scripts and workflows beside them.",
+    "",
     "A rule may name the files it does not apply to. 'allow_paths' lists",
     "repository-relative, forward-slash FILE paths matched exactly (not by file",
     "or directory name); 'allow_path_prefixes' lists directory prefixes that must",
     "end in '/'. Each allowance lifts only its own rule, and every one must be",
-    "explained in docs/privacy-boundary.md (NET-006/NET-007: sections 8.2, 8.3 and 8.4).",
+    "explained in docs/privacy-boundary.md (NET-006/NET-007: sections 8.2, 8.3 and 8.4; NET-010:",
+    "the development-time downloads named under section 8).",
     "",
     "A rule id may be declared more than once when every entry names a distinct",
     "'variant' (lower-case token). Violations are still reported under the id; each",
@@ -238,8 +270,8 @@
     {
       "id": "INJ-009",
       "category": "process-injection",
-      "pattern": "\\.\\s*(?:StartTime|ExitTime|SafeHandle|HasExited|ExitCode|EnableRaisingEvents|PriorityClass|PriorityBoostEnabled|ProcessorAffinity|TotalProcessorTime|UserProcessorTime|PrivilegedProcessorTime|MaxWorkingSet|MinWorkingSet|WaitForExit|WaitForExitAsync|WaitForInputIdle|Kill)\\b|\\.\\s*Handle\\b(?!\\s*\\()|\\bGetProcessById\\b|(?:^|(?<=[{,]))\\s*(?:HasExited|StartTime|ExitTime|SafeHandle|EnableRaisingEvents|PriorityClass|PriorityBoostEnabled|ProcessorAffinity|\\w*ProcessorTime|M(?:ax|in)WorkingSet|Handle|ExitCode)\\s*[.:=]",
-      "message": "禁止使用会打开目标进程句柄的 Process 成员（StartTime、HasExited、WaitForExit、Kill、Handle、GetProcessById 等，含属性模式与对象初始化器中的写法）：对游戏进程而言这就是打开它的句柄；游戏只允许进程存在性检查与内核进程表。只有驱动本软件自身进程的父进程看门狗、测试与脚本按精确路径放行 / Process members that open a handle to their process (StartTime, HasExited, WaitForExit, Kill, Handle, GetProcessById, ..., property patterns and object initialisers included) are forbidden: on the game they are a handle to the game, which may only be checked for existence and read through the kernel process table; only the parent watchdog and the tests and scripts that drive our own processes are allowed, by exact path",
+      "pattern": "\\.\\s*(?:StartTime|ExitTime|SafeHandle|HasExited|ExitCode|EnableRaisingEvents|PriorityClass|PriorityBoostEnabled|ProcessorAffinity|TotalProcessorTime|UserProcessorTime|PrivilegedProcessorTime|MaxWorkingSet|MinWorkingSet|WaitForExit|WaitForExitAsync|WaitForInputIdle|Kill)\\b|\\.\\s*Handle\\b(?!\\s*\\()|\\bGetProcessById\\b|(?:^|(?<=[{,]))\\s*(?:HasExited|StartTime|ExitTime|SafeHandle|EnableRaisingEvents|PriorityClass|PriorityBoostEnabled|ProcessorAffinity|\\w*ProcessorTime|M(?:ax|in)WorkingSet|Handle|ExitCode)\\s*[.:=]|(?i:^(?=[^|\\r\\n]*\\|)[^#\\r\\n]*?(?:(?<![\\w$.-])(?:get-process|gps|ps)(?![\\w-])|\\bGetProcesses\\w*)[^#\\r\\n]*?\\|\\s*(?:(?:select|foreach|sort|where|group|measure)(?:-object)?|format-(?:table|list)|f[tl]|%|\\?)(?![\\w-])[^#|;{}\\r\\n]*?(?<![\\w$.-])(?:StartTime|ExitTime|Handle|SafeHandle|HasExited|ExitCode|EnableRaisingEvents|PriorityClass|PriorityBoostEnabled|ProcessorAffinity|TotalProcessorTime|UserProcessorTime|PrivilegedProcessorTime|MaxWorkingSet|MinWorkingSet|WaitForExit|WaitForExitAsync|WaitForInputIdle|Kill)(?![\\w-]))",
+      "message": "禁止使用会打开目标进程句柄的 Process 成员（StartTime、HasExited、WaitForExit、Kill、Handle、GetProcessById 等，含属性模式与对象初始化器中的写法，以及 PowerShell 管道中不带点号点名这些成员的写法，如 Get-Process | Select-Object StartTime、ForEach-Object Kill、Where-Object HasExited 及其别名，不分大小写）：对游戏进程而言这就是打开它的句柄；游戏只允许进程存在性检查与内核进程表。只有驱动本软件自身进程的父进程看门狗、测试与脚本按精确路径放行 / Process members that open a handle to their process (StartTime, HasExited, WaitForExit, Kill, Handle, GetProcessById, ..., property patterns, object initialisers and PowerShell pipelines that name the member without a dot, such as Get-Process | Select-Object StartTime, ForEach-Object Kill or Where-Object HasExited and their aliases, in any letter case, included) are forbidden: on the game they are a handle to the game, which may only be checked for existence and read through the kernel process table; only the parent watchdog and the tests and scripts that drive our own processes are allowed, by exact path",
       "allow_paths": [
         "src/Collector/Diagnostics/ParentProcessWatchdog.cs",
         "tests/Collector.IntegrationTests/LifecycleOrphanTests.cs",
@@ -431,6 +463,25 @@
         ".sh",
         ".yaml",
         ".yml"
+      ]
+    },
+    {
+      "id": "NET-009",
+      "variant": "xml-loads",
+      "category": "outbound-network",
+      "pattern": "(?i:(?:\\]\\s*::|\\.)\\s*Load\\s*\\(\\s*(?:\\w+\\s*:\\s*)?[@$]*[\"']+https?://|\\bXmlReader\\s*(?:\\]\\s*::|\\.)\\s*Create\\s*\\(\\s*(?:\\w+\\s*:\\s*)?[@$]*[\"']+https?://|\\b(?:XmlTextReader|XPathDocument)\\b[^\"'\\r\\n]*[\"']+https?://)",
+      "message": "禁止以 XML 读取接口从远程地址加载（XmlDocument / XDocument / XElement 的 Load、XmlReader.Create、XmlTextReader、XPathDocument，含 PowerShell 的 $doc.Load(…) 与 [XDocument]::Load(…)、MSXML 的 load，不分大小写）：这些接口会自行下载所给的地址；只允许读取本机文件 / loading XML from a remote address is forbidden (Load of XmlDocument / XDocument / XElement, XmlReader.Create, XmlTextReader, XPathDocument, including PowerShell's $doc.Load(...) and [XDocument]::Load(...) and MSXML's load, in any letter case): these readers download the address they are given; only local files may be read"
+    },
+    {
+      "id": "NET-010",
+      "category": "outbound-network",
+      "pattern": "(?:^\\s*(?:import|from)\\s+(?:[\\w.]+(?:\\s+as\\s+\\w+)?\\s*,\\s*)*|\\b(?:__import__|import_module)\\s*\\(\\s*[\"'])(?:urllib\\.request|urllib3|http\\.client|requests|httpx|aiohttp|socket|ftplib|smtplib|poplib|imaplib|nntplib|telnetlib|xmlrpc\\.client|websockets?)(?!\\w)|^\\s*from\\s+(?:urllib|http|xmlrpc)\\s+import\\b[^#\\r\\n]*?\\b(?:request|client)\\b|^(?:[^#\"'\\r\\n]|\"[^\"\\r\\n]*\"|'[^'\\r\\n]*')*?(?:\\burl(?:open|retrieve)\\s*\\(|\\basyncio\\s*\\.\\s*open_connection\\s*\\()",
+      "message": "Python 脚本不得自行联网（导入网络模块 urllib.request、urllib3、http.client、requests、httpx、aiohttp、socket、ftplib、smtplib、poplib、imaplib、nntplib、telnetlib、xmlrpc.client、websockets，含 __import__ / importlib.import_module，以及调用 urlopen / urlretrieve 与 asyncio.open_connection）；唯一例外是开发期从公开来源下载任务数据表的 tools/duty-data-generator/generate.py / Python scripts must not reach the network themselves (importing a network module: urllib.request, urllib3, http.client, requests, httpx, aiohttp, socket, ftplib, smtplib, poplib, imaplib, nntplib, telnetlib, xmlrpc.client or websockets, __import__ and importlib.import_module included, or calling urlopen / urlretrieve or asyncio.open_connection); the one exception is tools/duty-data-generator/generate.py, the dev-time generator that downloads the duty tables from public sources",
+      "allow_paths": [
+        "tools/duty-data-generator/generate.py"
+      ],
+      "only_extensions": [
+        ".py"
       ]
     },
     {
