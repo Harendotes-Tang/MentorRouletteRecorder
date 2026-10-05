@@ -60,6 +60,30 @@ Rectangle {
         }
     }
     readonly property bool pendingReview: !!(runData && runData.pending_review)
+    // A system revision set the review flag, and its reason is on 修正历史: crash
+    // recovery, or a withdrawn calibration, which keeps the result as it was. The
+    // flag the state machine sets as a duty ends leaves no revision, and $defs/Run
+    // carries no reason of its own.
+    readonly property bool flaggedBySystemRevision: {
+        for (let i = 0; i < root.revisions.length; ++i) {
+            const revision = root.revisions[i]
+            if (revision.actor !== "SYSTEM")
+                continue
+            const changes = revision.changes || []
+            for (let j = 0; j < changes.length; ++j) {
+                if (changes[j].field === "pending_review" && changes[j].new_value === true)
+                    return true
+            }
+        }
+        return false
+    }
+    // Only a run with no result says why none is known; a pending run whose result
+    // is known (a 通关 included) is not told that no clear arrived.
+    readonly property string pendingReviewText: !root.pendingReview ? qsTr("否")
+        : (runData.result || "UNKNOWN") === "UNKNOWN"
+          ? qsTr("是 · 结果未经确认（崩溃恢复，或离开副本前未收到通关结算）")
+        : root.flaggedBySystemRevision ? qsTr("是 · 需要你确认这条记录（原因见修正历史）")
+        : qsTr("是 · 需要你确认这条记录")
     // The highest revision in the list; gates the undo button below.
     readonly property int newestRevision: {
         let newest = 0
@@ -113,10 +137,7 @@ Rectangle {
                       v: root.showRawTokens
                          ? (runData.detection_confidence || Fmt.dash())
                          : Fmt.runConfidenceLabel(runData) })
-        fields.push({ k: qsTr("待复核"),
-                      v: runData.pending_review
-                         ? qsTr("是 · 结果未经确认（崩溃恢复，或档案尚不能判定是否通关）")
-                         : qsTr("否") })
+        fields.push({ k: qsTr("待复核"), v: root.pendingReviewText })
 
         if (root.showRawTokens) {
             fields.push({ k: qsTr("协议 profile"), v: runData.protocol_profile_id || Fmt.dash() })

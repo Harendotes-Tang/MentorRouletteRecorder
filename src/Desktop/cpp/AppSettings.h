@@ -29,7 +29,7 @@ class AppSettings : public QObject
     Q_PROPERTY(bool autostartWritable READ autostartWritable CONSTANT)
     /// 通关后弹出心得窗口 - DUTY_RESULT 到达后弹出；可稍后在历史记录补录。
     Q_PROPERTY(bool reflectPrompt READ reflectPrompt WRITE setReflectPrompt NOTIFY generalChanged)
-    /// 结束后询问本次结果 - 国服协议档案看不到通关判定，一局导随只会停在
+    /// 结束后询问本次结果 - 离开副本前没有收到通关结算时，一局导随停在
     /// UNKNOWN_FINAL_STATE（待复核）。关掉它就完全靠 待复核 列表事后确认。
     Q_PROPERTY(bool confirmPrompt READ confirmPrompt WRITE setConfirmPrompt NOTIFY generalChanged)
 
@@ -130,8 +130,8 @@ public:
     void setTemplateEntered(const QString &value);
     QString templateCompleted() const;
     void setTemplateCompleted(const QString &value);
-    /// 结束（待确认）: the only line a CN mentor roulette really reaches, because
-    /// the shipping profile carries no duty result. It asks the user to confirm
+    /// 结束（待确认）: the line of a duty that ends without the clear signal
+    /// (docs/protocol-profile-format.md §12). It asks the user to confirm
     /// instead of claiming a 通关 nobody observed.
     QString templateFinished() const;
     void setTemplateFinished(const QString &value);

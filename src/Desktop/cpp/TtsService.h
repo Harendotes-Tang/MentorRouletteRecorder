@@ -175,8 +175,8 @@ public Q_SLOTS:
     /// representative sample values, ignoring the master switch. With an
     /// online voice the request carries test = true.
     void preview(const QString &kind);
-    /// The online panel's 测试: the 试听 sentence, online, and the outcome
-    /// reported to SpeechController::noteTestResult.
+    /// The online panel's 测试: the 试听 sentence (the 通关 line, "completed"),
+    /// online, and the outcome reported to SpeechController::noteTestResult.
     void testOnline();
     /// Values the settings-page preview substitutes into the templates. The
     /// controller keeps them equal to what a real announcement would use

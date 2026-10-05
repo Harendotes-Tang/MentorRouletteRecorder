@@ -342,6 +342,7 @@ private Q_SLOTS:
     void routing_localVoiceNeverAsksTheCollector();
     void routing_mismatchedServiceIsNotSent();
     void routing_sendsRateTestFlagAndVolume();
+    void routing_onlineTestSpeaksThePreviewSentence();
     void routing_tooLongSentenceStaysLocal();
     void routing_previewInterruptsButKeepsUnheardAnnouncements();
     void routing_switchingAnnouncementsOffDropsWaitingSentencesQuietly();
@@ -1125,6 +1126,32 @@ void SpeechTests::routing_sendsRateTestFlagAndVolume()
                  .replace(QStringLiteral("{remaining}"), QStringLiteral("0"))
                  .replace(QStringLiteral("{duty}"), QString::fromUtf8("未知副本")));
     QCOMPARE(f.player->volumes.constFirst(), 0.4);
+}
+
+// The online panel's 测试 is the 试听 sentence, said online. 试听 sends the 「通关」
+// line ("completed"; the button itself is pinned by UiWorkflowRegressionTests::
+// voiceComboListsTheVoicesAndSelectsOne), so 测试 must speak exactly that line.
+void SpeechTests::routing_onlineTestSpeaksThePreviewSentence()
+{
+    RoutingFixture f;
+    QVERIFY(f.loaded());
+    f.backend.fallback = RoutingFixture::file(f.cache.wav(50));
+    QSignalSpy spoke(&f.tts, &mr::TtsService::spoke);
+
+    f.tts.preview(QStringLiteral("completed"));
+    QTRY_COMPARE(f.player->played.size(), 1);
+    f.speech.test();
+    QTRY_COMPARE(f.player->played.size(), 2);
+    QTRY_VERIFY(!f.speech.busy());
+    QCOMPARE(f.speech.resultState(), QStringLiteral("ok"));
+
+    QCOMPARE(spoke.size(), 2);
+    QCOMPARE(spoke.at(1).at(0).toString(), spoke.at(0).at(0).toString());
+    QCOMPARE(spoke.at(1).at(1).toString(), spoke.at(0).at(1).toString());
+    const auto sent = f.backend.payloadsOf(QStringLiteral("SynthesizeSpeech"));
+    QCOMPARE(sent.size(), 2);
+    QCOMPARE(sent.at(1).value(QStringLiteral("text")).toString(),
+             sent.at(0).value(QStringLiteral("text")).toString());
 }
 
 void SpeechTests::routing_tooLongSentenceStaysLocal()

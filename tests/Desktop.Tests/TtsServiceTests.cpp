@@ -415,6 +415,7 @@ private Q_SLOTS:
     void setVoice_persistsLocalChoicesAndIgnoresOtherProviders();
     void appController_ignoresHeartbeats();
     void appController_asksToConfirmTheResultOfAFinishedMentorDuty();
+    void appController_aClearedRunIsAnnouncedAsCompletedAndNoResultIsAsked();
     void appController_confirmingSendsOneAuditedCorrection();
     void mockBackend_refusesSettingPendingReviewTrue();
 };
@@ -754,10 +755,9 @@ void TtsServiceTests::announcementKind_mapsEveryRunState_data()
     QTest::newRow("matched") << "MENTOR_MATCHED" << "matched";
     QTest::newRow("entered") << "ENTERED_DUTY" << "entered";
     QTest::newRow("completed") << "COMPLETED" << "completed";
-    // The only terminal state the shipping CN profile can actually reach: the
-    // duty ended, nobody observed a victory, so the line asks instead of
-    // claiming a 通关. Such a run does not count toward the goal until the
-    // user confirms it.
+    // The duty was left without the clear being observed, so the line asks
+    // instead of claiming a 通关. Such a run does not count toward the goal
+    // until the user confirms it.
     QTest::newRow("unknown-final") << "UNKNOWN_FINAL_STATE" << "finished";
     QTest::newRow("left") << "LEFT_OR_ABANDONED" << "aborted";
     QTest::newRow("disconnected") << "DISCONNECTED" << "aborted";
@@ -1877,7 +1877,7 @@ void TtsServiceTests::appController_asksToConfirmTheResultOfAFinishedMentorDuty(
     QTest::qWait(80);
     QCOMPARE(asked.count(), 0);
 
-    // The CN case: finished, no observable result, pending_review.
+    // Left without the clear: finished, no observed result, pending_review.
     backend.emitEvent(runFinishedEvent(QStringLiteral("UNKNOWN_FINAL_STATE"),
                                        freshRun(QStringLiteral("run-ask"), true)));
     QTRY_COMPARE_WITH_TIMEOUT(asked.count(), 1, 3000);
@@ -1904,6 +1904,46 @@ void TtsServiceTests::appController_asksToConfirmTheResultOfAFinishedMentorDuty(
     QTest::qWait(80);
     QCOMPARE(asked.count(), 1);
     settings.setConfirmPrompt(true);
+}
+
+/// A CN duty cleared in the duty reaches the Desktop as an ordinary run_finished
+/// COMPLETED, not pending review (docs/protocol-profile-format.md §12). It is
+/// announced with the 通关 line, the 心得 prompt follows when it is on, and the
+/// result question - which is on here - is not asked.
+void TtsServiceTests::appController_aClearedRunIsAnnouncedAsCompletedAndNoResultIsAsked()
+{
+    mr::AppSettings settings;
+    const bool savedReflectPrompt = settings.reflectPrompt();
+    const QString savedCompleted = settings.templateCompleted();
+    const auto restore = qScopeGuard([&] {
+        settings.setReflectPrompt(savedReflectPrompt);
+        settings.setTemplateCompleted(savedCompleted);
+    });
+    settings.setTtsEnabled(true);
+    settings.setConfirmPrompt(true);
+    settings.setReflectPrompt(true);
+    settings.setTemplateCompleted(QString::fromUtf8("{duty} 通关"));
+
+    EventOnlyBackend backend;
+    backend.setDashboard(11, 1400, 2000);
+    mr::AppController controller(&backend, &settings, nullptr, nullptr, kSilentSpeech);
+    REQUIRE_SILENT_SPEECH(controller.tts());
+    QSignalSpy spoke(controller.tts(), &mr::TtsService::spoke);
+    QSignalSpy asked(&controller, &mr::AppController::resultConfirmationRequested);
+    QSignalSpy prompted(&controller, &mr::AppController::reflectionPromptRequested);
+
+    const QVariantMap cleared = freshRun(QStringLiteral("run-cleared"));
+    QCOMPARE(cleared.value(QStringLiteral("pending_review")).toBool(), false);
+    backend.emitEvent(runFinishedEvent(QStringLiteral("COMPLETED"), cleared));
+
+    QTRY_COMPARE_WITH_TIMEOUT(spoke.count(), 1, 3000);
+    QCOMPARE(spoke.at(0).at(0).toString(), QStringLiteral("completed"));
+    QCOMPARE(spoke.at(0).at(1).toString(), QString::fromUtf8("天狼星灯塔 通关"));
+    QTRY_COMPARE_WITH_TIMEOUT(prompted.count(), 1, 3000);
+    QCOMPARE(prompted.at(0).at(0).toMap().value(QStringLiteral("run_id")).toString(),
+             QStringLiteral("run-cleared"));
+    QTest::qWait(80);
+    QCOMPARE(asked.count(), 0);
 }
 
 void TtsServiceTests::appController_confirmingSendsOneAuditedCorrection()

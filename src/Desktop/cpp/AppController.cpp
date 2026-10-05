@@ -1215,9 +1215,9 @@ QString AppController::announcementKind(const QString &state)
     // in that case, because announcing a match the player just asked for is a false alarm.
     if (state == QLatin1String("ENTERED_DUTY"))
         return QStringLiteral("entered");
-    // COMPLETED means a victory DUTY_RESULT really was observed. The shipping
-    // CN profile carries no such packet, so a finished mentor duty lands in
-    // UNKNOWN_FINAL_STATE instead: it is announced, but with its own line that
+    // COMPLETED means a victory DUTY_RESULT really was observed. A CN duty that
+    // ends without the clear signal (docs/protocol-profile-format.md §12) lands
+    // in UNKNOWN_FINAL_STATE instead: it is announced, but with its own line that
     // asks for a confirmation rather than claiming a 通关. Such a run does NOT
     // count toward the goal until the user confirms it.
     if (state == QLatin1String("COMPLETED"))
@@ -1559,10 +1559,10 @@ void AppController::reflectionPromptClosed()
 
 void AppController::maybeConfirmResult(const QString &state, const QJsonObject &run)
 {
-    // The shipping CN profile carries no duty-result packet, so the Collector
-    // can only say the duty ended. The program never turns that into a 通关 by
-    // itself; it asks the player once, right away, instead of leaving the run to
-    // the 待复核 list alone.
+    // A CN duty that ends without the clear signal (docs/protocol-profile-format.md
+    // §12) only tells the Collector that the duty ended. The program never turns
+    // that into a 通关 by itself; it asks the player once, right away, instead of
+    // leaving the run to the 待复核 list alone.
     if (m_settings && !m_settings->confirmPrompt())
         return;
     if (!run.value(QStringLiteral("pending_review")).toBool(false))

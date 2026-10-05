@@ -83,9 +83,9 @@ ColumnLayout {
             AppButton {
                 objectName: "ttsPreviewButton"
                 text: qsTr("试听")
-                // 结束 is the line a real 国服 导随 reaches, so it is the one
-                // 试听 plays.
-                onClicked: Tts.preview("finished")
+                // 通关 is the line a cleared 导随 reaches now that the clear is
+                // seen, so it is the one 试听 plays.
+                onClicked: Tts.preview("completed")
             }
             ToggleSwitch {
                 objectName: "ttsEnabledSwitch"
@@ -270,12 +270,12 @@ ColumnLayout {
                 value: Settings.templateAborted
                 onCommitted: function(text) { Settings.templateAborted = text }
             }
-            // 第 5 个模板（§3.1）：国服实际播报的即为此条，试听亦播报此条。
+            // 第 5 个模板（§3.1）：离开副本前没有收到通关结算时播报此条。
             TemplateField {
                 Layout.columnSpan: 2
                 label: qsTr("结束待确认")
-                note: qsTr("国服目前看不到通关判定，一局导随打完只会停在“待确认”，"
-                           + "这条就是那时播报的话。")
+                note: qsTr("副本内收到通关结算时，记录直接记为通关，播报上面的“通关”；"
+                           + "离开副本前没有收到结算时，记录停在“待确认”，播报这一条。")
                 value: Settings.templateFinished
                 onCommitted: function(text) { Settings.templateFinished = text }
             }

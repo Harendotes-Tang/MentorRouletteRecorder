@@ -202,15 +202,19 @@ public:
                       {QStringLiteral("page_info"),
                        QJsonObject{{QStringLiteral("page"), 1}, {QStringLiteral("total"), 1}}}};
         } else if (type == QLatin1String("GetRunRevisions")) {
-            answer = {{QStringLiteral("items"), revisions()},
+            answer = {{QStringLiteral("items"), revisionItems},
                       {QStringLiteral("page_info"),
-                       QJsonObject{{QStringLiteral("page"), 1}, {QStringLiteral("total"), 3}}}};
+                       QJsonObject{{QStringLiteral("page"), 1},
+                                   {QStringLiteral("total"), int(revisionItems.size())}}}};
         } else if (type == QLatin1String("GetRunEvents")) {
             answer = {{QStringLiteral("run_id"), kRunId}, {QStringLiteral("events"), events()}};
         }
         QTimer::singleShot(0, reply, [reply, answer] { reply->succeed(answer); });
         return reply;
     }
+
+    /// What GetRunRevisions answers with.
+    QJsonArray revisionItems = revisions();
 };
 
 QQuickItem *findItem(QQuickItem *from, const QString &name)
@@ -519,6 +523,72 @@ private Q_SLOTS:
         const QString page = texts.join(QLatin1Char('\n'));
         QVERIFY(page.contains(QString::fromUtf8("匹配成功")));
         QVERIFY(!page.contains(QStringLiteral("roulette_id")));
+    }
+
+    // Why a run waits for review, as far as the Desktop can know it. $defs/Run carries
+    // only the flag; a reason exists only on a system revision that set it (crash
+    // recovery, or a withdrawn calibration's FlagRecords, which keeps the result).
+    // The flag the state machine sets as a duty ends leaves no revision.
+    void aPendingRunExplainsWhyItIsPending_data()
+    {
+        QTest::addColumn<QString>("result");
+        QTest::addColumn<bool>("flaggedBySystem");
+        QTest::addColumn<QString>("shown");
+        // No result was observed: the duty was left without the clear signal
+        // (docs/protocol-profile-format.md §12), or a restart closed it.
+        QTest::newRow("unknown") << "UNKNOWN" << false
+            << QString::fromUtf8("是 · 结果未经确认（崩溃恢复，或离开副本前未收到通关结算）");
+        // Completed by the clear, flagged later because the calibration that recorded it
+        // was withdrawn: the clear WAS received, and the system revision says why.
+        QTest::newRow("completed-flagged") << "COMPLETED" << true
+            << QString::fromUtf8("是 · 需要你确认这条记录（原因见修正历史）");
+        // A known result flagged as the duty ended (a match lost before entry): no
+        // revision names a reason, so none is guessed.
+        QTest::newRow("cancelled-unexplained") << "CANCELLED_BEFORE_ENTRY" << false
+            << QString::fromUtf8("是 · 需要你确认这条记录");
+    }
+
+    void aPendingRunExplainsWhyItIsPending()
+    {
+        QFETCH(QString, result);
+        QFETCH(bool, flaggedBySystem);
+        QFETCH(QString, shown);
+
+        HistoryScene scene;
+        QJsonArray trail = revisions();
+        if (flaggedBySystem) {
+            trail.append(QJsonObject{
+                {QStringLiteral("revision_id"), QStringLiteral("44444444-4444-4444-8444-444444444444")},
+                {QStringLiteral("run_id"), kRunId},
+                {QStringLiteral("revision"), 4},
+                {QStringLiteral("changed_at_utc"), QStringLiteral("2026-09-06T08:00:00.000Z")},
+                {QStringLiteral("change_kind"), QStringLiteral("CORRECT")},
+                {QStringLiteral("actor"), QStringLiteral("SYSTEM")},
+                {QStringLiteral("reason"),
+                 QString::fromUtf8("这条记录由其他玩家分享的校准生成，该校准已在公开仓库里被撤回，记录标记待复核。")},
+                {QStringLiteral("changes"), QJsonArray{change("pending_review", false, true)}}});
+        }
+        scene.backend.revisionItems = trail;
+        QVERIFY2(scene.create(), qPrintable(scene.errors));
+        QVERIFY(QTest::qWaitFor([&] { return scene.controller->runs()->rowCount() > 0; }, 3000));
+        QJsonObject pending = run();
+        pending.insert(QStringLiteral("result"), result);
+        pending.insert(QStringLiteral("pending_review"), true);
+        pending.insert(QStringLiteral("revision"), int(trail.size()));
+        scene.controller->selectRun(pending.toVariantMap());
+        QTRY_COMPARE(scene.controller->selectedRunRevisions().size(), int(trail.size()));
+        QTRY_VERIFY(scene.panel() && scene.panel()->isVisible());
+        QVERIFY(scene.panel()->property("pendingReview").toBool());
+
+        // The 待复核 row of the 信息 tab, as the player reads it.
+        const auto pendingRow = [&scene] {
+            for (const QString &text : scene.panelTexts()) {
+                if (text.startsWith(QString::fromUtf8("是 · ")))
+                    return text;
+            }
+            return QString();
+        };
+        QTRY_COMPARE(pendingRow(), shown);
     }
 
     void maintainersReadTheRawEvents()

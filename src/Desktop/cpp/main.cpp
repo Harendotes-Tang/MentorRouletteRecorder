@@ -1051,7 +1051,7 @@ int main(int argc, char *argv[])
     if (parser.isSet(speechPreviewOption)) {
         // After the mock's speech settings and status have arrived.
         QTimer::singleShot(400, controller.tts(), [&controller] {
-            controller.tts()->preview(QStringLiteral("finished"));
+            controller.tts()->preview(QStringLiteral("completed"));
         });
     }
 

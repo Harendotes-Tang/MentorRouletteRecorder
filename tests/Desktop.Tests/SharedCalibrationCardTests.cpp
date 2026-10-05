@@ -950,6 +950,44 @@ private Q_SLOTS:
         // no profile in force there is nothing to stop using.
         QVERIFY(!scene.shows(QStringLiteral("protocolRecalibrateButton")));
     }
+
+    // -- 协议档案 card: what a recording profile tells the player -----------------
+
+    void theProfileCardSaysAClearIsRecordedByItself_data()
+    {
+        QTest::addColumn<QString>("origin");
+        QTest::addColumn<QString>("explanation");
+        // A CN duty cleared in the duty is recorded as 通关 by itself, whichever profile
+        // records (docs/protocol-profile-format.md §12); only a duty left without the
+        // clear still needs its result filled in.
+        QTest::newRow("local") << "LOCAL_CALIBRATION"
+            << QString::fromUtf8("游戏更新后，本软件在这台电脑上重新认出了记录所需的信息，记录照常生成。"
+                                 "副本内收到通关结算时自动记为通关；没有收到时，离开副本后在记录里补一下结果即可。");
+        QTest::newRow("shared") << "SHARED_CALIBRATION"
+            << QString::fromUtf8("它先在这台电脑的流量里核实过，才用来记录，记录照常生成。"
+                                 "副本内收到通关结算时自动记为通关；没有收到时，离开副本后在记录里补一下结果即可。");
+        QTest::newRow("shipped") << "SHIPPED"
+            << QString::fromUtf8("能自动记录指导者任务的匹配、进入和离开；副本内收到通关结算时自动记为通关。"
+                                 "没有收到结算就离开副本时，记录会标为“待复核”，在记录里用“修正”填上结果。");
+    }
+
+    void theProfileCardSaysAClearIsRecordedByItself()
+    {
+        QFETCH(QString, origin);
+        QFETCH(QString, explanation);
+
+        auto fake = std::make_unique<CaptureBackend>();
+        fake->capture = captureWithRollback(origin, false, QStringLiteral("IDLE"));
+        PageScene scene;
+        auto *source = fake.get();
+        scene.other = std::move(fake);
+        QVERIFY(scene.openOn(source, 1180));
+        QTRY_COMPARE(scene.app->captureStatus().value(QStringLiteral("profile_origin")).toString(), origin);
+
+        auto *text = scene.item(QStringLiteral("protocolProfileExplanation"));
+        QVERIFY(text);
+        QTRY_COMPARE(text->property("text").toString(), explanation);
+    }
 };
 
 int main(int argc, char **argv)

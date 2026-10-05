@@ -12,6 +12,8 @@
 
 #include <QDateTime>
 #include <QDir>
+#include <QDirIterator>
+#include <QFile>
 #include <QGuiApplication>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -22,6 +24,7 @@
 #include <QQuickItem>
 #include <QQuickStyle>
 #include <QQuickWindow>
+#include <QRegularExpression>
 #include <QScopeGuard>
 #include <QSignalSpy>
 #include <QStandardPaths>
@@ -467,6 +470,37 @@ ApplicationWindow {
     }
 };
 
+/// The first item under \a from, visible or not, whose \a property is \a value.
+QQuickItem *findWithProperty(QQuickItem *from, const char *property, const QString &value)
+{
+    if (!from)
+        return nullptr;
+    if (from->property(property).toString() == value)
+        return from;
+    for (QQuickItem *child : from->childItems()) {
+        if (QQuickItem *match = findWithProperty(child, property, value))
+            return match;
+    }
+    return nullptr;
+}
+
+/// The text of the first item under \a from, visible or not, that starts with
+/// \a prefix; empty when there is none.
+QString textStartingWith(QQuickItem *from, const QString &prefix)
+{
+    if (!from)
+        return {};
+    const QString text = from->property("text").toString();
+    if (text.startsWith(prefix))
+        return text;
+    for (QQuickItem *child : from->childItems()) {
+        const QString match = textStartingWith(child, prefix);
+        if (!match.isEmpty())
+            return match;
+    }
+    return {};
+}
+
 } // namespace
 
 class UiWorkflowRegressionTests : public QObject
@@ -515,6 +549,11 @@ private Q_SLOTS:
     void onlinePanelAppearsOnlyForOnlineVoices();
     void onlineKeyFieldIsNeverFilledAndEmptiesOnSave();
     void onlineConfirmationIsAskedOnceAndCancelKeepsTheVoice();
+    void theConfirmationTemplateSaysWhenItIsSpoken();
+    void theRecordSwitchesSayWhenTheyAct();
+    void thePendingBannerSaysWhyARunIsPending();
+    void theExplanationSaysAClearIsRecordedByItself();
+    void noPlayerTextSaysTheClearCannotBeSeen();
 };
 
 void UiWorkflowRegressionTests::initTestCase()
@@ -1762,9 +1801,9 @@ void UiWorkflowRegressionTests::voiceComboListsTheVoicesAndSelectsOne()
     fixture.tts.setVoices(voices, QStringLiteral("local:Microsoft Zira Desktop"));
     QCOMPARE(combo->property("currentIndex").toInt(), 1);
 
-    // 试听 still plays the 结束待确认 line.
+    // 试听 plays the 通关 line: a cleared duty is announced with it.
     QVERIFY(QMetaObject::invokeMethod(fixture.item(QStringLiteral("ttsPreviewButton")), "clicked"));
-    QCOMPARE(fixture.tts.previews, QStringList{QStringLiteral("finished")});
+    QCOMPARE(fixture.tts.previews, QStringList{QStringLiteral("completed")});
 }
 
 // 在线语音 (docs/ui-design.md §4.5): the panel exists only while an online
@@ -1983,6 +2022,132 @@ void UiWorkflowRegressionTests::onlineConfirmationIsAskedOnceAndCancelKeepsTheVo
     QVERIFY(!dialog->property("visible").toBool());
     QCOMPARE(fixture.tts.requestedVoices,
              (QStringList{azure, local, QStringLiteral("openai:alloy")}));
+}
+
+// A CN duty cleared in the duty is recorded as 通关 by itself
+// (docs/protocol-profile-format.md §12). The note under 「结束待确认」 says when that
+// line is still spoken, and the 通关 template stays, because that line is spoken now.
+void UiWorkflowRegressionTests::theConfirmationTemplateSaysWhenItIsSpoken()
+{
+    SettingsFixture fixture;
+    QVERIFY2(fixture.create(), qPrintable(fixture.errors));
+    QVERIFY(fixture.selectTab(QStringLiteral("tts")));
+    QQuickItem *scene = qobject_cast<QQuickWindow *>(fixture.root.get())->contentItem();
+
+    QQuickItem *finished = findWithProperty(scene, "label", QString::fromUtf8("结束待确认"));
+    QVERIFY(finished);
+    QCOMPARE(finished->property("note").toString(),
+             QString::fromUtf8("副本内收到通关结算时，记录直接记为通关，播报上面的“通关”；"
+                               "离开副本前没有收到结算时，记录停在“待确认”，播报这一条。"));
+
+    QQuickItem *completed = findWithProperty(scene, "label", QString::fromUtf8("通关"));
+    QVERIFY(completed);
+    QVERIFY(completed->isVisible());
+}
+
+// 记录 on 设置 · 通用: the question is asked only when no clear arrived before the
+// duty was left, and the 心得 prompt follows a clear, not only a confirmation.
+void UiWorkflowRegressionTests::theRecordSwitchesSayWhenTheyAct()
+{
+    SettingsFixture fixture;
+    QVERIFY2(fixture.create(), qPrintable(fixture.errors));
+    QQuickItem *scene = qobject_cast<QQuickWindow *>(fixture.root.get())->contentItem();
+
+    QQuickItem *ask = findWithProperty(scene, "label", QString::fromUtf8("结束后询问本次结果"));
+    QVERIFY(ask);
+    QCOMPARE(ask->property("description").toString(),
+             QString::fromUtf8("离开副本前没有收到通关结算时，程序不替你判定，结束后询问本次结果；"
+                               "关掉后可以在总览的待复核里补确认"));
+
+    QQuickItem *note = findWithProperty(scene, "label", QString::fromUtf8("通关后弹出笔记窗口"));
+    QVERIFY(note);
+    QCOMPARE(note->property("description").toString(),
+             QString::fromUtf8("通关后接着记一句；也可稍后在历史记录补录"));
+}
+
+// The 待复核 banner on 总览 speaks of whatever runs are pending, which the
+// Desktop does not know one by one. A run the clear completed can be flagged
+// later, when the calibration that recorded it is withdrawn: its result stays
+// 通关 and already counts. So the reasons are the common ones, not a claim about
+// each run, and only a run not yet recorded as 通关 waits for the answer to count.
+void UiWorkflowRegressionTests::thePendingBannerSaysWhyARunIsPending()
+{
+    ShellScene scene;
+    QVERIFY2(scene.create(), qPrintable(scene.errors));
+    QVERIFY(scene.item(QStringLiteral("pendingReviewBannerTitle")));
+
+    QCOMPARE(textStartingWith(scene.window()->contentItem(),
+                              QString::fromUtf8("这些导随的结果还没有确认")),
+             QString::fromUtf8("这些导随的结果还没有确认，常见的原因是程序异常退出后由崩溃恢复关闭、"
+                               "离开副本前没有收到通关结算而无法判定是否通关，或者生成记录的校准事后被撤下。"
+                               "尚未记为通关的记录，确认“通关”后才计入导随次数；"
+                               "每次确认都会作为一条新的修订记入审计。"));
+}
+
+// 软件说明 · 运行顺序, step 3: only a result that was not recorded by itself is
+// filled in under 待复核.
+void UiWorkflowRegressionTests::theExplanationSaysAClearIsRecordedByItself()
+{
+    WorkflowBackend backend;
+    mr::AppController controller{&backend, nullptr};
+    mr::Formatters formatters;
+    QQmlEngine engine;
+    engine.rootContext()->setContextProperty(QStringLiteral("App"), &controller);
+    engine.rootContext()->setContextProperty(QStringLiteral("Fmt"), &formatters);
+    engine.rootContext()->setContextProperty(QStringLiteral("ReduceMotion"), true);
+    QQmlComponent component(&engine);
+    component.setData(R"(import QtQuick
+import QtQuick.Controls
+import MentorRecorder
+ApplicationWindow {
+    width: 900; height: 900; visible: true
+    DisclosureDialog { id: notice; objectName: "disclosure"; anchors.centerIn: parent }
+    Component.onCompleted: notice.openDialog()
+})", QUrl());
+    const std::unique_ptr<QObject> window(component.create());
+    QVERIFY2(window, qPrintable(component.errorString()));
+    auto *dialog = window->findChild<QObject *>(QStringLiteral("disclosure"));
+    QVERIFY(dialog);
+    QTRY_VERIFY(dialog->property("visible").toBool());
+    auto *content = dialog->property("contentItem").value<QQuickItem *>();
+    QVERIFY(content);
+
+    QCOMPARE(textStartingWith(content, QString::fromUtf8("· 3. ")),
+             QString::fromUtf8("· 3. 正常排指导者任务，未能自动判定的结果到“待复核”里填写"));
+    QCOMPARE(textStartingWith(content, QString::fromUtf8("匹配、进入副本、离开副本会自动记录")),
+             QString::fromUtf8("匹配、进入副本、离开副本会自动记录，副本内收到通关结算时自动记为通关。"
+                               "没有收到结算就离开副本时，记录会标为“待复核”，"
+                               "打开记录用“修正”填上通关或离开即可。"));
+}
+
+// The CN clear is recognised (docs/protocol-profile-format.md §12), so no text a
+// player reads may still say that the program cannot see whether a duty was
+// cleared. String literals joined with + are read as one, so a phrase that was
+// split over two lines is found as well.
+void UiWorkflowRegressionTests::noPlayerTextSaysTheClearCannotBeSeen()
+{
+    const QStringList claims{QString::fromUtf8("看不到通关判定"), QString::fromUtf8("不能自动判定"),
+                             QString::fromUtf8("尚不能判定是否通关"), QString::fromUtf8("还不能判定是否通关"),
+                             QString::fromUtf8("只看到离开副本"), QString::fromUtf8("程序不会替你判定")};
+    static const QRegularExpression joint(QStringLiteral("\"\\s*\\+\\s*\""));
+    const QDir qmlRoot(QString::fromUtf8(MR_DESKTOP_QML_DIR));
+    QDirIterator files(qmlRoot.path(), {QStringLiteral("*.qml")}, QDir::Files,
+                       QDirIterator::Subdirectories);
+    int read = 0;
+    QStringList found;
+    while (files.hasNext()) {
+        QFile file(files.next());
+        QVERIFY2(file.open(QIODevice::ReadOnly), qPrintable(file.fileName()));
+        const QString source = QString::fromUtf8(file.readAll()).remove(joint);
+        ++read;
+        for (const QString &claim : claims) {
+            if (source.contains(claim))
+                found.append(qmlRoot.relativeFilePath(file.fileName()) + QStringLiteral(": ") + claim);
+        }
+    }
+    // Every page, dialog and component, not an empty or wrong directory.
+    QVERIFY2(read >= 80, qPrintable(QString::number(read)));
+    QVERIFY2(found.isEmpty(), qUtf8Printable(found.join(QLatin1Char('\n'))));
 }
 
 int main(int argc, char **argv)

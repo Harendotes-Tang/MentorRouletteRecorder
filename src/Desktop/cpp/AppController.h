@@ -615,10 +615,11 @@ Q_SIGNALS:
     /// 窗口 is on; a run is raised again only after a busy dialog closed
     /// without acknowledging it, and never once it was acknowledged.
     void reflectionPromptRequested(const QVariantMap &run);
-    /// A mentor duty just finished without an observable result (the shipping
-    /// CN profile carries no DUTY_RESULT), so only the player knows whether it
-    /// was a 通关. Emitted at most once per run_id, only for runs that ended
-    /// during this session and only while 结束后询问本次结果 is on.
+    /// A mentor duty just finished without an observed result (a CN duty that
+    /// ends without the clear signal, docs/protocol-profile-format.md §12), so
+    /// only the player knows whether it was a 通关. Emitted at most once per
+    /// run_id, only for runs that ended during this session and only while
+    /// 结束后询问本次结果 is on.
     void resultConfirmationRequested(const QVariantMap &run);
     void pendingReviewRunChanged();
     /// The Collector's own revision for \a runId moved on - because a live

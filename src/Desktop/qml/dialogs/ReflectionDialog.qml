@@ -7,10 +7,10 @@ import MentorRecorder
 // run (Settings.reflectPrompt), from the dashboard's 补录笔记 button and from
 // the run detail panel's 笔记 tab.
 //
-// It also carries the 本次导随结果 question: with the shipping 国服 protocol
-// profile no packet says whether a duty was cleared, so a finished 导随 stops
-// at 待复核 and the achievement count only moves once the user answers 通关.
-// The program never decides a result by itself.
+// It also carries the 本次导随结果 question: a 国服 duty that ends without the
+// clear signal (docs/protocol-profile-format.md §12) stops at 待复核, and the
+// achievement count only moves once the user answers 通关. The program never
+// decides such a result by itself.
 Dialog {
     id: dialog
 
@@ -357,7 +357,7 @@ Dialog {
 
             Text {
                 Layout.fillWidth: true
-                text: qsTr("《%1》打完了吗？国服看不到通关判定，"
+                text: qsTr("《%1》打完了吗？离开副本前没有收到通关结算，"
                            + "只有你确认“通关”后这一次才会计入导随次数。").arg(dialog.dutyText)
                 color: Theme.textPrimary
                 font.pixelSize: Theme.fs(13)

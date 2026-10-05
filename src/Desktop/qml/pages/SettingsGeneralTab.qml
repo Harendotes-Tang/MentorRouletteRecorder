@@ -75,7 +75,7 @@ ColumnLayout {
 
         SettingToggleRow {
             label: qsTr("结束后询问本次结果")
-            description: qsTr("这次导随只有你知道有没有通关，程序不会替你判定；"
+            description: qsTr("离开副本前没有收到通关结算时，程序不替你判定，结束后询问本次结果；"
                               + "关掉后可以在总览的待复核里补确认")
             checked: tab.confirmPromptEnabled
             onToggled: function(value) {
@@ -87,7 +87,7 @@ ColumnLayout {
         SettingToggleRow {
             showDivider: false
             label: qsTr("通关后弹出笔记窗口")
-            description: qsTr("确认结果后接着记一句；也可稍后在历史记录补录")
+            description: qsTr("通关后接着记一句；也可稍后在历史记录补录")
             checked: tab.reflectPromptEnabled
             onToggled: function(value) {
                 if (typeof Settings !== "undefined" && Settings.reflectPrompt !== undefined)

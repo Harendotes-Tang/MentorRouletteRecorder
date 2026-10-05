@@ -581,13 +581,13 @@ void TtsService::preview(const QString &kind)
 
 void TtsService::testOnline()
 {
-    const QString text = previewText(QStringLiteral("finished"));
+    const QString text = previewText(QStringLiteral("completed"));
     if (text.trimmed().isEmpty()) {
         if (m_speech)
             m_speech->noteTestResult(false, QStringLiteral("DESKTOP_TEXT_EMPTY"), false);
         return;
     }
-    deliver(QStringLiteral("finished"), text, true, true);
+    deliver(QStringLiteral("completed"), text, true, true);
 }
 
 void TtsService::stop()

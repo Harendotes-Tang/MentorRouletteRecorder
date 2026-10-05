@@ -197,8 +197,8 @@ ScrollView {
             }
         }
 
-        // Crash recovery closed these runs without evidence; their results remain
-        // a guess until the user confirms them.
+        // Runs waiting for the user's confirmation (pending_review): closed by crash
+        // recovery, left without the clear signal, or flagged by a withdrawn calibration.
         Rectangle {
             Layout.fillWidth: true
             Layout.preferredHeight: visible ? pendingRow.implicitHeight + 24 : 0
@@ -231,9 +231,12 @@ ScrollView {
 
                     Text {
                         Layout.fillWidth: true
-                        text: qsTr("这些导随的结果还没有确认：有的是程序异常退出后由崩溃恢复关闭的，"
-                                   + "有的是当前协议档案只看到离开副本、还不能判定是否通关。"
-                                   + "确认“通关”后这一次才计入导随次数；每次确认都会作为一条新的修订记入审计。")
+                        // Says nothing of any one run: a pending run may already be 通关
+                        // (a withdrawn calibration flags its runs and keeps their results).
+                        text: qsTr("这些导随的结果还没有确认，常见的原因是程序异常退出后由崩溃恢复关闭、"
+                                   + "离开副本前没有收到通关结算而无法判定是否通关，或者生成记录的校准事后被撤下。"
+                                   + "尚未记为通关的记录，确认“通关”后才计入导随次数；"
+                                   + "每次确认都会作为一条新的修订记入审计。")
                         color: Theme.textPrimary
                         font.pixelSize: Theme.fs(12)
                         wrapMode: Text.WordWrap

@@ -24,6 +24,7 @@
 #include <QQmlContext>
 #include <QQmlEngine>
 #include <QQmlExpression>
+#include <QQuickItem>
 #include <QQuickStyle>
 #include <QSignalSpy>
 #include <QTest>
@@ -135,6 +136,23 @@ ApplicationWindow {
     /// controller's own queue - not the test - decides what is asked and when.
     void publishFinished(const QVariantMap &run) { Q_EMIT backend.liveEvent(runFinishedEvent(run)); }
 };
+
+/// The text of the first item under \a from, visible or not, that starts with
+/// \a prefix; empty when there is none.
+QString textStartingWith(QQuickItem *from, const QString &prefix)
+{
+    if (!from)
+        return {};
+    const QString text = from->property("text").toString();
+    if (text.startsWith(prefix))
+        return text;
+    for (QQuickItem *child : from->childItems()) {
+        const QString match = textStartingWith(child, prefix);
+        if (!match.isEmpty())
+            return match;
+    }
+    return {};
+}
 
 } // namespace
 
@@ -369,6 +387,23 @@ private Q_SLOTS:
         QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "close"));
         QVERIFY(fixture.openForResult(finishedRun(QStringLiteral("run-a"), QStringLiteral("水晶塔"), 7)));
         QCOMPARE(fixture.dialog()->property("runRevision").toInt(), 7);
+    }
+
+    /// A CN duty cleared in the duty is recorded as 通关 by itself
+    /// (docs/protocol-profile-format.md §12), so the question is only asked when
+    /// no clear arrived before the duty was left - and it says so.
+    void theResultQuestionSaysNoClearWasSeen()
+    {
+        DialogFixture fixture;
+        QVERIFY2(fixture.create(), qPrintable(fixture.errors));
+        QVERIFY(fixture.openForResult(finishedRun(QStringLiteral("run-a"), QStringLiteral("水晶塔"), 3)));
+        QVERIFY(fixture.dialog()->property("askingResult").toBool());
+
+        auto *content = fixture.dialog()->property("contentItem").value<QQuickItem *>();
+        QVERIFY(content);
+        QCOMPARE(textStartingWith(content, QString::fromUtf8("《水晶塔》打完了吗？")),
+                 QString::fromUtf8("《水晶塔》打完了吗？离开副本前没有收到通关结算，"
+                                   "只有你确认“通关”后这一次才会计入导随次数。"));
     }
 };
 

@@ -133,13 +133,13 @@ ColumnLayout {
         // 本机校准生成的档案与随包档案同等对待，但须向用户说明其来源。
         if (notices.profileOrigin === "LOCAL_CALIBRATION" && notices.profileStatus === "VERIFIED")
             return qsTr("游戏更新后，本软件在这台电脑上重新认出了记录所需的信息，记录照常生成。"
-                        + "是否通关仍然不能自动判定，离开副本后在记录里补一下结果即可。")
+                        + "副本内收到通关结算时自动记为通关；没有收到时，离开副本后在记录里补一下结果即可。")
         if (notices.profileOrigin === "SHARED_CALIBRATION" && notices.profileStatus === "VERIFIED")
             return qsTr("它先在这台电脑的流量里核实过，才用来记录，记录照常生成。"
-                        + "是否通关仍然不能自动判定，离开副本后在记录里补一下结果即可。")
+                        + "副本内收到通关结算时自动记为通关；没有收到时，离开副本后在记录里补一下结果即可。")
         if (notices.profileStatus === "VERIFIED")
-            return qsTr("能自动记录指导者任务的匹配、进入和离开。是否通关目前不能自动判定：离开副本后记录会标为“待复核”，"
-                        + "在记录里用“修正”填上结果。")
+            return qsTr("能自动记录指导者任务的匹配、进入和离开；副本内收到通关结算时自动记为通关。"
+                        + "没有收到结算就离开副本时，记录会标为“待复核”，在记录里用“修正”填上结果。")
         const detail = notices.profile.message ? " " + notices.profile.message : ""
         const stale = App.protocolProfileStale ? qsTr("（以下档案详情为上次已知信息）") : ""
         if (notices.buildUnknown)
