@@ -198,5 +198,5 @@ SHA-256 均记录在每个文件的 `provenance` 中。**原始下载不纳入�
 > 其中第 10 项（游戏图标）与第 11 项（`ffxiv-datamining-cn` 无许可证文件的副本名称数据）
 > 由维护者决定以“随包分发 + 来源与版权声明 + 仅限非商业用途”的方式落实。
 >
-> **`LIVE_CAPTURE_STATUS = VERIFIED_POP_TO_EXIT`**：国服 `2026.08.05` 的弹窗与换区已在真实流量上验证，
-> 通关报文尚未识别（[`docs/live-validation-guide.md`](docs/live-validation-guide.md) §0）。
+> **`LIVE_CAPTURE_STATUS = VERIFIED_POP_TO_EXIT`**：国服 `2026.08.05` 的弹窗与换区已在真实流量上验证；
+> 通关结算按内容识别，仅在国服 `2026.09.15` 的一种副本上实测（[`docs/live-validation-guide.md`](docs/live-validation-guide.md) §0）。

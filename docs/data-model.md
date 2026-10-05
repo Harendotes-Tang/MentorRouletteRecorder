@@ -60,7 +60,7 @@ Microsoft.Data.Sqlite 仍会自行重试至命令超时（默认 5 秒）为止�
 | `manually_created` | INTEGER | NOT NULL, 0/1 | 是否为手工创建 |
 | `manually_corrected` | INTEGER | NOT NULL, 0/1 | 是否被人工**更正**过：某次 `CorrectRun` 改动了软件已记下的内容后置 1，且不再回退。仅回答待复核记录的结局（`result` / `pending_review` / `contributes_to_goal`）、补上原本为空的职业或副本、或编辑备注，不算更正（`RunMutationRules.OverrulesTheRecord`）。1.3.1 之前每次 `CorrectRun` 都置 1；旧数据在采集服务启动时按各自的修订链重新判定（`CorrectedFlagMaintenance`，不产生修订、不改 `updated_at_utc`） |
 | `soft_deleted` | INTEGER | NOT NULL, 0/1, default 0 | 软删除标记 |
-| `pending_review` | INTEGER | NOT NULL, 0/1, default 0 | 崩溃恢复标记「待复核」（schema v2 新增） |
+| `pending_review` | INTEGER | NOT NULL, 0/1, default 0 | 「待复核」标记：记录等待用户确认，来源见 §1.1；标记本身不改动结果（schema v2 新增） |
 | `note` | TEXT | NULL | 用户手工填写的备注（schema v2 新增） |
 | `created_at_utc` | TEXT | NOT NULL | 创建时间 |
 | `updated_at_utc` | TEXT | NOT NULL | 最近变更时间 |
@@ -90,8 +90,10 @@ INDEX ix_runs_pending_review ON mentor_runs(pending_review) WHERE pending_review
 
 - `pending_review = 1` 表示这条记录的结果尚未经人工确认：例如由**崩溃恢复**收尾的未完结记录
   （已进入副本的置为 `INTERRUPTED`，从未进入副本的置为 `CANCELLED_BEFORE_ENTRY`，见
-  [state-machine.md](state-machine.md) §3.9），或由没有 `DUTY_RESULT` 的档案在离开副本时
-  置为 `UNKNOWN`（§3.10）；全部来源见 [statistics-definitions.md](statistics-definitions.md) §12。它是
+  [state-machine.md](state-machine.md) §3.9），或由不声明 `DUTY_RESULT` 的档案在离开副本前没有收到通关结算时
+  置为 `UNKNOWN`（§3.10）；全部来源见 [statistics-definitions.md](statistics-definitions.md) §12。
+  待复核不等于结果未知：生成记录的校准事后被撤下时，记录只加上该标记，原结果（可能是 `COMPLETED`）不变，
+  照常计入统计与成就进度。它是
   `GetDashboardStats.unfinished_pending_review` 的唯一依据。此前该口径由
   `result = INTERRUPTED AND detection_confidence = LOW AND manually_corrected = 0` 推断，
   现已改为直接读取该列，语义不再依赖置信度的巧合。

@@ -343,7 +343,7 @@ IPC 契约不存在这一层顾虑，因此测试侧直接使用成熟的库，�
 6. **确认未从 AGPL 项目复制任何代码**，并在 `THIRD_PARTY_NOTICES.md` 中
    记录所有参考过的项目及参考方式。
 7. **`LIVE_CAPTURE_STATUS`** 的当前值必须如实标注在 README 与发布说明中
-   （现为 `VERIFIED_POP_TO_EXIT`：弹窗与换区已验证，通关报文未识别）。
+   （现为 `VERIFIED_POP_TO_EXIT`：弹窗与换区已验证；通关结算按内容识别，仅在一种副本上实测）。
 8. **游戏服务条款与当地法律的自查**，并在 README 中给出清晰的风险提示与免责声明。
 9. **Qt LGPL/GPL 合规检查**：**已落实**。模块清单见 `THIRD_PARTY_NOTICES.md`；
    `docs/licenses/LGPL-3.0.txt` 与 `docs/licenses/GCC-RUNTIME-LIBRARY-EXCEPTION-3.1.txt` 随包分发。

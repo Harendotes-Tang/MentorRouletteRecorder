@@ -382,7 +382,7 @@ payload: <LiveEvent>}`。
 | Capture | `src/Collector/Capture/` | Npcap 检测（**每次开始监听都重新枚举设备列表**）、适配器枚举、游戏进程定位（内核进程表，不打开进程句柄）、经 SharpPcap 的只读 Npcap 读取（**不使用 raw socket**）、Machina 封装（系统 TCP 表、Oodle、报文解码）、FFXIV 分帧、有界队列、抓包诊断、Oodle 临时副本清单与回收 | `NpcapDetector` `AdapterEnumerator` `GameProcessLocator` `ProcessTable` `ProcessImagePath` `NpcapPacketReader` `MachinaCaptureSource` `FfxivFraming` `DecodedMessageQueue` `CaptureController` `CaptureDiagnostics` `CaptureCli` `OodleTempCopyCleaner` |
 | Protocol / Decoded | `src/Collector/Protocol/Decoded/` | 抓包与解析之间**唯一**的交接类型 | `DecodedMessage` `IDecodedMessageSink` |
 | Protocol / Profiles | `src/Collector/Protocol/Profiles/` | 档案加载、Schema 校验、规范化哈希、目录扫描与 `AMBIGUOUS`、按 `region`+`game_build` 选档 | `ProfileLoader` `JsonSchemaValidator` `CanonicalJson` `ProfileValidationReport` `ProfileCatalog` `ProfileSelector` `ProtocolProfile` |
-| Protocol / Parsing | `src/Collector/Protocol/Parsing/` | 字节 → 语义事件，**零硬编码常量**；拒绝分类与有界错误环 | `ProfileMessageParser` `ParserError` |
+| Protocol / Parsing | `src/Collector/Protocol/Parsing/` | 字节 → 语义事件，**零硬编码 opcode**；唯一按内容识别的常量（国服通关结算，见 [protocol-profile-format.md](protocol-profile-format.md) §12）集中在 `DutyClearSignal`；拒绝分类与有界错误环 | `ProfileMessageParser` `DutyClearSignal` `ParserError` |
 | Domain / Events | `src/Collector/Domain/Events/` | 实时解析和离线重放共用的语义事件、方向和去重键 | `SemanticEvent` 及其子类、`EventKey`、`PacketDirection` |
 | Protocol / Pipeline | `src/Collector/Protocol/Pipeline/` | 抓包 → 解析 → 状态机 → 存储 → 实时事件的接线；语义事件到数据库行的**唯一**路径 | `LiveProtocolPipeline` `SemanticEventProcessor` `ICaptureLifecycleListener` |
 | Domain | `src/Collector/Domain/` | 状态机与判定规则、领域模型、变更规则、统计模型、单调时钟；变更拒绝只携带类型化业务原因及上下文 | `MentorRunStateMachine` `StateMachineCommands` `ProfileBinding` `BoundedDedupSet` `MentorRun` `RunEvent` `RunRevision` `RunMutationRules` `RunRuleViolationException` |
@@ -476,7 +476,7 @@ QObject 生命周期。生产部署仍为 Desktop 与 Collector 两个进程。
 | 2 | IPC 打通 | 命名管道服务端与 Qt 客户端、信封编解码、幂等表、全部只读消息 | 契约用例（每个 `message_type` 至少一条正例 + 一条错误例）通过 | **已完成** |
 | 3 | 手工补录与统计 | `CreateManualRun` / `CorrectRun` / `SoftDeleteRun` / `RestoreRun` / `GetRunRevisions`、统计四件套、导出与备份 | 统计定义的黄金用例通过；修订链 append-only 有测试 | **已完成** |
 | 4 | 抓包与判定 | Npcap 检测、Machina 封装（**仅 WinPCap 模式**）、协议档案加载与校验、`--replay-decoded`、live parser/state machine/SQLite/IPC 接线 | 离线固件回放与合成 live 集成测试可复现状态迁移与入库；无真实 opcode 时保持 fail-closed | **已完成**（离线判据；真机部分见 Phase 5） |
-| 5 | 打包与联调 | `package.ps1`、发布布局、TTS、真机验证 | 弹窗到离开的流程已在真机上验证。通关报文尚未识别，离开一律以"未知 · 待复核"收尾 | **进行中** |
+| 5 | 打包与联调 | `package.ps1`、发布布局、TTS、真机验证 | 弹窗到离开的流程已在真机上验证。国服的通关结算按内容识别，只在一种副本的一局通关中实测；离开副本前没有收到它时以"未知 · 待复核"收尾 | **进行中** |
 
 > 阶段编号沿用本表：**抓包与协议解析是 Phase 4**。
 > Phase 4 的"完成"指离线判据（固件重放 + 合成 live 集成测试）全部通过。

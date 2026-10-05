@@ -2,11 +2,12 @@
 
 > ## 状态：`VERIFIED`（`cn.2026.08.05`，2026-09-07）
 >
-> 自任务确认弹窗至离开副本的流程可自动记录，通关判定尚未补齐。
+> 自任务确认弹窗至离开副本的流程可自动记录。
 > `cn.2026.08.05.json` 声明 `CONTENT_FINDER_POP`（S2C `0x0323`，第 16 字节为随机任务编号，
 > 第 9 字节为 3 表示已匹配）与 `ZONE_INITIALIZATION`（S2C `0x014a`），`mentor_roulette_id = 9`。
-> 该档案不含 `DUTY_RESULT`，因此离开副本的记录以 `UNKNOWN` 收尾并标记待复核
-> （[state-machine.md](../../docs/state-machine.md) §3.10）。
+> 该档案不含 `DUTY_RESULT`：通关由按内容识别的通关结算给出
+> （[protocol-profile-format.md](../../docs/protocol-profile-format.md) §12）；没有收到时，
+> 离开副本的记录以 `UNKNOWN` 收尾并标记待复核（[state-machine.md](../../docs/state-machine.md) §3.10）。
 > `cn.2026.08.05.candidate.json` 与之并行，仅用于观测与副本内采样。
 > 其他国服版本仍由 `cn-unsupported.json` fail-closed。
 

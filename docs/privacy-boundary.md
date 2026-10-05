@@ -223,6 +223,13 @@ Machina 在释放库时会尝试删除自己产生的临时副本，其诊断信
   游戏进程的连接才会被解码，其余报文在缓冲区中丢弃。无关包不进入业务解析、trace、日志或数据库，也不会落盘。
 - 抓包回调复制出**判定所需的最小字段**后立即释放缓冲区。
 - 有界队列中的元素在解析后立即归还，不做任何持久化。
+- 解析器除按档案认领报文外，还把服务器下发的报文与一种固定内容（国服的通关结算，
+  [protocol-profile-format.md](protocol-profile-format.md) §12）比较。比较只在内存中进行，不保留任何字节；
+  命中时产生一个胜利事件，其键与其他事件的键构成相同（[state-machine.md](state-machine.md) §7.3），
+  负载只以 SHA-256 摘要出现。
+  这不是新的读取：比较的对象是采集服务本就解码的游戏连接报文。诊断日志只记下结算出现过、
+  对应哪条记录、是否由它记为通关、距离离开副本多久以及累计次数，不含负载、哈希、opcode 或副本编号
+  （[capture-diagnostics.md](capture-diagnostics.md) §8）。
 - `run_events.detail_json` 只允许：opcode 编号、方向、报文长度、时间戳、
   以及被解析出的 id 型字段（`content_id` / `territory_id` / `roulette_id` / `job_id`）
   与档案 id。

@@ -251,6 +251,10 @@ IBM Plex Mono 随程序分发，许可为 SIL OFL 1.1。字体文件位于 `src/
   详情页签采用原型的两列键值网格。修正历史只列出详情页同样展示的字段，字段名、取值、修订种类与
   操作者均以中文显示（`Fmt.revisionFieldVisible` / `revisionFieldValue` / `changeKindLabel` /
   `revisionActorLabel`）；事件摘要见 §8 第 2 条。内部编号与原始取值只在维护者工具打开时显示。
+  详情页签的「待复核」一行（`pendingReviewText`）按结果区分：结果未知时为
+  「是 · 结果未经确认（崩溃恢复，或离开副本前未收到通关结算）」；结果已知而仍待复核时（例如崩溃恢复记为中断的记录，
+  或生成记录的校准事后被撤下、保留原结果的记录，后者可能已是通关），由系统修订加上待复核标记的为
+  「是 · 需要你确认这条记录（原因见修正历史）」，其余为「是 · 需要你确认这条记录」。
 * 详情页签末尾的「备注」区块：备注文字（经手动修正编辑）之下是该记录的图片条
   （`components/NoteImageStrip.qml`，64 px，点击缩略图以浮层查看原图），带「添加图片」格子与每张右上角的移除；
   在这里添加或移除是即时的（`NoteImages.addPicked()` / `removeOne()`），不经向导、不需理由、不产生修订，
@@ -717,7 +721,7 @@ kicker `padding: 12px 0 4px`；`freeLayout` 面板 `padding: 20px 24px`，间距
   kicker 为「本地语音播报」，选中在线语音时改为「语音播报」。
   小字在本机语音下为「使用系统语音引擎，不联网」；选中在线语音、且采集服务上**同一家服务**已配置完成时，
   为「播报文字会发送到 <`App.speech.targetHost`>」；其余情况为橙色的「在线语音 · 尚未配置」。
-  标题行右侧是「试听」（`ttsPreviewButton`，`Tts.preview("finished")`）与总开关（`Settings.ttsEnabled`）。
+  标题行右侧是「试听」（`ttsPreviewButton`，`Tts.preview("completed")`，播放「通关」模板）与总开关（`Settings.ttsEnabled`）。
   **语音引擎**下拉框（`ttsVoiceCombo`）列出 `Tts.voices`：本机语音在前；
   采集服务支持在线语音时，其后接 Azure 与 OpenAI 兼容的音色，
   标签形如「晓晓（女声） · 在线（Azure）」与「alloy · 在线（OpenAI 兼容）」。
@@ -750,8 +754,10 @@ kicker `padding: 12px 0 4px`；`freeLayout` 面板 `padding: 20px 24px`，间距
     `api_key` 仅在密钥框有输入时携带。成功后将所选语音改为 `azure:<音色>` 或 `openai:<音色>`。
 * **播报模板**（`speechTemplatesCard`）：kicker 与「可用变量：`{duty} {progress} {remaining}`」（等宽）；
   两列排列 匹配成功 / 进入副本 / 通关 / 异常结束；下方整行为 **结束待确认**，
-  带说明「国服目前看不到通关判定……」。试听播放的即是这一条：
-  国服协议档案无法识别通关判定，因此这是一局导随实际会听到的话。
+  带说明「副本内收到通关结算时，记录直接记为通关，播报上面的“通关”；离开副本前没有收到结算时，
+  记录停在“待确认”，播报这一条。」。试听与在线语音的「测试」播放的是「通关」那一条：
+  国服副本内收到通关结算时（[protocol-profile-format.md](protocol-profile-format.md) §12），
+  一局通关的导随听到的就是这句话。
 
 `TtsService`（基于 `QTextToSpeech`）：
 
@@ -829,7 +835,7 @@ kicker `padding: 12px 0 4px`；`freeLayout` 面板 `padding: 20px 24px`，间距
   发行版采集服务对无法识别的消息返回 `ERR_BAD_REQUEST`（`field = message_type`），
   控制器同时接受 `ERR_UNKNOWN_MESSAGE` 与 `ERR_UNSUPPORTED`。此时在线语音整组设置不出现。
 * 方法包括 `save(map)`、`clearKey()` 与 `test()`，后者转交 `TtsService::testOnline()`，
-  结果写回 `resultText`。控制器在连接采集服务时与每次保存后刷新。
+  以在线语音朗读与试听相同的一句（「通关」模板），结果写回 `resultText`。控制器在连接采集服务时与每次保存后刷新。
   `GetSpeechSettings` 没有得到应答（不是被拒绝）时，按 2 秒起、每次加倍、最长 60 秒的间隔重新读取，
   直到读到或连接断开（`kSettingsRetryFirstMs` / `kSettingsRetryMaxMs`）。
 * 所选音色与采集服务属于同一家服务、仅音色不同时，自动发送一次只含 `voice` 的更新。
@@ -840,7 +846,7 @@ kicker `padding: 12px 0 4px`；`freeLayout` 面板 `padding: 20px 24px`，间距
 | live 事件 | 状态 | 模板 |
 |---|---|---|
 | `run_state_changed` | `MENTOR_MATCHED` / `ENTERED_DUTY` | 匹配 / 进本 |
-| `run_finished` | `COMPLETED`（真的看到了 DUTY_RESULT） | 完成 |
+| `run_finished` | `COMPLETED`（收到了结算：档案声明的 `DUTY_RESULT` 或国服按内容识别的通关结算） | 完成 |
 | `run_finished` | `UNKNOWN_FINAL_STATE` | **结束待确认** |
 | `run_finished` | `LEFT_OR_ABANDONED` / `DISCONNECTED` / `INTERRUPTED` / `INTERRUPTED_PENDING_REVIEW` | 异常结束 |
 | `run_finished` | `CANCELLED_BEFORE_ENTRY` | 不播报（拒绝排本是正常操作） |
@@ -957,10 +963,11 @@ MockBackend 回 `{passed: true, detail: "ok", checked_at_utc: 现在}`。
 
 ### 4.5.2 本次导随结果（confirmation）
 
-国服协议档案中没有通关判定的报文，一局导随结束后只会停在 `UNKNOWN_FINAL_STATE`
-（`pending_review = true`，`result = UNKNOWN`），而成就进度只统计 `COMPLETED`，
-因此**次数在用户确认之后才会增加**。
-本软件不代替用户判定结果，也不将该判定完全交给事后的「待复核」列表；
+国服副本内收到通关结算时（[protocol-profile-format.md](protocol-profile-format.md) §12），
+记录直接收尾为 `COMPLETED`，计入成就进度，不再询问结果。离开副本前没有收到通关结算时，
+一局导随停在 `UNKNOWN_FINAL_STATE`（`pending_review = true`，`result = UNKNOWN`），
+而成就进度只统计 `COMPLETED`，因此这一场的**次数在用户确认之后才会增加**。
+本软件不代替用户判定这类结果，也不将该判定完全交给事后的「待复核」列表；
 0.2.2 中「完成一局而次数未变」的问题即源于后者。
 
 同一个 `ReflectionDialog` 增加了问句模式（`askingResult`）。此时标题变为「本次导随结果」，
@@ -977,6 +984,9 @@ MockBackend 回 `{passed: true, detail: "ok", checked_at_utc: 现在}`。
 因此确认本身也是一条可审计的新 revision，且不引入任何新的 IPC 消息。
 
 总览的「待复核」提示条上提供同样的一对按钮，供当时仍在游戏中、未及回答的用户补充确认。
+提示条的说明不针对某一条记录：它列出常见原因（崩溃恢复关闭的记录、离开副本前没有收到通关结算、
+生成记录的校准事后被撤下），并说明尚未记为通关的记录在确认“通关”后才计入导随次数。
+待复核的记录可能已是通关（校准被撤下的记录保留原结果），这类记录已经计入进度。
 `App.pendingReviewRun` 是最近一条待确认的记录，仅在 `pendingReviewCount > 0` 时才查询。
 每条记录只询问一次；`ended_at_utc` 早于本次启动的记录（重连时被重放的旧事件）不再询问。
 
@@ -1009,7 +1019,7 @@ Esc 同样关闭，左侧小字为「此说明可随时在「设置 → 关于�
    可在「设置 → 通用 → 更新」中关闭「检查新版本并提示」（§8.4、§8.6）
 
 「运行顺序」三条：先打开本软件，再启动游戏；已经登录的，登出到标题画面再登录一次；
-正常排指导者任务，打完后到"待复核"里填结果。
+正常排指导者任务，未能自动判定的结果到"待复核"里填写（副本内收到通关结算时自动记为通关）。
 
 此前的版本在首次启动时先显示该窗口，须打开「我已阅读并理解」开关再点「我已了解」，确认按说明的版本号
 （`AppSettings::kDisclosureVersion`）记在 `desktop.ini` 的 `ui/disclosure_acknowledged_version` 与
@@ -1485,7 +1495,7 @@ build/src/Desktop/MentorRecorder.Desktop.exe --screenshot <png> --page N
                              # 本就位于测试目录，真实的 desktop.ini 不受影响
     [--mock-open-speech-confirm]
                              # 以本机语音起步，打开在线语音确认框（与 --mock-speech 同用时问的是该状态的音色）
-    [--mock-speech-preview]  # 启动 0.4 秒后播一次「试听」，配 --mock-speech fail 可截到回退提示
+    [--mock-speech-preview]  # 启动 0.4 秒后播一次「试听」（「通关」那一条），配 --mock-speech fail 可截到回退提示
     [--mock-update-available]
                              # 采集服务的更新检查报告有新版本（版本号与地址均为虚构，不联网）
     [--mock-update-download downloading|verifying|ready|failed]

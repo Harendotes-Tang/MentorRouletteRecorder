@@ -97,6 +97,8 @@ achievement_progress =
   （`CountContributingCompleted`），同样计入全部满足上述条件的已记录完成，不论何时结束。
 - 记录被用户取消勾选 `contributes_to_goal` 后**不计入进度**，但**仍计入**
   `attempt_count` 与 `completed_count`，因为它仍然是一次真实的完成。
+- `pending_review` 不参与本口径：结果为 `COMPLETED` 而待复核的记录（例如生成它的校准事后被撤下，见 §12）
+  照常计入进度；结果为 `UNKNOWN` 的待复核记录在用户确认通关之前不计入，因为它不是 `COMPLETED`。
 - 成就进度**不受 `RunFilter` 的时间范围影响**，始终采用全量口径。
   仪表盘上的「本周」与「本月」卡片使用 `completed_count`，而非 `achievement_progress`。
 
@@ -158,6 +160,9 @@ avg_duration_ms = AVG(duration_ms) WHERE
 - 时间必须合法，即非空且顺序正确，同时 `duration_ms >= 0`。
 - `duration_ms` 来自单调时钟。统计时不允许以 `ended - entered` 现算来补齐缺失值，
   缺失的记录一律排除。
+- 由国服通关结算自动收尾的记录，时长取到收到结算为止；由用户把 `UNKNOWN` 确认为通关的记录，
+  时长仍取到离开副本为止（[state-machine.md](state-machine.md) §3.4.1）。两者都是 `COMPLETED`，一并计入平均，
+  口径不变。
 
 ## 9. 结果分布 `GetResultStats`
 
@@ -228,7 +233,7 @@ avg_duration_ms = AVG(duration_ms) WHERE
 | `trend` | §12.1 |
 
 `unfinished_pending_review` 的口径是 `pending_review` 标志本身，而非
-`result = 'INTERRUPTED'`。需要用户复核的记录包括以下几类，其中档案不含 `DUTY_RESULT` 时的收尾是国服的常态：
+`result = 'INTERRUPTED'`。需要用户复核的记录包括以下几类：
 
 - 重启后恢复出的未完结记录（见 [state-machine.md](state-machine.md) §3.9）：已进入副本的记为
   `INTERRUPTED` + `LOW`；从未进入副本的记为 `CANCELLED_BEFORE_ENTRY` + `LOW`，后者的
@@ -236,7 +241,8 @@ avg_duration_ms = AVG(duration_ms) WHERE
   或 `UNKNOWN`，采集服务启动时将其一次性改记为 `CANCELLED_BEFORE_ENTRY` + `LOW` 并标为待复核；
 - 早期版本中撤销了重启收尾、或被更正为结果未知且没有结束时间的自动记录：它们被当作进行中，既不计入统计
   也不出现在待复核中，采集服务启动时只为其加上待复核标志，结果与时间不变（见同一文件 §3.9），此后按 §0 照常计入；
-- 档案不含 `DUTY_RESULT` 时每一场副本的收尾（`UNKNOWN` + `LOW`，见同一文件 §3.10）；
+- 离开副本前没有收到通关结算时的收尾：档案不声明 `DUTY_RESULT`，副本内又没有收到按内容识别的国服通关结算
+  （见同一文件 §3.4.1）时，离开副本的这一场以 `UNKNOWN` + `LOW` 收尾（见同一文件 §3.10）；
 - 匹配之后、进本之前丢失了观测（解析队列溢出；或一条游戏连接有一个方向被放弃，且该方向本次会话交出过
   当前档案能解析的报文，尚无任何方向交出过时任一方向均算，见同一文件 §7.5）、游戏连接全部断开，
   或抓包因错误停止：按 `CANCELLED_BEFORE_ENTRY` + `LOW` 收尾（见同一文件 §3.3），同样不计入 attempt；

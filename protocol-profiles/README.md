@@ -14,6 +14,9 @@
 形成可审计、可替换、可失效的数据文件。
 `src/Collector/Protocol/Parsing/ProfileMessageParser.cs` 中**不含任何硬编码常量**：
 解析器读取的字段、长度、字节序与允许取值，全部来自本目录的文件。
+唯一的例外是国服的通关结算：它与 opcode 无关，按固定内容识别，不属于任何档案，
+常量集中在 `src/Collector/Protocol/Parsing/DutyClearSignal.cs`，证据见
+[`../docs/protocol-profile-format.md`](../docs/protocol-profile-format.md) §12。
 
 ## 目录
 
@@ -90,8 +93,8 @@ MentorRecorder.Collector.exe --list-profiles [--profiles-dir <path>] [--json]
    `PUBLIC_DOCUMENTATION`（公开且许可证兼容的文档，须给出 URL 与访问日期）、
    `USER_CONFIRMED`（使用者按[真机验证流程](../docs/live-validation-guide.md)确认）；
 3. `mentor_roulette_id` 非 `null`，且 `CONTENT_FINDER_POP` / `ZONE_INITIALIZATION` 齐全；
-   `DUTY_RESULT` 可选，一经声明必须带非空 `victory_values`，未声明时离开副本的记录以
-   `UNKNOWN` 待复核收尾（[state-machine.md](../docs/state-machine.md) §3.10）；
+   `DUTY_RESULT` 可选，一经声明必须带非空 `victory_values`；未声明时，国服由按内容识别的通关结算给出通关，
+   没有收到它的离开以 `UNKNOWN` 待复核收尾（[state-machine.md](../docs/state-machine.md) §3.10）；
 4. `profile_sha256` 为规范化文档的哈希，
    通过 `python tools/protocol-profile-validator/validate.py --stamp <file>` 盖章；
 5. `MentorRecorder.Collector.exe --validate-profile <file>` 返回 0。

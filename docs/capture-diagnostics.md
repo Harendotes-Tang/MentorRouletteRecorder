@@ -66,7 +66,8 @@
 取 `OBSERVING` / `READY` / `BLOCKED`，`warnings` 中给出正在重新校准的提示。
 用户确认后，采集服务写出本机档案、重新读取目录，并在当前会话内绑定解析器；
 `calibration_bound_at_utc` 记录该时刻，解析计数从零开始。绑定时，卡片等待确认期间本会话见到的、
-该档案所声明的报文按原顺序先交给新的解析器（[state-machine.md](state-machine.md) §0），
+该档案所声明的报文，以及与国服通关结算完全相符的报文（[protocol-profile-format.md](protocol-profile-format.md) §12），
+按原顺序先交给新的解析器（[state-machine.md](state-machine.md) §0），
 因此绑定后的解析计数包含这些补交的报文；其间的队列溢出、游戏连接全部中断与连接方向被放弃
 按发生的位置夹在这些报文之间，一并交给新的状态机。
 存在模板但抓包尚未运行时，`calibration.state` 为 `WAITING`。
@@ -161,6 +162,8 @@ Npcap 的官方安装程序并启动其向导，由用户自行完成安装（[p
 多开的客户端全部关闭后，这一等待随之解除，之后单独启动的客户端会自动锁定。
 总览和捕获诊断页的「记录对象」卡片提供两种入口：点击「点选游戏窗口」后，在 15 秒内
 点击或切换到目标 FF14 窗口；或者从列表选择按启动时间区分的游戏，再点击「记录此窗口」。
+该卡片只在有对象可选时出现：采集服务要求选择、正在点选，或同时列出多个客户端（已锁定其中之一时
+仍然显示，以便更换记录对象）。只有一个客户端且已锁定时没有可选的对象，卡片不显示。
 点选期间桌面端每 150 毫秒读取一次前台窗口所属的进程编号（`GetForegroundWindow` / `GetWindowThreadProcessId`，
 不打开任何进程句柄）。选择动作之外不跟随前台窗口，不安装输入钩子，不读取窗口标题或角色名。
 
@@ -311,6 +314,7 @@ Npcap 设备，并以该地址设置过滤器 `ip and tcp and host <地址>`；�
 | `messages_decoded` | 分帧读取成功的报文数 |
 | `decode_errors` | 分帧读取失败的报文数（短包、截断、乱码；**只计数，绝不抛异常**） |
 | `parse_ok` / `parse_fail` / `ignored` / `duplicates` | 来自 `IParserStats`。无可用档案时由 `CountingSink` 暴露为 0，存在 `VERIFIED` 档案时来自 live parser。`ignored` 表示档案未声明的 opcode，不计为失败（contracts/CHANGELOG.md 第 18 条） |
+| `duty_clear_signals` / `duty_clear_completions` | 本次抓包会话中识别出的国服通关结算次数（[protocol-profile-format.md](protocol-profile-format.md) §12；同一次观察的重复只计一次），以及其中使副本内的导随记录收尾为通关的次数。结算到达时没有导随记录处于副本中（例如非导随的副本）只计前者，因此前者大于后者属于正常。与 `parse_ok` 不同，两者按抓包会话计，只在会话开始时归零：会话内的重新绑定（包括「核对并启用」之后的绑定）、换用共享档案与撤下档案都不清零；会话结束后保留该会话的总数，直到下一次会话开始。尚未开始过会话、或会话中从未绑定比较通关结算的档案时为 0。只见于脱敏报告（§9）与诊断日志（§8），不在 `CaptureStatus` 中 |
 | `dropped` | 有界队列溢出丢弃数 |
 | `queue_depth` / `queue_capacity` | 同上 |
 | `profile.status` / `profile_id` | 来自针对当前游戏区服与版本的档案选择，无精确匹配时 fail-closed |
@@ -323,7 +327,7 @@ Npcap 设备，并以该地址设置过滤器 `ip and tcp and host <地址>`；�
 `DEGRADED` 的定义为：抓包仍在进行（`state = RUNNING`），但 `packets_dropped > 0`
 （有界队列溢出**或** Npcap 报告的驱动、网卡丢包），或队列深度超过容量的 80%。
 
-自 2026-09-04 起，§5.2 中除 `npcap.*` / `game.*` / `oodle_*` 之外的每一项都同时出现在
+自 2026-09-04 起，§5.2 中除 `npcap.*` / `game.*` / `oodle_*` 与 `duty_clear_*` 之外的每一项都同时出现在
 §5.1 的 `CaptureStatus` 中。因此诊断页显示的数值与脱敏报告中的数值来自**同一次快照**，
 不会相互矛盾。
 
@@ -493,6 +497,16 @@ Machina 在自身线程内将失败写入 `Trace`，而不向调用方抛出异�
   以及属于另一个 Windows 账户或以管理员身份运行的占用者（`OTHER_ACCOUNT`，此时采集服务以退出码 3 停止启动，
   见 [architecture.md](architecture.md) §2.4）。
 - 进程列表持续读取失败时的 `capture/process_listing_failed` / `capture/process_listing_recovered` 见 §3。
+- 国服通关结算（[protocol-profile-format.md](protocol-profile-format.md) §12）每被当前生效的解析器识别一次，
+  记一条 `protocol/duty_clear_signal`（Info）：`run_id`（结算到达时进行中的记录，没有时为 null）、
+  `state_before`（结算遇到的状态：`IDLE` / `MENTOR_MATCHED` / `ENTERED_DUTY`，已收尾的记录按 `IDLE` 计）、
+  `completed`（这次结算是否使该记录收尾为通关），以及本次抓包会话至此的累计数 `signals` 与 `completions`
+  （与 §5.2 相同）。由结算收尾的记录，在同一个解析器随后交给状态机的第一次换区（即离开副本）时再记一条
+  `protocol/duty_clear_exit`（Info）：`run_id` 与 `clear_to_exit_ms`（从结算到离开副本的毫秒数），只记一次。
+  结算与换区之间若有丢失，这一条不记：解析队列溢出、承载档案报文的连接方向被放弃、游戏连接全部断开、
+  抓包停止，或解析器被替换（重新绑定、换用或撤下档案）。两条都不含负载、哈希、opcode 或副本编号。
+  抓包会话结束时的 `capture/session_closed` 另带 `duty_clear_signals` 与 `duty_clear_completions`，
+  即整个会话的总数。
 
 ## 9. 脱敏诊断报告
 
@@ -508,7 +522,7 @@ Machina 在自身线程内将失败写入 `Trace`，而不向调用方抛出异�
 `game`（是否运行、`process_id`、区服、`game_build`、实例数、安装路径是否可读）、
 `adapter`（是否已选、指纹、地址数量）、
 `capture`（状态、时长、连接数、速率、`last_error_code`）、
-`counters`（全部计数器）、`profile`（含 `origin`，取值为随包、本机校准或共享校准）、
+`counters`（全部计数器，包括 §5.2 的 `duty_clear_signals` 与 `duty_clear_completions`）、`profile`（含 `origin`，取值为随包、本机校准或共享校准）、
 `calibration`（状态、模板档案 id、本机档案 id、阻塞原因、进度、`evidence`、`shared`（§9.6）；
 **不含**时间线，因为时间线记录了用户完成过的副本与轮盘）、`run`、
 `recent_parser_errors`（与 §5.3 为同一批行，由同一个渲染函数产出，
@@ -545,6 +559,9 @@ Machina 在自身线程内将失败写入 `Trace`，而不向调用方抛出异�
 命令行 `--capture-doctor --json` 仍然保留，用于**尚无数据库、尚无 IPC** 的场合。
 例如 docs/live-validation-guide.md 要求测试者在任何抓包之前先执行一次。
 桌面端不再使用该子进程通路。
+`--capture-doctor` 与 `--capture-trace` 都不加载协议档案，因此自检（包括 `--capture-trace` 拒绝启动时打印的同一份自检）
+报告的协议档案状态是 `NONE`；文本输出在「协议档案」一节注明这并不表示本软件没有可用的档案，
+本软件实际使用的档案及其状态见「捕获诊断」页。
 
 ### 9.2 抓包取证 trace（`--capture-trace`）的内容范围
 
@@ -804,6 +821,7 @@ opcode 与负载字节。
 | `state = FAILED` 且 `last_error_code` 非空 | 监视器致命错误（见 §7），或适配器被拔出、禁用 | 查看日志中的 `monitor_trace`，随后重新调用 `StartCapture` |
 | 开始监听时返回 `ERR_INTERNAL`（`details.monitor = START_FAILED`） | 与 Npcap 无关的启动失败：网卡的数据链路类型不受支持、读取线程未能启动、Oodle 初始化失败等 | 查看本机诊断日志；不需要重装 Npcap |
 | 记录全部为 `INTERRUPTED` | 采集服务频繁重启，或抓包被反复中断 | 查看日志中的 `PROCESS_RESTART` 事件 |
+| 通关后仍停在待确认：国服导随通关了，记录却以 `UNKNOWN` 收尾并标记待复核 | 副本内没有收到通关结算，或结算到达时这一场没有处于副本中的记录 | 在开始下一次监听之前导出脱敏诊断报告（两个计数只在下一次监听开始时归零），查看 `counters`：`duty_clear_signals = 0` 表示这一类副本没有发来结算，或游戏更新改变了它的形状（[protocol-profile-format.md](protocol-profile-format.md) §12.3）；`duty_clear_signals` 大于 `duty_clear_completions` 表示结算来了，但到达时没有导随记录处于副本中，例如这一场的进本没有被记录，或该次结算来自非导随的副本。日志中这一场附近的 `protocol/duty_clear_signal` 的 `state_before` 与 `run_id` 可确认是哪一种（§8）。两种情况都可按 [live-validation-guide.md](live-validation-guide.md) §4.1 取证后提交 |
 | 游戏在运行但 `ffxiv_running = false` | 正在等待选择记录对象（`game_selection_required = true`，候选见 `game_processes`，§3）；或游戏以 `ffxiv_dx11` / `ffxiv` 之外的进程名运行 | 在总览或捕获诊断页的「记录对象」卡片中选择游戏窗口。`StartCapture.process_id` 只接受已锁定的客户端，不能用来指定其他进程；进程名不同的客户端不受支持 |
 
 ## 11. 用户可自行做的边界核对

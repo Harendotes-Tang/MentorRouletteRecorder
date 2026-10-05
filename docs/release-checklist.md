@@ -25,7 +25,7 @@
 | 验收机器 | Windows 11，**无 Npcap、无 FFXIV 客户端** |
 | .NET 用例 | **待重测**。上次完整验收的结果为 477 总数 / 474 通过 / 0 失败 / 3 跳过。Phase 5 加固后 `DiagnosticsLogHygieneTests` 不再含跳过项，并新增了看门狗与补发缓冲用例 |
 | Qt/C++ 用例 | 11 总数 / 11 通过 / 0 失败 |
-| `LIVE_CAPTURE_STATUS` | 本表不抄录该值：应读取产物 `BUILD-METADATA.json` 中的 `live_capture_status`，或运行 `--capture-doctor --json`，判据见 §7。2026-09-07 的实测值为 `VERIFIED_POP_TO_EXIT`，即弹窗与换区已验证，通关报文仍未识别 |
+| `LIVE_CAPTURE_STATUS` | 本表不抄录该值：应读取产物 `BUILD-METADATA.json` 中的 `live_capture_status`，或运行 `--capture-doctor --json`，判据见 §7。2026-09-07 的实测值为 `VERIFIED_POP_TO_EXIT`，即弹窗与换区已验证；2026-10-05 起通关结算按内容识别，仅在一种副本上实测，该值不变 |
 | `PUBLIC_DISTRIBUTION_READY` | 本表不抄录该值：由 `package.ps1` 按 §7 的前提计算，写入 `BUILD-METADATA.json`；不满足时，`public_distribution_blockers` 逐条说明原因 |
 | 安装器 | `artifacts/MentorRecorder-<version>-setup.exe`（Inno Setup；self-contained；Npcap 官网下载） |
 | 产物 | `artifacts/MentorRecorder-<version>-win-x64.zip`（本次实测 63,734,750 字节） |
