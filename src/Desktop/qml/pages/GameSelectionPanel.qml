@@ -10,7 +10,10 @@ Card {
     readonly property bool waitingForRestart: App.validationActive
         && String(App.validationStatus.reason || "") === "WAITING_RESTART"
     Layout.fillWidth: true
-    visible: selection.selectionRequired || selection.currentLabel.length > 0 || selection.picking
+    // Shown only while there is something to choose: a choice is asked for, one
+    // is being made, or several clients are listed and the target can be
+    // changed. The only client, already locked, needs no card.
+    visible: selection.selectionRequired || selection.picking || selection.choices.length > 1
     horizontalPadding: 24
     verticalPadding: 18
     spacing: 10

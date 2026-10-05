@@ -307,6 +307,48 @@ private slots:
         QVERIFY(!scene.app->gameSelection()->currentLabel().isEmpty());
     }
 
+    // 业主反馈（2026-10-05）：只有一个游戏在运行且已锁定时没有可选的对象，「记录对象」
+    // 卡片不出现；列出第二个客户端时才出现，选定之后仍留着，以便更换记录对象。
+    void theRecordingTargetCardIsHiddenWhileTheOnlyClientIsLocked()
+    {
+        PageScene scene;
+        QVERIFY(scene.open());
+        QTRY_COMPARE(scene.app->gameSelection()->choices().size(), 1);
+        QVERIFY(!scene.app->gameSelection()->required());
+        QVERIFY(!scene.app->gameSelection()->currentLabel().isEmpty());
+        QVERIFY(!scene.shows(QStringLiteral("gameSelectionPanel")));
+        const QString page = scene.visibleTexts().join(QLatin1Char('\n'));
+        QVERIFY2(!page.contains(QString::fromUtf8("记录对象")), qPrintable(page));
+        QVERIFY(!page.contains(QString::fromUtf8("点选游戏窗口")));
+    }
+
+    void theRecordingTargetCardStaysWhileSeveralClientsAreListed()
+    {
+        PageScene scene;
+        scene.mock->setRecordingFixture(QStringLiteral("multiple"));
+        QVERIFY(scene.open());
+        QTRY_VERIFY(scene.app->gameSelection()->required());
+        QVERIFY(scene.shows(QStringLiteral("gameSelectionPanel")));
+        scene.app->gameSelection()->select(1);
+        QTRY_VERIFY(!scene.app->gameSelection()->required());
+        QTRY_VERIFY(!scene.app->gameSelection()->busy());
+        QCOMPARE(scene.app->gameSelection()->choices().size(), 2);
+        QVERIFY(scene.shows(QStringLiteral("gameSelectionPanel")));
+        QVERIFY(scene.text(QStringLiteral("gameSelectionStatusText")).startsWith(QString::fromUtf8("已锁定：")));
+    }
+
+    // 只列出一个客户端、但采集服务仍要求选择（所选游戏已退出而另一个还开着）时，
+    // 卡片照常出现：这时有事要用户决定。
+    void theRecordingTargetCardAppearsWhenTheOnlyListedClientNeedsChoosing()
+    {
+        PageScene scene;
+        scene.mock->setRecordingFixture(QStringLiteral("multiple-exited"));
+        QVERIFY(scene.open());
+        QTRY_VERIFY(scene.app->gameSelection()->required());
+        QCOMPARE(scene.app->gameSelection()->choices().size(), 1);
+        QVERIFY(scene.shows(QStringLiteral("gameSelectionPanel")));
+    }
+
     // 审查 OD-1 / OK-2：唯一的客户端关掉之后（或几个都关掉之后），采集服务可能仍
     // 报 game_selection_required，但列表是空的。没有可选的游戏，页面就是普通的
     // 「等待游戏启动」：不出「记录对象」卡片，链路不变橙，档案不写「等待选择游戏」。
