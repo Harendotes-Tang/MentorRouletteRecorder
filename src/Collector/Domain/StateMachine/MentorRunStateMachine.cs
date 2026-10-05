@@ -154,7 +154,8 @@ public sealed partial class MentorRunStateMachine
     /// <summary>Feeds one verified semantic event and returns what it caused.</summary>
     /// <param name="ev">
     /// The event. Producing it is a promise that every required field was parsed from a
-    /// profile-declared opcode and structure.
+    /// profile-declared opcode and structure, or that it is the CN clear signal recognised by
+    /// its fixed content.
     /// </param>
     public TransitionResult Handle(SemanticEvent ev)
     {
@@ -518,7 +519,9 @@ public sealed partial class MentorRunStateMachine
                     ev, RunState.LeftOrAbandoned, RunResult.LeftOrAbandoned, CompletionConfidence(outcomeObserved: true));
 
             // An exit alone cannot reveal whether a duty was won when the profile has
-            // no result message, even if it can identify the departing zone precisely.
+            // no result message, even if it can identify the departing zone precisely,
+            // including a profile that sees the CN clear signal: seeing a victory is not
+            // seeing its absence (docs/state-machine.md section 3.10).
             case ZoneLeft:
             case InstanceLeft:
             case ZoneInitialization { IsDutyInstance: false }:
@@ -530,7 +533,8 @@ public sealed partial class MentorRunStateMachine
             // The profile cannot tell a duty zone from the open world, so any zone change
             // after entry is the duty ending. Without a victory it was not completed when the
             // profile can observe outcomes; when it cannot, the outcome is unknown and the
-            // record waits for the user (docs/state-machine.md section 3.10).
+            // record waits for the user (docs/state-machine.md section 3.10). That includes a
+            // profile that sees the CN clear signal: seeing a victory is not seeing its absence.
             case ZoneInitialization { IsDutyInstance: null } when _profile.CanDetectDutyResult:
                 return Finish(
                     ev, RunState.LeftOrAbandoned, RunResult.LeftOrAbandoned, CompletionConfidence(outcomeObserved: false));

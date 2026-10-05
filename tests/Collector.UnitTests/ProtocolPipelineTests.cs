@@ -1120,6 +1120,329 @@ public sealed class ProtocolPipelineTests
         Assert.Equal(pending, run.PendingReview);
     }
 
+    // ------------------------------------------------ the CN clear signal on the live path ----
+
+    /// <summary>
+    /// The observed CN timeline through the live bridge: login job, pop, territory, entry, the clear
+    /// on an opcode the profile never declares, the exit 13.7 s later. The clear completes the run
+    /// at once, with no confirmation, and the desktop is told so (duty-result brief, decision 1).
+    /// </summary>
+    [Fact]
+    public async Task ALiveClearCompletesTheRunAndPublishesItAsCompleted()
+    {
+        using var fixture = new TestDatabase();
+        EnsureSession(fixture);
+        var bus = new LiveEventBus(fixture.Clock);
+        var pipeline = new LiveProtocolPipeline(fixture.Database, fixture.Clock, bus, _ => CnSelection());
+        var notes = new List<DutyClearNote>();
+        pipeline.DutyClearObserved += notes.Add;
+        using var live = bus.Subscribe(Guid.NewGuid().ToString("D"));
+        pipeline.OnCaptureStarted(SessionId);
+
+        FeedCnDuty(pipeline, clear: true);
+
+        var run = Assert.Single(new RunRepository(fixture.Database).Query(null, null, 1, 50).Items);
+        Assert.Equal(RunResult.Completed, run.Result);
+        Assert.False(run.PendingReview);
+        Assert.Equal(DetectionConfidence.High, run.DetectionConfidence);
+        Assert.Equal(Start.AddMilliseconds(2_046_833), run.EndedAtUtc);
+        Assert.Equal(2_046_833 - 489_047, run.DurationMs);
+
+        var finished = Assert.Single(await DrainAsync(live), payload =>
+            payload["kind"]!.GetValue<string>() == "run_finished");
+        Assert.Equal("COMPLETED", finished["state"]!.GetValue<string>());
+
+        Assert.Equal(1, pipeline.DutyClearSignalCount);
+        Assert.Equal(1, pipeline.DutyClearCompletionCount);
+        Assert.Collection(
+            notes,
+            signal =>
+            {
+                Assert.Equal(DutyClearNoteKind.Signal, signal.Kind);
+                Assert.Equal(run.RunId, signal.RunId);
+                Assert.Equal(RunState.EnteredDuty, signal.StateBefore);
+                Assert.True(signal.Completed);
+            },
+            exit =>
+            {
+                Assert.Equal(DutyClearNoteKind.Exit, exit.Kind);
+                Assert.Equal(run.RunId, exit.RunId);
+                Assert.Equal(2_060_556 - 2_046_833, exit.ClearToExitMs);
+            });
+    }
+
+    /// <summary>Duty-result brief, decision 2: an exit without the clear proves nothing.</summary>
+    [Fact]
+    public void ALiveExitWithoutTheClearIsStillUnknownPendingReview()
+    {
+        using var fixture = new TestDatabase();
+        EnsureSession(fixture);
+        var pipeline = new LiveProtocolPipeline(
+            fixture.Database, fixture.Clock, new LiveEventBus(fixture.Clock), _ => CnSelection());
+        var notes = new List<DutyClearNote>();
+        pipeline.DutyClearObserved += notes.Add;
+        pipeline.OnCaptureStarted(SessionId);
+
+        FeedCnDuty(pipeline, clear: false);
+
+        var run = Assert.Single(new RunRepository(fixture.Database).Query(null, null, 1, 50).Items);
+        Assert.Equal(RunResult.Unknown, run.Result);
+        Assert.True(run.PendingReview);
+        Assert.Equal(DetectionConfidence.Low, run.DetectionConfidence);
+        Assert.Equal(0, pipeline.DutyClearSignalCount);
+        Assert.Equal(0, pipeline.DutyClearCompletionCount);
+        Assert.Empty(notes);
+    }
+
+    /// <summary>
+    /// The clear of a duty no mentor run is in - another roulette, or an entry that was never
+    /// recorded - is counted and completes nothing, which is what lets a report tell the two apart.
+    /// </summary>
+    [Fact]
+    public void TheClearOfAnotherDutyIsCountedButCompletesNothing()
+    {
+        using var fixture = new TestDatabase();
+        EnsureSession(fixture);
+        var pipeline = new LiveProtocolPipeline(
+            fixture.Database, fixture.Clock, new LiveEventBus(fixture.Clock), _ => CnSelection());
+        var notes = new List<DutyClearNote>();
+        pipeline.DutyClearObserved += notes.Add;
+        pipeline.OnCaptureStarted(SessionId);
+
+        pipeline.Accept(CnMessage(0xA002, 489_047, new byte[8]));
+        pipeline.Accept(ClearMessage(2_046_833));
+        pipeline.Accept(CnMessage(0xA002, 2_060_556, new byte[8]));
+
+        Assert.Empty(new RunRepository(fixture.Database).Query(null, null, 1, 50).Items);
+        Assert.Equal(1, pipeline.DutyClearSignalCount);
+        Assert.Equal(0, pipeline.DutyClearCompletionCount);
+        var note = Assert.Single(notes);
+        Assert.Equal(RunState.Idle, note.StateBefore);
+        Assert.Null(note.RunId);
+        Assert.False(note.Completed);
+    }
+
+    /// <summary>
+    /// A loss between the clear and the exit - an overflow, the game connection closing, a direction
+    /// of the zone connection given up - means the next zone change is no longer known to be the
+    /// exit: it may be the re-login, or the next duty's entry, much later. No exit line is written
+    /// for it. A direction that delivered nothing the profile parses loses nothing, and the exit that
+    /// follows is still reported. The counts are the session's either way.
+    /// </summary>
+    [Theory]
+    [InlineData("overflow", false)]
+    [InlineData("connection", false)]
+    [InlineData("zone-connection", false)]
+    [InlineData("chat", true)]
+    public void ALossBetweenTheClearAndTheExitDropsTheExitLine(string loss, bool exitReported)
+    {
+        using var fixture = new TestDatabase();
+        EnsureSession(fixture);
+        var pipeline = new LiveProtocolPipeline(
+            fixture.Database, fixture.Clock, new LiveEventBus(fixture.Clock), _ => CnSelection());
+        var notes = new List<DutyClearNote>();
+        pipeline.DutyClearObserved += notes.Add;
+        pipeline.OnCaptureStarted(SessionId);
+
+        FeedCnDuty(pipeline, clear: true, betweenClearAndExit: () =>
+        {
+            switch (loss)
+            {
+                case "overflow":
+                    pipeline.OnEventsDropped(SessionId, 3);
+                    break;
+                case "connection":
+                    pipeline.OnConnectionLost(SessionId);
+                    break;
+                default:
+                    pipeline.OnDirectionDamaged(SessionId, loss, MessageDirection.Inbound);
+                    break;
+            }
+        });
+
+        var run = Assert.Single(new RunRepository(fixture.Database).Query(null, null, 1, 50).Items);
+        Assert.Equal(RunResult.Completed, run.Result);
+        Assert.Equal(exitReported, notes.Exists(note => note.Kind == DutyClearNoteKind.Exit));
+        Assert.Equal(1, pipeline.DutyClearSignalCount);
+        Assert.Equal(1, pipeline.DutyClearCompletionCount);
+    }
+
+    /// <summary>
+    /// The capture stops between the clear and the exit: nothing more of that session reaches the
+    /// parser, and the next session binds a parser of its own, so its first zone change is never
+    /// reported as the exit from the cleared duty.
+    /// </summary>
+    [Fact]
+    public void AClearWhoseCaptureStoppedBeforeTheExitReportsNoExit()
+    {
+        using var fixture = new TestDatabase();
+        EnsureSession(fixture);
+        var pipeline = new LiveProtocolPipeline(
+            fixture.Database, fixture.Clock, new LiveEventBus(fixture.Clock), _ => CnSelection());
+        var notes = new List<DutyClearNote>();
+        pipeline.DutyClearObserved += notes.Add;
+        pipeline.OnCaptureStarted(SessionId);
+
+        FeedCnDuty(pipeline, clear: true,
+            betweenClearAndExit: () => pipeline.OnCaptureStopped(SessionId, CaptureEndReason.UserStop));
+        const string nextSession = "30000000-0000-4000-8000-000000000004";
+        pipeline.OnCaptureStarted(nextSession);
+        pipeline.Accept(CnMessage(0xA002, 3_600_000, new byte[8]) with { CaptureSessionId = nextSession });
+
+        Assert.Equal(RunResult.Completed, Assert.Single(new RunRepository(fixture.Database).Query(null, null, 1, 50).Items).Result);
+        Assert.DoesNotContain(notes, note => note.Kind == DutyClearNoteKind.Exit);
+    }
+
+    /// <summary>
+    /// The counters belong to the capture session: they read 0 before any session, still read the
+    /// session's counts once it has stopped (the closing log line reads them then), and start again
+    /// from 0 when the next session starts.
+    /// </summary>
+    [Fact]
+    public void TheCountersResetWhenTheNextCaptureSessionStarts()
+    {
+        using var fixture = new TestDatabase();
+        EnsureSession(fixture);
+        var pipeline = new LiveProtocolPipeline(
+            fixture.Database, fixture.Clock, new LiveEventBus(fixture.Clock), _ => CnSelection());
+        Capture.IParserStats stats = pipeline;
+        Assert.Equal(0, stats.DutyClearSignalCount);
+
+        pipeline.OnCaptureStarted(SessionId);
+        FeedCnDuty(pipeline, clear: true);
+        pipeline.OnCaptureStopped(SessionId, CaptureEndReason.UserStop);
+        Assert.Equal(1, stats.DutyClearSignalCount);
+        Assert.Equal(1, stats.DutyClearCompletionCount);
+
+        pipeline.OnCaptureStarted("30000000-0000-4000-8000-000000000002");
+        Assert.Equal(0, stats.DutyClearSignalCount);
+        Assert.Equal(0, stats.DutyClearCompletionCount);
+    }
+
+    /// <summary>A next session that binds no parser - the client updated, nothing matches - reads 0 too.</summary>
+    [Fact]
+    public void TheCountersReadZeroWhenTheNextSessionBindsNothing()
+    {
+        using var fixture = new TestDatabase();
+        EnsureSession(fixture);
+        var usable = true;
+        var pipeline = new LiveProtocolPipeline(
+            fixture.Database, fixture.Clock, new LiveEventBus(fixture.Clock),
+            game => usable
+                ? CnSelection()
+                : new ProfileSelection(ProfileCompatibilityStatus.Unsupported, ProfileBinding.FailClosed, null,
+                    Region.Cn, game.GameBuild, ProfileSelector.NoProfileMatchesReason));
+        pipeline.OnCaptureStarted(SessionId);
+        FeedCnDuty(pipeline, clear: true);
+        pipeline.OnCaptureStopped(SessionId, CaptureEndReason.UserStop);
+        Assert.Equal(1, pipeline.DutyClearSignalCount);
+
+        usable = false;
+        pipeline.Refresh(Capture.GameProcessDetection.NotRunning);
+        pipeline.OnCaptureStarted("30000000-0000-4000-8000-000000000003");
+
+        Assert.Equal(0, pipeline.DutyClearSignalCount);
+        Assert.Equal(0, pipeline.DutyClearCompletionCount);
+    }
+
+    /// <summary>A profile that declares DUTY_RESULT is not watched: nothing is counted, nothing reported.</summary>
+    [Fact]
+    public void AProfileDeclaringDutyResultHasNoClearCounters()
+    {
+        using var fixture = new TestDatabase();
+        var pipeline = NewPipeline(fixture, new LiveEventBus(fixture.Clock));
+        var notes = new List<DutyClearNote>();
+        pipeline.DutyClearObserved += notes.Add;
+        pipeline.OnCaptureStarted(SessionId);
+
+        pipeline.Accept(PopMessage(10_000));
+        pipeline.Accept(ZoneMessage(15_000));
+        pipeline.Accept(ClearMessage(60_000));
+
+        Assert.Equal(RunState.EnteredDuty, pipeline.RunState);
+        Assert.Equal(0, pipeline.DutyClearSignalCount);
+        Assert.Empty(notes);
+    }
+
+    /// <summary>
+    /// A VERIFIED CN profile in memory, in the shape of the shipped one and selected the way the live
+    /// catalogue selects it: a pop, an entry marker with no field, the territory and the job, and no
+    /// DUTY_RESULT. The opcodes are invented.
+    /// </summary>
+    private static ProfileSelection CnSelection()
+    {
+        static ProfileField Field(string name, int offset, ProfileFieldType type, long? min = null, long? max = null) =>
+            new(name, offset, type, 0, ProfileEndian.Little, new ProfileFieldConstraints(min, max, null));
+
+        var profile = new ProtocolProfile(
+            "cn-pipeline-test", Region.Cn, "2026.09.15.0000.0000", Start, MentorRoulette,
+            ProfileCompatibilityStatus.Verified, TimeSpan.FromSeconds(45),
+            new[]
+            {
+                new ProfileMessage("CONTENT_FINDER_POP", 0xA001, PacketDirection.ServerToClient, null, 8, null, null,
+                    Array.Empty<long>(), new[] { Field("roulette_id", 0, ProfileFieldType.U16, min: 1) }),
+                new ProfileMessage("ZONE_INITIALIZATION", 0xA002, PacketDirection.ServerToClient, null, 8, null, null,
+                    Array.Empty<long>(), Array.Empty<ProfileField>()),
+                new ProfileMessage("ZONE_TERRITORY", 0xA003, PacketDirection.ServerToClient, null, 136, null, null,
+                    Array.Empty<long>(), new[] { Field("territory_id", 2, ProfileFieldType.U16, min: 1) }),
+                new ProfileMessage("PLAYER_JOB", 0xA004, PacketDirection.ServerToClient, null, 16, null, null,
+                    Array.Empty<long>(), new[] { Field("job_id", 0, ProfileFieldType.U8, min: 1, max: 43) }),
+            },
+            Array.Empty<ProfileFixtureReference>(), "in-memory CN test profile", new string('0', 64), "", false);
+        return new ProfileSelection(
+            ProfileCompatibilityStatus.Verified, profile.ToBinding(), profile, Region.Cn, profile.GameBuild,
+            "in-memory CN test profile");
+    }
+
+    /// <summary>The observed timeline: job at login, pop, territory, entry, optionally the clear, the exit.</summary>
+    /// <param name="pipeline">Pipeline to feed.</param>
+    /// <param name="clear">Whether the clear arrives before the exit.</param>
+    /// <param name="betweenClearAndExit">What else happens between the clear and the exit, if anything.</param>
+    private static void FeedCnDuty(LiveProtocolPipeline pipeline, bool clear, Action? betweenClearAndExit = null)
+    {
+        var job = new byte[16];
+        job[0] = 19;
+        var pop = new byte[8];
+        BinaryPrimitives.WriteUInt16LittleEndian(pop, MentorRoulette);
+        var territory = new byte[136];
+        BinaryPrimitives.WriteUInt16LittleEndian(territory.AsSpan(2), 1036);
+
+        pipeline.Accept(CnMessage(0xA004, 45_900, job));
+        pipeline.Accept(CnMessage(0xA001, 470_000, pop));
+        pipeline.Accept(CnMessage(0xA003, 488_997, territory));
+        pipeline.Accept(CnMessage(0xA002, 489_047, new byte[8]));
+        if (clear)
+        {
+            pipeline.Accept(ClearMessage(2_046_833));
+        }
+
+        betweenClearAndExit?.Invoke();
+        pipeline.Accept(CnMessage(0xA002, 2_060_556, new byte[8]));
+    }
+
+    /// <summary>The clear of the invented duty 0xF00D, on an opcode no test profile declares.</summary>
+    private static DecodedMessage ClearMessage(long monoMs)
+    {
+        var body = new byte[40];
+        BinaryPrimitives.WriteUInt16LittleEndian(body, 0x006D);
+        BinaryPrimitives.WriteUInt16LittleEndian(body.AsSpan(4), 0xF00D);
+        BinaryPrimitives.WriteUInt16LittleEndian(body.AsSpan(6), 0x8003);
+        BinaryPrimitives.WriteUInt32LittleEndian(body.AsSpan(8), 0x40000003);
+        return CnMessage(0x0204, monoMs, body);
+    }
+
+    private static DecodedMessage CnMessage(ushort opcode, long monoMs, byte[] payload) =>
+        new(
+            SessionId,
+            MessageDirection.Inbound,
+            Start.AddMilliseconds(monoMs),
+            TimeSpan.FromMilliseconds(monoMs),
+            monoMs,
+            3,
+            opcode,
+            payload,
+            "zone-connection");
+
     private static Protocol.Calibration.CaptureSessionHealth Health(long damagedDirections = 0) =>
         new(SessionId, Capture.CaptureSilentReason.None, 0, 0, DamagedGameDirections: damagedDirections);
 

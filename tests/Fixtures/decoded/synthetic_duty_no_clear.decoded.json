@@ -1,0 +1,92 @@
+{
+  "fixture_id": "synthetic_duty_no_clear",
+  "format_version": 1,
+  "synthetic": true,
+  "description": "与 synthetic_duty_clear 相同的一局，但没有通关结算及其后的两条控制报文（中途退出的情形）：离开副本前没有收到结算，记录以 UNKNOWN 收尾并标记待复核，不记为未通关。",
+  "profile": "synthetic-cn-shape-v1",
+  "game_build": "synthetic-build-3",
+  "capture_session_id": "20000000-0000-4000-8000-000000000013",
+  "started_at_utc": "2026-09-04T03:00:00.000Z",
+  "messages": [
+    {
+      "t_ms": 45846,
+      "direction": "SERVER_TO_CLIENT",
+      "segment_type": 61440,
+      "opcode": 61452,
+      "epoch": 45846,
+      "payload_hex": "0000000000000000"
+    },
+    {
+      "t_ms": 45900,
+      "direction": "SERVER_TO_CLIENT",
+      "segment_type": 61440,
+      "opcode": 61454,
+      "epoch": 45900,
+      "payload_hex": "13000000000000000000000000000000"
+    },
+    {
+      "t_ms": 470000,
+      "direction": "SERVER_TO_CLIENT",
+      "segment_type": 61440,
+      "opcode": 61451,
+      "epoch": 470000,
+      "payload_hex": "2a00000000000000"
+    },
+    {
+      "t_ms": 488997,
+      "direction": "SERVER_TO_CLIENT",
+      "segment_type": 61440,
+      "opcode": 61453,
+      "epoch": 488997,
+      "payload_hex": "070001350c0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "t_ms": 489047,
+      "direction": "SERVER_TO_CLIENT",
+      "segment_type": 61440,
+      "opcode": 61452,
+      "epoch": 489047,
+      "payload_hex": "0000000000000000"
+    },
+    {
+      "t_ms": 563554,
+      "direction": "SERVER_TO_CLIENT",
+      "segment_type": 3,
+      "opcode": 61455,
+      "epoch": 563554,
+      "payload_hex": "6d0000000df0038001000040201c0000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "t_ms": 563617,
+      "direction": "SERVER_TO_CLIENT",
+      "segment_type": 3,
+      "opcode": 61455,
+      "epoch": 563617,
+      "payload_hex": "6d0000000df00380040000801f1c0000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "t_ms": 711168,
+      "direction": "SERVER_TO_CLIENT",
+      "segment_type": 3,
+      "opcode": 61455,
+      "epoch": 711168,
+      "payload_hex": "6d0000000df003801500008001000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "t_ms": 1982784,
+      "direction": "SERVER_TO_CLIENT",
+      "segment_type": 3,
+      "opcode": 61455,
+      "epoch": 1982784,
+      "payload_hex": "6d0000000df003800c0000803a000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "t_ms": 2060556,
+      "direction": "SERVER_TO_CLIENT",
+      "segment_type": 61440,
+      "opcode": 61452,
+      "epoch": 2060556,
+      "payload_hex": "0000000000000000"
+    }
+  ]
+}

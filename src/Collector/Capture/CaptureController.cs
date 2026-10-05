@@ -459,6 +459,8 @@ public sealed class CaptureController : IDisposable
                 QueueCapacity = queue?.Capacity ?? ReadQueueCapacity(),
                 LastValidEventAtUtc = _parserStats.LastValidEventAtUtc,
                 LastValidEventKind = _parserStats.LastValidEventKind,
+                DutyClearSignalCount = _parserStats.DutyClearSignalCount,
+                DutyClearCompletionCount = _parserStats.DutyClearCompletionCount,
                 RecentParserErrors = _parserStats.RecentErrors,
                 RunState = SafeRunState(),
                 MessageRatePerSecond = rate,
@@ -1201,6 +1203,11 @@ public sealed class CaptureController : IDisposable
             ["decode_errors"] = run?.DecodeErrors ?? 0,
             ["dropped"] = queue?.DroppedCount ?? 0,
             ["abandoned"] = queue?.AbandonedCount ?? 0,
+            // Read after the lifecycle stop: the counts are the session's that just ended, kept across
+            // any rebind, swap or withdrawal in it, and reset only when the next session starts, which
+            // cannot happen before this line (both run under the lifecycle lock).
+            ["duty_clear_signals"] = _parserStats.DutyClearSignalCount,
+            ["duty_clear_completions"] = _parserStats.DutyClearCompletionCount,
         });
         return released;
     }

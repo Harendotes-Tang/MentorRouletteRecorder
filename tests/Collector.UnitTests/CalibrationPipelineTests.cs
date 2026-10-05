@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using MentorRecorder.Collector.Capture;
 using MentorRecorder.Collector.Contracts.Errors;
 using MentorRecorder.Collector.Domain;
@@ -674,6 +675,182 @@ public sealed class CalibrationPipelineTests : IDisposable
             Assert.Equal(RunState.EnteredDuty, pipeline.RunState);
             Assert.Null(run.EndedAtUtc);
         }
+    }
+
+    // The CN clear signal while the card waits (duty-result design, section 4 item 7). Its message is
+    // not one the draft declares, so without being kept on its own a duty played during 「核对并启用」
+    // was replayed as entry and exit only, and ended UNKNOWN with a question at confirmation time.
+
+    /// <summary>The clear seen while the card waited is replayed with the duty, which ends as 通关.</summary>
+    [Fact]
+    public void AClearSeenWhileTheCardWaitedCompletesTheReplayedRun()
+    {
+        using var db = new TestDatabase();
+        var pipeline = ReadyWithADutyUnderWay(db, out var sessionId);
+        var clear = ClearMessage(900_000);
+        Feed(pipeline, sessionId, new[] { clear });
+
+        var ready = pipeline.CalibrationStatus();
+        Assert.Equal(CalibrationState.Ready, ready.State);
+        Assert.True(pipeline.ConfirmCalibration(AllCorrect(ready)).BoundInSession);
+
+        var run = Assert.Single(new RunRepository(db.Database).Query(null, null, 1, 50).Items);
+        Assert.Equal(RunResult.Completed, run.Result);
+        Assert.False(run.PendingReview);
+        Assert.Equal(clear.ObservedAtUtc, run.EndedAtUtc);
+        Assert.Equal(1, pipeline.DutyClearSignalCount);
+        Assert.Equal(1, pipeline.DutyClearCompletionCount);
+    }
+
+    /// <summary>
+    /// The game connection closed after the kept clear, while the card still waited: the replay completes
+    /// the run and then hands the loss over in its place. The zone change seen after the confirmation is
+    /// no longer known to be the exit from that duty, so no exit line is written for it.
+    /// </summary>
+    [Fact]
+    public void AConnectionLostAfterAKeptClearDropsTheExitLine()
+    {
+        using var db = new TestDatabase();
+        var pipeline = ReadyWithADutyUnderWay(db, out var sessionId);
+        var notes = new List<DutyClearNote>();
+        pipeline.DutyClearObserved += notes.Add;
+        Feed(pipeline, sessionId, new[] { ClearMessage(900_000) });
+        pipeline.OnConnectionLost(sessionId);
+
+        var ready = pipeline.CalibrationStatus();
+        Assert.True(pipeline.ConfirmCalibration(AllCorrect(ready)).BoundInSession);
+        Feed(pipeline, sessionId, new[]
+        {
+            CalibrationObserverTests.Message(MessageDirection.Inbound, 0xA108,
+                CalibrationObserverTests.Bytes(136, (2, 16), (3, 4)), 1_900_000),
+            CalibrationObserverTests.Message(MessageDirection.Inbound, 0xA107,
+                CalibrationObserverTests.Bytes(456, (100, 3)), 1_900_100),
+        });
+
+        Assert.Equal(RunResult.Completed, Assert.Single(new RunRepository(db.Database).Query(null, null, 1, 50).Items).Result);
+        Assert.True(Assert.Single(notes).Completed);
+        Assert.Equal(1, pipeline.DutyClearCompletionCount);
+    }
+
+    /// <summary>
+    /// Only while a ready draft waits: a clear from before the card was ready belongs to a duty nothing
+    /// will be replayed for, and is not kept.
+    /// </summary>
+    [Fact]
+    public void AClearSeenBeforeTheDraftWasReadyIsNotKept()
+    {
+        using var db = new TestDatabase();
+        var pipeline = ReadyWithADutyUnderWay(db, out _, beforeReady: new[] { ClearMessage(100_000) });
+
+        var ready = pipeline.CalibrationStatus();
+        Assert.True(pipeline.ConfirmCalibration(AllCorrect(ready)).BoundInSession);
+
+        Assert.Equal(RunState.EnteredDuty, pipeline.RunState);
+        Assert.Equal(0, pipeline.DutyClearSignalCount);
+    }
+
+    /// <summary>
+    /// Only the exact clear is kept: the director's other messages - its start, the remaining time, the
+    /// progress, the two that follow the clear - are not, so none of them reaches the parser the
+    /// confirmation binds.
+    /// </summary>
+    [Fact]
+    public void ANearMissWhileTheCardWaitedIsNotKept()
+    {
+        using var db = new TestDatabase();
+        var pipeline = ReadyWithADutyUnderWay(db, out var sessionId);
+        Feed(pipeline, sessionId, new[]
+        {
+            ClearMessage(500_000, command: 0x40000001, parameter: 7200),
+            ClearMessage(500_100, command: 0x80000004, parameter: 7199),
+            ClearMessage(600_000, command: 0x80000015, parameter: 1),
+            ClearMessage(900_000, command: 0x40000007, parameter: 0),
+            ClearMessage(900_001, command: 0x40000007, parameter: 1),
+        });
+
+        var ready = pipeline.CalibrationStatus();
+        Assert.True(pipeline.ConfirmCalibration(AllCorrect(ready)).BoundInSession);
+
+        Assert.Equal(RunState.EnteredDuty, pipeline.RunState);
+        Assert.Equal(0, pipeline.IgnoredCount);
+        Assert.Equal(0, pipeline.DutyClearSignalCount);
+    }
+
+    /// <summary>
+    /// A kept clear takes its place under the same bound as every other entry: at most
+    /// <c>LiveProtocolPipeline.MaxCardWaitMessages</c> (2048), the oldest going first.
+    /// </summary>
+    [Fact]
+    public void KeptClearsStayWithinTheCardWaitBound()
+    {
+        using var db = new TestDatabase();
+        var pipeline = ReadyWithADutyUnderWay(db, out var sessionId);
+        const int maxCardWaitMessages = 2048;
+        Feed(pipeline, sessionId, Enumerable.Range(0, maxCardWaitMessages + 10)
+            .Select(index => ClearMessage(500_000 + (index * 100L), dutyNumber: (ushort)index)));
+
+        var ready = pipeline.CalibrationStatus();
+        Assert.True(pipeline.ConfirmCalibration(AllCorrect(ready)).BoundInSession);
+
+        Assert.Equal(maxCardWaitMessages, pipeline.DutyClearSignalCount);
+    }
+
+    /// <summary>
+    /// The card is ready and the player is in a mentor duty: queued, placed in the duty's territory and
+    /// entered, all while the session records nothing.
+    /// </summary>
+    /// <param name="db">Database under test.</param>
+    /// <param name="sessionId">The capture session.</param>
+    /// <param name="beforeReady">Extra messages seen before the draft became ready.</param>
+    private LiveProtocolPipeline ReadyWithADutyUnderWay(
+        TestDatabase db, out string sessionId, IEnumerable<DecodedMessage>? beforeReady = null)
+    {
+        var template = CalibrationObserverTests.Template();
+        var pipeline = new LiveProtocolPipeline(
+            db.Database, db.Clock, new LiveEventBus(db.Clock), NoProfile, null, Services(template));
+        pipeline.Refresh(NewBuild);
+        sessionId = OpenSession(db);
+        pipeline.OnCaptureStarted(sessionId);
+        Feed(pipeline, sessionId, CalibrationObserverTests.Session1()
+            .Where(message => !(message.Opcode == 0xC002 && message.Mono == TimeSpan.FromMilliseconds(120_000)))
+            .Concat(new[]
+            {
+                CalibrationObserverTests.Message(
+                    MessageDirection.Outbound, 0xC001, CalibrationObserverTests.Bytes(24, (0, 2)), 300_000),
+                CalibrationObserverTests.Message(
+                    MessageDirection.Inbound, 0xC002, CalibrationObserverTests.Bytes(40, (9, 5), (16, 2)), 300_120),
+            })
+            .Concat(CalibrationObserverTests.Noise(301_000, 330_000))
+            .Concat(beforeReady ?? Array.Empty<DecodedMessage>())
+            .OrderBy(message => message.Mono));
+        Assert.Equal(CalibrationState.Ready, pipeline.CalibrationStatus().State);
+
+        Feed(pipeline, sessionId, new[]
+        {
+            CalibrationObserverTests.Message(MessageDirection.Outbound, 0xC001,
+                CalibrationObserverTests.Bytes(24, (0, 9)), 400_000),
+            CalibrationObserverTests.Message(MessageDirection.Inbound, 0xA108,
+                CalibrationObserverTests.Bytes(136, (2, 15), (3, 4)), 420_000),
+            CalibrationObserverTests.Message(MessageDirection.Inbound, 0xA107,
+                CalibrationObserverTests.Bytes(456, (100, 2)), 420_100),
+        });
+        return pipeline;
+    }
+
+    /// <summary>
+    /// A director message of the CN shape on an opcode no draft declares: by default the clear of the
+    /// invented duty 0xF00D, otherwise one of the director's other commands.
+    /// </summary>
+    private static DecodedMessage ClearMessage(
+        long monoMs, uint command = 0x40000003, uint parameter = 0, ushort dutyNumber = 0xF00D)
+    {
+        var body = new byte[40];
+        BinaryPrimitives.WriteUInt16LittleEndian(body, 0x006D);
+        BinaryPrimitives.WriteUInt16LittleEndian(body.AsSpan(4), dutyNumber);
+        BinaryPrimitives.WriteUInt16LittleEndian(body.AsSpan(6), 0x8003);
+        BinaryPrimitives.WriteUInt32LittleEndian(body.AsSpan(8), command);
+        BinaryPrimitives.WriteUInt32LittleEndian(body.AsSpan(12), parameter);
+        return CalibrationObserverTests.Message(MessageDirection.Inbound, 0x0204, body, monoMs);
     }
 
     [Fact]

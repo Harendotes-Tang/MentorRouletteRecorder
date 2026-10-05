@@ -58,6 +58,8 @@ public sealed class ReplayDecodedTests
                 "synthetic_unknown_opcode.decoded.json",
                 "synthetic_constraint_fail.decoded.json",
                 "synthetic_build_mismatch.decoded.json",
+                "synthetic_duty_clear.decoded.json",
+                "synthetic_duty_no_clear.decoded.json",
             },
             names);
     }

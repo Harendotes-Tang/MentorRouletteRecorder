@@ -457,8 +457,131 @@ public sealed class ProtocolProfileTests : IDisposable
         Assert.True(binding.IsUsable);
         Assert.False(binding.IsSynthetic);
         Assert.False(binding.CanDetectDutyResult);
+        Assert.True(binding.ObservesDutyClear);
         Assert.Equal(9, binding.MentorRouletteId);
     }
+
+    /// <summary>
+    /// The two halves of a duty result, told apart (duty-result brief, decisions 1 and 2): a
+    /// CN profile without DUTY_RESULT lets the parser see the clear signal, so a victory can be
+    /// observed, but an exit without it is not an observed non-victory.
+    /// </summary>
+    [Fact]
+    public void ACnProfileWithoutDutyResultObservesTheClearButNotItsAbsence()
+    {
+        var profile = InMemoryProfile(Region.Cn, ProfileCompatibilityStatus.Verified, PopFromServer, ZoneChange);
+
+        var binding = profile.ToBinding();
+
+        Assert.True(profile.ObservesDutyClear);
+        Assert.True(binding.IsUsable);
+        Assert.True(binding.ObservesDutyClear);
+        Assert.False(binding.CanDetectDutyResult);
+    }
+
+    /// <summary>A profile that declares DUTY_RESULT keeps today's behaviour byte for byte.</summary>
+    [Fact]
+    public void AProfileDeclaringDutyResultNeverObservesTheClear()
+    {
+        var profile = InMemoryProfile(
+            Region.Cn, ProfileCompatibilityStatus.Verified, PopFromServer, ZoneChange, DeclaredResult);
+
+        var binding = profile.ToBinding();
+
+        Assert.False(profile.ObservesDutyClear);
+        Assert.False(binding.ObservesDutyClear);
+        Assert.True(binding.CanDetectDutyResult);
+    }
+
+    /// <summary>The clear was observed on a CN client only; Global keeps the UNKNOWN path.</summary>
+    [Fact]
+    public void AGlobalProfileDoesNotObserveTheClear()
+    {
+        var profile = InMemoryProfile(Region.Global, ProfileCompatibilityStatus.Verified, PopFromServer, ZoneChange);
+
+        var binding = profile.ToBinding();
+
+        Assert.False(profile.ObservesDutyClear);
+        Assert.True(binding.IsUsable);
+        Assert.False(binding.ObservesDutyClear);
+        Assert.False(binding.CanDetectDutyResult);
+    }
+
+    [Theory]
+    [InlineData(ProfileCompatibilityStatus.Candidate)]
+    [InlineData(ProfileCompatibilityStatus.Unsupported)]
+    [InlineData(ProfileCompatibilityStatus.Ambiguous)]
+    public void ACandidateOrUnsupportedProfileDoesNotObserveTheClear(ProfileCompatibilityStatus status)
+    {
+        var binding = InMemoryProfile(Region.Cn, status, PopFromServer, ZoneChange).ToBinding();
+
+        Assert.False(binding.IsUsable);
+        Assert.False(binding.ObservesDutyClear);
+        Assert.False(binding.CanDetectDutyResult);
+    }
+
+    [Fact]
+    public void AQueueInferredProfileWithoutTerritoryStaysFailClosed()
+    {
+        var request = PopFromServer with { Direction = PacketDirection.ClientToServer };
+        var binding = InMemoryProfile(Region.Cn, ProfileCompatibilityStatus.Verified, request, ZoneChange)
+            .ToBinding();
+
+        Assert.False(binding.IsUsable);
+        Assert.False(binding.ObservesDutyClear);
+        Assert.False(binding.CanDetectDutyResult);
+    }
+
+    /// <summary>
+    /// An invented profile binds both halves from its own messages, the way a live one does:
+    /// synthetic-v1 declares DUTY_RESULT, synthetic-cn-shape-v1 has the CN shape without it.
+    /// </summary>
+    [Fact]
+    public void SyntheticProfilesBindBothHalvesFromTheirMessages()
+    {
+        var catalog = ProfileCatalog.LoadDefault();
+        ProfileBinding Bind(string id) => Assert.IsType<ProtocolProfile>(
+            Assert.Single(catalog.Entries, entry => entry.Report.ProfileId == id).Profile).ToBinding();
+
+        var declared = Bind("synthetic-v1");
+        Assert.True(declared.IsSynthetic);
+        Assert.True(declared.CanDetectDutyResult);
+        Assert.False(declared.ObservesDutyClear);
+
+        var cnShape = Bind("synthetic-cn-shape-v1");
+        Assert.True(cnShape.IsSynthetic);
+        Assert.True(cnShape.IsUsable);
+        Assert.False(cnShape.CanDetectDutyResult);
+        Assert.True(cnShape.ObservesDutyClear);
+    }
+
+    private static readonly ProfileMessage PopFromServer = new(
+        "CONTENT_FINDER_POP", 0xA001, PacketDirection.ServerToClient, null, 8, null, null,
+        Array.Empty<long>(),
+        new[]
+        {
+            new ProfileField("roulette_id", 0, ProfileFieldType.U16, 0, ProfileEndian.Little,
+                new ProfileFieldConstraints(1, null, null)),
+        });
+
+    private static readonly ProfileMessage ZoneChange = new(
+        "ZONE_INITIALIZATION", 0xA002, PacketDirection.ServerToClient, null, 8, null, null,
+        Array.Empty<long>(), Array.Empty<ProfileField>());
+
+    private static readonly ProfileMessage DeclaredResult = new(
+        "DUTY_RESULT", 0xA003, PacketDirection.ServerToClient, null, 2, null, null,
+        new long[] { 7 },
+        new[]
+        {
+            new ProfileField("outcome", 0, ProfileFieldType.U8, 0, ProfileEndian.Little, ProfileFieldConstraints.None),
+        });
+
+    /// <summary>A loaded-profile record built in memory, for the binding rules alone.</summary>
+    private static ProtocolProfile InMemoryProfile(
+        Region region, ProfileCompatibilityStatus status, params ProfileMessage[] messages) => new(
+        "in-memory", region, "2026.09.15.0000.0000", new DateTimeOffset(2026, 10, 5, 0, 0, 0, TimeSpan.Zero),
+        status is ProfileCompatibilityStatus.Unsupported ? null : 9, status, TimeSpan.FromSeconds(120),
+        messages, Array.Empty<ProfileFixtureReference>(), "in-memory test profile", new string('0', 64), "", false);
 
     [Fact]
     public void Catalog_IgnoresOodleSignatureJsonFiles()

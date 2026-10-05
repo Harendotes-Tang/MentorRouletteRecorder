@@ -6,8 +6,9 @@ namespace MentorRecorder.Collector.Domain.Events;
 /// A verified semantic event: something the state machine is allowed to react to.
 ///
 /// These types are the only input the state machine accepts, and producing one is a promise
-/// that the value came from a profile-declared opcode and structure and that every required
-/// field parsed successfully. Partial parses, guesses and heuristics are not verified events
+/// that the value came from a profile-declared opcode and structure, or from the CN clear
+/// content (docs/protocol-profile-format.md section 12), and that every required field parsed
+/// successfully. Partial parses, guesses and heuristics are not verified events
 /// (docs/state-machine.md section 0).
 /// </summary>
 public abstract record SemanticEvent
@@ -85,7 +86,10 @@ public sealed record TerritoryObserved : SemanticEvent
 /// <summary>The duty result screen. Only a victory may complete a run.</summary>
 public sealed record DutyResult : SemanticEvent
 {
-    /// <summary>True when the outcome field matched one of the profile victory values.</summary>
+    /// <summary>
+    /// True when the outcome field matched one of the profile victory values, or when the
+    /// message was the CN clear signal, which is a victory only.
+    /// </summary>
     public required bool Victory { get; init; }
 
     /// <inheritdoc />

@@ -1,5 +1,13 @@
 # IPC 契约变更记录 / IPC contract changelog
 
+## 2026-10-05 · 国服的通关结算按内容识别；`Run.pending_review` 的说明改写（无形状变化）
+
+没有新增或改动任何消息、字段与取值，`$defs/MessageType` 仍为 **52** 个业务消息 + `Event` + `Error`。
+
+- **国服的记录现在可以由采集服务自行记为 `COMPLETED`。**副本内收到通关结算时（按报文内容识别，docs/protocol-profile-format.md §12），`run_finished` 的 `state` 为 `COMPLETED`，`Run.result = COMPLETED`、`pending_review = false`；这些取值此前已在契约中，只是国服档案从未产生。离开副本前没有收到结算时与此前相同：`UNKNOWN_FINAL_STATE`、`result = UNKNOWN`、`pending_review = true`。
+- **`Run.pending_review` 的说明改写。**此前只写「崩溃恢复关闭的记录」；实际上副本以未知结果结束、匹配后始终未见进入，以及生成记录的校准被撤下时也会置位，其中最后一种不改动结果，因此待复核的记录可以已经是 `COMPLETED`。桌面端不得把「待复核」等同于「结果未知」。
+- 通关结算的计数（`duty_clear_signals`、`duty_clear_completions`）只出现在诊断日志与脱敏诊断报告中，不进入 `CaptureStatus`。
+
 ## 2026-10-04 · 软件内下载更新：`StartUpdateDownload` / `CancelUpdateDownload`（两条新消息）
 
 附加式变更：两条新消息、`UpdateStatus` 的一个新对象。`$defs/MessageType` 现共 **52** 个业务消息 + `Event` + `Error`。此前的约定「更新只提示，不下载」改为「只在用户要求时下载，采集服务从不执行所下载的文件」（docs/privacy-boundary.md §8.6）。

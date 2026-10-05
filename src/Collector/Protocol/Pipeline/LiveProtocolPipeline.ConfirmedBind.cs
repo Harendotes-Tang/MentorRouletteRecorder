@@ -1,6 +1,7 @@
 using MentorRecorder.Collector.Domain.Events;
 using MentorRecorder.Collector.Protocol.Calibration;
 using MentorRecorder.Collector.Protocol.Decoded;
+using MentorRecorder.Collector.Protocol.Parsing;
 using MentorRecorder.Collector.Protocol.Profiles;
 
 namespace MentorRecorder.Collector.Protocol.Pipeline;
@@ -158,11 +159,17 @@ public sealed partial class LiveProtocolPipeline
     /// <summary>
     /// Keeps a message the ready draft declares while the session records nothing. Bounded by
     /// count and by the queue window: a request older than that could not become a run anyway.
+    ///
+    /// The CN clear signal is kept as well, while a ready draft waits: no draft declares it - it is
+    /// a content of a message whose opcode the draft knows nothing of - yet without it a duty
+    /// played during the wait is replayed as entry and exit only and ends unknown. Only the exact
+    /// signal is kept (<see cref="DutyClearSignal"/>), under the same bounds as everything else.
     /// </summary>
     /// <param name="message">Message just counted.</param>
     private void KeepWhileCardWaits(DecodedMessage message)
     {
-        if (!_cardWaitKeys.Contains((message.Opcode, message.Direction)))
+        if (!_cardWaitKeys.Contains((message.Opcode, message.Direction)) &&
+            !(_cardWaitKeys.Count > 0 && DutyClearSignal.Matches(message)))
         {
             return;
         }
@@ -247,12 +254,15 @@ public sealed partial class LiveProtocolPipeline
                         NoteProfileConnection(message, parsedBefore, parser.GetParserStats().ParseOk);
                         break;
                     case CardWaitKind.EventsDropped:
+                        ForgetDutyClearExit();
                         ApplyAndPublish(() => processor.OnEventsDropped(entry.DroppedCount, entry.AtUtc, entry.Mono));
                         break;
                     case CardWaitKind.ConnectionLost:
+                        ForgetDutyClearExit();
                         ApplyAndPublish(() => processor.OnConnectionLost(entry.AtUtc, entry.Mono));
                         break;
                     case CardWaitKind.DirectionDamaged when CarriesProfileMessages(entry.ConnectionKey!, entry.Direction):
+                        ForgetDutyClearExit();
                         ApplyAndPublish(() => processor.OnEventsDropped(1, entry.AtUtc, entry.Mono));
                         break;
                 }

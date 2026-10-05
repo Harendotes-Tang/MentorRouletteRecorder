@@ -19,6 +19,11 @@ namespace MentorRecorder.Collector.Protocol.Parsing;
 /// is a new data file rather than a code change, and why an unverified profile can only ever
 /// produce refusals (docs/protocol-profile-format.md section 1).
 ///
+/// The one exception is the CN duty-clear signal. No profile can declare it, because it is a
+/// content of a generic message whose opcode moves with every patch, so it is recognised by
+/// content in <see cref="DutyClearSignal"/>, ahead of the declared messages and only for a
+/// profile whose binding observes it (docs/protocol-profile-format.md section 12).
+///
 /// The class implements the Phase 2 hand-off contract <see cref="IDecodedMessageSink"/> and
 /// therefore must never throw: the capture thread owns the bounded queue and cannot afford
 /// to lose it to a malformed packet. Every failure path ends in a counted
@@ -153,6 +158,33 @@ public sealed class ProfileMessageParser : IDecodedMessageSink, IParserStats
             return;
         }
 
+        var payload = message.Payload.Span;
+
+        // The CN clear, taken by its content before any declared message is matched: its body
+        // is fully determined, so it is never a plausible instance of another message, and a
+        // profile that declared something on the carrier opcode cannot switch it off. A near
+        // miss falls through to the ordinary path and is ignored there, never refused. The
+        // binding enables it only for a profile without DUTY_RESULT, which therefore behaves
+        // exactly as before when it declares one.
+        if (_binding.ObservesDutyClear && DutyClearSignal.Matches(direction, message.SegmentType, payload))
+        {
+            var clearKey = new EventKey(
+                message.CaptureSessionId,
+                direction,
+                message.Opcode.ToString(CultureInfo.InvariantCulture),
+                message.Epoch,
+                HashPayload(payload),
+                DutyClearSignal.SemanticKey);
+            Deliver(
+                new DutyResult
+                {
+                    Key = clearKey, ObservedAtUtc = message.ObservedAtUtc, Mono = message.Mono, Victory = true,
+                },
+                clearKey,
+                message);
+            return;
+        }
+
         var definition = Match(profile, direction, message);
         if (definition is null)
         {
@@ -165,7 +197,6 @@ public sealed class ProfileMessageParser : IDecodedMessageSink, IParserStats
             return;
         }
 
-        var payload = message.Payload.Span;
         if (!definition.AcceptsLength(payload.Length))
         {
             Fail(
@@ -234,6 +265,15 @@ public sealed class ProfileMessageParser : IDecodedMessageSink, IParserStats
             return;
         }
 
+        Deliver(semanticEvent, key, message);
+    }
+
+    /// <summary>Counts one verified event and hands it to the sink.</summary>
+    /// <param name="semanticEvent">The event.</param>
+    /// <param name="key">Its key.</param>
+    /// <param name="message">The message it came from.</param>
+    private void Deliver(SemanticEvent semanticEvent, EventKey key, DecodedMessage message)
+    {
         lock (_gate)
         {
             if (!_seen.Add(key.ToCanonicalString()))

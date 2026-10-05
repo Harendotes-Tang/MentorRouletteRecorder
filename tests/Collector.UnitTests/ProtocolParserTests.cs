@@ -1,4 +1,6 @@
 using System.Buffers.Binary;
+using System.Security.Cryptography;
+using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Protocol.Decoded;
 using MentorRecorder.Collector.Protocol.Parsing;
 using MentorRecorder.Collector.Protocol.Profiles;
@@ -537,6 +539,229 @@ public sealed class ProtocolParserTests : IDisposable
 
         Assert.Equal(ParserErrorCode.Internal, Assert.Single(parser.GetParserStats().RecentErrors).Code);
     }
+
+    // --- The CN clear signal, recognised by content (docs/protocol-profile-format.md section 12).
+
+    /// <summary>Opcodes no test profile declares: the clear's opcode is never read.</summary>
+    private const int DirectorOpcode = 61455;
+    private const int OtherDirectorOpcode = 0x0204;
+
+    [Fact]
+    public void TheClearOnAnUndeclaredOpcodeBecomesAVictory()
+    {
+        var sink = new RecordingSink();
+        var parser = new ProfileMessageParser(CnProfile(), sink);
+        var body = DirectorBody(DutyClearSignal.Command, 0);
+
+        parser.Accept(Message(DirectorOpcode, body, segmentType: 3));
+
+        var result = Assert.IsType<DutyResult>(Assert.Single(sink.Events));
+        Assert.True(result.Victory);
+        Assert.Equal("DUTY_RESULT:clear_signal", result.Key.SemanticKey);
+        Assert.Equal(DirectorOpcode.ToString(System.Globalization.CultureInfo.InvariantCulture), result.Key.OpcodeOrKind);
+        Assert.Equal(PacketDirection.ServerToClient, result.Key.Direction);
+        Assert.Equal(1000, result.Key.Epoch);
+        Assert.Equal(Convert.ToHexString(SHA256.HashData(body)).ToLowerInvariant(), result.Key.PayloadHash);
+        var stats = parser.GetParserStats();
+        Assert.Equal(1, stats.ParseOk);
+        Assert.Equal(0, stats.Ignored);
+        Assert.Equal(0, stats.ParseFailed);
+        Assert.Equal("DUTY_RESULT", stats.LastValidEventKind);
+        Assert.NotNull(stats.LastValidEventAtUtc);
+    }
+
+    [Theory]
+    [InlineData(DirectorOpcode)]
+    [InlineData(OtherDirectorOpcode)]
+    public void TheClearIsRecognisedWhateverItsOpcode(int opcode)
+    {
+        var sink = new RecordingSink();
+        var parser = new ProfileMessageParser(CnProfile(), sink);
+
+        parser.Accept(Message(opcode, DirectorBody(DutyClearSignal.Command, 0), segmentType: 3));
+
+        Assert.True(Assert.IsType<DutyResult>(Assert.Single(sink.Events)).Victory);
+    }
+
+    /// <summary>The director's start message: everything but the command and parameter is the clear's.</summary>
+    [Fact]
+    public void ANearMissIsIgnoredNeverRefused()
+    {
+        var sink = new RecordingSink();
+        var parser = new ProfileMessageParser(CnProfile(), sink);
+
+        parser.Accept(Message(DirectorOpcode, DirectorBody(0x40000001, 7200), segmentType: 3));
+
+        Assert.Empty(sink.Events);
+        var stats = parser.GetParserStats();
+        Assert.Equal(1, stats.Ignored);
+        Assert.Equal(0, stats.ParseFailed);
+        Assert.Equal(0, stats.ParseOk);
+        Assert.Empty(stats.RecentErrors);
+        Assert.Null(stats.LastValidEventKind);
+    }
+
+    /// <summary>
+    /// A profile that declares DUTY_RESULT behaves exactly as before: the clear's content on an
+    /// undeclared opcode is ordinary undeclared traffic, and on the declared opcode the
+    /// profile's own outcome field decides.
+    /// </summary>
+    [Fact]
+    public void AProfileDeclaringDutyResultIgnoresTheClearContent()
+    {
+        var declared = new ProfileMessage(
+            "DUTY_RESULT", 0xA003, PacketDirection.ServerToClient, null, 40, null, null, new long[] { 7 },
+            new[]
+            {
+                new ProfileField("outcome", 0, ProfileFieldType.U8, 0, ProfileEndian.Little,
+                    ProfileFieldConstraints.None),
+            });
+        var sink = new RecordingSink();
+        var parser = new ProfileMessageParser(CnProfile(declared), sink);
+        var body = DirectorBody(DutyClearSignal.Command, 0);
+
+        parser.Accept(Message(DirectorOpcode, body, segmentType: 3));
+        Assert.Empty(sink.Events);
+        Assert.Equal(1, parser.GetParserStats().Ignored);
+
+        parser.Accept(Message(0xA003, body, segmentType: 3));
+        var result = Assert.IsType<DutyResult>(Assert.Single(sink.Events));
+        Assert.False(result.Victory);
+        Assert.Equal("DUTY_RESULT:outcome=109", result.Key.SemanticKey);
+    }
+
+    /// <summary>
+    /// The clear is taken before the declared messages are matched, so a profile that ever
+    /// declares something on the carrier opcode cannot silently switch the feature off. The
+    /// clear's body is fully determined, so it is never a plausible instance of anything else.
+    /// </summary>
+    [Fact]
+    public void TheClearWinsOverADeclaredMessageOnTheSameOpcode()
+    {
+        var announced = new ProfileMessage(
+            "MATCH_ANNOUNCED", DirectorOpcode, PacketDirection.ServerToClient, null, 40, null, null,
+            Array.Empty<long>(), Array.Empty<ProfileField>());
+        var sink = new RecordingSink();
+        var parser = new ProfileMessageParser(CnProfile(announced), sink);
+
+        parser.Accept(Message(DirectorOpcode, DirectorBody(DutyClearSignal.Command, 0), segmentType: 3));
+        parser.Accept(Message(DirectorOpcode, DirectorBody(0x40000007, 1), segmentType: 3));
+
+        Assert.Collection(
+            sink.Events,
+            first => Assert.True(Assert.IsType<DutyResult>(first).Victory),
+            second => Assert.IsType<MatchAnnounced>(second));
+        Assert.Equal(2, parser.GetParserStats().ParseOk);
+    }
+
+    [Fact]
+    public void AnObfuscatedOpcodeIsRefusedBeforeTheClearCheck()
+    {
+        // Built anew rather than with 'with': Obfuscated is computed once, at construction.
+        var cn = CnProfile();
+        var profile = new ProtocolProfile(
+            cn.ProfileId, cn.Region, cn.GameBuild, cn.GeneratedAtUtc, cn.MentorRouletteId, cn.Status,
+            cn.MatchWindow, cn.Messages, cn.Fixtures, cn.ProvenanceSummary, cn.ProfileSha256, cn.SourcePath,
+            cn.FixturesVerified, new[] { DirectorOpcode });
+        var sink = new RecordingSink();
+        var parser = new ProfileMessageParser(profile, sink);
+        Assert.True(parser.Binding.ObservesDutyClear);
+
+        parser.Accept(Message(DirectorOpcode, DirectorBody(DutyClearSignal.Command, 0), segmentType: 3));
+
+        Assert.Empty(sink.Events);
+        Assert.Equal(
+            ParserErrorCode.ProfileUnsupported,
+            Assert.Single(parser.GetParserStats().RecentErrors).Code);
+    }
+
+    [Fact]
+    public void WithoutAUsableProfileTheClearIsRefusedLikeEverythingElse()
+    {
+        var sink = new RecordingSink();
+        var parser = new ProfileMessageParser(null, sink);
+
+        parser.Accept(Message(DirectorOpcode, DirectorBody(DutyClearSignal.Command, 0), segmentType: 3));
+
+        Assert.Empty(sink.Events);
+        Assert.Equal(
+            ParserErrorCode.ProfileUnsupported,
+            Assert.Single(parser.GetParserStats().RecentErrors).Code);
+    }
+
+    /// <summary>
+    /// The diagnostics identity: every message fed is exactly one of parse_ok, parse_fail and
+    /// ignored. Fed the seven director messages of the observed clear plus declared ones, and the
+    /// clear's command with a parameter after it: a near miss, ignored and never a victory.
+    /// </summary>
+    [Fact]
+    public void EveryMessageIsCountedOnce()
+    {
+        var sink = new RecordingSink();
+        var parser = new ProfileMessageParser(CnProfile(), sink);
+        var pop = new byte[8];
+        BinaryPrimitives.WriteUInt16LittleEndian(pop, 9);
+        var messages = new[]
+        {
+            Message(0xA001, pop, segmentType: 3),
+            Message(0xA002, new byte[8], segmentType: 3),
+            Message(DirectorOpcode, DirectorBody(0x40000001, 7200), segmentType: 3),
+            Message(DirectorOpcode, DirectorBody(0x80000004, 7199), segmentType: 3),
+            Message(DirectorOpcode, DirectorBody(0x80000015, 1), segmentType: 3),
+            Message(DirectorOpcode, DirectorBody(0x8000000C, 58), segmentType: 3),
+            Message(DirectorOpcode, DirectorBody(DutyClearSignal.Command, 0), segmentType: 3),
+            Message(DirectorOpcode, DirectorBody(0x40000003, 1), segmentType: 3),
+            Message(DirectorOpcode, DirectorBody(0x40000007, 0), segmentType: 3),
+            Message(DirectorOpcode, DirectorBody(0x40000007, 1), segmentType: 3),
+            Message(0xA002, new byte[8], segmentType: 3),
+        };
+
+        foreach (var message in messages)
+        {
+            parser.Accept(message);
+        }
+
+        var stats = parser.GetParserStats();
+        Assert.Equal(4, stats.ParseOk);
+        Assert.Equal(7, stats.Ignored);
+        Assert.Equal(0, stats.ParseFailed);
+        Assert.Equal(messages.Length, stats.ParseOk + stats.ParseFailed + stats.Ignored);
+        Assert.Equal(
+            new[] { "CONTENT_FINDER_POP", "ZONE_INITIALIZATION", "DUTY_RESULT", "ZONE_INITIALIZATION" },
+            sink.Events.Select(e => e.EventType).ToArray());
+    }
+
+    /// <summary>A director message of the invented duty 0xF00D: command and parameter, zeros after.</summary>
+    private static byte[] DirectorBody(uint command, uint parameter)
+    {
+        var body = new byte[40];
+        BinaryPrimitives.WriteUInt16LittleEndian(body, 0x006D);
+        BinaryPrimitives.WriteUInt16LittleEndian(body.AsSpan(4), 0xF00D);
+        BinaryPrimitives.WriteUInt16LittleEndian(body.AsSpan(6), 0x8003);
+        BinaryPrimitives.WriteUInt32LittleEndian(body.AsSpan(8), command);
+        BinaryPrimitives.WriteUInt32LittleEndian(body.AsSpan(12), parameter);
+        return body;
+    }
+
+    /// <summary>
+    /// A VERIFIED CN profile in memory with the CN shape: a pop and a zone change, no
+    /// DUTY_RESULT. The opcodes are invented.
+    /// </summary>
+    private static ProtocolProfile CnProfile(params ProfileMessage[] extra) => new(
+        "cn-parser-test", Region.Cn, "2026.09.15.0000.0000", new DateTimeOffset(2026, 10, 5, 0, 0, 0, TimeSpan.Zero),
+        9, ProfileCompatibilityStatus.Verified, TimeSpan.FromSeconds(120),
+        new[]
+        {
+            new ProfileMessage("CONTENT_FINDER_POP", 0xA001, PacketDirection.ServerToClient, null, 8, null, null,
+                Array.Empty<long>(), new[]
+                {
+                    new ProfileField("roulette_id", 0, ProfileFieldType.U16, 0, ProfileEndian.Little,
+                        new ProfileFieldConstraints(1, null, null)),
+                }),
+            new ProfileMessage("ZONE_INITIALIZATION", 0xA002, PacketDirection.ServerToClient, null, 8, null, null,
+                Array.Empty<long>(), Array.Empty<ProfileField>()),
+        }.Concat(extra).ToArray(),
+        Array.Empty<ProfileFixtureReference>(), "in-memory CN test profile", new string('0', 64), "", false);
 
     private static DecodedMessage Message(
         int opcode,

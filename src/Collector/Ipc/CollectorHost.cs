@@ -335,6 +335,10 @@ public sealed class CollectorHost : IDisposable
                     ["overflow"] = snapshot.Evidence?.Overflow,
                 });
             };
+            // The CN clear: that it was seen, for which run, and how long before the exit - nothing
+            // about the message itself (duty-result brief, decision 7).
+            pipeline.DutyClearObserved += note =>
+                _logger.Write(LogLevel.Info, "protocol", note.LogEvent, note.LogFields());
             services = services with
             {
                 Sink = pipeline,

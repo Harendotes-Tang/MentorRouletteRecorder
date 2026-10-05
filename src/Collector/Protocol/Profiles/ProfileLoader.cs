@@ -45,8 +45,12 @@ public static class ProfileLoader
         };
 
     // DUTY_RESULT is optional: a profile without it can still record a run from pop to
-    // exit, but every exit closes as UNKNOWN pending the user's confirmation, because the
-    // state machine refuses to infer completion from anything but a verified victory.
+    // exit. On a CN profile (and, offline, a synthetic one) the parser recognises the clear
+    // signal by its content instead (ProtocolProfile.ObservesDutyClear, DutyClearSignal,
+    // docs/protocol-profile-format.md section 12), and a duty whose clear arrives before the
+    // exit completes. An exit without it - and every exit on any other profile without
+    // DUTY_RESULT - closes as UNKNOWN pending the user's confirmation, because the state
+    // machine refuses to infer completion from anything but a verified victory.
     //
     // Public so the calibration observer checks readiness against this list rather than its own.
     public static readonly string[] MessagesRequiredWhenUsable =

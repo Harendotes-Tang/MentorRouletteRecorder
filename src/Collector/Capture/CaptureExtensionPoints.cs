@@ -165,6 +165,17 @@ public interface IParserStats
     /// a counting-only implementation says nothing rather than something wrong.
     /// </summary>
     string? LastValidEventKind => null;
+
+    /// <summary>
+    /// CN clear signals recognised in the current capture session, or in the last one once it has
+    /// stopped (docs/protocol-profile-format.md section 12), each observation once. Kept across every
+    /// rebind, swap and withdrawal within the session; zero from the start of the next. Defaulted for
+    /// the same reason as <see cref="LastValidEventKind"/>.
+    /// </summary>
+    long DutyClearSignalCount => 0;
+
+    /// <summary>Of those signals, the ones that completed a mentor run.</summary>
+    long DutyClearCompletionCount => 0;
 }
 
 /// <summary>All-zero parser statistics, for a build with no parser.</summary>

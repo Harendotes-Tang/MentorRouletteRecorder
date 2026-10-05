@@ -8,7 +8,7 @@ using MentorRecorder.Collector.Update;
 namespace MentorRecorder.Collector.IntegrationTests;
 
 /// <summary>
-/// 下载并安装 over the real pipe (docs/reviews/2026-10-03/updater-design.md): <c>StartUpdateDownload</c>,
+/// 下载并安装 over the real pipe (docs/privacy-boundary.md section 8.6): <c>StartUpdateDownload</c>,
 /// <c>CancelUpdateDownload</c> and the <c>download</c> object every <c>UpdateStatus</c> carries, each answer validated
 /// against the contract. The transport is a fake that serves the three published files from memory; nothing here
 /// reaches a release host.

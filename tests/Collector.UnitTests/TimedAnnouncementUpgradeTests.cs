@@ -4,6 +4,7 @@ using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Ipc;
 using MentorRecorder.Collector.Protocol.Calibration;
 using MentorRecorder.Collector.Protocol.Decoded;
+using MentorRecorder.Collector.Protocol.Pipeline;
 using MentorRecorder.Collector.Protocol.Profiles;
 using MentorRecorder.Collector.Protocol.Sharing;
 using MentorRecorder.Collector.Storage.Repositories;
@@ -151,6 +152,73 @@ public sealed class TimedAnnouncementUpgradeTests : IDisposable
         Assert.False(matched["match_from_queue"]!.GetValue<bool>());
         Assert.Equal(2, new RunRepository(_bed.Db.Database).Query(null, null, 1, 50).Items.Count);
         pipeline.OnCaptureStopped(session, CaptureEndReason.UserStop);
+    }
+
+    /// <summary>
+    /// The same owed rebind, on a duty that ends with the CN clear. The clear completes the run and leaves the
+    /// queue-inferred machine between runs, so the rebind settles at the clear itself, before the player has left.
+    /// The exit then reaches the new machine, which has no run and no parked request, and creates nothing; the
+    /// next queue still opens a run, now from the announcement. The session's clear counts survive the rebind,
+    /// and no exit line is written for a zone change the new parser saw no clear before (review of the
+    /// duty-clear feature, L2 and L5).
+    /// </summary>
+    [Fact]
+    public void AnOwedRebindThatSettlesAtTheClearKeepsTheCountsAndTheExitCreatesNothing()
+    {
+        LocalProfileWriter.Write(
+            CalibrationTrafficCases.Derive(CalibrationTrafficCases.QueueRequest), Bed.Template, Bed.Build,
+            Bed.Confirmed, _bed.LocalRoot);
+        var pipeline = _bed.Pipeline(_bed.Services(fetch: false).WithLocalProfilesIn(_bed.LocalRoot));
+        var notes = new List<DutyClearNote>();
+        pipeline.DutyClearObserved += notes.Add;
+        pipeline.Refresh(Bed.Game());
+        var session = _bed.Start(pipeline);
+        Bed.Feed(pipeline, session, CalibrationTrafficCases.Traffic(CalibrationTrafficCases.QueueRequestAnnounced)
+            .Concat(CalibrationObserverTests.Noise(470_000, 490_000)));
+        var offered = pipeline.CalibrationStatus();
+        Assert.Equal(CalibrationState.Ready, offered.State);
+        Bed.Feed(pipeline, session, new[] { MentorRequest(600_000, marker: 1) });
+        Assert.False(pipeline.ConfirmCalibration(AllCorrect(offered)).BoundInSession);
+        Bed.Feed(pipeline, session, new[] { Announcement(610_000) }
+            .Concat(Marked(CalibrationObserverTests.Cluster(620_000, DutyTerritory, job: 24), 1)));
+        Assert.Equal(RunState.EnteredDuty, pipeline.RunState);
+
+        Bed.Feed(pipeline, session, new[] { ClearMessage(686_000) });
+        var cleared = Assert.Single(new RunRepository(_bed.Db.Database).Query(null, null, 1, 50).Items);
+        Assert.Equal(RunResult.Completed, cleared.Result);
+        Assert.False(cleared.PendingReview);
+
+        Bed.Feed(pipeline, session, Marked(CalibrationObserverTests.Cluster(700_000, TownTerritory), 10));
+        Assert.Single(new RunRepository(_bed.Db.Database).Query(null, null, 1, 50).Items);
+        Assert.Equal(RunState.Idle, pipeline.RunState);
+
+        var announcement = Announcement(810_000);
+        Bed.Feed(pipeline, session, new[] { MentorRequest(800_000, marker: 2), announcement }
+            .Concat(Marked(CalibrationObserverTests.Cluster(820_000, DutyTerritory, job: 24), 20)));
+        var runs = new RunRepository(_bed.Db.Database).Query(null, null, 1, 50).Items;
+        Assert.Equal(2, runs.Count);
+        var next = Assert.Single(runs, run => run.RunId != cleared.RunId);
+        // Opened at the announcement, which only the rewritten profile understands: the rebind took place.
+        Assert.Equal(announcement.ObservedAtUtc, next.MatchedAtUtc);
+        Assert.NotNull(next.EnteredAtUtc);
+
+        Assert.Equal(1, pipeline.DutyClearSignalCount);
+        Assert.Equal(1, pipeline.DutyClearCompletionCount);
+        var signal = Assert.Single(notes);
+        Assert.Equal(DutyClearNoteKind.Signal, signal.Kind);
+        Assert.True(signal.Completed);
+        pipeline.OnCaptureStopped(session, CaptureEndReason.UserStop);
+    }
+
+    /// <summary>The clear of the invented duty 0xF00D, on the zone connection and an opcode no profile declares.</summary>
+    private static DecodedMessage ClearMessage(long t)
+    {
+        var body = new byte[40];
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(body, 0x006D);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(body.AsSpan(4), 0xF00D);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(body.AsSpan(6), 0x8003);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(body.AsSpan(8), 0x40000003);
+        return CalibrationObserverTests.Message(MessageDirection.Inbound, 0x0204, body, t);
     }
 
     private const int TownTerritory = 5000;

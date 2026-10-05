@@ -2,6 +2,8 @@ using System.Text;
 using System.Text.Json.Nodes;
 using MentorRecorder.Collector.Capture;
 using MentorRecorder.Collector.Diagnostics;
+using MentorRecorder.Collector.Ipc;
+using MentorRecorder.Collector.Protocol.Pipeline;
 
 namespace MentorRecorder.Collector.UnitTests;
 
@@ -268,6 +270,99 @@ public sealed class DiagnosticsLogHygieneTests : IDisposable
         Assert.Contains(sessionId, text, StringComparison.Ordinal);
         Assert.Contains("synthetic-v1", text, StringComparison.Ordinal);
         Assert.DoesNotContain("[hex]", text, StringComparison.Ordinal);
+    }
+
+    // ------------------------------------------------------ the CN clear signal ----
+    // Duty-result brief, decision 7: a line may say that the signal was seen, for which run, and how
+    // long before the exit. No payload, no hash, no opcode, no duty number.
+
+    [Fact]
+    public void TheClearLogLinesCarryOnlyTheirFields()
+    {
+        const string runId = "8f14e45f-ceea-467a-9c4e-1c1d0f8b2a37";
+        var signal = new DutyClearNote(DutyClearNoteKind.Signal, runId, Domain.RunState.EnteredDuty, true, null, 3, 1);
+        var exit = new DutyClearNote(DutyClearNoteKind.Exit, runId, Domain.RunState.Idle, true, 13_723, 3, 1);
+
+        var text = Write(logger =>
+        {
+            logger.Write(LogLevel.Info, "protocol", signal.LogEvent, signal.LogFields());
+            logger.Write(LogLevel.Info, "protocol", exit.LogEvent, exit.LogFields());
+        });
+
+        var lines = text.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(raw => JsonNode.Parse(raw)!.AsObject())
+            .ToArray();
+        Assert.Equal(2, lines.Length);
+        Assert.Equal(
+            new[] { "completed", "completions", "component", "event", "level", "run_id", "signals", "state_before", "ts" },
+            lines[0].Select(pair => pair.Key).Order(StringComparer.Ordinal).ToArray());
+        Assert.Equal("protocol", lines[0]["component"]!.GetValue<string>());
+        Assert.Equal("duty_clear_signal", lines[0]["event"]!.GetValue<string>());
+        Assert.Equal(runId, lines[0]["run_id"]!.GetValue<string>());
+        Assert.Equal("ENTERED_DUTY", lines[0]["state_before"]!.GetValue<string>());
+        Assert.True(lines[0]["completed"]!.GetValue<bool>());
+        Assert.Equal(3, lines[0]["signals"]!.GetValue<long>());
+        Assert.Equal(1, lines[0]["completions"]!.GetValue<long>());
+
+        Assert.Equal(
+            new[] { "clear_to_exit_ms", "component", "event", "level", "run_id", "ts" },
+            lines[1].Select(pair => pair.Key).Order(StringComparer.Ordinal).ToArray());
+        Assert.Equal("duty_clear_exit", lines[1]["event"]!.GetValue<string>());
+        Assert.Equal(runId, lines[1]["run_id"]!.GetValue<string>());
+        Assert.Equal(13_723, lines[1]["clear_to_exit_ms"]!.GetValue<long>());
+
+        // The sanitiser leaves the run id alone: it has nothing to hide, and a log that cannot name the
+        // run is no use.
+        Assert.DoesNotContain("[hex]", text, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The host writes the pipeline's notes to the diagnostic log as they happen. Fed a clear on an opcode
+    /// no profile declares: the line names neither that opcode nor the duty's number, and carries no bytes.
+    /// </summary>
+    [Fact]
+    public void TheHostWritesTheClearToTheDiagnosticLog()
+    {
+        var clock = new TestClock(new DateTimeOffset(2026, 10, 5, 3, 0, 0, TimeSpan.Zero));
+        using var logger = new RotatingFileLogger(Path.Combine(_directory, "logs"), clock);
+        var selection = Protocol.Profiles.ProfileSelector.SelectExplicit(
+            Path.Combine(AppContext.BaseDirectory, "protocol-profiles", "synthetic", "synthetic-cn-shape-v1.json"),
+            allowSynthetic: true);
+        string logPath;
+        using (var host = CollectorHost.Open(
+                   Path.Combine(_directory, "host.db"), clock, new CaptureServices(), logger, _ => selection))
+        {
+            var pipeline = host.LiveProtocol!;
+            const string session = "30000000-0000-4000-8000-000000000031";
+            pipeline.OnCaptureStarted(session);
+            var clear = new byte[40];
+            clear[0] = 0x6D;
+            clear[4] = 0x0D;
+            clear[5] = 0xF0;
+            clear[6] = 0x03;
+            clear[7] = 0x80;
+            clear[8] = 0x03;
+            clear[11] = 0x40;
+            pipeline.Accept(new Protocol.Decoded.DecodedMessage(
+                session, Protocol.Decoded.MessageDirection.Inbound, clock.UtcNow, TimeSpan.FromSeconds(1), 1000,
+                3, 61455, clear, "zone"));
+            logPath = logger.CurrentPath;
+        }
+
+        var line = Assert.Single(
+            File.ReadAllLines(logPath, new UTF8Encoding(false)),
+            raw => raw.Contains("\"duty_clear_signal\"", StringComparison.Ordinal));
+        var fields = JsonNode.Parse(line)!.AsObject();
+        Assert.Equal("protocol", fields["component"]!.GetValue<string>());
+        Assert.Null(fields["run_id"]);
+        Assert.Equal("IDLE", fields["state_before"]!.GetValue<string>());
+        Assert.False(fields["completed"]!.GetValue<bool>());
+        Assert.Equal(1, fields["signals"]!.GetValue<long>());
+        Assert.Equal(0, fields["completions"]!.GetValue<long>());
+        Assert.DoesNotContain("61455", line, StringComparison.Ordinal);
+        Assert.DoesNotContain("f00d", line, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("61453", line, StringComparison.Ordinal);
+        Assert.DoesNotContain("6d0000", line, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>Writes with a fresh logger in this test's directory and returns the file text.</summary>

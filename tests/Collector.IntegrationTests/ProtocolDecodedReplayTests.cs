@@ -1,5 +1,9 @@
+using System.Globalization;
 using MentorRecorder.Collector.Domain;
+using MentorRecorder.Collector.Domain.Time;
 using MentorRecorder.Collector.Replay;
+using MentorRecorder.Collector.Storage;
+using MentorRecorder.Collector.Storage.Repositories;
 
 namespace MentorRecorder.Collector.IntegrationTests;
 
@@ -88,10 +92,27 @@ public sealed class ProtocolDecodedReplayTests
 
         // The CN shape: five messages parse, the entry marker names nothing, and the run
         // still ends up naming its duty because of the territory announcement before it.
-        // The second zone change ends it; an offline synthetic binding is always treated as
-        // outcome-capable, so it closes as LEFT_OR_ABANDONED rather than UNKNOWN.
-        new("synthetic_territory_duty", RunState.LeftOrAbandoned, 1, 1, 0,
-            new[] { RunResult.LeftOrAbandoned }, ParseOk: 5, ParseFailed: 0,
+        // The second zone change ends it. The profile declares no DUTY_RESULT and is bound like
+        // a live CN profile: it can see a clear but not its absence, so an exit without a clear
+        // closes as UNKNOWN pending review rather than LEFT_OR_ABANDONED
+        // (docs/state-machine.md section 3.10).
+        new("synthetic_territory_duty", RunState.UnknownFinalState, 1, 1, 0,
+            new[] { RunResult.Unknown }, ParseOk: 5, ParseFailed: 0,
+            Profile: "synthetic-cn-shape-v1"),
+
+        // The observed CN timeline at the trace's times: login zone change, login job, mentor
+        // pop, territory, entry, seven director messages on an undeclared opcode, the exit.
+        // Five declared messages and the exit parse; of the seven director messages only the
+        // clear is the signal (a victory), the six near misses are ignored. The clear completes
+        // the run; the exit finds the machine terminal, collapses it to IDLE and is ignored.
+        new("synthetic_duty_clear", RunState.Idle, 1, 1, 1,
+            new[] { RunResult.Completed }, ParseOk: 7, ParseFailed: 0, ParserIgnored: 6,
+            Profile: "synthetic-cn-shape-v1"),
+
+        // The same duty without the clear and the two director messages that follow it: an
+        // exit without the clear proves nothing, so it closes as UNKNOWN pending review.
+        new("synthetic_duty_no_clear", RunState.UnknownFinalState, 1, 1, 0,
+            new[] { RunResult.Unknown }, ParseOk: 6, ParseFailed: 0, ParserIgnored: 4,
             Profile: "synthetic-cn-shape-v1"),
     };
 
@@ -206,10 +227,62 @@ public sealed class ProtocolDecodedReplayTests
         Assert.Equal("骑士", run.JobName);
 
         // The duty name came from a local display mapping, never from protocol evidence, so
-        // it may not raise the confidence of a run whose outcome was never observed.
-        Assert.Equal(RunResult.LeftOrAbandoned, run.Result);
+        // it may not raise the confidence of a run whose outcome was never observed. The
+        // profile declares no DUTY_RESULT, so the exit leaves the outcome to the player.
+        Assert.Equal(RunResult.Unknown, run.Result);
+        Assert.True(run.PendingReview);
         Assert.NotEqual(DetectionConfidence.High, run.DetectionConfidence);
         Assert.Empty(result.Parser.Errors);
+    }
+
+    /// <summary>
+    /// The clear, recognised by its content on an opcode no profile declares, completes the run
+    /// at the clear: the duration runs from the entry to the clear, and the exit 13.7 s later
+    /// adds nothing to the record or to its trail (duty-result design, section 8.2).
+    /// </summary>
+    [Fact]
+    public void TheClearCompletesTheRunAndTheExitAfterItChangesNothing()
+    {
+        var result = DecodedReplayRunner.Run(
+            FixturePath("synthetic_duty_clear"), ProfilePathFor("synthetic-cn-shape-v1"), TempDatabase());
+
+        var run = Assert.Single(result.Runs);
+        Assert.Equal(RunResult.Completed, run.Result);
+        Assert.Equal(DetectionConfidence.High, run.DetectionConfidence);
+        Assert.False(run.PendingReview);
+        Assert.Equal(800001, run.TerritoryId);
+        Assert.Equal(19, run.JobId);
+        var started = DateTimeOffset.Parse("2026-09-04T03:00:00.000Z", CultureInfo.InvariantCulture);
+        Assert.Equal(started.AddMilliseconds(489_047), run.EnteredAtUtc);
+        Assert.Equal(started.AddMilliseconds(2_046_833), run.EndedAtUtc);
+        Assert.Equal(1_557_786, run.DurationMs);
+
+        var results = result.ParsedEvents.Where(row => row.EventType == "DUTY_RESULT").ToArray();
+        Assert.Equal("DUTY_RESULT:clear_signal", Assert.Single(results).EventKey);
+
+        using var database = SqliteDatabase.Open(result.DatabasePath, SystemClock.Instance);
+        var trail = new RunEventRepository(database).ListForRun(run.RunId);
+        var last = trail[^1];
+        Assert.Equal("DUTY_RESULT", last.EventType);
+        Assert.Equal(RunState.EnteredDuty, last.FromState);
+        Assert.Equal(RunState.Completed, last.ToState);
+        Assert.EndsWith("|DUTY_RESULT:clear_signal|run:" + run.RunId, last.EventKey, StringComparison.Ordinal);
+        Assert.Single(trail, row => row.EventType == "ZONE_INITIALIZATION");
+    }
+
+    /// <summary>The abandon case: no clear, so the exit leaves the outcome to the player.</summary>
+    [Fact]
+    public void WithoutTheClearTheRunWaitsForThePlayer()
+    {
+        var result = DecodedReplayRunner.Run(
+            FixturePath("synthetic_duty_no_clear"), ProfilePathFor("synthetic-cn-shape-v1"), TempDatabase());
+
+        var run = Assert.Single(result.Runs);
+        Assert.Equal(RunResult.Unknown, run.Result);
+        Assert.Equal(DetectionConfidence.Low, run.DetectionConfidence);
+        Assert.True(run.PendingReview);
+        Assert.Equal(1_571_509, run.DurationMs);
+        Assert.DoesNotContain(result.ParsedEvents, row => row.EventType == "DUTY_RESULT");
     }
 
     [Fact]

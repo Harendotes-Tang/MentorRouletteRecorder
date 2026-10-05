@@ -11,7 +11,7 @@ using State = MentorRecorder.Collector.Update.UpdateDownloadState;
 namespace MentorRecorder.Collector.UnitTests;
 
 /// <summary>
-/// The fixture every 下载并安装 test of the Collector shares (docs/reviews/2026-10-03/updater-design.md): a real
+/// The fixture every 下载并安装 test of the Collector shares (docs/privacy-boundary.md section 8.6): a real
 /// settings repository over a throwaway database, a data directory and a log of the test's own, a fake transport that
 /// answers by address, and bodies that stall, trickle or fail on cue. Nothing here opens a connection or writes a host
 /// name; addresses come from the client's own builders. Timeouts are injected in milliseconds, so no test waits for

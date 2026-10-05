@@ -40,7 +40,9 @@ MentorRecorder.Collector.exe --replay-decoded <fixture.decoded.json> [--profile 
 记解析拒绝）。它不访问数据库，也不读取时钟。
 
 解析器同理：`ProfileMessageParser` 中**没有任何 opcode，也没有任何偏移**，
-其读取内容全部来自 `ProtocolProfile`。
+其读取内容全部来自 `ProtocolProfile`。唯一的例外是国服的通关结算：它与 opcode 无关，
+按固定内容识别，常量集中在 `DutyClearSignal`
+（见 [`../../docs/protocol-profile-format.md`](../../docs/protocol-profile-format.md) §12）。
 
 因此两个重放器可以把同一批命令交给**真实**的 SQLite 写入层 `SemanticEventProcessor`，
 活体抓包使用的也是该组件，从而得到与线上完全一致的写入行为。
@@ -174,7 +176,8 @@ $ # 同一个 --db 再跑一次
 - 解码固件覆盖：`COMPLETED`、`LEFT_OR_ABANDONED`、`CANCELLED_BEFORE_ENTRY`、
   非导随 `roulette_id`、重复报文，四种解析拒绝
   （`E_LEN_MISMATCH`、`E_OFFSET_OOB`、`E_FIELD_CONSTRAINT`、`E_PROFILE_UNSUPPORTED`），
-  以及未声明 opcode 被计入 `ignored` 而非失败。
+  未声明 opcode 被计入 `ignored` 而非失败，
+  以及通关结算按内容识别（出现在未声明的 opcode 上）及其缺失时的 `UNKNOWN` 待复核。
 
 重启恢复得到的 `INTERRUPTED_PENDING_REVIEW` 不由固件覆盖。该状态不是事件驱动的，
 而是启动时的一次性扫描，由
@@ -223,3 +226,8 @@ $ # 同一个 --db 再跑一次
 **不得**将 trace 转换为固件。trace 中没有负载字节，任何"补齐"出的字节都是编造的，
 而编造的常量正是 [`../../docs/privacy-boundary.md`](../../docs/privacy-boundary.md)
 §2 第 12 条所禁止的。
+
+`synthetic_duty_clear` / `synthetic_duty_no_clear` 借用了 trace 中各条报文的时刻。
+其中通用控制报文的内容并非补齐：这类报文的内容可以完全预测，取证时逐条与 trace 中负载哈希的前 12 位核对过
+（通关结算见 [`../../docs/protocol-profile-format.md`](../../docs/protocol-profile-format.md) §12）；
+固件中的 opcode 与副本编号仍是编造的。

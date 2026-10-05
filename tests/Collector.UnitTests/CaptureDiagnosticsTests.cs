@@ -108,6 +108,38 @@ public sealed class CaptureDiagnosticsTests
         Assert.Equal("NONE", report["profile"]!["status"]!.GetValue<string>());
     }
 
+    /// <summary>
+    /// The two counters that tell "the clear never came" from "it came and no mentor run was in the
+    /// duty" travel with the report; nothing else about the signal does (duty-result design, section 5).
+    /// </summary>
+    [Fact]
+    public void TheReportCarriesTheClearCounters()
+    {
+        var report = SanitizedDiagnosticsReport.Build(
+            Loaded() with { DutyClearSignalCount = 3, DutyClearCompletionCount = 2 }, "0.1.0", DateTimeOffset.UnixEpoch);
+
+        Assert.Equal(3, report["counters"]!["duty_clear_signals"]!.GetValue<long>());
+        Assert.Equal(2, report["counters"]!["duty_clear_completions"]!.GetValue<long>());
+        var json = report.ToJsonString();
+        Assert.DoesNotMatch(HexDumpPattern, json);
+        Assert.DoesNotContain("1b7b8dd132a5", json, StringComparison.Ordinal);
+    }
+
+    /// <summary>A build or a session with no parser that observes the clear counts nothing.</summary>
+    [Fact]
+    public void WithoutAParserObservingTheClearTheCountersReadZero()
+    {
+        foreach (Capture.IParserStats stats in new Capture.IParserStats[] { NullParserStats.Instance, new CountingSink() })
+        {
+            Assert.Equal(0, stats.DutyClearSignalCount);
+            Assert.Equal(0, stats.DutyClearCompletionCount);
+        }
+
+        var report = SanitizedDiagnosticsReport.Build(Loaded(), "0.1.0", DateTimeOffset.UnixEpoch);
+        Assert.Equal(0, report["counters"]!["duty_clear_signals"]!.GetValue<long>());
+        Assert.Equal(0, report["counters"]!["duty_clear_completions"]!.GetValue<long>());
+    }
+
     [Fact]
     public void AdapterFingerprintIsStableAndIrreversible()
     {

@@ -24,11 +24,20 @@ public sealed record ProfileBinding
     public int? MentorRouletteId { get; init; }
 
     /// <summary>
-    /// True when the profile declares DUTY_RESULT, so a duty can end in COMPLETED. When
-    /// false, every exit from a duty closes as UNKNOWN pending the user's confirmation
-    /// (docs/state-machine.md section 3.10).
+    /// True when the profile declares DUTY_RESULT: it observes the outcome, so an exit without
+    /// a victory is an observed non-victory (LEFT_OR_ABANDONED). When false, an exit without a
+    /// victory closes as UNKNOWN pending the user's confirmation, whether or not
+    /// <see cref="ObservesDutyClear"/> lets a victory be seen (docs/state-machine.md section 3.10).
     /// </summary>
     public bool CanDetectDutyResult { get; init; }
+
+    /// <summary>
+    /// True when the parser may produce a victory DUTY_RESULT from the CN clear signal
+    /// (docs/protocol-profile-format.md section 12). It only ever adds a victory: its absence
+    /// proves nothing, so it never changes how an exit closes. Never true together with
+    /// <see cref="CanDetectDutyResult"/>.
+    /// </summary>
+    public bool ObservesDutyClear { get; init; }
 
     /// <summary>
     /// True when the profile has no message from the server announcing a match, and stands the
@@ -68,13 +77,15 @@ public sealed record ProfileBinding
     /// <param name="mentorRouletteId">Mentor roulette id declared by the profile.</param>
     /// <param name="canDetectDutyResult">True when the profile declares DUTY_RESULT.</param>
     /// <param name="matchFromQueue">True when the profile infers the match from the queue request.</param>
+    /// <param name="observesDutyClear">True when the parser recognises the CN clear signal for the profile.</param>
     public static ProfileBinding Live(
         string profileId,
         Region region,
         ProfileStatus status,
         int? mentorRouletteId,
         bool canDetectDutyResult = false,
-        bool matchFromQueue = false) => new()
+        bool matchFromQueue = false,
+        bool observesDutyClear = false) => new()
         {
             ProfileId = profileId,
             Region = region,
@@ -82,6 +93,7 @@ public sealed record ProfileBinding
             MentorRouletteId = status == ProfileStatus.Verified ? mentorRouletteId : null,
             CanDetectDutyResult = status == ProfileStatus.Verified && canDetectDutyResult,
             MatchFromQueue = status == ProfileStatus.Verified && matchFromQueue,
+            ObservesDutyClear = status == ProfileStatus.Verified && observesDutyClear,
             IsSynthetic = false,
         };
 

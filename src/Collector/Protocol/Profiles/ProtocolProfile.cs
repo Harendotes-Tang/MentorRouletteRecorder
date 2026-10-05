@@ -279,6 +279,18 @@ public sealed record ProtocolProfile(
     public bool MatchFromQueue =>
         Message("CONTENT_FINDER_POP") is { Direction: PacketDirection.ClientToServer };
 
+    /// <summary>
+    /// True when the parser recognises the CN duty-clear signal by content for this profile
+    /// (<see cref="Parsing.DutyClearSignal"/>, docs/protocol-profile-format.md section 12). It only
+    /// ever adds a victory, and is never true for a profile that declares DUTY_RESULT, which
+    /// keeps its own result message and behaves exactly as before. The signal was observed on a
+    /// CN client only, so a GLOBAL profile keeps the UNKNOWN path. A synthetic profile, which
+    /// must carry region UNKNOWN, takes part so that an offline fixture can replay the signal.
+    /// </summary>
+    public bool ObservesDutyClear =>
+        Message("DUTY_RESULT") is null &&
+        (Region == Region.Cn || Status == ProfileCompatibilityStatus.Synthetic);
+
     /// <summary>Finds a declared message by semantic name, or null.</summary>
     /// <param name="name">Semantic message name.</param>
     public ProfileMessage? Message(string name) =>
@@ -287,13 +299,21 @@ public sealed record ProtocolProfile(
     /// <summary>
     /// The binding the state machine gets. A synthetic profile produces the offline binding;
     /// everything else produces a live binding whose status decides whether it is usable, so
-    /// CANDIDATE and UNSUPPORTED are both fail-closed without any special case.
+    /// CANDIDATE and UNSUPPORTED are both fail-closed without any special case. Both kinds bind
+    /// the two halves of a duty result from the profile's own messages: whether it observes
+    /// the outcome (it declares DUTY_RESULT), and whether a victory can be seen without it
+    /// (<see cref="ObservesDutyClear"/>).
     /// </summary>
     public ProfileBinding ToBinding()
     {
+        var declaresResult = Message("DUTY_RESULT") is not null;
         if (Status == ProfileCompatibilityStatus.Synthetic)
         {
-            return ProfileBinding.Synthetic(ProfileId, MentorRouletteId ?? 0);
+            return ProfileBinding.Synthetic(ProfileId, MentorRouletteId ?? 0) with
+            {
+                CanDetectDutyResult = declaresResult,
+                ObservesDutyClear = ObservesDutyClear,
+            };
         }
 
         var status = Status switch
@@ -314,8 +334,9 @@ public sealed record ProtocolProfile(
 
         return ProfileBinding.Live(
             ProfileId, Region, status, MentorRouletteId,
-            canDetectDutyResult: Messages.Any(message => string.Equals(message.Name, "DUTY_RESULT", StringComparison.Ordinal)),
-            matchFromQueue: MatchFromQueue);
+            canDetectDutyResult: declaresResult,
+            matchFromQueue: MatchFromQueue,
+            observesDutyClear: ObservesDutyClear);
     }
 }
 

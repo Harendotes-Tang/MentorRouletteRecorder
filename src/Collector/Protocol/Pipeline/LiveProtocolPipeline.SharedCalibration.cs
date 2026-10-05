@@ -197,6 +197,9 @@ public sealed partial class LiveProtocolPipeline
     private void DrainStaged(SharedCandidateStage stage)
     {
         var processor = _processor!;
+        // Through the sink the bound parser feeds, so a staged CN clear is counted as a live one is.
+        // For a shared profile that sink is the processor itself, or the duty-clear tally in front of it.
+        var sink = _boundSink ?? processor;
         var now = LifecycleMono();
         foreach (var entry in stage.Drain())
         {
@@ -205,7 +208,7 @@ public sealed partial class LiveProtocolPipeline
                 switch (entry.Kind)
                 {
                     case StagedEntryKind.Event when entry.Event is { } semanticEvent:
-                        ApplyAndPublish(() => processor.Accept(semanticEvent), replayed: now - entry.Mono > FreshMatchAge);
+                        ApplyAndPublish(() => sink.Accept(semanticEvent), replayed: now - entry.Mono > FreshMatchAge);
                         if (entry.ConnectionKey is { } connectionKey)
                         {
                             NoteProfileConnection(connectionKey, entry.Direction);
@@ -213,12 +216,15 @@ public sealed partial class LiveProtocolPipeline
 
                         break;
                     case StagedEntryKind.EventsDropped:
+                        ForgetDutyClearExit();
                         ApplyAndPublish(() => processor.OnEventsDropped(entry.DroppedCount, entry.AtUtc, entry.Mono));
                         break;
                     case StagedEntryKind.ConnectionLost:
+                        ForgetDutyClearExit();
                         ApplyAndPublish(() => processor.OnConnectionLost(entry.AtUtc, entry.Mono));
                         break;
                     case StagedEntryKind.DirectionDamaged when CarriesProfileMessages(entry.ConnectionKey!, entry.Direction):
+                        ForgetDutyClearExit();
                         ApplyAndPublish(() => processor.OnEventsDropped(1, entry.AtUtc, entry.Mono));
                         break;
                 }
@@ -579,6 +585,8 @@ public sealed partial class LiveProtocolPipeline
             _sessionCarried = processor.Machine.Memory;
             _parser = null;
             _processor = null;
+            _boundSink = null;
+            _dutyClear = null;
             _boundProfileId = null;
             ForgetPopWatch();
             _runTimer?.Stop();

@@ -75,6 +75,14 @@
     {
       "path": "../../tests/Fixtures/decoded/synthetic_territory_duty.decoded.json",
       "sha256": "399eeafed035658749294c5ce065ea737a622c38d22b198685155d2ef0717b2d"
+    },
+    {
+      "path": "../../tests/Fixtures/decoded/synthetic_duty_clear.decoded.json",
+      "sha256": "f301a5bd299cb9ea2dd457d8ebf8b370d517428355775b13a0b41c355f11a870"
+    },
+    {
+      "path": "../../tests/Fixtures/decoded/synthetic_duty_no_clear.decoded.json",
+      "sha256": "2d1ca3c5212efacbe94d23abdc7ba7f1b340275e9d4bfc22308e9897766032cb"
     }
   ],
   "provenance": {
@@ -108,5 +116,5 @@
       }
     ]
   },
-  "profile_sha256": "603cb86b698c3e0df5acb00d4879860adc3fa7fc8ddb4705afbf417cd9c03c23"
+  "profile_sha256": "826ffc4babf2e40eee91f43eb2b6199f16a4e6dec33f6390ed40b5f9bd3ec689"
 }

@@ -183,6 +183,19 @@ public sealed class ExportDiagnosticsReportTests : IDisposable
         Assert.Equal("S2C", error["direction"]!.GetValue<string>());
     }
 
+    /// <summary>The exported file carries the two clear counters under <c>counters</c>.</summary>
+    [Fact]
+    public void TheWrittenFileCarriesTheClearCounters()
+    {
+        var path = NewExport().Write(
+            Loaded() with { DutyClearSignalCount = 4, DutyClearCompletionCount = 1 }, "0.4.2").TargetPath;
+        var report = JsonNode.Parse(File.ReadAllText(path))!.AsObject();
+
+        Assert.Equal(4, report["counters"]!["duty_clear_signals"]!.GetValue<long>());
+        Assert.Equal(1, report["counters"]!["duty_clear_completions"]!.GetValue<long>());
+        Assert.Equal(2, report["report_version"]!.GetValue<int>());
+    }
+
     private DiagnosticsReportExport NewExport() =>
         new(Path.Combine(_directory, "mentor_recorder.db"), _clock);
 

@@ -216,7 +216,7 @@
         "soft_deleted": { "type": "boolean" },
         "pending_review": {
           "type": "boolean",
-          "description": "True for a run that crash recovery closed as INTERRUPTED and that the user has not confirmed yet. Counted by DashboardStats.unfinished_pending_review."
+          "description": "True while the record waits for the user's confirmation. Set when crash recovery closes a run, when a duty ends without an observed outcome (docs/state-machine.md section 3.10), when a match is never seen to enter, and when the calibration that produced the run is withdrawn - the result then stays as recorded, so a pending run may already be COMPLETED. Counted by DashboardStats.unfinished_pending_review."
         },
         "note": { "type": ["string", "null"], "maxLength": 1000, "description": "Free-text note (schema v2 column). Correctable; see docs/manual-correction.md section 7." },
         "reflection": {

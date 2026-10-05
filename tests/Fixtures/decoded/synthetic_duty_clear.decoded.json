@@ -1,0 +1,116 @@
+{
+  "fixture_id": "synthetic_duty_clear",
+  "format_version": 1,
+  "synthetic": true,
+  "description": "国服形态的一局导随，各条报文的时刻取自 2026-10-05 的本机取证：登录换区并播报职业，匹配到导随，区域播报后进本；副本内在档案未声明的报文编号上依次出现 7 条通用控制报文（开始、剩余时间、进度、另一条进度类报文、通关结算、结算后的两条），13.7 秒后离开副本。只有通关结算按内容识别为通关，其余 6 条计为未声明的报文；记录在结算时记为通关，其后的离开不再改动它。报文编号与副本编号均为虚构，控制报文的内容按观测到的形状填写。",
+  "profile": "synthetic-cn-shape-v1",
+  "game_build": "synthetic-build-3",
+  "capture_session_id": "20000000-0000-4000-8000-000000000012",
+  "started_at_utc": "2026-09-04T03:00:00.000Z",
+  "messages": [
+    {
+      "t_ms": 45846,
+      "direction": "SERVER_TO_CLIENT",
+      "segment_type": 61440,
+      "opcode": 61452,
+      "epoch": 45846,
+      "payload_hex": "0000000000000000"
+    },
+    {
+      "t_ms": 45900,
+      "direction": "SERVER_TO_CLIENT",
+      "segment_type": 61440,
+      "opcode": 61454,
+      "epoch": 45900,
+      "payload_hex": "13000000000000000000000000000000"
+    },
+    {
+      "t_ms": 470000,
+      "direction": "SERVER_TO_CLIENT",
+      "segment_type": 61440,
+      "opcode": 61451,
+      "epoch": 470000,
+      "payload_hex": "2a00000000000000"
+    },
+    {
+      "t_ms": 488997,
+      "direction": "SERVER_TO_CLIENT",
+      "segment_type": 61440,
+      "opcode": 61453,
+      "epoch": 488997,
+      "payload_hex": "070001350c0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "t_ms": 489047,
+      "direction": "SERVER_TO_CLIENT",
+      "segment_type": 61440,
+      "opcode": 61452,
+      "epoch": 489047,
+      "payload_hex": "0000000000000000"
+    },
+    {
+      "t_ms": 563554,
+      "direction": "SERVER_TO_CLIENT",
+      "segment_type": 3,
+      "opcode": 61455,
+      "epoch": 563554,
+      "payload_hex": "6d0000000df0038001000040201c0000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "t_ms": 563617,
+      "direction": "SERVER_TO_CLIENT",
+      "segment_type": 3,
+      "opcode": 61455,
+      "epoch": 563617,
+      "payload_hex": "6d0000000df00380040000801f1c0000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "t_ms": 711168,
+      "direction": "SERVER_TO_CLIENT",
+      "segment_type": 3,
+      "opcode": 61455,
+      "epoch": 711168,
+      "payload_hex": "6d0000000df003801500008001000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "t_ms": 1982784,
+      "direction": "SERVER_TO_CLIENT",
+      "segment_type": 3,
+      "opcode": 61455,
+      "epoch": 1982784,
+      "payload_hex": "6d0000000df003800c0000803a000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "t_ms": 2046833,
+      "direction": "SERVER_TO_CLIENT",
+      "segment_type": 3,
+      "opcode": 61455,
+      "epoch": 2046833,
+      "payload_hex": "6d0000000df003800300004000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "t_ms": 2046833,
+      "direction": "SERVER_TO_CLIENT",
+      "segment_type": 3,
+      "opcode": 61455,
+      "epoch": 2046833,
+      "payload_hex": "6d0000000df003800700004000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "t_ms": 2046833,
+      "direction": "SERVER_TO_CLIENT",
+      "segment_type": 3,
+      "opcode": 61455,
+      "epoch": 2046833,
+      "payload_hex": "6d0000000df003800700004001000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "t_ms": 2060556,
+      "direction": "SERVER_TO_CLIENT",
+      "segment_type": 61440,
+      "opcode": 61452,
+      "epoch": 2060556,
+      "payload_hex": "0000000000000000"
+    }
+  ]
+}

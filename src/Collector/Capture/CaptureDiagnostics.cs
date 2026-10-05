@@ -249,6 +249,16 @@ public sealed record CaptureDiagnosticsSnapshot
     public string? LastValidEventKind { get; init; }
 
     /// <summary>
+    /// CN clear signals recognised in the capture session (docs/protocol-profile-format.md section 12).
+    /// Beside UNKNOWN runs, zero says the signal never came; above zero with no completion says it
+    /// came while no mentor run was in the duty.
+    /// </summary>
+    public long DutyClearSignalCount { get; init; }
+
+    /// <summary>Of those signals, the ones that completed a mentor run.</summary>
+    public long DutyClearCompletionCount { get; init; }
+
+    /// <summary>
     /// The online speech request class as the report may state it (docs/privacy-boundary.md §8.3):
     /// the service token, the kill switch, and when this process last sent a request and how it
     /// ended. Filled in by the IPC layer for an exported report; never an address or a key.
@@ -500,6 +510,10 @@ public static class SanitizedDiagnosticsReport
                 ["parse_fail"] = snapshot.ParseFailCount,
                 ["ignored"] = snapshot.IgnoredCount,
                 ["duplicates"] = snapshot.DuplicateCount,
+                // The CN clear: how often it came, and how often it completed a mentor run. Beside
+                // UNKNOWN runs these tell "it never came" from "it came and no run was in the duty".
+                ["duty_clear_signals"] = snapshot.DutyClearSignalCount,
+                ["duty_clear_completions"] = snapshot.DutyClearCompletionCount,
                 ["dropped"] = snapshot.DroppedCount,
                 ["queue_depth"] = snapshot.QueueDepth,
                 ["queue_capacity"] = snapshot.QueueCapacity,

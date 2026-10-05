@@ -122,6 +122,118 @@ public sealed class SharedCalibrationPipelineTests : IDisposable
     }
 
     /// <summary>
+    /// The CN clear arrives while the shared profile is still being written: the staging parses it with the
+    /// candidate's profile, the drain hands it over in its place, and the drained duty ends as 通关. That
+    /// complete duty proves the profile at the clear, before the player has even left, exactly as a profile
+    /// with a result message would; and the drained clear is counted like a live one (duty-result design,
+    /// section 4 item 8).
+    /// </summary>
+    [Fact]
+    public async Task AClearStagedBeforeASharedBindCompletesTheDrainedRun()
+    {
+        using var release = new ManualResetEventSlim();
+        var (pipeline, session) = await StartWithTheBindHeldAsync(release);
+        var evening = Bed.Evening().ToArray();
+        Bed.Feed(pipeline, session, Bed.Before(evening, 200_000));
+        var clear = ClearMessage(200_000);
+        Bed.Feed(pipeline, session, new[] { clear });
+        Assert.Empty(RunsOf(session));
+
+        release.Set();
+        await Bed.Idle(pipeline);
+
+        Assert.Equal(ProfileOrigin.Shared, pipeline.Current.Origin);
+        var run = Assert.Single(RunsOf(session));
+        Assert.Equal(RunResult.Completed, run.Result);
+        Assert.False(run.PendingReview);
+        Assert.Equal(clear.ObservedAtUtc, run.EndedAtUtc);
+        var done = pipeline.CalibrationStatus();
+        Assert.Equal(CalibrationState.Done, done.State);
+        Assert.Equal(SharedCandidateStatus.Proven, Assert.Single(done.Shared.Candidates).Status);
+        Assert.Equal(1, pipeline.DutyClearSignalCount);
+        Assert.Equal(1, pipeline.DutyClearCompletionCount);
+    }
+
+    /// <summary>
+    /// The counters belong to the capture session, not to the parser in force. The revocation arrives
+    /// mid-duty and is held until the clear ends the run, as every withdrawal is - so the withdrawal settles
+    /// at the clear itself. The session that now records nothing still reports the clear that completed its
+    /// run; the exit that follows reaches no parser, and no exit line is written for it.
+    /// </summary>
+    [Fact]
+    public async Task AWithdrawalAtTheClearKeepsTheSessionsClearCounters()
+    {
+        var code = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
+        _bed.Publish(code);
+        var pipeline = _bed.Pipeline(_bed.Services());
+        var notes = new List<DutyClearNote>();
+        pipeline.DutyClearObserved += notes.Add;
+        pipeline.Refresh(Bed.Game());
+        await Bed.Idle(pipeline);
+        var session = _bed.Start(pipeline);
+        Bed.Feed(pipeline, session, Bed.Before(Bed.Evening().ToArray(), 200_000));
+        await Bed.Idle(pipeline);
+        Assert.Equal(ProfileOrigin.Shared, pipeline.Current.Origin);
+        Assert.Equal(RunState.EnteredDuty, pipeline.RunState);
+
+        _bed.PublishRevoked(code);
+        Assert.Equal(SharedCheckOutcome.Started, pipeline.CheckSharedCalibrationNow());
+        await Bed.Idle(pipeline);
+        Assert.Equal(ProfileOrigin.Shared, pipeline.Current.Origin);
+
+        Bed.Feed(pipeline, session, new[] { ClearMessage(200_000) });
+        await Bed.Idle(pipeline);
+
+        Assert.Equal(RunResult.Completed, Assert.Single(RunsOf(session)).Result);
+        Assert.Null(pipeline.CalibrationStatus().Shared.ProfileId);
+        Bed.Feed(pipeline, session, Bed.From(Bed.Evening().ToArray(), 200_000));
+
+        var signal = Assert.Single(notes);
+        Assert.True(signal.Completed);
+        Assert.Equal((1, 1), (signal.Signals, signal.Completions));
+        Assert.Equal(1, pipeline.DutyClearSignalCount);
+        Assert.Equal(1, pipeline.DutyClearCompletionCount);
+    }
+
+    /// <summary>
+    /// The clear and then the loss of the game connection are staged while the shared profile is written; the
+    /// drain completes the run and then hands the loss over. The zone change after it is no longer known to be
+    /// the exit from that duty, so no exit line is written for it.
+    /// </summary>
+    [Fact]
+    public async Task AConnectionLostAfterAStagedClearDropsTheExitLine()
+    {
+        using var release = new ManualResetEventSlim();
+        var (pipeline, session) = await StartWithTheBindHeldAsync(release);
+        var notes = new List<DutyClearNote>();
+        pipeline.DutyClearObserved += notes.Add;
+        var evening = Bed.Evening().ToArray();
+        Bed.Feed(pipeline, session, Bed.Before(evening, 200_000));
+        Bed.Feed(pipeline, session, new[] { ClearMessage(200_000) });
+        pipeline.OnConnectionLost(session);
+
+        release.Set();
+        await Bed.Idle(pipeline);
+        Assert.Equal(ProfileOrigin.Shared, pipeline.Current.Origin);
+        Bed.Feed(pipeline, session, Bed.From(evening, 200_000));
+
+        Assert.Equal(RunResult.Completed, Assert.Single(RunsOf(session)).Result);
+        Assert.True(Assert.Single(notes).Completed);
+        Assert.Equal(1, pipeline.DutyClearCompletionCount);
+    }
+
+    /// <summary>The clear of the invented duty 0xF00D, on the zone connection and an opcode no profile declares.</summary>
+    private static Protocol.Decoded.DecodedMessage ClearMessage(long monoMs)
+    {
+        var body = new byte[40];
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(body, 0x006D);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(body.AsSpan(4), 0xF00D);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(body.AsSpan(6), 0x8003);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(body.AsSpan(8), 0x40000003);
+        return CalibrationObserverTests.Message(Protocol.Decoded.MessageDirection.Inbound, 0x0204, body, monoMs);
+    }
+
+    /// <summary>
     /// Audit 2026-10-03, CS3a-X1. While nothing is bound, a direction given up is staged as a gap in
     /// sequence, as an overflow is: the duty the staging replays after the bind ends where the hole is,
     /// at LOW and pending review, instead of being entered across it.

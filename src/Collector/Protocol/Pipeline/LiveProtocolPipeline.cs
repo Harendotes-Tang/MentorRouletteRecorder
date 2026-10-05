@@ -153,6 +153,12 @@ public sealed partial class LiveProtocolPipeline :
     public event Action<CalibrationState>? CalibrationChanged;
 
     /// <summary>
+    /// Raised under the pipeline lock when the parser in force saw the CN clear signal, and when the
+    /// player left a duty the signal completed (<see cref="DutyClearTally"/>). For the diagnostic log.
+    /// </summary>
+    public event Action<DutyClearNote>? DutyClearObserved;
+
+    /// <summary>
     /// How much captured time passes between two re-derivations of the calibration draft.
     /// Measured on the capture source's own clock, the one every message carries, so the
     /// throttle is the same whether the traffic is live or replayed.
@@ -236,6 +242,27 @@ public sealed partial class LiveProtocolPipeline :
     private CountingSink _counting = new();
     private ProfileMessageParser? _parser;
     private SemanticEventProcessor? _processor;
+
+    /// <summary>
+    /// The sink the bound parser feeds: the processor, a watch in front of it, or the duty-clear tally in
+    /// front of either. The drain of a shared bind's staging goes through it too, so a staged clear is
+    /// counted the way a live one is (<see cref="DrainStaged"/>). Null while no parser is bound.
+    /// </summary>
+    private ISemanticEventSink? _boundSink;
+
+    /// <summary>
+    /// Watches the CN clear signal for the parser in force, when its profile observes the signal, and
+    /// adds what it sees to <see cref="_dutyClearCounts"/>; null otherwise and while no parser is bound
+    /// (<see cref="DutyClearTally"/>).
+    /// </summary>
+    private DutyClearTally? _dutyClear;
+
+    /// <summary>
+    /// The CN clear counts of the capture session: new when a session starts, kept across every rebind,
+    /// swap and withdrawal within it, and still readable once it has stopped, for its closing log line.
+    /// </summary>
+    private DutyClearCounts _dutyClearCounts = new();
+
     private Stopwatch? _sessionTimer;
     private Stopwatch? _runTimer;
     private TimeSpan? _lastMessageMono;
@@ -469,6 +496,30 @@ public sealed partial class LiveProtocolPipeline :
     public string? LastValidEventKind => ParserStats().LastValidEventKind;
 
     /// <inheritdoc />
+    public long DutyClearSignalCount
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _dutyClearCounts.Signals;
+            }
+        }
+    }
+
+    /// <inheritdoc />
+    public long DutyClearCompletionCount
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _dutyClearCounts.Completions;
+            }
+        }
+    }
+
+    /// <inheritdoc />
     public IReadOnlyList<CaptureParserErrorView> RecentErrors
     {
         get
@@ -509,6 +560,9 @@ public sealed partial class LiveProtocolPipeline :
             _sessionGame = _game;
             _parser = null;
             _processor = null;
+            _boundSink = null;
+            _dutyClear = null;
+            _dutyClearCounts = new DutyClearCounts();
             _boundProfileId = null;
             _sharedSwapOwed = null;
             _localRebindOwed = null;
@@ -584,8 +638,15 @@ public sealed partial class LiveProtocolPipeline :
                 _selection.GameBuild),
             _clock);
         // A local profile that reads every message of an opcode as a match is watched while it
-        // records, so traffic that disproves it can take it out of use (WatchPops).
-        _parser = new ProfileMessageParser(profile, WatchPops(profile, _processor));
+        // records, so traffic that disproves it can take it out of use (WatchPops). A profile that
+        // observes the CN clear has it counted on the way, for the diagnostics (DutyClearTally), into the
+        // session's counts.
+        var sink = WatchPops(profile, _processor);
+        _dutyClear = profile.ObservesDutyClear
+            ? new DutyClearTally(sink, machine, NoteDutyClear, _dutyClearCounts)
+            : null;
+        _boundSink = (ISemanticEventSink?)_dutyClear ?? sink;
+        _parser = new ProfileMessageParser(profile, _boundSink);
         _boundProfileId = profile.ProfileId;
         // Kept only for a parser bound by a confirmation, and only until one is bound by any path.
         ForgetCardWait();
@@ -690,6 +751,7 @@ public sealed partial class LiveProtocolPipeline :
                 return;
             }
 
+            ForgetDutyClearExit();
             ApplyAndPublish(() => _processor.OnEventsDropped(
                 droppedCount, _clock.UtcNow, LifecycleMono()));
         }
@@ -716,6 +778,7 @@ public sealed partial class LiveProtocolPipeline :
                 return;
             }
 
+            ForgetDutyClearExit();
             ApplyAndPublish(() => _processor.OnConnectionLost(_clock.UtcNow, LifecycleMono()));
         }
     }
@@ -756,6 +819,7 @@ public sealed partial class LiveProtocolPipeline :
                 return;
             }
 
+            ForgetDutyClearExit();
             ApplyAndPublish(() => _processor.OnEventsDropped(1, _clock.UtcNow, LifecycleMono()));
         }
     }
@@ -1668,6 +1732,17 @@ public sealed partial class LiveProtocolPipeline :
 
         NoteReadyDraft();
     }
+
+    /// <summary>Passes a note of the duty-clear tally on; called on the parser's thread with the gate held.</summary>
+    /// <param name="note">What the tally saw.</param>
+    private void NoteDutyClear(DutyClearNote note) => DutyClearObserved?.Invoke(note);
+
+    /// <summary>
+    /// Called before the machine is told of a loss - a gap, the game connection closing - live or
+    /// replayed: the duty a clear completed may have ended inside it, so the next zone change is not
+    /// reported as that duty's exit (<see cref="DutyClearTally.ForgetExit"/>).
+    /// </summary>
+    private void ForgetDutyClearExit() => _dutyClear?.ForgetExit();
 
     /// <summary>Announces calibration and remembers what was announced.</summary>
     /// <param name="signature">Signature just computed, when the caller already has one.</param>

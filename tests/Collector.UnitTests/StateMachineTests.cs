@@ -597,6 +597,272 @@ public sealed class StateMachineTests
         Assert.NotNull(machine.CurrentRunId);
     }
 
+    /// <summary>
+    /// A CN binding that sees the clear signal but declares no DUTY_RESULT: the parser may
+    /// produce a victory, and an exit without one is still not an observed non-victory.
+    /// </summary>
+    private static MentorRunStateMachine MachineObservingTheClear(StateMachineOptions? options = null) =>
+        new(ProfileBinding.Live("cn-test", Region.Cn, ProfileStatus.Verified, 42,
+                canDetectDutyResult: false, observesDutyClear: true),
+            options, () => "00000000-0000-4000-8000-000000000003");
+
+    /// <summary>Pop, territory, entry marker that names nothing, and the job seen at login.</summary>
+    private static MentorRunStateMachine EnteredWithTheClearObservable(bool withJob = true)
+    {
+        var machine = MachineObservingTheClear();
+        if (withJob)
+        {
+            machine.Handle(Job(0, 19));
+        }
+
+        machine.Handle(Pop(470, 42));
+        machine.Handle(Territory(488_950, 1036));
+        Assert.Equal(RunState.EnteredDuty, machine.Handle(ZoneUnknown(489)).ToState);
+        return machine;
+    }
+
+    [Fact]
+    public void TheClearInTheDutyCompletesWithHighConfidence()
+    {
+        Assert.True(MachineObservingTheClear().IsUsable);
+        var machine = EnteredWithTheClearObservable();
+
+        var result = machine.Handle(Clear(2_046));
+
+        Assert.Equal(RunState.Completed, result.ToState);
+        var finish = Assert.IsType<FinishRunCommand>(result.Commands[0]);
+        Assert.Equal(RunResult.Completed, finish.Result);
+        Assert.Equal(DetectionConfidence.High, finish.Confidence);
+        Assert.False(finish.PendingReview);
+        Assert.Equal((2_046 - 489) * 1000L, finish.DurationMs);
+        var trail = Assert.IsType<AppendEventCommand>(result.Commands[1]);
+        Assert.Equal(RunState.EnteredDuty, trail.FromState);
+        Assert.Equal(RunState.Completed, trail.ToState);
+    }
+
+    [Fact]
+    public void TheClearWithoutAJobCompletesAtMedium()
+    {
+        var machine = EnteredWithTheClearObservable(withJob: false);
+
+        var result = machine.Handle(Clear(2_046));
+
+        Assert.Equal(RunState.Completed, result.ToState);
+        Assert.Equal(DetectionConfidence.Medium, Assert.IsType<FinishRunCommand>(result.Commands[0]).Confidence);
+    }
+
+    /// <summary>
+    /// A clear before the entry was recorded creates nothing and rewrites nothing: a COMPLETED
+    /// without an entry time is a row the statistics repair to UNKNOWN anyway.
+    /// </summary>
+    [Fact]
+    public void TheClearBeforeEntryIsIgnored()
+    {
+        var machine = MachineObservingTheClear();
+
+        var idle = machine.Handle(Clear(1));
+        Assert.Equal(RunState.Idle, idle.ToState);
+        Assert.False(idle.Accepted);
+        Assert.Empty(idle.Commands);
+
+        machine.Handle(Pop(10, 42));
+        var matched = machine.Handle(Clear(12));
+        Assert.Equal(RunState.MentorMatched, matched.ToState);
+        Assert.False(matched.Accepted);
+        Assert.Empty(matched.Commands);
+
+        Assert.Equal(RunState.EnteredDuty, machine.Handle(ZoneUnknown(20)).ToState);
+        var exit = machine.Handle(ZoneUnknown(1_500));
+        Assert.Equal(RunState.UnknownFinalState, exit.ToState);
+        var finish = Assert.IsType<FinishRunCommand>(exit.Commands[0]);
+        Assert.Equal(RunResult.Unknown, finish.Result);
+        Assert.True(finish.PendingReview);
+    }
+
+    [Fact]
+    public void TheClearDoesNotForgetAParkedQueueRequest()
+    {
+        var machine = new MentorRunStateMachine(
+            ProfileBinding.Live("cn-queue", Region.Cn, ProfileStatus.Verified, 42,
+                canDetectDutyResult: false, matchFromQueue: true, observesDutyClear: true),
+            new StateMachineOptions { MatchWindow = TimeSpan.FromHours(1), IsKnownDuty = id => id == 1036 },
+            () => "00000000-0000-4000-8000-000000000004");
+
+        machine.Handle(Pop(0, 42));
+        var clear = machine.Handle(Clear(30));
+        Assert.False(clear.Accepted);
+        Assert.Empty(clear.Commands);
+        Assert.True(machine.HasParkedQueue(TimeSpan.FromSeconds(30)));
+
+        machine.Handle(Territory(59_950, 1036));
+        var entered = machine.Handle(ZoneUnknown(60));
+
+        Assert.Equal(RunState.EnteredDuty, entered.ToState);
+        Assert.Single(entered.Commands.OfType<CreateRunCommand>());
+    }
+
+    /// <summary>
+    /// The usual shape of a CN local or shared calibration: the match is inferred from the queue
+    /// request. The clear completes the run; the exit fourteen seconds later meets a machine with no
+    /// run and no parked request, and creates and closes nothing; the next request and its duty
+    /// open the next run as before (review of the duty-clear feature, L5).
+    /// </summary>
+    [Fact]
+    public void AQueueInferredRunTheClearCompletedLeavesTheExitInertAndTheNextRequestOpensARun()
+    {
+        var machine = new MentorRunStateMachine(
+            ProfileBinding.Live("cn-queue", Region.Cn, ProfileStatus.Verified, 42,
+                canDetectDutyResult: false, matchFromQueue: true, observesDutyClear: true),
+            new StateMachineOptions { MatchWindow = TimeSpan.FromHours(1), IsKnownDuty = id => id == 1036 },
+            () => "00000000-0000-4000-8000-000000000005");
+        machine.Handle(Job(0, 19));
+        machine.Handle(Pop(10, 42));
+        machine.Handle(Territory(59_950, 1036));
+        Assert.Equal(RunState.EnteredDuty, machine.Handle(ZoneUnknown(60)).ToState);
+
+        var cleared = machine.Handle(Clear(2_046));
+        Assert.Equal(RunState.Completed, cleared.ToState);
+        var finish = Assert.IsType<FinishRunCommand>(cleared.Commands[0]);
+        Assert.Equal(RunResult.Completed, finish.Result);
+        Assert.False(finish.PendingReview);
+
+        var town = machine.Handle(Territory(2_059_950, 129));
+        var exit = machine.Handle(ZoneUnknown(2_060));
+        Assert.Empty(town.Commands);
+        Assert.False(exit.Accepted);
+        Assert.Empty(exit.Commands);
+        Assert.Equal(RunState.Idle, machine.State);
+        Assert.Null(machine.CurrentRunId);
+        Assert.False(machine.HasParkedQueue(TimeSpan.FromSeconds(2_060)));
+
+        Assert.Empty(machine.Handle(Pop(2_500, 42)).Commands);
+        machine.Handle(Territory(2_559_950, 1036));
+        var next = machine.Handle(ZoneUnknown(2_560));
+        Assert.Equal(RunState.EnteredDuty, next.ToState);
+        Assert.Single(next.Commands.OfType<CreateRunCommand>());
+        Assert.Empty(next.Commands.OfType<FinishRunCommand>());
+    }
+
+    [Fact]
+    public void TheClearAfterTheExitChangesNothing()
+    {
+        var machine = EnteredWithTheClearObservable();
+        Assert.Equal(RunState.UnknownFinalState, machine.Handle(ZoneUnknown(2_060)).ToState);
+
+        var late = machine.Handle(Clear(2_070));
+
+        Assert.False(late.Accepted);
+        Assert.Empty(late.Commands);
+        Assert.Equal(RunState.Idle, machine.State);
+    }
+
+    [Fact]
+    public void TheClearTwiceCompletesOnce()
+    {
+        var machine = EnteredWithTheClearObservable();
+        Assert.Equal(RunState.Completed, machine.Handle(Clear(2_046)).ToState);
+
+        var copy = machine.Handle(Clear(2_046));
+        Assert.True(copy.Duplicate);
+        Assert.Empty(copy.Commands);
+        Assert.Equal(1, machine.DuplicateCount);
+
+        var resent = machine.Handle(Clear(2_046, epoch: 2_047_000));
+        Assert.False(resent.Duplicate);
+        Assert.False(resent.Accepted);
+        Assert.Empty(resent.Commands);
+    }
+
+    /// <summary>Duty-result brief, decision 2: absence proves nothing.</summary>
+    [Fact]
+    public void AnExitWithoutTheClearStaysUnknownPendingReview()
+    {
+        var machine = EnteredWithTheClearObservable();
+
+        var exit = machine.Handle(ZoneUnknown(2_060));
+
+        Assert.Equal(RunState.UnknownFinalState, exit.ToState);
+        var finish = Assert.IsType<FinishRunCommand>(exit.Commands[0]);
+        Assert.Equal(RunResult.Unknown, finish.Result);
+        Assert.Equal(DetectionConfidence.Low, finish.Confidence);
+        Assert.True(finish.PendingReview);
+    }
+
+    [Fact]
+    public void APopInTheDutyBeforeTheClearStillRestartsAsUnknown()
+    {
+        var machine = EnteredWithTheClearObservable();
+
+        var pop = machine.Handle(Pop(1_900, 42));
+        var finish = Assert.IsType<FinishRunCommand>(pop.Commands[0]);
+        Assert.Equal(RunResult.Unknown, finish.Result);
+        Assert.True(finish.PendingReview);
+        Assert.Equal(RunState.MentorMatched, machine.State);
+
+        var clear = machine.Handle(Clear(2_046));
+        Assert.False(clear.Accepted);
+        Assert.Empty(clear.Commands);
+        Assert.Equal(RunState.MentorMatched, machine.State);
+    }
+
+    [Fact]
+    public void APopAfterTheClearOpensTheNextRun()
+    {
+        var machine = EnteredWithTheClearObservable();
+        Assert.Equal(RunState.Completed, machine.Handle(Clear(2_046)).ToState);
+
+        var next = machine.Handle(Pop(2_500, 42));
+
+        Assert.Equal(RunState.MentorMatched, next.ToState);
+        Assert.IsType<CreateRunCommand>(next.Commands[0]);
+        Assert.Empty(next.Commands.OfType<FinishRunCommand>());
+    }
+
+    [Theory]
+    [InlineData("gap", RunState.Interrupted)]
+    [InlineData("connection", RunState.Disconnected)]
+    [InlineData("capture", RunState.Interrupted)]
+    public void ALossBeforeTheClearWinsAndALossAfterItChangesNothing(string kind, RunState lossState)
+    {
+        SemanticEvent Loss(int seconds) => kind switch
+        {
+            "gap" => new EventSequenceGap
+            {
+                Key = Key("gap-" + seconds), ObservedAtUtc = Start.AddSeconds(seconds),
+                Mono = TimeSpan.FromSeconds(seconds), DroppedCount = 3,
+            },
+            "connection" => Connection(seconds),
+            _ => Capture(seconds),
+        };
+
+        var before = EnteredWithTheClearObservable();
+        Assert.Equal(lossState, before.Handle(Loss(2_000)).ToState);
+        var ignored = before.Handle(Clear(2_046));
+        Assert.False(ignored.Accepted);
+        Assert.Empty(ignored.Commands);
+
+        var after = EnteredWithTheClearObservable();
+        Assert.Equal(RunState.Completed, after.Handle(Clear(2_046)).ToState);
+        var loss = after.Handle(Loss(2_050));
+        Assert.Empty(loss.Commands.OfType<FinishRunCommand>());
+        Assert.Equal(RunState.Idle, after.State);
+    }
+
+    /// <summary>
+    /// The victory the parser makes of the clear signal: keyed by the message's own opcode,
+    /// epoch and payload hash, and by the fixed semantic key.
+    /// </summary>
+    private static DutyResult Clear(int seconds, long epoch = 0) => new()
+    {
+        Key = new EventKey(
+            "00000000-0000-4000-8000-000000000010", PacketDirection.ServerToClient, "61455",
+            epoch == 0 ? seconds * 1000L : epoch,
+            "1b7b8dd132a57e397bdaf964397fb17e4ea20f5a6a62f4bebc9c0f1ab0bf8566", "DUTY_RESULT:clear_signal"),
+        ObservedAtUtc = Start.AddSeconds(seconds),
+        Mono = TimeSpan.FromSeconds(seconds),
+        Victory = true,
+    };
+
     private static ContentFinderPop Pop(int seconds, int rouletteId, int? contentId = null) => new()
     {
         Key = Key("pop-" + seconds + "-" + rouletteId), ObservedAtUtc = Start.AddSeconds(seconds),

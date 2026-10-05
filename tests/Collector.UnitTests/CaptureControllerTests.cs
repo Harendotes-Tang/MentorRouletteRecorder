@@ -1260,6 +1260,57 @@ public sealed class CaptureControllerTests : IDisposable
         }
     }
 
+    /// <summary>
+    /// The diagnostics read the two clear counters from the parser in force: the snapshot behind the
+    /// report while capture runs, and the closing line of the session once it has stopped.
+    /// </summary>
+    [Fact]
+    public void TheSnapshotAndTheClosingLogLineCarryTheClearCounters()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "MentorRecorder.ClearLog", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            using var logger = new Diagnostics.RotatingFileLogger(directory, _database.Clock);
+            WithGame();
+            using var controller = new CaptureController(Services() with
+            {
+                Logger = logger,
+                ParserStats = new ClearCountingStats(signals: 4, completions: 2),
+            });
+            controller.Start();
+
+            var snapshot = controller.Snapshot();
+            Assert.Equal(4, snapshot.DutyClearSignalCount);
+            Assert.Equal(2, snapshot.DutyClearCompletionCount);
+
+            controller.Stop();
+            var line = Assert.Single(
+                File.ReadAllLines(logger.CurrentPath),
+                text => text.Contains("\"session_closed\"", StringComparison.Ordinal));
+            Assert.Contains("\"duty_clear_signals\":4", line, StringComparison.Ordinal);
+            Assert.Contains("\"duty_clear_completions\":2", line, StringComparison.Ordinal);
+        }
+        finally
+        {
+            try { Directory.Delete(directory, recursive: true); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+    }
+
+    /// <summary>Parser statistics of a parser that has seen the clear signal.</summary>
+    private sealed class ClearCountingStats(long signals, long completions) : IParserStats
+    {
+        public long ParseOkCount => 0;
+        public long ParseFailCount => 0;
+        public long DuplicateCount => 0;
+        public long IgnoredCount => 0;
+        public DateTimeOffset? LastValidEventAtUtc => null;
+        public long DutyClearSignalCount => signals;
+        public long DutyClearCompletionCount => completions;
+    }
+
     private sealed class CallbackLifecycleListener : ICaptureLifecycleListener
     {
         public Action? OnStopped { get; set; }
