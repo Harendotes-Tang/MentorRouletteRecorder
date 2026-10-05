@@ -1098,7 +1098,7 @@ public static class Program
             Environment.NewLine +
             "       MentorRecorder.Collector --capture-doctor [--json]" + Environment.NewLine +
             "       MentorRecorder.Collector --capture-trace <out.jsonl> [--duration-seconds <n>]" +
-            " [--adapter <id>] [--max-lines <n>]" + Environment.NewLine +
+            " [--adapter <id>] [--max-lines <n>] [--allow-midstream]" + Environment.NewLine +
             "       MentorRecorder.Collector --trace-report <in.jsonl> [--around <marker>]" +
             " [--window-ms <n>]" + Environment.NewLine +
             "       MentorRecorder.Collector --pipe-name-only [--json]" + Environment.NewLine +

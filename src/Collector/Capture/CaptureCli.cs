@@ -19,6 +19,17 @@ public static class CaptureCli
     /// <summary>Flag that switches the output to the sanitized JSON report.</summary>
     public const string JsonFlag = "--json";
 
+    /// <summary>
+    /// What the doctor - and the doctor report <c>--capture-trace</c> prints when it refuses - says under
+    /// 协议档案. Neither command loads a protocol profile: both only detect. The no-profile default
+    /// (<see cref="NoProfileStatusProvider"/>) says nothing will be recorded, which on a machine whose
+    /// installed software records normally is false and alarming; a service with no usable profile
+    /// reports its own status, and that wording is not changed here.
+    /// </summary>
+    public const string ProfileNotLoadedMessage =
+        "命令行的 --capture-doctor 与 --capture-trace 不加载协议档案，所以这里显示 NONE，并不表示本软件没有可用的档案；" +
+        "本软件实际使用的协议档案及其状态见软件的“捕获诊断”页。";
+
     /// <summary>True when the arguments select this mode.</summary>
     /// <param name="args">Raw command line.</param>
     public static bool Matches(string[] args) =>
@@ -38,8 +49,14 @@ public static class CaptureCli
         var writer = output ?? Console.Out;
         var json = Array.Exists(args, arg => string.Equals(arg, JsonFlag, StringComparison.Ordinal));
 
-        using var controller = new CaptureController(
-            (services ?? new CaptureServices()) with { EnableFollowTimer = false });
+        var effective = (services ?? new CaptureServices()) with { EnableFollowTimer = false };
+        if (effective.Profile is NoProfileStatusProvider)
+        {
+            // Only the default is replaced: a provider the caller supplied is reported as it stands.
+            effective = effective with { Profile = NotLoadedProfileStatus.Instance };
+        }
+
+        using var controller = new CaptureController(effective);
 
         var snapshot = controller.Snapshot();
         var adapters = controller.RescanAdapters();
@@ -160,4 +177,13 @@ public static class CaptureCli
 
     private static string Text(int? value) =>
         value?.ToString(CultureInfo.InvariantCulture) ?? "<无>";
+
+    /// <summary>The profile status of a command that loads none (<see cref="ProfileNotLoadedMessage"/>).</summary>
+    private sealed class NotLoadedProfileStatus : IProfileStatusProvider
+    {
+        public static NotLoadedProfileStatus Instance { get; } = new();
+
+        public ProfileStatusSnapshot Current { get; } = new(
+            ProfileStatus.None, null, Region.Unknown, null, null, null, ProfileNotLoadedMessage);
+    }
 }

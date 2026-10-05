@@ -521,6 +521,13 @@ public sealed class CaptureTraceTests
         Assert.False(File.Exists(tracePath));
         Assert.Contains(CaptureTraceRunner.MidstreamRefusalPrefix, output.ToString(), StringComparison.Ordinal);
         Assert.Contains("当前连接数: 2", output.ToString(), StringComparison.Ordinal);
+        // On CN the client already holds a connection at the title screen, so "start before logging in"
+        // alone is refused again: the advice names the flag that lets the trace start there.
+        Assert.Contains(CaptureTraceCli.AllowMidstreamFlag, output.ToString(), StringComparison.Ordinal);
+        Assert.Contains("标题画面", output.ToString(), StringComparison.Ordinal);
+        // The doctor report printed above the refusal does not claim the software has no profile.
+        Assert.Contains(CaptureCli.ProfileNotLoadedMessage, output.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain(NoProfileStatusProvider.Message, output.ToString(), StringComparison.Ordinal);
         Assert.True(source.Disposed);
     }
 

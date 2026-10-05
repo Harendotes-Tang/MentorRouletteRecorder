@@ -130,7 +130,8 @@ public static class CaptureTraceRunner
     /// <summary>Prefix of the warning printed when a midstream trace was explicitly allowed.</summary>
     public const string MidstreamWarningPrefix =
         "注意：游戏已有活动 TCP 连接，本次取证是中途接入。这些既有连接上的报文无法解压，" +
-        "只有取证开始之后新建的连接（例如传送换区后）才是完整证据；汇总会按连接分别统计。";
+        "只有取证开始之后新建的连接（例如此后登录时建立的游戏连接；国服传送换区不会新建连接）才是完整证据；" +
+        "汇总会按连接分别统计。";
 
     private static string MidstreamWarning(int preexistingConnections) =>
         MidstreamWarningPrefix + " 既有连接数: " +
@@ -216,8 +217,11 @@ public static class CaptureTraceRunner
             // Oodle state of a connection that predates the trace is unknowable, so the
             // messages on it are recorded but flagged: every line carries a connection
             // key and the summary is broken down per connection. A connection that starts
-            // after this point (the game opens a fresh one on every zone change) is
-            // complete evidence; the pre-existing ones are not, and the header says so.
+            // after this point is complete evidence; the pre-existing ones are not, and the
+            // header says so. On CN that new connection is the game connection opened at
+            // login: the client may already hold one at the title screen, and a zone change
+            // keeps the game connection rather than opening one (docs/live-validation-guide.md
+            // sections 6.1 and 6.2).
             output.WriteLine(MidstreamWarning(preexistingConnections));
         }
 
@@ -573,8 +577,9 @@ public static class CaptureTraceRunner
 
     private static string MidstreamRefusal(int connectionCount) =>
         $"{MidstreamRefusalPrefix} 当前连接数: {connectionCount.ToString(CultureInfo.InvariantCulture)}。" +
-        "请先记下 --capture-doctor 里那张网卡的 id，然后在重新登录前启动 " +
-        "--capture-trace --adapter <id>，或断线重连后立刻重试。";
+        "国服客户端停在标题画面时也可能已有连接，此时在登录前启动同样会被拒绝。" +
+        "请让游戏停在标题画面、尚未登录（已登录时先登出），加上 --allow-midstream 重新运行 --capture-trace" +
+        "（需要指定网卡时再加 --adapter <id>，id 见 --capture-doctor），然后登录：登录时建立的游戏连接会从建立起完整记录。";
 
     /// <summary>Carries a fault reason across threads.</summary>
     private sealed class FaultBox
