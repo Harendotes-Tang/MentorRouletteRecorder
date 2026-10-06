@@ -197,6 +197,8 @@ pwsh -NoProfile -File scripts/run-python-tool-tests.ps1   # verify.ps1 的工具
 > 已建立并推送，四个标签、Issues 与 Actions 均已开启，工作流令牌为读写。数据许可为 CC0-1.0（第 2 步）。
 > 以下步骤保留为将来重建仓库时的清单，**每一步仍须先向用户确认**。
 >
+> **已于 2026-10-06 同步完毕（随 1.6.0 正式版，公开仓库提交 `c66b7c8`）**：下面两段所列的文件均已推送，`calibration-report` 标签已存在，索引与台账的既有文件未改写。
+>
 > **本轮（替换与报告表单）需要补做的手工步骤**，同样须先向用户确认：
 > 把 `sync_public_repo.py` 生成的
 > `tools/index.py`、`tools/issue.py`、`tools/publish.py`、`tools/report_issue.sh`、

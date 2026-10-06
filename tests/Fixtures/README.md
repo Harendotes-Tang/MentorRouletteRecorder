@@ -122,7 +122,7 @@ tests/Fixtures/
 - 必须声明 `"synthetic": true`。加载器（`DecodedFixtureLoader`）对
   `false` 或缺失**直接拒绝**，以确保真实抓包无法被混入测试树并重放。
 - `opcode` / `segment_type` / `payload_hex` 全是为
-  `protocol-profiles/synthetic/synthetic-v1.json` 编造的值，不描述任何真实版本。
+  `protocol-profiles/synthetic/synthetic-v1.json` 与 `synthetic-cn-shape-v1.json` 编造的值，不描述任何真实版本。
   **例外**：`synthetic_duty_clear` 与 `synthetic_duty_no_clear` 中的通用控制报文按观测到的形状填写
   （类别、副本类型、命令与全零的尾部）。通关结算正是按内容识别的
   （[`../../docs/protocol-profile-format.md`](../../docs/protocol-profile-format.md) §12），
@@ -179,7 +179,7 @@ tests/Fixtures/
 | `synthetic_duplicates` | 7 | `COMPLETED` | 1 × `COMPLETED` | 1 / 1 | 7 / 0 / **3** | —— |
 | `synthetic_len_mismatch` | 3 | `MENTOR_MATCHED` | 1 × `UNKNOWN` | 0 / 0 | 2 / 1 / 0 | `E_LEN_MISMATCH` |
 | `synthetic_offset_oob` | 3 | `ENTERED_DUTY` | 1 × `UNKNOWN` | 1 / 0 | 2 / 1 / 0 | `E_OFFSET_OOB` |
-| `synthetic_unknown_opcode` | 4 | `COMPLETED` | 1 × `COMPLETED` | 1 / 1 | 3 / 1 / 0 | `E_UNKNOWN_OPCODE` |
+| `synthetic_unknown_opcode` | 4 | `COMPLETED` | 1 × `COMPLETED` | 1 / 1 | 3 / 0 / 0（另有 1 条只计数、不作失败的未知 opcode） | —— |
 | `synthetic_constraint_fail` | 2 | `IDLE` | **0** | 0 / 0 | 1 / 1 / 0 | `E_FIELD_CONSTRAINT` |
 | `synthetic_build_mismatch` | 3 | `IDLE` | **0** | 0 / 0 | **0 / 3 / 0** | `E_PROFILE_UNSUPPORTED` |
 

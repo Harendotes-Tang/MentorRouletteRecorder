@@ -947,7 +947,7 @@ MockBackend 回 `{passed: true, detail: "ok", checked_at_utc: 现在}`。
 | 详情浮层「心得」页签 | `run.reflection`；有则 心情 tag + 时间 + 正文 + `编辑心得`，无则空状态框 + `补录心得` |
 | `dialogs/ReflectionDialog.qml` | `App.saveReflection(runId, mood, text)`；`App.reflectionSaved` 关闭，`App.reflectionFailed` 在对话框内红字显示 |
 | 通关后自动弹出 | `App.reflectionPromptRequested(run)` → `Main.qml` 的 `reflectionDialog.openForPrompt(run, "刚刚完成")`；对话框正忙时请求留在队列中，窗口关闭后再弹出（`reflectionPromptShown` / `reflectionPromptClosed`），期间关闭「通关后弹出心得窗口」则清空队列；已在「本次导随结果」中弹出过的记录不再单独提示 |
-| 设置「通关后弹出心得窗口」 | `Settings.reflectPrompt` |
+| 设置「通关后弹出笔记窗口」 | `Settings.reflectPrompt` |
 | 结束后询问结果 | `App.resultConfirmationRequested(run)` → 同一个对话框的 `openForResult(run)` |
 | 设置「结束后询问本次结果」 | `Settings.confirmPrompt` |
 
