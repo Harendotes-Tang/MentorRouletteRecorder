@@ -14,10 +14,13 @@ public sealed record CandidateExportResult(string TargetPath, string Sha256Path,
     int ObservationCount, int ReviewCount, long ByteCount, DateTimeOffset CompletedAtUtc);
 
 /// <summary>只向用户本地允许目录导出独立证据及其 SHA256；不覆盖既有文件。</summary>
-public sealed class CandidateEvidenceExporter(CandidateObservationRepository repository, IClock clock)
+/// <param name="databasePath">打开的数据库文件；其所在目录决定未指定路径时的导出目录。</param>
+public sealed class CandidateEvidenceExporter(
+    CandidateObservationRepository repository, IClock clock, string databasePath)
 {
-    /// <summary>本次导出的默认目录：受 <c>MR_DATA_DIR</c> 控制的数据根目录下的 exports。</summary>
-    public static string DefaultDirectory => Path.Combine(DatabasePaths.RootDirectory, "exports");
+    /// <summary>未指定路径时的导出目录：打开的数据库所在目录下的 exports，与备份、诊断报告一致。</summary>
+    public string DefaultDirectory => Path.Combine(
+        Path.GetDirectoryName(databasePath) ?? DatabasePaths.RootDirectory, "exports");
 
     /// <summary>默认文件名；时间戳固定使用不变文化的公历，不随系统区域设置改变。</summary>
     /// <param name="now">导出时刻。</param>
@@ -27,9 +30,10 @@ public sealed class CandidateEvidenceExporter(CandidateObservationRepository rep
 
     public CandidateExportResult Export(string? targetPath = null)
     {
-        // 默认路径必须与备份、日志走同一个数据根：直接读 %LOCALAPPDATA% 会让 MR_DATA_DIR
-        // 隔离的测试和 verify.ps1 把证据写进真人用户的目录；时间戳走不变文化，否则在
-        // 使用非公历的系统区域下会生成一个完全不同的文件名（评审 L-16）。
+        // 默认路径跟随打开的数据库，与备份、诊断报告、日志一致：只看数据根目录时，
+        // 用一次性数据库启动、却没有设置 MR_DATA_DIR 的测试会把证据写进真人用户的
+        // %LOCALAPPDATA%\MentorRecorder\exports。时间戳走不变文化，否则在使用非公历的
+        // 系统区域下会生成一个完全不同的文件名（评审 L-16）。
         var path = ExportPaths.Resolve(
             targetPath ?? Path.Combine(DefaultDirectory, FileNameFor(clock.UtcNow)));
         var sidecar = ExportPaths.Resolve(path + ".sha256");

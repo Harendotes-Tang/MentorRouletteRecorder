@@ -26,6 +26,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Shared with the unit tests: keeps every run out of the real data folder. -->
+    <Compile Include="..\Shared\*.cs" Link="Shared\%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!--
       The fixtures are the executable form of docs/state-machine.md; the integration suite
       replays every one of them, so they travel with the test binaries.

@@ -206,26 +206,23 @@ public sealed class ExportHardeningTests : IDisposable
     }
 
     /// <summary>
-    /// Review finding L-16. The default evidence path must follow <c>MR_DATA_DIR</c> as the
-    /// backups and the logs do; reading %LOCALAPPDATA% directly would write a research export
-    /// into the real user's folder from an isolated harness. The timestamp uses the invariant
-    /// calendar so the file name does not change with the system's regional settings.
+    /// Review finding L-16. The default evidence path follows the open database, as the
+    /// backups, the diagnostics report and the logs do. Following the data root alone was not
+    /// enough: a Collector on a throw-away database with no <c>MR_DATA_DIR</c> -- every bare
+    /// <c>dotnet test</c> -- wrote a research export into the real user's
+    /// %LOCALAPPDATA%\MentorRecorder\exports. The timestamp uses the invariant calendar so the
+    /// file name does not change with the system's regional settings.
     /// </summary>
     [Fact]
-    public void CandidateEvidenceDefaultsToTheDataDirectoryAndAnInvariantTimestamp()
+    public void CandidateEvidenceDefaultsBesideTheDatabaseAndAnInvariantTimestamp()
     {
-        var root = Path.Combine(_directory, "data-root");
-        var previous = Environment.GetEnvironmentVariable(DatabasePaths.DataDirectoryVariable);
-        Environment.SetEnvironmentVariable(DatabasePaths.DataDirectoryVariable, root);
-        try
-        {
-            Assert.Equal(
-                Path.Combine(root, "exports"), CandidateEvidenceExporter.DefaultDirectory);
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable(DatabasePaths.DataDirectoryVariable, previous);
-        }
+        var exporter = new CandidateEvidenceExporter(
+            new CandidateObservationRepository(_database.Database, _clock), _clock, _database.Path);
+
+        Assert.Equal(
+            Path.Combine(Path.GetDirectoryName(_database.Path)!, "exports"), exporter.DefaultDirectory);
+        Assert.False(exporter.DefaultDirectory.StartsWith(
+            DatabasePaths.ResolveRoot(null) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));
 
         var name = CandidateEvidenceExporter.FileNameFor(
             new DateTimeOffset(2026, 9, 8, 21, 5, 4, TimeSpan.Zero));

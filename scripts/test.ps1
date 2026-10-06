@@ -187,11 +187,9 @@ else {
     # DatabasePaths.RootDirectory resolves to the developer's real
     # %LOCALAPPDATA%\MentorRecorder.
     #
-    # Limitation: this covers runs through this script only. The test project has no
-    # assembly-wide fixture ([ModuleInitializer] / ICollectionFixture) defaulting
-    # MR_DATA_DIR, so a bare `dotnet test` still uses the real data directory for anything
-    # that does not isolate itself (DataPathOptionTests and TestDatabase do so for the
-    # database). scripts/verify.ps1 always goes through this script.
+    # A bare `dotnet test` is covered too: both C# test projects compile
+    # tests/Shared/TestDataDirectory.cs, a [ModuleInitializer] that sets MR_DATA_DIR to a
+    # scratch folder of its own when it is unset, and leaves the value set here alone.
     $previousDataDir = $env:MR_DATA_DIR
     $testDataDir = Join-Path ([System.IO.Path]::GetTempPath()) `
         ("MentorRecorder.TestDataDir." + [Guid]::NewGuid().ToString('N'))

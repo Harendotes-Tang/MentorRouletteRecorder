@@ -44,7 +44,7 @@ public sealed class CollectorHost : IDisposable
         Reflections = new RunReflectionRepository(database);
         ReflectionWrites = new RunReflectionService(database, clock);
         Candidates = new CandidateObservationRepository(database, clock);
-        CandidateExporter = new CandidateEvidenceExporter(Candidates, clock);
+        CandidateExporter = new CandidateEvidenceExporter(Candidates, clock, database.Path);
         Exporter = new RunExporter(Runs, clock, database);
         Backups = new BackupService(database, clock);
         DiagnosticsReports = new DiagnosticsReportExport(database.Path, clock);

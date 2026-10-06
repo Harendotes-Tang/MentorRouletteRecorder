@@ -639,16 +639,27 @@ public sealed class PipeServerTests
 
         foreach (var messageType in MessageDispatcher.KnownMessageTypes)
         {
-            var response = await client.SendAsync(messageType, PayloadFor(messageType));
+            var response = await client.SendAsync(
+                messageType, PayloadFor(messageType, Path.GetDirectoryName(fixture.DatabasePath)!));
 
             // Either a result or an explicit contract error; never a silent drop or a hang.
             Assert.True(
                 response.Ok || !string.IsNullOrEmpty(response.ErrorCode),
                 messageType + " produced neither a payload nor an error code");
+
+            // Every file the sweep writes stays in the fixture's folder, which is deleted with
+            // it: neither %TEMP% nor the managed data root keeps anything from this test.
+            if (response.Ok && response.Payload["target_path"]?.GetValue<string>() is { } written)
+            {
+                Assert.StartsWith(
+                    Path.GetDirectoryName(fixture.DatabasePath)! + Path.DirectorySeparatorChar,
+                    written,
+                    StringComparison.OrdinalIgnoreCase);
+            }
         }
     }
 
-    private static JsonObject PayloadFor(string messageType) => messageType switch
+    private static JsonObject PayloadFor(string messageType, string directory) => messageType switch
     {
         "CreateManualRun" => new JsonObject
         {
@@ -679,7 +690,7 @@ public sealed class PipeServerTests
         },
         "ExportCsv" or "ExportJson" => new JsonObject
         {
-            ["target_path"] = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".out"),
+            ["target_path"] = Path.Combine(directory, Guid.NewGuid().ToString("N") + ".out"),
         },
         _ => new JsonObject(),
     };

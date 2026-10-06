@@ -5,6 +5,7 @@ using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Ipc;
 using MentorRecorder.Collector.Protocol.Decoded;
 using MentorRecorder.Collector.Protocol.Parsing;
+using MentorRecorder.Collector.Storage;
 
 namespace MentorRecorder.Collector.IntegrationTests;
 
@@ -86,6 +87,32 @@ public sealed class CandidateLedgerIpcTests
         Assert.Equal(500, document.RootElement.GetProperty("reviews").GetArrayLength());
         Assert.All(document.RootElement.GetProperty("reviews").EnumerateArray(),
             review => Assert.Equal(note, review.GetProperty("note").GetString()));
+    }
+
+    /// <summary>
+    /// A request that names no file exports into <c>exports\</c> beside the open database, as the
+    /// backup and the diagnostics report already do. The folder used to come from the managed data
+    /// root alone, so a Collector on a throw-away database -- every fixture here, run by a bare
+    /// <c>dotnet test</c> -- wrote an empty evidence file into the real
+    /// %LOCALAPPDATA%\MentorRecorder\exports on every run.
+    /// </summary>
+    [Fact]
+    public async Task AnExportWithoutATargetStaysBesideTheDatabase()
+    {
+        await using var fixture = ServerFixture.Start();
+        var expected = Path.Combine(Path.GetDirectoryName(fixture.DatabasePath)!, "exports");
+
+        var exported = (await fixture.CallAsync("ExportCandidateEvidence", new JsonObject())).Require();
+
+        var target = exported["target_path"]!.GetValue<string>();
+        var sidecar = exported["sha256_path"]!.GetValue<string>();
+        Assert.Equal(expected, Path.GetDirectoryName(target));
+        Assert.Equal(expected, Path.GetDirectoryName(sidecar));
+        Assert.True(File.Exists(target));
+        Assert.True(File.Exists(sidecar));
+        Assert.False(
+            target.StartsWith(DatabasePaths.ResolveRoot(null) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase),
+            target + " 落在了真实用户的数据目录里。");
     }
 
     [Fact]

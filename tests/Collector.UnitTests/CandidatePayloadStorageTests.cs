@@ -242,8 +242,8 @@ public sealed class CandidatePayloadStorageTests : IDisposable
     private void Enable() => _settings.SetSetting(CaptureSettingsStore.CandidateValidationSetting, "true");
     private void Whitelist(params string[] opcodes) => _settings.SetSetting(
         CaptureSettingsStore.ResearchPayloadOpcodesSetting, JsonSerializer.Serialize(opcodes));
-    private CandidateExportResult Export(string name) => new CandidateEvidenceExporter(_ledger, _fixture.Clock)
-        .Export(Path.Combine(_outputDirectory, name));
+    private CandidateExportResult Export(string name) => new CandidateEvidenceExporter(_ledger, _fixture.Clock,
+        _fixture.Database.Path).Export(Path.Combine(_outputDirectory, name));
 
     public void Dispose()
     {
