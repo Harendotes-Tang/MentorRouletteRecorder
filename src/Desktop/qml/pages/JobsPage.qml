@@ -287,6 +287,7 @@ Item {
                                     Text {
                                         Layout.fillWidth: true
                                         text: modelData.job_name || qsTr("未知")
+                                        textFormat: Text.PlainText
                                         color: Theme.textPrimary
                                         font.pixelSize: Theme.fs(12)
                                         font.bold: true

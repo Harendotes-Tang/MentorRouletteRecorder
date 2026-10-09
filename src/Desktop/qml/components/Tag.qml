@@ -18,6 +18,7 @@ Rectangle {
 
     Text {
         id: label
+        textFormat: Text.PlainText
         anchors.centerIn: parent
         text: root.text
         color: Theme.tagForeground(root.variant)

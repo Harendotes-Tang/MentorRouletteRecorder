@@ -119,6 +119,31 @@ ApplicationWindow {
         m_engine.reset();
     }
 
+    void incompleteImportContextAppliesOnlyToAnEdit()
+    {
+        QVariantMap form{{"reason", "supplement note"}, {"note", "new note"},
+                         {"date", ""}, {"matched", ""}, {"entered", ""}, {"ended", ""},
+                         {"result", "UNKNOWN"}, {"incomplete_import_context", true}};
+        QCOMPARE(mr::RunFormValidator::validate(form).value("code").toString(), "ERR_BAD_REQUEST");
+        form.insert("edit_mode", true);
+        const auto verdict = mr::RunFormValidator::validate(form, {{"note", "old note"}});
+        QVERIFY2(verdict.value("ok").toBool(), qPrintable(verdict.value("message").toString()));
+        form.insert("incomplete_import_context", false);
+        QCOMPARE(mr::RunFormValidator::validate(form).value("code").toString(), "ERR_BAD_REQUEST");
+    }
+
+    void importedKnownEndpointsStillValidateTheirOrderWithoutAMatchTime()
+    {
+        QVariantMap form{{"reason", "supplement times"}, {"date", ""}, {"matched", ""},
+                         {"entered_date", "2026-10-09"}, {"entered", "10:00:00"},
+                         {"ended_date", "2026-10-09"}, {"ended", "09:00:00"},
+                         {"result", "UNKNOWN"}, {"edit_mode", true}, {"incomplete_import_context", true}};
+        QCOMPARE(mr::RunFormValidator::validate(form).value("code").toString(), "ERR_NEGATIVE_DURATION");
+        form.insert("ended", "10:30:00");
+        const auto verdict = mr::RunFormValidator::validate(form);
+        QVERIFY2(verdict.value("ok").toBool(), qPrintable(verdict.value("message").toString()));
+    }
+
     void validatesExplicitDatesAndMilliseconds()
     {
         const auto verdict = mr::RunFormValidator::validate(crossMidnightForm());

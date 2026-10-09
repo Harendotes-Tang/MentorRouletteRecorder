@@ -99,6 +99,7 @@ Item {
                             Text {
                                 Layout.preferredWidth: 150
                                 text: modelData.duty_name || qsTr("未知副本")
+                                textFormat: Text.PlainText
                                 color: Theme.textPrimary
                                 font.pixelSize: Theme.fs(12)
                                 elide: Text.ElideRight
@@ -216,6 +217,7 @@ Item {
                                         Text {
                                             Layout.fillWidth: true
                                             text: modelData.duty_name || qsTr("未知副本")
+                                            textFormat: Text.PlainText
                                             color: Theme.textPrimary
                                             font.pixelSize: Theme.fs(12)
                                             font.bold: true
@@ -225,6 +227,7 @@ Item {
                                         Text {
                                             Layout.fillWidth: true
                                             text: modelData.duty_meta || Fmt.dash()
+                                            textFormat: Text.PlainText
                                             color: Theme.textSecondary
                                             font.pixelSize: Theme.fs(10)
                                             font.family: Theme.figureFamily
@@ -238,6 +241,7 @@ Item {
                                 Text {
                                     Layout.preferredWidth: 55
                                     text: modelData.duty_category || qsTr("未识别")
+                                    textFormat: Text.PlainText
                                     color: Theme.textSecondary
                                     font.pixelSize: Theme.fs(11)
                                     elide: Text.ElideRight
@@ -280,6 +284,7 @@ Item {
                                     Layout.preferredWidth: 68
                                     text: modelData.last_seen_utc
                                           ? Fmt.localDate(modelData.last_seen_utc).substring(5) : "—"
+                                    textFormat: Text.PlainText
                                     color: Theme.textSecondary
                                     font.pixelSize: Theme.fs(11)
                                     horizontalAlignment: Text.AlignRight

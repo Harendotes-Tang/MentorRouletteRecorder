@@ -46,6 +46,7 @@ $ErrorActionPreference = 'Stop'
 
 . (Join-Path $PSScriptRoot 'package-runtime.ps1')
 . (Join-Path $PSScriptRoot 'package-version.ps1')
+. (Join-Path $PSScriptRoot 'ocr-runtime.ps1')
 
 try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false } catch { }
 
@@ -587,6 +588,7 @@ function Assert-RequiredContent([string]$TargetDir) {
         'docs\privacy-boundary.md'
         'docs\release-checklist.md'
         'docs\third-party-licenses.md'
+        'ocr\OCR-DEPENDENCIES.json'
     )
 
     $missing = @()
@@ -601,6 +603,7 @@ function Assert-RequiredContent([string]$TargetDir) {
     }
 
     Write-Host ("  必需文件齐全（{0} 项）。" -f $required.Count) -ForegroundColor Green
+    Assert-OcrRuntime -RuntimeDirectory (Join-Path $TargetDir 'ocr') -RepoRoot $RepoRoot | Out-Null
 }
 
 function Get-EmbeddedManifest([string]$Path) {
@@ -789,6 +792,7 @@ Copy-Item -LiteralPath (Join-Path $RepoRoot 'LICENSE') -Destination $StageDir
 Copy-Item -LiteralPath (Join-Path $RepoRoot 'README.md') -Destination $StageDir
 Copy-Item -LiteralPath (Join-Path $RepoRoot 'THIRD_PARTY_NOTICES.md') -Destination $StageDir
 Copy-Item -LiteralPath (Join-Path $RepoRoot 'docs') -Destination (Join-Path $StageDir 'docs') -Recurse -Force
+Install-OcrRuntime -DestinationDirectory $StageDir -RepoRoot $RepoRoot
 
 # The development output carries synthetic profiles for replay tests. They must not reach the
 # live selector in an installed build, even though their fake game-build marker keeps them
@@ -989,6 +993,7 @@ if ($Verify) {
         Assert-File $collector '解包目录缺少 Collector'
         Assert-File $desktop '解包目录缺少 Desktop'
         Assert-DesktopExecutable $desktop
+        Test-OcrRuntime -RuntimeDirectory (Join-Path $unpacked 'ocr') -RepoRoot $RepoRoot | Out-Null
 
         function Invoke-Unpacked([string]$Exe, [string[]]$PackageArgs, [int[]]$AllowedExitCodes, [string]$Label,
                                  [switch]$Offscreen) {

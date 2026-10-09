@@ -1,0 +1,780 @@
+{
+  "schema_version": 1,
+  "cache_id": "5.4.0.20240606-tessdata-fast-87416418",
+  "runtime": {
+    "version": "5.4.0.20240606",
+    "vendor": "UB Mannheim (third-party Windows build linked by Tesseract documentation)",
+    "archive_name": "tesseract-ocr-w64-setup-5.4.0.20240606.exe",
+    "archive_url": "https://github.com/UB-Mannheim/tesseract/releases/download/v5.4.0.20240606/tesseract-ocr-w64-setup-5.4.0.20240606.exe",
+    "archive_sha256": "c885fff6998e0608ba4bb8ab51436e1c6775c2bafc2559a19b423e18678b60c9",
+    "archive_sha256_reference": "https://raw.githubusercontent.com/microsoft/winget-pkgs/master/manifests/u/UB-Mannheim/TesseractOCR/5.4.0.20240606/UB-Mannheim.TesseractOCR.installer.yaml",
+    "upstream_installation_reference": "https://tesseract-ocr.github.io/tessdoc/Installation.html",
+    "dependency_scope": "Static recursive PE import closure of tesseract.exe; Windows system DLLs excluded; training tools, ICU/Pango and other unused installer payload excluded.",
+    "version_evidence": "tesseract --version: leptonica-1.84.1; gif5.2.1; jpeg-turbo3.0.1; png1.6.43; tiff4.6.0; webp1.4.0; openjp2 2.5.2; archive3.7.4; lzma5.6.1; bz2 1.0.8; lz4 1.9.4; zstd1.5.6. Other licence-reference tags do not prove those DLL versions."
+  },
+  "models": {
+    "repository": "https://github.com/tesseract-ocr/tessdata_fast",
+    "commit": "87416418657359cb625c412a48b6e1d6d41c29bd",
+    "languages": [
+      "chi_sim",
+      "eng"
+    ]
+  },
+  "components": [
+    {
+      "files": [
+        "tesseract.exe",
+        "libtesseract-5.dll",
+        "tessdata/configs/tsv"
+      ],
+      "name": "Tesseract",
+      "licence": "Apache-2.0",
+      "source": "https://github.com/UB-Mannheim/tesseract/tree/v5.4.0.20240606",
+      "texts": [
+        "Tesseract-APACHE-2.0.txt",
+        "Tesseract-AUTHORS.txt"
+      ]
+    },
+    {
+      "files": [
+        "tessdata/chi_sim.traineddata",
+        "tessdata/eng.traineddata"
+      ],
+      "name": "tessdata_fast",
+      "licence": "Apache-2.0",
+      "source": "https://github.com/tesseract-ocr/tessdata_fast/tree/87416418657359cb625c412a48b6e1d6d41c29bd",
+      "texts": [
+        "tessdata-fast-APACHE-2.0.txt"
+      ]
+    },
+    {
+      "files": [
+        "libarchive-13.dll"
+      ],
+      "name": "libarchive",
+      "licence": "BSD-2-Clause AND BSD-3-Clause",
+      "source": "https://github.com/libarchive/libarchive/tree/v3.7.4",
+      "texts": [
+        "libarchive-LICENSE.txt",
+        "libarchive-UC-Regents.txt"
+      ]
+    },
+    {
+      "files": [
+        "libb2-1.dll"
+      ],
+      "name": "libb2",
+      "licence": "CC0-1.0",
+      "source": "https://github.com/BLAKE2/libb2/tree/v0.98.1",
+      "texts": [
+        "libb2-LICENSE.txt"
+      ]
+    },
+    {
+      "files": [
+        "libbz2-1.dll"
+      ],
+      "name": "bzip2",
+      "licence": "bzip2-1.0.6",
+      "source": "https://github.com/libarchive/bzip2/tree/bzip2-1.0.8",
+      "texts": [
+        "bzip2-LICENSE.txt"
+      ]
+    },
+    {
+      "files": [
+        "libcrypto-3-x64.dll"
+      ],
+      "name": "OpenSSL",
+      "licence": "Apache-2.0",
+      "source": "https://github.com/openssl/openssl/tree/openssl-3.3.1",
+      "texts": [
+        "OpenSSL-APACHE-2.0.txt"
+      ]
+    },
+    {
+      "files": [
+        "libdeflate.dll"
+      ],
+      "name": "libdeflate",
+      "licence": "MIT",
+      "source": "https://github.com/ebiggers/libdeflate/tree/v1.20",
+      "texts": [
+        "libdeflate-MIT.txt"
+      ]
+    },
+    {
+      "files": [
+        "libexpat-1.dll"
+      ],
+      "name": "expat",
+      "licence": "MIT",
+      "source": "https://github.com/libexpat/libexpat/tree/R_2_6_2",
+      "texts": [
+        "expat-MIT.txt"
+      ]
+    },
+    {
+      "files": [
+        "libgcc_s_seh-1.dll",
+        "libstdc++-6.dll"
+      ],
+      "name": "GCC runtime",
+      "licence": "GPL-3.0-or-later WITH GCC-exception-3.1",
+      "source": "https://gcc.gnu.org/git.html",
+      "texts": [
+        "GPL-3.0.txt",
+        "GCC-RUNTIME-LIBRARY-EXCEPTION-3.1.txt"
+      ]
+    },
+    {
+      "files": [
+        "libgif-7.dll"
+      ],
+      "name": "giflib",
+      "licence": "MIT",
+      "source": "https://deb.debian.org/debian/pool/main/g/giflib/giflib_5.2.1.orig.tar.gz",
+      "texts": [
+        "giflib-MIT.txt"
+      ]
+    },
+    {
+      "files": [
+        "libiconv-2.dll"
+      ],
+      "name": "GNU libiconv/libcharset",
+      "licence": "LGPL-2.1-or-later AND LGPL-2.0-or-later",
+      "source": "https://ftp.gnu.org/pub/gnu/libiconv/libiconv-1.17.tar.gz",
+      "texts": [
+        "libiconv-COPYRIGHT.txt",
+        "libiconv-LGPL-2.1.txt",
+        "libiconv-libcharset-LGPL-2.1.txt"
+      ]
+    },
+    {
+      "files": [
+        "libjbig-0.dll"
+      ],
+      "name": "JBIG-KIT",
+      "licence": "GPL-2.0-or-later",
+      "source": "https://www.cl.cam.ac.uk/~mgk25/download/jbigkit-2.1.tar.gz",
+      "texts": [
+        "JBIG-KIT-GPL-2.0.txt",
+        "JBIG-KIT-COPYRIGHT.txt"
+      ]
+    },
+    {
+      "files": [
+        "libjpeg-8.dll"
+      ],
+      "name": "libjpeg-turbo",
+      "licence": "IJG AND BSD-3-Clause AND Zlib",
+      "source": "https://github.com/libjpeg-turbo/libjpeg-turbo/tree/3.0.1",
+      "texts": [
+        "libjpeg-turbo-LICENSE.txt",
+        "libjpeg-turbo-IJG.txt"
+      ]
+    },
+    {
+      "files": [
+        "libleptonica-6.dll"
+      ],
+      "name": "Leptonica",
+      "licence": "BSD-2-Clause",
+      "source": "https://github.com/DanBloomberg/leptonica/tree/1.84.1",
+      "texts": [
+        "leptonica-BSD-2-Clause.txt"
+      ]
+    },
+    {
+      "files": [
+        "libLerc.dll"
+      ],
+      "name": "Lerc",
+      "licence": "Apache-2.0",
+      "source": "https://github.com/Esri/lerc/tree/v4.0.0",
+      "texts": [
+        "Lerc-APACHE-2.0.txt"
+      ]
+    },
+    {
+      "files": [
+        "liblz4.dll"
+      ],
+      "name": "LZ4",
+      "licence": "BSD-2-Clause",
+      "source": "https://github.com/lz4/lz4/tree/v1.9.4",
+      "texts": [
+        "lz4-BSD-2-Clause.txt"
+      ]
+    },
+    {
+      "files": [
+        "liblzma-5.dll"
+      ],
+      "name": "XZ liblzma",
+      "licence": "0BSD",
+      "source": "https://github.com/tukaani-project/xz/tree/v5.6.1",
+      "texts": [
+        "xz-lib-lzma-COPYING.txt",
+        "xz-lib-lzma-0BSD.txt"
+      ]
+    },
+    {
+      "files": [
+        "libopenjp2-7.dll"
+      ],
+      "name": "OpenJPEG",
+      "licence": "BSD-2-Clause",
+      "source": "https://github.com/uclouvain/openjpeg/tree/v2.5.2",
+      "texts": [
+        "OpenJPEG-BSD-2-Clause.txt"
+      ]
+    },
+    {
+      "files": [
+        "libpng16-16.dll"
+      ],
+      "name": "libpng",
+      "licence": "Libpng",
+      "source": "https://github.com/pnggroup/libpng/tree/v1.6.43",
+      "texts": [
+        "libpng-LICENSE.txt"
+      ]
+    },
+    {
+      "files": [
+        "libsharpyuv-0.dll",
+        "libwebp-7.dll",
+        "libwebpmux-3.dll"
+      ],
+      "name": "libwebp",
+      "licence": "BSD-3-Clause",
+      "source": "https://github.com/webmproject/libwebp/tree/v1.4.0",
+      "texts": [
+        "libwebp-BSD-3-Clause.txt",
+        "libwebp-PATENTS.txt"
+      ]
+    },
+    {
+      "files": [
+        "libtiff-6.dll"
+      ],
+      "name": "libtiff",
+      "licence": "libtiff",
+      "source": "https://github.com/libsdl-org/libtiff/tree/v4.6.0",
+      "texts": [
+        "libtiff-LICENSE.txt"
+      ]
+    },
+    {
+      "files": [
+        "libwinpthread-1.dll"
+      ],
+      "name": "mingw-w64 winpthreads",
+      "licence": "MIT AND BSD-3-Clause",
+      "source": "https://github.com/mingw-w64/mingw-w64/tree/v12.0.0",
+      "texts": [
+        "winpthreads-LICENSE.txt"
+      ]
+    },
+    {
+      "files": [
+        "libzstd.dll"
+      ],
+      "name": "Zstandard",
+      "licence": "BSD-3-Clause",
+      "source": "https://github.com/facebook/zstd/tree/v1.5.6",
+      "texts": [
+        "zstd-BSD-3-Clause.txt"
+      ]
+    },
+    {
+      "files": [
+        "zlib1.dll"
+      ],
+      "name": "zlib",
+      "licence": "Zlib",
+      "source": "https://github.com/madler/zlib/tree/v1.3.1",
+      "texts": [
+        "zlib-LICENSE.txt"
+      ]
+    }
+  ],
+  "files": [
+    {
+      "path": "libarchive-13.dll",
+      "sha256": "98b9b7e9259f23eab6749ee25cca2c0643f09df6b23c58229fd43bf6249195e9",
+      "bytes": 769154,
+      "origin": "runtime-archive",
+      "source_path": "libarchive-13.dll"
+    },
+    {
+      "path": "libb2-1.dll",
+      "sha256": "7fb8418a1172042dab5227fcd466b1bf293737f5b5cf35359e851516227f109c",
+      "bytes": 34372,
+      "origin": "runtime-archive",
+      "source_path": "libb2-1.dll"
+    },
+    {
+      "path": "libbz2-1.dll",
+      "sha256": "b79cd3a7102e359ef6324e98966a67939e58ec2b651ae2847cae84a4dfa453f7",
+      "bytes": 100964,
+      "origin": "runtime-archive",
+      "source_path": "libbz2-1.dll"
+    },
+    {
+      "path": "libcrypto-3-x64.dll",
+      "sha256": "c0674a225d30f1642ca1da45ac040a9c1885d8f23883532b42987bae458edc4d",
+      "bytes": 5130880,
+      "origin": "runtime-archive",
+      "source_path": "libcrypto-3-x64.dll"
+    },
+    {
+      "path": "libdeflate.dll",
+      "sha256": "b6ee7b31a23605d8e8b9be5eae782a3ddf7adf2b7ca2c8e0041bdfd4fe4659ee",
+      "bytes": 91035,
+      "origin": "runtime-archive",
+      "source_path": "libdeflate.dll"
+    },
+    {
+      "path": "libexpat-1.dll",
+      "sha256": "d9ea333175b1e995bbe6a062567f38ff362f1b2f369fa8ebdb0eeed21813bdc6",
+      "bytes": 188909,
+      "origin": "runtime-archive",
+      "source_path": "libexpat-1.dll"
+    },
+    {
+      "path": "libgcc_s_seh-1.dll",
+      "sha256": "b22b954397a52703579d92db64b57812af70f2afcafe2e742a009c1640b9ec1a",
+      "bytes": 150707,
+      "origin": "runtime-archive",
+      "source_path": "libgcc_s_seh-1.dll"
+    },
+    {
+      "path": "libgif-7.dll",
+      "sha256": "a1a179853ae6fad8eb045b8e9f12c55e6fc99929446b02fa345512354cf5e582",
+      "bytes": 41367,
+      "origin": "runtime-archive",
+      "source_path": "libgif-7.dll"
+    },
+    {
+      "path": "libiconv-2.dll",
+      "sha256": "967189adfbc889fde89aafc867f7a1f02731f8592cf6fd5a4ace1929213e2e13",
+      "bytes": 1118202,
+      "origin": "runtime-archive",
+      "source_path": "libiconv-2.dll"
+    },
+    {
+      "path": "libjbig-0.dll",
+      "sha256": "275a827ba6839d47cfdbe059db1b1b403a92ff26e2b76a29362915487868bef2",
+      "bytes": 62083,
+      "origin": "runtime-archive",
+      "source_path": "libjbig-0.dll"
+    },
+    {
+      "path": "libjpeg-8.dll",
+      "sha256": "e44514c4e7753635e79bdb668f1e10315c1a93287f8d044ae74594ed57de619d",
+      "bytes": 912746,
+      "origin": "runtime-archive",
+      "source_path": "libjpeg-8.dll"
+    },
+    {
+      "path": "libleptonica-6.dll",
+      "sha256": "26861baff4d25446a03ed1f6064d2eae7435eddf51bb36af4e634c0eb4eb3af0",
+      "bytes": 2721006,
+      "origin": "runtime-archive",
+      "source_path": "libleptonica-6.dll"
+    },
+    {
+      "path": "libLerc.dll",
+      "sha256": "4ab688c7c5c4afdfee0f519f942759137067a7876a1c1bb825ee575b0a5760b1",
+      "bytes": 761261,
+      "origin": "runtime-archive",
+      "source_path": "libLerc.dll"
+    },
+    {
+      "path": "liblz4.dll",
+      "sha256": "1b64d6429ae4aacf9eb35b8158d98556859a5c5e8ee817e155da343e194dd8e3",
+      "bytes": 147105,
+      "origin": "runtime-archive",
+      "source_path": "liblz4.dll"
+    },
+    {
+      "path": "liblzma-5.dll",
+      "sha256": "3a599d97ea4dd002166ee7ffdc527c129d2cf8b05e9152ca7cae006c4187977e",
+      "bytes": 184667,
+      "origin": "runtime-archive",
+      "source_path": "liblzma-5.dll"
+    },
+    {
+      "path": "libopenjp2-7.dll",
+      "sha256": "5ff762ff6d672a06ee502819daf1494aa3aa3acf408805f0429303e026705011",
+      "bytes": 462194,
+      "origin": "runtime-archive",
+      "source_path": "libopenjp2-7.dll"
+    },
+    {
+      "path": "libpng16-16.dll",
+      "sha256": "f1b0a9d6cf3b8809c22fa0e27b5b82d9357e5bca43ab0ce8762f55fb303ed23f",
+      "bytes": 247380,
+      "origin": "runtime-archive",
+      "source_path": "libpng16-16.dll"
+    },
+    {
+      "path": "libsharpyuv-0.dll",
+      "sha256": "60bcc87ac64a834e967e9ec9461be37395dbc090c579f3e23497ef69a5d8323e",
+      "bytes": 57852,
+      "origin": "runtime-archive",
+      "source_path": "libsharpyuv-0.dll"
+    },
+    {
+      "path": "libstdc++-6.dll",
+      "sha256": "0d9c01ab1771df439c75f144b2d855b4ac400243f006d14d9a043493de628f0d",
+      "bytes": 2409896,
+      "origin": "runtime-archive",
+      "source_path": "libstdc++-6.dll"
+    },
+    {
+      "path": "libtesseract-5.dll",
+      "sha256": "279488c41bd341edaa03dcd097faa33604ba330e6254ac97bcaf2229d8d7ac1a",
+      "bytes": 101471336,
+      "origin": "runtime-archive",
+      "source_path": "libtesseract-5.dll"
+    },
+    {
+      "path": "libtiff-6.dll",
+      "sha256": "e000306d3de299b05ebef443e48c1486d9fa291b0244f6ca6225843b75fdf581",
+      "bytes": 576887,
+      "origin": "runtime-archive",
+      "source_path": "libtiff-6.dll"
+    },
+    {
+      "path": "libwebp-7.dll",
+      "sha256": "687b8859e1f739dad5800fdc293a6ee1fd0dd4b33380ab283681a5a12eb3d4fa",
+      "bytes": 743580,
+      "origin": "runtime-archive",
+      "source_path": "libwebp-7.dll"
+    },
+    {
+      "path": "libwebpmux-3.dll",
+      "sha256": "ad10bacecd37b44c7c2c813da098a8bf6a42a3bf0152f7f33726d216815558f9",
+      "bytes": 78730,
+      "origin": "runtime-archive",
+      "source_path": "libwebpmux-3.dll"
+    },
+    {
+      "path": "libwinpthread-1.dll",
+      "sha256": "bbcbe5eb8e806f3537585d4c9832b4ee15f86617328a566695d7d3728aa370ee",
+      "bytes": 60798,
+      "origin": "runtime-archive",
+      "source_path": "libwinpthread-1.dll"
+    },
+    {
+      "path": "libzstd.dll",
+      "sha256": "f216ea8efb5b3bb9ad3d938fb9ac07e3b8f78c2c92faab03d2c468d0b6798a5a",
+      "bytes": 1179848,
+      "origin": "runtime-archive",
+      "source_path": "libzstd.dll"
+    },
+    {
+      "path": "tesseract.exe",
+      "sha256": "babb405f4366b480d02cd8ff2bac8d497170f6c1711ce6f3d5d8bf0fb7fa6ed9",
+      "bytes": 1585024,
+      "origin": "runtime-archive",
+      "source_path": "tesseract.exe"
+    },
+    {
+      "path": "zlib1.dll",
+      "sha256": "cb7ab3788d10940df874acd97b1821bbb5ee4a91f3eec11982bb5bf7a3c96443",
+      "bytes": 120814,
+      "origin": "runtime-archive",
+      "source_path": "zlib1.dll"
+    },
+    {
+      "path": "tessdata/configs/tsv",
+      "sha256": "59d079bb75d8b3d7c839a3564580cb559e362c93a9d70f234e421c0c3e767e04",
+      "bytes": 22,
+      "origin": "runtime-archive",
+      "source_path": "tessdata/configs/tsv"
+    },
+    {
+      "path": "tessdata/chi_sim.traineddata",
+      "sha256": "a5fcb6f0db1e1d6d8522f39db4e848f05984669172e584e8d76b6b3141e1f730",
+      "bytes": 2469156,
+      "origin": "model",
+      "source_url": "https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/87416418657359cb625c412a48b6e1d6d41c29bd/chi_sim.traineddata"
+    },
+    {
+      "path": "tessdata/eng.traineddata",
+      "sha256": "7d4322bd2a7749724879683fc3912cb542f19906c83bcc1a52132556427170b2",
+      "bytes": 4113088,
+      "origin": "model",
+      "source_url": "https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/87416418657359cb625c412a48b6e1d6d41c29bd/eng.traineddata"
+    },
+    {
+      "path": "licenses/bzip2-LICENSE.txt",
+      "sha256": "c6dbbf828498be844a89eaa3b84adbab3199e342eb5cb2ed2f0d4ba7ec0f38a3",
+      "bytes": 1896,
+      "origin": "repository",
+      "source_path": "docs/licenses/ocr/bzip2-LICENSE.txt",
+      "upstream_url": "https://raw.githubusercontent.com/libarchive/bzip2/bzip2-1.0.8/LICENSE"
+    },
+    {
+      "path": "licenses/expat-MIT.txt",
+      "sha256": "122f2c27000472a201d337b9b31f7eb2b52d091b02857061a8880371612d9534",
+      "bytes": 1144,
+      "origin": "repository",
+      "source_path": "docs/licenses/ocr/expat-MIT.txt",
+      "upstream_url": "https://raw.githubusercontent.com/libexpat/libexpat/R_2_6_2/expat/COPYING"
+    },
+    {
+      "path": "licenses/GCC-RUNTIME-LIBRARY-EXCEPTION-3.1.txt",
+      "sha256": "9d6b43ce4d8de0c878bf16b54d8e7a10d9bd42b75178153e3af6a815bdc90f74",
+      "bytes": 3324,
+      "origin": "repository",
+      "source_path": "docs/licenses/ocr/GCC-RUNTIME-LIBRARY-EXCEPTION-3.1.txt",
+      "upstream_url": "https://raw.githubusercontent.com/gcc-mirror/gcc/releases/gcc-14.1.0/COPYING.RUNTIME"
+    },
+    {
+      "path": "licenses/giflib-MIT.txt",
+      "sha256": "0c9b7990ecdca88b676db232c226548ac408b279f550d424d996f0d83591dd8e",
+      "bytes": 1088,
+      "origin": "repository",
+      "source_path": "docs/licenses/ocr/giflib-MIT.txt",
+      "upstream_url": "https://deb.debian.org/debian/pool/main/g/giflib/giflib_5.2.1.orig.tar.gz#giflib-5.2.1/COPYING"
+    },
+    {
+      "path": "licenses/GPL-3.0.txt",
+      "sha256": "0b383d5a63da644f628d99c33976ea6487ed89aaa59f0b3257992deac1171e6b",
+      "bytes": 35821,
+      "origin": "repository",
+      "source_path": "docs/licenses/ocr/GPL-3.0.txt",
+      "upstream_url": "https://www.gnu.org/licenses/gpl-3.0.txt"
+    },
+    {
+      "path": "licenses/JBIG-KIT-COPYRIGHT.txt",
+      "sha256": "30b5ce030305341ed2277d3e5d83bf15239394b067f4dc1d7f1eae054009834a",
+      "bytes": 1267,
+      "origin": "repository",
+      "source_path": "docs/licenses/ocr/JBIG-KIT-COPYRIGHT.txt",
+      "upstream_url": "https://www.cl.cam.ac.uk/~mgk25/download/jbigkit-2.1.tar.gz#jbigkit-2.1/libjbig/jbig.c"
+    },
+    {
+      "path": "licenses/JBIG-KIT-GPL-2.0.txt",
+      "sha256": "91df39d1816bfb17a4dda2d3d2c83b1f6f2d38d53e53e41e8f97ad5ac46a0cad",
+      "bytes": 17982,
+      "origin": "repository",
+      "source_path": "docs/licenses/ocr/JBIG-KIT-GPL-2.0.txt",
+      "upstream_url": "https://www.cl.cam.ac.uk/~mgk25/download/jbigkit-2.1.tar.gz#jbigkit-2.1/COPYING"
+    },
+    {
+      "path": "licenses/leptonica-BSD-2-Clause.txt",
+      "sha256": "87829abb5bbb00b55a107365da89e9a33f86c4250169e5a1e5588505be7d5806",
+      "bytes": 1521,
+      "origin": "repository",
+      "source_path": "docs/licenses/ocr/leptonica-BSD-2-Clause.txt",
+      "upstream_url": "https://raw.githubusercontent.com/DanBloomberg/leptonica/1.84.1/leptonica-license.txt"
+    },
+    {
+      "path": "licenses/Lerc-APACHE-2.0.txt",
+      "sha256": "77a8b761727c75e2167b15bfdf61b2c0bcf8792271228bebe80779106ad00671",
+      "bytes": 9198,
+      "origin": "repository",
+      "source_path": "docs/licenses/ocr/Lerc-APACHE-2.0.txt",
+      "upstream_url": "https://raw.githubusercontent.com/Esri/lerc/v4.0.0/LICENSE"
+    },
+    {
+      "path": "licenses/libarchive-LICENSE.txt",
+      "sha256": "b2cdf763345de2de34cebf54394df3c61a105c3b71288603c251f2fa638200ba",
+      "bytes": 3086,
+      "origin": "repository",
+      "source_path": "docs/licenses/ocr/libarchive-LICENSE.txt",
+      "upstream_url": "https://raw.githubusercontent.com/libarchive/libarchive/v3.7.4/COPYING"
+    },
+    {
+      "path": "licenses/libarchive-UC-Regents.txt",
+      "sha256": "d872e7a67dcfb1c0315d0fbe6f2f22b99ed8761e2d6f025e936de185ce3447d5",
+      "bytes": 6401,
+      "origin": "repository",
+      "source_path": "docs/licenses/ocr/libarchive-UC-Regents.txt",
+      "upstream_url": "https://github.com/libarchive/libarchive/tree/v3.7.4/libarchive"
+    },
+    {
+      "path": "licenses/libb2-LICENSE.txt",
+      "sha256": "6a1ee543e5282cd9061881edf462e6fdab181f328da71fc2c9a6950a80e94d01",
+      "bytes": 6556,
+      "origin": "repository",
+      "source_path": "docs/licenses/ocr/libb2-LICENSE.txt",
+      "upstream_url": "https://raw.githubusercontent.com/BLAKE2/libb2/v0.98.1/COPYING"
+    },
+    {
+      "path": "licenses/libdeflate-MIT.txt",
+      "sha256": "5d246dd2537307b80fed9ba5fdddf5d0fe7a8f023393a071182b9daed56b40fe",
+      "bytes": 1052,
+      "origin": "repository",
+      "source_path": "docs/licenses/ocr/libdeflate-MIT.txt",
+      "upstream_url": "https://raw.githubusercontent.com/ebiggers/libdeflate/v1.20/COPYING"
+    },
+    {
+      "path": "licenses/libiconv-COPYRIGHT.txt",
+      "sha256": "22b6ff2bf204391a68924c4ce076b008d520963dc3339449929d922275584490",
+      "bytes": 1684,
+      "origin": "repository",
+      "source_path": "docs/licenses/ocr/libiconv-COPYRIGHT.txt",
+      "upstream_url": "https://ftp.gnu.org/pub/gnu/libiconv/libiconv-1.17.tar.gz#libiconv-1.17/lib/iconv.c,libcharset/lib/localcharset.c"
+    },
+    {
+      "path": "licenses/libiconv-LGPL-2.1.txt",
+      "sha256": "dc626520dcd53a22f727af3ee42c770e56c97a64fe3adb063799d8ab032fe551",
+      "bytes": 26530,
+      "origin": "repository",
+      "source_path": "docs/licenses/ocr/libiconv-LGPL-2.1.txt",
+      "upstream_url": "https://ftp.gnu.org/pub/gnu/libiconv/libiconv-1.17.tar.gz#libiconv-1.17/COPYING.LIB"
+    },
+    {
+      "path": "licenses/libiconv-libcharset-LGPL-2.1.txt",
+      "sha256": "dc626520dcd53a22f727af3ee42c770e56c97a64fe3adb063799d8ab032fe551",
+      "bytes": 26530,
+      "origin": "repository",
+      "source_path": "docs/licenses/ocr/libiconv-libcharset-LGPL-2.1.txt",
+      "upstream_url": "https://ftp.gnu.org/pub/gnu/libiconv/libiconv-1.17.tar.gz#libiconv-1.17/libcharset/COPYING.LIB"
+    },
+    {
+      "path": "licenses/libjpeg-turbo-IJG.txt",
+      "sha256": "5c1f9094835d21f66ee0e9ce81c57264d2dd50801b19832d6723dc8cdbda080e",
+      "bytes": 12739,
+      "origin": "repository",
+      "source_path": "docs/licenses/ocr/libjpeg-turbo-IJG.txt",
+      "upstream_url": "https://raw.githubusercontent.com/libjpeg-turbo/libjpeg-turbo/3.0.1/README.ijg"
+    },
+    {
+      "path": "licenses/libjpeg-turbo-LICENSE.txt",
+      "sha256": "60c756742db3ad1913304e8b13f0e86e22e51adb50cc0b3333c163f7e45ceec1",
+      "bytes": 5213,
+      "origin": "repository",
+      "source_path": "docs/licenses/ocr/libjpeg-turbo-LICENSE.txt",
+      "upstream_url": "https://raw.githubusercontent.com/libjpeg-turbo/libjpeg-turbo/3.0.1/LICENSE.md"
+    },
+    {
+      "path": "licenses/libpng-LICENSE.txt",
+      "sha256": "7317e078e2d3b5d7ba5a6159e650945153262b44b76f6700f8e9edb261c5143e",
+      "bytes": 5345,
+      "origin": "repository",
+      "source_path": "docs/licenses/ocr/libpng-LICENSE.txt",
+      "upstream_url": "https://raw.githubusercontent.com/pnggroup/libpng/v1.6.43/LICENSE"
+    },
+    {
+      "path": "licenses/libtiff-LICENSE.txt",
+      "sha256": "0780558a8bfba0af1160ec1ff11ade4f41c0d7deafd6ecfc796b492a788e380d",
+      "bytes": 1164,
+      "origin": "repository",
+      "source_path": "docs/licenses/ocr/libtiff-LICENSE.txt",
+      "upstream_url": "https://raw.githubusercontent.com/libsdl-org/libtiff/v4.6.0/LICENSE.md"
+    },
+    {
+      "path": "licenses/libwebp-BSD-3-Clause.txt",
+      "sha256": "5aec868f669e384a22372a4e8a1a6cd7d44c64cd451f960ca69cc170d1e13acf",
+      "bytes": 1496,
+      "origin": "repository",
+      "source_path": "docs/licenses/ocr/libwebp-BSD-3-Clause.txt",
+      "upstream_url": "https://raw.githubusercontent.com/webmproject/libwebp/v1.4.0/COPYING"
+    },
+    {
+      "path": "licenses/libwebp-PATENTS.txt",
+      "sha256": "cc3273e0694ea5896145e0677699b53471b03ea43021ddc50e7923fbb9f5023c",
+      "bytes": 1436,
+      "origin": "repository",
+      "source_path": "docs/licenses/ocr/libwebp-PATENTS.txt",
+      "upstream_url": "https://raw.githubusercontent.com/webmproject/libwebp/v1.4.0/PATENTS"
+    },
+    {
+      "path": "licenses/lz4-BSD-2-Clause.txt",
+      "sha256": "8b58c446121a109ccf32edc094bba3010a3d85e4ee3702950db55e4d3e87736c",
+      "bytes": 1311,
+      "origin": "repository",
+      "source_path": "docs/licenses/ocr/lz4-BSD-2-Clause.txt",
+      "upstream_url": "https://raw.githubusercontent.com/lz4/lz4/v1.9.4/lib/LICENSE"
+    },
+    {
+      "path": "licenses/OpenJPEG-BSD-2-Clause.txt",
+      "sha256": "a6af136f3e15038a666b61f376612a07d9a4e48cb7c01adbf3e33b3f14ab49b6",
+      "bytes": 2112,
+      "origin": "repository",
+      "source_path": "docs/licenses/ocr/OpenJPEG-BSD-2-Clause.txt",
+      "upstream_url": "https://raw.githubusercontent.com/uclouvain/openjpeg/v2.5.2/LICENSE"
+    },
+    {
+      "path": "licenses/OpenSSL-APACHE-2.0.txt",
+      "sha256": "7d5450cb2d142651b8afa315b5f238efc805dad827d91ba367d8516bc9d49e7a",
+      "bytes": 10175,
+      "origin": "repository",
+      "source_path": "docs/licenses/ocr/OpenSSL-APACHE-2.0.txt",
+      "upstream_url": "https://raw.githubusercontent.com/openssl/openssl/openssl-3.3.1/LICENSE.txt"
+    },
+    {
+      "path": "licenses/tessdata-fast-APACHE-2.0.txt",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "bytes": 11358,
+      "origin": "repository",
+      "source_path": "docs/licenses/ocr/tessdata-fast-APACHE-2.0.txt",
+      "upstream_url": "https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/87416418657359cb625c412a48b6e1d6d41c29bd/LICENSE"
+    },
+    {
+      "path": "licenses/Tesseract-APACHE-2.0.txt",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "bytes": 11358,
+      "origin": "repository",
+      "source_path": "docs/licenses/ocr/Tesseract-APACHE-2.0.txt",
+      "upstream_url": "https://raw.githubusercontent.com/UB-Mannheim/tesseract/v5.4.0.20240606/LICENSE"
+    },
+    {
+      "path": "licenses/Tesseract-AUTHORS.txt",
+      "sha256": "720862b7253993b348fe15f37ed6e0d4feb0fc8df8324284d75975d54dd29923",
+      "bytes": 787,
+      "origin": "repository",
+      "source_path": "docs/licenses/ocr/Tesseract-AUTHORS.txt",
+      "upstream_url": "https://raw.githubusercontent.com/UB-Mannheim/tesseract/v5.4.0.20240606/AUTHORS"
+    },
+    {
+      "path": "licenses/winpthreads-LICENSE.txt",
+      "sha256": "63263614cdd29f2f93cba85e992f041b31f9fc7b4033692f31269489a8a1b177",
+      "bytes": 2883,
+      "origin": "repository",
+      "source_path": "docs/licenses/ocr/winpthreads-LICENSE.txt",
+      "upstream_url": "https://raw.githubusercontent.com/mingw-w64/mingw-w64/v12.0.0/mingw-w64-libraries/winpthreads/COPYING"
+    },
+    {
+      "path": "licenses/xz-lib-lzma-0BSD.txt",
+      "sha256": "0b01625d853911cd0e2e088dcfb743261034a091bb379246cb25a14cc4c74bf1",
+      "bytes": 607,
+      "origin": "repository",
+      "source_path": "docs/licenses/ocr/xz-lib-lzma-0BSD.txt",
+      "upstream_url": "https://raw.githubusercontent.com/tukaani-project/xz/v5.6.1/COPYING.0BSD"
+    },
+    {
+      "path": "licenses/xz-lib-lzma-COPYING.txt",
+      "sha256": "0864e508475f20b43a2393957fdb5a966558099ffa8fed1e3e73fe2b3eebb145",
+      "bytes": 4650,
+      "origin": "repository",
+      "source_path": "docs/licenses/ocr/xz-lib-lzma-COPYING.txt",
+      "upstream_url": "https://raw.githubusercontent.com/tukaani-project/xz/v5.6.1/COPYING"
+    },
+    {
+      "path": "licenses/zlib-LICENSE.txt",
+      "sha256": "845efc77857d485d91fb3e0b884aaa929368c717ae8186b66fe1ed2495753243",
+      "bytes": 1002,
+      "origin": "repository",
+      "source_path": "docs/licenses/ocr/zlib-LICENSE.txt",
+      "upstream_url": "https://raw.githubusercontent.com/madler/zlib/v1.3.1/LICENSE"
+    },
+    {
+      "path": "licenses/zstd-BSD-3-Clause.txt",
+      "sha256": "7055266497633c9025b777c78eb7235af13922117480ed5c674677adc381c9d8",
+      "bytes": 1549,
+      "origin": "repository",
+      "source_path": "docs/licenses/ocr/zstd-BSD-3-Clause.txt",
+      "upstream_url": "https://raw.githubusercontent.com/facebook/zstd/v1.5.6/LICENSE"
+    }
+  ]
+}

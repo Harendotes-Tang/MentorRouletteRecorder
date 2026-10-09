@@ -96,20 +96,24 @@ QVariantMap RunFormValidator::validate(const QVariantMap &form, const QVariantMa
                            .arg(kMaxNoteLength).arg(noteLength));
     }
 
+    const bool incompleteImport = form.value(QStringLiteral("edit_mode")).toBool()
+        && form.value(QStringLiteral("incomplete_import_context")).toBool();
     const QString date = text(form, "date");
-    if (!isValidDate(date)) {
+    const QString matchedText = text(form, "matched");
+    // A missing imported endpoint has no calendar day either. Never validate
+    // a display placeholder as a date or manufacture a time for a note edit.
+    if ((!incompleteImport || !matchedText.isEmpty()) && !isValidDate(date)) {
         return failure(QStringLiteral("ERR_BAD_REQUEST"),
                        QString::fromUtf8("日期格式必须是 yyyy-MM-dd。"));
     }
 
-    const QString matchedText = text(form, "matched");
-    if (matchedText.isEmpty()) {
+    if (!incompleteImport && matchedText.isEmpty()) {
         return failure(QStringLiteral("ERR_BAD_REQUEST"),
                        QString::fromUtf8("匹配时间不能为空。"));
     }
 
     const QVariant matchedVar = toDateTime(date, matchedText);
-    if (!matchedVar.isValid()) {
+    if (!matchedText.isEmpty() && !matchedVar.isValid()) {
         return failure(QStringLiteral("ERR_BAD_REQUEST"),
                        QString::fromUtf8("匹配时间格式必须是 HH:mm:ss。"));
     }
@@ -142,7 +146,7 @@ QVariantMap RunFormValidator::validate(const QVariantMap &form, const QVariantMa
     const QDateTime entered = enteredVar.toDateTime();
     const QDateTime ended = endedVar.toDateTime();
 
-    if (entered.isValid() && entered < matched) {
+    if (entered.isValid() && matched.isValid() && entered < matched) {
         return failure(QStringLiteral("ERR_TIME_ORDER"),
                        QString::fromUtf8("时间顺序错误：进本时间早于匹配时间。"));
     }
@@ -150,17 +154,17 @@ QVariantMap RunFormValidator::validate(const QVariantMap &form, const QVariantMa
         return failure(QStringLiteral("ERR_NEGATIVE_DURATION"),
                        QString::fromUtf8("时间顺序错误：结束时间早于进本时间，耗时为负。"));
     }
-    if (ended.isValid() && !entered.isValid() && ended < matched) {
+    if (ended.isValid() && !entered.isValid() && matched.isValid() && ended < matched) {
         return failure(QStringLiteral("ERR_TIME_ORDER"),
                        QString::fromUtf8("时间顺序错误：结束时间早于匹配时间。"));
     }
 
     const QString result = form.value(QStringLiteral("result")).toString();
-    if (result != QLatin1String("CANCELLED_BEFORE_ENTRY") && !entered.isValid()) {
+    if (!incompleteImport && result != QLatin1String("CANCELLED_BEFORE_ENTRY") && !entered.isValid()) {
         return failure(QStringLiteral("ERR_BAD_REQUEST"),
                        QString::fromUtf8("非“进本前取消”的结果必须有进本时间。"));
     }
-    if (result == QLatin1String("COMPLETED") && !ended.isValid()) {
+    if (!incompleteImport && result == QLatin1String("COMPLETED") && !ended.isValid()) {
         return failure(QStringLiteral("ERR_BAD_REQUEST"),
                        QString::fromUtf8("通关记录必须有结束时间。"));
     }

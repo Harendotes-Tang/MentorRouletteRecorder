@@ -8,6 +8,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QLoggingCategory>
+#include <QSet>
 #include <QVariantList>
 #include <QVariantMap>
 
@@ -224,6 +225,27 @@ QVariantList JobCatalog::allJobs() const
         out.append(entry);
     }
     return out;
+}
+
+QVariantList JobCatalog::battleJobs() const
+{
+    // 保持导随已有可选范围：role_group 区分战斗和生产职业；基础职业与限定
+    // 职业仍可用于显示旧记录，但不能成为导随表单或截图识别的职业候选。
+    static const QSet<int> baseClasses = {1, 2, 3, 4, 5, 6, 7, 26, 29};
+    static const QSet<int> limitedJobs = {36, 43};
+    QVariantList battle;
+    const QVariantList all = allJobs();
+    battle.reserve(all.size());
+    for (const QVariant &value : all) {
+        const QVariantMap job = value.toMap();
+        if (job.value(QStringLiteral("role_group")).toString() == QString::fromUtf8("其他"))
+            continue;
+        const int jobId = job.value(QStringLiteral("job_id")).toInt();
+        if (baseClasses.contains(jobId) || limitedJobs.contains(jobId))
+            continue;
+        battle.append(value);
+    }
+    return battle;
 }
 
 } // namespace mr

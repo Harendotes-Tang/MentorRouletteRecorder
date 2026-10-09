@@ -369,6 +369,7 @@ ColumnLayout {
                                 width: parent.width - 16
                                 anchors.verticalCenter: parent.verticalCenter
                                 text: diffTableRow.modelData.a
+                                textFormat: Text.PlainText
                                 color: diffTableRow.modelData.head
                                        ? Theme.textSecondary
                                        : Theme.dimColor(Theme.textPrimary)
@@ -394,6 +395,7 @@ ColumnLayout {
                                 width: parent.width - 16
                                 anchors.verticalCenter: parent.verticalCenter
                                 text: diffTableRow.modelData.b
+                                textFormat: Text.PlainText
                                 color: diffTableRow.modelData.head
                                        ? Theme.textSecondary : Theme.accent
                                 font.pixelSize: Theme.fs(12)

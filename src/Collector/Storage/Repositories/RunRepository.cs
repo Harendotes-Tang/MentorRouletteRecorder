@@ -24,6 +24,7 @@ public sealed class RunRepository
 
     private readonly SqliteDatabase _database;
     private readonly RunReflectionRepository _reflections;
+    private readonly RunImportRepository _imports;
 
     /// <summary>Creates a repository over an open database.</summary>
     /// <param name="database">Open database.</param>
@@ -32,6 +33,7 @@ public sealed class RunRepository
         ArgumentNullException.ThrowIfNull(database);
         _database = database;
         _reflections = new RunReflectionRepository(database);
+        _imports = new RunImportRepository(database);
     }
 
     /// <summary>Inserts a new run. The caller supplies revision 1.</summary>
@@ -308,10 +310,11 @@ public sealed class RunRepository
     /// </summary>
     /// <param name="run">Run just read from the row.</param>
     /// <param name="transaction">Enclosing transaction, or null.</param>
-    private MentorRun Attach(MentorRun run, SqliteTransaction? transaction) =>
-        _reflections.Get(run.RunId, transaction) is { } reflection
-            ? run with { Reflection = reflection }
-            : run;
+    private MentorRun Attach(MentorRun run, SqliteTransaction? transaction) => run with
+    {
+        Reflection = _reflections.Get(run.RunId, transaction),
+        ImportMetadata = _imports.Get(run.RunId, transaction),
+    };
 
     /// <summary>Hydrates a whole page in one extra query rather than one per row.</summary>
     /// <param name="runs">Runs to hydrate in place.</param>
@@ -325,16 +328,17 @@ public sealed class RunRepository
 
         var reflections = _reflections.GetMany(
             runs.Select(run => run.RunId).ToArray(), transaction);
-        if (reflections.Count == 0)
-        {
-            return;
-        }
+        var imports = _imports.GetMany(runs.Select(run => run.RunId).ToArray(), transaction);
 
         for (var i = 0; i < runs.Count; i++)
         {
             if (reflections.TryGetValue(runs[i].RunId, out var reflection))
             {
                 runs[i] = runs[i] with { Reflection = reflection };
+            }
+            if (imports.TryGetValue(runs[i].RunId, out var metadata))
+            {
+                runs[i] = runs[i] with { ImportMetadata = metadata };
             }
         }
     }

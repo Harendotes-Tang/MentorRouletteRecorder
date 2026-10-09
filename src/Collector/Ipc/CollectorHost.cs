@@ -3,6 +3,7 @@ using MentorRecorder.Collector.Capture;
 using MentorRecorder.Collector.Diagnostics;
 using MentorRecorder.Collector.Domain.Time;
 using MentorRecorder.Collector.Export;
+using MentorRecorder.Collector.Import;
 using MentorRecorder.Collector.Protocol.Pipeline;
 using MentorRecorder.Collector.Protocol.Profiles;
 using MentorRecorder.Collector.Reference;
@@ -47,6 +48,7 @@ public sealed class CollectorHost : IDisposable
         CandidateExporter = new CandidateEvidenceExporter(Candidates, clock, database.Path);
         Exporter = new RunExporter(Runs, clock, database);
         Backups = new BackupService(database, clock);
+        Imports = new RunImportService(database, clock);
         DiagnosticsReports = new DiagnosticsReportExport(database.Path, clock);
         LiveEvents = new LiveEventBus(clock);
     }
@@ -102,6 +104,9 @@ public sealed class CollectorHost : IDisposable
 
     /// <summary>Database backup and retention.</summary>
     public BackupService Backups { get; }
+
+    /// <summary>Independent personal-history preview and merge workflow.</summary>
+    public RunImportService Imports { get; }
 
     /// <summary>Sanitized diagnostics report export.</summary>
     public DiagnosticsReportExport DiagnosticsReports { get; }

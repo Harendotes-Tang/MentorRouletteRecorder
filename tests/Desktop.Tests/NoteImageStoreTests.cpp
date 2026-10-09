@@ -18,6 +18,8 @@
 #include "RunFormValidator.h"
 
 #include <QColor>
+#include <QBuffer>
+#include <QClipboard>
 #include <QDataStream>
 #include <QDir>
 #include <QFile>
@@ -25,6 +27,7 @@
 #include <QGuiApplication>
 #include <QImage>
 #include <QJSValue>
+#include <QMimeData>
 #include <QProcess>
 #include <QQmlComponent>
 #include <QQmlContext>
@@ -420,6 +423,127 @@ private Q_SLOTS:
         result = fixture.store.commit(kRunId, {}, {});
         QVERIFY(result.value(QStringLiteral("ok")).toBool());
         QCOMPARE(changed.count(), 4);
+    }
+
+    void clipboardImagesUseTheExistingCopyAndDecodeBoundary_data()
+    {
+        QTest::addColumn<bool>("encoded");
+        QTest::newRow("native-screenshot") << false;
+        QTest::newRow("encoded-png") << true;
+    }
+
+    void clipboardImagesUseTheExistingCopyAndDecodeBoundary()
+    {
+        QFETCH(bool, encoded);
+        StoreFixture fixture;
+        QSignalSpy changed(&fixture.store, &mr::NoteImageStore::imagesChanged);
+        QSignalSpy clipboardChanged(&fixture.store, &mr::NoteImageStore::clipboardChanged);
+        QImage image(32, 24, QImage::Format_ARGB32);
+        image.fill(QColor(12, 34, 56, 160));
+        if (encoded) {
+            QByteArray bytes;
+            QBuffer buffer(&bytes);
+            QVERIFY(buffer.open(QIODevice::WriteOnly));
+            QVERIFY(image.save(&buffer, "PNG"));
+            auto *mime = new QMimeData;
+            mime->setData(QStringLiteral("image/png"), bytes);
+            QGuiApplication::clipboard()->setMimeData(mime);
+        } else {
+            QGuiApplication::clipboard()->setImage(image);
+        }
+        QVERIFY(fixture.store.clipboardHasImage());
+        QVERIFY(clipboardChanged.count() > 0);
+        const QVariantMap result = fixture.store.addClipboard(kRunId);
+        QVERIFY2(result.value(QStringLiteral("ok")).toBool(), qPrintable(result.value(QStringLiteral("error")).toString()));
+        QCOMPARE(changed.count(), 1);
+        const auto rows = fixture.store.imagesFor(kRunId);
+        QCOMPARE(rows.size(), 1);
+        const QImage stored(rows.first().toMap().value(QStringLiteral("path")).toString());
+        QCOMPARE(stored.size(), image.size());
+        QCOMPARE(stored.pixelColor(0, 0), image.pixelColor(0, 0));
+        // The run owns only the committed copy; the bounded conversion file is gone.
+        for (const QString &source : result.value(QStringLiteral("added")).toStringList())
+            QVERIFY(!QFileInfo::exists(source));
+    }
+
+    void emptyTextCorruptOversizedAndBombClipboardsNeverWrite()
+    {
+        StoreFixture fixture;
+        auto *clipboard = QGuiApplication::clipboard();
+        clipboard->clear();
+        QVERIFY(!fixture.store.clipboardHasImage());
+        QVERIFY(!fixture.store.addClipboard(kRunId).value(QStringLiteral("ok")).toBool());
+        clipboard->setText(QStringLiteral("ordinary reflection text"));
+        QVERIFY(!fixture.store.clipboardHasImage());
+        QVERIFY(!fixture.store.addClipboard(kRunId).value(QStringLiteral("ok")).toBool());
+        const auto setEncoded = [&](const QString &format, const QByteArray &bytes) {
+            auto *mime = new QMimeData;
+            mime->setData(format, bytes);
+            clipboard->setMimeData(mime);
+        };
+        setEncoded(QStringLiteral("image/png"), QByteArrayLiteral("truncated png"));
+        QVERIFY(fixture.store.clipboardHasImage());
+        QVERIFY(!fixture.store.addClipboard(kRunId).value(QStringLiteral("ok")).toBool());
+        setEncoded(QStringLiteral("image/png"), QByteArray(mr::NoteImageStore::kMaxImageBytes + 1, '\0'));
+        auto result = fixture.store.addClipboard(kRunId);
+        QVERIFY(!result.value(QStringLiteral("ok")).toBool());
+        QVERIFY(result.value(QStringLiteral("error")).toString().contains(QStringLiteral("超过")));
+        QByteArray bomb;
+        QDataStream out(&bomb, QIODevice::WriteOnly);
+        out.setByteOrder(QDataStream::LittleEndian);
+        out.writeRawData("BM", 2);
+        out << quint32(54) << quint32(0) << quint32(54);
+        out << quint32(40) << qint32(10000) << qint32(10000);
+        out << quint16(1) << quint16(24) << quint32(0) << quint32(0);
+        out << qint32(2835) << qint32(2835) << quint32(0) << quint32(0);
+        setEncoded(QStringLiteral("image/bmp"), bomb);
+        result = fixture.store.addClipboard(kRunId);
+        QVERIFY(!result.value(QStringLiteral("ok")).toBool());
+        QVERIFY(result.value(QStringLiteral("error")).toString().contains(QStringLiteral("分辨率")));
+        QVERIFY(fixture.store.imagesFor(kRunId).isEmpty());
+        QVERIFY(!QDir(fixture.runDir()).exists());
+        QVERIFY(!fixture.store.addClipboard(QStringLiteral("../outside")).value(QStringLiteral("ok")).toBool());
+        clipboard->clear();
+    }
+
+    void clipboardCopyFailureCanRetryWithoutLeavingCopiesOrTemporaryFiles()
+    {
+        StoreFixture fixture;
+        QImage image(24, 16, QImage::Format_RGB32);
+        image.fill(Qt::cyan);
+        QGuiApplication::clipboard()->setImage(image);
+        QString temporarySource;
+        fixture.store.setCopyFunctionForTesting([&](const QString &source, const QString &) {
+            temporarySource = source;
+            return false;
+        });
+        const auto failed = fixture.store.addClipboard(kRunId);
+        QVERIFY(!failed.value(QStringLiteral("ok")).toBool());
+        QVERIFY(!temporarySource.isEmpty());
+        QVERIFY(!QFileInfo::exists(temporarySource));
+        QVERIFY(fixture.store.imagesFor(kRunId).isEmpty());
+        fixture.store.setCopyFunctionForTesting({});
+        QVERIFY(fixture.store.addClipboard(kRunId).value(QStringLiteral("ok")).toBool());
+        QCOMPARE(fixture.store.imagesFor(kRunId).size(), 1);
+        QGuiApplication::clipboard()->clear();
+    }
+
+    void clipboardAddsRespectTheSamePerRunImageLimit()
+    {
+        StoreFixture fixture;
+        const QString picture = fixture.picture(QStringLiteral("existing.png"));
+        QStringList sources;
+        for (int i = 0; i < mr::NoteImageStore::kMaxImagesPerRun; ++i)
+            sources.append(picture);
+        QVERIFY(fixture.store.commit(kRunId, sources, {}).value(QStringLiteral("ok")).toBool());
+        QImage image(24, 16, QImage::Format_RGB32);
+        image.fill(Qt::yellow);
+        QGuiApplication::clipboard()->setImage(image);
+        const auto result = fixture.store.addClipboard(kRunId);
+        QVERIFY(!result.value(QStringLiteral("ok")).toBool());
+        QVERIFY(result.value(QStringLiteral("error")).toString().contains(QString::number(mr::NoteImageStore::kMaxImagesPerRun)));
+        QCOMPARE(fixture.store.imagesFor(kRunId).size(), mr::NoteImageStore::kMaxImagesPerRun);
+        QGuiApplication::clipboard()->clear();
     }
 
     void oneStepAddAndRemoveAreCommitsOfOne()

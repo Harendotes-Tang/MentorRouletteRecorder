@@ -217,6 +217,7 @@ Button {
         Text {
             id: label
             objectName: "buttonLabel"
+            textFormat: Text.PlainText
             visible: text.length > 0
             width: content.labelWidth
             height: parent.height

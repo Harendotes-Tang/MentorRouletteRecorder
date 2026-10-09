@@ -31,6 +31,8 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+. (Join-Path $PSScriptRoot 'ocr-runtime.ps1')
+
 # Force UTF-8 so a legacy code page (e.g. GBK) does not mangle the Chinese
 # output. Failure to set it is not fatal.
 try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false } catch { }
@@ -162,6 +164,19 @@ foreach ($destination in $collectorDestinations) {
     foreach ($item in Get-ChildItem -LiteralPath $CollectorOutput) {
         Copy-Item -LiteralPath $item.FullName -Destination $destination -Recurse -Force
     }
+}
+
+Write-Head '部署离线 OCR / Stage offline OCR beside Desktop'
+$ocrBuildSource = Get-OcrRuntimeDirectory -RepoRoot $RepoRoot
+$ocrBuildConfigured = [Environment]::GetEnvironmentVariable('MR_OCR_DIR')
+if (-not [string]::IsNullOrWhiteSpace($ocrBuildConfigured) -or (Test-Path -LiteralPath $ocrBuildSource)) {
+    foreach ($destination in $collectorDestinations) {
+        Install-OcrRuntime -DestinationDirectory $destination -RepoRoot $RepoRoot
+    }
+}
+else {
+    Write-Host '  未准备离线 OCR 依赖，本次开发构建跳过 OCR 资产部署；截图识别需要先运行 scripts/bootstrap-ocr.ps1。' -ForegroundColor Yellow
+    Write-Host '  表格导入仍可使用；已有输出中的 OCR 文件没有更新。发布打包仍要求完整固定依赖。' -ForegroundColor Yellow
 }
 
 Write-Host ''

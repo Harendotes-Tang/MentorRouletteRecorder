@@ -10,6 +10,24 @@ find_package(Qt6 6.8 REQUIRED COMPONENTS
     TextToSpeech
     Widgets)
 
+# Personal journal/import workflows: controller lifecycle, real PNG output and
+# screenshot evidence parsing are separate from the mock-only reflection tests.
+foreach(workflow IN ITEMS ReflectionLibrary ReflectionShare ImportRecordsController ScreenshotImportParser OfflineOcrEngine)
+    add_executable(MentorRecorder${workflow}Tests ${workflow}Tests.cpp)
+    target_link_libraries(MentorRecorder${workflow}Tests PRIVATE
+        MentorRecorderDesktopLib Qt6::Gui Qt6::Quick Qt6::Qml Qt6::QuickControls2 Qt6::Test Qt6::Widgets)
+    target_compile_definitions(MentorRecorder${workflow}Tests PRIVATE
+        MR_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
+        MR_DESKTOP_QML_DIR="${PROJECT_SOURCE_DIR}/src/Desktop/qml")
+    set_target_properties(MentorRecorder${workflow}Tests PROPERTIES AUTOMOC TRUE)
+    mr_use_ascii_autogen_dir(MentorRecorder${workflow}Tests)
+    add_test(NAME MentorRecorder${workflow}
+        COMMAND MentorRecorder${workflow}Tests
+            -o "${CMAKE_CURRENT_BINARY_DIR}/MentorRecorder${workflow}.qtlog.txt,txt")
+    set_tests_properties(MentorRecorder${workflow} PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;MR_DISABLE_SHARED_FETCH=1;MR_DISABLE_ONLINE_SPEECH=1;MR_DISABLE_UPDATE_CHECK=1")
+endforeach()
+
 add_executable(MentorRecorderDesktopTests
     DesktopTests.cpp)
 
@@ -711,7 +729,31 @@ add_test(NAME MentorRecorderDesktopRejectsInvalidSettingsTab
         "-DMR_EXPECT_OUTPUT=invalid --settings-tab value"
         -P "${MR_EXPECT_EXIT}")
 
+set(MR_PERSONAL_QML_TESTS)
+foreach(MR_PERSONAL_THEME dark light)
+    foreach(MR_PERSONAL_VIEW Library Share Import)
+        set(MR_PERSONAL_ARGS --page 8)
+        set(MR_PERSONAL_TEXT "全部心得")
+        if(MR_PERSONAL_VIEW STREQUAL "Share")
+            set(MR_PERSONAL_ARGS --page 2 --mock-open-share)
+            set(MR_PERSONAL_TEXT "生成分享图片")
+        elseif(MR_PERSONAL_VIEW STREQUAL "Import")
+            set(MR_PERSONAL_ARGS --page 2 --mock-open-import)
+            set(MR_PERSONAL_TEXT "导入本人记录")
+        endif()
+        set(MR_PERSONAL_TEST MentorRecorderQml${MR_PERSONAL_VIEW}_${MR_PERSONAL_THEME})
+        add_test(NAME ${MR_PERSONAL_TEST}
+            COMMAND $<TARGET_FILE:MentorRecorder.Desktop> --backend mock --mock-recording-state listening
+                ${MR_PERSONAL_ARGS} --theme ${MR_PERSONAL_THEME}
+                --screenshot "${CMAKE_CURRENT_BINARY_DIR}/${MR_PERSONAL_TEST}.png"
+                --screenshot-size 1100x720 --screenshot-delay 1200
+                --verify-text "${MR_PERSONAL_TEXT}")
+        list(APPEND MR_PERSONAL_QML_TESTS ${MR_PERSONAL_TEST})
+    endforeach()
+endforeach()
+
 set(MR_QML_TESTS
+    ${MR_PERSONAL_QML_TESTS}
     ${MR_SHARED_QML_TESTS}
     ${MR_SETTINGS_QML_TESTS}
     ${MR_SPEECH_QML_TESTS}
@@ -802,6 +844,11 @@ add_test(NAME MentorRecorderQmlClosedGame_dark_shared-fetching
 list(APPEND MR_RECORDING_QML_TESTS MentorRecorderQmlClosedGame_dark_shared-fetching)
 
 set(MR_ALL_DESKTOP_TESTS
+    MentorRecorderReflectionLibrary
+    MentorRecorderReflectionShare
+    MentorRecorderImportRecordsController
+    MentorRecorderScreenshotImportParser
+    MentorRecorderOfflineOcrEngine
     MentorRecorderGameSelection
     ${MR_RECORDING_QML_TESTS}
     MentorRecorderAutomaticRecording

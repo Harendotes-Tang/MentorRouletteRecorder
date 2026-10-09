@@ -20,12 +20,14 @@
 #include "Formatters.h"
 #include "JobCatalog.h"
 #include "MockBackend.h"
+#include "NoteImageStore.h"
 #include "RoleCatalog.h"
 #include "RunFormValidator.h"
 
 #include <QDir>
 #include <QDateTime>
 #include <QGuiApplication>
+#include <QImage>
 #include <QJSValue>
 #include <QJsonArray>
 #include <QJsonObject>
@@ -38,6 +40,7 @@
 #include <QSet>
 #include <QSignalSpy>
 #include <QTest>
+#include <QTemporaryDir>
 #include <QVariantList>
 #include <QVariantMap>
 
@@ -90,6 +93,20 @@ QVariantMap asMap(const QVariant &value)
                                         : value.toMap();
 }
 
+QVariantMap incompleteImportedRun(const QString &result = QStringLiteral("UNKNOWN"))
+{
+    auto value = run(QStringLiteral("91d54163-c7af-4cb9-aeb2-7da4bcd1c37a"), 70, 19, result);
+    const auto null = QVariant::fromValue(nullptr);
+    for (const auto *key : {"matched_at_utc", "entered_at_utc", "ended_at_utc", "duration_ms"})
+        value.insert(QString::fromLatin1(key), null);
+    value.insert(QStringLiteral("source"), QStringLiteral("IMPORT"));
+    value.insert(QStringLiteral("pending_review"), true);
+    value.insert(QStringLiteral("import_metadata"), QVariantMap{{QStringLiteral("incomplete"), true}});
+    value.insert(QStringLiteral("duty_name"), QStringLiteral("伊库拉尔堡垒"));
+    value.insert(QStringLiteral("job_name"), QStringLiteral("骑士"));
+    return value;
+}
+
 QVariantList asList(const QVariant &value)
 {
     return value.canConvert<QJSValue>() ? value.value<QJSValue>().toVariant().toList()
@@ -111,6 +128,7 @@ struct DialogFixture {
     mr::JobCatalog jobs;
     mr::RoleCatalog roles;
     mr::RunFormValidator validator;
+    mr::NoteImageStore *imageStore = nullptr;
     QQmlEngine engine;
     std::unique_ptr<QObject> root;
     QString errors;
@@ -125,6 +143,8 @@ struct DialogFixture {
         engine.rootContext()->setContextProperty(QStringLiteral("Roles"), &roles);
         engine.rootContext()->setContextProperty(QStringLiteral("RunForm"), &validator);
         engine.rootContext()->setContextProperty(QStringLiteral("ReduceMotion"), reduceMotion);
+        if (imageStore)
+            engine.rootContext()->setContextProperty(QStringLiteral("NoteImages"), imageStore);
         QQmlComponent component(&engine);
         QByteArray source = R"(import QtQuick
 import QtQuick.Controls
@@ -554,6 +574,378 @@ private Q_SLOTS:
         QVERIFY(!fixture.dialog()->property("estimatedEntry").toBool());
         QVERIFY(fixture.dialog()->property("enteredTime").toString().isEmpty());
         QCOMPARE(fixture.step(), 1);
+    }
+
+    void importedNoteOnlyEditsRetainUnknownFactsAndReview_data()
+    {
+        QTest::addColumn<QString>("result");
+        QTest::addColumn<bool>("hasTimes");
+        QTest::newRow("unknown-no-times") << QStringLiteral("UNKNOWN") << false;
+        QTest::newRow("default-completed-no-times") << QStringLiteral("COMPLETED") << false;
+        QTest::newRow("completed-pending-with-times") << QStringLiteral("COMPLETED") << true;
+    }
+
+    void importedNoteOnlyEditsRetainUnknownFactsAndReview()
+    {
+        QFETCH(QString, result);
+        QFETCH(bool, hasTimes);
+        DialogFixture fixture;
+        QVERIFY2(fixture.create(), qPrintable(fixture.errors));
+        auto value = incompleteImportedRun(result);
+        if (hasTimes) {
+            const auto timed = run(QStringLiteral("unused"), 70, 19, result);
+            for (const auto *key : {"matched_at_utc", "entered_at_utc", "ended_at_utc"})
+                value.insert(QString::fromLatin1(key), timed.value(QString::fromLatin1(key)));
+            value.insert(QStringLiteral("duration_ms"), 1120422);
+        }
+        QVERIFY(fixture.openForRun(value));
+        fixture.dialog()->setProperty("noteText", QStringLiteral("仅补充备注，时间仍不详"));
+        QSignalSpy corrections(fixture.dialog(), SIGNAL(correctRequested(QVariant,QString)));
+        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
+        QCOMPARE(fixture.dialog()->property("errorCode").toString(), QString());
+        QCOMPARE(corrections.count(), 1);
+        const auto changes = asMap(corrections.at(0).at(0));
+        QCOMPARE(changes.keys(), QStringList{QStringLiteral("note")});
+        QCOMPARE(changes.value(QStringLiteral("note")).toString(), QStringLiteral("仅补充备注，时间仍不详"));
+        QVERIFY(!fixture.dialog()->property("confirmsImportedFacts").toBool());
+        QCOMPARE(fixture.dialog()->property("progressDelta").toInt(), 0);
+        QCOMPARE(asMap(fixture.dialog()->property("runData")), value);
+    }
+
+    void anIncompleteImportCanSaveAnImageWithoutCreatingACorrection()
+    {
+        QTemporaryDir root;
+        QVERIFY(root.isValid());
+        mr::NoteImageStore images(root.path());
+        DialogFixture fixture;
+        fixture.imageStore = &images;
+        QVERIFY2(fixture.create(), qPrintable(fixture.errors));
+        const auto value = incompleteImportedRun();
+        QVERIFY(fixture.openForRun(value));
+        QImage image(24, 18, QImage::Format_RGB32);
+        image.fill(Qt::blue);
+        const auto file = root.filePath(QStringLiteral("synthetic.png"));
+        QVERIFY(image.save(file));
+        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "stageNoteImage", Q_ARG(QVariant, file)));
+        QVERIFY(fixture.dialog()->property("imagesDirty").toBool());
+        QSignalSpy corrections(fixture.dialog(), SIGNAL(correctRequested(QVariant,QString)));
+        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
+        QCOMPARE(fixture.dialog()->property("errorCode").toString(), QString());
+        QCOMPARE(corrections.count(), 0);
+        QCOMPARE(images.imagesFor(value.value(QStringLiteral("run_id")).toString()).size(), 1);
+        QVERIFY(!fixture.dialog()->property("imagesDirty").toBool());
+        QVERIFY(!fixture.dialog()->property("visible").toBool());
+        QCOMPARE(asMap(fixture.dialog()->property("runData")), value);
+    }
+
+    void importedProgressPreviewUsesMentorQualification_data()
+    {
+        QTest::addColumn<bool>("hasFlag");
+        QTest::addColumn<bool>("confirmed");
+        QTest::addColumn<bool>("hasRoulette");
+        QTest::addColumn<bool>("eligible");
+        QTest::newRow("unconfirmed-import") << true << false << false << false;
+        QTest::newRow("identified-roulette") << true << false << true << true;
+        QTest::newRow("confirmed-import") << true << true << false << true;
+        QTest::newRow("legacy-projection") << false << false << false << true;
+    }
+
+    void importedProgressPreviewUsesMentorQualification()
+    {
+        QFETCH(bool, hasFlag);
+        QFETCH(bool, confirmed);
+        QFETCH(bool, hasRoulette);
+        QFETCH(bool, eligible);
+        DialogFixture fixture;
+        QVERIFY2(fixture.create(), qPrintable(fixture.errors));
+        const auto metadata = [hasFlag, confirmed](bool incomplete) {
+            QVariantMap value{{QStringLiteral("incomplete"), incomplete}};
+            if (hasFlag) value.insert(QStringLiteral("mentor_confirmed"), confirmed);
+            return value;
+        };
+        auto settled = run(QStringLiteral("settled-import-qualification"), 70, 19, QStringLiteral("COMPLETED"));
+        settled.insert(QStringLiteral("source"), QStringLiteral("IMPORT"));
+        settled.insert(QStringLiteral("pending_review"), false);
+        settled.insert(QStringLiteral("import_metadata"), metadata(false));
+        settled.insert(QStringLiteral("mentor_roulette_id"), hasRoulette ? QVariant(9) : QVariant::fromValue(nullptr));
+        QVERIFY(fixture.openForRun(settled));
+        QCOMPARE(fixture.dialog()->property("countedBefore").toBool(), eligible);
+        QCOMPARE(fixture.dialog()->property("countsAfterSave").toBool(), eligible);
+        QCOMPARE(fixture.dialog()->property("progressDelta").toInt(), 0);
+        fixture.dialog()->setProperty("contributesToGoal", false);
+        QCOMPARE(fixture.dialog()->property("progressDelta").toInt(), eligible ? -1 : 0);
+
+        auto pending = incompleteImportedRun(QStringLiteral("COMPLETED"));
+        pending.insert(QStringLiteral("import_metadata"), metadata(true));
+        pending.insert(QStringLiteral("mentor_roulette_id"), settled.value(QStringLiteral("mentor_roulette_id")));
+        QVERIFY(fixture.openForRun(pending));
+        for (const char *key : {"matchedDate", "enteredDate", "endedDate"})
+            fixture.dialog()->setProperty(key, QStringLiteral("2026-10-09"));
+        fixture.dialog()->setProperty("matchedTime", QStringLiteral("09:00:00"));
+        fixture.dialog()->setProperty("enteredTime", QStringLiteral("09:02:00"));
+        fixture.dialog()->setProperty("endedTime", QStringLiteral("09:30:00"));
+        QVERIFY(fixture.dialog()->property("confirmsImportedFacts").toBool());
+        QCOMPARE(fixture.dialog()->property("countsAfterSave").toBool(), eligible);
+        QCOMPARE(fixture.dialog()->property("progressDelta").toInt(), eligible ? 1 : 0);
+        if (!eligible)
+            QVERIFY(fixture.dialog()->property("progressExplanation").toString().contains(QStringLiteral("导随资格")));
+        QSignalSpy corrections(fixture.dialog(), SIGNAL(correctRequested(QVariant,QString)));
+        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
+        QCOMPARE(corrections.count(), 1);
+        const auto changes = asMap(corrections.at(0).at(0));
+        QCOMPARE(changes.value(QStringLiteral("result")).toString(), QStringLiteral("COMPLETED"));
+        QVERIFY(!changes.contains(QStringLiteral("import_metadata")));
+    }
+
+    void incompleteImportStillRejectsInvalidTimesAndResultConfirmation_data()
+    {
+        QTest::addColumn<QVariantMap>("edits");
+        QTest::addColumn<QString>("code");
+        QTest::newRow("invalid-match-date") << QVariantMap{{"matchedDate", "2026-02-30"}, {"matchedTime", "09:00:00"}} << QStringLiteral("ERR_BAD_REQUEST");
+        QTest::newRow("invalid-match-time") << QVariantMap{{"matchedDate", "2026-10-09"}, {"matchedTime", "not-a-time"}} << QStringLiteral("ERR_BAD_REQUEST");
+        QTest::newRow("invalid-entry-date") << QVariantMap{{"enteredDate", "2026-02-30"}, {"enteredTime", "09:00:00"}} << QStringLiteral("ERR_BAD_REQUEST");
+        QTest::newRow("invalid-entry-time") << QVariantMap{{"enteredDate", "2026-10-09"}, {"enteredTime", "25:00:00"}} << QStringLiteral("ERR_BAD_REQUEST");
+        QTest::newRow("invalid-end-date") << QVariantMap{{"endedDate", "2026-02-30"}, {"endedTime", "10:00:00"}} << QStringLiteral("ERR_BAD_REQUEST");
+        QTest::newRow("invalid-end-time") << QVariantMap{{"endedDate", "2026-10-09"}, {"endedTime", "10:99:00"}} << QStringLiteral("ERR_BAD_REQUEST");
+        QTest::newRow("entry-before-match") << QVariantMap{{"matchedDate", "2026-10-09"}, {"matchedTime", "10:00:00"}, {"enteredDate", "2026-10-09"}, {"enteredTime", "09:00:00"}} << QStringLiteral("ERR_TIME_ORDER");
+        QTest::newRow("end-before-entry") << QVariantMap{{"enteredDate", "2026-10-09"}, {"enteredTime", "10:00:00"}, {"endedDate", "2026-10-09"}, {"endedTime", "09:00:00"}} << QStringLiteral("ERR_NEGATIVE_DURATION");
+        QTest::newRow("end-before-match") << QVariantMap{{"matchedDate", "2026-10-09"}, {"matchedTime", "10:00:00"}, {"endedDate", "2026-10-09"}, {"endedTime", "09:00:00"}} << QStringLiteral("ERR_TIME_ORDER");
+        QTest::newRow("complete-without-times") << QVariantMap{{"resultCode", "COMPLETED"}} << QStringLiteral("ERR_BAD_REQUEST");
+        QTest::newRow("complete-without-end") << QVariantMap{{"resultCode", "COMPLETED"}, {"matchedDate", "2026-10-09"}, {"matchedTime", "09:00:00"}, {"enteredDate", "2026-10-09"}, {"enteredTime", "09:02:00"}} << QStringLiteral("ERR_BAD_REQUEST");
+    }
+
+    void incompleteImportStillRejectsInvalidTimesAndResultConfirmation()
+    {
+        QFETCH(QVariantMap, edits);
+        QFETCH(QString, code);
+        DialogFixture fixture;
+        QVERIFY2(fixture.create(), qPrintable(fixture.errors));
+        QVERIFY(fixture.openForRun(incompleteImportedRun()));
+        for (auto it = edits.cbegin(); it != edits.cend(); ++it)
+            fixture.dialog()->setProperty(it.key().toLatin1().constData(), it.value());
+        fixture.dialog()->setProperty("noteText", QStringLiteral("不能掩盖非法时间"));
+        QSignalSpy corrections(fixture.dialog(), SIGNAL(correctRequested(QVariant,QString)));
+        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
+        QCOMPARE(corrections.count(), 0);
+        QCOMPARE(fixture.dialog()->property("errorCode").toString(), code);
+        QVERIFY(!fixture.dialog()->property("submitting").toBool());
+    }
+
+    void incompleteImportContextDoesNotRelaxOtherRunSources_data()
+    {
+        QTest::addColumn<QString>("source");
+        QTest::addColumn<bool>("metadata");
+        QTest::newRow("automatic") << QStringLiteral("AUTO_NETWORK") << true;
+        QTest::newRow("manual") << QStringLiteral("MANUAL") << true;
+        QTest::newRow("import-without-provenance") << QStringLiteral("IMPORT") << false;
+    }
+
+    void incompleteImportContextDoesNotRelaxOtherRunSources()
+    {
+        QFETCH(QString, source);
+        QFETCH(bool, metadata);
+        DialogFixture fixture;
+        QVERIFY2(fixture.create(), qPrintable(fixture.errors));
+        auto value = incompleteImportedRun();
+        value.insert(QStringLiteral("source"), source);
+        if (!metadata)
+            value.remove(QStringLiteral("import_metadata"));
+        QVERIFY(fixture.openForRun(value));
+        fixture.dialog()->setProperty("noteText", QStringLiteral("备注"));
+        QSignalSpy corrections(fixture.dialog(), SIGNAL(correctRequested(QVariant,QString)));
+        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
+        QCOMPARE(corrections.count(), 0);
+        QCOMPARE(fixture.dialog()->property("errorCode").toString(), QStringLiteral("ERR_BAD_REQUEST"));
+    }
+
+    void reselectingTheDefaultImportedResultRequiresCompleteTimes()
+    {
+        DialogFixture fixture;
+        QVERIFY2(fixture.create(), qPrintable(fixture.errors));
+        QVERIFY(fixture.openForRun(incompleteImportedRun(QStringLiteral("COMPLETED"))));
+        QVERIFY(fixture.click(QStringLiteral("resultPick_COMPLETED")));
+        QVERIFY(fixture.dialog()->property("importedResultSelected").toBool());
+        QSignalSpy corrections(fixture.dialog(), SIGNAL(correctRequested(QVariant,QString)));
+        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
+        QCOMPARE(corrections.count(), 0);
+        QCOMPARE(fixture.dialog()->property("errorCode").toString(), QStringLiteral("ERR_BAD_REQUEST"));
+    }
+
+    void reselectingCompletePendingImportedResultConfirmsWithoutFieldChanges_data()
+    {
+        QTest::addColumn<bool>("selectResult");
+        QTest::addColumn<bool>("attachImage");
+        QTest::newRow("unchanged") << false << false;
+        QTest::newRow("explicit-confirmation") << true << false;
+        QTest::newRow("confirmation-with-image") << true << true;
+    }
+
+    void reselectingCompletePendingImportedResultConfirmsWithoutFieldChanges()
+    {
+        QFETCH(bool, selectResult);
+        QFETCH(bool, attachImage);
+        QTemporaryDir imageRoot;
+        QVERIFY(imageRoot.isValid());
+        mr::NoteImageStore images(imageRoot.path());
+        DialogFixture fixture;
+        fixture.imageStore = &images;
+        QVERIFY2(fixture.create(), qPrintable(fixture.errors));
+        auto value = run(QStringLiteral("complete-pending-import"), 70, 19, QStringLiteral("COMPLETED"));
+        value.insert(QStringLiteral("duration_ms"), 1120422);
+        value.insert(QStringLiteral("source"), QStringLiteral("IMPORT"));
+        value.insert(QStringLiteral("pending_review"), true);
+        value.insert(QStringLiteral("import_metadata"), QVariantMap{{QStringLiteral("incomplete"), true}});
+        QVERIFY(fixture.openForRun(value));
+        if (selectResult)
+            QVERIFY(fixture.click(QStringLiteral("resultPick_COMPLETED")));
+        if (attachImage) {
+            QImage image(24, 18, QImage::Format_RGB32);
+            image.fill(Qt::blue);
+            const auto file = imageRoot.filePath(QStringLiteral("confirmation.png"));
+            QVERIFY(image.save(file));
+            QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "stageNoteImage", Q_ARG(QVariant, file)));
+            QVERIFY(fixture.dialog()->property("imagesDirty").toBool());
+        }
+        QCOMPARE(fixture.dialog()->property("confirmsImportedFacts").toBool(), selectResult);
+        QSignalSpy corrections(fixture.dialog(), SIGNAL(correctRequested(QVariant,QString)));
+        if (selectResult) {
+            QVERIFY(fixture.goToStep(3));
+            QVERIFY(fixture.click(QStringLiteral("saveRunButton")));
+        } else {
+            QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
+        }
+        QCOMPARE(corrections.count(), selectResult ? 1 : 0);
+        if (selectResult) {
+            const auto changes = asMap(corrections.at(0).at(0));
+            QCOMPARE(changes.size(), 1);
+            QCOMPARE(changes.value(QStringLiteral("result")).toString(), QStringLiteral("COMPLETED"));
+            QVERIFY(fixture.dialog()->property("errorCode").toString().isEmpty());
+        } else {
+            QCOMPARE(fixture.dialog()->property("errorCode").toString(), QStringLiteral("ERR_NO_CHANGES"));
+        }
+    }
+
+    void explicitlyConfirmingEstimatedImportedResultMatchesProgress_data()
+    {
+        QTest::addColumn<QString>("originalResult");
+        QTest::newRow("unknown-to-completed") << QStringLiteral("UNKNOWN");
+        QTest::newRow("reselect-completed") << QStringLiteral("COMPLETED");
+    }
+
+    void explicitlyConfirmingEstimatedImportedResultMatchesProgress()
+    {
+        QFETCH(QString, originalResult);
+        DialogFixture fixture;
+        QVERIFY2(fixture.create(), qPrintable(fixture.errors));
+        auto value = run(QStringLiteral("explicit-estimated-import"), 70, 19, originalResult);
+        value.insert(QStringLiteral("source"), QStringLiteral("IMPORT"));
+        value.insert(QStringLiteral("pending_review"), true);
+        value.insert(QStringLiteral("import_metadata"), QVariantMap{{QStringLiteral("incomplete"), true},
+                                                                  {QStringLiteral("mentor_confirmed"), true}});
+        value.insert(QStringLiteral("entered_at_utc"), QVariant::fromValue(nullptr));
+        value.insert(QStringLiteral("duration_ms"), QVariant::fromValue(nullptr));
+        QVERIFY(fixture.openForRun(value));
+        QVERIFY(fixture.click(QStringLiteral("resultPick_COMPLETED")));
+        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "estimateEntryFromMatch"));
+        QVERIFY(fixture.dialog()->property("estimatedEntry").toBool());
+        QVERIFY(fixture.dialog()->property("confirmsImportedFacts").toBool());
+        QCOMPARE(fixture.dialog()->property("progressDelta").toInt(), 1);
+        QSignalSpy corrections(fixture.dialog(), SIGNAL(correctRequested(QVariant,QString)));
+        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
+        QCOMPARE(corrections.count(), 1);
+        const auto changes = asMap(corrections.at(0).at(0));
+        QCOMPARE(changes.value(QStringLiteral("result")).toString(), QStringLiteral("COMPLETED"));
+        QCOMPARE(changes.value(QStringLiteral("entered_at_utc")), value.value(QStringLiteral("matched_at_utc")));
+        QVERIFY(changes.contains(QStringLiteral("duration_ms")));
+        QVERIFY(changes.value(QStringLiteral("duration_ms")).isNull());
+    }
+
+    void completingImportedFactsConfirmsTheExistingOutcome_data()
+    {
+        QTest::addColumn<QString>("source");
+        QTest::addColumn<bool>("incomplete");
+        QTest::addColumn<bool>("pendingReview");
+        QTest::addColumn<bool>("confirmResult");
+        QTest::newRow("incomplete-import") << QStringLiteral("IMPORT") << true << true << true;
+        QTest::newRow("incomplete-without-pending") << QStringLiteral("IMPORT") << true << false << true;
+        QTest::newRow("pending-only-import") << QStringLiteral("IMPORT") << false << true << true;
+        QTest::newRow("settled-import") << QStringLiteral("IMPORT") << false << false << false;
+        QTest::newRow("automatic-time-correction") << QStringLiteral("AUTO_NETWORK") << false << true << false;
+        QTest::newRow("manual-time-correction") << QStringLiteral("MANUAL") << false << true << false;
+    }
+
+    void completingImportedFactsConfirmsTheExistingOutcome()
+    {
+        QFETCH(QString, source);
+        QFETCH(bool, incomplete);
+        QFETCH(bool, pendingReview);
+        QFETCH(bool, confirmResult);
+        DialogFixture fixture;
+        QVERIFY2(fixture.create(), qPrintable(fixture.errors));
+        auto value = run(QStringLiteral("complete-import-facts"), 70, 19, QStringLiteral("COMPLETED"));
+        value.insert(QStringLiteral("source"), source);
+        value.insert(QStringLiteral("pending_review"), pendingReview);
+        value.insert(QStringLiteral("duration_ms"), 1120422);
+        if (source == QStringLiteral("IMPORT"))
+            value.insert(QStringLiteral("import_metadata"), QVariantMap{{QStringLiteral("incomplete"), incomplete}});
+        if (incomplete) {
+            value.insert(QStringLiteral("matched_at_utc"), QVariant());
+            value.insert(QStringLiteral("entered_at_utc"), QVariant());
+            value.insert(QStringLiteral("ended_at_utc"), QVariant());
+            value.insert(QStringLiteral("duration_ms"), QVariant());
+        }
+        QVERIFY(fixture.openForRun(value));
+        if (incomplete) {
+            QVERIFY(!fixture.dialog()->property("countedBefore").toBool());
+            QCOMPARE(fixture.dialog()->property("progressDelta").toInt(), 0);
+            QVERIFY(fixture.dialog()->property("progressExplanation").toString().contains(QStringLiteral("待补充")));
+        }
+        const auto matched = QDateTime::fromString(QStringLiteral("2026-09-04T12:39:05.125Z"), Qt::ISODateWithMs).toLocalTime();
+        const auto entered = matched.addSecs(120);
+        const auto ended = entered.addSecs(1200);
+        fixture.dialog()->setProperty("matchedDate", matched.toString(QStringLiteral("yyyy-MM-dd")));
+        fixture.dialog()->setProperty("matchedTime", matched.toString(QStringLiteral("HH:mm:ss.zzz")));
+        fixture.dialog()->setProperty("enteredDate", entered.toString(QStringLiteral("yyyy-MM-dd")));
+        fixture.dialog()->setProperty("enteredTime", entered.toString(QStringLiteral("HH:mm:ss.zzz")));
+        fixture.dialog()->setProperty("endedDate", ended.toString(QStringLiteral("yyyy-MM-dd")));
+        fixture.dialog()->setProperty("endedTime", ended.toString(QStringLiteral("HH:mm:ss.zzz")));
+        if (confirmResult) {
+            QCOMPARE(fixture.dialog()->property("progressDelta").toInt(), 1);
+            QCOMPARE(fixture.dialog()->property("progressTitle").toString(), QStringLiteral("保存后，成就进度 +1"));
+        }
+        QSignalSpy corrections(fixture.dialog(), SIGNAL(correctRequested(QVariant,QString)));
+        QVERIFY(corrections.isValid());
+        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
+        QCOMPARE(corrections.count(), 1);
+        const auto changes = asMap(corrections.at(0).at(0));
+        QCOMPARE(changes.contains(QStringLiteral("result")), confirmResult);
+        if (confirmResult)
+            QCOMPARE(changes.value(QStringLiteral("result")).toString(), value.value(QStringLiteral("result")).toString());
+        QVERIFY(changes.contains(QStringLiteral("entered_at_utc")));
+        QVERIFY(changes.contains(QStringLiteral("ended_at_utc")));
+        QCOMPARE(changes.value(QStringLiteral("duration_ms")).toLongLong(), 1200000);
+        QVERIFY(!changes.contains(QStringLiteral("pending_review")));
+    }
+
+    void estimatedImportedTimesDoNotConfirmTheDefaultOutcome()
+    {
+        DialogFixture fixture;
+        QVERIFY2(fixture.create(), qPrintable(fixture.errors));
+        auto value = run(QStringLiteral("estimated-import-facts"), 70, 19, QStringLiteral("COMPLETED"));
+        value.insert(QStringLiteral("source"), QStringLiteral("IMPORT"));
+        value.insert(QStringLiteral("pending_review"), true);
+        value.insert(QStringLiteral("import_metadata"), QVariantMap{{QStringLiteral("incomplete"), true}});
+        value.insert(QStringLiteral("entered_at_utc"), QVariant());
+        value.insert(QStringLiteral("duration_ms"), QVariant());
+        QVERIFY(fixture.openForRun(value));
+        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "estimateEntryFromMatch"));
+        QCOMPARE(fixture.dialog()->property("progressDelta").toInt(), 0);
+        QSignalSpy corrections(fixture.dialog(), SIGNAL(correctRequested(QVariant,QString)));
+        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
+        QCOMPARE(corrections.count(), 1);
+        const auto changes = asMap(corrections.at(0).at(0));
+        QVERIFY(!changes.contains(QStringLiteral("result")));
+        QVERIFY(changes.value(QStringLiteral("duration_ms")).isNull());
     }
 
     void creatingAnEstimatedRunSendsAnExplicitUnknownDuration()

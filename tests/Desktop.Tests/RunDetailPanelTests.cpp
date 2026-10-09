@@ -19,6 +19,7 @@
 #include "AppController.h"
 #include "Formatters.h"
 #include "IBackend.h"
+#include "ImportRecordsController.h"
 #include "JobCatalog.h"
 #include "RoleCatalog.h"
 #include "RunFormValidator.h"
@@ -27,9 +28,15 @@
 #include <QGuiApplication>
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QMetaEnum>
+#include <QMetaProperty>
+#include <QNetworkAccessManager> // BOUNDARY-ALLOW(NET-006): the test manager overrides requests and never contacts a network.
+#include <QNetworkReply>
+#include <QNetworkRequest>
 #include <QQmlComponent>
 #include <QQmlContext>
 #include <QQmlEngine>
+#include <QQmlNetworkAccessManagerFactory>
 #include <QQuickItem>
 #include <QQuickStyle>
 #include <QQuickWindow>
@@ -39,8 +46,65 @@
 #include <QTimer>
 
 #include <memory>
+#include <atomic>
 
 namespace {
+
+// QML's image loader is intercepted before any connection can be made. A rich-text
+// control below proves this hook sees resource loads; production record views must
+// never call it, including for markup copied from a third-party export.
+class BlockedResourceReply final : public QNetworkReply
+{
+public:
+    BlockedResourceReply(QNetworkAccessManager::Operation operation, const QNetworkRequest &request, QObject *parent) // BOUNDARY-ALLOW(NET-006): preserves the intercepted operation in a local error reply, without sending it.
+        : QNetworkReply(parent)
+    {
+        setOperation(operation);
+        setRequest(request);
+        setUrl(request.url());
+        open(QIODevice::ReadOnly);
+        setError(OperationCanceledError, QStringLiteral("Resource requests are blocked by the test"));
+        QTimer::singleShot(0, this, [this] {
+            setFinished(true);
+            Q_EMIT errorOccurred(error());
+            Q_EMIT finished();
+        });
+    }
+    void abort() override {}
+protected:
+    qint64 readData(char *, qint64) override { return -1; }
+};
+
+class ResourceRequestManager final : public QNetworkAccessManager // BOUNDARY-ALLOW(NET-006): fake-only resource loader; createRequest never delegates to the network implementation.
+{
+public:
+    ResourceRequestManager(QObject *parent, std::atomic<int> &requests)
+        : QNetworkAccessManager(parent), m_requests(requests) // BOUNDARY-ALLOW(NET-006): constructing the intercepting test manager does not initiate a request.
+    {}
+protected:
+    QNetworkReply *createRequest(Operation operation, const QNetworkRequest &request, QIODevice *) override
+    {
+        // Inline SVG icons may use the same loader. Count only resources which
+        // could leave the process, while still refusing every request locally.
+        const auto scheme = request.url().scheme();
+        if (!request.url().isLocalFile() && scheme != QLatin1String("data")
+            && scheme != QLatin1String("qrc"))
+            ++m_requests;
+        return new BlockedResourceReply(operation, request, this);
+    }
+private:
+    std::atomic<int> &m_requests;
+};
+
+class ResourceRequestFactory final : public QQmlNetworkAccessManagerFactory
+{
+public:
+    std::atomic<int> requests{0};
+    QNetworkAccessManager *create(QObject *parent) override // BOUNDARY-ALLOW(NET-006): supplies only the fake manager which locally rejects every QML resource request.
+    {
+        return new ResourceRequestManager(parent, requests);
+    }
+};
 
 const QString kRunId = QStringLiteral("6f1c2d3e-4a5b-4c6d-8e7f-0123456789ab");
 
@@ -198,7 +262,7 @@ public:
         auto *reply = new mr::BackendReply(type, type, this);
         QJsonObject answer;
         if (type == QLatin1String("QueryRuns")) {
-            answer = {{QStringLiteral("items"), QJsonArray{run()}},
+            answer = {{QStringLiteral("items"), QJsonArray{runItem}},
                       {QStringLiteral("page_info"),
                        QJsonObject{{QStringLiteral("page"), 1}, {QStringLiteral("total"), 1}}}};
         } else if (type == QLatin1String("GetRunRevisions")) {
@@ -208,6 +272,21 @@ public:
                                    {QStringLiteral("total"), int(revisionItems.size())}}}};
         } else if (type == QLatin1String("GetRunEvents")) {
             answer = {{QStringLiteral("run_id"), kRunId}, {QStringLiteral("events"), events()}};
+        } else if (type == QLatin1String("PreviewRunImport")) {
+            if (!importErrorMessage.isEmpty()) {
+                QTimer::singleShot(0, reply, [reply, message = importErrorMessage] {
+                    reply->fail(QStringLiteral("ERR_BAD_REQUEST"), message);
+                });
+                return reply;
+            }
+            answer = {{QStringLiteral("preview_id"), QStringLiteral("literal-text-preview")},
+                      {QStringLiteral("rows"), QJsonArray{QJsonObject{
+                          {QStringLiteral("row_number"), 1}, {QStringLiteral("status"), QStringLiteral("new")},
+                          {QStringLiteral("can_import"), true}, {QStringLiteral("incomplete"), true},
+                          {QStringLiteral("candidate"), importCandidate},
+                          {QStringLiteral("errors"), QJsonArray{}}, {QStringLiteral("warnings"), QJsonArray{}}}}},
+                      {QStringLiteral("summary"), QJsonObject{{QStringLiteral("total"), 1},
+                          {QStringLiteral("new"), 1}, {QStringLiteral("incomplete"), 1}}}};
         }
         QTimer::singleShot(0, reply, [reply, answer] { reply->succeed(answer); });
         return reply;
@@ -215,6 +294,9 @@ public:
 
     /// What GetRunRevisions answers with.
     QJsonArray revisionItems = revisions();
+    QJsonObject runItem = run();
+    QJsonObject importCandidate;
+    QString importErrorMessage;
 };
 
 QQuickItem *findItem(QQuickItem *from, const QString &name)
@@ -225,6 +307,19 @@ QQuickItem *findItem(QQuickItem *from, const QString &name)
         return from;
     for (QQuickItem *child : from->childItems()) {
         if (QQuickItem *match = findItem(child, name))
+            return match;
+    }
+    return nullptr;
+}
+
+QQuickItem *findTextItem(QQuickItem *from, const QString &text)
+{
+    if (!from)
+        return nullptr;
+    if (from->property("text").toString() == text && from->property("textFormat").isValid())
+        return from;
+    for (QQuickItem *child : from->childItems()) {
+        if (auto *match = findTextItem(child, text))
             return match;
     }
     return nullptr;
@@ -377,6 +472,125 @@ private Q_SLOTS:
                                 "MentorRecorder", 1, 0, name.constData());
             }
         }
+    }
+
+    void richTextResourceProbeIsInterceptedWithoutNetworking()
+    {
+        ResourceRequestFactory factory;
+        QQmlEngine engine;
+        engine.setNetworkAccessManagerFactory(&factory);
+        QQmlComponent component(&engine);
+        component.setData("import QtQuick\nimport QtQuick.Controls\n"
+            "ApplicationWindow { width: 320; height: 200; visible: true; "
+            "Text { textFormat: Text.RichText; "
+            "text: '<img src=\"http://127.0.0.1:9/literal-probe.png\" width=\"10\" height=\"10\">' } }", QUrl());
+        std::unique_ptr<QObject> root(component.create());
+        QVERIFY2(root, qPrintable(component.errorString()));
+        QTRY_COMPARE(factory.requests.load(), 1);
+        // The fake manager never calls the platform implementation, so the
+        // positive control verifies detection without a loopback or external connection.
+    }
+
+    void storedAndImportedRecordTextStaysLiteralWithoutResourceRequests_data()
+    {
+        QTest::addColumn<QString>("view");
+        for (const char *view : {"recent-body", "recent-duty", "detail-note", "detail-reflection",
+                                 "history-duty", "import-preview", "import-error-tooltip"})
+            QTest::newRow(view) << QString::fromLatin1(view);
+    }
+
+    void storedAndImportedRecordTextStaysLiteralWithoutResourceRequests()
+    {
+        QFETCH(QString, view);
+        // A unique resource key per row avoids a prior QML image-cache entry
+        // hiding a regression. Nothing receives these URLs: the factory blocks them.
+        const QString markup = QStringLiteral("<img src=\"http://127.0.0.1:9/%1.png\" width=\"30\" height=\"20\"> <b>原样 & 文字</b>").arg(view);
+        const QJsonObject reflection{{QStringLiteral("text"), markup}, {QStringLiteral("mood"), QStringLiteral("ok")}};
+        PanelBackend backend;
+        if (view == QLatin1String("import-error-tooltip"))
+            backend.importErrorMessage = markup;
+        backend.runItem.insert(QStringLiteral("note"), markup);
+        backend.runItem.insert(QStringLiteral("reflection"), reflection);
+        backend.runItem.insert(QStringLiteral("duty_name"), markup);
+        backend.importCandidate = {{QStringLiteral("duty_name"), QStringLiteral("合成副本")},
+                                   {QStringLiteral("job_name"), QStringLiteral("合成职业")},
+                                   {QStringLiteral("reflection_text"), markup}};
+        mr::AppController controller(&backend, nullptr);
+        mr::ImportRecordsController importer;
+        importer.setBackend(&backend);
+        mr::Formatters formatters;
+        mr::JobCatalog jobs;
+        mr::RoleCatalog roles;
+        ResourceRequestFactory factory;
+        QQmlEngine engine;
+        engine.setNetworkAccessManagerFactory(&factory);
+        auto *context = engine.rootContext();
+        context->setContextProperty(QStringLiteral("App"), &controller);
+        context->setContextProperty(QStringLiteral("Fmt"), &formatters);
+        context->setContextProperty(QStringLiteral("Jobs"), &jobs);
+        context->setContextProperty(QStringLiteral("Roles"), &roles);
+        context->setContextProperty(QStringLiteral("ImportRecords"), &importer);
+        context->setContextProperty(QStringLiteral("ReduceMotion"), true);
+        QByteArray item;
+        if (view.startsWith(QLatin1String("recent-")))
+            item = "ReflectionCard { objectName: \"view\"; width: 900 }";
+        else if (view.startsWith(QLatin1String("detail-")))
+            item = "RunDetailPanel { objectName: \"view\"; width: 600; height: 650 }";
+        else if (view == QLatin1String("history-duty"))
+            item = "HistoryPage { objectName: \"view\"; anchors.fill: parent }";
+        else
+            item = "ImportRecordsDialog { objectName: \"view\" }";
+        QQmlComponent component(&engine);
+        component.setData("import QtQuick\nimport QtQuick.Controls\nimport MentorRecorder\n"
+                          "ApplicationWindow { width: 1180; height: 760; visible: true; " + item + " }", QUrl());
+        std::unique_ptr<QObject> root(component.create());
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.get());
+        QVERIFY(window);
+        QObject *recordView = root->findChild<QObject *>(QStringLiteral("view"));
+        QVERIFY(recordView);
+        if (view.startsWith(QLatin1String("recent-"))) {
+            auto record = backend.runItem;
+            if (view == QLatin1String("recent-body"))
+                record.insert(QStringLiteral("duty_name"), QStringLiteral("合成副本"));
+            const QJsonObject body = view == QLatin1String("recent-duty")
+                ? QJsonObject{{QStringLiteral("text"), QStringLiteral("合成正文")}} : reflection;
+            recordView->setProperty("entry", QVariantMap{{QStringLiteral("run"), record.toVariantMap()},
+                {QStringLiteral("reflection"), body.toVariantMap()}});
+        } else if (view.startsWith(QLatin1String("detail-"))) {
+            auto record = backend.runItem;
+            record.insert(QStringLiteral("duty_name"), QStringLiteral("合成副本"));
+            recordView->setProperty("runData", record.toVariantMap());
+            recordView->setProperty("activeTab", view == QLatin1String("detail-note")
+                ? QStringLiteral("info") : QStringLiteral("refl"));
+        } else if (view == QLatin1String("import-preview")) {
+            importer.importText(QStringLiteral("心得\n合成正文"));
+            QTRY_VERIFY(importer.previewValid());
+            QVERIFY(QMetaObject::invokeMethod(recordView, "open"));
+        } else if (view == QLatin1String("import-error-tooltip")) {
+            importer.importText(QStringLiteral("心得\n合成正文"));
+            QTRY_VERIFY(!importer.errorText().isEmpty());
+            QVERIFY(QMetaObject::invokeMethod(recordView, "open"));
+            QObject *tip = nullptr;
+            QTRY_VERIFY((tip = recordView->findChild<QObject *>(QStringLiteral("importErrorToolTip"))) != nullptr);
+            tip->setProperty("visible", true);
+            QQuickItem *content = nullptr;
+            QTRY_VERIFY((content = tip->property("contentItem").value<QQuickItem *>()) != nullptr);
+            QCOMPARE(content->property("text").toString(), markup);
+            const auto format = content->metaObject()->property(content->metaObject()->indexOfProperty("textFormat"));
+            QCOMPARE(content->property("textFormat").toInt(), format.enumerator().keyToValue("PlainText"));
+        }
+        const QString shown = view == QLatin1String("import-preview")
+            ? QStringLiteral("合成职业 · ") + markup : markup;
+        QQuickItem *textItem = nullptr;
+        QTRY_VERIFY((textItem = findTextItem(window->contentItem(), shown)) != nullptr);
+        QVERIFY(textItem->isVisible());
+        QCOMPARE(textItem->property("text").toString(), shown);
+        const auto format = textItem->metaObject()->property(textItem->metaObject()->indexOfProperty("textFormat"));
+        QCOMPARE(textItem->property("textFormat").toInt(), format.enumerator().keyToValue("PlainText"));
+        QTest::qWait(150);
+        QVERIFY(textItem->width() > 0 && textItem->height() > 0);
+        QCOMPARE(factory.requests.load(), 0);
     }
 
     // 审查 OI-3 / OL-7：逐一走过采集服务在创建时写入修订的每个字段

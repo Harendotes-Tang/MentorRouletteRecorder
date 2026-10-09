@@ -20,6 +20,7 @@ Item {
 
     signal openBaselineRequested()
     signal openDisclosureRequested()
+    signal openImportRequested()
 
     // Remembered for the session: Main.qml creates the page once and only hides
     // it. --settings-tab opens a given tab for a screenshot.
@@ -124,6 +125,7 @@ Item {
                     SettingsDataTab {
                         objectName: "settingsDataTab"
                         visible: page.currentTab === "data"
+                        onOpenImportRequested: page.openImportRequested()
                     }
                     SettingsAboutTab {
                         objectName: "settingsAboutTab"

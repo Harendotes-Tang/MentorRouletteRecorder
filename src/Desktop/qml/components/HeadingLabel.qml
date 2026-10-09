@@ -5,6 +5,7 @@ import MentorRecorder
 // Chinese, gold; the classic style falls back to the body font.
 Text {
     id: root
+    textFormat: Text.PlainText
 
     color: Theme.headingColor
     font.family: Theme.headingFamilyFor(text)

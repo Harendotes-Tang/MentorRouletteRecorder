@@ -50,6 +50,7 @@ Rectangle {
         id: label
         anchors.centerIn: parent
         text: root.text
+        textFormat: Text.PlainText
         color: root.checked
                ? (Theme.eorzea ? (Theme.dark ? Theme.gold2 : Theme.accent700) : Theme.accent)
                : Theme.textSecondary

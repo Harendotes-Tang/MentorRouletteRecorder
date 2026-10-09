@@ -13,6 +13,7 @@ ColumnLayout {
     spacing: 16
 
     readonly property var integrity: App.integrityCheckResult || ({})
+    signal openImportRequested()
 
     function captureSettingDescription(text) {
         if (!App.captureSettingsSupported)
@@ -123,6 +124,12 @@ ColumnLayout {
                 objectName: "backupNowButton"
                 text: qsTr("立即备份")
                 onClicked: App.backupDatabase()
+            }
+            AppButton {
+                objectName: "importRecordsButton"
+                text: qsTr("导入记录")
+                iconName: "file-check"
+                onClicked: tab.openImportRequested()
             }
             AppButton {
                 objectName: "integrityCheckButton"

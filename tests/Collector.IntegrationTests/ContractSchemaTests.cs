@@ -398,6 +398,24 @@ public sealed class ContractSchemaTests
             var stoppedCapture = await client.SendAsync("StopCapture");
             Assert.True(stoppedCapture.Ok, stoppedCapture.ErrorMessage);
 
+            var importedPreview = (await client.SendAsync("PreviewRunImport", new JsonObject
+            {
+                ["source_kind"] = "SCREENSHOT", ["time_zone"] = "+08:00", ["source_name"] = "synthetic",
+                ["rows"] = new JsonArray(new JsonObject
+                {
+                    ["duty_name"] = "合成契约副本", ["reflection_text"] = "合成契约心得",
+                    ["source_recorded_at"] = "2026-10-08 20:30:00",
+                }),
+            })).Require();
+            var importPayload = new JsonObject
+            {
+                ["preview_id"] = importedPreview["preview_id"]!.DeepClone(),
+                ["row_numbers"] = new JsonArray(1), ["confirm_own_records"] = true,
+            };
+            var importRequestId = NewId();
+            Assert.True((await client.SendAsync("CommitRunImport", importPayload, importRequestId)).Ok);
+            Assert.True((await client.SendAsync("CommitRunImport", importPayload.DeepClone().AsObject(), importRequestId)).Require()["replayed"]!.GetValue<bool>());
+
             Assert.Equal(
                 ErrorCodes.BadRequest,
                 (await client.SendAsync("NoSuchMessage")).ErrorCode);

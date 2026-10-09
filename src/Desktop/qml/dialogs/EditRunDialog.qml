@@ -114,10 +114,42 @@ Dialog {
     property bool dayFieldsOpen: false
     readonly property bool dayFieldsVisible: dayFieldsOpen || enteredDate !== matchedDate
                                              || endedDate !== matchedDate
+    readonly property bool importAwaitingConfirmation: editMode && runData && runData.source === "IMPORT"
+        && ((runData.import_metadata && !!runData.import_metadata.incomplete) || !!runData.pending_review)
+    property bool importedResultSelected: false
+    readonly property bool hasImportedTimeChanges: importAwaitingConfirmation
+        && (fieldUtc(matchedDate, matchedTime, "matched_at_utc") !== (runData.matched_at_utc || null)
+            || fieldUtc(enteredDate, enteredTime, "entered_at_utc") !== (runData.entered_at_utc || null)
+            || fieldUtc(endedDate, endedTime, "ended_at_utc") !== (runData.ended_at_utc || null))
+    // Explicit outcome confirmation uses the existing complete-record checks,
+    // including estimated entry with unknown duration. Merely filling times
+    // confirms the default outcome only when those times are measured.
+    readonly property bool confirmsImportedFacts: importAwaitingConfirmation
+        && resultCode !== "UNKNOWN" && (importedResultSelected || resultCode !== runData.result
+                                       || (hasImportedTimeChanges && !estimatedEntry))
+        && RunForm.validate(confirmationFormState, {}).ok
+    // Note/image edits retain unknown endpoints and review. A deliberate known
+    // result selection must pass the ordinary complete-record validation.
+    readonly property bool retainsIncompleteImportedFacts: editMode && runData
+        && runData.source === "IMPORT" && !!runData.import_metadata
+        && (resultCode === "UNKNOWN" || (!!runData.pending_review && resultCode === runData.result
+            && !importedResultSelected && !confirmsImportedFacts))
+    // RunFilterSql also admits an identified mentor roulette. An explicit false
+    // import flag without that identity stays excluded after its facts are completed.
+    // Older IPC projections did not carry the flag, so retain their existing fallback.
+    readonly property bool importHasMentorQualification: !editMode || !runData
+        || runData.source !== "IMPORT" || !runData.import_metadata
+        || runData.import_metadata.mentor_confirmed !== false
+        || (runData.mentor_roulette_id !== null && runData.mentor_roulette_id !== undefined)
     readonly property bool countsAfterSave: resultCode === "COMPLETED" && contributesToGoal
+                                           && importHasMentorQualification
                                            && !(editMode && runData && runData.soft_deleted)
+                                           && (!importAwaitingConfirmation || confirmsImportedFacts)
     readonly property bool countedBefore: editMode && runData && runData.result === "COMPLETED"
+                                          && importHasMentorQualification
                                           && !!runData.contributes_to_goal && !runData.soft_deleted
+                                          && !(runData.import_metadata && runData.import_metadata.incomplete)
+                                          && !(runData.source === "IMPORT" && runData.pending_review)
     readonly property int progressDelta: (countsAfterSave ? 1 : 0) - (countedBefore ? 1 : 0)
     readonly property string progressTitle: progressDelta > 0 ? qsTr("保存后，成就进度 +1")
         : progressDelta < 0 ? qsTr("保存后，成就进度 −1") : qsTr("成就进度不变")
@@ -126,6 +158,10 @@ Dialog {
         : resultCode !== "COMPLETED"
         ? qsTr("只有通关的指导者任务才会增加进度；当前结果为「%1」。").arg(resultLabel(resultCode))
         : !contributesToGoal ? qsTr("这条通关记录未选择计入导随成就。")
+        : !importHasMentorQualification
+        ? qsTr("这条导入记录尚未确认导随资格，当前不计入成就进度。")
+        : importAwaitingConfirmation && !confirmsImportedFacts
+        ? qsTr("这条导入记录仍有事实待补充；补齐游戏时间并确认结果后保存，才会计入进度。")
         : countedBefore ? qsTr("这条导随已经计入进度，修改其他信息不会重复计数。")
         : qsTr("这条已通关的指导者任务将计入 %1 次成就。完成必填信息后保存生效。").arg(App.goalCount)
 
@@ -254,22 +290,27 @@ Dialog {
 
     // The form as the validator sees it. Times in one spelling (canonicalTime):
     // leaving a time field writes 20:41 for the 20:41:00 the record reads back as.
-    readonly property var formState: ({
-        reason: dialog.reasonText,
-        reason_label: dialog.reasonLabel,
-        date: dialog.matchedDate,
-        matched: dialog.canonicalTime(dialog.matchedTime),
-        entered_date: dialog.enteredDate,
-        entered: dialog.canonicalTime(dialog.enteredTime),
-        ended_date: dialog.endedDate,
-        ended: dialog.canonicalTime(dialog.endedTime),
-        result: dialog.resultCode,
-        duty_name: dialog.selectedDutyName(),
-        job_name: dialog.selectedJobName(),
-        contributes: dialog.contributesToGoal,
-        note: dialog.noteText,
-        edit_mode: dialog.editMode
-    })
+    readonly property var formState: validationState(retainsIncompleteImportedFacts)
+    readonly property var confirmationFormState: validationState(false)
+    function validationState(allowIncompleteImport) {
+        return {
+            reason: dialog.reasonText,
+            reason_label: dialog.reasonLabel,
+            date: dialog.matchedDate,
+            matched: dialog.canonicalTime(dialog.matchedTime),
+            entered_date: dialog.enteredDate,
+            entered: dialog.canonicalTime(dialog.enteredTime),
+            ended_date: dialog.endedDate,
+            ended: dialog.canonicalTime(dialog.endedTime),
+            result: dialog.resultCode,
+            duty_name: dialog.selectedDutyName(),
+            job_name: dialog.selectedJobName(),
+            contributes: dialog.contributesToGoal,
+            note: dialog.noteText,
+            edit_mode: dialog.editMode,
+            incomplete_import_context: allowIncompleteImport
+        }
+    }
 
     readonly property var beforeState: editMode && runData ? ({
         reason: "",
@@ -538,6 +579,8 @@ Dialog {
     }
 
     function selectResult(code) {
+        if (importAwaitingConfirmation)
+            importedResultSelected = code !== "UNKNOWN"
         resultCode = code
         if (code !== "CANCELLED_BEFORE_ENTRY" && !enteredTime.trim())
             showTimeDetails = true
@@ -757,6 +800,7 @@ Dialog {
     }
 
     function openForCreate() {
+        importedResultSelected = false
         editMode = false
         runData = null
         matchedDate = Qt.formatDateTime(new Date(), "yyyy-MM-dd")
@@ -793,6 +837,7 @@ Dialog {
     }
 
     function openForRun(run) {
+        importedResultSelected = false
         editMode = true
         runData = run
         matchedDate = Fmt.localDate(run.matched_at_utc)
@@ -1008,17 +1053,19 @@ Dialog {
             return
         }
         const verdict = RunForm.validate(formState, beforeState)
+        const confirmationOnly = editMode && confirmsImportedFacts
+            && !verdict.ok && verdict.code === "ERR_NO_CHANGES"
         // An unchanged form with staged images is not "nothing to do": the
         // images alone are applied, without a correction and without a revision.
-        if (!verdict.ok && verdict.code === "ERR_NO_CHANGES" && editMode && imagesDirty) {
+        if (!verdict.ok && !confirmationOnly && verdict.code === "ERR_NO_CHANGES" && editMode && imagesDirty) {
             errorCode = ""
             errorText = ""
             finishWithImages(runData && runData.run_id ? runData.run_id : "")
             return
         }
-        errorCode = verdict.ok ? "" : verdict.code
-        errorText = verdict.ok ? "" : App.errorText(verdict.message, verdict.code)
-        if (!verdict.ok)
+        errorCode = verdict.ok || confirmationOnly ? "" : verdict.code
+        errorText = verdict.ok || confirmationOnly ? "" : App.errorText(verdict.message, verdict.code)
+        if (!verdict.ok && !confirmationOnly)
             return
 
         const fields = collectFields()
@@ -1047,6 +1094,12 @@ Dialog {
             if (JSON.stringify(fields[key]) !== JSON.stringify(runData[key]))
                 changes[key] = fields[key]
         }
+        // A default imported COMPLETED outcome is still awaiting confirmation.
+        // Sending that same result explicitly lets the Collector clear review
+        // after checking the completed endpoints. Ordinary time corrections
+        // keep their existing review state.
+        if (confirmsImportedFacts)
+            changes.result = fields.result
         // 未知副本 clears the duty, the zone it was recognised by included, and
         // the Collector does that only for an explicit content_id: null. A run
         // known by its zone alone already has a null content_id, so it is named
@@ -1293,6 +1346,7 @@ Dialog {
                                 Layout.fillWidth: true
                                 horizontalAlignment: Text.AlignRight
                                 text: stepSegment.modelData.value
+                                textFormat: Text.PlainText
                                 color: Theme.textMuted
                                 font.pixelSize: Theme.fs(11)
                                 elide: Text.ElideRight
@@ -1431,7 +1485,7 @@ Dialog {
                 visible: dialog.currentStep === 3
                 enabled: !dialog.submitting
                          && (dialog.recordSaved || dialog.awaitingRetry || !dialog.editMode
-                             || dialog.diffRows.length > 0 || dialog.imagesDirty)
+                             || dialog.diffRows.length > 0 || dialog.imagesDirty || dialog.confirmsImportedFacts)
                 text: dialog.submitting
                       ? qsTr("提交中…")
                       : dialog.recordSaved ? qsTr("重试图片")

@@ -22,6 +22,7 @@ Rectangle {
     signal reviewRequested()
     // 补录笔记 / 编辑笔记 for this run.
     signal reflectRequested()
+    signal shareRequested()
 
     readonly property var reflection: runData && runData.reflection ? runData.reflection : null
     // 备注图片: files under the install directory, read through NoteImageStore.
@@ -119,6 +120,15 @@ Rectangle {
             { k: qsTr("耗时"), v: Fmt.duration(runData.duration_ms) }
         ]
 
+        if (runData.import_metadata) {
+            const source = runData.import_metadata
+            if (source.source_recorded_at_utc || source.source_recorded_at)
+                fields.push({ k: qsTr("原站记录时间"),
+                              v: source.source_recorded_at_utc ? Fmt.localDateTime(source.source_recorded_at_utc) : source.source_recorded_at })
+            if (source.incomplete)
+                fields.push({ k: qsTr("导入完整性"), v: qsTr("事实待补充 · 暂不计入统计") })
+        }
+
         if (root.showRawTokens) {
             fields.push({ k: qsTr("content_id / territory_id"),
                           v: (runData.content_id !== undefined && runData.content_id !== null
@@ -200,6 +210,7 @@ Rectangle {
                 HeadingLabel {
                     Layout.fillWidth: true
                     text: root.runData.duty_name || qsTr("未知副本")
+                    textFormat: Text.PlainText
                     font.pixelSize: Theme.fs(19)
                     wrapMode: Text.WordWrap
                 }
@@ -207,6 +218,7 @@ Rectangle {
                 Text {
                     Layout.fillWidth: true
                     text: root.runData.run_id || qsTr("未选择")
+                    textFormat: Text.PlainText
                     color: Theme.textSecondary
                     font.pixelSize: Theme.fs(12)
                     elide: Text.ElideMiddle
@@ -407,6 +419,7 @@ Rectangle {
                             Layout.fillWidth: true
                             visible: !parent.isJob
                             text: modelData.v
+                            textFormat: Text.PlainText
                             color: Theme.textPrimary
                             font.pixelSize: Theme.fs(13)
                             font.weight: Theme.figureWeight(true)
@@ -428,6 +441,7 @@ Rectangle {
 
                             Text {
                                 text: root.runData.job_name || qsTr("未知")
+                                textFormat: Text.PlainText
                                 color: Theme.textPrimary
                                 font.pixelSize: Theme.fs(13)
                                 font.bold: true
@@ -472,6 +486,7 @@ Rectangle {
                     Layout.fillWidth: true
                     visible: !!root.runData.note
                     text: root.runData.note || ""
+                    textFormat: Text.PlainText
                     color: Theme.textPrimary
                     font.pixelSize: Theme.fs(13)
                     wrapMode: Text.WordWrap
@@ -627,6 +642,7 @@ Rectangle {
                             Text {
                                 Layout.fillWidth: true
                                 visible: App.maintainerToolsVisible
+                                textFormat: Text.PlainText
                                 text: (modelData.direction || Fmt.dash())
                                       + " \u00b7 " + (modelData.opcode || Fmt.dash())
                                       + " \u00b7 " + qsTr("哈希 ")
@@ -642,6 +658,7 @@ Rectangle {
                             Text {
                                 Layout.fillWidth: true
                                 visible: root.showRawTokens && text.length > 0
+                                textFormat: Text.PlainText
                                 text: {
                                     const parsed = modelData.parsed
                                     if (!parsed)
@@ -663,6 +680,7 @@ Rectangle {
                                 Layout.fillWidth: true
                                 visible: App.maintainerToolsVisible
                                          && !!modelData.protocol_profile_id
+                                textFormat: Text.PlainText
                                 text: "profile " + (modelData.protocol_profile_id || "")
                                 color: Theme.textSecondary
                                 font.pixelSize: Theme.fs(10)
@@ -733,6 +751,7 @@ Rectangle {
                     Layout.fillWidth: true
                     visible: !!root.reflection
                     text: root.reflection ? (root.reflection.text || "") : ""
+                    textFormat: Text.PlainText
                     color: Theme.textPrimary
                     font.pixelSize: Theme.fs(13)
                     lineHeight: 1.7
@@ -763,6 +782,13 @@ Rectangle {
                     variant: root.reflection ? "secondary" : "primary"
                     text: root.reflection ? qsTr("编辑笔记") : qsTr("补录笔记")
                     onClicked: root.reflectRequested()
+                }
+                AppButton {
+                    Layout.alignment: Qt.AlignLeft
+                    visible: !!root.reflection && !!root.reflection.text
+                    text: qsTr("生成分享图片")
+                    iconName: "file-down"
+                    onClicked: root.shareRequested()
                 }
             }
         }
@@ -886,6 +912,7 @@ Rectangle {
                                         text: root.showRawTokens
                                               ? Fmt.revisionValue(modelData.old_value)
                                               : Fmt.revisionFieldValue(modelData.field || "", modelData.old_value)
+                                        textFormat: Text.PlainText
                                         color: Theme.textSecondary
                                         font.pixelSize: Theme.fs(11)
                                         font.strikeout: true
@@ -904,6 +931,7 @@ Rectangle {
                                         text: root.showRawTokens
                                               ? Fmt.revisionValue(modelData.new_value)
                                               : Fmt.revisionFieldValue(modelData.field || "", modelData.new_value)
+                                        textFormat: Text.PlainText
                                         color: Theme.textPrimary
                                         font.pixelSize: Theme.fs(11)
                                         font.bold: true
@@ -919,6 +947,7 @@ Rectangle {
                                       .arg(root.showRawTokens
                                            ? (revisionBox.modelData.actor || "USER")
                                            : Fmt.revisionActorLabel(revisionBox.modelData.actor || ""))
+                                textFormat: Text.PlainText
                                 color: Theme.textSecondary
                                 font.pixelSize: Theme.fs(12)
                                 wrapMode: Text.WordWrap

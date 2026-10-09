@@ -43,6 +43,7 @@ ComboBox {
 
             Text {
                 Layout.fillWidth: true
+                textFormat: Text.PlainText
                 text: control.textRole.length > 0 ? (row.model[control.textRole] || "")
                                                   : String(row.model.modelData || "")
                 color: Theme.textPrimary
@@ -86,6 +87,7 @@ ComboBox {
     }
 
     contentItem: Text {
+        textFormat: Text.PlainText
         leftPadding: 10
         rightPadding: 24
         text: control.displayText
@@ -188,6 +190,7 @@ ComboBox {
                     bottomPadding: 3
                     leftPadding: 8
                     text: control.sectionLabel(section)
+                    textFormat: Text.PlainText
                     color: Theme.textMuted
                     font.pixelSize: Theme.fs(11)
                     font.weight: Font.DemiBold

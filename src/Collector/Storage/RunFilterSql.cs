@@ -71,9 +71,13 @@ public static class RunFilterSql
         if (forStatistics)
         {
             // "Confirmed mentor" per docs/statistics-definitions.md section 1: an automatic
-            // or imported run only counts when the state machine identified the roulette,
-            // and a manual run counts by definition.
-            clauses.Add("(source = 'MANUAL' OR mentor_roulette_id IS NOT NULL)");
+            // run counts when capture identified the roulette; imported personal history
+            // additionally uses its explicit ownership confirmation and complete game facts.
+            clauses.Add("(source = 'MANUAL' OR mentor_roulette_id IS NOT NULL OR " +
+                "EXISTS (SELECT 1 FROM run_import_metadata im WHERE im.run_id = mentor_runs.run_id AND im.mentor_confirmed = 1))");
+            clauses.Add("NOT (source = 'IMPORT' AND EXISTS (SELECT 1 FROM run_import_metadata im WHERE im.run_id = mentor_runs.run_id) AND " +
+                "(pending_review = 1 OR result = 'UNKNOWN' OR (result != 'CANCELLED_BEFORE_ENTRY' AND " +
+                "(entered_at_utc IS NULL OR (result = 'COMPLETED' AND ended_at_utc IS NULL)))))");
             // A run still in flight is stored as UNKNOWN with no end time and no review flag. It
             // has no outcome yet, so counting it lowers the completion rate for exactly as long
             // as the duty lasts (docs/statistics-definitions.md section 0). An unfinished run

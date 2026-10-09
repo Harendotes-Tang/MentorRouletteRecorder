@@ -884,6 +884,11 @@ void DesktopTests::appController_mentorJobChoicesExcludeLimitedJobsButKeepTheirN
 
     // Old/imported records still need the complete catalogue for display.
     const mr::JobCatalog catalogue;
+    QCOMPARE(controller.battleJobOptions(), catalogue.battleJobs());
+    QSet<int> catalogueChoices;
+    for (const QVariant &value : catalogue.battleJobs())
+        catalogueChoices.insert(value.toMap().value(QStringLiteral("job_id")).toInt());
+    QCOMPARE(catalogueChoices, mentorJobs);
     QCOMPARE(catalogue.jobName(36), QString::fromUtf8("青魔法师"));
     QCOMPARE(catalogue.jobName(43), QString::fromUtf8("驯兽师"));
 }

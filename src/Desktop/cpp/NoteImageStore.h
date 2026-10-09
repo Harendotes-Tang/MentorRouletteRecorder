@@ -38,6 +38,8 @@ class NoteImageStore : public QObject
     /// The root folder the way Windows shows it, for the hint under the strip.
     Q_PROPERTY(QString rootDirectoryNative READ rootDirectoryNative CONSTANT)
     Q_PROPERTY(int maxImagesPerRun READ maxImagesPerRun CONSTANT)
+    /// Enables an image-only Paste shortcut; text-only clipboards keep normal text paste.
+    Q_PROPERTY(bool clipboardHasImage READ clipboardHasImage NOTIFY clipboardChanged)
 
 public:
     /// Folder under the install directory.
@@ -104,6 +106,12 @@ public:
     Q_INVOKABLE QVariantMap addFile(const QString &runId, const QString &sourcePath);
     /// pickImage() followed by addFile(); ok with nothing added when cancelled.
     Q_INVOKABLE QVariantMap addPicked(const QString &runId);
+    /// Copies the current clipboard image immediately, exactly as addPicked().
+    /// Encoded clipboard data is bounded before decode; a temporary PNG passes
+    /// through commit()'s existing size/count/copy checks and is then removed.
+    /// A missing or invalid image returns {ok:false,error,added:[],removed:[]}.
+    Q_INVOKABLE QVariantMap addClipboard(const QString &runId);
+    bool clipboardHasImage() const;
     Q_INVOKABLE QVariantMap removeOne(const QString &runId, const QString &path);
     /// file:/// URL for an Image source.
     Q_INVOKABLE static QString urlFor(const QString &path);
@@ -114,6 +122,8 @@ public:
 Q_SIGNALS:
     /// The folder of \a runId changed through commit().
     void imagesChanged(const QString &runId);
+    /// The system clipboard changed; no data is decoded by this notification.
+    void clipboardChanged();
 
 private:
     struct Inspection {

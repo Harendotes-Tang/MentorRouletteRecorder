@@ -99,6 +99,10 @@ CloseApplications=yes
 RestartApplications=no
 MinVersion=10.0
 ShowLanguageDialog=no
+; Use Chinese by default on every Windows locale and after an English install.
+; An explicitly supplied /LANG can still choose a registered language.
+LanguageDetectionMethod=none
+UsePreviousLanguage=no
 VersionInfoVersion={#AppVersionNumeric}
 VersionInfoProductName={#AppNameEn}
 VersionInfoDescription={#AppNameEn} Setup
@@ -160,6 +164,7 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 ; %LOCALAPPDATA%\MentorRecorder and are never touched by an upgrade.
 Type: filesandordirs; Name: "{app}\protocol-profiles"
 Type: filesandordirs; Name: "{app}\qml"
+Type: filesandordirs; Name: "{app}\ocr"
 Type: filesandordirs; Name: "{app}\plugins"
 Type: filesandordirs; Name: "{app}\docs"
 Type: filesandordirs; Name: "{app}\generic"

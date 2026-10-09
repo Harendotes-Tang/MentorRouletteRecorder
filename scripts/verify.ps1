@@ -496,7 +496,14 @@ $required = @(
     @{ Path = 'docs\privacy-boundary.md'; Why = '硬边界定义' }
     @{ Path = 'docs\third-party-licenses.md'; Why = '许可证分析' }
     @{ Path = 'docs\release-checklist.md';    Why = 'V1 验收清单' }
+    @{ Path = 'docs\licenses\ocr\dependency-manifest.json'; Why = '固定离线 OCR 依赖清单' }
 )
+
+. (Join-Path $PSScriptRoot 'ocr-runtime.ps1')
+$ocrLicenceManifest = Read-OcrDependencyManifest -RepoRoot $RepoRoot
+foreach ($file in $ocrLicenceManifest.files | Where-Object origin -EQ 'repository') {
+    $required += @{ Path = $file.source_path; Why = '随包 OCR 依赖许可证' }
+}
 
 $missing = @()
 foreach ($item in $required) {
@@ -512,6 +519,28 @@ foreach ($item in $required) {
 
 if ($missing.Count -gt 0) {
     Add-Failure 'licence-material' '缺少必须随发布一起提供的文件。'
+}
+else {
+    try {
+        foreach ($file in $ocrLicenceManifest.files | Where-Object origin -EQ 'repository') {
+            if ((Get-FileHash -LiteralPath (Join-Path $RepoRoot $file.source_path) -Algorithm SHA256).Hash.ToLowerInvariant() -ne $file.sha256) {
+                throw ("OCR 许可证哈希不一致: {0}" -f $file.source_path)
+            }
+        }
+        Write-Host '  [ok] OCR 许可证与固定依赖清单一致。' -ForegroundColor Green
+    }
+    catch { Add-Failure 'ocr-licence-material' $_.Exception.Message }
+}
+
+Write-Head '离线 OCR 运行验证 / Offline OCR runtime'
+$ocrVerifiedOutput = Join-Path $BuildDir 'src/Desktop/ocr'
+if (Test-Path -LiteralPath $ocrVerifiedOutput) {
+    try { Test-OcrRuntime -RuntimeDirectory $ocrVerifiedOutput -RepoRoot $RepoRoot | Out-Null }
+    catch { Add-Failure 'ocr-runtime' $_.Exception.Message }
+}
+else {
+    $skipped.Add('ocr-runtime')
+    Write-Host '  [skipped] 构建目录未部署 OCR，本次没有验证截图识别依赖；CSV/XLSX/JSON 等导入检查仍适用。' -ForegroundColor Yellow
 }
 
 # ---------------------------------------------------------------- summary --------

@@ -81,7 +81,7 @@ public static class Wire
     {
         ArgumentNullException.ThrowIfNull(run);
 
-        return new JsonObject
+        var rendered = new JsonObject
         {
             ["run_id"] = run.RunId,
             ["revision"] = run.Revision,
@@ -120,6 +120,20 @@ public static class Wire
             ["created_at_utc"] = UtcTimestamp.ToText(run.CreatedAtUtc),
             ["updated_at_utc"] = UtcTimestamp.ToText(run.UpdatedAtUtc),
         };
+        if (run.ImportMetadata is { } metadata)
+        {
+            rendered["import_metadata"] = new JsonObject
+            {
+                ["source_kind"] = metadata.SourceKind,
+                ["source_name"] = metadata.SourceName,
+                ["source_recorded_at"] = metadata.SourceRecordedAt,
+                ["source_recorded_at_utc"] = UtcTimestamp.ToTextOrNull(metadata.SourceRecordedAtUtc),
+                ["imported_at_utc"] = UtcTimestamp.ToText(metadata.ImportedAtUtc),
+                ["mentor_confirmed"] = metadata.MentorConfirmed,
+                ["incomplete"] = run.IsIncompleteImport,
+            };
+        }
+        return rendered;
     }
 
     /// <summary>Builds a <c>$defs/RunReflection</c> object, or JSON null.</summary>

@@ -23,6 +23,7 @@ RowLayout {
 
     Text {
         id: label
+        textFormat: Text.PlainText
         Layout.fillWidth: true
         color: root.color
         font.pixelSize: Theme.eorzea ? 12 : 13

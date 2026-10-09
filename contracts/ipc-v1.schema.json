@@ -37,7 +37,7 @@
         "GetDungeonStats", "GetJobStats", "GetResultStats", "CreateManualRun", "CorrectRun",
         "SoftDeleteRun", "RestoreRun", "GetRunRevisions", "UpdateAchievementBaseline", "ExportCsv",
         "ExportJson", "BackupDatabase", "SubscribeLiveEvents", "ExportDiagnosticsReport",
-        "SetRunReflection", "GetReflectionSummary",
+        "SetRunReflection", "GetReflectionSummary", "PreviewRunImport", "CommitRunImport",
         "StartCaptureValidation", "GetCaptureValidationStatus", "AddCaptureValidationMarker", "StopCaptureValidation",
         "UndoRevision", "GetRunEvents", "GetCaptureSettings", "UpdateCaptureSettings",
         "QueryCandidateObservations", "ReviewCandidateObservation", "ExportCandidateEvidence",
@@ -69,8 +69,8 @@
     "DetectionConfidence": { "type": "string", "enum": ["HIGH", "MEDIUM", "LOW", "NONE"] },
     "ReflectionMood": {
       "type": "string",
-      "enum": ["good", "ok", "bad"],
-      "description": "How the run felt to the mentor. Lower case because it is a value the user picks in the UI, not a captured domain enum. UI labels: good = 顺利, ok = 一般, bad = 糟心."
+      "enum": ["good", "ok", "bad", "unknown"],
+      "description": "User-selected good = 顺利, ok = 一般, bad = 糟心. unknown means an imported source did not record a mood; only IMPORT records may store it."
     },
     "Region": { "type": "string", "enum": ["CN", "GLOBAL", "UNKNOWN"] },
     "Role": { "type": "string", "enum": ["TANK", "HEALER", "DPS", "UNKNOWN"] },
@@ -223,8 +223,96 @@
           "oneOf": [{ "$ref": "#/$defs/RunReflection" }, { "type": "null" }],
           "description": "导随心得, the user's own diary entry for this run (schema v3 table run_reflections). Present on every serialised Run and null when the run has none."
         },
+        "import_metadata": { "$ref": "#/$defs/RunImportMetadata" },
         "created_at_utc": { "$ref": "#/$defs/UtcTimestamp" },
         "updated_at_utc": { "$ref": "#/$defs/UtcTimestamp" }
+      }
+    },
+
+    "RunImportMetadata": {
+      "type": "object", "additionalProperties": false,
+      "required": ["source_kind", "source_name", "source_recorded_at", "source_recorded_at_utc", "imported_at_utc", "incomplete"],
+      "properties": {
+        "source_kind": { "$ref": "#/$defs/RunImportSourceKind" },
+        "source_name": { "type": ["string", "null"], "maxLength": 500 },
+        "source_recorded_at": { "type": ["string", "null"], "maxLength": 200 },
+        "source_recorded_at_utc": { "$ref": "#/$defs/NullableUtcTimestamp" },
+        "imported_at_utc": { "$ref": "#/$defs/UtcTimestamp" },
+        "mentor_confirmed": { "type": "boolean", "description": "Whether the imported source explicitly identifies personal mentor records; legacy projections may omit this field." },
+        "incomplete": { "type": "boolean", "description": "Pending or unknown gameplay facts exclude this imported history from statistics; null duration alone does not." }
+      }
+    },
+    "RunImportSourceKind": { "type": "string", "enum": ["CSV", "XLSX", "JSON", "BACKUP", "PASTE", "SCREENSHOT", "ROWS"] },
+    "PreviewRunImportRequest": {
+      "type": "object", "additionalProperties": false, "required": ["source_kind"],
+      "properties": {
+        "source_kind": { "$ref": "#/$defs/RunImportSourceKind" },
+        "file_path": { "type": ["string", "null"], "maxLength": 32000 },
+        "text": { "type": ["string", "null"], "maxLength": 2097152 },
+        "rows": { "type": "array", "maxItems": 5000, "items": { "type": "object" }, "description": "Canonical edited candidates take precedence over file/text. Screenshot pixels, OCR confidence and bounding boxes remain local to Desktop." },
+        "column_mapping": { "type": ["object", "null"], "maxProperties": 200, "additionalProperties": { "type": "string", "minLength": 1, "maxLength": 100 } },
+        "time_zone": { "type": ["string", "null"], "maxLength": 100 },
+        "source_name": { "type": ["string", "null"], "maxLength": 500 }
+      }
+    },
+    "CommitRunImportRequest": {
+      "type": "object", "additionalProperties": false,
+      "required": ["preview_id", "row_numbers", "confirm_own_records"],
+      "properties": {
+        "preview_id": { "$ref": "#/$defs/Uuid" },
+        "row_numbers": { "type": "array", "minItems": 1, "maxItems": 5000, "uniqueItems": true, "items": { "type": "integer", "minimum": 1 } },
+        "confirm_own_records": { "type": "boolean", "const": true }
+      }
+    },
+    "RunImportPreview": {
+      "type": "object", "additionalProperties": false,
+      "required": ["preview_id", "source_kind", "source_name", "rows", "summary"],
+      "properties": {
+        "preview_id": { "$ref": "#/$defs/Uuid" },
+        "source_kind": { "$ref": "#/$defs/RunImportSourceKind" },
+        "source_name": { "type": ["string", "null"] },
+        "rows": { "type": "array", "maxItems": 5000, "items": {
+          "type": "object", "additionalProperties": false,
+          "required": ["row_number", "status", "can_import", "incomplete", "candidate", "run", "errors", "warnings", "matching_run_id"],
+          "properties": {
+            "row_number": { "type": "integer", "minimum": 1 },
+            "status": { "type": "string", "enum": ["new", "duplicate", "conflict", "possible_duplicate", "invalid"] },
+            "can_import": { "type": "boolean" }, "incomplete": { "type": "boolean" },
+            "candidate": { "type": "object", "description": "Absent source fields remain absent; source_key must survive edits and a new preview." },
+            "run": { "oneOf": [{ "$ref": "#/$defs/Run" }, { "type": "null" }] },
+            "errors": { "type": "array", "items": { "type": "string" } },
+            "warnings": { "type": "array", "items": { "type": "string" } },
+            "matching_run_id": { "oneOf": [{ "$ref": "#/$defs/Uuid" }, { "type": "null" }] }
+          }
+        } },
+        "summary": {
+          "type": "object", "additionalProperties": false,
+          "required": ["new", "duplicate", "conflict", "possible_duplicate", "invalid", "incomplete", "total"],
+          "properties": {
+            "new": { "type": "integer", "minimum": 0 }, "duplicate": { "type": "integer", "minimum": 0 },
+            "conflict": { "type": "integer", "minimum": 0 }, "possible_duplicate": { "type": "integer", "minimum": 0 },
+            "invalid": { "type": "integer", "minimum": 0 }, "incomplete": { "type": "integer", "minimum": 0 },
+            "total": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    },
+    "RunImportCommit": {
+      "type": "object", "additionalProperties": false,
+      "required": ["preview_id", "imported_count", "duplicate_count", "conflict_count", "skipped_count", "replayed", "run_ids", "rows"],
+      "properties": {
+        "preview_id": { "$ref": "#/$defs/Uuid" },
+        "imported_count": { "type": "integer", "minimum": 0 }, "duplicate_count": { "type": "integer", "minimum": 0 },
+        "conflict_count": { "type": "integer", "minimum": 0 }, "skipped_count": { "type": "integer", "minimum": 0 },
+        "replayed": { "type": "boolean" }, "run_ids": { "type": "array", "items": { "$ref": "#/$defs/Uuid" } },
+        "rows": { "type": "array", "items": {
+          "type": "object", "additionalProperties": false, "required": ["row_number", "status", "run_id"],
+          "properties": {
+            "row_number": { "type": "integer", "minimum": 1 },
+            "status": { "type": "string", "enum": ["imported", "duplicate", "conflict", "skipped"] },
+            "run_id": { "oneOf": [{ "$ref": "#/$defs/Uuid" }, { "type": "null" }] }
+          }
+        } }
       }
     },
 
@@ -771,6 +859,8 @@
     "RequestPayloadBinding": {
       "description": "Binds message_type to its request payload schema. Response payload schemas are listed in $defs/Responses.",
       "allOf": [
+        { "if": { "properties": { "message_type": { "const": "PreviewRunImport" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/PreviewRunImportRequest" } } } },
+        { "if": { "properties": { "message_type": { "const": "CommitRunImport" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/CommitRunImportRequest" } } } },
         { "if": { "properties": { "message_type": { "const": "QueryCandidateObservations" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/QueryCandidateObservationsRequest" } } } },
         { "if": { "properties": { "message_type": { "const": "ReviewCandidateObservation" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/ReviewCandidateObservationRequest" } } } },
         { "if": { "properties": { "message_type": { "const": "ExportCandidateEvidence" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/ExportCandidateEvidenceRequest" } } } },
@@ -1414,6 +1504,8 @@
     "//responses": "======================= response payloads =======================",
 
     "Responses": {
+      "PreviewRunImport": { "$ref": "#/$defs/RunImportPreview" },
+      "CommitRunImport": { "$ref": "#/$defs/RunImportCommit" },
       "QueryCandidateObservations": { "$ref": "#/$defs/CandidateQueryResult" },
       "ReviewCandidateObservation": { "$ref": "#/$defs/CandidateReviewResult" },
       "ExportCandidateEvidence": { "$ref": "#/$defs/CandidateExportResult" },

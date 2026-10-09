@@ -10,6 +10,7 @@ Run by tools/publish_issue.sh and tools/sweep_issues.sh, which .github/workflows
   push-failed    turn the last result into a maintainer error once the workflow gave up pushing
   field          print one validated field of the last result, for the shell
   event-field    print the issue number or the submitter's login from an event file, validated
+  unchanged      guard a push or reply against a freshly fetched REST Issue snapshot
   pending        list open submissions nobody has answered yet, from `gh api --paginate` output
   wrap-event     wrap a REST issue object as an event file
   revoke         maintainer: mark a code revoked in index.json, recomputing the conflict flags; every
@@ -20,8 +21,9 @@ Run by tools/publish_issue.sh and tools/sweep_issues.sh, which .github/workflows
   report         validate one "report a wrong calibration" issue, for labelling and one reply
 
 ``check`` and ``update-index`` read whether the issue is still open and still unanswered from
-``--live`` (``gh issue view --json state,labels``, taken just now) when it is given, as ``report``
-does. A submission left open for a maintainer carries an answer label, and the event of an edit, a
+``--live`` (the full REST Issue from ``gh api repos/<repo>/issues/<number>``) when it is given.
+Its author, title and body also decide: the queued event is only an issue-number locator.
+A submission left open for a maintainer carries an answer label, and the event of an edit, a
 relabel or a delivery queued behind the run that answered it still shows the labels of the moment it
 fired, so only the issue as it is now can tell that it was answered. Without ``--live`` the event's
 own state and labels decide, and an answer label skips the issue just the same.
@@ -32,7 +34,7 @@ form was filled in, which labels the issue gets, and what the single reply says.
 left open, it takes the state and the labels from ``--live`` (the issue as it is now) rather than from
 the event, so a redelivered event cannot answer the same report twice.
 
-Untrusted input - the issue title, the body, the submitter's login - is read only from the event file
+Untrusted input - the issue title, the body, the submitter's login - is read only from JSON files
 named on the command line, never from arguments or the environment. Every decision writes result.json
 and comment.md into --out and prints the result as one line of ASCII JSON, so no issue text can start
 a line of the Actions log (and be read as a workflow command).
@@ -436,9 +438,18 @@ def _read_issue(event: Any, live: Any = FROM_EVENT) -> tuple:
         return None, Result(SKIPPED, NOT_LABELLED, issue=number)
     if labels & ANSWER_LABELS:
         return None, Result(SKIPPED, ALREADY_ANSWERED, issue=number)
+    if live is not FROM_EVENT:
+        # Never fill a partial or mismatched live response with stale event contents.
+        if (not _positive_int(live.get("number")) or live["number"] != number or "pull_request" in live
+                or not isinstance(live.get("title"), str) or "body" not in live
+                or (live["body"] is not None and not isinstance(live["body"], str))
+                or not isinstance(live.get("updated_at"), str)):
+            return None, Result(SKIPPED, EVENT_UNREADABLE, issue=number)
+        issue = live
     user = issue.get("user")
     if not isinstance(user, dict) or not _positive_int(user.get("id")) or not isinstance(user.get("login"), str):
-        return None, Result(ERROR, EVENT_UNREADABLE, issue=number)
+        status = ERROR if live is FROM_EVENT else SKIPPED
+        return None, Result(status, EVENT_UNREADABLE, issue=number)
     return _Issue(number, user["id"], user["login"], user.get("type"), issue.get("title"), issue.get("body")), None
 
 
@@ -515,7 +526,7 @@ def _from_outcome(number: int, outcome: repo_index.SubmissionOutcome) -> Result:
 def evaluate(repo: Path, event: Any, account: Any, now: dt.datetime, commit: str | None, live: Any = FROM_EVENT) -> tuple:
     """``(Result, SubmissionOutcome or None, code text or None)`` for one issue event.
 
-    ``live`` is ``gh issue view --json state,labels`` taken just now, or ``FROM_EVENT``.
+    ``live`` is a full REST Issue taken just now, or ``FROM_EVENT`` for offline callers.
     """
     submitted, stop = _read_issue(event, live)
     if stop is not None:
@@ -699,11 +710,40 @@ def command_event_field(args: argparse.Namespace) -> int:
             return 3
         _out(str(issue["number"]))
         return 0
+    if args.live is not None:
+        _, live = _load_json(args.live)
+        submitted, stop = _read_issue(event, live)
+        if stop is not None:
+            return 3
+        if _LOGIN.fullmatch(submitted.login) is None:
+            return 3
+        _out(submitted.login)
+        return 0
     user = issue.get("user")
     login = user.get("login") if isinstance(user, dict) else None
     if not isinstance(login, str) or _LOGIN.fullmatch(login) is None:
         return 3
     _out(login)
+    return 0
+
+
+def command_unchanged(args: argparse.Namespace) -> int:
+    """Guard a pending push/reply with a fresh Issue, without interpreting shell input.
+
+    Before a comment, updated_at catches even an edit-and-restore. After our own comment it changes
+    legitimately, so compare the complete submitted contents instead. These separate Issue-fetch,
+    git-push and Issue-close operations do not perform an atomic comparison against a concurrent
+    edit; each mutation still needs this guard.
+    """
+    _, original = _load_json(args.issue)
+    _, current = _load_json(args.live)
+    event = {"issue": original}
+    before, stop_before = _read_issue(event, original)
+    after, stop_after = _read_issue(event, current)
+    if stop_before is not None or stop_after is not None or before != after:
+        return 1
+    if not args.after_comment and original["updated_at"] != current["updated_at"]:
+        return 1
     return 0
 
 
@@ -840,8 +880,7 @@ def _parser() -> argparse.ArgumentParser:
         sub.add_argument("--repo", required=True, help="root of the calibration repository checkout")
         sub.add_argument("--event", required=True, help="path of the GitHub issues event JSON")
         sub.add_argument("--account", required=True, help="path of `gh api users/<login>` output")
-        sub.add_argument("--live", help="path of `gh issue view --json state,labels` output; "
-                                        "default: the event's own state and labels")
+        sub.add_argument("--live", help="path of a full REST Issue JSON; default: the event's Issue")
         sub.add_argument("--out", required=True, help="directory for result.json and comment.md")
         sub.add_argument("--now", help="UTC time to decide at (tests); default: the clock")
         return sub
@@ -863,8 +902,15 @@ def _parser() -> argparse.ArgumentParser:
 
     event_field = commands.add_parser("event-field")
     event_field.add_argument("--event", required=True)
+    event_field.add_argument("--live", help="full REST Issue JSON used for the current author")
     event_field.add_argument("--name", required=True, choices=("number", "login"))
     event_field.set_defaults(run=command_event_field)
+
+    unchanged = commands.add_parser("unchanged")
+    unchanged.add_argument("--issue", required=True, help="REST Issue snapshot used for the decision")
+    unchanged.add_argument("--live", required=True, help="fresh REST Issue JSON")
+    unchanged.add_argument("--after-comment", action="store_true", help="ignore our comment's updated_at change")
+    unchanged.set_defaults(run=command_unchanged)
 
     pending = commands.add_parser("pending")
     pending.add_argument("--issues", required=True)

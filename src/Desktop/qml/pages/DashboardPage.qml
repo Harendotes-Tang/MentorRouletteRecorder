@@ -31,6 +31,7 @@ ScrollView {
     signal reflectRequested(var run, string kicker)
     // Jumps to the history page with `run` selected on the 心得 tab.
     signal openRunHistoryRequested(var run)
+    signal openReflectionsRequested()
 
     // The newest run still waiting for a result. The controller only fetches it
     // while something is actually pending, so an empty map is the normal case.
@@ -591,6 +592,7 @@ ScrollView {
                                     Layout.fillWidth: true
                                     visible: !parent.isJob
                                     text: modelData.value
+                                    textFormat: Text.PlainText
                                     color: Theme.textPrimary
                                     font.pixelSize: Theme.fs(13)
                                     font.bold: true
@@ -612,6 +614,7 @@ ScrollView {
 
                                     Text {
                                         text: modelData.value
+                                        textFormat: Text.PlainText
                                         color: Theme.textPrimary
                                         font.pixelSize: Theme.fs(13)
                                         font.bold: true
@@ -782,6 +785,11 @@ ScrollView {
 
                 Item { Layout.fillWidth: true }
 
+                AppButton {
+                    objectName: "openReflectionLibraryButton"
+                    text: qsTr("全部心得")
+                    onClicked: page.openReflectionsRequested()
+                }
                 AppButton {
                     text: qsTr("补录笔记")
                     onClicked: page.backfillReflection()

@@ -15,7 +15,7 @@ public sealed class MigrationTests
         using var fixture = new TestDatabase();
 
         Assert.Equal(MigrationRunner.LatestVersion, fixture.Database.SchemaVersion);
-        Assert.Equal(8, MigrationRunner.LatestVersion);
+        Assert.Equal(9, MigrationRunner.LatestVersion);
 
         using var command = fixture.Database.CreateCommand();
         command.CommandText =
@@ -42,6 +42,7 @@ public sealed class MigrationTests
                 (6, "0006_candidate_window_samples.sql"),
                 (7, "0007_candidate_research_payload_512.sql"),
                 (8, "0008_run_duty_source.sql"),
+                (9, "0009_personal_record_import.sql"),
             },
             applied);
     }

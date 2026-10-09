@@ -196,6 +196,11 @@ public sealed class RunMutationService
             // player's to give. The run the state machine is still following has that shape already
             // and may be corrected as before (audit 2026-10-03, CS5-X2).
             var settled = candidate with { PendingReview = candidate.PendingReview && !acknowledgesReview };
+            if (settled.Source == RunSource.Import && settled.ImportMetadata is not null && acknowledgesReview)
+            {
+                // A confirmed imported outcome crosses the same endpoint checks as other formal records.
+                RunMutationValidation.ValidateFinalValue(settled, true, false);
+            }
             if (RunMutationRules.ReadsAsInFlight(settled) && !RunMutationRules.ReadsAsInFlight(before))
             {
                 throw new CollectorException(

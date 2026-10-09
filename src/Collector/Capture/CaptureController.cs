@@ -1149,7 +1149,7 @@ public sealed class CaptureController : IDisposable
             // gave up on (AbandonedCount) is deliberately not reported: a session that is
             // already over has no sequence left to have a gap in, and reporting it would turn
             // a correctly finished duty into EVENT_SEQUENCE_GAP (review finding H-7).
-            FlushDropped(run.CaptureSessionId);
+            FlushDropped(run.CaptureSessionId, _generation, faultOnError: false);
             ReportHealth(new Protocol.Calibration.CaptureSessionHealth(
                 run.CaptureSessionId, silentReason, preexisting, finalIngress.AdapterDropped,
                 queue?.DroppedCount ?? 0, finalIngress.DamagedGameDirections));
@@ -1586,7 +1586,7 @@ public sealed class CaptureController : IDisposable
                 session = run.CaptureSessionId;
             }
 
-            FlushDropped(session);
+            FlushDropped(session, generation);
         });
     }
 
@@ -1615,7 +1615,9 @@ public sealed class CaptureController : IDisposable
     /// with nothing pending; safe to call from teardown, where it is the final report.
     /// </summary>
     /// <param name="captureSessionId">Session the drops belong to.</param>
-    private void FlushDropped(string captureSessionId)
+    /// <param name="generation">Generation the reporting queue belongs to.</param>
+    /// <param name="faultOnError">False for the final report after the source and queue have stopped.</param>
+    private void FlushDropped(string captureSessionId, long generation, bool faultOnError = true)
     {
         var dropped = Interlocked.Exchange(ref _pendingDropped, 0);
         if (dropped <= 0)
@@ -1630,6 +1632,8 @@ public sealed class CaptureController : IDisposable
         catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
         {
             _services.Logger.WriteError("capture", "lifecycle_dropped_failed", ex);
+            if (faultOnError)
+                OnFault("协议处理或写库失败，抓包已停止以避免漏记。", ex, generation);
         }
     }
 
@@ -1705,6 +1709,7 @@ public sealed class CaptureController : IDisposable
         catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
         {
             _services.Logger.WriteError("capture", "lifecycle_connection_lost_failed", ex);
+            OnFault("协议处理或写库失败，抓包已停止以避免漏记。", ex, generation);
         }
     }
 
@@ -1761,6 +1766,7 @@ public sealed class CaptureController : IDisposable
         catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
         {
             _services.Logger.WriteError("capture", "lifecycle_direction_damaged_failed", ex);
+            OnFault("协议处理或写库失败，抓包已停止以避免漏记。", ex, generation);
         }
     }
 

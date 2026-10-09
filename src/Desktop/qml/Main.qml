@@ -159,6 +159,26 @@ ApplicationWindow {
         reflectionDialog.openForRun(run, kicker || "")
     }
 
+    function openShare(run) {
+        reflectionShareDialog.openForRun(run)
+    }
+
+    function openImportDialog() {
+        importDialog.openDialog()
+    }
+
+    Connections {
+        target: App
+        function onCurrentPageChanged() {
+            if (typeof Reflections !== "undefined")
+                Reflections.setActive(App.currentPage === 7)
+        }
+        function onReflectionSaved(runId) {
+            if (typeof Reflections !== "undefined")
+                Reflections.reload()
+        }
+    }
+
     // Every reason-carrying action shares one dialog: 软删除 / 恢复 / 撤销修正 /
     // 确认复核. All four are refused by the Collector without a reason
     // (ERR_REASON_REQUIRED), so none of them may have a one-click path.
@@ -682,6 +702,7 @@ ApplicationWindow {
                                 model: [
                                     { index: 0, icon: "layout-dashboard", label: qsTr("总览") },
                                     { index: 1, icon: "history", label: qsTr("历史记录") },
+                                    { index: 7, icon: "file-check", label: qsTr("全部心得") },
                                     { index: 2, icon: "swords", label: qsTr("副本统计") },
                                     { index: 3, icon: "users", label: qsTr("职业统计") },
                                     { index: 4, icon: "activity", label: qsTr("捕获诊断") },
@@ -808,6 +829,7 @@ ApplicationWindow {
                                 settingsPage.editBaseline()
                             }
                             onOpenPendingReviewRequested: App.showPendingReview()
+                            onOpenReflectionsRequested: App.navigate(7)
                             onReflectRequested: function(run, kicker) {
                                 window.openReflection(run, kicker)
                             }
@@ -847,6 +869,7 @@ ApplicationWindow {
                                                    - historyPage.mapFromItem(recordingNotice, 0, 0).y)
                             }
                             onOpenManualRequested: window.openCreateDialog()
+                            onOpenImportRequested: window.openImportDialog()
                             onOpenCorrectRequested: window.openCorrectDialog()
                             onOpenDeleteRequested: window.openReasonDialog("delete")
                             onOpenRestoreRequested: window.openReasonDialog("restore")
@@ -855,6 +878,7 @@ ApplicationWindow {
                             onReflectRequested: function(run) {
                                 window.openReflection(run, "")
                             }
+                            onShareRequested: function(run) { window.openShare(run) }
                         }
                         }
 
@@ -896,6 +920,31 @@ ApplicationWindow {
                         }
 
                         PageHost {
+                            index: 7
+                            anchors.fill: parent
+                            ReflectionsPage {
+                                id: reflectionsPage
+                                anchors.fill: parent
+                                reservedBottom: {
+                                    if (!recordingNotice.visible) return 0
+                                    void recordingNotice.height
+                                    void reflectionsPage.height
+                                    void window.height
+                                    void window.width
+                                    return Math.max(0, reflectionsPage.height
+                                        - reflectionsPage.mapFromItem(recordingNotice, 0, 0).y)
+                                }
+                                onReflectRequested: function(run) { window.openReflection(run, "") }
+                                onShareRequested: function(run) { window.openShare(run) }
+                                onOpenRunRequested: function(run) {
+                                    App.navigate(1)
+                                    App.selectRun(run)
+                                    historyPage.detailTab = "refl"
+                                }
+                            }
+                        }
+
+                        PageHost {
                             index: 5
                             anchors.fill: parent
 
@@ -905,6 +954,7 @@ ApplicationWindow {
                             anchors.fill: parent
                             onOpenBaselineRequested: baselineDialog.openDialog(true)
                             onOpenDisclosureRequested: disclosureDialog.openDialog()
+                            onOpenImportRequested: window.openImportDialog()
                         }
                         }
                     }
@@ -951,6 +1001,17 @@ ApplicationWindow {
     ReflectionDialog {
         id: reflectionDialog
         objectName: "reflectionDialog"
+        anchors.centerIn: Overlay.overlay
+    }
+
+    ReflectionShareDialog {
+        id: reflectionShareDialog
+        anchors.centerIn: Overlay.overlay
+    }
+
+    ImportRecordsDialog {
+        id: importDialog
+        objectName: "importRecordsDialog"
         anchors.centerIn: Overlay.overlay
     }
 
@@ -1143,6 +1204,16 @@ ApplicationWindow {
     }
 
     Component.onCompleted: {
+        if (typeof Reflections !== "undefined")
+            Reflections.setActive(App.currentPage === 7)
+        if (typeof ForceOpenImport !== "undefined" && ForceOpenImport) {
+            Qt.callLater(window.openImportDialog)
+            return
+        }
+        if (typeof ForceOpenShare !== "undefined" && ForceOpenShare) {
+            shareSetup.start()
+            return
+        }
         // --show-disclosure opens the explanation for a screenshot.
         if (window.forceDisclosure) {
             disclosureDialog.openDialog()
@@ -1152,5 +1223,21 @@ ApplicationWindow {
         // asks for it on any run.
         if (window.forceBaselineDialog || (App.firstRun && !window.suppressOnboarding))
             baselineDialog.openDialog()
+    }
+
+    Timer {
+        id: shareSetup
+        interval: 150
+        repeat: true
+        running: false
+        onTriggered: {
+            const recent = App.reflectionSummary.recent || []
+            if (recent.length === 0) return
+            stop()
+            const run = Object.assign({}, recent[0].run)
+            // GetReflectionSummary stores its entry separately from the run.
+            run.reflection = recent[0].reflection
+            window.openShare(run)
+        }
     }
 }

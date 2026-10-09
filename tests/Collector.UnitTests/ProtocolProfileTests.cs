@@ -228,6 +228,36 @@ public sealed class ProtocolProfileTests : IDisposable
     }
 
     [Fact]
+    public void AnUnreadableFixtureRefusesOnlyItsProfileAndCatalogLoadingContinues()
+    {
+        var fixturePath = Path.Combine(_directory, "locked-fixture.bin");
+        File.WriteAllText(fixturePath, "fixture content");
+        var document = ProfileTestFiles.Valid();
+        document["fixtures"] = new List<object>
+        {
+            new Dictionary<string, object>
+            {
+                ["path"] = "locked-fixture.bin",
+                ["sha256"] = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(fixturePath))).ToLowerInvariant(),
+            },
+        };
+        var path = ProfileTestFiles.Write(_directory, "test-fixlocked", document);
+        var healthyPath = ProfileTestFiles.Write(_directory, "test-healthy", ProfileTestFiles.Valid());
+        using var locked = new FileStream(fixturePath, FileMode.Open, FileAccess.Read, FileShare.None);
+
+        var report = ProfileLoader.Validate(path);
+
+        Assert.False(report.Ok);
+        Assert.Null(report.Profile);
+        Assert.False(report.FixtureVerified);
+        Assert.Contains(report.Errors, error => error.Code == "E_PROFILE_FIXTURE_UNREADABLE");
+        var catalog = ProfileCatalog.LoadMerged(_directory, null);
+        Assert.Contains(catalog.Entries, entry => entry.Path == healthyPath && entry.Profile is not null);
+        Assert.Contains(catalog.Entries, entry => entry.Path == path &&
+            entry.Report.Errors.Any(error => error.Code == "E_PROFILE_FIXTURE_UNREADABLE"));
+    }
+
+    [Fact]
     public void ProfileReferencingAMissingFixture_LoadsButIsNotVerified()
     {
         var document = ProfileTestFiles.Valid();

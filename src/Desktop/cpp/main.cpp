@@ -44,6 +44,9 @@
 #include "MockBackend.h"
 #include "Motion.h"
 #include "NoteImageStore.h"
+#include "ImportRecordsController.h"
+#include "ReflectionLibraryController.h"
+#include "ReflectionShareController.h"
 #include "QmlWarningCounter.h"
 #include "RoleCatalog.h"
 #include "RunFormValidator.h"
@@ -521,7 +524,7 @@ int main(int argc, char *argv[])
         QStringLiteral("Render one frame offscreen into <file> and exit."),
         QStringLiteral("file"));
     QCommandLineOption pageOption(
-        QStringLiteral("page"), QStringLiteral("Page 1-7 to show (screenshot mode)."),
+        QStringLiteral("page"), QStringLiteral("Page 1-8 to show (screenshot mode)."),
         QStringLiteral("n"), QStringLiteral("1"));
     QCommandLineOption themeOption(
         QStringLiteral("theme"), QStringLiteral("dark, light or system."),
@@ -614,6 +617,12 @@ int main(int argc, char *argv[])
         QStringLiteral("Pin the UI style for this run without touching desktop.ini: classic, "
                        "eorzea or harendotes. Works with either backend."),
         QStringLiteral("style"), QString());
+    QCommandLineOption openShareOption(
+        QStringLiteral("mock-open-share"),
+        QStringLiteral("Open the reflection share-image preview on the first reflection."));
+    QCommandLineOption openImportOption(
+        QStringLiteral("mock-open-import"),
+        QStringLiteral("Open the personal record import dialog."));
     QCommandLineOption settingsTabOption(
         QStringLiteral("settings-tab"),
         QStringLiteral("Settings page tab to open: general, tts, goal, data or about. "
@@ -691,6 +700,8 @@ int main(int argc, char *argv[])
     parser.addOption(openEditOption2);
     parser.addOption(detailTabOption);
     parser.addOption(openReflectionOption);
+    parser.addOption(openShareOption);
+    parser.addOption(openImportOption);
     parser.addOption(uiStyleOption);
     parser.addOption(settingsTabOption);
     parser.addOption(sizeOption);
@@ -797,6 +808,8 @@ int main(int argc, char *argv[])
             || parser.isSet(openEditOption)
             || parser.isSet(midstreamOption)
             || parser.isSet(openReflectionOption)
+            || parser.isSet(openShareOption)
+            || parser.isSet(openImportOption)
             || parser.isSet(speechOption)
             || parser.isSet(speechConfirmOption)
             || parser.isSet(speechPreviewOption))) {
@@ -945,6 +958,18 @@ int main(int argc, char *argv[])
     if (selectedBackend == QLatin1String("ipc"))
         collector = std::make_unique<mr::CollectorProcess>();
     mr::AppController controller(backend, &settings, nullptr, collector.get());
+    mr::ReflectionLibraryController reflections(backend);
+    mr::ReflectionShareController reflectionShare;
+    auto *importRecords = new mr::ImportRecordsController(&app);
+    importRecords->setBackend(backend);
+    QObject::connect(importRecords, &mr::ImportRecordsController::imported, &controller,
+                     [&controller] { controller.refreshAll(); });
+    QObject::connect(&controller, &mr::AppController::currentPageChanged,
+                     &reflections, [&controller, &reflections] {
+        reflections.setActive(controller.currentPage() == 7);
+    });
+    QObject::connect(&controller, &mr::AppController::reflectionsChanged,
+                     &reflections, &mr::ReflectionLibraryController::reload);
     // AppController chooses 立即安装's launcher: the shell for the IPC backend,
     // one that starts nothing for the mock (pinned by UpdateInstallTests).
     // The validation and candidate scenarios exercise maintainer tools that a
@@ -982,6 +1007,9 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty(QStringLiteral("Roles"), roles);
     engine.rootContext()->setContextProperty(QStringLiteral("RunForm"), validator);
     engine.rootContext()->setContextProperty(QStringLiteral("NoteImages"), noteImages);
+    engine.rootContext()->setContextProperty(QStringLiteral("Reflections"), &reflections);
+    engine.rootContext()->setContextProperty(QStringLiteral("ReflectionShare"), &reflectionShare);
+    engine.rootContext()->setContextProperty(QStringLiteral("ImportRecords"), importRecords);
     engine.rootContext()->setContextProperty(QStringLiteral("Settings"), &settings);
     engine.rootContext()->setContextProperty(QStringLiteral("Tts"), controller.tts());
     engine.rootContext()->setContextProperty(QStringLiteral("GraphsAvailable"),
@@ -1020,6 +1048,10 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty(QStringLiteral("ForceDetailTab"), detailTab);
     engine.rootContext()->setContextProperty(QStringLiteral("ForceOpenReflection"),
                                              parser.isSet(openReflectionOption));
+    engine.rootContext()->setContextProperty(QStringLiteral("ForceOpenShare"),
+                                             parser.isSet(openShareOption));
+    engine.rootContext()->setContextProperty(QStringLiteral("ForceOpenImport"),
+                                             parser.isSet(openImportOption));
     const bool openDetail = parser.isSet(openDetailOption)
                             || parser.isSet(openEditOption)
                             || parser.isSet(openReflectionOption)

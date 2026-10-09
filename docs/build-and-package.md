@@ -341,7 +341,8 @@ Collector，界面显示“未找到 Collector”，Npcap 与 FF14 等状态停�
 | 脚本 | 作用 |
 |---|---|
 | `bootstrap.ps1` | 检查 .NET 8 运行时、CMake、Ninja、MinGW、Qt 路径；报告 Npcap 是否安装（**只检测，不下载**） |
-| `build.ps1` | `dotnet build -c Release`；若 `src/Desktop/CMakeLists.txt` 存在则再执行 CMake configure 与 build，并将完整的 Collector 运行目录部署到 Desktop 同目录，供默认 IPC 模式联调 |
+| `bootstrap-ocr.ps1` | 从本地固定发行包及模型准备离线 OCR，核对 SHA256 后用 7-Zip 提取；不联网、不执行安装器、不改 PATH |
+| `build.ps1` | `dotnet build -c Release`；若 `src/Desktop/CMakeLists.txt` 存在则再执行 CMake configure 与 build，将完整的 Collector 及已准备的固定 OCR 目录部署到 Desktop 同目录；未提供 OCR 时明确报告资产部署未执行 |
 | `test.ps1` | 默认完整构建后运行全部 .NET / Qt / QML 测试，并**解析 TRX 报告真实用例数**；`-NoBuild` 复用已有产物 |
 | `verify.ps1` | 环境自检 + 静态边界检查 + 架构依赖门禁 + 协议档案校验 + `tools/` 下全部 Python 自测（含检查器反向自测）+ 全部测试 + 监听端口核对 + `LIVE_CAPTURE_STATUS` 断言 + 注入载荷扫描 + 许可证材料核对（提交前必须运行）；`-NoBuild` 复用已有构建产物，`-TestFilter` 转发 xunit 特征筛选，`-SkipGate` 显式跳过单个关卡；带其中任一参数的运行是部分验证（见 4.4） |
 | `package.ps1` | 先运行 `verify.ps1`，再发布 Collector、部署 Qt 运行时、补齐许可证与 docs，生成 zip 与 SHA256；`-Verify` 额外解包并运行两个可执行文件 |
@@ -356,6 +357,33 @@ pwsh -File scripts/verify.ps1
 pwsh -File scripts/static-analysis.ps1
 pwsh -File scripts/package.ps1 -Force -Verify
 ```
+
+### 离线截图识别依赖
+
+截图识别随应用部署 `ocr/tesseract.exe`、必要 DLL、`tessdata/chi_sim.traineddata`、
+`eng.traineddata` 与 `configs/tsv`。固定 Windows 发行来源是 UB Mannheim
+`5.4.0.20240606`，模型来自官方 `tessdata_fast` 提交
+`87416418657359cb625c412a48b6e1d6d41c29bd`。官方下载地址、逐文件 SHA256、
+运行闭包及许可证登记在 `docs/licenses/ocr/dependency-manifest.json`；Windows 发行包是
+Tesseract 文档推荐的第三方构建，不将开发机系统安装作为依赖来源。
+
+先按清单手动获取发行包和两份模型到本机，将模型放在同一目录，再运行：
+
+```powershell
+pwsh -File scripts/bootstrap-ocr.ps1 `
+    -SevenZipExe C:/Tools/7-Zip/7z.exe `
+    -RuntimeArchive C:/Downloads/tesseract-ocr-w64-setup-5.4.0.20240606.exe `
+    -ModelDirectory C:/Downloads/tessdata
+```
+
+准备结果默认位于已忽略的 `artifacts/dependencies/ocr/<cache_id>/runtime`。
+`MR_OCR_DIR` 可指定已有的完整离线运行目录，`MR_7ZIP_EXE` 可指定本地 7-Zip。
+构建、打包及应用均不为 OCR 下载文件，也不搜索系统 Tesseract 或 PATH。
+未配置 `MR_OCR_DIR` 且没有缓存时，开发构建允许继续，截图识别显示依赖缺失，
+表格导入可用；显式指定路径或已有缓存但内容不完整时构建失败。
+`verify.ps1` 未发现已部署引擎时明确报告 OCR 运行验证未执行；提供引擎后会核对
+哈希并在只含 Windows 系统目录的子进程 PATH 中实际识别中文测试图。
+发布打包要求完整固定依赖及许可证，`package.ps1 -Verify` 对解包后的 OCR 再做相同验证。
 
 ### 4.1 `test.ps1` 解析 TRX 的原因
 

@@ -105,6 +105,14 @@ public sealed class ContractRequestSampleTests
             }
 
             var payload = envelope["payload"]!.AsObject().DeepClone().AsObject();
+            if (messageType == "CommitRunImport")
+            {
+                var preview = (await client.SendAsync("PreviewRunImport", new JsonObject
+                {
+                    ["source_kind"] = "ROWS", ["rows"] = new JsonArray(new JsonObject { ["duty_name"] = "合成样本" }),
+                })).Require();
+                payload["preview_id"] = preview["preview_id"]!.DeepClone();
+            }
             if (messageType == "ExportCandidateEvidence")
                 payload["target_path"] = Path.Combine(Path.GetDirectoryName(fixture.DatabasePath)!, "sample-candidate-evidence.json");
             var response = await client.SendAsync(messageType, payload);

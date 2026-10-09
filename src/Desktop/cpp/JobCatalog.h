@@ -52,6 +52,8 @@ public:
 
     /// Every known job, sorted by id: id / name / abbreviation / role group.
     Q_INVOKABLE QVariantList allJobs() const;
+    /// 导随可选职业，沿用现有规则排除生产、基础和限定职业；按 id 排序。
+    Q_INVOKABLE QVariantList battleJobs() const;
 
 private:
     struct Job {

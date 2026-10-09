@@ -17,6 +17,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import textwrap
 import unittest
 from pathlib import Path
 
@@ -35,13 +36,33 @@ if [ "$1" = issue ] && [ "$2" = view ]; then
       if [ -e "$STUB_DIR/state-$3" ]; then cat "$STUB_DIR/state-$3"; else echo OPEN; fi ;;
   esac
 elif [ "$1" = issue ] && [ "$2" = comment ]; then
-  cat "$5" >> "$STUB_DIR/comment-$3.md"
+  if [ "$4" = --body-file ]; then cat "$5" >> "$STUB_DIR/comment-$3.md"; else printf '%s\\n' "$5" >> "$STUB_DIR/comment-$3.md"; fi
+  if [ -e "$STUB_DIR/repos_owner_calibrations_issues_$3.json" ]; then
+    python -c 'import json,sys; p=sys.argv[1]; d=json.load(open(p)); d["updated_at"]="2026-09-16T08:00:01Z"; open(p,"w").write(json.dumps(d))' "$STUB_DIR/repos_owner_calibrations_issues_$3.json"
+    if [ -e "$STUB_DIR/after-comment-$3.json" ]; then
+      cp "$STUB_DIR/after-comment-$3.json" "$STUB_DIR/repos_owner_calibrations_issues_$3.json"
+    fi
+  fi
 elif [ "$1" = issue ] && [ "$2" = close ]; then
   echo CLOSED > "$STUB_DIR/state-$3"
 elif [ "$1" = api ] && [ "$2" = --paginate ]; then
   cat "$STUB_DIR/open.json"
 elif [ "$1" = api ]; then
   name="$(printf '%s' "$2" | tr '/' '_')"
+  case "$2" in
+    repos/*/issues/*)
+      number="${2##*/}"
+      count=0
+      if [ -e "$STUB_DIR/reads-$number" ]; then read -r count < "$STUB_DIR/reads-$number"; fi
+      count=$((count + 1))
+      echo "$count" > "$STUB_DIR/reads-$number"
+      if [ -e "$STUB_DIR/issue-$number-read-$count.json" ]; then
+        cp "$STUB_DIR/issue-$number-read-$count.json" "$STUB_DIR/$name.json"
+      fi
+      if [ -e "$STUB_DIR/state-$number" ]; then
+        python -c 'import json,sys; p=sys.argv[1]; d=json.load(open(p)); d["state"]=open(sys.argv[2]).read().strip().lower(); open(p,"w").write(json.dumps(d))' "$STUB_DIR/$name.json" "$STUB_DIR/state-$number"
+      fi ;;
+  esac
   if [ -e "$STUB_DIR/$name.json" ]; then cat "$STUB_DIR/$name.json"; else echo '{"message":"Not Found"}'; exit 1; fi
 fi
 """
@@ -134,7 +155,7 @@ class WorkflowScriptTests(unittest.TestCase):
     def submission(self, number, user_id, login, code, created="2020-01-01T00:00:00Z", with_account=True) -> tuple:
         issue = {"number": number, "state": "open", "title": "[共享校准] CN " + testsupport.BUILD,
                  "body": testsupport.issue_body(code), "labels": [{"name": "share-calibration"}],
-                 "user": {"id": user_id, "login": login, "type": "User"}}
+                 "user": {"id": user_id, "login": login, "type": "User"}, "updated_at": "2026-09-16T08:00:00Z"}
         if with_account:
             account = {"id": user_id, "login": login, "type": "User", "created_at": created}
             (self.stub / ("users_%s.json" % login)).write_text(json.dumps(account), encoding="utf-8")
@@ -154,6 +175,184 @@ class WorkflowScriptTests(unittest.TestCase):
 
     def comment(self, number: int) -> str:
         return (self.stub / ("comment-%d.md" % number)).read_text(encoding="utf-8")
+
+    def edited_submission(self, issue, code, *, at_read=None, after_comment=False):
+        current = dict(issue, body=testsupport.issue_body(code), updated_at="2026-09-16T08:00:02Z")
+        number = issue["number"]
+        name = ("after-comment-%d.json" % number if after_comment else
+                "issue-%d-read-%d.json" % (number, at_read) if at_read is not None else
+                "repos_owner_calibrations_issues_%d.json" % number)
+        (self.stub / name).write_text(json.dumps(current), encoding="utf-8")
+        return current
+
+    def active_shas(self):
+        state = repo_index.read_index(self.origin_show("main:index.json"))
+        return [entry["code_sha256"] for entry in state.entries if not entry["revoked"]]
+
+    def failed_snapshot(self, issue):
+        work = self.runner / ("publish-%d" % issue["number"])
+        work.mkdir()
+        (work / "live.json").write_text(json.dumps(issue), encoding="utf-8")
+        return work
+
+    def run_failure_fallback(self, number):
+        # Run the exact Bash block shipped in the workflow, rather than a duplicate test version.
+        workflow = self.work / ".github" / "workflows" / "publish-calibration.yml"
+        lines = workflow.read_text(encoding="utf-8").splitlines()
+        step = lines.index("      - name: Tell the submitter that the workflow failed")
+        start = lines.index("        run: |", step) + 1
+        end = start
+        while end < len(lines) and (not lines[end].strip() or lines[end].startswith("          ")):
+            end += 1
+        script = self.root / "failure-fallback.sh"
+        _write_script(script, textwrap.dedent("\n".join(lines[start:end])) + "\n")
+        return self.run_bash(script.as_posix(), ISSUE_NUMBER=str(number))
+
+    def test_failure_fallback_answers_an_unchanged_submission_only_once(self):
+        issue, _ = self.submission(35, 4242, "Octo-Cat", sharecode.encode(testsupport.payload()))
+        work = self.failed_snapshot(issue)
+
+        completed = self.run_failure_fallback(35)
+
+        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+        self.assertIn("issue edit 35 --add-label needs-maintainer", self.gh_calls())
+        self.assertTrue((work / "replied").exists())
+        self.assertEqual(1, self.comment(35).count("自动发布没有完成"))
+        completed = self.run_failure_fallback(35)
+        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+        self.assertEqual(1, self.comment(35).count("自动发布没有完成"))
+
+    def test_failure_fallback_cannot_answer_or_label_an_edit_after_the_failed_decision(self):
+        issue, event = self.submission(36, 4242, "Octo-Cat", sharecode.encode(testsupport.payload()))
+        self.failed_snapshot(issue)
+        latest = testsupport.payload("MARKER_OFFSET", 2)
+        self.edited_submission(issue, sharecode.encode(latest))
+
+        completed = self.run_failure_fallback(36)
+
+        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+        self.assertFalse(any(call.startswith(("issue comment 36", "issue edit 36")) for call in self.gh_calls()))
+        completed = self.run_bash("tools/publish_issue.sh", event.as_posix())
+        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+        self.assertEqual([sharecode.code_sha256(latest)], self.active_shas())
+
+    def test_failure_fallback_rechecks_after_its_comment_before_labelling(self):
+        issue, _ = self.submission(37, 4242, "Octo-Cat", sharecode.encode(testsupport.payload()))
+        self.failed_snapshot(issue)
+        self.edited_submission(issue, sharecode.encode(testsupport.payload("MARKER_OFFSET", 2)), after_comment=True)
+
+        completed = self.run_failure_fallback(37)
+
+        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+        self.assertIn("自动发布没有完成", self.comment(37))
+        self.assertFalse(any(call.startswith("issue edit 37") for call in self.gh_calls()))
+
+    def test_failure_fallback_leaves_missing_or_unreadable_snapshots_unanswered(self):
+        issue, _ = self.submission(38, 4242, "Octo-Cat", sharecode.encode(testsupport.payload()))
+        # A failure before the main script recorded its Issue, then a partial/corrupt snapshot.
+        self.assertEqual(0, self.run_failure_fallback(38).returncode)
+        work = self.failed_snapshot(issue)
+        for contents in ("not JSON", '{"state":"open","labels":[{"name":"share-calibration"}]}'):
+            (work / "live.json").write_text(contents, encoding="utf-8")
+            completed = self.run_failure_fallback(38)
+            self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+        self.assertFalse(any(call.startswith(("issue comment 38", "issue edit 38")) for call in self.gh_calls()))
+
+    def test_failure_fallback_leaves_an_unreadable_current_issue_unanswered(self):
+        issue, _ = self.submission(39, 4242, "Octo-Cat", sharecode.encode(testsupport.payload()))
+        self.failed_snapshot(issue)
+        (self.stub / "repos_owner_calibrations_issues_39.json").unlink()
+
+        completed = self.run_failure_fallback(39)
+
+        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+        self.assertFalse(any(call.startswith(("issue comment 39", "issue edit 39")) for call in self.gh_calls()))
+
+    def test_five_failed_pushes_leave_an_open_maintainer_issue_and_fallback_does_not_reply_twice(self):
+        _, event = self.submission(40, 4242, "Octo-Cat", sharecode.encode(testsupport.payload()))
+        _write_script(self.work / ".git" / "hooks" / "pre-push", "#!/usr/bin/env bash\nexit 1\n")
+        # Exercise all production retries without waiting for their network backoff in a local stub.
+        _write_script(self.root / "bin" / "sleep", "#!/usr/bin/env bash\nexit 0\n")
+
+        completed = self.run_bash("tools/publish_issue.sh", event.as_posix())
+
+        self.assertEqual(1, completed.returncode, completed.stdout + completed.stderr)
+        self.assertEqual(5, completed.stdout.count("starting again from the new main"))
+        self.assertEqual(["seed"], [subject for _, subject in self.origin_log()])
+        self.assertIn("PUSH_FAILED", self.comment(40))
+        self.assertNotIn("**已发布", self.comment(40))
+        self.assertIn("issue edit 40 --add-label needs-maintainer", self.gh_calls())
+        self.assertFalse(any(call.startswith("issue close 40") for call in self.gh_calls()))
+        self.assertTrue((self.runner / "publish-40" / "replied").exists())
+        before = self.comment(40), len(self.gh_calls())
+        fallback = self.run_failure_fallback(40)
+        self.assertEqual(0, fallback.returncode, fallback.stdout + fallback.stderr)
+        self.assertEqual(before, (self.comment(40), len(self.gh_calls())))
+
+    def test_a_queued_old_event_publishes_only_the_latest_body_and_redeliveries_do_nothing(self):
+        old_payload, latest_payload = testsupport.payload("ANNOUNCEMENT", 1), testsupport.payload("MARKER_OFFSET", 2)
+        issue, event = self.submission(31, 4242, "Octo-Cat", sharecode.encode(old_payload))
+        current = self.edited_submission(issue, sharecode.encode(latest_payload))
+
+        completed = self.run_bash("tools/publish_issue.sh", event.as_posix())
+
+        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+        self.assertEqual([sharecode.code_sha256(latest_payload)], self.active_shas())
+        self.assertNotIn(sharecode.code_sha256(old_payload)[:12], self.comment(31))
+        self.assertIn("issue close 31 --reason completed", self.gh_calls())
+        before = self.origin_log(), self.comment(31)
+        fresh_event = self.root / "event-31-edited.json"
+        fresh_event.write_text(json.dumps({"action": "edited", "issue": current}), encoding="utf-8")
+        for delivery in (event, fresh_event):
+            completed = self.run_bash("tools/publish_issue.sh", delivery.as_posix())
+            self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+            self.assertIn("nothing to do", completed.stdout)
+        self.assertEqual(before, (self.origin_log(), self.comment(31)))
+
+    def test_an_edit_before_push_discards_the_old_commits_and_restarts_from_current_contents(self):
+        old_payload, latest_payload = testsupport.payload("ANNOUNCEMENT", 1), testsupport.payload("MARKER_OFFSET", 2)
+        issue, event = self.submission(32, 4242, "Octo-Cat", sharecode.encode(old_payload))
+        self.edited_submission(issue, sharecode.encode(latest_payload), at_read=2)
+
+        completed = self.run_bash("tools/publish_issue.sh", event.as_posix())
+
+        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+        self.assertIn("changed before push", completed.stdout)
+        self.assertEqual([sharecode.code_sha256(latest_payload)], self.active_shas())
+        self.assertEqual(3, len(self.origin_log()), "only the latest code and its index reach main")
+        self.assertNotIn(sharecode.code_sha256(old_payload)[:12], self.comment(32))
+
+    def test_an_edit_after_push_prevents_the_old_reply_close_and_label(self):
+        old_payload, latest_payload = testsupport.payload("ANNOUNCEMENT", 1), testsupport.payload("MARKER_OFFSET", 2)
+        issue, event = self.submission(33, 4242, "Octo-Cat", sharecode.encode(old_payload))
+        self.edited_submission(issue, sharecode.encode(latest_payload), at_read=3)
+
+        completed = self.run_bash("tools/publish_issue.sh", event.as_posix())
+
+        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+        self.assertIn("changed before reply", completed.stdout)
+        self.assertFalse(any(call.startswith(("issue comment 33", "issue close 33", "issue edit 33")) for call in self.gh_calls()))
+        self.assertEqual([sharecode.code_sha256(old_payload)], self.active_shas())
+        # Even redelivery of the original event takes the current Issue and replaces the old code.
+        completed = self.run_bash("tools/publish_issue.sh", event.as_posix())
+        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+        self.assertEqual([sharecode.code_sha256(latest_payload)], self.active_shas())
+
+    def test_an_edit_during_the_comment_cannot_close_or_answer_label_the_changed_issue(self):
+        old_payload, latest_payload = testsupport.payload("ANNOUNCEMENT", 1), testsupport.payload("MARKER_OFFSET", 2)
+        issue, event = self.submission(34, 4242, "Octo-Cat", sharecode.encode(old_payload))
+        self.edited_submission(issue, sharecode.encode(latest_payload), after_comment=True)
+
+        completed = self.run_bash("tools/publish_issue.sh", event.as_posix())
+
+        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+        self.assertIn("changed while replying", completed.stdout)
+        self.assertFalse(any(call.startswith(("issue close 34", "issue edit 34")) for call in self.gh_calls()))
+        self.assertTrue((self.runner / "publish-34" / "replied").exists())
+        completed = self.run_bash("tools/publish_issue.sh", event.as_posix())
+        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+        self.assertEqual([sharecode.code_sha256(latest_payload)], self.active_shas())
+        self.assertIn("issue close 34 --reason completed", self.gh_calls())
 
     def test_a_new_code_is_published_even_when_a_maintainer_pushes_first(self):
         other = self.root / "other"
@@ -175,7 +374,7 @@ class WorkflowScriptTests(unittest.TestCase):
         self.assertEqual(log[1][0], entry["commit"])
         self.assertEqual(code.encode("ascii"), self.origin_show("%s:%s" % (entry["commit"], entry["path"])))
         calls = self.gh_calls()
-        for expected in ("issue view 7 --json state,labels", "api users/Octo-Cat", "issue edit 7 --add-label published",
+        for expected in ("api repos/owner/calibrations/issues/7", "api users/Octo-Cat", "issue edit 7 --add-label published",
                          "issue close 7 --reason completed"):
             self.assertIn(expected, calls)
         self.assertTrue(any(call.startswith("issue comment 7 --body-file ") for call in calls))
@@ -219,7 +418,7 @@ class WorkflowScriptTests(unittest.TestCase):
         completed = self.run_bash("tools/publish_issue.sh", closed.as_posix())
         self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
         self.assertIn("nothing to do", completed.stdout)
-        self.assertEqual(["issue view 12 --json state,labels", "api users/closed-player"], self.gh_calls())
+        self.assertEqual(["api repos/owner/calibrations/issues/12"], self.gh_calls())
         self.assertEqual(["seed"], [subject for _, subject in self.origin_log()])
 
         _, unknown = self.submission(13, 5005, "ghost-player", sharecode.encode(testsupport.payload()), with_account=False)
@@ -267,6 +466,11 @@ class WorkflowScriptTests(unittest.TestCase):
         """What `gh issue view --json state,labels` will answer from now on: the issue as it is now."""
         live = {"state": state, "labels": [{"name": name} for name in labels]}
         (self.stub / ("live-%d.json" % number)).write_text(json.dumps(live), encoding="utf-8")
+        path = self.stub / ("repos_owner_calibrations_issues_%d.json" % number)
+        if path.exists():
+            issue = json.loads(path.read_text(encoding="utf-8"))
+            issue.update(state=state.lower(), labels=live["labels"])
+            path.write_text(json.dumps(issue), encoding="utf-8")
 
     def test_a_report_gets_both_labels_one_reply_and_is_left_open(self):
         completed = self.run_bash("tools/report_issue.sh", self.report(21).as_posix())

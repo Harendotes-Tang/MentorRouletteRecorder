@@ -114,14 +114,14 @@ INDEX ix_runs_pending_review ON mentor_runs(pending_review) WHERE pending_review
 `CorrectRunRequest.changes` 里的 `note`），逐条记录见
 [`../contracts/CHANGELOG.md`](../contracts/CHANGELOG.md)。
 
-### 1.3 `run_reflections` —— 导随心得（schema v3）
+### 1.3 `run_reflections` —— 导随心得（schema v3，v9 扩展导入心情）
 
 由 `migrations/0003_run_reflections.sql` 追加，与 `mentor_runs` 是 **1 : 0..1**。
 
 | 列 | 类型 | 约束 | 说明 |
 |---|---|---|---|
 | `run_id` | TEXT | PK，FK → `mentor_runs(run_id)` ON DELETE CASCADE | 一条记录最多一条心得 |
-| `mood` | TEXT | NOT NULL，取 `good` / `ok` / `bad` | 心情；界面文案 顺利 / 一般 / 糟心 |
+| `mood` | TEXT | NOT NULL，取 `good` / `ok` / `bad` / `unknown` | 顺利 / 一般 / 糟心；仅 IMPORT 可保留来源未提供的心情 `unknown` |
 | `text` | TEXT | NOT NULL，`length BETWEEN 1 AND 2000` | 用户手写的正文，已 trim |
 | `created_at_utc` | TEXT | NOT NULL | UTC ISO-8601（毫秒） |
 | `updated_at_utc` | TEXT | NOT NULL | UTC ISO-8601（毫秒） |
@@ -363,10 +363,18 @@ INDEX ix_revisions_run ON run_revisions(run_id, revision)
 
 ## 9. 与 IPC 的映射
 
+schema v9 通过 `migrations/0009_personal_record_import.sql` 增加 `run_import_metadata` 与
+`run_import_batches`。前者按 `run_id` 保存来源类型/名称、原站时间原文及可确定的 UTC、导入时间、
+唯一来源指纹和 `mentor_confirmed`；后者保存预览/请求编号、选择指纹和提交回执，支持跨重启确认同一批次。
+`Run.import_metadata` 是可选投影，`incomplete` 按待复核状态、结果及所需游戏端点计算，不是另一份可修改的数据库标志。
+原站只有日期时保留原文，UTC 未知；原站时间不填入实际匹配、进本或结束时间。
+来源缺少结果时，导入预览按用户选择默认通关并允许修改；缺实际游戏事实的记录仍待补充且不计统计。
+备份导入只合并记录和心得，不复制外库采集外键、设置或备注附件。
+
 `contracts/ipc-v1.schema.json` 中的 `$defs/Run` 与本表一一对应，
 差别仅在于：布尔以 JSON `true/false` 表示；`NULL` 以 JSON `null` 表示；
 IPC 不暴露 `run_events.detail_json` 的原始内容，只暴露归纳后的字段；
-以及 `$defs/Run.reflection` 来自 `run_reflections`（§1.3）而不是 `mentor_runs` 的列。
+以及 `$defs/Run.reflection` 来自 `run_reflections`（§1.3）、可选 `import_metadata` 来自导入来源表，而不是 `mentor_runs` 的列。
 
 导出同样包含心得：JSON 导出的每个 run 对象含 `reflection`（对象或 `null`），
 CSV 在原有 14 列**之后**追加 `reflection_mood`、`reflection_text` 两列（无心得时为空），

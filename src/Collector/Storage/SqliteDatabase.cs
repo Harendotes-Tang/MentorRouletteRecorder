@@ -212,6 +212,29 @@ public sealed class SqliteDatabase : IDisposable
         }
     }
 
+    /// <summary>
+    /// Waits cancellably for the shared database gate, then rolls back if cancellation is
+    /// observed before committing. A successful commit is returned even if cancellation
+    /// arrives afterwards, so callers can retain and recover their durable receipt.
+    /// </summary>
+    /// <typeparam name="T">Result type.</typeparam>
+    /// <param name="work">Unit of work; receives the open transaction.</param>
+    /// <param name="cancellationToken">Cancels gate admission and uncommitted work.</param>
+    public T RunInTransaction<T>(Func<SqliteTransaction, T> work, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(work);
+        if (!cancellationToken.CanBeCanceled) return RunInTransaction(work);
+        return Read(_ => RunInTransaction(transaction =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var result = work(transaction);
+            // This is the last cancellation check before the existing transaction commits.
+            // Throwing here disposes that transaction and rolls back receipts with the rows.
+            cancellationToken.ThrowIfCancellationRequested();
+            return result;
+        }), cancellationToken);
+    }
+
     /// <summary>Runs <paramref name="work"/> inside a transaction with no result.</summary>
     /// <param name="work">Unit of work; receives the open transaction.</param>
     public void RunInTransaction(Action<SqliteTransaction> work)
@@ -440,6 +463,32 @@ public sealed class SqliteDatabase : IDisposable
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
             return work(_connection);
+        }
+    }
+
+    /// <summary>Like <see cref="Read{T}(Func{SqliteConnection, T})"/>, but gate admission can be cancelled.</summary>
+    /// <typeparam name="T">Result type.</typeparam>
+    /// <param name="work">Read-only work; the shared connection remains owned by this database.</param>
+    /// <param name="cancellationToken">Cancels waiting; work checks it while running when needed.</param>
+    public T Read<T>(Func<SqliteConnection, T> work, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(work);
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (!cancellationToken.CanBeCanceled) return Read(work);
+        cancellationToken.ThrowIfCancellationRequested();
+        var entered = false;
+        try
+        {
+            // Keep the existing reentrant monitor used by all other database operations.
+            // The short waits only observe cancellation; they do not change the lock budget.
+            while (!(entered = Monitor.TryEnter(_gate, millisecondsTimeout: 50)))
+                cancellationToken.ThrowIfCancellationRequested();
+            cancellationToken.ThrowIfCancellationRequested();
+            return Read(work);
+        }
+        finally
+        {
+            if (entered) Monitor.Exit(_gate);
         }
     }
 

@@ -89,7 +89,8 @@ public sealed class IdempotencyRepository
         command.Transaction = transaction;
         command.CommandText =
             "SELECT EXISTS(SELECT 1 FROM run_revisions WHERE request_id = $request_id) " +
-            "OR EXISTS(SELECT 1 FROM candidate_reviews WHERE request_id = $request_id);";
+            "OR EXISTS(SELECT 1 FROM candidate_reviews WHERE request_id = $request_id) " +
+            "OR EXISTS(SELECT 1 FROM run_import_batches WHERE request_id = $request_id);";
         command.Parameters.AddWithValue("$request_id", requestId);
         return Convert.ToInt64(command.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture) != 0;
     }

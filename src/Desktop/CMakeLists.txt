@@ -118,6 +118,12 @@ set(MR_CPP_SOURCES
     cpp/IpcClient.h
     cpp/IpcFraming.cpp
     cpp/IpcFraming.h
+    cpp/ImportRecordsController.cpp
+    cpp/ImportRecordsController.h
+    cpp/OfflineOcrEngine.cpp
+    cpp/OfflineOcrEngine.h
+    cpp/ScreenshotImportParser.cpp
+    cpp/ScreenshotImportParser.h
     cpp/InstallerVerifier.cpp
     cpp/InstallerVerifier.h
     cpp/JobCatalog.cpp
@@ -142,6 +148,10 @@ set(MR_CPP_SOURCES
     cpp/RunFormValidator.h
     cpp/RunListModel.cpp
     cpp/RunListModel.h
+    cpp/ReflectionLibraryController.cpp
+    cpp/ReflectionLibraryController.h
+    cpp/ReflectionShareController.cpp
+    cpp/ReflectionShareController.h
     cpp/SharedCalibrationController.cpp
     cpp/SharedCalibrationController.h
     cpp/SingleInstanceGuard.cpp
@@ -225,6 +235,8 @@ set(MR_QML_FILES
     qml/dialogs/EditRunDialog.qml
     qml/dialogs/OnlineSpeechConfirmDialog.qml
     qml/dialogs/ReflectionDialog.qml
+    qml/dialogs/ReflectionShareDialog.qml
+    qml/dialogs/ImportRecordsDialog.qml
     qml/dialogs/RunDetailPanel.qml
     qml/dialogs/RunWizardDutyStep.qml
     qml/dialogs/RunWizardResultStep.qml
@@ -242,6 +254,7 @@ set(MR_QML_FILES
     qml/pages/DashboardPage.qml
     qml/pages/DungeonsPage.qml
     qml/pages/HistoryPage.qml
+    qml/pages/ReflectionsPage.qml
     qml/pages/JobsPage.qml
     qml/pages/SettingsAboutTab.qml
     qml/pages/SettingsDataTab.qml
@@ -292,10 +305,11 @@ qt_add_resources(MentorRecorderDesktopLib "mr_icons"
 # ---------------------------------------------------------------------------
 # Bundled duty reference data.
 #
-# Display only: it maps content_id to a level and an expansion so the history
+# Read-only reference: it maps content_id to a level and an expansion so the history
 # and statistics pages can fill the two cells $defs/Run and
 # $defs/DungeonStatsRow are not allowed to carry. It never identifies a
-# roulette and never makes a protocol profile usable
+# roulette and never makes a protocol profile usable. Screenshot import may
+# also propose a name from this data, with visible original OCR and user review.
 # (data/duties/README.md, docs/privacy-boundary.md section 7).
 # ---------------------------------------------------------------------------
 qt_add_resources(MentorRecorderDesktopLib "mr_duties"

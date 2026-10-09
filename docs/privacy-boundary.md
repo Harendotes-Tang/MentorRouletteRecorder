@@ -54,7 +54,10 @@
   （`src/Collector/Diagnostics/ParentProcessWatchdog.cs`）用 `Process.GetProcessById`、`StartTime` 与 `WaitForExitAsync`
   打开**桌面端进程**，等待其退出并核对其启动时间，使桌面端被强行结束后采集服务随之停止。此外只放行启动、等待与结束
   采集服务或替身父进程的集成测试与单元测试，以及运行子进程（`dotnet`、采集服务、静态分析工具）的脚本
-  `scripts/package.ps1`、`scripts/static-analysis.ps1`、`scripts/verify.ps1` 与一个打包测试。随软件发布的抓包代码
+  `scripts/package.ps1`、`scripts/static-analysis.ps1`、`scripts/verify.ps1` 与一个打包测试。
+  `scripts/ocr-runtime.ps1` 仅管理由验证脚本刚启动的固定本地 `ocr/tesseract.exe`：
+  等待退出、读取退出码和超时结束这个自有进程，不查找或打开游戏进程，也不联网。
+  这一例外仅按该脚本的精确路径放行 `INJ-009`，其他进程/网络规则仍适用。随软件发布的抓包代码
   一律不放行。以行内标记逐行放行的 `INJ-009` 命中都与进程句柄无关：SQLite 连接自身的句柄（`SqliteConnection.Handle`，
   位于 `src/Collector/Storage/SqliteDatabase.cs` 与单元测试 `tests/Collector.UnitTests/DatabaseIntegrityCheckTests.cs`）、
   注释中为说明取值格式而点名的 `Process.StartTime`（`src/Collector/CommandLineOptions.cs`），以及测试夹具结果记录的
@@ -648,6 +651,8 @@ Windows 可能执行代理自动发现（WPAD / PAC 脚本）；校验 TLS 证�
 同样按仓库相对路径精确匹配，不按文件名或目录名匹配。`NET-007` 为此增加 `github-content-hosts` 变体：
 `githubusercontent` 除 §8.2 已放行的几处之外，还可以出现在该更新检查客户端中，此外任何位置都报错；
 `jsdelivr` 仍只限于共享校准一侧，更新检查客户端中出现它同样报错。§8.6 的下载同样只经由该文件发出，没有增加任何放行。
+
+用户文本的回归测试 `tests/Desktop.Tests/RunDetailPanelTests.cpp` 另有五处精确登记的 `NET-006` 行标记，用于创建资源请求拦截替身。该替身只计数并返回本地失败，绝不调用真实传输层；富文本对照证明拦截有效，正式正文控件必须保持零资源请求。这些标记不放行任何生产联网入口。
 
 ### 8.5 安装程序下载 Npcap：仅在安装过程中、仅在缺少 Npcap 时
 

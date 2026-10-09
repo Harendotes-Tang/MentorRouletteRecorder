@@ -41,6 +41,7 @@ InsetBox {
             Text {
                 Layout.fillWidth: true
                 text: root.runData.duty_name || qsTr("未知副本")
+                textFormat: Text.PlainText
                 color: Theme.textPrimary
                 font.pixelSize: Theme.fs(12)
                 font.bold: true
@@ -53,7 +54,13 @@ InsetBox {
             }
 
             Text {
-                text: Fmt.localDate(root.runData.matched_at_utc)
+                textFormat: Text.PlainText
+                text: root.runData.matched_at_utc ? Fmt.localDate(root.runData.matched_at_utc)
+                      : root.runData.import_metadata && root.runData.import_metadata.source_recorded_at_utc
+                        ? qsTr("原站 %1").arg(Fmt.localDate(root.runData.import_metadata.source_recorded_at_utc))
+                      : root.runData.import_metadata && root.runData.import_metadata.source_recorded_at
+                        ? qsTr("原站 %1").arg(root.runData.import_metadata.source_recorded_at.substring(0, 10))
+                      : qsTr("时间未知")
                 color: Theme.textSecondary
                 font.pixelSize: Theme.fs(12)
                 font.family: Theme.figureFamily
@@ -65,6 +72,8 @@ InsetBox {
         Text {
             Layout.fillWidth: true
             text: root.reflection.text || ""
+            // Stored/imported text is literal: AutoText can fetch HTML image URLs.
+            textFormat: Text.PlainText
             color: Theme.textPrimary
             opacity: 0.8
             font.pixelSize: Theme.fs(12)

@@ -30,6 +30,7 @@ Rectangle {
 
     Text {
         id: label
+        textFormat: Text.PlainText
         anchors.centerIn: parent
         text: root.removable ? root.text + "  ✕" : root.text
         color: root.checked

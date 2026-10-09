@@ -59,6 +59,23 @@ Dialog {
         noteImageError = result.ok ? "" : (result.error || "")
     }
 
+    function pasteNoteImage() {
+        if (!imageStore || runId.length === 0 || busy)
+            return
+        const result = imageStore.addClipboard(runId)
+        noteImageError = result.ok ? "" : (result.error || "")
+    }
+
+    Shortcut {
+        sequences: [StandardKey.Paste]
+        context: Qt.WindowShortcut
+        // TextArea handles ordinary text paste itself. An image clipboard is
+        // the only case this dialog claims Ctrl+V.
+        enabled: dialog.visible && !dialog.busy && !!dialog.imageStore
+            && dialog.imageStore.clipboardHasImage && (!dialog.askingResult || dialog.promptEnabled)
+        onActivated: dialog.pasteNoteImage()
+    }
+
     function removeNoteImage(row) {
         if (!imageStore || runId.length === 0 || busy || !row || !row.path)
             return
@@ -310,6 +327,7 @@ Dialog {
 
             Text {
                 text: dialog.runId
+                textFormat: Text.PlainText
                 color: Theme.textSecondary
                 font.pixelSize: Theme.fs(11)
                 elide: Text.ElideMiddle
@@ -357,6 +375,7 @@ Dialog {
 
             Text {
                 Layout.fillWidth: true
+                textFormat: Text.PlainText
                 text: qsTr("《%1》打完了吗？离开副本前没有收到通关结算，"
                            + "只有你确认“通关”后这一次才会计入导随次数。").arg(dialog.dutyText)
                 color: Theme.textPrimary
@@ -444,6 +463,7 @@ Dialog {
                         Text {
                             Layout.fillWidth: true
                             text: modelData.v
+                            textFormat: Text.PlainText
                             color: Theme.textPrimary
                             font.pixelSize: Theme.fs(12)
                             font.weight: Theme.figureWeight(true)
@@ -462,7 +482,7 @@ Dialog {
             spacing: 12
 
             Text {
-                text: qsTr("这次感觉")
+                text: dialog.mood === "unknown" ? qsTr("这次感觉 · 未记录") : qsTr("这次感觉")
                 color: Theme.textSecondary
                 font.pixelSize: Theme.fs(12)
             }
@@ -491,6 +511,19 @@ Dialog {
             visible: !dialog.askingResult || dialog.promptEnabled
             Layout.preferredHeight: 132
             placeholderText: qsTr("记下这次导随的感想：新人表现、机制提醒、想对自己说的话……")
+            // TextArea reserves Paste during ShortcutOverride. Route its
+            // focused key event before the editor so an image-only clipboard
+            // follows the same path as the button; text paste stays native.
+            Keys.priority: Keys.BeforeItem
+            Keys.onPressed: function(event) {
+                if (event.matches(StandardKey.Paste)
+                        && dialog.imageStore && dialog.imageStore.clipboardHasImage && !dialog.busy) {
+                    dialog.pasteNoteImage()
+                    event.accepted = true
+                } else {
+                    event.accepted = false
+                }
+            }
         }
 
         NoteImageStrip {
@@ -502,6 +535,27 @@ Dialog {
             thumbSize: 64
             onAddRequested: dialog.addNoteImage()
             onRemoveRequested: function(row) { dialog.removeNoteImage(row) }
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            visible: !!dialog.imageStore && (!dialog.askingResult || dialog.promptEnabled)
+            spacing: 8
+            AppButton {
+                objectName: "pasteReflectionImageButton"
+                text: qsTr("粘贴图片")
+                iconName: "clipboard-check"
+                compact: true
+                enabled: !dialog.busy
+                onClicked: dialog.pasteNoteImage()
+            }
+            Text {
+                Layout.fillWidth: true
+                text: qsTr("Ctrl+V · 图片立即保存到本条记录")
+                color: Theme.textSecondary
+                font.pixelSize: Theme.fs(11)
+                wrapMode: Text.WordWrap
+            }
         }
 
         Text {

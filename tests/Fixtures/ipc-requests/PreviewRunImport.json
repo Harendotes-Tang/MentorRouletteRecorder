@@ -1,0 +1,11 @@
+{
+  "message_type": "PreviewRunImport",
+  "payload": {
+    "source_kind": "SCREENSHOT",
+    "source_name": "synthetic",
+    "time_zone": "+08:00",
+    "rows": [{ "duty_name": "合成测试副本", "reflection_text": "合成测试心得", "source_recorded_at": "2026-10-08 20:30:00" }]
+  },
+  "protocol_version": 1,
+  "request_id": "11111111-2222-4333-8444-555555555555"
+}

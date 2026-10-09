@@ -6,8 +6,8 @@
 # Security:
 # * The issue title, the body and the submitter's login are untrusted. No `run:` script contains an
 #   expression. Scripts receive the event file path; `env:` carries only trusted values (the token,
-#   the repository name, the issue number). Only tools/publish.py reads issue text, from the event
-#   file, and every value it hands back to the shell is validated first.
+#   the repository name, the issue number). Only tools/publish.py reads issue text, from fresh REST
+#   Issue snapshots; the event locates the issue. Every value returned to the shell is validated first.
 # * The default GITHUB_TOKEN is the only credential: contents: write and issues: write, nothing else.
 # * publish.py prints each result as one line of ASCII JSON, so issue text can never begin a line of
 #   the log and be taken for a workflow command.
@@ -77,9 +77,19 @@ jobs:
           ISSUE_NUMBER: ${{ github.event.issue.number }}
         run: |
           set -euo pipefail
-          if [ ! -e "$RUNNER_TEMP/publish-$ISSUE_NUMBER/replied" ]; then
-            gh issue comment "$ISSUE_NUMBER" --body '自动发布没有完成（工作流出错），维护者会查看。这不是你的校准码的问题，请不要重复提交。'
-            gh issue edit "$ISSUE_NUMBER" --add-label needs-maintainer
+          work="$RUNNER_TEMP/publish-$ISSUE_NUMBER"
+          # A failure can outlive an edit too. Without the decision's snapshot, the failed job has
+          # no authority to answer the current submission or keep its next run from processing it.
+          if [ ! -e "$work/replied" ] && [ -f "$work/live.json" ]; then
+            if gh api "repos/$GH_REPO/issues/$ISSUE_NUMBER" > "$work/live.failure.json" &&
+               python -B tools/publish.py unchanged --issue "$work/live.json" --live "$work/live.failure.json"; then
+              gh issue comment "$ISSUE_NUMBER" --body '自动发布没有完成（工作流出错），维护者会查看。这不是你的校准码的问题，请不要重复提交。'
+              : > "$work/replied"
+              if gh api "repos/$GH_REPO/issues/$ISSUE_NUMBER" > "$work/live.failure.json" &&
+                 python -B tools/publish.py unchanged --issue "$work/live.json" --live "$work/live.failure.json" --after-comment; then
+                gh issue edit "$ISSUE_NUMBER" --add-label needs-maintainer
+              fi
+            fi
           fi
 
   sweep:

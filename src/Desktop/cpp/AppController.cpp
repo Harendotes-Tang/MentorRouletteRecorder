@@ -470,7 +470,7 @@ void AppController::setUiScale(int percent)
 void AppController::navigate(int page)
 {
     if (page == 6 && !m_maintainerToolsVisible) return;
-    const int clamped = qBound(0, page, 6);
+    const int clamped = qBound(0, page, 7);
     if (clamped == m_currentPage)
         return;
     m_currentPage = clamped;
@@ -1656,26 +1656,7 @@ QVariantList AppController::jobOptions() const
 
 QVariantList AppController::battleJobOptions() const
 {
-    // Mentor roulette jobs only: a duty cannot be run on 刻木匠. Filter on role_group, not role -
-    // "role" is the TANK/HEALER/DPS token derived from role_raw, which the bundled table
-    // does not carry, so it is UNKNOWN for every job. The nine base classes are dropped as
-    // well; the player picks from the job list (剑术师 becomes 骑士 at thirty).
-    // Limited jobs still have a combat role, but cannot enter mentor roulette.
-    static const QSet<int> baseClasses = {1, 2, 3, 4, 5, 6, 7, 26, 29};
-    static const QSet<int> limitedJobs = {36, 43}; // BLU / BST
-    QVariantList battle;
-    const QVariantList all = JobCatalog().allJobs();
-    battle.reserve(all.size());
-    for (const QVariant &value : all) {
-        const QVariantMap job = value.toMap();
-        if (job.value(QStringLiteral("role_group")).toString() == QString::fromUtf8("其他"))
-            continue;
-        const int jobId = job.value(QStringLiteral("job_id")).toInt();
-        if (baseClasses.contains(jobId) || limitedJobs.contains(jobId))
-            continue;
-        battle.append(value);
-    }
-    return battle;
+    return JobCatalog().battleJobs();
 }
 
 QVariantList AppController::dutyCatalogOptions() const

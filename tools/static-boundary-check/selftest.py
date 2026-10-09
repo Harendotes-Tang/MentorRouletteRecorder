@@ -1407,6 +1407,45 @@ def cases() -> Iterable[tuple[str, callable]]:
 
     yield "the online-speech client is still checked by every other rule", speech_allowance_lifts_one_rule_only
 
+    # Offline OCR probes only manage the tesseract process they just started.
+    # Keep this exception at one exact script path; it does not permit network
+    # downloads or game-process handles, and sibling helper paths remain refused.
+    ocr_probe = "scripts/ocr-runtime.ps1"
+    ocr_wait = "$process.WaitForExit(30000); $process.Kill($true); $code = $process.ExitCode"
+
+    def owned_ocr_process_is_allowed() -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            clean_tree(root)
+            plant(root, ocr_probe, ocr_wait)
+            expect_clean(root, f"our own OCR process in {ocr_probe}")
+
+    yield "INJ-009 allows the owned OCR probe by exact path", owned_ocr_process_is_allowed
+
+    for elsewhere in ("scripts/ocr-runtime-helper.ps1", "scripts/sub/ocr-runtime.ps1",
+                      "scripts/bootstrap-ocr.ps1", "src/Collector/ocr-runtime.ps1"):
+
+        def ocr_process_elsewhere(elsewhere: str = elsewhere) -> None:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                clean_tree(root)
+                plant(root, elsewhere, ocr_wait)
+                expect_violation(root, f"OCR process members in {elsewhere}", "INJ-009")
+
+        yield f"INJ-009 still rejects OCR look-alike {elsewhere}", ocr_process_elsewhere
+
+    for rule, text in (("INJ-007", "OpenProcess(1, false, gamePid)"),
+                       ("NET-009", "Invoke-WebRequest -Uri $url -OutFile $target")):
+
+        def ocr_allowance_is_narrow(rule: str = rule, text: str = text) -> None:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                clean_tree(root)
+                plant(root, ocr_probe, text)
+                expect_violation(root, f"unrelated {rule} in {ocr_probe}", rule)
+
+        yield f"the OCR probe allowance still enforces {rule}", ocr_allowance_is_narrow
+
     # --- INJ-009: our own processes only (audit 2026-10-03, ON2-1) -----------------------
     # The parent watchdog waits on the Desktop and reads its start time; that file is allowed by
     # exact path. The game locator, a sibling of the watchdog and a look-alike path are not,

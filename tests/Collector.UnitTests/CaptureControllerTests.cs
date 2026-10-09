@@ -660,6 +660,71 @@ public sealed class CaptureControllerTests : IDisposable
         Assert.Equal(CaptureEndReason.Error, sessions.Get(started.CaptureSessionId!)!.EndReason);
     }
 
+    /// <summary>A failed lifecycle marker must stop capture even when no later packet can expose the failure.</summary>
+    [Theory]
+    [InlineData("connection")]
+    [InlineData("direction")]
+    public void AFailedLossCallbackEndsTheSessionWithoutWaitingForAnotherPacket(string loss)
+    {
+        WithGame();
+        using var controller = new CaptureController(Services() with
+        {
+            Lifecycle = new ThrowingLossLifecycle(loss),
+        });
+        var started = controller.Start();
+        var source = Source;
+
+        if (loss == "connection") source.PushConnectionClosed();
+        else source.PushDirectionDamaged(1, MessageDirection.Inbound);
+
+        // The marker is the final source callback. Teardown must run off the queue worker
+        // rather than try to join that worker from inside the failing lifecycle listener.
+        var snapshot = WaitFor(controller, current => current.State == CaptureControllerState.Faulted);
+        Assert.Equal(CaptureState.Failed, snapshot.ContractState);
+        Assert.Equal(ErrorCodes.Internal, snapshot.LastErrorCode);
+        Assert.False(source.IsRunning);
+        Assert.Equal(1, source.StopCount);
+        Assert.Equal(CaptureEndReason.Error,
+            new CaptureSessionRepository(_database.Database).Get(started.CaptureSessionId!)!.EndReason);
+    }
+
+    /// <summary>The off-thread overflow report has the same fatal storage boundary as a queued marker.</summary>
+    [Fact]
+    public void AFailedOverflowCallbackStopsTheSourceAndReleasesTheSession()
+    {
+        WithGame();
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        _sink = new WaitingSink(entered, release);
+        _settings.SetSetting(CaptureController.QueueCapacitySetting,
+            DecodedMessageQueue.MinCapacity.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        using var controller = new CaptureController(Services() with
+        {
+            Lifecycle = new ThrowingLossLifecycle("overflow"),
+        });
+        var started = controller.Start();
+        var source = Source;
+        try
+        {
+            source.PushOpcode(1);
+            Assert.True(entered.Wait(TimeSpan.FromSeconds(5)));
+            for (var i = 0; i <= DecodedMessageQueue.MinCapacity; i++) source.PushOpcode(2);
+            Assert.True(SpinWait.SpinUntil(
+                () => controller.State != CaptureControllerState.Running, TimeSpan.FromSeconds(5)));
+        }
+        finally
+        {
+            release.Set();
+        }
+
+        var snapshot = WaitFor(controller, current => current.State == CaptureControllerState.Faulted);
+        Assert.Equal(ErrorCodes.Internal, snapshot.LastErrorCode);
+        Assert.False(source.IsRunning);
+        Assert.Equal(1, source.StopCount);
+        Assert.Equal(CaptureEndReason.Error,
+            new CaptureSessionRepository(_database.Database).Get(started.CaptureSessionId!)!.EndReason);
+    }
+
     [Fact]
     public void CanRestartAfterAFault()
     {
@@ -1614,6 +1679,21 @@ public sealed class CaptureControllerTests : IDisposable
     {
         public void Accept(DecodedMessage message) =>
             throw new InvalidOperationException("simulated live sink failure");
+    }
+
+    private sealed class ThrowingLossLifecycle(string loss) : ICaptureLifecycleListener
+    {
+        public void OnCaptureStarted(string captureSessionId) { }
+        public void OnCaptureStopped(string captureSessionId, CaptureEndReason reason) { }
+        public void OnConnectionLost(string captureSessionId) => ThrowIfSelected("connection");
+        public void OnDirectionDamaged(string captureSessionId, string connectionKey, MessageDirection direction) =>
+            ThrowIfSelected("direction");
+        public void OnEventsDropped(string captureSessionId, long droppedCount) => ThrowIfSelected("overflow");
+
+        private void ThrowIfSelected(string reportedLoss)
+        {
+            if (loss == reportedLoss) throw new IOException("simulated lifecycle storage failure");
+        }
     }
 
     [Fact]

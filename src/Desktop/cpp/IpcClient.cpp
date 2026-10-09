@@ -43,6 +43,10 @@ bool isLongRunning(const QString &messageType)
         QStringLiteral("ExportJson"),
         QStringLiteral("ExportDiagnosticsReport"),
         QStringLiteral("ExportCandidateEvidence"),
+        // Imports parse bounded files and recheck/write a batch transaction;
+        // both are deferred by the Collector, so a status-poll deadline is insufficient.
+        QStringLiteral("PreviewRunImport"),
+        QStringLiteral("CommitRunImport"),
         // PRAGMA integrity_check reads the whole database file, which is why
         // the Collector answers it off the connection's read loop
         // (MessageDispatcher.AsynchronousMessageTypes). Its duration grows with

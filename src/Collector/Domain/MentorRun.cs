@@ -120,6 +120,16 @@ public sealed record MentorRun
     /// </summary>
     public RunReflection? Reflection { get; init; }
 
+    /// <summary>Provenance of an imported personal record; null for existing captures and manual entries.</summary>
+    public RunImportMetadata? ImportMetadata { get; init; }
+
+    /// <summary>Imported facts still awaiting completion; unknown source time never supplies missing game times.</summary>
+    [JsonIgnore]
+    public bool IsIncompleteImport => Source == RunSource.Import && ImportMetadata is not null
+        && (PendingReview || Result == RunResult.Unknown
+            || (Result != RunResult.CancelledBeforeEntry
+                && (EnteredAtUtc is null || (Result == RunResult.Completed && EndedAtUtc is null))));
+
     /// <summary>Creation time.</summary>
     public required DateTimeOffset CreatedAtUtc { get; init; }
 
@@ -142,7 +152,7 @@ public sealed record MentorRun
     {
         RunSource.AutoNetwork => MentorRouletteId is not null,
         RunSource.Manual => true,
-        RunSource.Import => MentorRouletteId is not null,
+        RunSource.Import => !IsIncompleteImport && (MentorRouletteId is not null || ImportMetadata?.MentorConfirmed == true),
         _ => false,
     };
 }

@@ -216,6 +216,31 @@
       "file": "tests/Collector.UnitTests/DatabaseIntegrityCheckTests.cs",
       "rule": "INJ-009",
       "match": ".Handle"
+    },
+    {
+      "file": "tests/Desktop.Tests/RunDetailPanelTests.cpp",
+      "rule": "NET-006",
+      "match": "QNetworkAccessManager"
+    },
+    {
+      "file": "tests/Desktop.Tests/RunDetailPanelTests.cpp",
+      "rule": "NET-006",
+      "match": "QNetworkAccessManager"
+    },
+    {
+      "file": "tests/Desktop.Tests/RunDetailPanelTests.cpp",
+      "rule": "NET-006",
+      "match": "QNetworkAccessManager"
+    },
+    {
+      "file": "tests/Desktop.Tests/RunDetailPanelTests.cpp",
+      "rule": "NET-006",
+      "match": "QNetworkAccessManager"
+    },
+    {
+      "file": "tests/Desktop.Tests/RunDetailPanelTests.cpp",
+      "rule": "NET-006",
+      "match": "QNetworkAccessManager"
     }
   ],
   "rules": [
@@ -280,6 +305,7 @@
         "tests/Collector.UnitTests/WatchdogTests.cs",
         "tools/package-verification/test_package_environment.py",
         "scripts/package.ps1",
+        "scripts/ocr-runtime.ps1",
         "scripts/static-analysis.ps1",
         "scripts/verify.ps1"
       ]

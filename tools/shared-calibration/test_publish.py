@@ -367,8 +367,52 @@ class SkipAndErrorTests(PublishTestCase):
                 _, result, comment, _ = self.decide_live(live)
                 self.assertEqual(("skipped", reason, ""), (result["status"], result["reason"], comment))
         self.assertEqual([], list(self.repo.rglob("*.mrc")))
-        _, result, _, _ = self.decide_live({"state": "OPEN", "labels": labelled}, event=self.issue(labels=()))
+        current = dict(self.issue()["issue"], updated_at=NOW)
+        _, result, _, _ = self.decide_live(current, event=self.issue(labels=()))
         self.assertEqual("published", result["status"], "a label added after the event fired still counts")
+
+    def test_a_queued_event_uses_the_current_body_title_and_author(self):
+        payload = testsupport.payload("MARKER_OFFSET", 2)
+        current = dict(self.issue()["issue"], body=testsupport.issue_body(sharecode.encode(payload)),
+                       title="[共享校准] GLOBAL " + BUILD, updated_at=NOW,
+                       user={"id": 4242, "login": "Renamed-Player", "type": "User"})
+        path = self.root / "live.json"
+        path.write_text(json.dumps(current), encoding="utf-8")
+        _, result, comment, _ = self.decide("check", self.issue(), self.account(login="Renamed-Player"), "--live", path)
+        self.assertEqual(sharecode.code_sha256(payload), result["code_sha256"])
+        self.assertFalse((self.repo / self.path).exists(), "the queued event's code must never be written")
+        self.assertIn("标题里写的区服", comment, "the current title must also be used")
+
+    def test_an_incomplete_live_response_cannot_fall_back_to_the_event(self):
+        current = dict(self.issue()["issue"], updated_at=NOW)
+        for missing in ("number", "title", "body", "user", "updated_at"):
+            live = dict(current)
+            del live[missing]
+            with self.subTest(missing=missing):
+                _, result, _, _ = self.decide_live(live)
+                self.assertEqual(("skipped", "EVENT_UNREADABLE"), (result["status"], result["reason"]))
+        _, result, _, _ = self.decide_live(dict(current, number=8))
+        self.assertEqual(("skipped", "EVENT_UNREADABLE"), (result["status"], result["reason"]))
+        self.assertEqual([], list(self.repo.rglob("*.mrc")))
+
+    def test_mutation_guard_checks_version_contents_and_answer_state(self):
+        original = dict(self.issue()["issue"], updated_at=NOW)
+        snapshot, live = self.root / "snapshot.json", self.root / "live.json"
+        snapshot.write_text(json.dumps(original), encoding="utf-8")
+
+        def unchanged(current, *extra):
+            live.write_text(json.dumps(current), encoding="utf-8")
+            return self.call("unchanged", "--issue", snapshot, "--live", live, *extra)[0]
+
+        self.assertEqual(0, unchanged(original))
+        commented = dict(original, updated_at="2026-09-16T08:00:01Z")
+        self.assertEqual(1, unchanged(commented), "an edit-and-restore still invalidates the pre-push snapshot")
+        self.assertEqual(0, unchanged(commented, "--after-comment"))
+        for current in (dict(commented, body="edited"), dict(commented, title="edited"),
+                        dict(commented, state="closed"), dict(commented, labels=[{"name": "published"}]),
+                        dict(commented, user={"id": 5151, "login": "other", "type": "User"})):
+            with self.subTest(current=current):
+                self.assertEqual(1, unchanged(current, "--after-comment"))
 
     def test_repository_side_problems_keep_the_issue_open_for_a_maintainer(self):
         cases = []

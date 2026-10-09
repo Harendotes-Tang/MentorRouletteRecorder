@@ -16,6 +16,9 @@
 // rules: a non-CANCELLED_BEFORE_ENTRY result needs an entry time, and a
 // COMPLETED result needs an end time. Both report ERR_BAD_REQUEST, as do a
 // reason over 500 characters and a note over 1000, the Collector's limits.
+// An edit retaining incomplete imported facts may omit endpoints, but any
+// supplied date/time and order must still be valid. Result confirmation uses
+// the ordinary required-endpoint rules.
 //
 // This lives in C++ (not in the QML dialog) so the unit tests can drive every
 // branch without a scene graph.
@@ -50,6 +53,10 @@ public:
     /// to use date), matched / entered / ended ("HH:mm:ss" or
     /// "HH:mm:ss.zzz", empty when unset), result,
     /// duty_name, job_name, contributes (bool), note, edit_mode (bool).
+    /// incomplete_import_context (bool) is a trusted Desktop editing context:
+    /// only an existing IMPORT with import_metadata whose unknown/pending facts
+    /// are retained may set it. It is false for creation and result confirmation.
+    /// It permits absent endpoints, never malformed or reversed supplied times.
     /// \a before is the same shape for the record being corrected; it is only
     /// consulted when edit_mode is true, to detect "nothing changed".
     ///

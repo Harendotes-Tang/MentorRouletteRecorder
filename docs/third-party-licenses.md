@@ -4,6 +4,16 @@
 文档同时登记与对外分发相关的决策、生效日期与未决事项，面向维护者，
 以及需要评估分发合规性的读者。
 
+离线 OCR 依赖于 2026-10-09 单独核验：Windows 运行文件来自 UB Mannheim
+`5.4.0.20240606` 固定发行包，其 SHA256 与 Microsoft `winget-pkgs` 对该版本的
+声明一致；模型来自官方 `tessdata_fast` 固定提交。机器可核验的来源、哈希、
+DLL 归属、许可证正文及源码地址以 `docs/licenses/ocr/dependency-manifest.json` 为准，
+随包副本为 `ocr/OCR-DEPENDENCIES.json`。许可证正文位于 `docs/licenses/ocr/`，
+发布时同时复制至 `ocr/licenses/`。各 DLL 精确字节由发行包和逐文件哈希确定；
+清单内未被 `tesseract --version` 报告的上游许可证标签仅说明文本来源，
+不冒充该 DLL 版本的独立验证。GNU libiconv、JBIG-KIT 与 GCC runtime 的源码
+获取地址随清单保留；本次未修改这些第三方二进制。
+
 > 调查日期：**2026-09-04**。所有版本号来自本机实际还原的 NuGet 包与实际安装的 Qt。
 > 面向用户的简版清单见仓库根目录的 [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md)。
 

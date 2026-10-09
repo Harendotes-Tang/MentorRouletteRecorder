@@ -115,6 +115,7 @@ private Q_SLOTS:
     void candidateEndpointsRemainIndependentAndExportChecksummedEvidence();
     void normalStartupRestoresFollowWithoutChangingCandidateSettings();
     void onlineSpeechKeepsTheKeyAndSendsNothing();
+    void personalImportPreviewCommitRetryAndCompletion();
 
 private:
     QTemporaryDir m_databaseDirectory;
@@ -703,6 +704,107 @@ void IpcIntegrationTests::candidateEndpointsRemainIndependentAndExportChecksumme
     const auto formalAfter = await(m_backend->queryRuns({}, 1, 50));
     QVERIFY(formalAfter.ok);
     QCOMPARE(formalAfter.payload, formalBefore.payload);
+}
+
+void IpcIntegrationTests::personalImportPreviewCommitRetryAndCompletion()
+{
+    const auto settingsBefore = await(m_backend->getCaptureSettings());
+    const auto statsBefore = await(m_backend->getDashboardStats());
+    QVERIFY(settingsBefore.ok);
+    QVERIFY(statsBefore.ok);
+    const QJsonObject filter{{QStringLiteral("text"), QString::fromUtf8("导入真实IPC验证")},
+                             {QStringLiteral("with_reflection"), true}};
+    const auto before = await(m_backend->queryRuns(filter, 1, 10));
+    QVERIFY(before.ok);
+    QVERIFY(before.payload.value(QStringLiteral("items")).toList().isEmpty());
+
+    const QJsonObject candidate{
+        {QStringLiteral("duty_name"), QString::fromUtf8("导入真实IPC验证")},
+        {QStringLiteral("job_id"), 38},
+        {QStringLiteral("reflection_text"), QString::fromUtf8("仅用于隔离测试的心得。")},
+        {QStringLiteral("source_recorded_at"), QStringLiteral("2026-10-08 18:44:29")},
+        {QStringLiteral("source_key"), QStringLiteral("private-ipc-import-fixture")}};
+    const QJsonObject source{{QStringLiteral("source_kind"), QStringLiteral("SCREENSHOT")},
+                             {QStringLiteral("source_name"), QStringLiteral("local-test")},
+                             {QStringLiteral("time_zone"), QStringLiteral("+08:00")},
+                             {QStringLiteral("rows"), QJsonArray{candidate}}};
+    const auto preview = await(m_backend->request(QStringLiteral("PreviewRunImport"), source));
+    QVERIFY2(preview.ok, qPrintable(preview.code + QLatin1Char(' ') + preview.message));
+    const auto previewRows = preview.payload.value(QStringLiteral("rows")).toList();
+    QCOMPARE(previewRows.size(), 1);
+    const auto first = previewRows.front().toMap();
+    QCOMPARE(first.value(QStringLiteral("status")).toString(), QStringLiteral("new"));
+    QVERIFY(first.value(QStringLiteral("incomplete")).toBool());
+    const auto afterPreview = await(m_backend->queryRuns(filter, 1, 10));
+    QCOMPARE(afterPreview.payload, before.payload);
+    const QString previewId = preview.payload.value(QStringLiteral("preview_id")).toString();
+    QJsonObject selection{{QStringLiteral("preview_id"), previewId},
+                          {QStringLiteral("row_numbers"), QJsonArray{first.value(QStringLiteral("row_number")).toInt()}},
+                          {QStringLiteral("confirm_own_records"), false}};
+    const auto refused = await(m_backend->request(QStringLiteral("CommitRunImport"), selection));
+    QVERIFY(!refused.ok);
+    selection.insert(QStringLiteral("confirm_own_records"), true);
+    const QString requestId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    const auto committed = await(m_backend->requestWithId(QStringLiteral("CommitRunImport"), selection, requestId));
+    QVERIFY2(committed.ok, qPrintable(committed.code + QLatin1Char(' ') + committed.message));
+    QCOMPARE(committed.payload.value(QStringLiteral("imported_count")).toInt(), 1);
+    const auto replayed = await(m_backend->requestWithId(QStringLiteral("CommitRunImport"), selection, requestId));
+    QVERIFY(replayed.ok);
+    QVERIFY(replayed.payload.value(QStringLiteral("replayed")).toBool());
+    const auto history = await(m_backend->queryRuns(filter, 1, 10));
+    QVERIFY(history.ok);
+    const auto importedItems = history.payload.value(QStringLiteral("items")).toList();
+    QCOMPARE(importedItems.size(), 1);
+    const auto run = importedItems.front().toMap();
+    QCOMPARE(run.value(QStringLiteral("source")).toString(), QStringLiteral("IMPORT"));
+    QCOMPARE(run.value(QStringLiteral("result")).toString(), QStringLiteral("COMPLETED"));
+    QVERIFY(run.value(QStringLiteral("pending_review")).toBool());
+    QVERIFY(run.value(QStringLiteral("entered_at_utc")).isNull());
+    QVERIFY(run.value(QStringLiteral("ended_at_utc")).isNull());
+    QVERIFY(run.value(QStringLiteral("duration_ms")).isNull());
+    QCOMPARE(run.value(QStringLiteral("reflection")).toMap().value(QStringLiteral("mood")).toString(), QStringLiteral("unknown"));
+    const auto metadata = run.value(QStringLiteral("import_metadata")).toMap();
+    QCOMPARE(metadata.value(QStringLiteral("source_recorded_at_utc")).toString(), QStringLiteral("2026-10-08T10:44:29.000Z"));
+    QVERIFY(metadata.value(QStringLiteral("incomplete")).toBool());
+    const auto statsIncomplete = await(m_backend->getDashboardStats());
+    QVERIFY(statsIncomplete.ok);
+    for (const auto &field : {QStringLiteral("attempt_count"), QStringLiteral("completed_count"), QStringLiteral("achievement_progress")})
+        QCOMPARE(statsIncomplete.payload.value(field), statsBefore.payload.value(field));
+    const auto settingsAfter = await(m_backend->getCaptureSettings());
+    QCOMPARE(settingsAfter.payload, settingsBefore.payload);
+
+    const auto duplicate = await(m_backend->request(QStringLiteral("PreviewRunImport"), source));
+    QVERIFY(duplicate.ok);
+    QCOMPARE(duplicate.payload.value(QStringLiteral("rows")).toList().front().toMap().value(QStringLiteral("status")).toString(), QStringLiteral("duplicate"));
+    QJsonObject conflicting = candidate;
+    conflicting.insert(QStringLiteral("run_id"), run.value(QStringLiteral("run_id")).toString());
+    conflicting.insert(QStringLiteral("reflection_text"), QString::fromUtf8("同编号的另一段正文"));
+    QJsonObject conflictSource = source;
+    conflictSource.insert(QStringLiteral("rows"), QJsonArray{conflicting});
+    const auto conflict = await(m_backend->request(QStringLiteral("PreviewRunImport"), conflictSource));
+    QVERIFY(conflict.ok);
+    const auto conflictRow = conflict.payload.value(QStringLiteral("rows")).toList().front().toMap();
+    QCOMPARE(conflictRow.value(QStringLiteral("status")).toString(), QStringLiteral("conflict"));
+    const auto kept = await(m_backend->queryRuns(filter, 1, 10));
+    QCOMPARE(kept.payload.value(QStringLiteral("items")), history.payload.value(QStringLiteral("items")));
+
+    // Completion becomes eligible only after the player supplies the game facts.
+    // Explicitly unknown duration does not invalidate a confirmed completion.
+    const QJsonObject changes{
+        {QStringLiteral("result"), QStringLiteral("COMPLETED")},
+        {QStringLiteral("entered_at_utc"), QStringLiteral("2026-10-08T09:00:00.000Z")},
+        {QStringLiteral("ended_at_utc"), QStringLiteral("2026-10-08T09:15:00.000Z")},
+        {QStringLiteral("duration_ms"), QJsonValue::Null},
+        {QStringLiteral("pending_review"), false}};
+    const auto corrected = await(m_backend->correctRun(run.value(QStringLiteral("run_id")).toString(),
+        run.value(QStringLiteral("revision")).toInt(), changes, QString::fromUtf8("补齐实际游戏时间和通关结果")));
+    QVERIFY2(corrected.ok, qPrintable(corrected.code + QLatin1Char(' ') + corrected.message));
+    const auto statsCompleted = await(m_backend->getDashboardStats());
+    QVERIFY(statsCompleted.ok);
+    QCOMPARE(statsCompleted.payload.value(QStringLiteral("completed_count")).toInt(), statsBefore.payload.value(QStringLiteral("completed_count")).toInt() + 1);
+    const auto revisions = await(m_backend->getRunRevisions(run.value(QStringLiteral("run_id")).toString()));
+    QVERIFY(revisions.ok);
+    QCOMPARE(revisions.payload.value(QStringLiteral("items")).toList().size(), 2);
 }
 
 int main(int argc, char **argv)

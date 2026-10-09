@@ -48,6 +48,28 @@ GCC Runtime Library Exception 3.1 分发（`docs/licenses/GCC-RUNTIME-LIBRARY-EX
 
 ## 其他组件
 
+### 离线截图文字识别
+
+随包的 `ocr/` 使用 UB Mannheim 第三方 Windows 构建 **Tesseract
+5.4.0.20240606**（Apache-2.0），以及官方 `tessdata_fast` 的简体中文/英文模型
+（Apache-2.0，固定提交 `87416418657359cb625c412a48b6e1d6d41c29bd`）。
+发行包只提取识别所需的 PE 依赖闭包，不包含训练工具。运行时不下载模型、不上传截图。
+来源、逐文件哈希、每个 DLL 的组件归属和许可证见随包的
+`ocr/OCR-DEPENDENCIES.json`；完整许可证和上游版权声明位于 `ocr/licenses/`
+（源码副本位于 `docs/licenses/ocr/`）。
+
+传递依赖包括 Leptonica、libarchive、libb2、bzip2、OpenSSL、libdeflate、Expat、
+GCC runtime、giflib、GNU libiconv/libcharset、JBIG-KIT、libjpeg-turbo、Lerc、LZ4、
+XZ liblzma、OpenJPEG、libpng、libwebp、libtiff、mingw-w64 winpthreads、Zstandard、zlib。
+GNU libiconv/libcharset 按 LGPL-2.1-or-later / LGPL-2.0-or-later，JBIG-KIT 按
+GPL-2.0-or-later，GCC runtime 按 GPL-3.0-or-later with GCC Runtime Library Exception 3.1；
+其余依赖的 Apache、BSD、MIT、IJG、Zlib、CC0、0BSD 等文本和源码地址逐项列在该清单。
+
+This software is based in part on the work of the Independent JPEG Group.
+
+Tesseract Windows 构建来源：[UB Mannheim 固定发行版](https://github.com/UB-Mannheim/tesseract/releases/tag/v5.4.0.20240606)。
+模型来源：[官方 tessdata_fast 固定提交](https://github.com/tesseract-ocr/tessdata_fast/tree/87416418657359cb625c412a48b6e1d6d41c29bd)。
+
 | 组件 | 版本 | 许可证 |
 |---|---|---|
 | Microsoft.Data.Sqlite / .Core | 8.0.11 | MIT |

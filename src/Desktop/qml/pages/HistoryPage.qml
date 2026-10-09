@@ -7,6 +7,7 @@ Item {
     id: page
 
     signal openManualRequested()
+    signal openImportRequested()
     signal openCorrectRequested()
     signal openDeleteRequested()
     signal openRestoreRequested()
@@ -14,6 +15,7 @@ Item {
     signal openReviewRequested()
     // Opens ReflectionDialog for the selected run.
     signal reflectRequested(var run)
+    signal shareRequested(var run)
 
     property string detailTab: "info"
     property bool suspendFilter: false
@@ -298,6 +300,7 @@ Item {
 
                 AppButton { text: qsTr("导出 CSV"); iconName: "file-down"; onClicked: App.exportCsv() }
                 AppButton { text: qsTr("导出 JSON"); iconName: "file-json"; onClicked: App.exportJson() }
+                AppButton { text: qsTr("导入记录"); iconName: "file-check"; onClicked: page.openImportRequested() }
                 AppButton {
                     text: qsTr("新增记录")
                     iconName: "plus"
@@ -641,7 +644,13 @@ Item {
 
                             Text {
                                 Layout.preferredWidth: page.dateColumnWidth
-                                text: Fmt.localDate(run.matched_at_utc)
+                                textFormat: Text.PlainText
+                                text: run.matched_at_utc ? Fmt.localDate(run.matched_at_utc)
+                                      : run.import_metadata && run.import_metadata.source_recorded_at_utc
+                                        ? qsTr("原站\n%1").arg(Fmt.localDate(run.import_metadata.source_recorded_at_utc))
+                                      : run.import_metadata && run.import_metadata.source_recorded_at
+                                        ? qsTr("原站\n%1").arg(run.import_metadata.source_recorded_at.substring(0, 10))
+                                      : Fmt.dash()
                                 horizontalAlignment: Text.AlignHCenter
                                 color: Theme.textPrimary
                                 font.pixelSize: Theme.fs(12)
@@ -685,6 +694,7 @@ Item {
                                     Text {
                                         Layout.fillWidth: true
                                         text: run.duty_name || qsTr("未知副本")
+                                        textFormat: Text.PlainText
                                         color: Theme.textPrimary
                                         font.pixelSize: Theme.fs(12)
                                         font.bold: true
@@ -696,6 +706,7 @@ Item {
                                               ? qsTr("%1 · %2级").arg(run.duty_expansion)
                                                                   .arg(run.duty_level || 0)
                                               : Fmt.dash()
+                                        textFormat: Text.PlainText
                                         color: Theme.textSecondary
                                         font.pixelSize: Theme.fs(11)
                                         font.family: Theme.figureFamily
@@ -709,6 +720,7 @@ Item {
                             Text {
                                 Layout.preferredWidth: 84
                                 text: run.duty_category || qsTr("未识别")
+                                textFormat: Text.PlainText
                                 horizontalAlignment: Text.AlignHCenter
                                 color: Theme.textSecondary
                                 font.pixelSize: Theme.fs(12)
@@ -725,10 +737,19 @@ Item {
                                 // No room for the role glyph in 112 px, so the
                                 // role only shows up on hover.
                                 HoverHandler { id: jobHover }
-                                ToolTip.visible: jobHover.hovered
-                                ToolTip.delay: 400
-                                ToolTip.text: (run.job_name || qsTr("未知"))
-                                              + " · " + Jobs.roleGroup(run.job_id)
+                                ToolTip {
+                                    id: jobTip
+                                    visible: jobHover.hovered
+                                    delay: 400
+                                    text: (run.job_name || qsTr("未知")) + " · " + Jobs.roleGroup(run.job_id)
+                                    contentItem: Text {
+                                        text: jobTip.text
+                                        textFormat: Text.PlainText
+                                        font: jobTip.font
+                                        wrapMode: Text.Wrap
+                                        color: jobTip.palette.toolTipText
+                                    }
+                                }
 
                                 RowLayout {
                                     anchors.centerIn: parent
@@ -739,6 +760,7 @@ Item {
                                     Text {
                                         Layout.maximumWidth: 112 - 22 - 7
                                         text: run.job_name || qsTr("未知")
+                                        textFormat: Text.PlainText
                                         color: Theme.textPrimary
                                         font.pixelSize: Theme.fs(12)
                                         elide: Text.ElideRight
@@ -889,5 +911,6 @@ Item {
         onUndoRequested: page.openUndoRequested()
         onReviewRequested: page.openReviewRequested()
         onReflectRequested: page.reflectRequested(App.selectedRun)
+        onShareRequested: page.shareRequested(App.selectedRun)
     }
 }

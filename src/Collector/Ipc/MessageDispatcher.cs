@@ -31,6 +31,10 @@ public sealed class MessageDispatcher
     /// </summary>
     private int _integrityCheckInFlight;
 
+    // PipeServer shares this dispatcher across its connections. Preview and commit use
+    // the same slot so no client can queue more parsing or database waits behind either.
+    private int _importInFlight;
+
     /// <summary>Creates a dispatcher over a host.</summary>
     /// <param name="host">Open collector host.</param>
     public MessageDispatcher(CollectorHost host)
@@ -46,7 +50,7 @@ public sealed class MessageDispatcher
         "StopCapture", "GetProtocolProfileStatus", "GetCurrentRun", "QueryRuns", "GetDashboardStats",
         "GetDungeonStats", "GetJobStats", "GetResultStats", "CreateManualRun", "CorrectRun",
         "SoftDeleteRun", "RestoreRun", "GetRunRevisions", "UpdateAchievementBaseline", "ExportCsv",
-        "ExportJson", "BackupDatabase", "SubscribeLiveEvents", "ExportDiagnosticsReport",
+        "ExportJson", "BackupDatabase", "PreviewRunImport", "CommitRunImport", "SubscribeLiveEvents", "ExportDiagnosticsReport",
         "SetRunReflection", "GetReflectionSummary",
         "StartCaptureValidation", "GetCaptureValidationStatus", "AddCaptureValidationMarker", "StopCaptureValidation",
         "UndoRevision", "GetRunEvents", "GetCaptureSettings", "UpdateCaptureSettings",
@@ -67,7 +71,7 @@ public sealed class MessageDispatcher
     /// background task of its own - and answer at once like a status poll.
     /// </summary>
     public static IReadOnlySet<string> AsynchronousMessageTypes { get; } =
-        new HashSet<string>(StringComparer.Ordinal) { "SynthesizeSpeech", "CheckDatabaseIntegrity", "CheckUpdateNow" };
+        new HashSet<string>(StringComparer.Ordinal) { "SynthesizeSpeech", "CheckDatabaseIntegrity", "CheckUpdateNow", "PreviewRunImport", "CommitRunImport" };
 
     /// <summary>Host this dispatcher serves.</summary>
     public CollectorHost Host => _host;
@@ -115,6 +119,7 @@ public sealed class MessageDispatcher
             "ExportCsv" => Export(reader, csv: true),
             "ExportJson" => Export(reader, csv: false),
             "BackupDatabase" => BackupDatabase(reader),
+            "PreviewRunImport" or "CommitRunImport" => DispatchImport(request),
             "ExportDiagnosticsReport" => ExportDiagnosticsReport(reader),
             "SetRunReflection" => ReflectionHandlers.SetRunReflection(_host, request.RequestId, reader),
             "GetReflectionSummary" => ReflectionHandlers.GetReflectionSummary(_host, reader),
@@ -156,9 +161,45 @@ public sealed class MessageDispatcher
                 _host, new PayloadReader(request.Payload), cancellationToken),
             "CheckDatabaseIntegrity" => CheckDatabaseIntegrityAsync(request, cancellationToken),
             "CheckUpdateNow" => UpdateHandlers.CheckNowAsync(_host, new PayloadReader(request.Payload), cancellationToken),
+            "PreviewRunImport" or "CommitRunImport" => DispatchImportAsync(request, cancellationToken),
             _ => Task.FromResult(Dispatch(request)),
         };
     }
+
+    private JsonObject DispatchImport(IpcRequest request)
+    {
+        BeginImport();
+        try { return InvokeImport(request, CancellationToken.None); }
+        finally { Volatile.Write(ref _importInFlight, 0); }
+    }
+
+    private Task<JsonObject> DispatchImportAsync(IpcRequest request, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        BeginImport();
+        // Always run the finally, including cancellation before the delegate starts.
+        return Task.Run(() =>
+        {
+            try
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                return InvokeImport(request, cancellationToken);
+            }
+            finally { Volatile.Write(ref _importInFlight, 0); }
+        });
+    }
+
+    private void BeginImport()
+    {
+        if (Interlocked.CompareExchange(ref _importInFlight, 1, 0) != 0)
+            throw new CollectorException(ErrorCodes.DbBusy,
+                "记录导入正在进行，请稍后用相同的请求编号重试。", retryable: true);
+    }
+
+    private JsonObject InvokeImport(IpcRequest request, CancellationToken cancellationToken) =>
+        request.MessageType == "PreviewRunImport"
+            ? RunImportHandlers.Preview(_host, request.Payload, cancellationToken)
+            : RunImportHandlers.Commit(_host, request.RequestId, request.Payload, cancellationToken);
 
     /// <summary>
     /// Answers <c>CheckDatabaseIntegrity</c> off this connection's thread, one scan at a time.

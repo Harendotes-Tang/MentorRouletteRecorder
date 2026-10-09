@@ -11,6 +11,9 @@ public enum ReflectionMood
 
     /// <summary>糟心 — the run was unpleasant.</summary>
     Bad,
+
+    /// <summary>The imported source did not record a mood; never inferred from its text.</summary>
+    Unknown,
 }
 
 /// <summary>
@@ -34,7 +37,7 @@ public sealed record RunReflection(
 /// <summary>
 /// The wire spelling of <see cref="ReflectionMood"/> and the bounds of the text.
 ///
-/// Spelled out rather than derived from <see cref="EnumWire{TEnum}"/>: the three tokens are
+/// Spelled out rather than derived from <see cref="EnumWire{TEnum}"/>: the mood tokens are
 /// lower case on the wire because the user picks them in the UI, exactly like
 /// <c>trend_granularity</c>, and <c>EnumWire</c> would spell them UPPER_SNAKE_CASE.
 /// </summary>
@@ -50,6 +53,7 @@ public static class ReflectionText
         ReflectionMood.Good => "good",
         ReflectionMood.Ok => "ok",
         ReflectionMood.Bad => "bad",
+        ReflectionMood.Unknown => "unknown",
         _ => throw new ArgumentOutOfRangeException(nameof(mood), mood, "not a declared mood"),
     };
 
@@ -68,6 +72,9 @@ public static class ReflectionText
                 return true;
             case "bad":
                 mood = ReflectionMood.Bad;
+                return true;
+            case "unknown":
+                mood = ReflectionMood.Unknown;
                 return true;
             default:
                 mood = default;

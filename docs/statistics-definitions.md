@@ -45,6 +45,10 @@ NOT (source = 'AUTO_NETWORK' AND result = 'UNKNOWN' AND ended_at_utc IS NULL AND
 
 不满足上述条件的记录不进入任何统计。
 
+本人导入记录的显式导随标记保存在 `run_import_metadata.mentor_confirmed`；旧导入记录仍可由
+`mentor_roulette_id` 确认。带来源元数据且仍待复核、结果未知或缺必要游戏端点的 IMPORT 暂不进入统计，
+即使预览使用默认通关也不例外。补齐并确认后按下列规则计数；未知耗时只影响平均耗时，不取消已确认的通关。
+
 ## 2. 尝试次数 `attempt_count`
 
 ```

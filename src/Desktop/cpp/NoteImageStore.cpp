@@ -1,6 +1,8 @@
 #include "NoteImageStore.h"
 
 #include <QCoreApplication>
+#include <QBuffer>
+#include <QClipboard>
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
@@ -8,8 +10,12 @@
 #include <QFileInfo>
 #include <QImage>
 #include <QImageReader>
+#include <QImageWriter>
+#include <QGuiApplication>
+#include <QMimeData>
 #include <QRegularExpression>
 #include <QStandardPaths>
+#include <QTemporaryDir>
 #include <QUrl>
 
 namespace mr {
@@ -37,6 +43,13 @@ bool isInside(const QString &directory, const QString &path)
     return candidate.startsWith(base + QLatin1Char('/'), Qt::CaseInsensitive);
 }
 
+const QStringList &clipboardImageFormats()
+{
+    static const QStringList formats{QStringLiteral("image/png"), QStringLiteral("image/jpeg"),
+        QStringLiteral("image/gif"), QStringLiteral("image/bmp"), QStringLiteral("image/webp")};
+    return formats;
+}
+
 } // namespace
 
 // ---------------------------------------------------------------- 构造 --
@@ -53,6 +66,8 @@ NoteImageStore::NoteImageStore(const QString &rootDirectory, QObject *parent)
     , m_root(QDir::cleanPath(QDir(rootDirectory).absolutePath()))
     , m_copy([](const QString &source, const QString &target) { return QFile::copy(source, target); })
 {
+    if (auto *clipboard = QGuiApplication::clipboard())
+        connect(clipboard, &QClipboard::dataChanged, this, &NoteImageStore::clipboardChanged);
 }
 
 void NoteImageStore::setCopyFunctionForTesting(CopyFunction copy)
@@ -419,6 +434,80 @@ QVariantMap NoteImageStore::addPicked(const QString &runId)
                 {QStringLiteral("removed"), QStringList()}};
     }
     return addFile(runId, picked);
+}
+
+bool NoteImageStore::clipboardHasImage() const
+{
+    const auto *clipboard = QGuiApplication::clipboard();
+    const auto *mime = clipboard ? clipboard->mimeData() : nullptr;
+    if (!mime)
+        return false;
+    if (mime->hasImage())
+        return true;
+    for (const QString &format : clipboardImageFormats()) {
+        if (mime->hasFormat(format))
+            return true;
+    }
+    return false;
+}
+
+QVariantMap NoteImageStore::addClipboard(const QString &runId)
+{
+    const auto fail = [](const QString &error) -> QVariantMap {
+        return {{QStringLiteral("ok"), false}, {QStringLiteral("error"), error},
+                {QStringLiteral("added"), QStringList()}, {QStringLiteral("removed"), QStringList()}};
+    };
+    if (!isValidRunId(runId))
+        return fail(chinese("这条记录还没有可用的编号，无法保存图片。"));
+    if (imagesFor(runId).size() >= kMaxImagesPerRun)
+        return fail(chinese("一条记录最多保存 %1 张图片。").arg(kMaxImagesPerRun));
+    const auto *clipboard = QGuiApplication::clipboard();
+    const auto *mime = clipboard ? clipboard->mimeData() : nullptr;
+    if (!mime || !clipboardHasImage())
+        return fail(chinese("剪贴板里没有图片，请先复制截图或图片。"));
+
+    QImage image;
+    // Prefer an encoded image when available: its byte count and header canvas
+    // can be checked before asking Qt to allocate decoded pixels.
+    for (const QString &format : clipboardImageFormats()) {
+        if (!mime->hasFormat(format))
+            continue;
+        QByteArray bytes = mime->data(format);
+        if (bytes.size() > kMaxImageBytes)
+            return fail(chinese("剪贴板图片超过 %1 MB，请先压缩。").arg(kMaxImageBytes / (1024 * 1024)));
+        QBuffer buffer(&bytes);
+        buffer.open(QIODevice::ReadOnly);
+        QImageReader reader(&buffer);
+        const QSize canvas = reader.size();
+        if (!reader.canRead() || !supportedSuffixes().contains(suffixForFormat(reader.format()))
+                || !canvas.isValid())
+            return fail(chinese("剪贴板图片已损坏或无法读取，请重新复制。"));
+        if (qint64(canvas.width()) * canvas.height() > kMaxImagePixels)
+            return fail(chinese("剪贴板图片分辨率过大，超过 %1 万像素，请先缩小。").arg(kMaxImagePixels / 10000));
+        image = reader.read();
+        if (image.isNull())
+            return fail(chinese("剪贴板图片已损坏或无法读取，请重新复制。"));
+        break;
+    }
+    // Native Windows screenshot data may already be a decoded QImage. Its
+    // actual canvas is still checked before encoding or storing any file.
+    if (image.isNull() && mime->hasImage())
+        image = clipboard->image();
+    if (image.isNull())
+        return fail(chinese("剪贴板图片已损坏或无法读取，请重新复制。"));
+    if (qint64(image.width()) * image.height() > kMaxImagePixels)
+        return fail(chinese("剪贴板图片分辨率过大，超过 %1 万像素，请先缩小。").arg(kMaxImagePixels / 10000));
+
+    QTemporaryDir temporary(QDir::tempPath() + QStringLiteral("/MentorRecorder-clipboard-XXXXXX"));
+    if (!temporary.isValid())
+        return fail(chinese("无法创建剪贴板图片临时文件，请检查临时目录是否可写。"));
+    const QString source = temporary.filePath(QStringLiteral("clipboard.png"));
+    QImageWriter writer(source, "png");
+    if (!writer.write(image))
+        return fail(chinese("无法读取或转换剪贴板图片，请重新复制。"));
+    // addFile rechecks the encoded PNG's byte limit, decode and genuine run
+    // folder, then performs the same atomic batch copy as a chosen file.
+    return addFile(runId, source);
 }
 
 QVariantMap NoteImageStore::removeOne(const QString &runId, const QString &path)

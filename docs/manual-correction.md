@@ -274,7 +274,7 @@ reflection_mood, reflection_text
   其 `date` 会落在前一天。需要按本地日分组时，应依据这三列自行换算，不要使用 `date`。
 - `duration` 为**整数毫秒**，与 `duration_ms` 同值，留空表示未知。
 - `manually_corrected` 取 `0` 或 `1`。
-- `reflection_mood` 取 `good` / `ok` / `bad`，`reflection_text` 为心得正文；
+- `reflection_mood` 取 `good` / `ok` / `bad`，导入来源没有心情时可为 `unknown`；`reflection_text` 为心得正文；
   没有心得时两列均为空，字段定义见 [data-model.md](data-model.md) §1.3。
 
 **防公式注入只作用于自由文本列。** 电子表格会把以 `=`、`+`、`-`、`@`、制表符或回车开头的

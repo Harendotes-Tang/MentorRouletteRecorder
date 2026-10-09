@@ -60,7 +60,9 @@ public static class RunMutationRules
                 run);
         }
 
-        if (run.Result != RunResult.CancelledBeforeEntry && run.EnteredAtUtc is null)
+        var incompleteImport = run.Source == RunSource.Import && run.ImportMetadata is not null
+            && (run.Result == RunResult.Unknown || run.PendingReview);
+        if (!incompleteImport && run.Result != RunResult.CancelledBeforeEntry && run.EnteredAtUtc is null)
         {
             throw Violation(
                 RunRuleViolationKind.EntryRequired,
@@ -68,7 +70,7 @@ public static class RunMutationRules
                 run);
         }
 
-        if (run.Result == RunResult.Completed && run.EndedAtUtc is null)
+        if (!incompleteImport && run.Result == RunResult.Completed && run.EndedAtUtc is null)
         {
             throw Violation(
                 RunRuleViolationKind.EndRequired,

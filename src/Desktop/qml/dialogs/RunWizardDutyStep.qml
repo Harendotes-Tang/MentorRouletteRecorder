@@ -267,6 +267,7 @@ ColumnLayout {
                         Text {
                             Layout.fillWidth: true
                             text: dutyRow.modelData.duty_name || ""
+                            textFormat: Text.PlainText
                             color: dutyRow.chosen
                                    ? (Theme.eorzea ? Theme.gold2 : Theme.accent)
                                    : Theme.textPrimary
@@ -440,6 +441,7 @@ ColumnLayout {
                                 Text {
                                     anchors.verticalCenter: parent.verticalCenter
                                     text: jobChip.modelData.job_name
+                                    textFormat: Text.PlainText
                                     color: jobChip.selected
                                            ? (Theme.eorzea ? Theme.gold2 : Theme.accent)
                                            : Theme.textPrimary

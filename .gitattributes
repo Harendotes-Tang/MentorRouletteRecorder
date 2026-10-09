@@ -19,3 +19,7 @@ contracts/*.json -text
 
 # Lucide SVGs: the README lists their SHA-256 as downloaded, so they must round-trip byte-for-byte.
 src/Desktop/resources/icons/lucide/** -text
+
+# Offline OCR provenance and upstream licence bytes are SHA256-pinned by the
+# dependency manifest; preserve them across Windows/Linux checkouts.
+docs/licenses/ocr/** -text

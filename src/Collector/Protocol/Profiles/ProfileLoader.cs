@@ -771,7 +771,19 @@ public static class ProfileLoader
                 continue;
             }
 
-            var actual = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(target))).ToLowerInvariant();
+            string actual;
+            try
+            {
+                actual = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(target))).ToLowerInvariant();
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                errors.Add(new ProfileIssue(
+                    "E_PROFILE_FIXTURE_UNREADABLE", fixture.Path, "referenced fixture could not be read"));
+                verified = false;
+                continue;
+            }
+
             if (!string.Equals(actual, fixture.Sha256, StringComparison.OrdinalIgnoreCase))
             {
                 errors.Add(new ProfileIssue(

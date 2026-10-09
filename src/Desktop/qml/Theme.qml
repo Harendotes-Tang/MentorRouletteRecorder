@@ -538,6 +538,8 @@ QtObject {
             return qsTr("一般")
         case "bad":
             return qsTr("糟心")
+        case "unknown":
+            return qsTr("未记录心情")
         default:
             return qsTr("未记录")
         }
@@ -549,6 +551,8 @@ QtObject {
             return "ink"
         case "bad":
             return "accent"
+        case "unknown":
+            return "neutral"
         default:
             return "blue"
         }

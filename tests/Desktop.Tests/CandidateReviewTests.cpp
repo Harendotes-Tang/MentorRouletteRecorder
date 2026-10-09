@@ -129,6 +129,14 @@ QStringList kinds(const QVariantList &timeline)
     return result;
 }
 
+QStringList observationIds(const QVariantList &timeline)
+{
+    QStringList result;
+    for (const auto &value : timeline)
+        result.append(value.toMap().value(QStringLiteral("observation_id")).toString());
+    return result;
+}
+
 QJsonObject completedMockPayload(mr::BackendReply *reply)
 {
     QSignalSpy done(reply, &mr::BackendReply::done);
@@ -616,6 +624,121 @@ ApplicationWindow {
         for (const auto &value : controller.timeline()) ids.append(value.toMap().value("observation_id").toString());
         QCOMPARE(ids, QStringList({"3", "2", "1", "0"}));
         QCOMPARE(kinds(controller.timeline()), QStringList({"zone", "zone", "zone", "login"}));
+    }
+
+    void mixedConnectionZoneAnchorUsesSessionMonotonicOrder()
+    {
+        auto zone = eventAt(10, "ZONE_LOAD", 10000, "c1");
+        zone[QStringLiteral("first_observed_at_utc")] = QStringLiteral("2026-09-06T01:49:07.000Z");
+        zone[QStringLiteral("last_observed_at_utc")] = zone.value(QStringLiteral("observed_at_utc"));
+        zone[QStringLiteral("first_t_ms")] = 7000;
+        zone[QStringLiteral("last_t_ms")] = 10000;
+        const QList<QJsonObject> events{
+            zone, eventAt(11, "FINDER_STATE_NOTIFICATION", 9000, "c1"),
+            eventAt(12, "QUEUE_REGISTRATION", 8000, "c2")};
+        QList<int> order{0, 1, 2};
+        do {
+            TestBackend backend;
+            for (const auto index : order) backend.rows.append(events[index]);
+            mr::CandidateReviewController controller;
+            controller.setBackend(&backend);
+            controller.refresh();
+            QTRY_VERIFY(controller.indexComplete());
+            // Mixing connection-local t_ms and cross-connection display UTC formed a cycle:
+            // zone > finder by t_ms, finder > queue by UTC, queue > zone by cluster-first UTC.
+            QCOMPARE(observationIds(controller.timeline()), QStringList({"10", "11", "12"}));
+            const auto anchor = controller.timeline().first().toMap();
+            QCOMPARE(anchor.value(QStringLiteral("at_utc")).toString(), QStringLiteral("2026-09-06T01:49:07.000Z"));
+            QCOMPARE(anchor.value(QStringLiteral("t_ms")).toLongLong(), qint64(10000));
+            QCOMPARE(kinds(controller.timeline()), QStringList({"login", "finder", "queue"}));
+            QVERIFY(controller.anchorPairs().isEmpty());
+        } while (std::next_permutation(order.begin(), order.end()));
+    }
+
+    void sessionGroupsUseLatestObservationBeforeTheirOwnMonotonicTime()
+    {
+        auto oldLogin = eventAt(10, "ZONE_LOAD", 900000, "c1");
+        oldLogin[QStringLiteral("observed_at_utc")] = QStringLiteral("2026-09-06T10:01:00.000Z");
+        auto oldQueue = eventAt(11, "QUEUE_REGISTRATION", 900010, "c2");
+        oldQueue[QStringLiteral("observed_at_utc")] = QStringLiteral("2026-09-06T09:59:00.000Z");
+        auto newLogin = eventAt(20, "ZONE_LOAD", 1, "c1");
+        newLogin[QStringLiteral("capture_session_id")] = QStringLiteral("s2");
+        newLogin[QStringLiteral("observed_at_utc")] = QStringLiteral("2026-09-06T10:02:00.000Z");
+        auto newQueue = eventAt(21, "QUEUE_REGISTRATION", 2, "c2");
+        newQueue[QStringLiteral("capture_session_id")] = QStringLiteral("s2");
+        newQueue[QStringLiteral("observed_at_utc")] = QStringLiteral("2026-09-06T10:00:00.000Z");
+        TestBackend backend;
+        backend.rows = {oldQueue, newLogin, oldLogin, newQueue};
+        mr::CandidateReviewController controller;
+        controller.setBackend(&backend);
+        controller.refresh();
+        QTRY_VERIFY(controller.indexComplete());
+        // Different sessions have independent uptime offsets. A wall-clock correction on
+        // either connection must not split a session or reorder its shared monotonic clock.
+        QCOMPARE(observationIds(controller.timeline()), QStringList({"21", "20", "11", "10"}));
+        QCOMPARE(controller.sessions().size(), 2);
+        QCOMPARE(controller.sessions()[0].toMap().value(QStringLiteral("session_id")).toString(), QStringLiteral("s2"));
+        QCOMPARE(controller.sessions()[1].toMap().value(QStringLiteral("session_id")).toString(), QStringLiteral("s1"));
+        QCOMPARE(kinds(controller.timeline()), QStringList({"queue", "login", "queue", "login"}));
+        QVERIFY(controller.anchorPairs().isEmpty());
+    }
+
+    void equalTimesHaveDeterministicIdentityOrder()
+    {
+        auto otherSession = eventAt(2, "QUEUE_REGISTRATION", 1000, "z");
+        otherSession[QStringLiteral("capture_session_id")] = QStringLiteral("s2");
+        const QList<QJsonObject> events{otherSession,
+            eventAt(8, "QUEUE_REGISTRATION", 1000, "z"),
+            eventAt(5, "QUEUE_REGISTRATION", 1000, "a"),
+            eventAt(4, "QUEUE_REGISTRATION", 1000, "a")};
+        QList<int> order{0, 1, 2, 3};
+        do {
+            TestBackend backend;
+            for (const auto index : order) backend.rows.append(events[index]);
+            mr::CandidateReviewController controller;
+            controller.setBackend(&backend);
+            controller.refresh();
+            QTRY_VERIFY(controller.indexComplete());
+            QCOMPARE(observationIds(controller.timeline()), QStringList({"4", "5", "8", "2"}));
+            QCOMPARE(controller.sessions()[0].toMap().value(QStringLiteral("session_id")).toString(), QStringLiteral("s1"));
+            QCOMPARE(controller.sessions()[1].toMap().value(QStringLiteral("session_id")).toString(), QStringLiteral("s2"));
+        } while (std::next_permutation(order.begin(), order.end()));
+    }
+
+    void zoneClusterKeepsLastMonotonicTimeForInference()
+    {
+        const auto cluster = [](int id, qint64 first, qint64 last) {
+            auto value = eventAt(id, "ZONE_LOAD", last);
+            value[QStringLiteral("first_observed_at_utc")] = QDateTime::fromString(
+                QStringLiteral("2026-09-06T01:49:00.000Z"), Qt::ISODateWithMs).addMSecs(first).toString(Qt::ISODateWithMs);
+            value[QStringLiteral("last_observed_at_utc")] = value.value(QStringLiteral("observed_at_utc"));
+            value[QStringLiteral("first_t_ms")] = first;
+            value[QStringLiteral("last_t_ms")] = last;
+            return value;
+        };
+        TestBackend backend;
+        backend.rows = {eventAt(0, "ZONE_LOAD", 1000),
+            eventAt(1, "FINDER_STATE_NOTIFICATION", 20000), cluster(2, 198000, 201000),
+            eventAt(3, "FINDER_STATE_NOTIFICATION", 300000), cluster(4, 317000, 320000),
+            cluster(5, 897000, 900000)};
+        mr::CandidateReviewController controller;
+        controller.setBackend(&backend);
+        controller.refresh();
+        QTRY_VERIFY(controller.indexComplete());
+        // The first cluster starts before the three-minute limit but establishes its anchor
+        // after it. Only the later, fresh finder notification can produce a duty entry.
+        QCOMPARE(kinds(controller.timeline()), QStringList({"duty_leave", "duty_enter", "finder", "zone", "finder", "login"}));
+        QCOMPARE(controller.timeline()[3].toMap().value(QStringLiteral("t_ms")).toLongLong(), qint64(201000));
+        const auto entry = controller.timeline()[1].toMap();
+        const auto leave = controller.timeline()[0].toMap();
+        QCOMPARE(entry.value(QStringLiteral("t_ms")).toLongLong(), qint64(320000));
+        QCOMPARE(leave.value(QStringLiteral("t_ms")).toLongLong(), qint64(900000));
+        QCOMPARE(controller.anchorPairs().size(), 1);
+        const auto pair = controller.anchorPairs().first().toMap();
+        QCOMPARE(pair.value(QStringLiteral("first_observation_id")).toString(), QStringLiteral("4"));
+        QCOMPARE(pair.value(QStringLiteral("last_observation_id")).toString(), QStringLiteral("5"));
+        QCOMPARE(pair.value(QStringLiteral("first_at_utc")), entry.value(QStringLiteral("at_utc")));
+        QCOMPARE(pair.value(QStringLiteral("last_at_utc")), leave.value(QStringLiteral("at_utc")));
     }
 
     void expiredSelectedSessionReturnsToTheUnfilteredFirstPage()

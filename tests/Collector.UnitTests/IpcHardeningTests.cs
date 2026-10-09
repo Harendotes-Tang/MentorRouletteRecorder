@@ -135,10 +135,10 @@ public sealed class IpcHardeningTests
     /// entry here has to be given a deadline there as well, and this test is what says so.
     /// </summary>
     [Fact]
-    public void TheMessageTypesAnsweredLaterAreExactlyTheThreeTheDesktopWaitsLongerFor()
+    public void TheMessageTypesAnsweredLaterMatchTheDesktopExtendedDeadlines()
     {
         Assert.Equal(
-            new[] { "CheckDatabaseIntegrity", "CheckUpdateNow", "SynthesizeSpeech" },
+            new[] { "CheckDatabaseIntegrity", "CheckUpdateNow", "CommitRunImport", "PreviewRunImport", "SynthesizeSpeech" },
             MessageDispatcher.AsynchronousMessageTypes.OrderBy(type => type, StringComparer.Ordinal));
     }
 

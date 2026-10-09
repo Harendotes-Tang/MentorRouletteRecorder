@@ -263,7 +263,12 @@ void CandidateReviewController::finishIndex()
         m_sessions.append(summary);
     }
     std::sort(m_sessions.begin(), m_sessions.end(), [](const QVariant &a, const QVariant &b) {
-        return a.toMap().value(QStringLiteral("last_at_utc")).toString() > b.toMap().value(QStringLiteral("last_at_utc")).toString();
+        const auto x = a.toMap();
+        const auto y = b.toMap();
+        const auto xt = x.value(QStringLiteral("last_at_utc")).toString();
+        const auto yt = y.value(QStringLiteral("last_at_utc")).toString();
+        if (xt != yt) return xt > yt;
+        return x.value(QStringLiteral("session_id")).toString() < y.value(QStringLiteral("session_id")).toString();
     });
     buildTimeline();
     m_indexLoading = false;
@@ -381,15 +386,25 @@ void CandidateReviewController::buildTimeline()
                 {QStringLiteral("inferred"), true}, {QStringLiteral("complete"), false}});
         }
     }
-    // Newest first, like the row list; the monotonic clock orders within a connection and
-    // wall time orders connections against each other.
-    std::sort(m_timeline.begin(), m_timeline.end(), [](const QVariant &a, const QVariant &b) {
+    // Each capture session has its own clock, shared by all of its connections. Keep the
+    // published session order fixed, then order every event in that session by t_ms.
+    // A zone anchor displays its first UTC but retains its last t_ms for ordering/inference.
+    QHash<QString, qsizetype> sessionOrder;
+    for (qsizetype i = 0; i < m_sessions.size(); ++i)
+        sessionOrder.insert(m_sessions[i].toMap().value(QStringLiteral("session_id")).toString(), i);
+    std::sort(m_timeline.begin(), m_timeline.end(), [&sessionOrder](const QVariant &a, const QVariant &b) {
         const auto x = a.toMap();
         const auto y = b.toMap();
-        const auto sx = x.value(QStringLiteral("capture_session_id")).toString() + x.value(QStringLiteral("connection_tag")).toString();
-        const auto sy = y.value(QStringLiteral("capture_session_id")).toString() + y.value(QStringLiteral("connection_tag")).toString();
-        if (sx == sy) return x.value(QStringLiteral("t_ms")).toLongLong() > y.value(QStringLiteral("t_ms")).toLongLong();
-        return x.value(QStringLiteral("at_utc")).toString() > y.value(QStringLiteral("at_utc")).toString();
+        const auto sx = sessionOrder.value(x.value(QStringLiteral("capture_session_id")).toString());
+        const auto sy = sessionOrder.value(y.value(QStringLiteral("capture_session_id")).toString());
+        if (sx != sy) return sx < sy;
+        const auto xt = x.value(QStringLiteral("t_ms")).toLongLong();
+        const auto yt = y.value(QStringLiteral("t_ms")).toLongLong();
+        if (xt != yt) return xt > yt;
+        const auto cx = x.value(QStringLiteral("connection_tag")).toString();
+        const auto cy = y.value(QStringLiteral("connection_tag")).toString();
+        if (cx != cy) return cx < cy;
+        return x.value(QStringLiteral("observation_id")).toString() < y.value(QStringLiteral("observation_id")).toString();
     });
     std::sort(m_pairs.begin(), m_pairs.end(), [](const QVariant &a, const QVariant &b) {
         return a.toMap().value(QStringLiteral("first_at_utc")).toString() > b.toMap().value(QStringLiteral("first_at_utc")).toString();

@@ -8,8 +8,8 @@
 # <event.json> is a GitHub `issues` event, or {"issue": <REST issue>} written by tools/sweep_issues.sh.
 # Needs git, python and gh, with GH_TOKEN and GH_REPO set and RUNNER_TEMP pointing at scratch space.
 #
-# This script never reads issue text. The title, the body and the submitter's login stay in the event
-# file and only tools/publish.py reads it; every value used below comes back from publish.py already
+# This script never reads issue text. The title, body and submitter's login stay in JSON files and
+# only tools/publish.py reads them; every value used below comes back from publish.py already
 # validated (an issue number, a login of [A-Za-z0-9-], a fixed status, label or close reason, a code
 # path of the repository's own layout, a commit message built from validated values).
 #
@@ -22,12 +22,23 @@ py() {
   python -B tools/publish.py "$@"
 }
 
+read_issue() {
+  gh api "repos/$GH_REPO/issues/$1" > "$2"
+}
+
+still_current() {
+  local number="$1" snapshot="$2" current="$3"
+  shift 3
+  read_issue "$number" "$current"
+  py unchanged --issue "$snapshot" --live "$current" "$@"
+}
+
 # Decide, commit and push, starting again from the new main whenever someone else pushed first. A
 # rebase would not do: index.json pins a new code to the commit that added its file, and a rebase
 # rewrites that commit, so every retry recomputes both commits on top of the current main.
 publish_loop() {
-  local event="$1" account="$2" out="$3" live="$4"
-  local attempt status file
+  local event="$1" account="$2" out="$3" live="$4" number="$5"
+  local attempt status file login
   git config user.name 'github-actions[bot]'
   git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
   for attempt in 1 2 3 4 5; do
@@ -36,6 +47,13 @@ publish_loop() {
     git clean --quiet -fd
     rm -rf "$out"
     mkdir -p "$out"
+    # A queued event and a failed push can both outlive an edit. Every attempt uses the latest author
+    # and contents, and a changed snapshot is discarded before it can be pushed.
+    read_issue "$number" "$live"
+    echo '{}' > "$account"
+    if login="$(py event-field --event "$event" --live "$live" --name login)"; then
+      gh api "users/$login" > "$account" || echo '{}' > "$account"
+    fi
     py check --repo . --event "$event" --account "$account" --live "$live" --out "$out"
     status="$(py field --out "$out" --name status)"
     case "$status" in
@@ -60,6 +78,10 @@ publish_loop() {
         return 0
         ;;
     esac
+    if ! still_current "$number" "$live" "$live.current"; then
+      echo "issue #$number changed before push; reading the latest submission"
+      continue
+    fi
     if git push --quiet origin HEAD:main; then
       return 0
     fi
@@ -71,7 +93,7 @@ publish_loop() {
 
 # Comment, label and close. An `error` result is answered too, then fails the job so a maintainer sees it.
 report() {
-  local number="$1" out="$2" work="$3"
+  local number="$1" out="$2" work="$3" live="$4"
   local status label close_reason
   status="$(py field --out "$out" --name status)"
   if [ "$status" = skipped ]; then
@@ -80,8 +102,18 @@ report() {
   fi
   label="$(py field --out "$out" --name label)"
   close_reason="$(py field --out "$out" --name close_reason)"
+  if ! still_current "$number" "$live" "$live.current"; then
+    echo "issue #$number changed before reply; leaving the current submission unanswered"
+    return 0
+  fi
   gh issue comment "$number" --body-file "$out/comment.md"
   : > "$work/replied"
+  # The comment itself updates updated_at. Its title/body/author must still match before closing or
+  # applying an answer label, so an edit during reporting remains eligible for its queued run/sweep.
+  if ! still_current "$number" "$live" "$live.current" --after-comment; then
+    echo "issue #$number changed while replying; leaving the current submission open"
+    return 0
+  fi
   # Close first: a closed issue is never picked up again, even if labelling fails afterwards.
   if [ -n "$close_reason" ]; then
     gh issue close "$number" --reason "$close_reason"
@@ -100,7 +132,7 @@ report() {
 
 main() {
   local event="${1:?usage: bash tools/publish_issue.sh <event.json>}"
-  local number work account live out login
+  local number work account live out
   number="$(py event-field --event "$event" --name number)"
   work="${RUNNER_TEMP:?RUNNER_TEMP is not set}/publish-$number"
   rm -rf "$work"
@@ -109,19 +141,8 @@ main() {
   live="$work/live.json"
   out="$work/out"
 
-  # The event may be stale: an earlier queued run can already have answered this issue, closing it or
-  # leaving it open with needs-maintainer, and the event (the `labeled` one of the same issue, an edit, a
-  # redelivery) still shows the labels of the moment it fired. Whether the issue is still open and still
-  # unanswered is therefore read as it is now; publish.py skips it otherwise, and nothing is answered.
-  gh issue view "$number" --json state,labels > "$live"
-
-  echo '{}' > "$account"
-  if login="$(py event-field --event "$event" --name login)"; then
-    gh api "users/$login" > "$account" || echo '{}' > "$account"
-  fi
-
-  publish_loop "$event" "$account" "$out" "$live"
-  report "$number" "$out" "$work"
+  publish_loop "$event" "$account" "$out" "$live" "$number"
+  report "$number" "$out" "$work" "$live"
 }
 
 main "$@"; exit "$?"
