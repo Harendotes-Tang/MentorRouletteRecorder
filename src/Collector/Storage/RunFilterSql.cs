@@ -17,6 +17,52 @@ namespace MentorRecorder.Collector.Storage;
 /// </summary>
 public static class RunFilterSql
 {
+    /// <summary>Only explicit local provenance identifies historical imports.</summary>
+    public const string ImportedHistoryPredicate = "(source = 'IMPORT' OR " +
+        "EXISTS (SELECT 1 FROM run_import_metadata im WHERE im.run_id = mentor_runs.run_id) OR " +
+        "EXISTS (SELECT 1 FROM run_revisions ir WHERE ir.run_id = mentor_runs.run_id " +
+        "AND ir.revision = 1 AND ir.change_kind = 'IMPORT'))";
+
+    // Date-only provenance describes an archival day, not a fabricated game instant.
+    // SQLite validates the normalized value before it may be used by a date projection.
+    private const string SourceDay = "CASE " +
+        "WHEN im.source_recorded_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]' " +
+        "AND length(im.source_recorded_at) = 10 THEN im.source_recorded_at " +
+        "WHEN im.source_recorded_at GLOB '[0-9][0-9][0-9][0-9]/[0-9]*/[0-9]*' " +
+        "AND im.source_recorded_at NOT GLOB '*[^0-9/]*' " +
+        "AND length(im.source_recorded_at) - length(replace(im.source_recorded_at, '/', '')) = 2 " +
+        "AND instr(substr(im.source_recorded_at, 6), '/') BETWEEN 2 AND 3 " +
+        "AND length(substr(im.source_recorded_at, 6 + instr(substr(im.source_recorded_at, 6), '/'))) BETWEEN 1 AND 2 " +
+        "THEN printf('%04d-%02d-%02d', substr(im.source_recorded_at, 1, 4), " +
+        "substr(im.source_recorded_at, 6, instr(substr(im.source_recorded_at, 6), '/') - 1), " +
+        "substr(im.source_recorded_at, 6 + instr(substr(im.source_recorded_at, 6), '/'))) END";
+
+    private const string ValidSourceDay = "CASE WHEN date(" + SourceDay +
+        ", '+0 days') = (" + SourceDay + ") THEN (" + SourceDay + ") END";
+
+    /// <summary>Known game or source instant; never includes a date-only calendar value.</summary>
+    private const string HistoryInstant =
+        "COALESCE(matched_at_utc, entered_at_utc, ended_at_utc, " +
+        "(SELECT im.source_recorded_at_utc FROM run_import_metadata im WHERE im.run_id = mentor_runs.run_id))";
+
+    // A calendar day is compared independently when the client supplies its picker day.
+    // Interpreting that day as UTC midnight would lose it in negative UTC offsets.
+    private const string HistorySourceDay =
+        "CASE WHEN matched_at_utc IS NULL AND entered_at_utc IS NULL AND ended_at_utc IS NULL THEN " +
+        "(SELECT CASE WHEN im.source_recorded_at_utc IS NULL THEN " + ValidSourceDay +
+        " END FROM run_import_metadata im WHERE im.run_id = mentor_runs.run_id) END";
+
+    /// <summary>Query-only history ordering and trend key; archival calendar days keep their original day.</summary>
+    public static string HistoryDateExpression =>
+        "COALESCE(" + HistoryInstant + ", (" + HistorySourceDay + ") || 'T00:00:00.000Z')";
+
+    /// <summary>
+    /// Local history sorting anchors an archival day to local midnight only within the query.
+    /// The desktop and pipe host share the same computer timezone; game/source facts stay null.
+    /// Trends independently retain their UTC calendar-day grouping above.
+    /// </summary>
+    public static string HistorySortDateExpression =>
+        "COALESCE(" + HistoryInstant + ", strftime('%Y-%m-%dT%H:%M:%fZ', (" + HistorySourceDay + "), 'utc'))";
     /// <summary>A compiled fragment and the parameters it needs.</summary>
     /// <param name="Where">SQL boolean expression, without the WHERE keyword.</param>
     /// <param name="Parameters">Parameter name to value.</param>
@@ -28,6 +74,7 @@ public static class RunFilterSql
     {
         RunDateField.MatchedAtUtc => "matched_at_utc",
         RunDateField.EndedAtUtc => "ended_at_utc",
+        RunDateField.HistoryDate => HistoryDateExpression,
         _ => "entered_at_utc",
     };
 
@@ -39,6 +86,7 @@ public static class RunFilterSql
         RunSortField.EndedAtUtc => "ended_at_utc",
         RunSortField.DurationMs => "duration_ms",
         RunSortField.DutyName => "duty_name",
+        RunSortField.HistoryDate => HistorySortDateExpression,
         _ => "entered_at_utc",
     };
 
@@ -72,35 +120,45 @@ public static class RunFilterSql
         {
             // "Confirmed mentor" per docs/statistics-definitions.md section 1: an automatic
             // run counts when capture identified the roulette; imported personal history
-            // additionally uses its explicit ownership confirmation and complete game facts.
-            clauses.Add("(source = 'MANUAL' OR mentor_roulette_id IS NOT NULL OR " +
+            // additionally uses its explicit ownership confirmation and known outcome.
+            clauses.Add($"((source = 'MANUAL' AND NOT {ImportedHistoryPredicate}) OR mentor_roulette_id IS NOT NULL OR " +
                 "EXISTS (SELECT 1 FROM run_import_metadata im WHERE im.run_id = mentor_runs.run_id AND im.mentor_confirmed = 1))");
-            clauses.Add("NOT (source = 'IMPORT' AND EXISTS (SELECT 1 FROM run_import_metadata im WHERE im.run_id = mentor_runs.run_id) AND " +
-                "(pending_review = 1 OR result = 'UNKNOWN' OR (result != 'CANCELLED_BEFORE_ENTRY' AND " +
-                "(entered_at_utc IS NULL OR (result = 'COMPLETED' AND ended_at_utc IS NULL)))))");
+            clauses.Add($"NOT ({ImportedHistoryPredicate} AND (pending_review = 1 OR result = 'UNKNOWN'))");
             // A run still in flight is stored as UNKNOWN with no end time and no review flag. It
             // has no outcome yet, so counting it lowers the completion rate for exactly as long
             // as the duty lasts (docs/statistics-definitions.md section 0). An unfinished run
             // that crash recovery handed to the player carries pending_review = 1 and DOES count:
             // it is over, only nobody saw how.
             clauses.Add(
-                "NOT (source = 'AUTO_NETWORK' AND result = 'UNKNOWN' AND ended_at_utc IS NULL AND pending_review = 0)");
+                $"NOT (source = 'AUTO_NETWORK' AND NOT {ImportedHistoryPredicate} " +
+                "AND result = 'UNKNOWN' AND ended_at_utc IS NULL AND pending_review = 0)");
         }
 
         var dateColumn = ColumnOf(filter.DateField);
         if (filter.FromUtc is { } from)
         {
-            clauses.Add($"{dateColumn} IS NOT NULL AND {dateColumn} >= $from_utc");
+            if (filter.DateField == RunDateField.HistoryDate && filter.HistoryFromDay is { } fromDay)
+            {
+                clauses.Add($"(({HistoryInstant}) >= $from_utc OR ({HistorySourceDay}) >= $history_from_day)");
+                parameters.Add(new("$history_from_day", fromDay));
+            }
+            else clauses.Add($"{dateColumn} IS NOT NULL AND {dateColumn} >= $from_utc");
             parameters.Add(new("$from_utc", UtcTimestamp.ToText(from)));
         }
 
         if (filter.ToUtc is { } to)
         {
-            clauses.Add($"{dateColumn} IS NOT NULL AND {dateColumn} <= $to_utc");
+            if (filter.DateField == RunDateField.HistoryDate && filter.HistoryToDay is { } toDay)
+            {
+                clauses.Add($"(({HistoryInstant}) <= $to_utc OR ({HistorySourceDay}) <= $history_to_day)");
+                parameters.Add(new("$history_to_day", toDay));
+            }
+            else clauses.Add($"{dateColumn} IS NOT NULL AND {dateColumn} <= $to_utc");
             parameters.Add(new("$to_utc", UtcTimestamp.ToText(to)));
         }
 
         AddContentIds(clauses, parameters, filter.ContentIds, duties);
+        AddTextList(clauses, parameters, "run_id", filter.RunIds, "rid");
         AddIntList(clauses, parameters, "job_id", filter.JobIds, "jid");
         AddTextList(clauses, parameters, "duty_category", filter.DutyCategories, "dcat");
         AddTextList(
@@ -133,6 +191,8 @@ public static class RunFilterSql
         if (filter.PendingReview is { } pendingReview)
         {
             clauses.Add(pendingReview ? "pending_review = 1" : "pending_review = 0");
+            if (pendingReview)
+                clauses.Add($"NOT {ImportedHistoryPredicate}");
         }
 
         if (!string.IsNullOrWhiteSpace(filter.Text))

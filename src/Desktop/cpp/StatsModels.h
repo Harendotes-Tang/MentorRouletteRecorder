@@ -93,9 +93,19 @@ class DungeonStatsModel : public StatsRowsModel
     Q_OBJECT
     QML_ELEMENT
     QML_UNCREATABLE("DungeonStatsModel is provided by the application controller")
+    Q_PROPERTY(qint64 totalCompletedCount READ totalCompletedCount NOTIFY countChanged)
 
 public:
     using StatsRowsModel::StatsRowsModel;
+
+    /// 全部已发布统计行的通关次数；不受页面 Top-N 选择影响。
+    qint64 totalCompletedCount() const;
+    /// 按返回的副本类型聚合通关次数，缺类型时查本地目录，仍未知则单列。
+    /// 桶含 label、completed_count、share 和 color_token；分母为零时 share 为空。
+    Q_INVOKABLE QVariantList categoryBreakdown() const;
+    /// 导随通关中的主线三本、行会令、其他和未知，始终保留四个桶。
+    /// 主线仅使用安装资源的 content_id 成员表，行会令使用本地目录类型。
+    Q_INVOKABLE QVariantList specialDutyBreakdown() const;
 
 protected:
     QString messageType() const override { return QStringLiteral("GetDungeonStats"); }

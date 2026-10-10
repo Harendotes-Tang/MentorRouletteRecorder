@@ -60,7 +60,14 @@ Rectangle {
                 root.noteImageSerial += 1
         }
     }
-    readonly property bool pendingReview: !!(runData && runData.pending_review)
+    readonly property bool pendingReview: !!(runData && runData.source !== "IMPORT" && runData.pending_review)
+    readonly property bool importIncomplete: {
+        if (!runData || runData.source !== "IMPORT") return false
+        if (runData.import_metadata) return !!runData.import_metadata.incomplete
+        const result = runData.result || "UNKNOWN"
+        return result === "UNKNOWN" || (result !== "CANCELLED_BEFORE_ENTRY"
+            && (!runData.entered_at_utc || (result === "COMPLETED" && !runData.ended_at_utc)))
+    }
     // A system revision set the review flag, and its reason is on 修正历史: crash
     // recovery, or a withdrawn calibration, which keeps the result as it was. The
     // flag the state machine sets as a duty ends leaves no revision, and $defs/Run
@@ -125,9 +132,9 @@ Rectangle {
             if (source.source_recorded_at_utc || source.source_recorded_at)
                 fields.push({ k: qsTr("原站记录时间"),
                               v: source.source_recorded_at_utc ? Fmt.localDateTime(source.source_recorded_at_utc) : source.source_recorded_at })
-            if (source.incomplete)
-                fields.push({ k: qsTr("导入完整性"), v: qsTr("事实待补充 · 暂不计入统计") })
         }
+        if (root.importIncomplete)
+            fields.push({ k: qsTr("导入完整性"), v: qsTr("待补充") })
 
         if (root.showRawTokens) {
             fields.push({ k: qsTr("content_id / territory_id"),

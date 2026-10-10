@@ -20,6 +20,36 @@ namespace MentorRecorder.Collector.UnitTests;
 /// </summary>
 public sealed class ProtocolPipelineTests
 {
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public void PermanentlyDeletedActiveRunConsumesLateMessagesWithoutStorageFaultOrRecreation(bool completedBeforePurge, bool automaticExpiry)
+    {
+        using var fixture = new TestDatabase(); var processor = NewProcessor(fixture, out var machine);
+        processor.Accept(Pop(0)); processor.Accept(Zone(1000));
+        var runId = machine.CurrentRunId!;
+        if (completedBeforePurge) processor.Accept(Result(2000, victory: true));
+        var settings = new SettingsRepository(fixture.Database, fixture.Clock); settings.EnsureDefaults();
+        var mutations = new Storage.Mutations.RunMutationService(fixture.Database, settings, fixture.Clock);
+        var deleted = mutations.SoftDeleteRun(new RunReasonCommand(Guid.NewGuid().ToString("D"), runId, 1, "不保留当前记录")).Run!;
+        if (automaticExpiry)
+        {
+            fixture.Clock.UtcNow += TimeSpan.FromDays(31);
+            using var retention = new Storage.Mutations.HistoryRetentionService(fixture.Database, fixture.Clock);
+            Assert.Equal(1, retention.CheckExpired(force: true));
+        }
+        else mutations.BatchMutateRuns(new BatchMutateRunsCommand(Guid.NewGuid().ToString("D"), "purge",
+            new[] { new BatchRunTarget(runId, deleted.Revision) }, "永久删除"));
+        processor.Accept(Job(3000)); processor.Accept(Result(4000, victory: true));
+        processor.Accept(Pop(5000)); processor.Accept(Zone(6000)); processor.Accept(Result(7000, victory: true));
+        Assert.Null(processor.LastStorageError); Assert.Null(new RunRepository(fixture.Database).Get(runId));
+        var next = Assert.Single(new RunRepository(fixture.Database).Query(null, null, 1, 50).Items);
+        Assert.NotEqual(runId, next.RunId); Assert.Equal(RunResult.Completed, next.Result);
+        using var trail = fixture.Database.CreateCommand(); trail.CommandText = "SELECT COUNT(*) FROM run_events WHERE run_id=$id;";
+        trail.Parameters.AddWithValue("$id", runId); Assert.Equal(0L, trail.ExecuteScalar());
+    }
+
     private const string SessionId = "30000000-0000-4000-8000-000000000001";
     private const int MentorRoulette = 42;
 

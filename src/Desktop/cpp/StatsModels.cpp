@@ -5,12 +5,83 @@
 #include "JobCatalog.h"
 
 #include <QJsonArray>
+#include <QFile>
+#include <QJsonDocument>
 #include <QJsonValue>
+#include <QMap>
+#include <QSet>
 #include <QStringList>
 #include <QTimer>
 #include <QVariantList>
 
 namespace mr {
+
+namespace {
+
+qint64 completionCount(const QJsonObject &row)
+{
+    return qMax(qint64(0), row.value(QStringLiteral("completed_count")).toInteger());
+}
+
+struct MainScenarioMembership {
+    QSet<qint64> contentIds;
+    bool available = false;
+};
+
+const MainScenarioMembership &mainScenarioMembership()
+{
+    // Display classification only: never infer a roulette or create Collector data.
+    static const MainScenarioMembership membership = [] {
+        MainScenarioMembership result;
+        QFile file(QStringLiteral(":/resources/statistics/main-scenario-membership.json"));
+        if (!file.open(QIODevice::ReadOnly)) {
+            qWarning("cannot open installed main-scenario membership resource");
+            return result;
+        }
+        QJsonParseError error{};
+        const QJsonObject root = QJsonDocument::fromJson(file.readAll(), &error).object();
+        if (error.error != QJsonParseError::NoError
+            || root.value(QStringLiteral("schema_version")).toInt() != 1
+            || root.value(QStringLiteral("scope")).toString() != QLatin1String("MENTOR_COMPLETIONS")) {
+            qWarning("invalid installed main-scenario membership resource");
+            return result;
+        }
+        for (const QJsonValue &value : root.value(QStringLiteral("duties")).toArray()) {
+            const QJsonValue id = value.toObject().value(QStringLiteral("content_id"));
+            if (!id.isDouble() || id.toInteger() <= 0
+                || double(id.toInteger()) != id.toDouble()
+                || DutyCatalog::shared()->lookup(id.toVariant()).isEmpty()) {
+                qWarning("main-scenario member is absent from installed duty catalogue");
+                return MainScenarioMembership{};
+            }
+            result.contentIds.insert(id.toInteger());
+        }
+        result.available = !result.contentIds.isEmpty();
+        return result;
+    }();
+    return membership;
+}
+
+QVariantMap completionBucket(const QString &label, qint64 count, qint64 total,
+                             const QString &token)
+{
+    return {{QStringLiteral("label"), label},
+            {QStringLiteral("completed_count"), count},
+            {QStringLiteral("share"), total > 0 ? QVariant(double(count) / double(total)) : QVariant()},
+            {QStringLiteral("color_token"), token}};
+}
+
+QString dutyCategory(const QJsonObject &row)
+{
+    QString category = row.value(QStringLiteral("duty_category")).toString().trimmed();
+    if (category.isEmpty()) {
+        category = DutyCatalog::shared()->lookup(row.value(QStringLiteral("content_id")).toVariant())
+                       .value(QStringLiteral("duty_category")).toString().trimmed();
+    }
+    return category.isEmpty() ? QString::fromUtf8("未识别") : category;
+}
+
+} // namespace
 
 StatsRowsModel::StatsRowsModel(QObject *parent) : QAbstractListModel(parent) {}
 
@@ -226,6 +297,72 @@ QJsonObject DungeonStatsModel::decorate(const QJsonObject &row) const
             out.insert(QStringLiteral("duty_meta"), parts.join(QString::fromUtf8(" · ")));
     }
     return out;
+}
+
+qint64 DungeonStatsModel::totalCompletedCount() const
+{
+    qint64 total = 0;
+    for (const QJsonObject &row : m_rows)
+        total += completionCount(row);
+    return total;
+}
+
+QVariantList DungeonStatsModel::categoryBreakdown() const
+{
+    // Keep ordinary categories stable, retain any additional canonical category,
+    // and always make the unknown bucket visible, including an explicit zero.
+    const QStringList order{QString::fromUtf8("四人迷宫"), QString::fromUtf8("讨伐歼灭战"),
+                            QString::fromUtf8("大型任务"), QString::fromUtf8("团队任务"),
+                            QString::fromUtf8("行会令")};
+    QMap<QString, qint64> counts;
+    for (const QString &category : order)
+        counts.insert(category, 0);
+    const QString unknown = QString::fromUtf8("未识别");
+    counts.insert(unknown, 0);
+    for (const QJsonObject &row : m_rows)
+        counts[dutyCategory(row)] += completionCount(row);
+
+    QStringList categories = order;
+    for (auto it = counts.cbegin(); it != counts.cend(); ++it) {
+        if (!order.contains(it.key()) && it.key() != unknown)
+            categories.append(it.key());
+    }
+    categories.append(unknown);
+    const QStringList tokens{QStringLiteral("blue"), QStringLiteral("orange"),
+                             QStringLiteral("teal"), QStringLiteral("purple"),
+                             QStringLiteral("green"), QStringLiteral("yellow")};
+    const qint64 total = totalCompletedCount();
+    QVariantList out;
+    for (qsizetype i = 0; i < categories.size(); ++i) {
+        const QString &category = categories.at(i);
+        out.append(completionBucket(category, counts.value(category), total,
+                   category == unknown ? QStringLiteral("neutral500") : tokens.at(i % tokens.size())));
+    }
+    return out;
+}
+
+QVariantList DungeonStatsModel::specialDutyBreakdown() const
+{
+    const auto &membership = mainScenarioMembership();
+    qint64 counts[4]{};
+    for (const QJsonObject &row : m_rows) {
+        const QJsonValue id = row.value(QStringLiteral("content_id"));
+        const QVariantMap catalogue = DutyCatalog::shared()->lookup(id.toVariant());
+        int group = 3; // Missing/unknown identity is not evidence of an "other" duty.
+        if (id.isDouble() && membership.available && membership.contentIds.contains(id.toInteger()))
+            group = 0;
+        else if (!catalogue.isEmpty()
+                 && catalogue.value(QStringLiteral("duty_category")).toString() == QString::fromUtf8("行会令"))
+            group = 1;
+        else if (!catalogue.isEmpty() && membership.available)
+            group = 2;
+        counts[group] += completionCount(row);
+    }
+    const qint64 total = totalCompletedCount();
+    return {completionBucket(QString::fromUtf8("主线副本"), counts[0], total, QStringLiteral("blue")),
+            completionBucket(QString::fromUtf8("行会令"), counts[1], total, QStringLiteral("green")),
+            completionBucket(QString::fromUtf8("其他副本"), counts[2], total, QStringLiteral("orange")),
+            completionBucket(QString::fromUtf8("未识别"), counts[3], total, QStringLiteral("neutral500"))};
 }
 
 QString JobStatsModel::roleGroupOf(const QJsonObject &row)

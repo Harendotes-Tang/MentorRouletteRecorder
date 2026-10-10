@@ -168,6 +168,8 @@ public sealed class RunRevisionRepository
         ArgumentException.ThrowIfNullOrEmpty(json);
 
         var rows = JsonSerializer.Deserialize<ChangeRow[]>(json, ChangeJsonOptions) ?? Array.Empty<ChangeRow>();
+        if (rows.Any(row => row is null || string.IsNullOrEmpty(row.Field)))
+            throw new JsonException("Audit changes must contain non-null rows with a field name.");
         return rows
             .Select(r => new RunFieldChange(r.Field, Unwrap(r.OldValue), Unwrap(r.NewValue)))
             .ToArray();

@@ -5,7 +5,7 @@
 
 自动记录可能因以下情况失效：游戏版本更新、Npcap 缺失、用户中途才开始使用本软件、网络掉线。
 因此，手工补录与更正是本软件的**核心功能**，而非事后补救措施。
-核心原则是：**所有变更均为追加式，历史永不消失。**
+普通更正、软删除与恢复保留追加式审计。永久删除是用户确认或保留期到期后执行的受控例外。
 
 修正已有记录时，仅凭区域识别得到的副本，以及不在当前副本表中的副本，均保留原有名称；
 只修改结果、职业或时间不会清空副本信息。主动选择新的副本编号时，采集服务同步采用副本表中的名称与分类，
@@ -42,8 +42,9 @@
 
 该错误码与 `ERR_BAD_REQUEST` 分开，用于让客户端区分请求格式错误与该修订按定义不可撤销两种情形。
 
-**没有硬删除。** 数据库中不存在任何 `DELETE FROM mentor_runs` 的代码路径，
-`run_revisions` 表只允许 `INSERT`。
+`BatchMutateRuns` 支持 `soft_delete`、`restore` 与 `purge`，携带最多 2000 条
+`runs[{run_id,expected_revision}]` 与理由。整批先检查版本及状态，任何冲突均不写入。
+`purge` 仅接受已软删除记录；普通审计写入仍只追加，永久清理事务获得指定记录的删除授权。
 
 ## 2. 修订链（append-only revisions）
 
@@ -62,7 +63,7 @@ mentor_runs.revision = 1  ──►  run_revisions(revision=1, change_kind=CREAT
 2. `revision` 从 1 开始，连续递增，无空洞。
 3. `revision = 1` 的 `change_kind` 必属于 `CREATE_AUTO` / `CREATE_MANUAL` / `IMPORT`。
 4. `mentor_runs.revision` 恒等于该记录 `run_revisions` 中最大的 `revision`。
-5. 已写入的修订行永不被 `UPDATE` 或 `DELETE`。
+5. 普通操作不 `UPDATE` 或 `DELETE` 已写入修订；永久删除同时清除该记录的整条修订链。
 6. `changes_json` 完整记录每个被改字段的 `old_value` 与 `new_value`；
    `CREATE_*` 记录全量初值。
 
@@ -97,6 +98,9 @@ mentor_runs.revision = 1  ──►  run_revisions(revision=1, change_kind=CREAT
 此时采集服务既不重复应用变更，也不返回笼统的内部错误，而是返回 `ERR_IDEMPOTENCY_CONFLICT`，
 并附 `details.reason = "RESPONSE_EXPIRED"` 与 `field = "request_id"`。
 客户端应换用新的 `request_id` 重发。
+
+永久删除后的旧请求只保留编号、指纹及清理时间等墓碑，不保留原始记录、心得或应答快照。
+重放涉及已永久删除内容的旧请求返回幂等冲突，不能取回旧正文或重新创建该记录。
 
 ## 5. 理由 `reason`
 
@@ -175,7 +179,9 @@ mentor_runs.revision = 1  ──►  run_revisions(revision=1, change_kind=CREAT
   提交 `result`（包括再次提交 `UNKNOWN`）或 `pending_review=false` 都会清除待复核，因此确认一条结果未知、
   没有结束时间的待复核自动记录时，须同时补上结束时间或改选实际结果。
 
-违反上述三条时返回 `ERR_BAD_REQUEST`，并在 `payload.field` 中指出具体字段（第三条为 `ended_at_utc`）。
+经显式来源或本地导入审计确认的历史导入豁免游戏时间必填；未知时间无需补造，已确认结果仍计数。
+其缺失事实在历史页显示「待补充」，不会仅因缺时间进入总览待复核。其他记录违反上述三条时返回
+`ERR_BAD_REQUEST`，并在 `payload.field` 中指出具体字段（第三条为 `ended_at_utc`）。
 若进本时间或结束时间实际发生变化，而请求未显式给出 `duration_ms`，
 采集服务按 `ended - entered` 重算时长。起止时间未发生变化时保留原时长，
 包括自动记录的单调时长与用户此前明确填写的时长。
@@ -223,8 +229,16 @@ mentor_runs.revision = 1  ──►  run_revisions(revision=1, change_kind=CREAT
   定义见 [statistics-definitions.md](statistics-definitions.md) §0。
 - 软删除的记录默认不出现在列表中，只有 `RunFilter.include_deleted = true` 时才显示，
   并带有明显的“已删除”标记。
-- 软删除的记录仍占据 `run_id`，仍保留完整的修订链，可随时通过 `RestoreRun` 恢复。
+- 软删除的记录在永久删除前保留 `run_id` 与完整修订链，可通过 `RestoreRun` 恢复。
+- 默认保留 30 天；设置页可改为其他天数，0 表示永不自动清理。升级前已有的软删除记录从升级日起计时。
+  服务启动及每经过一天检查到期记录；用户也可立即永久删除已软删除记录。恢复会清除删除时间，再次删除重新计时。
+- 永久删除清除当前记录、事件、修订、导入元数据、心得与缓存正文，持久附件清理队列由桌面端安全处理并确认。
+  旧备份与已导出的文件保留；本地未成功清理的附件在以后连接时重试。
 - 导出默认不含软删除记录；如需包含，须由用户在导出对话框中显式勾选。
+- 选择导出使用 `RunFilter.run_id` 精确编号集合，不重新应用当前页面其他筛选；目标缺失时整项导出失败。
+- `history_date` 日期筛选同时携带 UTC 时间边界与 `history_from_day` / `history_to_day` 日历日期。
+  已知实际或原站时间使用 UTC 边界；仅有原站日期的记录使用日历日期比较，避免负时区筛选遗漏。
+- 历史排序把仅有原站日期的记录按本机该日零点排序；这只是查询投影，既不写回游戏字段，也不改变趋势的 UTC 日历分桶。
 
 ## 9. 与“重启后待复核”的关系
 

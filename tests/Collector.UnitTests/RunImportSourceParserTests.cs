@@ -363,7 +363,7 @@ public sealed class RunImportSourceParserTests : IDisposable
     }
 
     [Fact]
-    public void Xlsx_DateOnlySourceTimeRemainsRawDateAndDoesNotCountIncompleteHistory()
+    public void Xlsx_DateOnlySourceTimeRemainsRawDateAndReviewedCompletionCounts()
     {
         using var fixture = new TestDatabase();
         var worksheet = "<worksheet><sheetData><row r=\"1\"><c r=\"A1\" t=\"inlineStr\"><is><t>副本</t></is></c><c r=\"B1\" t=\"inlineStr\"><is><t>记录时间</t></is></c></row><row r=\"2\"><c r=\"A2\" t=\"inlineStr\"><is><t>合成副本</t></is></c><c r=\"B2\" s=\"1\"><v>46295</v></c></row></sheetData></worksheet>";
@@ -380,7 +380,8 @@ public sealed class RunImportSourceParserTests : IDisposable
         Assert.Null(run.EndedAtUtc);
         var settings = new SettingsRepository(fixture.Database, fixture.Clock);
         settings.EnsureDefaults();
-        Assert.Equal(0, new StatisticsRepository(fixture.Database, settings).GetDashboard().CompletedCount);
+        Assert.False(run.PendingReview);
+        Assert.Equal(1, new StatisticsRepository(fixture.Database, settings).GetDashboard().CompletedCount);
     }
 
     [Fact]

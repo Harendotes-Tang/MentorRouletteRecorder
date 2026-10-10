@@ -1698,6 +1698,7 @@ QJsonObject MockBackend::applyMutation(const QString &messageType,
             return {};
         }
         run.insert(QStringLiteral("soft_deleted"), true);
+        run.insert(QStringLiteral("deleted_at_utc"), isoUtc(QDateTime::currentDateTimeUtc()));
         QJsonArray changes{changeEntry(QStringLiteral("soft_deleted"), false, true)};
         // RunMutationService.SoftDeleteRun commits with clearPendingReview: a deleted
         // run leaves the review list, and its revision records that as well.
@@ -1713,6 +1714,7 @@ QJsonObject MockBackend::applyMutation(const QString &messageType,
             return {};
         }
         run.insert(QStringLiteral("soft_deleted"), false);
+        run.insert(QStringLiteral("deleted_at_utc"), QJsonValue(QJsonValue::Null));
         touchRun(run, QStringLiteral("RESTORE"), reason,
                  QJsonArray{changeEntry(QStringLiteral("soft_deleted"), true, false)});
     } else if (messageType == QLatin1String("CorrectRun")) {
@@ -2187,6 +2189,80 @@ BackendReply *MockBackend::request(const QString &messageType, const QJsonObject
         result.insert(QStringLiteral("heartbeat_interval_ms"), 5000);
     } else if (messageType == QLatin1String("QueryRuns")) {
         result = queryRunsPayload(payload);
+    } else if (messageType == QLatin1String("GetHistoryRetentionSettings")) {
+        result.insert(QStringLiteral("retention_days"), m_historyRetentionDays);
+    } else if (messageType == QLatin1String("UpdateHistoryRetentionSettings")) {
+        const QJsonValue days = payload.value(QStringLiteral("retention_days"));
+        if (!days.isDouble() || days.toDouble() != days.toInt(-1) || days.toInt(-1) < 0 || days.toInt(-1) > 36500) {
+            errorCode = QStringLiteral("ERR_BAD_REQUEST");
+            errorMessage = tr("保留期须为 0–36500 天，0 表示永不自动清理。");
+        } else {
+            m_historyRetentionDays = days.toInt();
+            result.insert(QStringLiteral("retention_days"), m_historyRetentionDays);
+        }
+    } else if (messageType == QLatin1String("GetPendingImageCleanup")) {
+        QJsonArray ids;
+        for (const QString &id : m_pendingImageCleanup.mid(0, 2000)) ids.append(id);
+        result.insert(QStringLiteral("run_ids"), ids);
+    } else if (messageType == QLatin1String("AcknowledgeImageCleanup")) {
+        int acknowledged = 0;
+        for (const QJsonValue &id : payload.value(QStringLiteral("run_ids")).toArray())
+            acknowledged += m_pendingImageCleanup.removeAll(id.toString());
+        result.insert(QStringLiteral("acknowledged_count"), acknowledged);
+    } else if (messageType == QLatin1String("BatchMutateRuns")) {
+        const QString action = payload.value(QStringLiteral("action")).toString();
+        const QString reason = payload.value(QStringLiteral("reason")).toString().trimmed();
+        const QJsonArray targets = payload.value(QStringLiteral("runs")).toArray();
+        QSet<QString> seen;
+        if ((action != QLatin1String("soft_delete") && action != QLatin1String("restore") && action != QLatin1String("purge"))
+            || reason.isEmpty() || reason.size() > 500 || targets.isEmpty() || targets.size() > 2000) {
+            errorCode = QStringLiteral("ERR_BAD_REQUEST");
+            errorMessage = tr("批量操作、原因或记录数量无效。");
+        }
+        for (const QJsonValue &target : targets) {
+            if (!errorCode.isEmpty()) break;
+            const QString id = target.toObject().value(QStringLiteral("run_id")).toString();
+            const int index = indexOfRun(id);
+            if (seen.contains(id) || index < 0) {
+                errorCode = index < 0 ? QStringLiteral("ERR_NOT_FOUND") : QStringLiteral("ERR_BAD_REQUEST");
+                errorMessage = tr("记录不存在或重复，本批未应用。");
+                break;
+            }
+            seen.insert(id);
+            const QJsonObject run = m_runs.at(index).toObject();
+            if (target.toObject().value(QStringLiteral("expected_revision")).toInt(-1) != run.value(QStringLiteral("revision")).toInt()) {
+                errorCode = QStringLiteral("ERR_REVISION_CONFLICT");
+                errorMessage = tr("记录已更新，请重新勾选，本批未应用。");
+            } else if (isSoftDeleted(run) != (action != QLatin1String("soft_delete"))) {
+                errorCode = QStringLiteral("ERR_BAD_REQUEST");
+                errorMessage = tr("记录删除状态与操作不符，本批未应用。");
+            }
+        }
+        if (errorCode.isEmpty()) {
+            const QJsonArray beforeRuns = m_runs, beforeRevisions = m_revisions;
+            const QStringList beforeCleanup = m_pendingImageCleanup;
+            QJsonArray changed;
+            for (const QJsonValue &target : targets) {
+                const QString id = target.toObject().value(QStringLiteral("run_id")).toString();
+                if (action == QLatin1String("purge")) {
+                    m_runs.removeAt(indexOfRun(id));
+                    for (int index = m_revisions.size() - 1; index >= 0; --index)
+                        if (m_revisions[index].toObject().value(QStringLiteral("run_id")).toString() == id) m_revisions.removeAt(index);
+                    if (!m_pendingImageCleanup.contains(id)) m_pendingImageCleanup.append(id);
+                } else {
+                    QJsonObject single = target.toObject();
+                    single.insert(QStringLiteral("reason"), reason);
+                    applyMutation(action == QLatin1String("restore") ? QStringLiteral("RestoreRun") : QStringLiteral("SoftDeleteRun"), single, &errorCode, &errorMessage);
+                    if (!errorCode.isEmpty()) break;
+                }
+                changed.append(id);
+            }
+            if (!errorCode.isEmpty()) {
+                m_runs = beforeRuns; m_revisions = beforeRevisions; m_pendingImageCleanup = beforeCleanup;
+            } else {
+                result = {{QStringLiteral("changed_count"), changed.size()}, {QStringLiteral("run_ids"), changed}, {QStringLiteral("action"), action}};
+            }
+        }
     } else if (messageType == QLatin1String("QueryCandidateObservations")) {
         result = queryCandidatePayload(payload, &errorCode, &errorMessage);
     } else if (messageType == QLatin1String("ReviewCandidateObservation")) {
@@ -2282,8 +2358,9 @@ BackendReply *MockBackend::request(const QString &messageType, const QJsonObject
                || messageType == QLatin1String("ExportJson")) {
         result.insert(QStringLiteral("target_path"),
                       payload.value(QStringLiteral("target_path")));
-        result.insert(QStringLiteral("row_count"), int(m_runs.size()));
-        result.insert(QStringLiteral("byte_count"), int(m_runs.size()) * 240);
+        const int count = selectRuns(payload.value(QStringLiteral("filter")).toObject(), false).size();
+        result.insert(QStringLiteral("row_count"), count);
+        result.insert(QStringLiteral("byte_count"), count * 240);
         result.insert(QStringLiteral("completed_at_utc"),
                       isoUtc(QDateTime::currentDateTimeUtc()));
     } else if (messageType == QLatin1String("BackupDatabase")) {

@@ -424,6 +424,10 @@ Get-Content <解包目录>\BUILD-METADATA.json | ConvertFrom-Json |
 
 ### 9.3 切一个测试包
 
+发布提交统一使用 `chore(release): <完整版本号>`，tag 使用 `v<完整版本号>`；
+GitHub Release 标题统一使用「导随记录器 <完整版本号>」，不随意拼接临时说明。
+测试包必须是预发布，并保留正式版 latest。
+
 ```powershell
 git switch dev                                    # 测试包只从 dev 切出
 # Directory.Build.props: VersionPrefix = 1.4.0, VersionSuffix = beta.1

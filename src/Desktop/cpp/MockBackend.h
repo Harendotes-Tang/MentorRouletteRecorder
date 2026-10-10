@@ -305,6 +305,8 @@ private:
     QJsonArray m_candidateObservations;
     QJsonArray m_candidateReviews;
     QJsonObject m_captureSettings;
+    int m_historyRetentionDays = 30;
+    QStringList m_pendingImageCleanup;
     QDateTime m_now;
     int m_goalCount = 2000;
     int m_baselineCompletedCount = 1374;

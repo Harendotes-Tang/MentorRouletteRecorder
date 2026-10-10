@@ -633,7 +633,98 @@ Dialog {
                                     Layout.fillWidth: true; columns: 2; columnSpacing: 8; rowSpacing: 9
                                     Text { textFormat: Text.PlainText; objectName: "importDutyCandidateWarning"; Layout.columnSpan: 2; Layout.fillWidth: true; visible: dialog.evidence.duty_candidate_pending === true; text: qsTr("副本候选待复核：%1\n原始识别：%2，请对照原图确认。").arg(dialog.evidence.duty_candidate_name || "").arg(dialog.evidence.ocr_duty_name || ""); color: Theme.orangeText; font.pixelSize: Theme.fs(12); wrapMode: Text.WordWrap }
                                     FieldLabel { text: qsTr("副本") }
-                                    StyledTextField { objectName: "importDutyName"; Layout.fillWidth: true; text: dialog.value("duty_name"); onEditingFinished: dialog.edit("duty_name", text.trim()) }
+                                    StyledTextField {
+                                        id: dutyNameField
+                                        objectName: "importDutyName"
+                                        Layout.fillWidth: true
+                                        text: dialog.value("duty_name")
+                                        Accessible.description: qsTr("输入副本名称联想，方向键选择，Tab 填入候选。")
+                                        property string suggestionQuery: ""
+                                        property int suggestionIndex: 0
+                                        readonly property var suggestions: {
+                                            const query = suggestionQuery.trim().toLowerCase()
+                                            if (!query || !dialog.controller) return []
+                                            const choices = dialog.controller.dutyChoices || []
+                                            const found = []
+                                            for (let i = 0; i < choices.length && found.length < 8; ++i) {
+                                                if (String(choices[i].duty_name || "").toLowerCase().indexOf(query) >= 0)
+                                                    found.push(choices[i])
+                                            }
+                                            return found
+                                        }
+                                        function acceptSuggestion(index) {
+                                            if (index < 0 || index >= suggestions.length || preeditText.length > 0) return
+                                            const duty = suggestions[index]
+                                            dialog.flushReflection()
+                                            // Selecting a catalog candidate writes name and identity together.
+                                            // Free-text edits instead clear stale identity in the controller.
+                                            dialog.controller.updateCandidate(dialog.controller.currentRow, {
+                                                duty_name: duty.duty_name, content_id: duty.content_id,
+                                                territory_id: duty.territory_id, duty_category: duty.duty_category,
+                                                duty_source: "manual"
+                                            })
+                                            dutySuggestions.close()
+                                            suggestionQuery = ""
+                                            cursorPosition = length
+                                        }
+                                        onTextEdited: {
+                                            suggestionQuery = text
+                                            suggestionIndex = 0
+                                            if (suggestions.length > 0 && preeditText.length === 0) dutySuggestions.open()
+                                            else dutySuggestions.close()
+                                        }
+                                        onPreeditTextChanged: if (preeditText.length > 0) dutySuggestions.close()
+                                        onActiveFocusChanged: if (!activeFocus) dutySuggestions.close()
+                                        onEditingFinished: dialog.edit("duty_name", text.trim())
+                                        Keys.onPressed: function(event) {
+                                            if (preeditText.length > 0 || event.modifiers !== Qt.NoModifier) return
+                                            if ((event.key === Qt.Key_Down || event.key === Qt.Key_Up) && suggestions.length > 0) {
+                                                if (!dutySuggestions.visible) dutySuggestions.open()
+                                                else suggestionIndex = (suggestionIndex + (event.key === Qt.Key_Down ? 1 : -1) + suggestions.length) % suggestions.length
+                                                event.accepted = true
+                                            } else if (event.key === Qt.Key_Escape && dutySuggestions.visible) {
+                                                dutySuggestions.close()
+                                                event.accepted = true
+                                            }
+                                        }
+                                        Keys.onTabPressed: function(event) {
+                                            event.accepted = dutySuggestions.visible && suggestions.length > 0
+                                                && preeditText.length === 0 && event.modifiers === Qt.NoModifier
+                                            if (event.accepted) acceptSuggestion(suggestionIndex)
+                                        }
+                                        Popup {
+                                            id: dutySuggestions
+                                            objectName: "importDutySuggestions"
+                                            parent: dutyNameField
+                                            x: 0; y: dutyNameField.height + 2
+                                            width: dutyNameField.width
+                                            height: suggestionsList.contentHeight + 8
+                                            padding: 4
+                                            focus: false
+                                            closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutsideParent
+                                            background: Rectangle { color: Theme.surface; radius: Theme.radiusS; border.color: Theme.border }
+                                            contentItem: ListView {
+                                                id: suggestionsList
+                                                objectName: "importDutySuggestionList"
+                                                implicitHeight: contentHeight
+                                                clip: true
+                                                model: dutyNameField.suggestions
+                                                currentIndex: dutyNameField.suggestionIndex
+                                                delegate: ItemDelegate {
+                                                    required property var modelData
+                                                    required property int index
+                                                    width: suggestionsList.width
+                                                    height: 30
+                                                    text: modelData.duty_name
+                                                    focusPolicy: Qt.NoFocus
+                                                    highlighted: index === dutyNameField.suggestionIndex
+                                                    contentItem: Text { text: modelData.duty_name; textFormat: Text.PlainText; color: Theme.textPrimary; font.pixelSize: Theme.fs(12); verticalAlignment: Text.AlignVCenter; elide: Text.ElideRight }
+                                                    background: Rectangle { color: parent.highlighted || parent.hovered ? Theme.accentMuted : "transparent"; radius: Theme.radiusS }
+                                                    onClicked: dutyNameField.acceptSuggestion(index)
+                                                }
+                                            }
+                                        }
+                                    }
                                     FieldLabel { text: qsTr("副本类别") }
                                     StyledTextField { objectName: "importDutyCategory"; Layout.fillWidth: true; text: dialog.value("duty_category"); placeholderText: qsTr("根据副本自动填写"); Accessible.description: qsTr("根据匹配的副本资料自动填写类别"); onEditingFinished: { const category = text.trim(); if (category !== dialog.value("duty_category")) dialog.edit("duty_category", category || null) } }
                                     Text { textFormat: Text.PlainText; objectName: "importJobCandidateWarning"; Layout.columnSpan: 2; Layout.fillWidth: true; visible: dialog.evidence.job_candidate_pending === true || dialog.unsupportedSourceJob; text: dialog.unsupportedSourceJob ? qsTr("来源职业不适用于导随，请核对并选择职业。") : qsTr("候选待复核：%1（%2），请对照原图确认职业。").arg(dialog.evidence.job_candidate_name || "").arg(dialog.iconEvidenceText); color: Theme.orangeText; font.pixelSize: Theme.fs(12); wrapMode: Text.WordWrap }
@@ -665,7 +756,7 @@ Dialog {
                                     StyledTextField { Layout.fillWidth: true; text: dialog.value("duration_ms"); placeholderText: qsTr("未知可留空"); onEditingFinished: dialog.edit("duration_ms", text.trim().length ? Number(text) : null) }
                                 }
                                 Rectangle { Layout.fillWidth: true; Layout.preferredHeight: incompleteHint.implicitHeight + 18; color: Theme.insetBackground; radius: Theme.radiusS
-                                    Text { textFormat: Text.PlainText; id: incompleteHint; anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top; anchors.margins: 9; text: qsTr("缺少实际游戏时间的记录会保留为待补充历史，不计入统计与成就。以后可以继续补充。"); color: Theme.textSecondary; font.pixelSize: Theme.fs(12); wrapMode: Text.WordWrap }
+                                    Text { textFormat: Text.PlainText; id: incompleteHint; anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top; anchors.margins: 9; text: qsTr("核对本人导随及通关结果后即可计数。未知游戏时间和耗时可留空，保留待补充提示，不影响已确认通关与成就。"); color: Theme.textSecondary; font.pixelSize: Theme.fs(12); wrapMode: Text.WordWrap }
                                 }
                             }
                         }

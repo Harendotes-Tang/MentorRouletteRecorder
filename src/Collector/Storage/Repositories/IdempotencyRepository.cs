@@ -1,5 +1,6 @@
 using Microsoft.Data.Sqlite;
 using MentorRecorder.Collector.Domain.Time;
+using MentorRecorder.Collector.Contracts.Errors;
 
 namespace MentorRecorder.Collector.Storage.Repositories;
 
@@ -54,6 +55,7 @@ public sealed class IdempotencyRepository
 
     private string? Lookup(string requestId, SqliteTransaction? transaction)
     {
+        ThrowIfPurgedRequest(requestId, transaction);
         using var command = _database.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = "SELECT response_json FROM ipc_idempotency WHERE request_id = $request_id;";
@@ -90,8 +92,48 @@ public sealed class IdempotencyRepository
         command.CommandText =
             "SELECT EXISTS(SELECT 1 FROM run_revisions WHERE request_id = $request_id) " +
             "OR EXISTS(SELECT 1 FROM candidate_reviews WHERE request_id = $request_id) " +
-            "OR EXISTS(SELECT 1 FROM run_import_batches WHERE request_id = $request_id);";
+            "OR EXISTS(SELECT 1 FROM run_import_batches WHERE request_id = $request_id) " +
+            "OR EXISTS(SELECT 1 FROM ipc_request_tombstones WHERE request_id = $request_id);";
         command.Parameters.AddWithValue("$request_id", requestId);
+        return Convert.ToInt64(command.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture) != 0;
+    }
+
+    /// <summary>Refuses delayed requests without returning any permanently deleted content.</summary>
+    public void ThrowIfPurgedRequest(string requestId, SqliteTransaction? transaction = null, string? previewId = null)
+    {
+        if (transaction is null)
+        {
+            _database.Read(_ => { ThrowIfPurgedRequestCore(requestId, null, previewId); return 0; });
+            return;
+        }
+        ThrowIfPurgedRequestCore(requestId, transaction, previewId);
+    }
+
+    private void ThrowIfPurgedRequestCore(string requestId, SqliteTransaction? transaction, string? previewId)
+    {
+        using var command = _database.CreateCommand(); command.Transaction = transaction;
+        command.CommandText = "SELECT EXISTS(SELECT 1 FROM ipc_request_tombstones WHERE request_id=$id OR preview_id=$preview);";
+        command.Parameters.AddWithValue("$id", requestId);
+        command.Parameters.AddWithValue("$preview", (object?)previewId ?? DBNull.Value);
+        if (Convert.ToInt64(command.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture) != 0)
+            throw new CollectorException(ErrorCodes.IdempotencyConflict,
+                "该请求涉及已永久删除的记录，不能重放；请刷新历史记录。",
+                new Dictionary<string, object?> { ["request_id"] = requestId, ["reason"] = "RECORD_PURGED" }, field: "request_id");
+    }
+
+    /// <summary>Prevents a new import preview from recreating an erased stable ID or source fingerprint.</summary>
+    public bool IsPurgedRun(string runId, string? sourceFingerprint = null, SqliteTransaction? transaction = null)
+    {
+        if (transaction is null) return _database.Read(_ => PurgedRunLookup(runId, sourceFingerprint, null));
+        return PurgedRunLookup(runId, sourceFingerprint, transaction);
+    }
+
+    private bool PurgedRunLookup(string runId, string? fingerprint, SqliteTransaction? transaction)
+    {
+        using var command = _database.CreateCommand(); command.Transaction = transaction;
+        command.CommandText = "SELECT EXISTS(SELECT 1 FROM purged_run_tombstones WHERE run_id=$id OR source_fingerprint=$fingerprint);";
+        command.Parameters.AddWithValue("$id", runId);
+        command.Parameters.AddWithValue("$fingerprint", (object?)fingerprint ?? DBNull.Value);
         return Convert.ToInt64(command.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture) != 0;
     }
 

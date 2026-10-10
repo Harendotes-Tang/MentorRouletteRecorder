@@ -1,6 +1,7 @@
 #include "ImportRecordsController.h"
 
 #include "IBackend.h"
+#include "DutyCatalog.h"
 #include "JobCatalog.h"
 #include "OfflineOcrEngine.h"
 #include "ScreenshotImportParser.h"
@@ -92,7 +93,7 @@ QString ImportRecordsController::statusText() const
         return tr("内容已修改。请重新校验；仍可导入的原勾选会保留。");
     if (previewValid())
         return m_rows.isEmpty() ? tr("此来源没有记录可预览。请检查文件内容或列映射。")
-                               : tr("请核对每行内容。未知结果和游戏时间会保留待补充，不计入统计。");
+                               : tr("请核对本人导随与结果。已确认通关正常计数；未知游戏时间保留待补充，未知结果不计通关。");
     return tr("选择文件、拖入图片，或粘贴截图和表格。缺失结果默认通关，可在预览中修改；不会补造游戏时间。");
 }
 
@@ -804,19 +805,19 @@ int ImportRecordsController::contributingSelectedCount() const
     int count = 0;
     for (const QVariant &value : m_rows) {
         const QVariantMap row = value.toMap();
-        if (!row.value(QStringLiteral("selected")).toBool() || row.value(QStringLiteral("incomplete")).toBool())
+        if (!row.value(QStringLiteral("selected")).toBool())
             continue;
         const QVariantMap run = row.value(QStringLiteral("run")).toMap();
         if (run.isEmpty() || run.value(QStringLiteral("result")).toString() != QLatin1String("COMPLETED"))
             continue;
         if (run.contains(QStringLiteral("contributes_to_goal")) && !run.value(QStringLiteral("contributes_to_goal")).toBool())
             continue;
-        if (run.value(QStringLiteral("soft_deleted")).toBool())
+        if (run.value(QStringLiteral("soft_deleted")).toBool() || run.value(QStringLiteral("pending_review")).toBool())
             continue;
         const QVariantMap metadata = run.value(QStringLiteral("import_metadata")).toMap();
-        const bool confirmed = !metadata.contains(QStringLiteral("mentor_confirmed"))
-            || metadata.value(QStringLiteral("mentor_confirmed")).toBool()
-            || !run.value(QStringLiteral("mentor_roulette_id")).isNull();
+        const QVariant roulette = run.value(QStringLiteral("mentor_roulette_id"));
+        const bool confirmed = metadata.value(QStringLiteral("mentor_confirmed")).toBool()
+            || (roulette.isValid() && !roulette.isNull());
         if (confirmed)
             ++count;
     }
@@ -928,6 +929,11 @@ QVariantList ImportRecordsController::jobChoices() const
     QVariantList choices{{QVariantMap{{QStringLiteral("job_id"), QVariant()}, {QStringLiteral("job_name"), tr("职业未知 / 待补充")}}}};
     choices.append(jobs.battleJobs());
     return choices;
+}
+
+QVariantList ImportRecordsController::dutyChoices() const
+{
+    return DutyCatalog::shared()->allDuties();
 }
 
 } // namespace mr

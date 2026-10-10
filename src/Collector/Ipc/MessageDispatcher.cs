@@ -50,6 +50,7 @@ public sealed class MessageDispatcher
         "StopCapture", "GetProtocolProfileStatus", "GetCurrentRun", "QueryRuns", "GetDashboardStats",
         "GetDungeonStats", "GetJobStats", "GetResultStats", "CreateManualRun", "CorrectRun",
         "SoftDeleteRun", "RestoreRun", "GetRunRevisions", "UpdateAchievementBaseline", "ExportCsv",
+        "BatchMutateRuns", "GetHistoryRetentionSettings", "UpdateHistoryRetentionSettings", "GetPendingImageCleanup", "AcknowledgeImageCleanup",
         "ExportJson", "BackupDatabase", "PreviewRunImport", "CommitRunImport", "SubscribeLiveEvents", "ExportDiagnosticsReport",
         "SetRunReflection", "GetReflectionSummary",
         "StartCaptureValidation", "GetCaptureValidationStatus", "AddCaptureValidationMarker", "StopCaptureValidation",
@@ -114,6 +115,11 @@ public sealed class MessageDispatcher
             "CorrectRun" => CorrectRun(request.RequestId, reader),
             "SoftDeleteRun" => SoftDeleteRun(request.RequestId, reader),
             "RestoreRun" => RestoreRun(request.RequestId, reader),
+            "BatchMutateRuns" => BatchMutateRuns(request.RequestId, reader),
+            "GetHistoryRetentionSettings" => GetHistoryRetentionSettings(reader),
+            "UpdateHistoryRetentionSettings" => UpdateHistoryRetentionSettings(reader),
+            "GetPendingImageCleanup" => GetPendingImageCleanup(reader),
+            "AcknowledgeImageCleanup" => AcknowledgeImageCleanup(reader),
             "UndoRevision" => UndoRevision(request.RequestId, reader),
             "UpdateAchievementBaseline" => UpdateBaseline(request.RequestId, reader),
             "ExportCsv" => Export(reader, csv: true),
@@ -557,6 +563,37 @@ public sealed class MessageDispatcher
     {
         var outcome = _host.Mutations.UndoRevision(RequestParsers.RunReason(requestId, reader));
         return PublishAndRender(outcome, LiveEventKind.RunUpdated);
+    }
+
+    private JsonObject BatchMutateRuns(string requestId, PayloadReader reader)
+    {
+        var outcome = _host.Mutations.BatchMutateRuns(RequestParsers.BatchMutateRuns(requestId, reader));
+        if (outcome["idempotent_replay"]?.GetValue<bool>() != true)
+            _host.LiveEvents.PublishStatsInvalidated("历史记录已批量更新，请重新查询。");
+        return outcome;
+    }
+
+    private JsonObject GetHistoryRetentionSettings(PayloadReader reader)
+    { reader.RequireEmpty(); return new JsonObject { ["retention_days"] = _host.HistoryRetention.GetRetentionDays() }; }
+
+    private JsonObject UpdateHistoryRetentionSettings(PayloadReader reader)
+    {
+        reader.RejectUnknown("retention_days");
+        return new JsonObject { ["retention_days"] = _host.HistoryRetention.UpdateRetentionDays(
+            reader.RequiredInt("retention_days", 0, Storage.Mutations.HistoryRetentionService.MaxRetentionDays)) };
+    }
+
+    private JsonObject GetPendingImageCleanup(PayloadReader reader)
+    {
+        reader.RequireEmpty(); return new JsonObject { ["run_ids"] = new JsonArray(
+            _host.HistoryRetention.PendingImageCleanup().Select(id => (JsonNode?)JsonValue.Create(id)).ToArray()) };
+    }
+
+    private JsonObject AcknowledgeImageCleanup(PayloadReader reader)
+    {
+        reader.RejectUnknown("run_ids");
+        if (!reader.Has("run_ids")) throw CollectorException.BadRequest("缺少必填字段 run_ids。", "run_ids");
+        return new JsonObject { ["acknowledged_count"] = _host.HistoryRetention.AcknowledgeImageCleanup(RequestParsers.RunIds(reader)) };
     }
 
     private JsonObject UpdateBaseline(string requestId, PayloadReader reader)

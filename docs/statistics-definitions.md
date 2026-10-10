@@ -46,14 +46,15 @@ NOT (source = 'AUTO_NETWORK' AND result = 'UNKNOWN' AND ended_at_utc IS NULL AND
 不满足上述条件的记录不进入任何统计。
 
 导入本人记录时的显式导随标记保存在 `run_import_metadata.mentor_confirmed`；旧导入记录仍可由
-`mentor_roulette_id` 确认。带来源元数据且仍待复核、结果未知或缺少必要游戏时间字段的 IMPORT 暂不进入统计，
-即使预览使用默认通关也不例外。补齐并确认后按下列规则计数；未知耗时只影响平均耗时，不取消已确认的通关。
+`mentor_roulette_id` 确认。历史导入在预览中确认本人导随及实际结果后，即使缺少进本或结束时间，仍进入统计。
+结果未知或真正未经确认的导入不进入统计。时间缺失仅在历史记录标为「待补充」，不产生总览待复核提示；
+未知时间与耗时保持空值，平均耗时继续排除不具备合法游戏时间的记录。
 
 ## 2. 尝试次数 `attempt_count`
 
 ```
 attempt_count = COUNT(*) WHERE
-      entered_at_utc IS NOT NULL
+      (entered_at_utc IS NOT NULL OR (imported_history AND result NOT IN ('UNKNOWN', 'CANCELLED_BEFORE_ENTRY')))
   AND soft_deleted = 0
   AND confirmed_mentor
 ```
@@ -73,8 +74,8 @@ completed_count = COUNT(*) WHERE
   AND confirmed_mentor
 ```
 
-`result = 'COMPLETED'` 蕴含 `entered_at_utc IS NOT NULL`，因为只有 `ENTERED_DUTY`
-才能迁移到 `COMPLETED`。
+采集记录只有经历 `ENTERED_DUTY` 才能迁移到 `COMPLETED`。已确认历史导入可在未知进本时间时记为通关，
+不将原站日期写成真实进本或结束时间。
 
 ## 4. 成就进度 `achievement_progress`
 
@@ -96,7 +97,7 @@ achievement_progress =
 - **导入历史记录时可以从基数中扣除。**基数是安装前游戏成就面板显示的完成数，用表格或截图导入的那段历史
   通常已经在其中；若再按本节口径叠加，就会被计两次。`CommitRunImport` 带 `deduct_from_baseline = true` 时，
   采集服务在同一事务内统计本次**新写入**的记录中满足本节条件（确认为导随、`result = COMPLETED`、
-  `contributes_to_goal = 1`、非待补充）的条数，从 `baseline_completed_count` 中扣除同样多的次数，
+  `contributes_to_goal = 1`、已确认实际结果）的条数，从 `baseline_completed_count` 中扣除同样多的次数，
   最低减至 0，并以提交的 `request_id` 写入一条基数修改记录（原因写明导入条数）。重复与冲突的行没有写入，
   不参与扣除；之后这些记录照常按本节叠加，因此进度不变、`completed_count` 增加。不带该字段时基数不动。
   桌面端只在已保存的基数大于 0 且勾选的记录会计入进度时询问「是否已包含在基数中」，备份与原生 JSON 默认「未包含」，
@@ -241,11 +242,12 @@ avg_duration_ms = AVG(duration_ms) WHERE
 | `leave_rate` | §7 |
 | `avg_duration_ms` | §8 |
 | `result_breakdown` | §9 |
-| `unfinished_pending_review` | 正式记录中满足未删除条件及当前筛选、且 `pending_review = 1` 的条数（见下） |
+| `unfinished_pending_review` | 具备统计资格的非历史导入记录中满足未删除条件及当前筛选、且 `pending_review = 1` 的条数（见下） |
 | `trend` | §12.1 |
 
-`unfinished_pending_review` 的口径是 `pending_review` 标志本身，而非
-`result = 'INTERRUPTED'`。需要用户复核的记录包括以下几类：
+`unfinished_pending_review` 在具备统计资格的非历史导入记录中读取 `pending_review` 标志，而非
+`result = 'INTERRUPTED'`。历史导入的时间缺口不产生该提示；有明确导入审计的旧标志在兼容维护时纠正。
+需要用户复核的采集记录包括以下几类：
 
 - 重启后恢复出的未完结记录（见 [state-machine.md](state-machine.md) §3.9）：已进入副本的记为
   `INTERRUPTED` + `LOW`；从未进入副本的记为 `CANCELLED_BEFORE_ENTRY` + `LOW`，后者的
@@ -275,6 +277,12 @@ avg_duration_ms = AVG(duration_ms) WHERE
 
 ## 12.1 完成趋势 `trend`
 
+副本统计中的类型饼图与「主线 / 行会令 / 其他 / 未识别」饼图均使用同一筛选下全量
+`completed_count` 为分母，不受 Top10 展示限制，不使用尝试次数或成就基数。分母为零时比例为空。
+主线指的是导随排入官方主线随机对应的副本，成员编号保存在本地版本化资源
+`src/Desktop/resources/statistics/main-scenario-membership.json`；行会令按副本目录类型判定，
+没有可确认副本身份的记录归入未识别，不根据名称或随机任务编号猜测。
+
 `GetDashboardStats` 同时返回一条完成趋势序列。请求可带
 `trend_granularity`（`day` / `week` / `month`，默认 `day`）：
 
@@ -286,9 +294,9 @@ avg_duration_ms = AVG(duration_ms) WHERE
 
 口径：
 
-- 时间取 **`matched_at_utc`**，而非 `entered_at_utc`。趋势衡量的是一段时间内接到并完成的
-  导随数量，因此排队匹配的时刻才是判定记录归属于哪一天的依据。
-- 只统计 `result = 'COMPLETED'` 的记录。`matched_at_utc IS NULL` 的记录不进入任何桶。
+- 时间取 `history_date` 投影：依次采用真实匹配、进本、结束时间，然后采用独立保存的原站时间。
+  原站仅有合法日期时，以该日期参与排序、筛选和分桶，不回填任何游戏时间字段。
+- 只统计 `result = 'COMPLETED'` 的记录。上述日期全部未知的记录不进入任何桶。
 - §0 的通用前提继续适用：`soft_deleted = 0`，且只含 §1 定义的"确认为导随"。
 - 调用方提供的 `RunFilter` 在此基础上叠加，再与最近 N 个桶的窗口取交集。
 - **空桶必须显式出现**，其 `completed_count = 0`。序列长度恒等于上表的桶数，不允许压缩。
@@ -337,7 +345,7 @@ avg_duration_ms = AVG(duration_ms) WHERE
 | 5 条尝试：3 完成 / 1 离开 / 1 掉线 | `completion_rate = 0.6`，`leave_rate = 0.2`，掉线单独成行为 0.2，两者不相加为 0.4 |
 | `job_id` 为 NULL 的 4 条 | 职业统计出现 `未知` 一行，`attempt_count = 4` |
 | 趋势：库为空 | `day` 返回 30 个桶，每个 `completed_count = 0`；`week` 12 个；`month` 6 个 |
-| 趋势：一条 `COMPLETED` 但 `matched_at_utc IS NULL` | 不进任何桶，但仍计入 `completed_count` |
+| 趋势：一条 `COMPLETED`，真实时间与合法原站日期全部未知 | 不进任何桶，但仍计入 `completed_count` |
 | 趋势：一条 `COMPLETED` 被软删除 | 不进任何桶 |
 | 趋势：一条 31 天前的 `COMPLETED` | 不在 `day` 序列里，但在 `month` 序列里 |
 

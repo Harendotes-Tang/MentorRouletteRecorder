@@ -758,7 +758,7 @@ void IpcIntegrationTests::personalImportPreviewCommitRetryAndCompletion()
     const auto run = importedItems.front().toMap();
     QCOMPARE(run.value(QStringLiteral("source")).toString(), QStringLiteral("IMPORT"));
     QCOMPARE(run.value(QStringLiteral("result")).toString(), QStringLiteral("COMPLETED"));
-    QVERIFY(run.value(QStringLiteral("pending_review")).toBool());
+    QVERIFY(!run.value(QStringLiteral("pending_review")).toBool());
     QVERIFY(run.value(QStringLiteral("entered_at_utc")).isNull());
     QVERIFY(run.value(QStringLiteral("ended_at_utc")).isNull());
     QVERIFY(run.value(QStringLiteral("duration_ms")).isNull());
@@ -766,10 +766,13 @@ void IpcIntegrationTests::personalImportPreviewCommitRetryAndCompletion()
     const auto metadata = run.value(QStringLiteral("import_metadata")).toMap();
     QCOMPARE(metadata.value(QStringLiteral("source_recorded_at_utc")).toString(), QStringLiteral("2026-10-08T10:44:29.000Z"));
     QVERIFY(metadata.value(QStringLiteral("incomplete")).toBool());
-    const auto statsIncomplete = await(m_backend->getDashboardStats());
-    QVERIFY(statsIncomplete.ok);
+    const auto statsImported = await(m_backend->getDashboardStats());
+    QVERIFY(statsImported.ok);
     for (const auto &field : {QStringLiteral("attempt_count"), QStringLiteral("completed_count"), QStringLiteral("achievement_progress")})
-        QCOMPARE(statsIncomplete.payload.value(field), statsBefore.payload.value(field));
+        QCOMPARE(statsImported.payload.value(field).toInt(), statsBefore.payload.value(field).toInt() + 1);
+    QVERIFY(statsImported.payload.contains(QStringLiteral("unfinished_pending_review")));
+    QCOMPARE(statsImported.payload.value(QStringLiteral("unfinished_pending_review")),
+             statsBefore.payload.value(QStringLiteral("unfinished_pending_review")));
     const auto settingsAfter = await(m_backend->getCaptureSettings());
     QCOMPARE(settingsAfter.payload, settingsBefore.payload);
 
@@ -788,8 +791,8 @@ void IpcIntegrationTests::personalImportPreviewCommitRetryAndCompletion()
     const auto kept = await(m_backend->queryRuns(filter, 1, 10));
     QCOMPARE(kept.payload.value(QStringLiteral("items")), history.payload.value(QStringLiteral("items")));
 
-    // Completion becomes eligible only after the player supplies the game facts.
-    // Explicitly unknown duration does not invalidate a confirmed completion.
+    // Adding remembered game times improves completeness without counting the
+    // already-confirmed historical completion again. Duration may remain unknown.
     const QJsonObject changes{
         {QStringLiteral("result"), QStringLiteral("COMPLETED")},
         {QStringLiteral("entered_at_utc"), QStringLiteral("2026-10-08T09:00:00.000Z")},
@@ -802,6 +805,8 @@ void IpcIntegrationTests::personalImportPreviewCommitRetryAndCompletion()
     const auto statsCompleted = await(m_backend->getDashboardStats());
     QVERIFY(statsCompleted.ok);
     QCOMPARE(statsCompleted.payload.value(QStringLiteral("completed_count")).toInt(), statsBefore.payload.value(QStringLiteral("completed_count")).toInt() + 1);
+    QCOMPARE(statsCompleted.payload.value(QStringLiteral("attempt_count")), statsImported.payload.value(QStringLiteral("attempt_count")));
+    QCOMPARE(statsCompleted.payload.value(QStringLiteral("achievement_progress")), statsImported.payload.value(QStringLiteral("achievement_progress")));
     const auto revisions = await(m_backend->getRunRevisions(run.value(QStringLiteral("run_id")).toString()));
     QVERIFY(revisions.ok);
     QCOMPARE(revisions.payload.value(QStringLiteral("items")).toList().size(), 2);

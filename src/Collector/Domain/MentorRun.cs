@@ -99,7 +99,7 @@ public sealed record MentorRun
     /// <summary>True once a human has corrected the record; never reverts to false.</summary>
     public bool ManuallyCorrected { get; init; }
 
-    /// <summary>Soft delete flag. There is no hard delete anywhere in the code base.</summary>
+    /// <summary>Recycle-bin flag. Controlled permanent cleanup is allowed only after soft deletion.</summary>
     public bool SoftDeleted { get; init; }
 
     /// <summary>
@@ -123,10 +123,14 @@ public sealed record MentorRun
     /// <summary>Provenance of an imported personal record; null for existing captures and manual entries.</summary>
     public RunImportMetadata? ImportMetadata { get; init; }
 
+    /// <summary>Imported provenance, independent of the original capture label on older rows.</summary>
+    [JsonIgnore]
+    public bool IsImportedHistory => Source == RunSource.Import || ImportMetadata is not null;
+
     /// <summary>Imported facts still awaiting completion; unknown source time never supplies missing game times.</summary>
     [JsonIgnore]
-    public bool IsIncompleteImport => Source == RunSource.Import && ImportMetadata is not null
-        && (PendingReview || Result == RunResult.Unknown
+    public bool IsIncompleteImport => IsImportedHistory
+        && (Result == RunResult.Unknown
             || (Result != RunResult.CancelledBeforeEntry
                 && (EnteredAtUtc is null || (Result == RunResult.Completed && EndedAtUtc is null))));
 
@@ -135,6 +139,9 @@ public sealed record MentorRun
 
     /// <summary>Time of the most recent change.</summary>
     public required DateTimeOffset UpdatedAtUtc { get; init; }
+
+    /// <summary>Most recent soft deletion time; null for a live record.</summary>
+    public DateTimeOffset? DeletedAtUtc { get; init; }
 
     /// <summary>How the job was determined. Derived, not stored.</summary>
     [JsonIgnore]
@@ -148,11 +155,13 @@ public sealed record MentorRun
     /// statistics (docs/statistics-definitions.md section 1).
     /// </summary>
     [JsonIgnore]
-    public bool IsConfirmedMentor => Source switch
+    public bool IsConfirmedMentor => IsImportedHistory
+        ? !PendingReview && Result != RunResult.Unknown
+            && (MentorRouletteId is not null || ImportMetadata?.MentorConfirmed == true)
+        : Source switch
     {
         RunSource.AutoNetwork => MentorRouletteId is not null,
         RunSource.Manual => true,
-        RunSource.Import => !IsIncompleteImport && (MentorRouletteId is not null || ImportMetadata?.MentorConfirmed == true),
         _ => false,
     };
 }

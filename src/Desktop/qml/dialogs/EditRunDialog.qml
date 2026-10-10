@@ -114,32 +114,28 @@ Dialog {
     property bool dayFieldsOpen: false
     readonly property bool dayFieldsVisible: dayFieldsOpen || enteredDate !== matchedDate
                                              || endedDate !== matchedDate
-    readonly property bool importAwaitingConfirmation: editMode && runData && runData.source === "IMPORT"
-        && ((runData.import_metadata && !!runData.import_metadata.incomplete) || !!runData.pending_review)
+    readonly property bool importedHistory: editMode && runData
+        && (runData.source === "IMPORT" || !!runData.import_metadata)
+    readonly property bool importAwaitingConfirmation: importedHistory
+        && (runData.result === "UNKNOWN" || !!runData.pending_review)
     property bool importedResultSelected: false
     readonly property bool hasImportedTimeChanges: importAwaitingConfirmation
         && (fieldUtc(matchedDate, matchedTime, "matched_at_utc") !== (runData.matched_at_utc || null)
             || fieldUtc(enteredDate, enteredTime, "entered_at_utc") !== (runData.entered_at_utc || null)
             || fieldUtc(endedDate, endedTime, "ended_at_utc") !== (runData.ended_at_utc || null))
-    // Explicit outcome confirmation uses the existing complete-record checks,
-    // including estimated entry with unknown duration. Merely filling times
-    // confirms the default outcome only when those times are measured.
+    // Reviewed imported outcomes can be confirmed without inventing endpoints.
+    // Any supplied timestamps still go through format and ordering validation.
     readonly property bool confirmsImportedFacts: importAwaitingConfirmation
         && resultCode !== "UNKNOWN" && (importedResultSelected || resultCode !== runData.result
                                        || (hasImportedTimeChanges && !estimatedEntry))
         && RunForm.validate(confirmationFormState, {}).ok
-    // Note/image edits retain unknown endpoints and review. A deliberate known
-    // result selection must pass the ordinary complete-record validation.
-    readonly property bool retainsIncompleteImportedFacts: editMode && runData
-        && runData.source === "IMPORT" && !!runData.import_metadata
-        && (resultCode === "UNKNOWN" || (!!runData.pending_review && resultCode === runData.result
-            && !importedResultSelected && !confirmsImportedFacts))
+    readonly property bool retainsIncompleteImportedFacts: importedHistory
     // RunFilterSql also admits an identified mentor roulette. An explicit false
     // import flag without that identity stays excluded after its facts are completed.
     // Older IPC projections did not carry the flag, so retain their existing fallback.
     readonly property bool importHasMentorQualification: !editMode || !runData
-        || runData.source !== "IMPORT" || !runData.import_metadata
-        || runData.import_metadata.mentor_confirmed !== false
+        || !importedHistory
+        || (!!runData.import_metadata && runData.import_metadata.mentor_confirmed !== false)
         || (runData.mentor_roulette_id !== null && runData.mentor_roulette_id !== undefined)
     readonly property bool countsAfterSave: resultCode === "COMPLETED" && contributesToGoal
                                            && importHasMentorQualification
@@ -148,8 +144,7 @@ Dialog {
     readonly property bool countedBefore: editMode && runData && runData.result === "COMPLETED"
                                           && importHasMentorQualification
                                           && !!runData.contributes_to_goal && !runData.soft_deleted
-                                          && !(runData.import_metadata && runData.import_metadata.incomplete)
-                                          && !(runData.source === "IMPORT" && runData.pending_review)
+                                          && !(importedHistory && runData.pending_review)
     readonly property int progressDelta: (countsAfterSave ? 1 : 0) - (countedBefore ? 1 : 0)
     readonly property string progressTitle: progressDelta > 0 ? qsTr("保存后，成就进度 +1")
         : progressDelta < 0 ? qsTr("保存后，成就进度 −1") : qsTr("成就进度不变")
@@ -161,7 +156,7 @@ Dialog {
         : !importHasMentorQualification
         ? qsTr("这条导入记录尚未确认导随资格，当前不计入成就进度。")
         : importAwaitingConfirmation && !confirmsImportedFacts
-        ? qsTr("这条导入记录仍有事实待补充；补齐游戏时间并确认结果后保存，才会计入进度。")
+        ? qsTr("请确认这条导入记录的通关结果后保存；未知游戏时间可以留空。")
         : countedBefore ? qsTr("这条导随已经计入进度，修改其他信息不会重复计数。")
         : qsTr("这条已通关的指导者任务将计入 %1 次成就。完成必填信息后保存生效。").arg(App.goalCount)
 
@@ -291,7 +286,7 @@ Dialog {
     // The form as the validator sees it. Times in one spelling (canonicalTime):
     // leaving a time field writes 20:41 for the 20:41:00 the record reads back as.
     readonly property var formState: validationState(retainsIncompleteImportedFacts)
-    readonly property var confirmationFormState: validationState(false)
+    readonly property var confirmationFormState: validationState(importedHistory)
     function validationState(allowIncompleteImport) {
         return {
             reason: dialog.reasonText,
@@ -1094,10 +1089,8 @@ Dialog {
             if (JSON.stringify(fields[key]) !== JSON.stringify(runData[key]))
                 changes[key] = fields[key]
         }
-        // A default imported COMPLETED outcome is still awaiting confirmation.
-        // Sending that same result explicitly lets the Collector clear review
-        // after checking the completed endpoints. Ordinary time corrections
-        // keep their existing review state.
+        // A deliberate imported outcome decision clears legacy review while
+        // retaining any unknown endpoints. Other corrections retain outcome state.
         if (confirmsImportedFacts)
             changes.result = fields.result
         // 未知副本 clears the duty, the zone it was recognised by included, and

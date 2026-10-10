@@ -97,7 +97,7 @@ public sealed class StatisticsRepository
             Ratio(leaveCount, attemptCount),
             average,
             breakdown,
-            rows.Count(row => row.PendingReview),
+            rows.Count(row => row.PendingReview && !row.ImportedHistory),
             GetTrend(filter, granularity));
     }
 
@@ -131,7 +131,7 @@ public sealed class StatisticsRepository
     /// <summary>
     /// Returns the completion trend defined by docs/statistics-definitions.md section 12.1.
     ///
-    /// The grouping key is computed by SQLite from <c>matched_at_utc</c>, which is stored as
+    /// The grouping key is computed by SQLite from the actual-or-source history date, stored as
     /// UTC ISO-8601, so every bucket boundary is midnight UTC. The Desktop renders each
     /// <c>start_utc</c> in local time; it does not re-bucket, because two clients in two time
     /// zones asking the same Collector must see the same series.
@@ -208,14 +208,15 @@ public sealed class StatisticsRepository
         RunFilter? filter, TrendGranularity granularity, DateTimeOffset windowStart)
     {
         var fragment = RunFilterSql.Build(filter, forStatistics: true, _duties);
+        var historyDate = RunFilterSql.HistoryDateExpression;
 
         // The bucket expression is chosen from a closed set of enum values, never composed
         // from anything a client sent; every value in the query is a bound parameter.
         var bucket = granularity switch
         {
-            TrendGranularity.Week => "date(substr(matched_at_utc, 1, 10), '-6 days', 'weekday 1')",
-            TrendGranularity.Month => "substr(matched_at_utc, 1, 7) || '-01'",
-            _ => "substr(matched_at_utc, 1, 10)",
+            TrendGranularity.Week => $"date(substr({historyDate}, 1, 10), '-6 days', 'weekday 1')",
+            TrendGranularity.Month => $"substr({historyDate}, 1, 7) || '-01'",
+            _ => $"substr({historyDate}, 1, 10)",
         };
 
         return _database.Read(_ =>
@@ -224,8 +225,8 @@ public sealed class StatisticsRepository
             command.CommandText =
                 $"SELECT {bucket} AS bucket_start, COUNT(*) FROM mentor_runs WHERE (" +
                 fragment.Where +
-                ") AND result = 'COMPLETED' AND matched_at_utc IS NOT NULL " +
-                "AND matched_at_utc >= $trend_from GROUP BY bucket_start;";
+                $") AND result = 'COMPLETED' AND {historyDate} IS NOT NULL " +
+                $"AND {historyDate} >= $trend_from GROUP BY bucket_start;";
             RunFilterSql.Bind(command, fragment);
             command.Parameters.AddWithValue("$trend_from", UtcTimestamp.ToText(windowStart));
 
@@ -361,7 +362,8 @@ public sealed class StatisticsRepository
             command.CommandText =
                 "SELECT content_id, job_id, duty_name, duty_category, entered_at_utc, ended_at_utc, " +
                 "duration_ms, result, detection_confidence, contributes_to_goal, manually_corrected, " +
-                "region, updated_at_utc, pending_review, matched_at_utc, territory_id " +
+                "region, updated_at_utc, pending_review, matched_at_utc" +
+                ", territory_id, " + RunFilterSql.ImportedHistoryPredicate + " " +
                 "FROM mentor_runs WHERE " + fragment.Where + ";";
             RunFilterSql.Bind(command, fragment);
             using var reader = command.ExecuteReader();
@@ -384,7 +386,8 @@ public sealed class StatisticsRepository
                     UtcTimestamp.Parse(reader.GetString(12)),
                     reader.GetInt32(13) == 1,
                     reader.IsDBNull(14) ? null : UtcTimestamp.Parse(reader.GetString(14)),
-                    reader.IsDBNull(15) ? null : reader.GetInt32(15)));
+                    reader.IsDBNull(15) ? null : reader.GetInt32(15),
+                    reader.GetInt32(16) == 1));
             }
 
             return (IReadOnlyList<StatRow>)rows;
@@ -404,7 +407,8 @@ public sealed class StatisticsRepository
         return new ResultStatistics(attemptCount, buckets);
     }
 
-    private static bool IsAttempt(StatRow row) => row.EnteredAtUtc is not null;
+    private static bool IsAttempt(StatRow row) => row.EnteredAtUtc is not null
+        || (row.ImportedHistory && row.Result is not (RunResult.Unknown or RunResult.CancelledBeforeEntry));
 
     private static double? AverageDuration(IEnumerable<StatRow> rows)
     {
@@ -438,5 +442,6 @@ public sealed class StatisticsRepository
         DateTimeOffset UpdatedAtUtc,
         bool PendingReview,
         DateTimeOffset? MatchedAtUtc,
-        int? TerritoryId);
+        int? TerritoryId,
+        bool ImportedHistory);
 }

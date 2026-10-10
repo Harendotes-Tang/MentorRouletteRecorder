@@ -66,6 +66,7 @@ public static class MigrationRunner
                 {
                     command.Transaction = transaction;
                     command.CommandText = script.Sql;
+                    command.Parameters.AddWithValue("$migration_now_utc", UtcTimestamp.ToText(UtcTimestamp.Truncate(clock.UtcNow)));
                     command.ExecuteNonQuery();
                 }
 

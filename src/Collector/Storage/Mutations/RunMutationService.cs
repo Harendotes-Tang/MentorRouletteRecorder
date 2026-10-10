@@ -1,4 +1,6 @@
 using Microsoft.Data.Sqlite;
+using System.Text.Json.Nodes;
+using MentorRecorder.Collector.Ipc;
 using MentorRecorder.Collector.Application.Mutations;
 using MentorRecorder.Collector.Contracts.Errors;
 using MentorRecorder.Collector.Domain;
@@ -18,8 +20,8 @@ namespace MentorRecorder.Collector.Storage.Mutations;
 ///   transaction, so the audit chain can never be missing a step;</description></item>
 ///   <item><description>the request is idempotent by <c>request_id</c>: a replay returns the
 ///   stored outcome without touching the database again;</description></item>
-///   <item><description>nothing is ever deleted. Removal is a flag, and undo is a new
-///   revision that restores old values (docs/manual-correction.md sections 1, 2 and 4).</description></item>
+///   <item><description>normal removal is a flag; permanent deletion is restricted to
+///   already deleted records and removes their current content with replay tombstones.</description></item>
 /// </list>
 /// </summary>
 public sealed class RunMutationService
@@ -234,6 +236,70 @@ public sealed class RunMutationService
     public RunMutationOutcome RestoreRun(RunReasonCommand command) =>
         SetDeleted(command, deleted: false, ChangeKind.Restore, "RestoreRun");
 
+    /// <summary>Checks every selected revision and deletion state before changing any row.</summary>
+    public JsonObject BatchMutateRuns(BatchMutateRunsCommand command)
+    {
+        ArgumentNullException.ThrowIfNull(command);
+        if (!Guid.TryParseExact(command.RequestId, "D", out _))
+            throw CollectorException.BadRequest("request_id 必须是标准 UUID。", "request_id");
+        if (command.Action is not ("soft_delete" or "restore" or "purge"))
+            throw CollectorException.BadRequest("action 只能取 soft_delete / restore / purge。", "action");
+        var reason = RunMutationValidation.RequireReason(command.Reason);
+        HistoryRetentionService.ValidateIds(command.Runs.Select(run => run.RunId).ToArray());
+        if (command.Runs.Any(run => run.ExpectedRevision < 1))
+            throw CollectorException.BadRequest("expected_revision 必须大于等于 1。", "runs");
+        var sorted = command.Runs.OrderBy(run => run.RunId, StringComparer.Ordinal).ToArray();
+        var fingerprint = MutationSnapshotCodec.Fingerprint("BatchMutateRuns", command.Action, reason,
+            string.Join(',', sorted.Select(run => run.RunId + ":" + run.ExpectedRevision.ToString(System.Globalization.CultureInfo.InvariantCulture))));
+        return _database.RunInTransaction(tx =>
+        {
+            var stored = _idempotency.TryGetResponse(command.RequestId, tx);
+            if (stored is not null)
+            {
+                var cache = JsonNode.Parse(stored)?.AsObject();
+                if (cache?["batch_fingerprint"]?.GetValue<string>() != fingerprint || cache["outcome"] is not JsonObject prior)
+                    throw new CollectorException(ErrorCodes.IdempotencyConflict, "此请求编号已用于不同的批量操作。", field: "request_id");
+                var replay = prior.DeepClone().AsObject(); replay["idempotent_replay"] = true; return replay;
+            }
+            if (_idempotency.WasAppliedBeforePrune(command.RequestId, tx)) throw ExpiredReplay(command.RequestId);
+            var runs = sorted.Select(target =>
+            {
+                var run = Load(target.RunId, tx); RequireRevision(run, target.ExpectedRevision);
+                if (command.Action == "soft_delete" && run.SoftDeleted)
+                    throw new CollectorException(ErrorCodes.AlreadyDeleted, "选中的记录已删除，请刷新后重试。",
+                        new Dictionary<string, object?> { ["run_id"] = run.RunId });
+                if (command.Action != "soft_delete" && !run.SoftDeleted)
+                    throw new CollectorException(ErrorCodes.NotDeleted, "恢复和永久删除只能处理已软删除的记录。",
+                        new Dictionary<string, object?> { ["run_id"] = run.RunId });
+                return run;
+            }).ToArray();
+            if (command.Action == "purge")
+            {
+                using var retention = new HistoryRetentionService(_database, _clock); retention.Purge(runs, tx);
+            }
+            else
+            {
+                var deleted = command.Action == "soft_delete";
+                foreach (var before in runs)
+                {
+                    // UNIQUE audit request IDs remain per revision; the parent batch receipt is atomic.
+                    var auditRequestId = new Guid(System.Security.Cryptography.SHA256.HashData(
+                        System.Text.Encoding.UTF8.GetBytes(command.RequestId + ":" + before.RunId)).AsSpan(0, 16)).ToString("D");
+                    Commit(before, before with { SoftDeleted = deleted }, deleted ? ChangeKind.SoftDelete : ChangeKind.Restore,
+                        reason, auditRequestId, fingerprint, tx, markCorrected: false, clearPendingReview: deleted);
+                }
+            }
+            var outcome = new JsonObject
+            {
+                ["changed_count"] = runs.Length, ["run_ids"] = new JsonArray(runs.Select(run => (JsonNode?)JsonValue.Create(run.RunId)).ToArray()),
+                ["action"] = command.Action, ["idempotent_replay"] = false,
+            };
+            _idempotency.Store(command.RequestId, "BatchMutateRuns", new JsonObject
+                { ["batch_fingerprint"] = fingerprint, ["outcome"] = outcome.DeepClone() }.ToJsonString(Wire.JsonOptions), tx);
+            return outcome;
+        });
+    }
+
     /// <summary>
     /// Undoes the newest revision by appending a new one that restores the previous values.
     /// The undone revision stays in the chain: history is never rewritten.
@@ -266,6 +332,11 @@ public sealed class RunMutationService
 
             var target = _revisions.GetAt(command.RunId, before.Revision, tx)
                 ?? throw CollectorException.NotFound(command.RunId);
+
+            if (target.Actor == RevisionActor.System && (target.Reason == Import.ImportedHistoryMaintenance.AuditReason ||
+                target.Changes.Any(change => change.Field == "source")))
+                throw new CollectorException(ErrorCodes.UndoNotAllowed,
+                    "此修订修复历史导入来源，不能撤销为错误来源；请直接更正需要调整的记录内容。", field: "expected_revision");
 
             // Older duty revisions did not record their associated territory/source.
             // The current catalog cannot reconstruct historical observed values safely.
@@ -487,6 +558,7 @@ public sealed class RunMutationService
             ManuallyCorrected = before.ManuallyCorrected || markCorrected || candidate.ManuallyCorrected,
             PendingReview = !clearPendingReview && candidate.PendingReview,
             UpdatedAtUtc = now,
+            DeletedAtUtc = FinalDeletionTime(before, candidate, now),
         };
 
         var changes = RunMutationRules.Diff(before, final).ToList();
@@ -518,6 +590,9 @@ public sealed class RunMutationService
 
         return new MutationSnapshot(fingerprint, final.RunId, final.Revision, revisionId, final, null);
     }
+
+    private static DateTimeOffset? FinalDeletionTime(MentorRun before, MentorRun candidate, DateTimeOffset now) =>
+        !candidate.SoftDeleted ? null : before.SoftDeleted ? before.DeletedAtUtc : now;
 
     private MentorRun ApplyChangeSet(MentorRun run, RunChangeSet changes)
     {

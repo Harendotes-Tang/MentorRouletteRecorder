@@ -74,8 +74,23 @@ public sealed class SqliteDatabase : IDisposable
             connection.Open();
             ApplyPragmas(connection);
             VerifyIntegrity(connection, fullPath);
+            var applied = MigrationRunner.ReadAppliedMigrations(connection);
+            var priorVersion = applied.Count == 0 ? 0 : applied.Keys.Max();
+            var database = new SqliteDatabase(connection, fullPath, priorVersion, openReadOnly ?? OpenReadOnlyConnection);
+            if (priorVersion is > 0 and < 10)
+            {
+                // This upgrade introduces eventual permanent cleanup. Keep a verified pre-upgrade
+                // snapshot outside the ordinary rolling-backup name pattern; never prune old copies.
+                var snapshot = ExportPaths.Resolve(System.IO.Path.Combine(
+                    System.IO.Path.GetDirectoryName(fullPath)!, "backups",
+                    "history_retention_upgrade_" + clock.UtcNow.ToUniversalTime().ToString("yyyyMMdd_HHmmss", System.Globalization.CultureInfo.InvariantCulture)
+                    + "_" + Guid.NewGuid().ToString("N") + ".db"));
+                ExportPaths.PrepareDestination(snapshot, overwrite: false);
+                database.BackupDatabase(snapshot, overwrite: false);
+            }
             var version = MigrationRunner.MigrateToLatest(connection, clock);
-            return new SqliteDatabase(connection, fullPath, version, openReadOnly ?? OpenReadOnlyConnection);
+            database.SchemaVersion = version;
+            return database;
         }
         catch (SqliteException ex)
         {

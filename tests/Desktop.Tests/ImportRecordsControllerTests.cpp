@@ -12,7 +12,9 @@
 #include <QGuiApplication>
 #include <QHash>
 #include <QImage>
+#include <QInputMethodEvent>
 #include <QJsonArray>
+#include <QJSValue>
 #include <QPainter>
 #include <QQmlComponent>
 #include <QQmlContext>
@@ -30,6 +32,7 @@
 #include <QTest>
 #include <QThread>
 #include <QtMath>
+#include <algorithm>
 
 class ImportThemeState : public QObject
 {
@@ -186,17 +189,35 @@ QJsonObject previewCandidates(const QJsonArray &candidates, const QString &id = 
     return {{"preview_id", id}, {"rows", rows}, {"summary", QJsonObject{{"total", rows.size()}, {"new", rows.size()}}}};
 }
 
-int matchingRenderedPixels(const QImage &image, const QRectF &sceneRect, qreal ratio, const QColor &target)
+int matchingAntialiasedForegroundPixels(const QImage &image, const QRectF &sceneRect, qreal ratio,
+                                       const QColor &foreground, const QColor &background)
 {
     const QRect pixels(qFloor(sceneRect.x() * ratio), qFloor(sceneRect.y() * ratio),
                        qCeil(sceneRect.width() * ratio), qCeil(sceneRect.height() * ratio));
     const QRect clipped = pixels.intersected(image.rect());
+    const qreal dr = foreground.red() - background.red();
+    const qreal dg = foreground.green() - background.green();
+    const qreal db = foreground.blue() - background.blue();
+    const qreal lengthSquared = dr * dr + dg * dg + db * db;
+    if (lengthSquared == 0)
+        return 0;
     int matched = 0;
     for (int y = clipped.top(); y <= clipped.bottom(); ++y)
         for (int x = clipped.left(); x <= clipped.right(); ++x) {
             const QColor color = image.pixelColor(x, y);
-            matched += qAbs(color.red() - target.red()) + qAbs(color.green() - target.green())
-                + qAbs(color.blue() - target.blue()) < 24;
+            // Small CJK glyphs can have no opaque core pixel. Test the captured
+            // RGB blend direction instead of requiring the exact text RGB.
+            // This is a coverage proxy, not gamma-correct physical coverage;
+            // it permits rounding while rejecting a different foreground hue.
+            const qreal coverage = ((color.red() - background.red()) * dr
+                + (color.green() - background.green()) * dg
+                + (color.blue() - background.blue()) * db) / lengthSquared;
+            if (coverage < 0.25 || coverage > 1.02)
+                continue;
+            const qreal error = std::max({qAbs(color.red() - background.red() - coverage * dr),
+                qAbs(color.green() - background.green() - coverage * dg),
+                qAbs(color.blue() - background.blue() - coverage * db)});
+            matched += error < 3;
         }
     return matched;
 }
@@ -208,6 +229,35 @@ class ImportRecordsControllerTests : public QObject
     Q_OBJECT
 
 private Q_SLOTS:
+    void antialiasedForegroundOracleRejectsBlackFallback()
+    {
+        for (bool dark : {false, true}) for (bool muted : {false, true}) {
+            const QColor foreground(muted ? (dark ? "#7b8494" : "#8a93a1") : (dark ? "#e8ecf2" : "#1c2430"));
+            const QColor background(dark ? "#1b212c" : "#ffffff");
+            QImage correct(30, 10, QImage::Format_RGB32);
+            QImage blackFallback(30, 10, QImage::Format_RGB32);
+            correct.fill(background);
+            blackFallback.fill(background);
+            for (int x = 0; x < 30; ++x) {
+                const qreal opacity = x < 10 ? 0.3 : x < 20 ? 0.5 : 0.8;
+                const auto blend = [background, opacity](const QColor &ink) {
+                    return QColor(qRound(background.red() + opacity * (ink.red() - background.red())),
+                                  qRound(background.green() + opacity * (ink.green() - background.green())),
+                                  qRound(background.blue() + opacity * (ink.blue() - background.blue())));
+                };
+                for (int y = 0; y < 10; ++y) {
+                    correct.setPixelColor(x, y, blend(foreground));
+                    blackFallback.setPixelColor(x, y, blend(Qt::black));
+                }
+            }
+            const QRectF bounds(0, 0, 30, 10);
+            QCOMPARE(matchingAntialiasedForegroundPixels(correct, bounds, 1, foreground, background), 300);
+            QCOMPARE(matchingAntialiasedForegroundPixels(blackFallback, bounds, 1, foreground, background), 0);
+            correct.fill(background);
+            QCOMPARE(matchingAntialiasedForegroundPixels(correct, bounds, 1, foreground, background), 0);
+        }
+    }
+
     void initTestCase()
     {
         const QString root = QString::fromUtf8(MR_DESKTOP_QML_DIR);
@@ -1064,7 +1114,7 @@ private Q_SLOTS:
         QJsonObject response = preview();
         QJsonArray rows = response.value("rows").toArray();
         QJsonObject first = rows[0].toObject();
-        first.insert("incomplete", false);
+        first.insert("incomplete", true); // Time gaps are informational, including in the baseline question.
         first.insert("run", QJsonObject{{"result", "COMPLETED"}, {"contributes_to_goal", true}, {"soft_deleted", false},
                                         {"import_metadata", QJsonObject{{"mentor_confirmed", true}}}});
         rows[0] = first;
@@ -1115,7 +1165,7 @@ private Q_SLOTS:
         QVERIFY(!backend.calls.last().payload.contains("deduct_from_baseline"));
         backend.calls.last().reply->succeed({{"imported_count", 1}, {"duplicate_count", 0}, {"conflict_count", 0}});
 
-        // Incomplete, excluded or unconfirmed rows never count towards the question.
+        // Excluded or unconfirmed rows never count towards the question.
         controller.setBaselineCount(10);
         controller.importText(QStringLiteral("副本\n合成副本"));
         QJsonObject excluded = response;
@@ -1153,7 +1203,8 @@ private Q_SLOTS:
             QJsonArray rows = response.value("rows").toArray();
             QJsonObject first = rows[0].toObject();
             first.insert("incomplete", false);
-            first.insert("run", QJsonObject{{"result", "COMPLETED"}, {"contributes_to_goal", true}});
+            first.insert("run", QJsonObject{{"result", "COMPLETED"}, {"contributes_to_goal", true},
+                {"import_metadata", QJsonObject{{"mentor_confirmed", true}}}});
             rows[0] = first;
             response.insert("rows", rows);
             backend.calls.last().reply->succeed(response);
@@ -1187,6 +1238,114 @@ private Q_SLOTS:
         QVERIFY(!controller.busy());
         QVERIFY(controller.errorText().contains(QStringLiteral("缺少")));
         QVERIFY(backend.calls.isEmpty());
+    }
+
+    void localDutyAutocompletePreservesKeyboardAndIme_data()
+    {
+        QTest::addColumn<bool>("dark");
+        QTest::addColumn<int>("width");
+        QTest::newRow("compact-light") << false << 980;
+        QTest::newRow("compact-dark") << true << 980;
+        QTest::newRow("wide-light") << false << 1440;
+        QTest::newRow("wide-dark") << true << 1440;
+    }
+
+    void localDutyAutocompletePreservesKeyboardAndIme()
+    {
+        QFETCH(bool, dark);
+        QFETCH(int, width);
+        ImportBackend backend;
+        mr::ImportRecordsController controller;
+        controller.setBackend(&backend);
+        controller.importText(QStringLiteral("副本\n合成副本"));
+        backend.calls.last().reply->succeed(preview());
+        const auto choices = controller.dutyChoices();
+        QVERIFY(!choices.isEmpty());
+        QString query;
+        for (const auto &choice : choices) {
+            const QString prefix = choice.toMap().value("duty_name").toString().left(1);
+            if (!prefix.isEmpty() && std::count_if(choices.cbegin(), choices.cend(), [&prefix](const QVariant &value) {
+                    return value.toMap().value("duty_name").toString().contains(prefix);
+                }) >= 2) { query = prefix; break; }
+        }
+        QVERIFY(!query.isEmpty());
+        ImportThemeState theme;
+        theme.dark = dark;
+        QQmlEngine engine;
+        engine.rootContext()->setContextProperty("ImportRecords", &controller);
+        engine.rootContext()->setContextProperty("App", &theme);
+        engine.rootContext()->setContextProperty("ReduceMotion", true);
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this, [&warnings](const QList<QQmlError> &errors) {
+            for (const auto &error : errors) warnings.append(error.toString());
+        });
+        QQmlComponent component(&engine);
+        component.setData(R"(import QtQuick
+import QtQuick.Controls
+import MentorRecorder
+ApplicationWindow { width: 980; height: 760; visible: true
+    ImportRecordsDialog { Component.onCompleted: open() }
+})", QUrl::fromLocalFile(QString::fromUtf8(MR_DESKTOP_QML_DIR) + "/dialogs/ImportAutocompleteProbe.qml"));
+        QTRY_VERIFY(component.status() != QQmlComponent::Loading);
+        QVERIFY2(!component.isError(), qPrintable(component.errorString()));
+        std::unique_ptr<QObject> root(component.create());
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.get());
+        QVERIFY(window);
+        window->setWidth(width);
+        window->setHeight(width == 980 ? 640 : 760);
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        auto *field = root->findChild<QQuickItem *>("importDutyName");
+        auto *popup = root->findChild<QObject *>("importDutySuggestions");
+        QVERIFY(field && popup);
+        field->forceActiveFocus(Qt::TabFocusReason);
+        QTest::keyClick(window, Qt::Key_A, Qt::ControlModifier);
+        QGuiApplication::clipboard()->setText(query);
+        QTest::keyClick(window, Qt::Key_V, Qt::ControlModifier);
+        QTRY_VERIFY(popup->property("visible").toBool());
+        const QVariant suggestionsValue = field->property("suggestions");
+        const QVariantList suggestions = suggestionsValue.metaType() == QMetaType::fromType<QJSValue>()
+            ? suggestionsValue.value<QJSValue>().toVariant().toList() : suggestionsValue.toList();
+        QVERIFY(suggestions.size() >= 2);
+        QTest::keyClick(window, Qt::Key_Down);
+        QCOMPARE(field->property("suggestionIndex").toInt(), 1);
+        QTest::keyClick(window, Qt::Key_Up);
+        QCOMPARE(field->property("suggestionIndex").toInt(), 0);
+        QTest::keyClick(window, Qt::Key_Down);
+        const QString evidence = qEnvironmentVariable("MR_TEST_EVIDENCE_DIR");
+        if (!evidence.isEmpty()) {
+            QVERIFY(QDir().mkpath(evidence));
+            QVERIFY(window->grabWindow().save(QDir(evidence).filePath(QStringLiteral("import-autocomplete-%1-%2.png").arg(width).arg(dark ? "dark" : "light"))));
+        }
+        const auto chosen = suggestions[1].toMap();
+        QTest::keyClick(window, Qt::Key_Tab);
+        QTRY_COMPARE(controller.currentCandidate().value("duty_name").toString(), chosen.value("duty_name").toString());
+        QCOMPARE(controller.currentCandidate().value("content_id").toInt(), chosen.value("content_id").toInt());
+        QCOMPARE(controller.currentCandidate().value("duty_category").toString(), chosen.value("duty_category").toString());
+        QVERIFY(field->hasActiveFocus());
+        QVERIFY(!popup->property("visible").toBool());
+        QTest::keyClick(window, Qt::Key_Tab); // With no candidates, normal traversal remains available.
+        QTRY_VERIFY(!field->hasActiveFocus());
+        field->forceActiveFocus(Qt::TabFocusReason);
+        QTest::keyClick(window, Qt::Key_A, Qt::ControlModifier);
+        QTest::keyClick(window, Qt::Key_V, Qt::ControlModifier);
+        QTRY_VERIFY(popup->property("visible").toBool());
+        QTest::keyClick(window, Qt::Key_Tab, Qt::ShiftModifier);
+        QTRY_VERIFY(!field->hasActiveFocus());
+        QCOMPARE(field->property("text").toString(), query); // Shift+Tab never accepts a candidate.
+        QCOMPARE(controller.currentCandidate().value("duty_name").toString(), query);
+        field->forceActiveFocus(Qt::TabFocusReason);
+        QTest::keyClick(window, Qt::Key_A, Qt::ControlModifier);
+        QTest::keyClick(window, Qt::Key_V, Qt::ControlModifier);
+        QTRY_VERIFY(popup->property("visible").toBool());
+        QInputMethodEvent composing(QStringLiteral("候选输入中"), {});
+        QCoreApplication::sendEvent(field, &composing);
+        QTRY_VERIFY(!popup->property("visible").toBool());
+        const QString beforeIme = field->property("text").toString();
+        QTest::keyClick(window, Qt::Key_Down);
+        QTest::keyClick(window, Qt::Key_Tab);
+        QCOMPARE(field->property("text").toString(), beforeIme); // Tab never fills during composition.
+        QVERIFY2(warnings.isEmpty(), qPrintable(warnings.join('\n')));
     }
 
     void productionDialogLoadsAndActionsRemainVisibleAtMinimumSize_data()
@@ -1234,6 +1393,7 @@ import MentorRecorder
 ApplicationWindow {
     width: 980; height: 640; visible: true
     property color expectedLabelColor: Theme.textPrimary
+    property color expectedLabelBackground: Theme.surface
     property color expectedHintColor: Theme.textMuted
     property color expectedIndicatorColor: Theme.insetBackground
     property color expectedFocusColor: Theme.accent
@@ -1508,15 +1668,23 @@ ApplicationWindow {
         QTest::qWait(50);
         const QImage checkedFrame = window->grabWindow();
         QVERIFY(!checkedFrame.isNull());
+        const QString evidenceDirectory = qEnvironmentVariable("MR_TEST_EVIDENCE_DIR");
+        if (!evidenceDirectory.isEmpty()) {
+            QVERIFY(QDir().mkpath(evidenceDirectory));
+            QVERIFY(checkedFrame.save(QDir(evidenceDirectory).filePath(QStringLiteral("import-minimum-checked-%1.png").arg(dark ? "dark" : "light"))));
+        }
         const qreal pixelRatio = qreal(checkedFrame.width()) / window->width();
         auto *ownLabel = own->property("contentItem").value<QQuickItem *>();
         auto *ownIndicator = own->property("indicator").value<QQuickItem *>();
         const qreal labelPadding = ownLabel->property("leftPadding").toReal();
         const QRectF labelRect(ownLabel->mapToScene(QPointF(labelPadding, 0)),
                               QSizeF(ownLabel->width() - labelPadding, ownLabel->height()));
-        QVERIFY2(matchingRenderedPixels(checkedFrame, labelRect, pixelRatio,
-                                        root->property("expectedLabelColor").value<QColor>()) > 10,
-                 "Rendered own-records confirmation label must contain the theme foreground, not a black style fallback");
+        const int foregroundPixels = matchingAntialiasedForegroundPixels(checkedFrame, labelRect, pixelRatio,
+                                        root->property("expectedLabelColor").value<QColor>(),
+                                        root->property("expectedLabelBackground").value<QColor>());
+        QVERIFY2(foregroundPixels > 10, qPrintable(QStringLiteral("Own-record label foreground pixels=%1, scene rect=[%2,%3,%4,%5], target=%6")
+            .arg(foregroundPixels).arg(labelRect.x()).arg(labelRect.y()).arg(labelRect.width()).arg(labelRect.height())
+            .arg(root->property("expectedLabelColor").value<QColor>().name())));
         const QPointF indicatorCenter = ownIndicator->mapToScene(QPointF(ownIndicator->width() / 2, ownIndicator->height() / 2));
         QCOMPARE(checkedFrame.pixelColor(qRound(indicatorCenter.x() * pixelRatio), qRound(indicatorCenter.y() * pixelRatio)),
                  root->property("expectedIndicatorColor").value<QColor>());
@@ -1560,9 +1728,12 @@ ApplicationWindow {
         QTest::qWait(50); // Let the popup and text glyphs render before the pixel assertion.
         const QImage emptyFrame = window->grabWindow();
         QVERIFY(!emptyFrame.isNull());
+        if (!evidenceDirectory.isEmpty())
+            QVERIFY(emptyFrame.save(QDir(evidenceDirectory).filePath(QStringLiteral("import-minimum-placeholder-%1.png").arg(dark ? "dark" : "light"))));
         const QRectF hintRect(pasteHint->mapToScene(QPointF()), QSizeF(pasteHint->width(), pasteHint->height()));
-        QVERIFY2(matchingRenderedPixels(emptyFrame, hintRect, pixelRatio,
-                                        root->property("expectedHintColor").value<QColor>()) > 10,
+        QVERIFY2(matchingAntialiasedForegroundPixels(emptyFrame, hintRect, pixelRatio,
+                                        root->property("expectedHintColor").value<QColor>(),
+                                        root->property("expectedLabelBackground").value<QColor>()) > 10,
                  "Rendered paste hint must contain the theme muted foreground, not a black style fallback");
         QTest::keyClick(window, Qt::Key_Escape);
         QTRY_VERIFY(!manualPasteDialog->property("visible").toBool());

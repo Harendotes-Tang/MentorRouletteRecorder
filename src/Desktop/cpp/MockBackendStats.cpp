@@ -91,7 +91,32 @@ bool matchesContentIds(const QJsonObject &filter, const QSet<qint64> &dutyZones,
 
 QJsonValue fieldForSort(const QJsonObject &run, const QString &field)
 {
+    if (field == QLatin1String("history_date")) {
+        for (const QString &key : {QStringLiteral("matched_at_utc"), QStringLiteral("entered_at_utc"), QStringLiteral("ended_at_utc")})
+            if (run.value(key).isString()) return run.value(key);
+        const QJsonObject source = run.value(QStringLiteral("import_metadata")).toObject();
+        if (source.value(QStringLiteral("source_recorded_at_utc")).isString())
+            return source.value(QStringLiteral("source_recorded_at_utc"));
+        const QString raw = source.value(QStringLiteral("source_recorded_at")).toString();
+        QDate date = QDate::fromString(raw, QStringLiteral("yyyy-MM-dd"));
+        if (!date.isValid()) date = QDate::fromString(raw, QStringLiteral("yyyy/M/d"));
+        if (date.isValid()) return date.toString(QStringLiteral("yyyy-MM-dd")) + QStringLiteral("T00:00:00.000Z");
+        return QJsonValue(QJsonValue::Null);
+    }
     return run.value(field);
+}
+
+/// The raw source day has calendar semantics only when no actual/source instant exists.
+QDate sourceCalendarDay(const QJsonObject &run)
+{
+    for (const QString &key : {QStringLiteral("matched_at_utc"), QStringLiteral("entered_at_utc"), QStringLiteral("ended_at_utc")})
+        if (run.value(key).isString()) return {};
+    const QJsonObject source = run.value(QStringLiteral("import_metadata")).toObject();
+    if (source.value(QStringLiteral("source_recorded_at_utc")).isString()) return {};
+    const QString raw = source.value(QStringLiteral("source_recorded_at")).toString();
+    QDate date = QDate::fromString(raw, QStringLiteral("yyyy-MM-dd"));
+    if (!date.isValid()) date = QDate::fromString(raw, QStringLiteral("yyyy/M/d"));
+    return date;
 }
 
 /// RunRepository.Query: ORDER BY (field IS NULL), field <direction>, run_id -
@@ -99,8 +124,16 @@ QJsonValue fieldForSort(const QJsonObject &run, const QString &field)
 /// ties (review OJ-6).
 bool sortsBefore(const QJsonObject &a, const QJsonObject &b, const QString &field, bool ascending)
 {
-    const QJsonValue left = fieldForSort(a, field);
-    const QJsonValue right = fieldForSort(b, field);
+    const auto sortValue = [&field](const QJsonObject &run) {
+        if (field == QLatin1String("history_date")) {
+            const QDate sourceDay = sourceCalendarDay(run);
+            if (sourceDay.isValid())
+                return QJsonValue(isoUtc(sourceDay.startOfDay(QTimeZone::systemTimeZone())));
+        }
+        return fieldForSort(run, field);
+    };
+    const QJsonValue left = sortValue(a);
+    const QJsonValue right = sortValue(b);
 
     if (left.isNull() != right.isNull())
         return right.isNull();
@@ -153,6 +186,8 @@ QList<QJsonObject> MockBackend::selectRuns(const QJsonObject &filter,
                                   .toString(QStringLiteral("entered_at_utc"));
     const QDateTime from = fromIso(filter.value(QStringLiteral("from_utc")));
     const QDateTime to = fromIso(filter.value(QStringLiteral("to_utc")));
+    const QDate fromDay = QDate::fromString(filter.value(QStringLiteral("history_from_day")).toString(), Qt::ISODate);
+    const QDate toDay = QDate::fromString(filter.value(QStringLiteral("history_to_day")).toString(), Qt::ISODate);
     const QSet<qint64> contentZones = zonesOfOnly(filter.value(QStringLiteral("content_id")).toArray());
 
     QList<QJsonObject> selected;
@@ -164,6 +199,8 @@ QList<QJsonObject> MockBackend::selectRuns(const QJsonObject &filter,
         // Soft-deleted runs never take part in a statistic, whatever the
         // filter says (docs/statistics-definitions.md 0).
         if (isSoftDeleted(run) && !includeDeleted)
+            continue;
+        if (!matchesStringArray(filter, QStringLiteral("run_id"), run.value(QStringLiteral("run_id"))))
             continue;
         if (forStatistics && !isConfirmedMentor(run))
             continue;
@@ -192,12 +229,13 @@ QList<QJsonObject> MockBackend::selectRuns(const QJsonObject &filter,
             continue;
 
         if (from.isValid() || to.isValid()) {
-            const QDateTime moment = fromIso(run.value(dateField));
+            const QDateTime moment = fromIso(fieldForSort(run, dateField));
+            const QDate calendar = dateField == QLatin1String("history_date") ? sourceCalendarDay(run) : QDate();
             if (!moment.isValid())
                 continue;
-            if (from.isValid() && moment < from)
+            if (from.isValid() && (calendar.isValid() && fromDay.isValid() ? calendar < fromDay : moment < from))
                 continue;
-            if (to.isValid() && moment > to)
+            if (to.isValid() && (calendar.isValid() && toDay.isValid() ? calendar > toDay : moment > to))
                 continue;
         }
 
@@ -345,8 +383,7 @@ QJsonObject MockBackend::trendSeries(const QJsonObject &filter,
     for (const QJsonObject &run : selectRuns(filter, true)) {
         if (run.value(QStringLiteral("result")).toString() != QLatin1String("COMPLETED"))
             continue;
-        const QDateTime matched = QDateTime::fromString(
-            run.value(QStringLiteral("matched_at_utc")).toString(), Qt::ISODateWithMs);
+        const QDateTime matched = fromIso(fieldForSort(run, QStringLiteral("history_date")));
         if (!matched.isValid())
             continue;
 

@@ -280,6 +280,53 @@ bool NoteImageStore::runFolderIsGenuine(const QString &directory) const
     return QDir::cleanPath(resolved).compare(QDir::cleanPath(expected), Qt::CaseInsensitive) == 0;
 }
 
+QVariantMap NoteImageStore::cleanupRun(const QString &runId)
+{
+    const auto refused = [](const QString &error) {
+        return QVariantMap{{QStringLiteral("ok"), false}, {QStringLiteral("error"), error}};
+    };
+    const auto succeeded = [] {
+        return QVariantMap{{QStringLiteral("ok"), true}, {QStringLiteral("error"), QString()}};
+    };
+    const QString directory = runDirectory(runId);
+    if (directory.isEmpty() || QDir::cleanPath(directory) == QDir::cleanPath(m_root)
+        || !isInside(m_root, directory))
+        return refused(tr("记录标识无效，未清理图片。"));
+    const QFileInfo root(m_root);
+    const QFileInfo target(directory);
+    if (root.isJunction() || root.isSymbolicLink() || target.isJunction() || target.isSymbolicLink())
+        return refused(tr("图片根或记录目录是链接，未清理链接目标。"));
+    if (!root.exists())
+        return succeeded();
+    if (!root.isDir())
+        return refused(tr("图片根不是目录，未清理。"));
+    if (!target.exists())
+        return succeeded();
+    if (!target.isDir() || !runFolderIsGenuine(directory))
+        return refused(tr("记录图片目录越过存储边界，未清理。"));
+    QDir folder(directory);
+    const QFileInfoList entries = folder.entryInfoList(QDir::AllEntries | QDir::Hidden | QDir::System | QDir::NoDotAndDotDot);
+    const QString resolved = target.canonicalFilePath();
+    // 现有图片存储只建立文件，不创建子目录。意外目录或链接留给用户处理，
+    // 禁止 removeRecursively，避免递归进入共享路径或重解析点。
+    for (const QFileInfo &entry : entries) {
+        if (entry.isDir() || entry.isJunction() || entry.isSymbolicLink() || !entry.isFile()
+            || QFileInfo(entry.canonicalFilePath()).absolutePath().compare(resolved, Qt::CaseInsensitive) != 0)
+            return refused(tr("记录目录包含链接或意外子目录，清理任务仍保留。"));
+    }
+    for (const QFileInfo &entry : entries) {
+        const QFileInfo fresh(entry.absoluteFilePath());
+        if (!runFolderIsGenuine(directory) || fresh.isJunction() || fresh.isSymbolicLink()
+            || QFileInfo(fresh.canonicalFilePath()).absolutePath().compare(resolved, Qt::CaseInsensitive) != 0
+            || !QFile::remove(fresh.absoluteFilePath()))
+            return refused(tr("部分图片未能移除，清理任务仍保留并可重试。"));
+    }
+    if (!runFolderIsGenuine(directory) || !QDir(m_root).rmdir(QFileInfo(directory).fileName()))
+        return refused(tr("图片目录未能移除，清理任务仍保留并可重试。"));
+    Q_EMIT imagesChanged(runId);
+    return succeeded();
+}
+
 QVariantMap NoteImageStore::commit(const QString &runId, const QStringList &adds,
                                    const QStringList &removes)
 {

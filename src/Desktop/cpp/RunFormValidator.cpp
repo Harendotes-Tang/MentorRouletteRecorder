@@ -96,6 +96,8 @@ QVariantMap RunFormValidator::validate(const QVariantMap &form, const QVariantMa
                            .arg(kMaxNoteLength).arg(noteLength));
     }
 
+    // Existing key retained for the IPC-free form contract: reviewed import
+    // context exempts missing endpoints, independently of the selected outcome.
     const bool incompleteImport = form.value(QStringLiteral("edit_mode")).toBool()
         && form.value(QStringLiteral("incomplete_import_context")).toBool();
     const QString date = text(form, "date");

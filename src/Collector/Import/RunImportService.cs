@@ -119,6 +119,7 @@ public sealed class RunImportService
         lock (_gate) _previews.TryGetValue(previewId, out preview);
         return _database.RunInTransaction(transaction =>
         {
+            _idempotency.ThrowIfPurgedRequest(requestId, transaction, previewId);
             var receipt = FindReceipt(previewId, requestId, transaction);
             if (receipt is not null)
             {
@@ -284,6 +285,8 @@ public sealed class RunImportService
     private (string Status, string? Matching) Classify(ImportCandidate candidate, SqliteTransaction? transaction)
     {
         var incoming = candidate.Run!;
+        if (_idempotency.IsPurgedRun(incoming.RunId, incoming.ImportMetadata?.SourceFingerprint, transaction))
+            return ("conflict", incoming.RunId);
         if (candidate.HasStableId && _runs.GetInternal(incoming.RunId, transaction) is { } local)
             return (RunImportCandidateNormalizer.SameProvidedFacts(candidate, local) ? "duplicate" : "conflict", local.RunId);
         if (_imports.FindFingerprint(incoming.ImportMetadata!.SourceFingerprint, transaction) is { } exact)

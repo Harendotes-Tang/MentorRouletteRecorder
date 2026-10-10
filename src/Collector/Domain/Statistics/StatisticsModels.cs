@@ -23,7 +23,7 @@ public enum TrendGranularity
 
 /// <summary>One trend bucket.</summary>
 /// <param name="StartUtc">Inclusive start of the bucket, always midnight UTC.</param>
-/// <param name="CompletedCount">COMPLETED runs whose <c>matched_at_utc</c> falls in the bucket.</param>
+/// <param name="CompletedCount">Confirmed COMPLETED runs whose actual-or-source history date falls in the bucket.</param>
 public sealed record TrendBucket(DateTimeOffset StartUtc, int CompletedCount);
 
 /// <summary>

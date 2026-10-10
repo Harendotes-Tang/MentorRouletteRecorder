@@ -591,7 +591,7 @@ void UiWorkflowRegressionTests::historyPageSizesItsPagesToTheWindow()
 
     // 720 px: more than the minimum, and the page's own count is what the
     // model was told.
-    QTRY_VERIFY_WITH_TIMEOUT(runs->pageSize() != 10, 3000);
+    QTRY_COMPARE_WITH_TIMEOUT(runs->pageSize(), fixture.history()->property("rowsThatFit").toInt(), 3000);
     const int atDefault = runs->pageSize();
     QVERIFY2(atDefault > minimum, qPrintable(QString::number(atDefault)));
     QCOMPARE(atDefault, fixture.history()->property("rowsThatFit").toInt());
@@ -707,7 +707,7 @@ void UiWorkflowRegressionTests::historyKeepsAHalfTypedDateAndDoesNotQueryWithout
     UiFixture fixture;
     QVERIFY2(fixture.create(), qPrintable(fixture.errors));
     auto *runs = fixture.controller.runs();
-    QTRY_VERIFY_WITH_TIMEOUT(runs->pageSize() != 10, 3000);
+    QTRY_COMPARE_WITH_TIMEOUT(runs->pageSize(), fixture.history()->property("rowsThatFit").toInt(), 3000);
     QTest::qWait(400);
     auto *from = fixture.history()->findChild<QObject *>(QStringLiteral("fromDateField"));
     auto *search = fixture.history()->findChild<QObject *>(QStringLiteral("historySearchField"));
@@ -738,7 +738,7 @@ void UiWorkflowRegressionTests::historyRefusesAnInvertedRangeAndCapsTheSearch()
     UiFixture fixture;
     QVERIFY2(fixture.create(), qPrintable(fixture.errors));
     auto *runs = fixture.controller.runs();
-    QTRY_VERIFY_WITH_TIMEOUT(runs->pageSize() != 10, 3000);
+    QTRY_COMPARE_WITH_TIMEOUT(runs->pageSize(), fixture.history()->property("rowsThatFit").toInt(), 3000);
     QTest::qWait(400);
     auto *from = fixture.history()->findChild<QObject *>(QStringLiteral("fromDateField"));
     auto *to = fixture.history()->findChild<QObject *>(QStringLiteral("toDateField"));
@@ -1270,26 +1270,37 @@ void UiWorkflowRegressionTests::historyRetainsAnUnlistedJobDrillDownUntilExplici
 {
     QTest::addColumn<int>("jobId");
     QTest::addColumn<QString>("jobName");
-    QTest::newRow("blue mage") << 36 << QStringLiteral("青魔法师");
-    QTest::newRow("beastmaster") << 43 << QStringLiteral("驯兽师");
-    QTest::newRow("unmapped historical job") << 99999 << QStringLiteral("未知");
+    QTest::addColumn<bool>("narrow");
+    QTest::newRow("blue mage normal") << 36 << QStringLiteral("青魔法师") << false;
+    QTest::newRow("beastmaster normal") << 43 << QStringLiteral("驯兽师") << false;
+    QTest::newRow("unmapped historical job normal") << 99999 << QStringLiteral("未知") << false;
+    QTest::newRow("blue mage narrow") << 36 << QStringLiteral("青魔法师") << true;
+    QTest::newRow("beastmaster narrow") << 43 << QStringLiteral("驯兽师") << true;
+    QTest::newRow("unmapped historical job narrow") << 99999 << QStringLiteral("未知") << true;
 }
 
 void UiWorkflowRegressionTests::historyRetainsAnUnlistedJobDrillDownUntilExplicitlyCleared()
 {
     QFETCH(int, jobId);
     QFETCH(QString, jobName);
+    QFETCH(bool, narrow);
     UiFixture fixture;
     QVERIFY2(fixture.create(), qPrintable(fixture.errors));
+    auto *window = qobject_cast<QQuickWindow *>(fixture.root.get());
+    QVERIFY(window);
+    if (narrow) window->setWidth(920);
     auto *chip = fixture.history()->findChild<QObject *>(QStringLiteral("retainedJobFilterChip"));
     auto *combo = fixture.history()->findChild<QObject *>(QStringLiteral("historyJobFilter"));
     auto *from = fixture.history()->findChild<QObject *>(QStringLiteral("fromDateField"));
     QVERIFY(chip);
     QVERIFY(combo);
     QVERIFY(from);
+    auto *more = fixture.history()->findChild<QObject *>(QStringLiteral("historyMoreFiltersButton"));
+    QVERIFY(more);
+    QTRY_COMPARE_WITH_TIMEOUT(more->property("visible").toBool(), narrow, 3000);
 
     fixture.controller.showHistoryForJob(jobId);
-    QVERIFY(chip->property("visible").toBool());
+    QVERIFY(qobject_cast<QQuickItem *>(chip)->isVisible());
     QCOMPARE(chip->property("text").toString(), QStringLiteral("职业：%1").arg(jobName));
     QCOMPARE(combo->property("currentIndex").toInt(), 0);
     QCOMPARE(combo->property("count").toInt(), 22); // 全部 plus the 21 eligible jobs

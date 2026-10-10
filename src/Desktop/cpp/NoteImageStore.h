@@ -113,6 +113,9 @@ public:
     Q_INVOKABLE QVariantMap addClipboard(const QString &runId);
     bool clipboardHasImage() const;
     Q_INVOKABLE QVariantMap removeOne(const QString &runId, const QString &path);
+    /// 只消费服务端已经永久删除的 run_id。拒绝链接、越界及意外子目录；
+    /// 返回 {ok,error}，失败不得确认可靠队列，缺失目录则可安全确认。
+    Q_INVOKABLE QVariantMap cleanupRun(const QString &runId);
     /// file:/// URL for an Image source.
     Q_INVOKABLE static QString urlFor(const QString &path);
 

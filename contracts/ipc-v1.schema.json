@@ -35,7 +35,7 @@
         "GetVersion", "GetStatus", "GetCaptureStatus", "ListCaptureAdapters", "StartCapture", "SelectGameProcess",
         "StopCapture", "GetProtocolProfileStatus", "GetCurrentRun", "QueryRuns", "GetDashboardStats",
         "GetDungeonStats", "GetJobStats", "GetResultStats", "CreateManualRun", "CorrectRun",
-        "SoftDeleteRun", "RestoreRun", "GetRunRevisions", "UpdateAchievementBaseline", "ExportCsv",
+        "SoftDeleteRun", "RestoreRun", "BatchMutateRuns", "GetHistoryRetentionSettings", "UpdateHistoryRetentionSettings", "GetPendingImageCleanup", "AcknowledgeImageCleanup", "GetRunRevisions", "UpdateAchievementBaseline", "ExportCsv",
         "ExportJson", "BackupDatabase", "SubscribeLiveEvents", "ExportDiagnosticsReport",
         "SetRunReflection", "GetReflectionSummary", "PreviewRunImport", "CommitRunImport",
         "StartCaptureValidation", "GetCaptureValidationStatus", "AddCaptureValidationMarker", "StopCaptureValidation",
@@ -213,10 +213,11 @@
         "contributes_to_goal": { "type": "boolean" },
         "manually_created": { "type": "boolean" },
         "manually_corrected": { "type": "boolean" },
+        "deleted_at_utc": { "$ref": "#/$defs/NullableUtcTimestamp" },
         "soft_deleted": { "type": "boolean" },
         "pending_review": {
           "type": "boolean",
-          "description": "True while the record waits for the user's confirmation. Set when crash recovery closes a run, when a duty ends without an observed outcome (docs/state-machine.md section 3.10), when a match is never seen to enter, and when the calibration that produced the run is withdrawn - the result then stays as recorded, so a pending run may already be COMPLETED. Counted by DashboardStats.unfinished_pending_review."
+          "description": "True while the record waits for the user's confirmation. Set when crash recovery closes a run, when a duty ends without an observed outcome (docs/state-machine.md section 3.10), when a match is never seen to enter, and when the calibration that produced the run is withdrawn - the result then stays as recorded, so a pending run may already be COMPLETED. DashboardStats.unfinished_pending_review counts statistically eligible non-import history only. Unknown game times on confirmed historical imports remain incomplete without requiring review; audited compatibility maintenance may clear a legacy time-gap flag."
         },
         "note": { "type": ["string", "null"], "maxLength": 1000, "description": "Free-text note (schema v2 column). Correctable; see docs/manual-correction.md section 7." },
         "reflection": {
@@ -410,11 +411,14 @@
       "type": "object", "additionalProperties": false,
       "description": "All fields optional; omitted fields do not constrain the query. Array fields are OR within the field and AND across fields.",
       "properties": {
+        "history_from_day": { "type": "string", "format": "date", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+        "history_to_day": { "type": "string", "format": "date", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+        "run_id": { "type": "array", "items": { "$ref": "#/$defs/Uuid" }, "maxItems": 2000, "uniqueItems": true },
         "from_utc": { "$ref": "#/$defs/NullableUtcTimestamp" },
         "to_utc": { "$ref": "#/$defs/NullableUtcTimestamp" },
         "date_field": {
           "type": "string",
-          "enum": ["matched_at_utc", "entered_at_utc", "ended_at_utc"],
+          "enum": ["history_date", "matched_at_utc", "entered_at_utc", "ended_at_utc"],
           "default": "entered_at_utc",
           "description": "Which timestamp the date range applies to."
         },
@@ -437,7 +441,7 @@
       "properties": {
         "field": {
           "type": "string",
-          "enum": ["matched_at_utc", "entered_at_utc", "ended_at_utc", "duration_ms", "duty_name"],
+          "enum": ["history_date", "matched_at_utc", "entered_at_utc", "ended_at_utc", "duration_ms", "duty_name"],
           "default": "entered_at_utc"
         },
         "direction": { "type": "string", "enum": ["asc", "desc"], "default": "desc" }
@@ -862,6 +866,11 @@
     "RequestPayloadBinding": {
       "description": "Binds message_type to its request payload schema. Response payload schemas are listed in $defs/Responses.",
       "allOf": [
+        {"if": {"properties": {"message_type": {"const": "BatchMutateRuns"}}, "required": ["message_type"]}, "then": {"properties": {"payload": {"$ref": "#/$defs/BatchMutateRunsRequest"}}}},
+        {"if": {"properties": {"message_type": {"const": "GetHistoryRetentionSettings"}}, "required": ["message_type"]}, "then": {"properties": {"payload": {"$ref": "#/$defs/EmptyPayload"}}}},
+        {"if": {"properties": {"message_type": {"const": "UpdateHistoryRetentionSettings"}}, "required": ["message_type"]}, "then": {"properties": {"payload": {"$ref": "#/$defs/HistoryRetentionSettings"}}}},
+        {"if": {"properties": {"message_type": {"const": "GetPendingImageCleanup"}}, "required": ["message_type"]}, "then": {"properties": {"payload": {"$ref": "#/$defs/EmptyPayload"}}}},
+        {"if": {"properties": {"message_type": {"const": "AcknowledgeImageCleanup"}}, "required": ["message_type"]}, "then": {"properties": {"payload": {"$ref": "#/$defs/ImageCleanupIds"}}}},
         { "if": { "properties": { "message_type": { "const": "PreviewRunImport" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/PreviewRunImportRequest" } } } },
         { "if": { "properties": { "message_type": { "const": "CommitRunImport" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/CommitRunImportRequest" } } } },
         { "if": { "properties": { "message_type": { "const": "QueryCandidateObservations" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/QueryCandidateObservationsRequest" } } } },
@@ -911,6 +920,133 @@
         { "if": { "properties": { "message_type": { "const": "SynthesizeSpeech" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/SynthesizeSpeechRequest" } } } }
       ]
     },
+
+      "BatchMutateRunsRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "action",
+          "runs",
+          "reason"
+        ],
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "soft_delete",
+              "restore",
+              "purge"
+            ]
+          },
+          "runs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "run_id",
+                "expected_revision"
+              ],
+              "properties": {
+                "run_id": {
+                  "$ref": "#/$defs/Uuid"
+                },
+                "expected_revision": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            },
+            "minItems": 1,
+            "maxItems": 2000
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        }
+      },
+      "BatchMutateRunsResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "changed_count",
+          "run_ids",
+          "action",
+          "idempotent_replay"
+        ],
+        "properties": {
+          "changed_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "run_ids": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/Uuid"
+            },
+            "maxItems": 2000,
+            "uniqueItems": true
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "soft_delete",
+              "restore",
+              "purge"
+            ]
+          },
+          "idempotent_replay": {
+            "type": "boolean"
+          }
+        }
+      },
+      "HistoryRetentionSettings": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "retention_days"
+        ],
+        "properties": {
+          "retention_days": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 36500,
+            "description": "0 disables automatic purge; default is 30 days."
+          }
+        }
+      },
+      "ImageCleanupIds": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "run_ids"
+        ],
+        "properties": {
+          "run_ids": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/Uuid"
+            },
+            "maxItems": 2000,
+            "uniqueItems": true
+          }
+        }
+      },
+      "ImageCleanupAcknowledgement": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "acknowledged_count"
+        ],
+        "properties": {
+          "acknowledged_count": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
 
     "EmptyPayload": { "type": "object", "additionalProperties": false, "maxProperties": 0 },
 
@@ -1507,6 +1643,12 @@
     "//responses": "======================= response payloads =======================",
 
     "Responses": {
+      "BatchMutateRuns": { "$ref": "#/$defs/BatchMutateRunsResult" },
+      "GetHistoryRetentionSettings": { "$ref": "#/$defs/HistoryRetentionSettings" },
+      "UpdateHistoryRetentionSettings": { "$ref": "#/$defs/HistoryRetentionSettings" },
+      "GetPendingImageCleanup": { "$ref": "#/$defs/ImageCleanupIds" },
+      "AcknowledgeImageCleanup": { "$ref": "#/$defs/ImageCleanupAcknowledgement" },
+
       "PreviewRunImport": { "$ref": "#/$defs/RunImportPreview" },
       "CommitRunImport": { "$ref": "#/$defs/RunImportCommit" },
       "QueryCandidateObservations": { "$ref": "#/$defs/CandidateQueryResult" },

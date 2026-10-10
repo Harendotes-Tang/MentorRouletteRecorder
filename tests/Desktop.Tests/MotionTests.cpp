@@ -209,6 +209,7 @@ private Q_SLOTS:
     void revealOverlayLivesOnlyForTheAnimation();
     void secondRevealFinishesTheFirstAtOnce();
     void trendSwitchLeavesEveryBarAtRest();
+    void trendMergeKeepsSurvivingBarsAndEasing();
     void interruptedTrendSwitchEndsClean();
     void reducedMotionTrendSwitchIsInstant();
     void classicPanelsPopWhenTheirPageOpens();
@@ -452,6 +453,59 @@ void MotionTests::trendSwitchLeavesEveryBarAtRest()
     // The same answer again (a dashboard refresh) moves nothing.
     chart->setProperty("buckets", buckets(QStringLiteral("day"), changed));
     QVERIFY(!chart->property("transitionRunning").toBool());
+}
+
+void MotionTests::trendMergeKeepsSurvivingBarsAndEasing()
+{
+    Scene scene;
+    QVERIFY2(scene.create(kTrendScene, false), qPrintable(scene.errors));
+    QVERIFY(QTest::qWaitForWindowExposed(scene.window()));
+    auto *chart = scene.item(QStringLiteral("chart"));
+    QVERIFY(chart);
+    auto *layer = chart->property("motionLayer").value<QQuickItem *>();
+    chart->setProperty("buckets", buckets(QStringLiteral("day"), dayCounts()));
+    QTRY_COMPARE(graphsBars(chart).size(), 30);
+    QList<QPointer<QQuickItem>> surviving;
+    for (auto *bar : layerBars(chart).mid(0, 12))
+        surviving.append(bar);
+
+    chart->setProperty("buckets", buckets(QStringLiteral("week"), weekCounts()));
+    QTest::qWait(120);
+    QCOMPARE(layer->property("phase").toString(), QStringLiteral("merge"));
+
+    // Independently solve the existing merge curve at the live clock position.
+    const auto at = [](double p1, double p2, double t) {
+        const double u = 1.0 - t;
+        return 3.0*u*u*t*p1 + 3.0*u*t*t*p2 + t*t*t;
+    };
+    const double x = layer->property("elapsed").toDouble() / 380.0;
+    double low = 0.0, high = 1.0;
+    for (int step = 0; step < 48; ++step) {
+        const double t = (low + high) * 0.5;
+        if (at(0.4, 0.2, t) < x) low = t;
+        else high = t;
+    }
+    const double expected = at(0.0, 1.0, (low + high) * 0.5);
+    const auto moving = layerBars(chart);
+    QCOMPARE(moving.size(), 30);
+    for (auto *bar : moving) {
+        QVERIFY(std::abs(bar->property("progress").toDouble() - expected) < 0.00001);
+        QVERIFY(std::abs(bar->property("widthScale").toDouble() - (1.0 - 0.4*expected)) < 0.00001);
+        QVERIFY(std::abs(bar->opacity() - (1.0 - 0.65*expected)) < 0.00001);
+    }
+    for (int index = 0; index < surviving.size(); ++index) {
+        QVERIFY(surviving.at(index));
+        QCOMPARE(moving.at(index), surviving.at(index).data());
+    }
+    QTRY_COMPARE_WITH_TIMEOUT(layer->property("phase").toString(), QStringLiteral("regrow"), 3000);
+    const auto regrowing = layerBars(chart);
+    QCOMPARE(regrowing.size(), 12);
+    for (int index = 0; index < surviving.size(); ++index) {
+        QVERIFY(surviving.at(index));
+        QCOMPARE(regrowing.at(index), surviving.at(index).data());
+    }
+    QTRY_VERIFY_WITH_TIMEOUT(!chart->property("transitionRunning").toBool(), 3000);
+    verifyTrendAtRest(chart, 12);
 }
 
 void MotionTests::interruptedTrendSwitchEndsClean()

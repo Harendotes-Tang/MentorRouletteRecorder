@@ -186,6 +186,7 @@ set(MR_QML_FILES
     qml/charts/GraphsTrendChart.qml
     qml/charts/TrendChart.qml
     qml/charts/TrendMotionLayer.qml
+    qml/charts/CompletionPieChart.qml
     qml/components/AppButton.qml
     qml/components/Card.qml
     qml/components/CardKicker.qml
@@ -214,8 +215,10 @@ set(MR_QML_FILES
     qml/components/PillSwitch.qml
     qml/components/ProgressRing.qml
     qml/components/ReflectionCard.qml
+    qml/components/ReflectionShareCard.qml
     qml/components/RoleIcon.qml
     qml/components/SegmentedControl.qml
+    qml/components/SelectionCheckBox.qml
     qml/components/StackedResultBar.qml
     qml/components/StatBar.qml
     qml/components/SettingToggleRow.qml
@@ -333,6 +336,11 @@ qt_add_resources(MentorRecorderDesktopLib "mr_duties"
     BASE "${CMAKE_CURRENT_SOURCE_DIR}/../.."
     FILES
         "${CMAKE_CURRENT_SOURCE_DIR}/../../data/duties/cn.2026-09-04.json")
+
+qt_add_resources(MentorRecorderDesktopLib "mr_statistics"
+    PREFIX "/"
+    BASE ${CMAKE_CURRENT_SOURCE_DIR}
+    FILES resources/statistics/main-scenario-membership.json)
 
 # ---------------------------------------------------------------------------
 # Bundled fonts.

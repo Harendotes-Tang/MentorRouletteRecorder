@@ -194,6 +194,10 @@ public sealed class RunExporter
             rows.AddRange(batch.Items);
             if (batch.Items.Count < BatchSize || rows.Count >= batch.Total)
             {
+                if (filter?.RunIds.Count > 0 &&
+                    (rows.Count != filter.RunIds.Count || !rows.Select(row => row.RunId).ToHashSet(StringComparer.Ordinal).SetEquals(filter.RunIds)))
+                    throw new CollectorException(ErrorCodes.NotFound, "部分选中的记录已不存在或不符合当前筛选；本次没有写入导出文件，请刷新后重试。",
+                        new Dictionary<string, object?> { ["requested_count"] = filter.RunIds.Count, ["matched_count"] = rows.Count });
                 return rows;
             }
 

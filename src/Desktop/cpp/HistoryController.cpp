@@ -38,10 +38,19 @@ HistoryController::HistoryController(IBackend *backend, QObject *parent)
     , m_backend(backend)
     , m_runs(new RunListModel(this))
 {
+    // 历史表日期与日期筛选共享 actual/source 投影；心得模型保持自己的排序。
+    m_runs->sortBy(QStringLiteral("history_date"));
+    m_historyFilter.insert(QStringLiteral("date_field"), QStringLiteral("history_date"));
     m_runs->setBackend(backend);
     // The existing model borrows a raw backend pointer. Keep that borrow within
     // this workflow's backend lifetime, including independently owned models.
     connect(backend, &QObject::destroyed, this, [this] { m_runs->setBackend(nullptr); });
+    connect(m_runs, &QAbstractItemModel::modelReset, this, &HistoryController::checkedRunsChanged);
+    connect(m_runs, &RunListModel::loadingChanged, this, &HistoryController::checkedRunsChanged);
+    connect(backend, &IBackend::connectionChanged, this, [this] {
+        if (m_backend && m_backend->isConnected())
+            refreshRetentionSettings();
+    });
 }
 
 void HistoryController::refreshPendingReviewRun()
@@ -50,6 +59,7 @@ void HistoryController::refreshPendingReviewRun()
         return;
     QJsonObject filter;
     filter.insert(QStringLiteral("pending_review"), true);
+    filter.insert(QStringLiteral("source"), QJsonArray{QStringLiteral("AUTO_NETWORK"), QStringLiteral("MANUAL")});
     QJsonObject sort;
     sort.insert(QStringLiteral("field"), QStringLiteral("matched_at_utc"));
     sort.insert(QStringLiteral("direction"), QStringLiteral("desc"));
@@ -123,8 +133,22 @@ bool HistoryController::selectedRunCanUndo() const
     if (m_selectedRun.isEmpty() || m_selectedRunRevisions.isEmpty())
         return false;
     int newest = 0;
-    for (const QVariant &value : m_selectedRunRevisions)
-        newest = qMax(newest, value.toMap().value(QStringLiteral("revision")).toInt());
+    QVariantMap latest;
+    for (const QVariant &value : m_selectedRunRevisions) {
+        const QVariantMap revision = value.toMap();
+        if (revision.value(QStringLiteral("revision")).toInt() > newest) {
+            newest = revision.value(QStringLiteral("revision")).toInt();
+            latest = revision;
+        }
+    }
+    if (latest.value(QStringLiteral("actor")).toString() == QLatin1String("SYSTEM")) {
+        if (latest.value(QStringLiteral("reason")).toString()
+            == QStringLiteral("依据导入来源审计维护历史身份；缺游戏时间保留待补充，不作为采集结果待复核。"))
+            return false;
+        for (const QVariant &change : latest.value(QStringLiteral("changes")).toList())
+            if (change.toMap().value(QStringLiteral("field")).toString() == QLatin1String("source"))
+                return false; // 导入来源维护不能通过普通撤销还原成自动采集身份。
+    }
     // Revision 1 is the creation record; the Collector refuses to undo it
     // (ERR_UNDO_NOT_ALLOWED) and offering the button would be a lie.
     if (newest <= 1)
@@ -253,14 +277,217 @@ void HistoryController::refreshRunEvents()
 
 void HistoryController::setHistoryFilter(const QVariantMap &filter)
 {
-    m_historyFilter = QJsonObject::fromVariantMap(filter);
-    m_runs->setFilter(filter);
+    QJsonObject next = QJsonObject::fromVariantMap(filter);
+    next.insert(QStringLiteral("date_field"), QStringLiteral("history_date"));
+    if (next == m_historyFilter)
+        return;
+    if (m_batchRunning) {
+        Q_EMIT toastRequested(tr("批量操作尚未完成，请稍后调整筛选。"));
+        Q_EMIT historyFilterChanged();
+        return;
+    }
+    if (!m_checkedRuns.isEmpty()) {
+        m_proposedFilter = next;
+        m_filterConfirmationPending = true;
+        Q_EMIT filterConfirmationChanged();
+        return;
+    }
+    m_historyFilter = next;
+    m_runs->setFilter(next.toVariantMap());
     Q_EMIT historyFilterChanged();
 }
 
 void HistoryController::resetHistoryFilter()
 {
     setHistoryFilter({});
+}
+
+void HistoryController::confirmHistoryFilterChange(bool apply)
+{
+    if (!m_filterConfirmationPending)
+        return;
+    const QJsonObject next = m_proposedFilter;
+    m_filterConfirmationPending = false;
+    m_proposedFilter = {};
+    Q_EMIT filterConfirmationChanged();
+    if (apply && !m_batchRunning) {
+        clearCheckedRuns();
+        setHistoryFilter(next.toVariantMap());
+    } else {
+        // 取消后把还未生效的输入恢复为实际查询条件。
+        Q_EMIT historyFilterChanged();
+    }
+}
+
+int HistoryController::checkedDeletedCount() const
+{
+    int count = 0;
+    for (const QJsonObject &run : m_checkedRuns)
+        count += run.value(QStringLiteral("soft_deleted")).toBool() ? 1 : 0;
+    return count;
+}
+
+bool HistoryController::allCurrentPageChecked() const
+{
+    if (m_runs->rowCount() == 0 || m_runs->isLoading() || !m_runs->loadError().isEmpty())
+        return false;
+    for (int row = 0; row < m_runs->rowCount(); ++row) {
+        if (!m_checkedRuns.contains(m_runs->runAt(row).value(QStringLiteral("run_id")).toString()))
+            return false;
+    }
+    return true;
+}
+
+void HistoryController::setRunChecked(const QVariantMap &run, bool checked)
+{
+    if (m_batchRunning)
+        return;
+    const QString id = run.value(QStringLiteral("run_id")).toString();
+    if (id.isEmpty() || run.value(QStringLiteral("revision")).toInt() < 1)
+        return;
+    if (checked) {
+        if (m_checkedRuns.contains(id))
+            return;
+        if (m_checkedRuns.size() >= 2000) {
+            Q_EMIT toastRequested(tr("一次最多勾选 2000 条记录，请分批操作。"));
+            return;
+        }
+        m_checkedRuns.insert(id, QJsonObject::fromVariantMap(run));
+        m_checkedOrder.append(id);
+    } else {
+        if (!m_checkedRuns.remove(id))
+            return;
+        m_checkedOrder.removeAll(id);
+    }
+    Q_EMIT checkedRunsChanged();
+}
+
+void HistoryController::setCurrentPageChecked(bool checked)
+{
+    if (m_runs->isLoading() || !m_runs->loadError().isEmpty())
+        return;
+    for (int row = 0; row < m_runs->rowCount(); ++row)
+        setRunChecked(m_runs->runAt(row), checked);
+}
+
+void HistoryController::clearCheckedRuns()
+{
+    if (m_batchRunning || m_checkedRuns.isEmpty())
+        return;
+    m_checkedRuns.clear();
+    m_checkedOrder.clear();
+    Q_EMIT checkedRunsChanged();
+}
+
+void HistoryController::mutateCheckedRuns(const QString &action, const QString &reason)
+{
+    if (!m_backend || m_batchRunning || m_checkedRuns.isEmpty())
+        return;
+    const bool deleting = action == QLatin1String("soft_delete");
+    if ((!deleting && action != QLatin1String("restore") && action != QLatin1String("purge"))
+        || reason.trimmed().isEmpty() || reason.trimmed().size() > 500) {
+        m_batchFeedback = tr("请选择有效操作并填写 1–500 字原因。");
+        Q_EMIT batchChanged();
+        return;
+    }
+    if ((deleting && checkedDeletedCount() != 0)
+        || (!deleting && checkedDeletedCount() != checkedRunCount())) {
+        m_batchFeedback = deleting ? tr("请只勾选未删除记录后移入回收站。")
+                                  : tr("恢复和永久删除只能操作已在回收站的记录。");
+        Q_EMIT batchChanged();
+        return;
+    }
+    QJsonArray rows;
+    const QStringList ids = m_checkedOrder;
+    for (const QString &id : ids)
+        rows.append(QJsonObject{{QStringLiteral("run_id"), id},
+                                {QStringLiteral("expected_revision"), m_checkedRuns.value(id).value(QStringLiteral("revision"))}});
+    const QJsonObject payload{{QStringLiteral("action"), action}, {QStringLiteral("runs"), rows},
+                              {QStringLiteral("reason"), reason.trimmed()}};
+    const QString requestId = requestIdFor(m_unansweredBatch, QJsonDocument(payload).toJson(QJsonDocument::Compact));
+    m_batchRunning = true;
+    m_batchFeedback.clear();
+    Q_EMIT batchChanged();
+    m_backend->requestWithId(QStringLiteral("BatchMutateRuns"), payload, requestId)
+        ->whenDone(this, [this, action, ids, requestId](bool ok, const QVariantMap &answer,
+                                                       const QString &code, const QString &message) {
+            settle(m_unansweredBatch, requestId, ok, code);
+            m_batchRunning = false;
+            if (!ok) {
+                const bool uncertain = code == QLatin1String("ERR_PIPE_CLOSED") || code == QLatin1String("ERR_TIMEOUT")
+                    || code == QLatin1String("ERR_DISCONNECTED");
+                m_batchFeedback = (message.isEmpty() ? code : message) + (uncertain
+                    ? tr(" 请求结果尚未确认。请保留勾选并重试，同一请求不会重复执行。")
+                    : tr(" 请刷新列表，取消并重新勾选发生变化的记录后重试；本批没有部分删除。"));
+                Q_EMIT batchChanged();
+                return;
+            }
+            for (const QString &id : ids) {
+                m_checkedRuns.remove(id);
+                m_checkedOrder.removeAll(id);
+            }
+            if (ids.contains(m_selectedRun.value(QStringLiteral("run_id")).toString()))
+                clearSelection();
+            const QString verb = action == QLatin1String("restore") ? tr("恢复")
+                : action == QLatin1String("purge") ? tr("永久删除") : tr("移入回收站");
+            m_batchFeedback = tr("已%1 %2 条记录。").arg(verb).arg(answer.value(QStringLiteral("changed_count")).toInt());
+            if (action == QLatin1String("purge"))
+                m_batchFeedback += tr(" 关联图片清理已排队，失败会保留任务重试。已有备份和导出文件保留。");
+            Q_EMIT checkedRunsChanged();
+            Q_EMIT batchChanged();
+            Q_EMIT batchSucceeded(action, ids);
+            Q_EMIT refreshRequested();
+        });
+}
+
+void HistoryController::refreshRetentionSettings()
+{
+    if (!m_backend || !m_backend->isConnected() || m_retentionSaving)
+        return;
+    const quint64 generation = ++m_retentionGeneration;
+    m_backend->request(QStringLiteral("GetHistoryRetentionSettings"))
+        ->whenDone(this, [this, generation](bool ok, const QVariantMap &payload,
+                                            const QString &, const QString &message) {
+            if (generation != m_retentionGeneration)
+                return;
+            m_retentionLoaded = true;
+            if (ok) {
+                m_retentionDays = payload.value(QStringLiteral("retention_days")).toInt();
+                m_retentionFeedback.clear();
+            } else {
+                m_retentionDays = -1;
+                m_retentionFeedback = message.isEmpty() ? tr("无法读取回收站保留期，请重试。") : message;
+            }
+            Q_EMIT retentionChanged();
+        });
+}
+
+void HistoryController::updateRetentionSettings(int days)
+{
+    if (!m_backend || !m_backend->isConnected() || m_retentionSaving)
+        return;
+    if (days < 0 || days > 36500) {
+        m_retentionFeedback = tr("请输入 1–36500 天，或选择永不自动清理。");
+        Q_EMIT retentionChanged();
+        return;
+    }
+    ++m_retentionGeneration;
+    m_retentionSaving = true;
+    m_retentionFeedback.clear();
+    Q_EMIT retentionChanged();
+    m_backend->request(QStringLiteral("UpdateHistoryRetentionSettings"), {{QStringLiteral("retention_days"), days}})
+        ->whenDone(this, [this, days](bool ok, const QVariantMap &payload,
+                                     const QString &code, const QString &message) {
+            m_retentionSaving = false;
+            if (ok) {
+                m_retentionDays = payload.value(QStringLiteral("retention_days"), days).toInt();
+                m_retentionLoaded = true;
+                m_retentionFeedback = tr("回收站保留期已保存。");
+            } else {
+                m_retentionFeedback = message.isEmpty() ? code : message;
+            }
+            Q_EMIT retentionChanged();
+        });
 }
 
 void HistoryController::sendRunMutation(const QString &kind, const QString &runId,

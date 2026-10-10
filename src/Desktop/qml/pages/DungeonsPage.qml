@@ -8,17 +8,30 @@ Item {
 
     property int topLimit: 10
     property var rowsCache: []
+    property var categoriesCache: []
+    property var specialDutiesCache: []
 
     function reloadRows() {
         rowsCache = App.dungeons.topRows(topLimit === 0 ? 0 : topLimit)
     }
 
-    Component.onCompleted: reloadRows()
+    function reloadCompositions() {
+        categoriesCache = App.dungeons.categoryBreakdown()
+        specialDutiesCache = App.dungeons.specialDutyBreakdown()
+    }
+
+    Component.onCompleted: {
+        reloadRows()
+        reloadCompositions()
+    }
     onTopLimitChanged: reloadRows()
 
     Connections {
         target: App.dungeons
-        function onCountChanged() { page.reloadRows() }
+        function onCountChanged() {
+            page.reloadRows()
+            page.reloadCompositions()
+        }
     }
 
     Flickable {
@@ -45,8 +58,9 @@ Item {
                 // read has no counters to report.
                 subtitle: App.dungeons.loadError.length > 0
                           ? qsTr("读取失败")
-                          : qsTr("%1 个副本 · %2 次").arg(App.dungeons.distinctCount)
+                          : qsTr("%1 个副本 · %2 次尝试 · %3 次通关").arg(App.dungeons.distinctCount)
                                                       .arg(App.dungeons.totalAttemptCount)
+                                                      .arg(App.dungeons.totalCompletedCount)
 
                 SegmentedControl {
                     Layout.preferredWidth: 230
@@ -71,15 +85,56 @@ Item {
                 font.pixelSize: Theme.fs(13)
             }
 
-            RowLayout {
+            Text {
+                Layout.fillWidth: true
+                visible: App.dungeons.loadError.length === 0
+                text: qsTr("占比按全部符合筛选的导随通关次数计算；前 10 / 前 20 只限制下方列表。")
+                textFormat: Text.PlainText
+                wrapMode: Text.WordWrap
+                color: Theme.textSecondary
+                font.pixelSize: Theme.fs(12)
+            }
+
+            GridLayout {
+                objectName: "dungeonCompositionGrid"
+                Layout.fillWidth: true
+                visible: App.dungeons.loadError.length === 0
+                columns: contentColumn.width >= 900 ? 2 : 1
+                columnSpacing: 12
+                rowSpacing: 12
+
+                CompletionPieChart {
+                    objectName: "dungeonCategoryPie"
+                    Layout.fillWidth: true
+                    Layout.preferredWidth: 1
+                    Layout.alignment: Qt.AlignTop
+                    title: qsTr("副本类型占比")
+                    buckets: page.categoriesCache
+                }
+
+                CompletionPieChart {
+                    objectName: "dungeonSpecialPie"
+                    Layout.fillWidth: true
+                    Layout.preferredWidth: 1
+                    Layout.alignment: Qt.AlignTop
+                    title: qsTr("主线副本与行会令占比")
+                    detail: qsTr("主线副本包含南方堡、天幕魔导城和究极神兵破坏作战。")
+                    buckets: page.specialDutiesCache
+                }
+            }
+
+            GridLayout {
                 Layout.fillWidth: true
                 Layout.alignment: Qt.AlignTop
-                spacing: 12
+                columns: contentColumn.width >= 1000 ? 2 : 1
+                columnSpacing: 12
+                rowSpacing: 12
 
                 // ------------------------------------------------ 柱状图 --
                 Card {
+                    objectName: "dungeonAttemptsCard"
                     Layout.fillWidth: true
-                    Layout.preferredWidth: 1
+                    Layout.preferredWidth: 380
                     Layout.alignment: Qt.AlignTop
                     padding: 16
                     spacing: 6
@@ -135,8 +190,9 @@ Item {
 
                 // -------------------------------------------------- 表格 --
                 Card {
+                    objectName: "dungeonTableCard"
                     Layout.fillWidth: true
-                    Layout.preferredWidth: 1
+                    Layout.preferredWidth: 620
                     Layout.alignment: Qt.AlignTop
                     padding: 0
                     spacing: 0
