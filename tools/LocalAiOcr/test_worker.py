@@ -1,10 +1,12 @@
 """Contract regressions for the fixed offline helper; no inference/training needed."""
 import importlib.util
+from dataclasses import dataclass
 from pathlib import Path
 import subprocess
 import sys
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 
@@ -81,7 +83,27 @@ for operation in (lambda: socket.getaddrinfo('example.com', 443),  # BOUNDARY-AL
         subprocess.run([sys.executable, "-c", code, str(WORKER_PATH)], check=True, timeout=5)
 
 
+@dataclass
+class StubTextRecInput:
+    """Input carrier for fake recognizers; actual inference is checked in the frozen worker."""
+    img: object = None
+    return_word_box: bool = False
+
+
 class SymbolRereadTests(unittest.TestCase):
+    def setUp(self):
+        # These tests inject fake recognizers and verify crop/vote geometry. Avoid loading
+        # RapidOCR and inference libraries just to construct its two-field input carrier.
+        # Restore any real installed modules after each case; production imports are intact.
+        parent = ModuleType('rapidocr')
+        parent.__path__ = []
+        recognition = ModuleType('rapidocr.ch_ppocr_rec')
+        recognition.TextRecInput = StubTextRecInput
+        input_modules = patch.dict(sys.modules, {'rapidocr': parent,
+                                                'rapidocr.ch_ppocr_rec': recognition})
+        input_modules.start()
+        self.addCleanup(input_modules.stop)
+
     def test_two_views_restore_observed_face_tail_without_changing_letters(self):
         self.assertEqual(worker.choose_reread('(;', [('(; ~)', .82), ('(;~)', .79), ('6;)', .99)]), ('(; ~)', .79))
 
