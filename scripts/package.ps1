@@ -177,10 +177,10 @@ function Add-OffscreenPlatformPlugin([string]$TargetDir) {
 # Online speech plays the Collector's 16-bit PCM WAV files with QSoundEffect, which the
 # Windows Media Foundation backend handles alone (main.cpp sets QT_MEDIA_BACKEND=windows).
 # The FFmpeg backend is therefore not shipped: windeployqt runs with --no-ffmpeg
-# --exclude-plugins ffmpegmediaplugin, and these patterns fail the package if a Qt update
-# starts deploying them another way.
+# --exclude-plugins ffmpegmediaplugin. Also reject optional video DLLs from other
+# components such as OpenCV, not only Qt's backend and FFmpeg's library aliases.
 $ForbiddenMediaPatterns = @(
-    'ffmpegmediaplugin*'
+    '*ffmpeg*'
     'avcodec-*.dll'
     'avformat-*.dll'
     'avutil-*.dll'

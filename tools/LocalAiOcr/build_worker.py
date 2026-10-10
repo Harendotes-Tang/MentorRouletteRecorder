@@ -22,6 +22,25 @@ def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def remove_unused_video_runtime(output):
+    """Remove OpenCV's optional video DLL; preserve all still-image dependencies."""
+    root = output.resolve(strict=True)
+    candidates = [path for path in output.rglob('*') if path.is_file() and 'ffmpeg' in path.name.lower()]
+    removed = []
+    # Check every candidate before deleting anything; unfamiliar video files
+    # require investigation rather than silent removal of a possible dependency.
+    for path in candidates:
+        relative = path.relative_to(output).as_posix()
+        if (path.is_symlink() or not path.resolve().is_relative_to(root)
+                or path.parent != output / '_internal' / 'cv2'
+                or not re.fullmatch(r'opencv_videoio_ffmpeg\d+(?:_\d+)?\.dll', path.name, re.I)):
+            raise RuntimeError(f'Unexpected FFmpeg payload: {relative}')
+        removed.append({'path': relative, 'bytes': path.stat().st_size, 'sha256': digest(path)})
+    for path in candidates:
+        path.unlink()
+    return removed
+
+
 def build(args):
     if sys.platform != "win32" or sys.version_info[:2] != (3, 11):
         raise RuntimeError("Windows x64 Python 3.11 is required for this Windows executable")
@@ -62,6 +81,7 @@ def build(args):
     command.append(str(worker))
     subprocess.run(command, env=environment, check=True)
     shutil.copytree(dist / "local-ai-ocr", output)
+    excluded_video = remove_unused_video_runtime(output)
     (output / "models").mkdir()
     for name in module.MODELS:
         shutil.copyfile(source_models / name, output / "models" / name)
@@ -121,6 +141,7 @@ def build(args):
     files = [{"path": str(path.relative_to(output)).replace("\\", "/"), "bytes": path.stat().st_size, "sha256": digest(path)}
              for path in sorted(output.rglob("*")) if path.is_file()]
     inventory = {"schema_version": 1, "worker_source_sha256": digest(worker), "requirements_sha256": digest(requirements),
+                 "excluded_optional_video_payload": excluded_video,
                  "python": sys.version, "platform": sys.platform, "self_test_system_only_path": True,
                  "model_contract": {name: {"bytes": values[0], "sha256": values[1]} for name, values in module.MODELS.items()},
                  "components": components, "files": files, "total_bytes": sum(file["bytes"] for file in files)}

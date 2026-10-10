@@ -161,6 +161,8 @@ Qt 的整体许可说明：`https://www.qt.io/licensing/`、`https://doc.qt.io/q
 `--no-ffmpeg --exclude-plugins ffmpegmediaplugin` 调用 `windeployqt`；`main.cpp` 在该变量
 未设置时将 `QT_MEDIA_BACKEND` 设为 `windows`；打包输出中另有断言，要求 `multimedia\`
 目录下只有 `windowsmediaplugin.dll`，且任何位置都不存在 FFmpeg 文件。
+本地 OCR 仅处理静态图片，构建时同样移除 OpenCV 的可选 `opencv_videoio_ffmpeg*.dll`；
+完整 OpenCV 上游许可与第三方通知原文仍随包保留。
 据此，本项目无须为 FFmpeg（LGPL-2.1+，视构建选项可能为 GPL）另附许可与源码说明。
 本机 Qt 安装目录内附有 `D:\APPS\Qt\6.11.2\mingw_64\LICENSE` 与 `COPYING.txt`。
 

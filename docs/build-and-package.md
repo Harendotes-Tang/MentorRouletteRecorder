@@ -571,7 +571,7 @@ pwsh -File scripts/package.ps1 -Force -Verify   # 再解包运行一次，证明
 
 **必须不包含**：`deucalion*`、`oo2net*.dll`、`wpcap.dll` / `Packet.dll` / `*npcap*`、
 `ffxiv*.exe`、`*.pcap` / `*.pcapng`、`*.db` / `*.db-wal` / `*.db-shm` / `*.sqlite*`、
-`*.log`、`*.trx`、**`*.pdb`**、FFmpeg（`ffmpegmediaplugin*`、`avcodec-*.dll`、`avformat-*.dll`、
+`*.log`、`*.trx`、**`*.pdb`**、FFmpeg（所有文件名含 `ffmpeg` 的文件，含 OpenCV 可选视频 DLL；`avcodec-*.dll`、`avformat-*.dll`、
 `avutil-*.dll`、`avdevice-*.dll`、`avfilter-*.dll`、`swresample-*.dll`、`swscale-*.dll`、`postproc-*.dll`）、
 以及整个 `protocol-profiles/synthetic/`。
 

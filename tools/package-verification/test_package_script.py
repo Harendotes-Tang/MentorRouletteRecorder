@@ -159,6 +159,19 @@ class PackageScriptTests(unittest.TestCase):
         self.assertEqual(0, completed.returncode, completed.stderr)
         return json.loads(completed.stdout)
 
+    def test_optional_opencv_ffmpeg_video_dll_is_forbidden_alongside_qt_backend(self):
+        result = self.run_package_statements("""
+Invoke-Expression (Get-Assignments @('$ForbiddenMediaPatterns'))
+Invoke-Expression (Get-FunctionDefinitions @('Test-ForbiddenMediaFile'))
+@{
+    opencv = Test-ForbiddenMediaFile ([IO.FileInfo]::new('opencv_videoio_ffmpeg500_64.dll'))
+    qt = Test-ForbiddenMediaFile ([IO.FileInfo]::new('ffmpegmediaplugin.dll'))
+    alias = Test-ForbiddenMediaFile ([IO.FileInfo]::new('avcodec-61.dll'))
+    image = Test-ForbiddenMediaFile ([IO.FileInfo]::new('cv2.pyd'))
+} | ConvertTo-Json -Compress
+""")
+        self.assertEqual(result, dict(opencv=True, qt=True, alias=True, image=False))
+
     # ----------------------------------------------- public_distribution_ready
 
     def distribution_claim(self, *, failing_git):

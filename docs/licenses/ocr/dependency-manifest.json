@@ -1,18 +1,19 @@
 {
   "schema_version": 2,
-  "cache_id": "local-ai-ocr-2-rapidocr-3_10_0-ort-1_31_0-win-x64",
+  "cache_id": "local-ai-ocr-2-rapidocr-3_10_0-ort-1_31_0-win-x64-images-only",
   "runtime": {
     "version": "MentorRecorder local AI OCR 2; RapidOCR 3.10.0; ONNX Runtime 1.31.0; CPU-only",
     "entry_point": "local-ai-ocr.exe",
     "model_directory": "models",
     "platform": "Windows x64",
-    "dependency_scope": "Actual PyInstaller onedir file closure plus external local models and complete copied upstream notices. No Tesseract, GPU libraries or host Python dependency.",
+    "dependency_scope": "Actual PyInstaller onedir file closure plus external local models and complete copied upstream notices. No Tesseract, GPU libraries or host Python dependency. Optional OpenCV video FFmpeg DLL excluded; still-image OCR only.",
     "worker_source_sha256": "baf71d9a066cb07ff9e6833426f3878a8edf1fe10317ede8b845daeb1e3d2082",
     "requirements_sha256": "2e190fd2a8a1dedccf5f6aa79f1b19eda4aa51bda70240307ea17d7cb6055728",
     "python_version": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
-    "payload_bytes": 261039342,
-    "payload_files": 219,
-    "build_inventory_reference": "artifacts/ocr-punctuation-20261010/runtime-reviewed-build-inventory.json"
+    "payload_bytes": 230163182,
+    "payload_files": 218,
+    "build_inventory_reference": "artifacts/release-beta3-20261010/runtime-images-only-build-inventory.json",
+    "builder_source_sha256": "6b57fcbe298f902f480bad95452051092a4ed35d113440c3b0b42eddad4a3f00"
   },
   "components": [
     {
@@ -1139,15 +1140,6 @@
       "source": "https://pypi.org/project/opencv-python-headless/5.0.0.93/",
       "origin": "frozen-build",
       "source_path": "frozen-build/_internal/cv2/misc/version.py"
-    },
-    {
-      "path": "_internal/cv2/opencv_videoio_ffmpeg500_64.dll",
-      "bytes": 30876160,
-      "sha256": "7aabff029d1fa47cf56ede4dbbe05dc62da3208f07cd16471d4c966a33f9aa31",
-      "component": "opencv-python-headless",
-      "source": "https://pypi.org/project/opencv-python-headless/5.0.0.93/",
-      "origin": "frozen-build",
-      "source_path": "frozen-build/_internal/cv2/opencv_videoio_ffmpeg500_64.dll"
     },
     {
       "path": "_internal/cv2/typing/__init__.py",

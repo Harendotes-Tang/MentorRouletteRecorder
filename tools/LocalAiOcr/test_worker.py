@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 from types import ModuleType, SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -211,6 +212,39 @@ class SymbolRereadTests(unittest.TestCase):
         self.assertLessEqual(len(seen),worker.MAX_REREAD_GROUPS*3)
         self.assertGreater(len(seen),0)
         self.assertLess(sum(c.shape[0]*c.shape[1] for c in seen),worker.MAX_REREAD_PIXELS+100_000)
+
+
+class ImageOnlyRuntimeBuildTests(unittest.TestCase):
+    def setUp(self):
+        spec = importlib.util.spec_from_file_location('mr_ocr_builder', Path(__file__).with_name('build_worker.py'))
+        self.builder = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.builder)
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.output = Path(self.directory.name)
+        self.cv2 = self.output / '_internal' / 'cv2'
+        self.cv2.mkdir(parents=True)
+
+    def test_optional_video_dll_is_removed_without_changing_image_dependencies(self):
+        video = self.cv2 / 'opencv_videoio_ffmpeg500_64.dll'
+        image = self.cv2 / 'cv2.pyd'
+        video.write_bytes(b'optional video DLL')
+        image.write_bytes(b'required still-image extension')
+        records = self.builder.remove_unused_video_runtime(self.output)
+        self.assertFalse(video.exists())
+        self.assertEqual(image.read_bytes(), b'required still-image extension')
+        self.assertEqual(records[0]['path'], '_internal/cv2/opencv_videoio_ffmpeg500_64.dll')
+        self.assertEqual(records[0]['bytes'], len(b'optional video DLL'))
+
+    def test_unfamiliar_ffmpeg_payload_refuses_before_any_file_is_removed(self):
+        known = self.cv2 / 'opencv_videoio_ffmpeg500_64.dll'
+        unknown = self.output / 'another_ffmpeg_backend.dll'
+        known.write_bytes(b'known optional video DLL')
+        unknown.write_bytes(b'unknown video DLL')
+        with self.assertRaisesRegex(RuntimeError, 'Unexpected FFmpeg payload'):
+            self.builder.remove_unused_video_runtime(self.output)
+        self.assertTrue(known.exists())
+        self.assertTrue(unknown.exists())
 
 
 if __name__ == "__main__":
