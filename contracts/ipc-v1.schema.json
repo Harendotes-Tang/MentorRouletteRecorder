@@ -240,7 +240,7 @@
         "source_recorded_at_utc": { "$ref": "#/$defs/NullableUtcTimestamp" },
         "imported_at_utc": { "$ref": "#/$defs/UtcTimestamp" },
         "mentor_confirmed": { "type": "boolean", "description": "Whether the imported source explicitly identifies personal mentor records; legacy projections may omit this field." },
-        "incomplete": { "type": "boolean", "description": "Pending or unknown gameplay facts exclude this imported history from statistics; null duration alone does not." }
+        "incomplete": { "type": "boolean", "description": "Informational marker for pending or unknown gameplay facts in imported history. Confirmed known-result personal mentor imports remain eligible for statistics with unknown endpoints; missing game time alone does not require dashboard review." }
       }
     },
     "RunImportSourceKind": { "type": "string", "enum": ["CSV", "XLSX", "JSON", "BACKUP", "PASTE", "SCREENSHOT", "ROWS"] },
