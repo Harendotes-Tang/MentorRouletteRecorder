@@ -12,7 +12,7 @@ find_package(Qt6 6.8 REQUIRED COMPONENTS
 
 # Personal journal/import workflows: controller lifecycle, real PNG output and
 # screenshot evidence parsing are separate from the mock-only reflection tests.
-foreach(workflow IN ITEMS ReflectionLibrary ReflectionShare ImportRecordsController ScreenshotImportParser OfflineOcrEngine)
+foreach(workflow IN ITEMS ReflectionLibrary ReflectionShare ImportRecordsController ScreenshotImportParser OfflineOcrEngine JobIconClassifier)
     add_executable(MentorRecorder${workflow}Tests ${workflow}Tests.cpp)
     target_link_libraries(MentorRecorder${workflow}Tests PRIVATE
         MentorRecorderDesktopLib Qt6::Gui Qt6::Quick Qt6::Qml Qt6::QuickControls2 Qt6::Test Qt6::Widgets)
@@ -849,6 +849,7 @@ set(MR_ALL_DESKTOP_TESTS
     MentorRecorderImportRecordsController
     MentorRecorderScreenshotImportParser
     MentorRecorderOfflineOcrEngine
+    MentorRecorderJobIconClassifier
     MentorRecorderGameSelection
     ${MR_RECORDING_QML_TESTS}
     MentorRecorderAutomaticRecording

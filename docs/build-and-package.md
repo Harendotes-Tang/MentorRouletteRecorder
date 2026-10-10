@@ -341,7 +341,8 @@ Collector，界面显示“未找到 Collector”，Npcap 与 FF14 等状态停�
 | 脚本 | 作用 |
 |---|---|
 | `bootstrap.ps1` | 检查 .NET 8 运行时、CMake、Ninja、MinGW、Qt 路径；报告 Npcap 是否安装（**只检测，不下载**） |
-| `bootstrap-ocr.ps1` | 从本地固定发行包及模型准备离线 OCR，核对 SHA256 后用 7-Zip 提取；不联网、不执行安装器、不改 PATH |
+| `build-local-ai-ocr-worker.ps1` | 使用指定的构建 Python 和本地模型生成自包含 CPU OCR；显式传入 `-InstallBuildDependencies` 时才安装固定的构建依赖 |
+| `bootstrap-ocr.ps1` | 校验或复制已构建的固定 OCR 运行目录，核对 SHA256、文件闭包与许可证；不联网、不安装软件、不改 PATH |
 | `build.ps1` | `dotnet build -c Release`；若 `src/Desktop/CMakeLists.txt` 存在则再执行 CMake configure 与 build，将完整的 Collector 及已准备的固定 OCR 目录部署到 Desktop 同目录；未提供 OCR 时明确报告资产部署未执行 |
 | `test.ps1` | 默认完整构建后运行全部 .NET / Qt / QML 测试，并**解析 TRX 报告真实用例数**；`-NoBuild` 复用已有产物 |
 | `verify.ps1` | 环境自检 + 静态边界检查 + 架构依赖门禁 + 协议档案校验 + `tools/` 下全部 Python 自测（含检查器反向自测）+ 全部测试 + 监听端口核对 + `LIVE_CAPTURE_STATUS` 断言 + 注入载荷扫描 + 许可证材料核对（提交前必须运行）；`-NoBuild` 复用已有构建产物，`-TestFilter` 转发 xunit 特征筛选，`-SkipGate` 显式跳过单个关卡；带其中任一参数的运行是部分验证（见 4.4） |
@@ -360,25 +361,37 @@ pwsh -File scripts/package.ps1 -Force -Verify
 
 ### 离线截图识别依赖
 
-截图识别随应用部署 `ocr/tesseract.exe`、必要 DLL、`tessdata/chi_sim.traineddata`、
-`eng.traineddata` 与 `configs/tsv`。固定 Windows 发行来源是 UB Mannheim
-`5.4.0.20240606`，模型来自官方 `tessdata_fast` 提交
-`87416418657359cb625c412a48b6e1d6d41c29bd`。官方下载地址、逐文件 SHA256、
-完整运行依赖及许可证登记在 `docs/licenses/ocr/dependency-manifest.json`；Windows 发行包是
-Tesseract 文档推荐的第三方构建，不将开发机系统安装作为依赖来源。
+截图识别随应用部署 `ocr/local-ai-ocr.exe`、随包运行依赖及 `models/` 下的三份模型。
+当前固定版本为 CPython 3.11.9、RapidOCR 3.10.0、ONNX Runtime 1.31.0，采用 CPU。
+当前 helper 2 在整图检测后对符号区域限量复读，文字模型和职业分类器权重不变；完整源代码与冻结产物仍逐文件固定。
+文字检测、识别和方向分类模型分别为 `PP-OCRv6_det_small.onnx`、`PP-OCRv6_rec_small.onnx`、
+`ch_ppocr_mobile_v2.0_cls_mobile.onnx`；来源、SHA256、完整运行依赖及许可证登记在
+[dependency-manifest.json](licenses/ocr/dependency-manifest.json)。模型必须提前放在本机，运行时禁止下载。
+职业分类器由桌面端 C++ 执行，模型与训练来源另见
+[job-icon-classifier.metadata.json](../src/Desktop/resources/models/job-icon-classifier.metadata.json)。
+架构、旧新同图测试与本机资源测量见 [README 的 OCR 部分](../README.md#离线截图-ocr)。
 
-先按清单手动获取发行包和两份模型到本机，将模型放在同一目录，再运行：
+维护者先准备 Windows x64 的 Python 3.11.9 与本地模型，使用固定的
+[requirements-build.txt](../tools/LocalAiOcr/requirements-build.txt) 构建自包含运行目录，再校验并准备缓存：
 
 ```powershell
+pwsh -File scripts/build-local-ai-ocr-worker.ps1 `
+    -PythonExecutable C:/Tools/Python311/python.exe `
+    -ModelsDirectory D:/OCR/models `
+    -OutputDirectory D:/OCR/runtime `
+    -InstallBuildDependencies
+
 pwsh -File scripts/bootstrap-ocr.ps1 `
-    -SevenZipExe C:/Tools/7-Zip/7z.exe `
-    -RuntimeArchive C:/Downloads/tesseract-ocr-w64-setup-5.4.0.20240606.exe `
-    -ModelDirectory C:/Downloads/tessdata
+    -RuntimeDirectory D:/OCR/runtime
 ```
 
+替换示例中的绝对路径；输出目录必须尚不存在，以保留已有产物。
+`-InstallBuildDependencies` 是维护者显式选择的构建阶段 pip 安装；依赖已准备好时省略此开关。
+发布 payload 必须与固定清单完全一致，构建环境或产物变化不会自动放宽哈希检查。
 准备结果默认位于已忽略的 `artifacts/dependencies/ocr/<cache_id>/runtime`。
-`MR_OCR_DIR` 可指定已有的完整离线运行目录，`MR_7ZIP_EXE` 可指定本地 7-Zip。
-构建、打包及应用均不为 OCR 下载文件，也不搜索系统 Tesseract 或 PATH。
+`MR_OCR_DIR` 可指定已有的完整离线运行目录；不带参数运行 `bootstrap-ocr.ps1` 可校验并试运行已准备的目录。
+常规应用构建、打包、准备缓存和用户运行均不为 OCR 下载文件，不搜索系统 Python、Tesseract 或 PATH。
+用户机器无需 Python、7-Zip 或 GPU 运行库。
 未配置 `MR_OCR_DIR` 且没有缓存时，开发构建允许继续，截图识别显示依赖缺失，
 表格导入可用；显式指定路径或已有缓存但内容不完整时构建失败。
 `verify.ps1` 未发现已部署引擎时明确报告 OCR 运行验证未执行；提供引擎后会核对

@@ -188,6 +188,21 @@
   "max_file_bytes": 4194304,
   "allow_markers": [
     {
+      "file": "scripts/local-ai-ocr-worker.py",
+      "rule": "NET-008",
+      "match": "getaddrinfo"
+    },
+    {
+      "file": "tools/LocalAiOcr/test_worker.py",
+      "rule": "NET-010",
+      "match": "import importlib.util, socket"
+    },
+    {
+      "file": "tools/LocalAiOcr/test_worker.py",
+      "rule": "NET-008",
+      "match": "getaddrinfo"
+    },
+    {
       "file": "installer/MentorRecorder.iss",
       "rule": "NET-009",
       "match": "CreateDownloadPage("

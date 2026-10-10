@@ -132,6 +132,8 @@ set(MR_CPP_SOURCES
     cpp/InstallerVerifier.h
     cpp/JobCatalog.cpp
     cpp/JobCatalog.h
+    cpp/JobIconClassifier.cpp
+    cpp/JobIconClassifier.h
     cpp/MockBackend.cpp
     cpp/MockBackendCandidates.cpp
     cpp/MockBackendShared.cpp
@@ -305,6 +307,16 @@ qt_add_resources(MentorRecorderDesktopLib "mr_icons"
         resources/icons/manifest.json
         resources/icons/content_types.json
         resources/icons/roles/manifest.json)
+
+# Classifier weights derive from the same local game artwork as personal icons.
+# Keep the public distribution boundary of MR_BUNDLE_GAME_ICONS unchanged.
+if(MR_BUNDLE_GAME_ICONS)
+    target_compile_definitions(MentorRecorderDesktopLib PRIVATE MR_BUNDLE_JOB_CLASSIFIER)
+    qt_add_resources(MentorRecorderDesktopLib "mr_job_classifier"
+        PREFIX "/"
+        BASE ${CMAKE_CURRENT_SOURCE_DIR}
+        FILES resources/models/job-icon-classifier.json)
+endif()
 
 # ---------------------------------------------------------------------------
 # Bundled duty reference data.

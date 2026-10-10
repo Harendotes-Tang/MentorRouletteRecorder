@@ -1,0 +1,188 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "本地截图 OCR 架构",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "viewBox": [
+      840,
+      445
+    ]
+  },
+  "components": [
+    {
+      "id": "local_image",
+      "type": "external",
+      "label": "用户截图",
+      "sublabel": "手机卡片 / 网页记录",
+      "pos": [
+        30,
+        20
+      ],
+      "size": [
+        170,
+        60
+      ]
+    },
+    {
+      "id": "ocr_scheduler",
+      "type": "frontend",
+      "label": "OfflineOcrEngine",
+      "sublabel": "临时 PNG · 异步调度",
+      "pos": [
+        330,
+        20
+      ],
+      "size": [
+        210,
+        60
+      ]
+    },
+    {
+      "id": "cpu_ocr_worker",
+      "type": "backend",
+      "label": "本地文字 OCR 子进程",
+      "sublabel": "RapidOCR / ONNX Runtime CPU",
+      "pos": [
+        630,
+        20
+      ],
+      "size": [
+        200,
+        60
+      ]
+    },
+    {
+      "id": "geometry_parser",
+      "type": "frontend",
+      "label": "ScreenshotImportParser",
+      "sublabel": "分行 · 副本 · 来源时间 · 心得",
+      "pos": [
+        330,
+        150
+      ],
+      "size": [
+        210,
+        66
+      ]
+    },
+    {
+      "id": "job_classifier",
+      "type": "backend",
+      "label": "JobIconClassifier",
+      "sublabel": "C++ 小模型 · 候选 / 未知",
+      "pos": [
+        30,
+        248
+      ],
+      "size": [
+        170,
+        60
+      ]
+    },
+    {
+      "id": "import_preview",
+      "type": "frontend",
+      "label": "导入预览",
+      "sublabel": "对照原图 · 修正 · 勾选",
+      "pos": [
+        630,
+        150
+      ],
+      "size": [
+        200,
+        66
+      ]
+    },
+    {
+      "id": "collector_import",
+      "type": "backend",
+      "label": "Collector 导入服务",
+      "sublabel": "预览校验 · 重复 / 冲突检查",
+      "pos": [
+        630,
+        365
+      ],
+      "size": [
+        200,
+        60
+      ]
+    },
+    {
+      "id": "local_database",
+      "type": "database",
+      "label": "本地 SQLite",
+      "sublabel": "用户确认后由 Collector 写入",
+      "pos": [
+        330,
+        365
+      ],
+      "size": [
+        210,
+        60
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "image_to_scheduler",
+      "from": "local_image",
+      "to": "ocr_scheduler",
+      "label": "本地读取"
+    },
+    {
+      "id": "scheduler_to_worker",
+      "from": "ocr_scheduler",
+      "to": "cpu_ocr_worker",
+      "label": "启动进程"
+    },
+    {
+      "id": "worker_to_parser",
+      "from": "cpu_ocr_worker",
+      "to": "geometry_parser",
+      "label": "原图坐标 TSV"
+    },
+    {
+      "id": "scheduler_to_parser",
+      "from": "ocr_scheduler",
+      "to": "geometry_parser",
+      "label": "原图",
+      "labelDy": 22
+    },
+    {
+      "id": "parser_to_classifier",
+      "from": "geometry_parser",
+      "to": "job_classifier",
+      "label": "职业图标裁剪"
+    },
+    {
+      "id": "classifier_to_preview",
+      "from": "job_classifier",
+      "to": "import_preview",
+      "label": "职业候选"
+    },
+    {
+      "id": "fields_to_preview",
+      "from": "geometry_parser",
+      "to": "import_preview",
+      "label": "记录字段",
+      "labelDy": 36
+    },
+    {
+      "id": "preview_to_collector",
+      "from": "import_preview",
+      "to": "collector_import",
+      "label": "命名管道",
+      "variant": "emphasis",
+      "labelDy": 65
+    },
+    {
+      "id": "collector_to_database",
+      "from": "collector_import",
+      "to": "local_database",
+      "label": "确认后保存",
+      "variant": "emphasis"
+    }
+  ]
+}

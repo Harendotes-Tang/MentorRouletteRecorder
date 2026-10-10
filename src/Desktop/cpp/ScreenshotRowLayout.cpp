@@ -201,8 +201,14 @@ QRect rowSurface(const QImage &image, const QRect &level, const QRect &date, con
 {
     const int h = level.height();
     const int inner = std::max(3, h / 2);
-    const std::array<std::array<int, 2>, 2> strips{{{level.left() - inner, level.left() - h},
-                                                    {level.right() + inner, level.right() + h}}};
+    const int near = std::max(2, h / 3);
+    // 先用离文字更远的留白，避免截图左端圆角把行上下边界缩短；
+    // 较高的神经网络文字框占用原留白时，再尝试靠近等级的窄间隙。
+    const std::array<std::array<int, 2>, 4> strips{{{level.left() - inner, level.left() - h},
+                                                    {level.right() + inner, level.right() + h},
+                                                    {level.left() - near, level.left() - inner},
+                                                    {level.right() + near, level.right() + inner}}};
+    QRect widestSurface;
     for (const std::array<int, 2> &columns : strips) {
         const bool covered = std::any_of(nearby.cbegin(), nearby.cend(), [&columns](const Word &word) {
             return std::any_of(columns.cbegin(), columns.cend(), [&word](int x) {
@@ -212,21 +218,23 @@ QRect rowSurface(const QImage &image, const QRect &level, const QRect &date, con
         if (std::min(columns[0], columns[1]) < 0 || std::max(columns[0], columns[1]) >= image.width() || covered)
             continue;
         const QRect surface = surfaceAlong(image, columns, level, date);
-        if (surface.isValid())
-            return surface;
+        // 未被 OCR 框标出的宽职业笔画可能只碰到某一列，让扫描过早停止。
+        // 同一文字带的有效留白取完整高度，避免把绝枪或绘灵的图标上沿裁掉。
+        if (surface.isValid() && surface.height() > widestSurface.height())
+            widestSurface = surface;
     }
-    return {};
+    return widestSurface;
 }
 
 /**
  * @brief 在行上沿与文字带之间的空白处量出行底色的实际左右边界；行可伸出截图右缘。
- * 扫描线取两者中点，空白够高时至少在行上沿之下一个字高处，避开圆角对左右两端的裁减。
+ * 扫描线取两者中点。神经网络的文字框常比实际字形高，类型图标也可能伸到文字框上方，
+ * 不再按文字框高度把扫描线向下推，以免遇到类型图标而把行右边界截断。
  */
 QRect rowExtent(const QImage &image, const QRect &surface, const QRect &level, int textTop, QRgb &colour)
 {
     const int middle = surface.top() + std::max(1, (textTop - surface.top()) / 2);
-    const int belowCorners = std::min(textTop - 1, surface.top() + level.height());
-    const int y = std::min(surface.bottom(), std::max(middle, belowCorners));
+    const int y = std::min(surface.bottom(), middle);
     const int anchor = level.center().x();
     colour = image.pixel(anchor, y);
     int left = 0;
@@ -393,6 +401,10 @@ QList<QList<Word>> visualLines(QList<Word> words)
 /** @brief 行内的删除叉号单词：在时间列右侧、紧靠行的实际右缘（约四个字高内），与截图宽度无关。 */
 bool isRowDeleteWord(const Word &word, const RowRecord &row)
 {
+    // 已按像素定位时，withoutDeleteMark 已处理按钮自身和与正文合并的框。
+    // 此时不能再把同一区域里不与按钮重叠的正文 x/X/× 按文字形状排除。
+    if (row.deleteMark.isValid())
+        return false;
     return word.rect.center().x() > row.timeColumn.right() && isDeleteText(word.text.trimmed())
         && row.rect.right() - word.rect.right() <= row.levelRect.height() * 4;
 }
@@ -672,8 +684,11 @@ qsizetype levelRunStart(const QList<Word> &words, qsizetype &count)
         const QRect run = words[start].rect;
         const bool onlyIconsBefore = std::all_of(words.cbegin(), words.cbegin() + start, [&run](const Word &word) {
             const bool han = std::any_of(word.text.cbegin(), word.text.cend(), isHan);
-            return run.left() - word.rect.right() >= run.height()
-                && (!han || word.rect.height() * 2 > run.height() * 3);
+            const bool iconSized = word.rect.height() * 2 > run.height() * 3;
+            // 整图检测会把大职业图形读成数字，其外接框与较高的 Lv 框之间
+            // 可能不足一个字高；只有大图形才允许半个字高的间距。
+            const int gap = iconSized ? std::max(2, run.height() / 2) : run.height();
+            return run.left() - word.rect.right() >= gap && (!han || iconSized);
         });
         return onlyIconsBefore ? start : -1;
     }

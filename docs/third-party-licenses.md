@@ -4,15 +4,14 @@
 文档同时登记与对外分发相关的决策、生效日期与未决事项，面向维护者，
 以及需要评估分发合规性的读者。
 
-离线 OCR 依赖于 2026-10-09 单独核验：Windows 运行文件来自 UB Mannheim
-`5.4.0.20240606` 固定发行包，其 SHA256 与 Microsoft `winget-pkgs` 对该版本的
-声明一致；模型来自官方 `tessdata_fast` 固定提交。机器可核验的来源、哈希、
-DLL 归属、许可证正文及源码地址以 `docs/licenses/ocr/dependency-manifest.json` 为准，
-随包副本为 `ocr/OCR-DEPENDENCIES.json`。许可证正文位于 `docs/licenses/ocr/`，
-发布时同时复制至 `ocr/licenses/`。各 DLL 的实际内容由发行包和逐文件哈希确定；
-清单内未被 `tesseract --version` 报告的上游许可证标签仅说明文本来源，
-不代表已独立验证该 DLL 版本的许可证。GNU libiconv、JBIG-KIT 与 GCC runtime 的源码
-获取地址随清单保留；本次未修改这些第三方二进制。
+离线 OCR 依赖于 2026-10-10 更新为本地冻结的自包含 CPU 程序：RapidOCR
+3.10.0、ONNX Runtime 1.31.0、CPython 3.11.9，以及固定 PP-OCRv6 小型检测/
+识别模型和 mobile 方向模型。运行时不需要宿主 Python 或 GPU，也不下载模型或上传图片。
+机器可核验的来源、哈希、实际文件和内嵌组件归属、许可证正文及源码地址以
+`docs/licenses/ocr/dependency-manifest.json` schema 2 为准，随包副本为
+`ocr/OCR-DEPENDENCIES.json`，完整上游声明随固定 payload 保留于 `ocr/licenses/`。
+清单同时区分冻结运行组件与构建来源组件；主组件许可证和本地职业图标权重的素材
+分发边界见 `THIRD_PARTY_NOTICES.md`。本次 Beta 随包分发固定运行依赖与完整上游声明。
 
 > 调查日期：**2026-09-04**。所有版本号来自本机实际还原的 NuGet 包与实际安装的 Qt。
 > 面向用户的简版清单见仓库根目录的 [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md)。

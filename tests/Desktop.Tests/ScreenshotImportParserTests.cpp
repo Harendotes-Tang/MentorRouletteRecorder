@@ -1,5 +1,6 @@
 #include "ScreenshotImportParser.h"
 #include "JobCatalog.h"
+#include "JobIconClassifier.h"
 
 #include <QColor>
 #include <QDir>
@@ -109,6 +110,8 @@ class ScreenshotImportParserTests final : public QObject
 private slots:
     void separatesCardsAndPreservesLineOrder();
     void sparseBlocksOnTheSameRowFormOneTitleAndTimestamp();
+    void mobileAdjacentDateAndTimeBoxesKeepTheSourceTimestamp_data();
+    void mobileAdjacentDateAndTimeBoxesKeepTheSourceTimestamp();
     void timestampAndCardBorderKeepAMissedTitleSeparate();
     void blueDutyIconIsNotTitleText();
     void ignoresDeleteAndPagingAndDoesNotInventRunFacts();
@@ -147,9 +150,15 @@ private slots:
     void webRowEndGlyphThatIsNotACrossStaysNoteText();
     void webRowThinAntialiasedDeleteMarkIsFound();
     void webRowLatinXIsStrippedOnlyWithAButtonBehindIt();
+    void webRowLiteralCrossBesideAPixelLocatedButtonIsPreserved_data();
+    void webRowLiteralCrossBesideAPixelLocatedButtonIsPreserved();
+    void fragmentedAsciiAndPunctuationKeepSourceSpacing_data();
+    void fragmentedAsciiAndPunctuationKeepSourceSpacing();
     void webRowExtentIgnoresANoteLineAboveTheLevel();
     void webRowCroppedThroughTheJobIconUsesTheStripRightOfTheLevel();
     void webRowLevelTokenToleratesFurtherMisreads();
+    void neuralTextBoxesAndElevatedTypeIconDoNotSplitWebRows();
+    void unrecognisedWideGoldStrokeDoesNotTrimWebRow();
 };
 
 void ScreenshotImportParserTests::separatesCardsAndPreservesLineOrder()
@@ -190,6 +199,37 @@ void ScreenshotImportParserTests::sparseBlocksOnTheSameRowFormOneTitleAndTimesta
     QCOMPARE(rows.size(), 1);
     QCOMPARE(rows[0].toMap().value(QStringLiteral("duty_name")).toString(), QStringLiteral("合成 副本"));
     QCOMPARE(rows[0].toMap().value(QStringLiteral("source_recorded_at")).toString(), QStringLiteral("2026-10-01 12:34:56"));
+}
+
+void ScreenshotImportParserTests::mobileAdjacentDateAndTimeBoxesKeepTheSourceTimestamp_data()
+{
+    QTest::addColumn<int>("gap");
+    QTest::addColumn<QString>("date");
+    QTest::addColumn<QString>("time");
+    QTest::newRow("touching-boxes") << 0 << QStringLiteral("2026-10-01") << QStringLiteral("12:34:56");
+    QTest::newRow("overlapping-boxes") << -4 << QStringLiteral("2026-10-01") << QStringLiteral("12:34:56");
+    QTest::newRow("small-gap-boxes") << 2 << QStringLiteral("2026-10-01") << QStringLiteral("12:34:56");
+    QTest::newRow("fullwidth-timestamp-separators") << 0 << QStringLiteral("2026－10－01") << QStringLiteral("12：34：56");
+}
+
+void ScreenshotImportParserTests::mobileAdjacentDateAndTimeBoxesKeepTheSourceTimestamp()
+{
+    QFETCH(int, gap);
+    QFETCH(QString, date);
+    QFETCH(QString, time);
+    // 检测框的外扩可能吞掉原图中的日期/时间间距；完整字段仍须保留结构分隔。
+    // 同张卡片里拆成相邻框的数字颜文字则必须继续合成 030，不能普遍补空格。
+    const QByteArray tsv = kTsvHeader
+        + word(1, 150, 100, 280, 20, QStringLiteral("Lv.50 合成副本"), 96, 1)
+        + word(2, 150, 140, 10, 20, QStringLiteral("0"), 96, 2)
+        + word(2, 160, 140, 20, 20, QStringLiteral("30"), 96, 3)
+        + word(3, 350, 200, 105, 15, date, 96, 4)
+        + word(3, 455 + gap, 201, 90, 15, time, 96, 5);
+    const QVariantList rows = mr::ScreenshotImportParser::parse(screenshot(300), tsv, {});
+    QCOMPARE(rows.size(), 1);
+    const QVariantMap row = rows[0].toMap();
+    QCOMPARE(row.value(QStringLiteral("source_recorded_at")).toString(), QStringLiteral("2026-10-01 12:34:56"));
+    QCOMPARE(row.value(QStringLiteral("reflection_text")).toString(), QStringLiteral("030"));
 }
 
 void ScreenshotImportParserTests::ignoresDeleteAndPagingAndDoesNotInventRunFacts()
@@ -327,8 +367,8 @@ void ScreenshotImportParserTests::candidateLimitRejectsWholeBatch()
 
 void ScreenshotImportParserTests::localTemplateMatchRemainsReviewable()
 {
-    // Use a synthetic, distinctive glyph as a local replacement for catalogue id 19.
-    // No game artwork or user screenshot becomes a source fixture.
+    // Public builds exercise local template fallback with a synthetic glyph;
+    // personal classifier builds reuse the corresponding existing icon resource.
     if (!QFile::exists(QStringLiteral(":/resources/icons/manifest.json")))
         QSKIP("The host test target must link the existing mr_icons resource.");
     QTemporaryDir localData;
@@ -351,6 +391,10 @@ void ScreenshotImportParserTests::localTemplateMatchRemainsReviewable()
         painter.fillRect(QRect(8, 40, 40, 8), QColor(220, 185, 75));
         painter.fillRect(QRect(40, 20, 8, 28), QColor(220, 185, 75));
         painter.fillRect(QRect(24, 8, 8, 12), QColor(220, 185, 75));
+    }
+    if (mr::JobIconClassifier().isAvailable()) {
+        icon = QImage(QStringLiteral(":/resources/icons/jobs/19.png"));
+        QVERIFY(!icon.isNull());
     }
     QVERIFY(icon.save(localData.path() + QStringLiteral("/MentorRecorder/icons/jobs/19.png")));
     QImage image = screenshot();
@@ -385,8 +429,14 @@ void ScreenshotImportParserTests::differentGoldArtworkRemainsUnknown()
     const QVariantList rows = mr::ScreenshotImportParser::parse(image, kTsvHeader + card(100), {});
     QCOMPARE(rows.size(), 1);
     QVERIFY(rows[0].toMap().value(QStringLiteral("job_id")).isNull());
-    QVERIFY(!rows[0].toMap().value(QStringLiteral("job_candidate_id")).isNull());
-    QVERIFY(!rows[0].toMap().value(QStringLiteral("job_candidate_name")).toString().isEmpty());
+    // 已知输出低分时可以给出待核对候选，但不能变成可靠职业。
+    // 无候选（包括未打包游戏图标的构建）保留未知，不强制制造建议。
+    if (!rows[0].toMap().value(QStringLiteral("job_candidate_id")).isNull()) {
+        QVERIFY(rows[0].toMap().value(QStringLiteral("needs_review")).toBool());
+        QVERIFY(!rows[0].toMap().value(QStringLiteral("job_candidate_name")).toString().isEmpty());
+    } else {
+        QVERIFY(rows[0].toMap().value(QStringLiteral("job_candidate_name")).toString().isEmpty());
+    }
     QVERIFY(rows[0].toMap().value(QStringLiteral("icon_runner_up_confidence")).toDouble()
             <= rows[0].toMap().value(QStringLiteral("icon_confidence")).toDouble());
     QVERIFY(hasWarning(rows[0].toMap(), QStringLiteral("职业图标")));
@@ -767,6 +817,10 @@ void ScreenshotImportParserTests::webRowJobIconLeftOfLevelIsMatched()
         painter.fillRect(QRect(8, 40, 40, 8), QColor(220, 185, 75));
         painter.fillRect(QRect(40, 20, 8, 28), QColor(220, 185, 75));
         painter.fillRect(QRect(24, 8, 8, 12), QColor(220, 185, 75));
+    }
+    if (mr::JobIconClassifier().isAvailable()) {
+        icon = QImage(QStringLiteral(":/resources/icons/jobs/19.png"));
+        QVERIFY(!icon.isNull());
     }
     QVERIFY(icon.save(localData.path() + QStringLiteral("/MentorRecorder/icons/jobs/19.png")));
     QImage image = webPage(width, 120, {QRect(7, 7, width + 50, 93)}, true);
@@ -1329,6 +1383,89 @@ void ScreenshotImportParserTests::webRowLatinXIsStrippedOnlyWithAButtonBehindIt(
     QVERIFY(hasWarning(rows[1].toMap(), QStringLiteral("删除按钮")));
 }
 
+void ScreenshotImportParserTests::webRowLiteralCrossBesideAPixelLocatedButtonIsPreserved_data()
+{
+    QTest::addColumn<QString>("literal");
+    QTest::newRow("lowercase-x") << QStringLiteral("x");
+    QTest::newRow("uppercase-x") << QStringLiteral("X");
+    QTest::newRow("multiplication-sign") << QStringLiteral("×");
+    QTest::newRow("cross-sign") << QStringLiteral("✕");
+}
+
+void ScreenshotImportParserTests::webRowLiteralCrossBesideAPixelLocatedButtonIsPreserved()
+{
+    QFETCH(QString, literal);
+    // 正文里的单独 x/× 靠近行尾，但与更右侧、已按像素确认的按钮不相交。
+    // 既要保留正文符号，也要剔除真正的按钮，不能只看右缘位置或字符形状。
+    QImage image = webPage(1845, 120, {QRect(2, 7, 1829, 92)});
+    paintDeleteMark(image, QRect(1810, 45, 17, 17));
+    const QByteArray tsv = kTsvHeader + rowHead(7, QStringLiteral("Lv.44"), 1)
+        + word(1, 720, 44, 40, 20, QStringLiteral("正文"), 93, 10)
+        + word(1, 1770, 45, 17, 17, literal, 93, 11)
+        + word(1, 1810, 45, 17, 17, QStringLiteral("X"), 90, 12);
+    const auto geometry = mr::ScreenshotImportParser::rowFields(image, tsv);
+    QCOMPARE(geometry.size(), 1);
+    QVERIFY(geometry[0].deleteMark.contains(QPoint(1818, 53)));
+    QVERIFY(!geometry[0].deleteMark.intersects(QRect(1770, 45, 17, 17)));
+    const QVariantList rows = mr::ScreenshotImportParser::parse(image, tsv, {});
+    QCOMPARE(rows.size(), 1);
+    QCOMPARE(rows[0].toMap().value(QStringLiteral("reflection_text")).toString(), QStringLiteral("正文") + literal);
+}
+
+void ScreenshotImportParserTests::fragmentedAsciiAndPunctuationKeepSourceSpacing_data()
+{
+    QTest::addColumn<QStringList>("parts");
+    QTest::addColumn<int>("gap");
+    QTest::addColumn<QString>("expected");
+    QTest::newRow("adjacent-numeric-face") << QStringList{QStringLiteral("0"), QStringLiteral("30")}
+        << 1 << QStringLiteral("030");
+    QTest::newRow("adjacent-latin-word") << QStringList{QStringLiteral("th"), QStringLiteral("x")}
+        << 1 << QStringLiteral("thx");
+    QTest::newRow("separated-english-words") << QStringList{QStringLiteral("hello"), QStringLiteral("world")}
+        << 12 << QStringLiteral("hello world");
+    QTest::newRow("source-space-inside-a-box") << QStringList{QStringLiteral("hello world")}
+        << 1 << QStringLiteral("hello world");
+    QTest::newRow("leading-fullwidth-dots") << QStringList{QStringLiteral("。"), QStringLiteral("。"), QStringLiteral("。"), QStringLiteral("正文")}
+        << 1 << QStringLiteral("。。。正文");
+    QTest::newRow("filename-dot") << QStringList{QStringLiteral("回家了"), QStringLiteral("."), QStringLiteral("jpg")}
+        << 1 << QStringLiteral("回家了.jpg");
+    QTest::newRow("split-kaomoji") << QStringList{QStringLiteral("(;"), QStringLiteral("´～`"), QStringLiteral(")")}
+        << 1 << QStringLiteral("(;´～`)");
+    QTest::newRow("fullwidth-punctuation-stays-fullwidth") << QStringList{QStringLiteral("啵啵030"), QStringLiteral("！")}
+        << 1 << QStringLiteral("啵啵030！");
+    QTest::newRow("halfwidth-punctuation-stays-halfwidth") << QStringList{QStringLiteral("啵啵030"), QStringLiteral("!")}
+        << 1 << QStringLiteral("啵啵030!");
+}
+
+void ScreenshotImportParserTests::fragmentedAsciiAndPunctuationKeepSourceSpacing()
+{
+    QFETCH(QStringList, parts);
+    QFETCH(int, gap);
+    QFETCH(QString, expected);
+    // 同一正文在网页行和手机卡片两种布局里都不应因 OCR 分块而改变内容。
+    for (const bool web : {true, false}) {
+        QImage image = web ? webPage(1845, 120, {QRect(2, 7, 1829, 92)}) : screenshot(300);
+        QByteArray tsv = kTsvHeader;
+        if (web) {
+            tsv += rowHead(7, QStringLiteral("Lv.44"), 1);
+        } else {
+            tsv += word(1, 150, 100, 280, 20, QStringLiteral("Lv.50 合成副本"), 96, 1)
+                + word(3, 380, 200, 190, 15, QStringLiteral("2026-10-01 12:34:56"), 96, 2);
+        }
+        int x = web ? 720 : 150;
+        for (qsizetype i = 0; i < parts.size(); ++i) {
+            const int width = std::max(10, static_cast<int>(parts[i].size()) * 10);
+            tsv += word(web ? 1 : 2, x, web ? 44 : 140, width, 20, parts[i], 96, 10 + static_cast<int>(i));
+            x += width + gap;
+        }
+        const QVariantList rows = mr::ScreenshotImportParser::parse(image, tsv, {});
+        QCOMPARE(rows.size(), 1);
+        QCOMPARE(rows[0].toMap().value(QStringLiteral("reflection_text")).toString(), expected);
+        QCOMPARE(rows[0].toMap().value(QStringLiteral("source_recorded_at")).toString(),
+                 web ? QStringLiteral("2024-09-11 19:54:56") : QStringLiteral("2026-10-01 12:34:56"));
+    }
+}
+
 void ScreenshotImportParserTests::webRowExtentIgnoresANoteLineAboveTheLevel()
 {
     // 两行心得居中、第一行高于等级和日期：量行右缘的扫描线须在全部文字之上，否则停在心得上，
@@ -1384,6 +1521,63 @@ void ScreenshotImportParserTests::webRowLevelTokenToleratesFurtherMisreads()
     QVERIFY(!hasWarning(rows[1].toMap(), QStringLiteral("等级")));
     QCOMPARE(rows[2].toMap().value(QStringLiteral("duty_level")).toInt(), 90);
     QVERIFY(hasWarning(rows[2].toMap(), QStringLiteral("等级数字")));
+}
+
+void ScreenshotImportParserTests::unrecognisedWideGoldStrokeDoesNotTrimWebRow()
+{
+    // 大职业图标的稀疏上沿跨过一组留白取样列，但未被文字 OCR 返回。
+    // 第一组扫描仍符合最小行高；必须比较其他留白，保留整行及完整图标。
+    QImage image = webPage(1851, 120, {QRect(7, 7, 1829, 92)}, true);
+    {
+        QPainter painter(&image);
+        painter.fillRect(QRect(117, 17, 3, 10), QColor(220, 185, 75));
+    }
+    paintTypeIcon(image, QRect(219, 32, 34, 34), QColor(15, 180, 230));
+    const QByteArray tsv = kTsvHeader
+        + inked(image, QRect(144, 40, 50, 27), QStringLiteral("Lv.90"), 1)
+        + inked(image, QRect(282, 40, 177, 27), QStringLiteral("合成副本名称"), 2)
+        + inked(image, QRect(479, 41, 198, 23), QStringLiteral("2026-10-01 13:10:22"), 3)
+        + inked(image, QRect(700, 40, 402, 26), QStringLiteral("保留完整图标"), 4);
+    const QVariantList rows = mr::ScreenshotImportParser::parse(image, tsv, {});
+    QCOMPARE(rows.size(), 1);
+    const QVariantMap rect = rows[0].toMap().value(QStringLiteral("source_rect")).toMap();
+    QCOMPARE(rect.value(QStringLiteral("y")).toInt(), 7);
+    QCOMPARE(rect.value(QStringLiteral("height")).toInt(), 92);
+}
+
+void ScreenshotImportParserTests::neuralTextBoxesAndElevatedTypeIconDoNotSplitWebRows()
+{
+    // 整段 OCR 框较高，类型图标的顶端高于文字；旧扫描线碰到类型图标后
+    // 把行截成短条，来源时间又被手机卡片兜底重复保留，并串到了下一条时间。
+    QImage image = webPage(1851, 225, {QRect(7, 7, 1829, 92), QRect(7, 115, 1829, 92)}, true);
+    QByteArray tsv = kTsvHeader;
+    for (int i = 0; i < 2; ++i) {
+        const int top = 7 + i * 108;
+        paintTypeIcon(image, QRect(219, top + 25, 34, 34), QColor(15, 180, 230));
+        tsv += word(1, 23, top + 19, 87, 53, QStringLiteral("20"), 82, i * 10 + 6);
+        tsv += inked(image, QRect(137, top + 32, 57, 30), QStringLiteral("Lv.90"), i * 10 + 1);
+        tsv += inked(image, QRect(282, top + 33, 177, 27), QStringLiteral("合成整段副本名称"), i * 10 + 2);
+        tsv += inked(image, QRect(479, top + 34, 198, 23),
+                     i == 0 ? QStringLiteral("2026-10-01 13:10:22") : QStringLiteral("2026-10-02 22:08:21"), i * 10 + 3);
+        tsv += inked(image, QRect(700, top + 33, 402, 26),
+                     i == 0 ? QStringLiteral("第一条整段心得") : QStringLiteral("第二条整段心得"), i * 10 + 4);
+        paintDeleteMark(image, QRect(1785, top + 39, 15, 15));
+        tsv += word(1, 1780, top + 33, 29, 26, QStringLiteral("X"), 82, i * 10 + 5);
+    }
+    QString error;
+    const QVariantList rows = mr::ScreenshotImportParser::parse(image, tsv, {}, &error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+    QCOMPARE(rows.size(), 2);
+    for (int i = 0; i < 2; ++i) {
+        const QVariantMap row = rows[i].toMap();
+        const QVariantMap rect = row.value(QStringLiteral("source_rect")).toMap();
+        QVERIFY(rect.value(QStringLiteral("width")).toInt() > 1800);
+        QCOMPARE(row.value(QStringLiteral("ocr_duty_name")).toString(), QStringLiteral("合成整段副本名称"));
+        QCOMPARE(row.value(QStringLiteral("source_recorded_at")).toString(),
+                 i == 0 ? QStringLiteral("2026-10-01 13:10:22") : QStringLiteral("2026-10-02 22:08:21"));
+        QCOMPARE(row.value(QStringLiteral("reflection_text")).toString(),
+                 i == 0 ? QStringLiteral("第一条整段心得") : QStringLiteral("第二条整段心得"));
+    }
 }
 
 int main(int argc, char *argv[])

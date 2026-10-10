@@ -1,11 +1,9 @@
 #pragma once
 
 #include <QByteArray>
-#include <QImage>
-#include <QList>
 #include <QObject>
 #include <QPointer>
-#include <QRect>
+#include <QSize>
 #include <QStringList>
 #include <QTemporaryDir>
 #include <QTimer>
@@ -16,7 +14,7 @@ class QProcess;
 
 namespace mr {
 
-/// Runs only the packaged Tesseract on owned PNG copies. Each image is processed
+/// Runs only the packaged CPU neural OCR on owned PNG copies. Each image is processed
 /// serially; cancellation/timeout kills the owned process before deleting its work.
 class OfflineOcrEngine final : public QObject
 {
@@ -57,35 +55,21 @@ Q_SIGNALS:
     void finished(bool complete);
 
 private:
-    struct Field {
-        QRect rect;
-        QString kind;
-        QString language;
-        int pageSegmentation = 7;
-        QList<QRect> deleteMarks;
-    };
-
     void startNext();
     void queueNext(quint64 generation);
-    void launchProcess(const QString &input, const QString &language, int pageSegmentation);
-    bool prepareFields(const QByteArray &coarseTsv);
-    void startField();
-    void queueField(quint64 generation);
+    void launchProcess(const QString &input);
     void finishImage(QByteArray tsv);
     void stopWithError(const QString &message);
     void settle();
-    void processFinished(int exitCode);
+    void processFinished(int exitCode, bool crashed);
 
     QString m_applicationDirectory;
     QStringList m_files;
     QPointer<QProcess> m_process;
     std::unique_ptr<QTemporaryDir> m_work;
     QTimer m_timeout;
-    QString m_outputBase;
-    QImage m_image;
-    QList<Field> m_fields;
-    QByteArray m_recognizedTsv;
-    int m_fieldIndex = -1;
+    QString m_outputFile;
+    QSize m_imageSize;
     QString m_failure;
     QByteArray m_diagnostics;
     int m_timeoutMs = DefaultTimeoutMs;

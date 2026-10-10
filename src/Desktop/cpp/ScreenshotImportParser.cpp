@@ -2,6 +2,7 @@
 #include "ScreenshotOcrText.h"
 #include "ScreenshotRowLayout.h"
 #include "JobCatalog.h"
+#include "JobIconClassifier.h"
 
 #include <QDate>
 #include <QFile>
@@ -85,6 +86,7 @@ struct IconMatch {
     int runnerUpId = 0;
     QString runnerUpName;
     double runnerUpConfidence = 0;
+    bool classifier = false;
 };
 
 QString normalizedDutyName(const QString &name)
@@ -329,11 +331,30 @@ IconMatch matchIcon(const QImage &image, const QRect &card, int textLeft,
     // its icon lies left of 8 % at every window width.
     const int iconLeft = measuredLeft ? card.left() : std::max(card.left(), qRound(image.width() * 0.08));
     const int verticalInset = std::max(1, card.height() / 20);
-    if (iconRight <= iconLeft || templates.isEmpty() || card.height() <= verticalInset * 2)
+    if (iconRight <= iconLeft || card.height() <= verticalInset * 2)
+        return {};
+    const QImage crop = image.copy(QRect(iconLeft, card.top() + verticalInset,
+                                         iconRight - iconLeft, card.height() - verticalInset * 2));
+    static const mr::JobIconClassifier classifier;
+    const mr::JobIconClassifier::Result result = classifier.classify(crop);
+    if (result.available) {
+        // 模型拒识时不再尝试把同一未知图形靠模板变成可靠职业。
+        const mr::JobCatalog catalogue;
+        IconMatch match;
+        match.id = result.id;
+        match.candidateId = result.candidateId;
+        match.candidateName = result.candidateId > 0 ? catalogue.jobName(result.candidateId) : QString();
+        match.confidence = result.confidence;
+        match.runnerUpId = result.runnerUpId;
+        match.runnerUpName = result.runnerUpId > 0 ? catalogue.jobName(result.runnerUpId) : QString();
+        match.runnerUpConfidence = result.runnerUpConfidence;
+        match.classifier = true;
+        return match;
+    }
+    if (templates.isEmpty())
         return {};
     double aspect = 0;
-    const QImage mask = glyphMask(image.copy(QRect(iconLeft, card.top() + verticalInset,
-                                                 iconRight - iconLeft, card.height() - verticalInset * 2)), aspect);
+    const QImage mask = glyphMask(crop, aspect);
     if (mask.isNull())
         return {};
     IconMatch best;
@@ -434,6 +455,7 @@ QVariantMap candidateMap(const QImage &image, const Evidence &evidence, QStringL
         {QStringLiteral("width"), rect.width()}, {QStringLiteral("height"), rect.height()}});
     row.insert(QStringLiteral("ocr_confidence"), evidence.confidence);
     row.insert(QStringLiteral("icon_confidence"), icon.confidence);
+    row.insert(QStringLiteral("icon_evidence_type"), icon.classifier ? QStringLiteral("classifier") : QStringLiteral("template"));
     row.insert(QStringLiteral("job_candidate_id"), icon.candidateId > 0 ? QVariant(icon.candidateId) : QVariant());
     row.insert(QStringLiteral("job_candidate_name"), icon.candidateName);
     row.insert(QStringLiteral("icon_runner_up_id"), icon.runnerUpId > 0 ? QVariant(icon.runnerUpId) : QVariant());

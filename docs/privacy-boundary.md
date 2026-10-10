@@ -55,13 +55,17 @@
   打开**桌面端进程**，等待其退出并核对其启动时间，使桌面端被强行结束后采集服务随之停止。此外只放行启动、等待与结束
   采集服务或替身父进程的集成测试与单元测试，以及运行子进程（`dotnet`、采集服务、静态分析工具）的脚本
   `scripts/package.ps1`、`scripts/static-analysis.ps1`、`scripts/verify.ps1` 与一个打包测试。
-  `scripts/ocr-runtime.ps1` 仅管理由验证脚本刚启动的固定本地 `ocr/tesseract.exe`：
+  `scripts/ocr-runtime.ps1` 仅管理由验证脚本刚启动的固定本地 `ocr/local-ai-ocr.exe`：
   等待退出、读取退出码和超时结束这个自有进程，不查找或打开游戏进程，也不联网。
   这一例外仅按该脚本的精确路径放行 `INJ-009`，其他进程/网络规则仍适用。随软件发布的抓包代码
   一律不放行。以行内标记逐行放行的 `INJ-009` 命中都与进程句柄无关：SQLite 连接自身的句柄（`SqliteConnection.Handle`，
   位于 `src/Collector/Storage/SqliteDatabase.cs` 与单元测试 `tests/Collector.UnitTests/DatabaseIntegrityCheckTests.cs`）、
   注释中为说明取值格式而点名的 `Process.StartTime`（`src/Collector/CommandLineOptions.cs`），以及测试夹具结果记录的
   `ExitCode`（`tests/Collector.IntegrationTests/RecoveryEndToEndTests.cs`）。标记的规则见下文。
+- **本地 OCR 的联网阻断检查。** `scripts/local-ai-ocr-worker.py` 的精确行内标记仅允许
+  审计钩子列出被拒绝的网络事件名称；事件发生时在实际连接或解析之前抛出错误。
+  `tools/LocalAiOcr/test_worker.py` 的两个精确标记仅用于导入测试模块和断言同一钩子
+  已阻断解析操作。它们不按文件放行网络规则，不授权 OCR 发出请求。
 - **本软件对自身进程的其他操作。** 下列操作针对的是本软件自己的进程或内核对象，不涉及游戏进程，也不在上表禁止之列：
   桌面端读取自身进程的创建时间（`GetProcessTimes(GetCurrentProcess())`）并作为 `--parent-start-time` 传给采集服务；
   桌面端读取自身令牌的用户 SID（`OpenProcessToken(GetCurrentProcess())`），据此算出管道名，并在连上管道后用

@@ -1,0 +1,772 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-10",
+  "scope": "Re-run the preserved, already web-layout/Chinese-note-repaired Tesseract probe on the exact five user images; compare recognised fields with frozen neural OCR + classifier preview reports. No source, models, thresholds or installed application changed.",
+  "original_ui_observation": {
+    "records_visible_in_source": 10,
+    "records_visible_in_user_import_screenshot": 5,
+    "provenance": "User supplied screenshots, not a reproduced original-version binary run."
+  },
+  "alignment_method": "Match each old source_rect vertical centre to the validated original-image row band in the frozen new report. Compare with that source row, never compact output index. All output centres map to exactly one source band; no duplicate band output.",
+  "expectation_sources": {
+    "later_four": {
+      "file": "evaluate-new-real-screenshots.py",
+      "sha256": "f4c8aab72d472f5b60544bc705fb452faabeabc98a2bca14dd7e292f769339b2",
+      "bytes": 12424
+    },
+    "original": "Human transcription of the original user image, explicitly retained in summarize-comparison.py."
+  },
+  "metric_definitions": {
+    "output_records": "All parser-produced rows, including title-empty/time-only records. This is not complete record or field accuracy.",
+    "raw_titles_exact": "Exact original OCR title, before local directory substitution; missing rows count as failures.",
+    "directory_preview_titles_exact": "Directory-assisted preview title, not raw recognition; pending candidates still require user confirmation.",
+    "source_timestamps_exact": "Exact full source date/time on the aligned source row; not actual game time.",
+    "reliable_jobs_correct": "Old: nonnull raw job_id equal to expected; job_candidate_id excluded. New: classifier score >= .99, output margin >= .15, no job-icon rejection warning and matching expected job. All remain user-review candidates.",
+    "nonempty_source_notes_with_text": "At least one character extracted on the correct nonempty source row; not text correctness.",
+    "original_empty_notes_preserved": "An output exists on an originally empty source row and its note stays empty; missing row is not preservation."
+  },
+  "provenance": {
+    "old_probe": {
+      "file": "WideOcrEvidence.exe",
+      "sha256": "98ce8709364cef8f493b5388d8c34efa089805b01c874745f717358dfd64f1b7",
+      "bytes": 4082217
+    },
+    "old_linked_archive": {
+      "file": "desktoplib.a",
+      "sha256": "50d35f7007f1ebe34ab7359ac27375dfbf6b546b1aa680632e98ec61ec6a6c5b",
+      "bytes": 6136960
+    },
+    "old_probe_source": {
+      "file": "main.cpp",
+      "sha256": "8641cd194c8a2ea0a2b9a2573487c793c61484ffab394022629bda25a99551a1",
+      "bytes": 2881
+    },
+    "old_tesseract": {
+      "file": "tesseract.exe",
+      "sha256": "babb405f4366b480d02cd8ff2bac8d497170f6c1711ce6f3d5d8bf0fb7fa6ed9",
+      "bytes": 1585024
+    },
+    "old_manifest": {
+      "file": "OCR-DEPENDENCIES.json",
+      "sha256": "bdc71b182412e5497316baa298aeb8818a37df3abda969f43c90eda5bcdca61b",
+      "bytes": 27765
+    },
+    "old_models": [
+      {
+        "file": "chi_sim.traineddata",
+        "sha256": "a5fcb6f0db1e1d6d8522f39db4e848f05984669172e584e8d76b6b3141e1f730",
+        "bytes": 2469156
+      },
+      {
+        "file": "eng.traineddata",
+        "sha256": "7d4322bd2a7749724879683fc3912cb542f19906c83bcc1a52132556427170b2",
+        "bytes": 4113088
+      }
+    ],
+    "new_helper": {
+      "file": "local-ai-ocr.exe",
+      "sha256": "b78d63da16317c87c32d0dfd85d143a5c4495e8c2cc92435a84adfba5bf7fceb",
+      "bytes": 6633417
+    },
+    "new_text_models": [
+      {
+        "file": "ch_ppocr_mobile_v2.0_cls_mobile.onnx",
+        "sha256": "e47acedf663230f8863ff1ab0e64dd2d82b838fceb5957146dab185a89d6215c",
+        "bytes": 585532
+      },
+      {
+        "file": "PP-OCRv6_det_small.onnx",
+        "sha256": "090f04abcd9d9a7498bc4ebf677e4cb9bdce1fe4197ddb7e529f1ef44e1ff94f",
+        "bytes": 9929594
+      },
+      {
+        "file": "PP-OCRv6_rec_small.onnx",
+        "sha256": "6f327246b50388f3c176ae304bd95767ea6dc0c9ae92153ef8cbe210b3c14884",
+        "bytes": 21234383
+      }
+    ],
+    "new_icon_classifier": {
+      "file": "job-icon-classifier.json",
+      "sha256": "5f5ff252de2885c7765fd6eba23d6e1ee96fec06f8bdfa843bf97bfe3a8ffb83",
+      "bytes": 260755
+    }
+  },
+  "cases": [
+    {
+      "case": 0,
+      "label": "original",
+      "input": {
+        "file": "codex-clipboard-e71d5edc-ee2f-4e9b-8c3c-bac000b1a006.png",
+        "sha256": "22d5fc5f06bb79a395c73e974c78b16bf65410a4b2015cab978e5df62bd50770",
+        "bytes": 910453,
+        "width": 1851,
+        "height": 1082
+      },
+      "expected_records": 10,
+      "expected_nonempty_notes": 10,
+      "expected_empty_notes": 0,
+      "old": {
+        "output_records": 10,
+        "source_rows_with_output": 10,
+        "output_records_with_nonempty_title": 10,
+        "raw_titles_exact": 6,
+        "directory_preview_titles_exact": 9,
+        "source_timestamps_exact": 10,
+        "reliable_job_outputs": 0,
+        "reliable_jobs_correct": 0,
+        "reliable_jobs_wrong": 0,
+        "nonempty_source_notes_with_text": 10,
+        "original_empty_notes_preserved": 0,
+        "nonempty_source_notes_output_as_empty": 0,
+        "original_empty_notes_missing": 0
+      },
+      "new": {
+        "output_records": 10,
+        "source_rows_with_output": 10,
+        "output_records_with_nonempty_title": 10,
+        "raw_titles_exact": 9,
+        "directory_preview_titles_exact": 10,
+        "source_timestamps_exact": 10,
+        "reliable_job_outputs": 10,
+        "reliable_jobs_correct": 10,
+        "reliable_jobs_wrong": 0,
+        "nonempty_source_notes_with_text": 10,
+        "original_empty_notes_preserved": 0,
+        "nonempty_source_notes_output_as_empty": 0,
+        "original_empty_notes_missing": 0
+      },
+      "missing_source_rows_old": [],
+      "alignment": [
+        {
+          "old_output": 1,
+          "source_row": 1
+        },
+        {
+          "old_output": 2,
+          "source_row": 2
+        },
+        {
+          "old_output": 3,
+          "source_row": 3
+        },
+        {
+          "old_output": 4,
+          "source_row": 4
+        },
+        {
+          "old_output": 5,
+          "source_row": 5
+        },
+        {
+          "old_output": 6,
+          "source_row": 6
+        },
+        {
+          "old_output": 7,
+          "source_row": 7
+        },
+        {
+          "old_output": 8,
+          "source_row": 8
+        },
+        {
+          "old_output": 9,
+          "source_row": 9
+        },
+        {
+          "old_output": 10,
+          "source_row": 10
+        }
+      ],
+      "old_evidence": {
+        "file": "results.json",
+        "sha256": "51cd31a7739d8735f31a8dbe57473df2e2411ffa3ac8d7e58eb66d6e78858609",
+        "bytes": 13452
+      },
+      "new_evidence": {
+        "file": "preview-report.json",
+        "sha256": "70ede64692b0352a70cbd5f6022607fc9d5a99c204ccc700515c36545fc79416",
+        "bytes": 16862
+      },
+      "new_frozen_bindings": {
+        "classifier_sha256": "5f5ff252de2885c7765fd6eba23d6e1ee96fec06f8bdfa843bf97bfe3a8ffb83",
+        "helper_sha256": "b78d63da16317c87c32d0dfd85d143a5c4495e8c2cc92435a84adfba5bf7fceb",
+        "desktop_sha256": "1f4f3105fc13aae36f6a0a1dc5546482083b47e5371457c982fbac197ae6c0ce",
+        "collector_sha256": "4321292b2067b9a9dfe1f0d11103764f4608386eceb457c354f6a31efb589edb"
+      }
+    },
+    {
+      "case": 1,
+      "label": "additional-1",
+      "input": {
+        "file": "codex-clipboard-5da8720c-f74b-430a-8d50-766fd0660b6a.png",
+        "sha256": "b73aff1b05702d30f587a9bc061c25c3c0e7730c91b3019df829aadc562393c1",
+        "bytes": 380427,
+        "width": 1280,
+        "height": 688
+      },
+      "expected_records": 10,
+      "expected_nonempty_notes": 9,
+      "expected_empty_notes": 1,
+      "old": {
+        "output_records": 3,
+        "source_rows_with_output": 3,
+        "output_records_with_nonempty_title": 2,
+        "raw_titles_exact": 1,
+        "directory_preview_titles_exact": 2,
+        "source_timestamps_exact": 0,
+        "reliable_job_outputs": 1,
+        "reliable_jobs_correct": 1,
+        "reliable_jobs_wrong": 0,
+        "nonempty_source_notes_with_text": 2,
+        "original_empty_notes_preserved": 0,
+        "nonempty_source_notes_output_as_empty": 1,
+        "original_empty_notes_missing": 1
+      },
+      "new": {
+        "output_records": 10,
+        "source_rows_with_output": 10,
+        "output_records_with_nonempty_title": 10,
+        "raw_titles_exact": 9,
+        "directory_preview_titles_exact": 10,
+        "source_timestamps_exact": 10,
+        "reliable_job_outputs": 10,
+        "reliable_jobs_correct": 10,
+        "reliable_jobs_wrong": 0,
+        "nonempty_source_notes_with_text": 9,
+        "original_empty_notes_preserved": 1,
+        "nonempty_source_notes_output_as_empty": 0,
+        "original_empty_notes_missing": 0
+      },
+      "missing_source_rows_old": [
+        1,
+        2,
+        4,
+        5,
+        6,
+        8,
+        9
+      ],
+      "alignment": [
+        {
+          "old_output": 1,
+          "source_row": 3
+        },
+        {
+          "old_output": 2,
+          "source_row": 7
+        },
+        {
+          "old_output": 3,
+          "source_row": 10
+        }
+      ],
+      "old_evidence": {
+        "file": "results.json",
+        "sha256": "70f19463a75abf031e7d2b6580cac72179afbe7186b87d6389d73785b8bfb835",
+        "bytes": 4027
+      },
+      "new_evidence": {
+        "file": "preview-report.json",
+        "sha256": "7b3f524c0d3d596fe137200c957efe5e2e4be65ed10b5d0c2c26be1ef78dcda5",
+        "bytes": 16490
+      },
+      "new_frozen_bindings": {
+        "classifier_sha256": "5f5ff252de2885c7765fd6eba23d6e1ee96fec06f8bdfa843bf97bfe3a8ffb83",
+        "helper_sha256": "b78d63da16317c87c32d0dfd85d143a5c4495e8c2cc92435a84adfba5bf7fceb",
+        "desktop_sha256": "1f4f3105fc13aae36f6a0a1dc5546482083b47e5371457c982fbac197ae6c0ce",
+        "collector_sha256": "4321292b2067b9a9dfe1f0d11103764f4608386eceb457c354f6a31efb589edb"
+      }
+    },
+    {
+      "case": 2,
+      "label": "additional-2",
+      "input": {
+        "file": "codex-clipboard-74864425-dca9-4f6b-b3f4-338b7ef8cee1.png",
+        "sha256": "a92e122eb76e95ec1a465b6f4b34c20cd71a19e929eccf3147ca01abf5ce5628",
+        "bytes": 794885,
+        "width": 1871,
+        "height": 1001
+      },
+      "expected_records": 10,
+      "expected_nonempty_notes": 4,
+      "expected_empty_notes": 6,
+      "old": {
+        "output_records": 9,
+        "source_rows_with_output": 9,
+        "output_records_with_nonempty_title": 8,
+        "raw_titles_exact": 4,
+        "directory_preview_titles_exact": 8,
+        "source_timestamps_exact": 7,
+        "reliable_job_outputs": 1,
+        "reliable_jobs_correct": 1,
+        "reliable_jobs_wrong": 0,
+        "nonempty_source_notes_with_text": 3,
+        "original_empty_notes_preserved": 5,
+        "nonempty_source_notes_output_as_empty": 1,
+        "original_empty_notes_missing": 1
+      },
+      "new": {
+        "output_records": 10,
+        "source_rows_with_output": 10,
+        "output_records_with_nonempty_title": 10,
+        "raw_titles_exact": 10,
+        "directory_preview_titles_exact": 10,
+        "source_timestamps_exact": 10,
+        "reliable_job_outputs": 10,
+        "reliable_jobs_correct": 10,
+        "reliable_jobs_wrong": 0,
+        "nonempty_source_notes_with_text": 4,
+        "original_empty_notes_preserved": 6,
+        "nonempty_source_notes_output_as_empty": 0,
+        "original_empty_notes_missing": 0
+      },
+      "missing_source_rows_old": [
+        10
+      ],
+      "alignment": [
+        {
+          "old_output": 1,
+          "source_row": 1
+        },
+        {
+          "old_output": 2,
+          "source_row": 2
+        },
+        {
+          "old_output": 3,
+          "source_row": 3
+        },
+        {
+          "old_output": 4,
+          "source_row": 4
+        },
+        {
+          "old_output": 5,
+          "source_row": 5
+        },
+        {
+          "old_output": 6,
+          "source_row": 6
+        },
+        {
+          "old_output": 7,
+          "source_row": 7
+        },
+        {
+          "old_output": 8,
+          "source_row": 8
+        },
+        {
+          "old_output": 9,
+          "source_row": 9
+        }
+      ],
+      "old_evidence": {
+        "file": "results.json",
+        "sha256": "fb0bd0195d25cfe115656ec726f71ab00fef3a2f02a844127dcedcaed2cf350c",
+        "bytes": 12239
+      },
+      "new_evidence": {
+        "file": "preview-report.json",
+        "sha256": "f4919c74204f6e0d8f24973f148f7be58490e23dff096a0e934ed58c1e41c40f",
+        "bytes": 16161
+      },
+      "new_frozen_bindings": {
+        "classifier_sha256": "5f5ff252de2885c7765fd6eba23d6e1ee96fec06f8bdfa843bf97bfe3a8ffb83",
+        "helper_sha256": "b78d63da16317c87c32d0dfd85d143a5c4495e8c2cc92435a84adfba5bf7fceb",
+        "desktop_sha256": "1f4f3105fc13aae36f6a0a1dc5546482083b47e5371457c982fbac197ae6c0ce",
+        "collector_sha256": "4321292b2067b9a9dfe1f0d11103764f4608386eceb457c354f6a31efb589edb"
+      }
+    },
+    {
+      "case": 3,
+      "label": "additional-3",
+      "input": {
+        "file": "codex-clipboard-1482ac53-cf47-450a-bf85-848bfe3dfe08.png",
+        "sha256": "3a4180956cb567036163be657d598b16acd7f1df948e3dc835103e6fc7ae6b8c",
+        "bytes": 849771,
+        "width": 1874,
+        "height": 994
+      },
+      "expected_records": 10,
+      "expected_nonempty_notes": 10,
+      "expected_empty_notes": 0,
+      "old": {
+        "output_records": 10,
+        "source_rows_with_output": 10,
+        "output_records_with_nonempty_title": 10,
+        "raw_titles_exact": 9,
+        "directory_preview_titles_exact": 10,
+        "source_timestamps_exact": 10,
+        "reliable_job_outputs": 0,
+        "reliable_jobs_correct": 0,
+        "reliable_jobs_wrong": 0,
+        "nonempty_source_notes_with_text": 10,
+        "original_empty_notes_preserved": 0,
+        "nonempty_source_notes_output_as_empty": 0,
+        "original_empty_notes_missing": 0
+      },
+      "new": {
+        "output_records": 10,
+        "source_rows_with_output": 10,
+        "output_records_with_nonempty_title": 10,
+        "raw_titles_exact": 10,
+        "directory_preview_titles_exact": 10,
+        "source_timestamps_exact": 10,
+        "reliable_job_outputs": 10,
+        "reliable_jobs_correct": 10,
+        "reliable_jobs_wrong": 0,
+        "nonempty_source_notes_with_text": 10,
+        "original_empty_notes_preserved": 0,
+        "nonempty_source_notes_output_as_empty": 0,
+        "original_empty_notes_missing": 0
+      },
+      "missing_source_rows_old": [],
+      "alignment": [
+        {
+          "old_output": 1,
+          "source_row": 1
+        },
+        {
+          "old_output": 2,
+          "source_row": 2
+        },
+        {
+          "old_output": 3,
+          "source_row": 3
+        },
+        {
+          "old_output": 4,
+          "source_row": 4
+        },
+        {
+          "old_output": 5,
+          "source_row": 5
+        },
+        {
+          "old_output": 6,
+          "source_row": 6
+        },
+        {
+          "old_output": 7,
+          "source_row": 7
+        },
+        {
+          "old_output": 8,
+          "source_row": 8
+        },
+        {
+          "old_output": 9,
+          "source_row": 9
+        },
+        {
+          "old_output": 10,
+          "source_row": 10
+        }
+      ],
+      "old_evidence": {
+        "file": "results.json",
+        "sha256": "5c9d371862cc90a63f52f43533cf6b191892361cd46fecc96046d8aa6cf6944d",
+        "bytes": 12694
+      },
+      "new_evidence": {
+        "file": "preview-report.json",
+        "sha256": "ce6701f36c8f664940aed62f95e96f5aff5ccad1bf670cddfeacb28a5dfb6905",
+        "bytes": 16405
+      },
+      "new_frozen_bindings": {
+        "classifier_sha256": "5f5ff252de2885c7765fd6eba23d6e1ee96fec06f8bdfa843bf97bfe3a8ffb83",
+        "helper_sha256": "b78d63da16317c87c32d0dfd85d143a5c4495e8c2cc92435a84adfba5bf7fceb",
+        "desktop_sha256": "1f4f3105fc13aae36f6a0a1dc5546482083b47e5371457c982fbac197ae6c0ce",
+        "collector_sha256": "4321292b2067b9a9dfe1f0d11103764f4608386eceb457c354f6a31efb589edb"
+      }
+    },
+    {
+      "case": 4,
+      "label": "additional-4",
+      "input": {
+        "file": "codex-clipboard-22d0267d-ebd8-4f3a-897a-164637d73ece.png",
+        "sha256": "94b533a2cfe4a8a0cda9947c5c229abf8a21e131ce21f12356e3bd675384e955",
+        "bytes": 859401,
+        "width": 1866,
+        "height": 1001
+      },
+      "expected_records": 10,
+      "expected_nonempty_notes": 9,
+      "expected_empty_notes": 1,
+      "old": {
+        "output_records": 8,
+        "source_rows_with_output": 8,
+        "output_records_with_nonempty_title": 4,
+        "raw_titles_exact": 4,
+        "directory_preview_titles_exact": 4,
+        "source_timestamps_exact": 6,
+        "reliable_job_outputs": 0,
+        "reliable_jobs_correct": 0,
+        "reliable_jobs_wrong": 0,
+        "nonempty_source_notes_with_text": 3,
+        "original_empty_notes_preserved": 1,
+        "nonempty_source_notes_output_as_empty": 4,
+        "original_empty_notes_missing": 0
+      },
+      "new": {
+        "output_records": 10,
+        "source_rows_with_output": 10,
+        "output_records_with_nonempty_title": 10,
+        "raw_titles_exact": 10,
+        "directory_preview_titles_exact": 10,
+        "source_timestamps_exact": 10,
+        "reliable_job_outputs": 10,
+        "reliable_jobs_correct": 10,
+        "reliable_jobs_wrong": 0,
+        "nonempty_source_notes_with_text": 9,
+        "original_empty_notes_preserved": 1,
+        "nonempty_source_notes_output_as_empty": 0,
+        "original_empty_notes_missing": 0
+      },
+      "missing_source_rows_old": [
+        1,
+        5
+      ],
+      "alignment": [
+        {
+          "old_output": 1,
+          "source_row": 2
+        },
+        {
+          "old_output": 2,
+          "source_row": 3
+        },
+        {
+          "old_output": 3,
+          "source_row": 4
+        },
+        {
+          "old_output": 4,
+          "source_row": 6
+        },
+        {
+          "old_output": 5,
+          "source_row": 7
+        },
+        {
+          "old_output": 6,
+          "source_row": 8
+        },
+        {
+          "old_output": 7,
+          "source_row": 9
+        },
+        {
+          "old_output": 8,
+          "source_row": 10
+        }
+      ],
+      "old_evidence": {
+        "file": "results.json",
+        "sha256": "55ca594067760def1443cdf62b6489f62e1f1698f330c7bcc5bdfbc6ab3cbec8",
+        "bytes": 10699
+      },
+      "new_evidence": {
+        "file": "preview-report.json",
+        "sha256": "276cc70e5234b34b47daec63871d84895e04bfec49c2602c69b959beba3e4368",
+        "bytes": 16283
+      },
+      "new_frozen_bindings": {
+        "classifier_sha256": "5f5ff252de2885c7765fd6eba23d6e1ee96fec06f8bdfa843bf97bfe3a8ffb83",
+        "helper_sha256": "b78d63da16317c87c32d0dfd85d143a5c4495e8c2cc92435a84adfba5bf7fceb",
+        "desktop_sha256": "1f4f3105fc13aae36f6a0a1dc5546482083b47e5371457c982fbac197ae6c0ce",
+        "collector_sha256": "4321292b2067b9a9dfe1f0d11103764f4608386eceb457c354f6a31efb589edb"
+      }
+    }
+  ],
+  "all_five_totals": {
+    "expected_records": 50,
+    "expected_nonempty_notes": 42,
+    "expected_empty_notes": 8,
+    "old": {
+      "output_records": 40,
+      "source_rows_with_output": 40,
+      "output_records_with_nonempty_title": 34,
+      "raw_titles_exact": 24,
+      "directory_preview_titles_exact": 33,
+      "source_timestamps_exact": 33,
+      "reliable_job_outputs": 2,
+      "reliable_jobs_correct": 2,
+      "reliable_jobs_wrong": 0,
+      "nonempty_source_notes_with_text": 28,
+      "original_empty_notes_preserved": 6,
+      "nonempty_source_notes_output_as_empty": 6,
+      "original_empty_notes_missing": 2
+    },
+    "new": {
+      "output_records": 50,
+      "source_rows_with_output": 50,
+      "output_records_with_nonempty_title": 50,
+      "raw_titles_exact": 48,
+      "directory_preview_titles_exact": 50,
+      "source_timestamps_exact": 50,
+      "reliable_job_outputs": 50,
+      "reliable_jobs_correct": 50,
+      "reliable_jobs_wrong": 0,
+      "nonempty_source_notes_with_text": 42,
+      "original_empty_notes_preserved": 8,
+      "nonempty_source_notes_output_as_empty": 0,
+      "original_empty_notes_missing": 0
+    }
+  },
+  "later_four_totals": {
+    "expected_records": 40,
+    "expected_nonempty_notes": 32,
+    "expected_empty_notes": 8,
+    "old": {
+      "output_records": 30,
+      "source_rows_with_output": 30,
+      "output_records_with_nonempty_title": 24,
+      "raw_titles_exact": 18,
+      "directory_preview_titles_exact": 24,
+      "source_timestamps_exact": 23,
+      "reliable_job_outputs": 2,
+      "reliable_jobs_correct": 2,
+      "reliable_jobs_wrong": 0,
+      "nonempty_source_notes_with_text": 18,
+      "original_empty_notes_preserved": 6,
+      "nonempty_source_notes_output_as_empty": 6,
+      "original_empty_notes_missing": 2
+    },
+    "new": {
+      "output_records": 40,
+      "source_rows_with_output": 40,
+      "output_records_with_nonempty_title": 40,
+      "raw_titles_exact": 39,
+      "directory_preview_titles_exact": 40,
+      "source_timestamps_exact": 40,
+      "reliable_job_outputs": 40,
+      "reliable_jobs_correct": 40,
+      "reliable_jobs_wrong": 0,
+      "nonempty_source_notes_with_text": 32,
+      "original_empty_notes_preserved": 8,
+      "nonempty_source_notes_output_as_empty": 0,
+      "original_empty_notes_missing": 0
+    }
+  },
+  "limits": [
+    "The preserved old probe already includes prior web-row and Chinese-note repairs. The initial 5/10 is only the user UI observation and is not represented by this preserved binary.",
+    "The comparison isolates the final old and new architectures on identical files; changes to row detection, text OCR and icon inference are combined, not causally separable by these runs.",
+    "Some old records contain only time and no title. Do not equate output count with complete or importable records.",
+    "Old probe includes PNG crop/scale/invert evidence generation and stops at parser; new timing includes Collector preview. Old five runs and new four reports were parallel batches. No speed ratio, faster/slower claim or latency benchmark is supported.",
+    "Only these 13 real jobs/styles are covered; unknown artworks and remaining jobs are unverified. Model scores are not calibrated accuracy.",
+    "The later real images did not train weights or select classifier thresholds, but were used to fix parser clipping; final parser results are not an unseen-parser benchmark.",
+    "Text examples do not define character-level accuracy. Punctuation, kaomoji, leading dots and occasional extra characters still need preview correction.",
+    "New Collector preview used a prior isolated Collector binary; no current concurrent XLS source/build/package compatibility, fresh installer, installed-app replacement or release acceptance is established.",
+    "No user history was read or imported; old probe has no Collector and all frozen new reports show zero selected/history and no commit."
+  ],
+  "resources": {
+    "cpu": "Intel Core Ultra 9 275HX",
+    "platform": "Windows x64",
+    "measurement_scope": "One frozen text OCR child process on the original 1851x1082 screenshot. Includes child startup; excludes Collector preview, Qt, training environment and installer.",
+    "runtime_payload_bytes": 261028977,
+    "runtime_payload_files": 219,
+    "runtime_directory_bytes": 261135636,
+    "runtime_directory_files": 220,
+    "runtime_directory_scope": "Fixed payload plus the deployed OCR-DEPENDENCIES.json manifest copy.",
+    "text_model_bytes": 31749509,
+    "classifier_model_bytes": 260755,
+    "classifier_training_seconds": 15.447432699999808,
+    "classifier_training_scope": "CPU synthetic data generation, training and threshold selection; no runtime training.",
+    "exit_code": 0,
+    "wall_seconds": 3.6664074999998775,
+    "samples": 351,
+    "helper_sha256": "b78d63da16317c87c32d0dfd85d143a5c4495e8c2cc92435a84adfba5bf7fceb",
+    "worker_source_sha256": "4ff1ca3374bb71697aec07e7863c71347c4ae5e2d75a3e3f09dadcb79c0e9737",
+    "tsv_sha256": "197ba7136420e919c34ea3980fe996253c8fc11fba8cdef0af1eb88089568ea3",
+    "peak_working_set_bytes": 422236160,
+    "peak_committed_bytes": 430845952,
+    "peak_private_bytes": 430800896,
+    "system_only_path": true,
+    "cpu_intra_op_threads": 2,
+    "cpu_inter_op_threads": 1,
+    "stdout_bytes": 0,
+    "stderr_bytes": 0,
+    "text_box_count": 55
+  },
+  "evidence_bindings": {
+    "full_local_comparison_sha256": "e9e0179a8c7e0eef2649210467e97cab1d2966a451c5d7e3a90cb22511583262",
+    "frozen_resource_proof_sha256": "a59bfd372b4f6265e8238a8fb7c4673cb14091079187fb24e7eb137b2400a981",
+    "runtime_manifest_sha256": "12ab5c98222690c4f8bb821c5102806246d19c8b7372434112b99128e52eec58",
+    "deployed_runtime_manifest_sha256": "12ab5c98222690c4f8bb821c5102806246d19c8b7372434112b99128e52eec58",
+    "classifier_metadata_sha256": "20aafc6cf24ccb427be1774baa67ba6b37a7392b6be4d2bd6f79af5635ba1ae4"
+  },
+  "architecture_diagram": {
+    "specification": {
+      "file": "ocr/local-ocr.architecture.json",
+      "sha256": "454fd79ea8662f9b91cbff19a64171a88d876cf6607e847d989278311b168cc4",
+      "bytes": 3887
+    },
+    "interactive_html": {
+      "file": "ocr/local-ocr.html",
+      "sha256": "5983eec902f9684de00ab7e7678f9d4abdcbdd9e5100bfefac861146b7694acd",
+      "bytes": 804732
+    },
+    "readme_svg": {
+      "file": "ocr/local-ocr.svg",
+      "sha256": "7a556c769fac2f744dcee1f9613d7fbac3bd06f07e8a28b6fe5bbce4ca510f92",
+      "bytes": 149602
+    },
+    "deterministic_validation": {
+      "checksPassed": 9,
+      "checkCount": 9,
+      "compositionProfile": "showcase",
+      "compositionStatus": "pass",
+      "errors": 0,
+      "warnings": 0
+    },
+    "browser_evidence": "pass",
+    "browser_viewports": [
+      {
+        "width": 1440,
+        "height": 900,
+        "theme": "light",
+        "ok": true,
+        "readabilityOk": true,
+        "viewerChromeOk": true
+      },
+      {
+        "width": 1600,
+        "height": 1000,
+        "theme": "light",
+        "ok": true,
+        "readabilityOk": true,
+        "viewerChromeOk": true
+      },
+      {
+        "width": 1920,
+        "height": 1080,
+        "theme": "light",
+        "ok": true,
+        "readabilityOk": true,
+        "viewerChromeOk": true
+      },
+      {
+        "width": 2048,
+        "height": 1320,
+        "theme": "light",
+        "ok": true,
+        "readabilityOk": true,
+        "viewerChromeOk": true
+      }
+    ],
+    "browser_capture_count": 4,
+    "visual_review": "passed",
+    "visual_review_scope": [
+      "1440x900 light HTML screenshot",
+      "2048x1320 dark HTML screenshot",
+      "1000px-wide native SVG export screenshot"
+    ],
+    "visual_review_notes": "Labels readable, no overlapping labels or clipped nodes; logical data-flow arrows reviewed. Browser pass is separate from image-capable visual review.",
+    "correction_rounds": 4,
+    "local_delivery_receipt_sha256": "69f7a24acead10b5d14a2576a5fd0c6075ca6c090ac8c4fbd94d8ab311dda7a4",
+    "local_browser_receipt_sha256": "cab500f5c37e2c9a91a4a7ac3489ab6bc8fbae697a88d9b1cf9074ba0a997a76"
+  }
+}

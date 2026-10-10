@@ -12,6 +12,9 @@ Dialog {
     readonly property bool inputLocked: working || (controller && controller.pendingCommitConfirmation)
     readonly property var candidate: controller ? controller.currentCandidate : ({})
     readonly property var evidence: controller ? controller.currentEvidence : ({})
+    readonly property string iconEvidenceText: evidence.icon_evidence_type === "classifier"
+        ? qsTr("图标识别得分 %1/100").arg(Math.round(Number(evidence.icon_confidence || 0) * 100))
+        : qsTr("图形相似度 %1%").arg(Math.round(Number(evidence.icon_confidence || 0) * 100))
     readonly property var rowData: controller && controller.currentRow >= 0
                                    ? controller.rows[controller.currentRow] : ({})
     readonly property int jobChoiceIndex: jobOptionIndex()
@@ -568,7 +571,7 @@ Dialog {
                                     Item { Layout.fillWidth: true }
                                     AppButton { objectName: "importViewWholeImage"; text: qsTr("查看整张"); compact: true; visible: !!dialog.evidence.source_url; enabled: !dialog.inputLocked; onClicked: { dialog.flushEditors(); imageDialog.zoom = 1; imageDialog.open() } }
                                 }
-                                Text { textFormat: Text.PlainText; Layout.fillWidth: true; visible: !!dialog.evidence.source_url; text: qsTr("文字参考分 %1 · 图形相似度 %2%").arg(Math.round(Number(dialog.evidence.ocr_confidence || 0) * 100)).arg(Math.round(Number(dialog.evidence.icon_confidence || 0) * 100)); color: Theme.textSecondary; font.pixelSize: Theme.fs(11); wrapMode: Text.WordWrap }
+                                Text { textFormat: Text.PlainText; Layout.fillWidth: true; visible: !!dialog.evidence.source_url; text: qsTr("文字参考分 %1 · %2").arg(Math.round(Number(dialog.evidence.ocr_confidence || 0) * 100)).arg(dialog.iconEvidenceText); color: Theme.textSecondary; font.pixelSize: Theme.fs(11); wrapMode: Text.WordWrap }
                                 Rectangle {
                                     Layout.fillWidth: true
                                     Layout.preferredHeight: Math.max(100, Math.min(220,
@@ -633,7 +636,7 @@ Dialog {
                                     StyledTextField { objectName: "importDutyName"; Layout.fillWidth: true; text: dialog.value("duty_name"); onEditingFinished: dialog.edit("duty_name", text.trim()) }
                                     FieldLabel { text: qsTr("副本类别") }
                                     StyledTextField { objectName: "importDutyCategory"; Layout.fillWidth: true; text: dialog.value("duty_category"); placeholderText: qsTr("根据副本自动填写"); Accessible.description: qsTr("根据匹配的副本资料自动填写类别"); onEditingFinished: { const category = text.trim(); if (category !== dialog.value("duty_category")) dialog.edit("duty_category", category || null) } }
-                                    Text { textFormat: Text.PlainText; objectName: "importJobCandidateWarning"; Layout.columnSpan: 2; Layout.fillWidth: true; visible: dialog.evidence.job_candidate_pending === true || dialog.unsupportedSourceJob; text: dialog.unsupportedSourceJob ? qsTr("来源职业不适用于导随，请核对并选择职业。") : qsTr("候选待复核：%1（图形相似度 %2%），请对照原图确认职业。").arg(dialog.evidence.job_candidate_name || "").arg(Math.round(Number(dialog.evidence.icon_confidence || 0) * 100)); color: Theme.orangeText; font.pixelSize: Theme.fs(12); wrapMode: Text.WordWrap }
+                                    Text { textFormat: Text.PlainText; objectName: "importJobCandidateWarning"; Layout.columnSpan: 2; Layout.fillWidth: true; visible: dialog.evidence.job_candidate_pending === true || dialog.unsupportedSourceJob; text: dialog.unsupportedSourceJob ? qsTr("来源职业不适用于导随，请核对并选择职业。") : qsTr("候选待复核：%1（%2），请对照原图确认职业。").arg(dialog.evidence.job_candidate_name || "").arg(dialog.iconEvidenceText); color: Theme.orangeText; font.pixelSize: Theme.fs(12); wrapMode: Text.WordWrap }
                                     FieldLabel { text: qsTr("职业") }
                                     StyledComboBox {
                                         objectName: "importJob"; Layout.fillWidth: true; model: dialog.controller ? dialog.controller.jobChoices : []; textRole: "job_name"; currentIndex: dialog.jobChoiceIndex

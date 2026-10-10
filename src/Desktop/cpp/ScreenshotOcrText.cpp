@@ -24,18 +24,28 @@ namespace {
 
 using namespace mr::screenshot;
 
-bool needsWordSpace(const QString &left, const QString &right)
+bool needsWordSpace(const Word &left, const Word &right)
 {
-    if (left.isEmpty() || right.isEmpty())
+    if (left.text.isEmpty() || right.text.isEmpty())
         return false;
-    const QChar last = left.back();
-    const QChar first = right.front();
+    const QChar last = left.text.back();
+    const QChar first = right.text.front();
     if (isHan(last) || isHan(first) || last.isSpace() || first.isSpace())
         return false;
     if (QStringLiteral(".,:;!?，。：；！？)]}）】」》").contains(first)
         || QStringLiteral("([{（【「《").contains(last))
         return false;
-    return last.isLetterOrNumber() && first.isLetterOrNumber();
+    // 日期和时刻是两个完整结构字段，检测框即使相邻或重叠也须保留分隔。
+    // 只接受整块日期 + 整块时刻，不能借时间格式给普通数字正文补空格。
+    static const QRegularExpression datePart(QStringLiteral(R"(^\d{4}\s*[-－]\s*\d{2}\s*[-－]\s*\d{2}$)"));
+    static const QRegularExpression timePart(QStringLiteral(R"(^\d{2}\s*[:：]\s*\d{2}\s*[:：]\s*\d{2}$)"));
+    if (datePart.match(left.text).hasMatch() && timePart.match(right.text).hasMatch())
+        return true;
+    // 稀疏检测可能把同一个 ASCII 单词或颜文字中的数字拆成相邻框。
+    // 只有原图框间存在明显词间距时才补空格，不能仅凭两个字母/数字相遇就插入。
+    const int gap = right.rect.left() - left.rect.right() - 1;
+    const int spacing = std::max(2, std::min(left.rect.height(), right.rect.height()) / 5);
+    return last.isLetterOrNumber() && first.isLetterOrNumber() && gap > spacing;
 }
 
 void finishLine(Line &line)
@@ -83,10 +93,12 @@ namespace mr::screenshot {
 QString joinWords(const QList<Word> &words)
 {
     QString out;
+    const Word *previous = nullptr;
     for (const Word &word : words) {
-        if (needsWordSpace(out, word.text))
+        if (previous && needsWordSpace(*previous, word))
             out += QLatin1Char(' ');
         out += word.text;
+        previous = &word;
     }
     return out.trimmed();
 }

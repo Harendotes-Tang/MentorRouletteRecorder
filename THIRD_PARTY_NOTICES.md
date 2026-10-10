@@ -50,25 +50,29 @@ GCC Runtime Library Exception 3.1 分发（`docs/licenses/GCC-RUNTIME-LIBRARY-EX
 
 ### 离线截图文字识别
 
-随包的 `ocr/` 使用 UB Mannheim 第三方 Windows 构建 **Tesseract
-5.4.0.20240606**（Apache-2.0），以及官方 `tessdata_fast` 的简体中文/英文模型
-（Apache-2.0，固定提交 `87416418657359cb625c412a48b6e1d6d41c29bd`）。
-发行包只提取识别程序所需的完整 PE 依赖，不包含训练工具。运行时不下载模型、不上传截图。
-来源、逐文件哈希、每个 DLL 的组件归属和许可证见随包的
-`ocr/OCR-DEPENDENCIES.json`；完整许可证和上游版权声明位于 `ocr/licenses/`
-（源码副本位于 `docs/licenses/ocr/`）。
+随包的 `ocr/` 使用 **RapidOCR 3.10.0**（Apache-2.0）、**ONNX Runtime
+1.31.0**（MIT）和 **CPython 3.11.9**（PSF-2.0 及内嵌第三方声明）。固定本地模型为
+`PP-OCRv6_det_small.onnx`、`PP-OCRv6_rec_small.onnx` 和
+`ch_ppocr_mobile_v2.0_cls_mobile.onnx`（Apache-2.0）。
+识别程序由 PyInstaller 冻结为自包含 Windows x64 CPU 程序；PyInstaller 按
+GPL-2.0-or-later 附 Bootloader Exception，程序不依赖用户安装的 Python 或 GPU。
+运行时不下载模型、不上传截图。
 
-传递依赖包括 Leptonica、libarchive、libb2、bzip2、OpenSSL、libdeflate、Expat、
-GCC runtime、giflib、GNU libiconv/libcharset、JBIG-KIT、libjpeg-turbo、Lerc、LZ4、
-XZ liblzma、OpenJPEG、libpng、libwebp、libtiff、mingw-w64 winpthreads、Zstandard、zlib。
-GNU libiconv/libcharset 按 LGPL-2.1-or-later / LGPL-2.0-or-later，JBIG-KIT 按
-GPL-2.0-or-later，GCC runtime 按 GPL-3.0-or-later with GCC Runtime Library Exception 3.1；
-其余依赖的 Apache、BSD、MIT、IJG、Zlib、CC0、0BSD 等文本和源码地址逐项列在该清单。
+实际冻结依赖包括 NumPy、OpenCV、Pillow、PyYAML、Shapely、pyclipper、
+colorlog/colorama、requests 及其传递依赖，以及 CPython 内嵌的
+OpenSSL、Expat、XZ liblzma 和 zlib。构建来源记录还保留 PyInstaller 构建工具的声明。
+每个实际文件、内嵌组件、版本、来源、SHA256 和许可证归属均记录于
+`ocr/OCR-DEPENDENCIES.json`；完整许可证和上游版权声明位于 `ocr/licenses/`。
+源码中的固定依赖清单为 `docs/licenses/ocr/dependency-manifest.json`。
 
-This software is based in part on the work of the Independent JPEG Group.
+识别框架来源：[RapidOCR](https://github.com/RapidAI/RapidOCR)；
+推理运行时来源：[ONNX Runtime](https://github.com/microsoft/onnxruntime)；
+模型来源与固定文件哈希逐项记录在上述清单中。
 
-Tesseract Windows 构建来源：[UB Mannheim 固定发行版](https://github.com/UB-Mannheim/tesseract/releases/tag/v5.4.0.20240606)。
-模型来源：[官方 tessdata_fast 固定提交](https://github.com/tesseract-ocr/tessdata_fast/tree/87416418657359cb625c412a48b6e1d6d41c29bd)。
+小型职业图标分类器由现有本地游戏图标派生，来源记录位于
+`src/Desktop/resources/models/job-icon-classifier.metadata.json`。它遵循已有游戏素材的
+素材开关和非商业分发边界，不建立新的上游许可。维护者于 2026-10-10 明确要求发布
+本次 Beta，当前固定权重的发布授权、版本与 SHA256 登记在上述元数据中；新训练产物仍默认待审核。
 
 | 组件 | 版本 | 许可证 |
 |---|---|---|

@@ -2,6 +2,7 @@
 #include "ImportRecordsController.h"
 #include "JobCatalog.h"
 #include "OfflineOcrEngine.h"
+#include "JobIconClassifier.h"
 
 #include <QCoreApplication>
 #include <QClipboard>
@@ -126,12 +127,14 @@ QString installTestWorker(QTemporaryDir &directory)
 {
     const QString app = directory.filePath(QStringLiteral("test-app"));
     const QString ocr = QDir(app).filePath(QStringLiteral("ocr"));
-    if (!QDir().mkpath(QDir(ocr).filePath(QStringLiteral("tessdata"))))
+    if (!QDir().mkpath(QDir(ocr).filePath(QStringLiteral("models"))))
         return {};
-    if (!QFile::copy(QCoreApplication::applicationFilePath(), QDir(ocr).filePath(QStringLiteral("tesseract.exe"))))
+    if (!QFile::copy(QCoreApplication::applicationFilePath(), QDir(ocr).filePath(QStringLiteral("local-ai-ocr.exe"))))
         return {};
-    createFile(QDir(ocr).filePath(QStringLiteral("tessdata/chi_sim.traineddata")), "test-model");
-    createFile(QDir(ocr).filePath(QStringLiteral("tessdata/eng.traineddata")), "test-model");
+    for (const QString &name : {QStringLiteral("PP-OCRv6_det_small.onnx"),
+                               QStringLiteral("PP-OCRv6_rec_small.onnx"),
+                               QStringLiteral("ch_ppocr_mobile_v2.0_cls_mobile.onnx")})
+        createFile(QDir(ocr).filePath(QStringLiteral("models/") + name), "test-model");
     return app;
 }
 
@@ -670,9 +673,9 @@ private Q_SLOTS:
         const QString app = installTestWorker(directory);
         QVERIFY(!app.isEmpty());
 
-        // A local synthetic glyph makes the candidate path testable even in
-        // builds that intentionally do not bundle game artwork. The screenshot
-        // is a solid gold block, so a best match must still remain uncertain.
+        // Public builds test an uncertain template candidate; personal builds
+        // test a known classifier candidate using an existing icon resource.
+        const bool useClassifier = mr::JobIconClassifier().isAvailable();
         const QString jobsDirectory = directory.filePath(QStringLiteral("MentorRecorder/icons/jobs"));
         QVERIFY(QDir().mkpath(jobsDirectory));
         QImage glyph(56, 56, QImage::Format_ARGB32);
@@ -690,6 +693,12 @@ private Q_SLOTS:
             painter.fillRect(QRect(30, 70, 540, 180), QColor(85, 45, 45));
             painter.fillRect(QRect(50, 110, 72, 72), QColor(220, 185, 75));
             painter.fillRect(QRect(225, 98, 30, 25), QColor(15, 180, 230));
+            if (useClassifier) {
+                painter.fillRect(QRect(50, 110, 72, 72), QColor(85, 45, 45));
+                const QImage known(QStringLiteral(":/resources/icons/jobs/28.png"));
+                QVERIFY(!known.isNull());
+                painter.drawImage(QRect(50, 110, 72, 72), known);
+            }
         }
         const QString imagePath = directory.filePath(QStringLiteral("synthetic.png"));
         QVERIFY(image.save(imagePath));
@@ -712,7 +721,7 @@ private Q_SLOTS:
         QCOMPARE(candidate.value("duty_name").toString(), canonicalDuty);
         QCOMPARE(candidate.value("reflection_text").toString(), QStringLiteral("合成心得第一行\n合成心得第二行"));
         for (const QString &key : {QStringLiteral("job_candidate_pending"), QStringLiteral("job_candidate_id"),
-                                  QStringLiteral("icon_confidence"), QStringLiteral("source_image"),
+                                  QStringLiteral("icon_confidence"), QStringLiteral("icon_evidence_type"), QStringLiteral("source_image"),
                                   QStringLiteral("source_rect"), QStringLiteral("evidence"), QStringLiteral("needs_review"),
                                   QStringLiteral("ocr_duty_name"), QStringLiteral("duty_candidate_name"),
                                   QStringLiteral("duty_candidate_pending")})
@@ -725,7 +734,13 @@ private Q_SLOTS:
         QVariantMap evidence = controller.currentEvidence();
         QCOMPARE(evidence.value("job_candidate_id").toInt(), originalJob);
         QVERIFY(evidence.value("job_candidate_pending").toBool());
-        QVERIFY(evidence.value("icon_confidence").toDouble() < 0.82);
+        if (useClassifier) {
+            QCOMPARE(evidence.value("icon_evidence_type").toString(), QStringLiteral("classifier"));
+            QVERIFY(evidence.value("icon_confidence").toDouble() >= 0.99);
+        } else {
+            QCOMPARE(evidence.value("icon_evidence_type").toString(), QStringLiteral("template"));
+            QVERIFY(evidence.value("icon_confidence").toDouble() < 0.82);
+        }
         QVERIFY(evidence.value("needs_review").toBool());
         QCOMPARE(evidence.value("source_image").toString(), imagePath);
         QCOMPARE(evidence.value("ocr_duty_name").toString(), recognizedDuty);
@@ -1769,7 +1784,7 @@ ApplicationWindow {
 
 int main(int argc, char **argv)
 {
-    if (argc >= 3 && QFileInfo(QString::fromLocal8Bit(argv[0])).baseName() == QLatin1String("tesseract")) {
+    if (argc >= 3 && QFileInfo(QString::fromLocal8Bit(argv[0])).baseName() == QLatin1String("local-ai-ocr")) {
         QCoreApplication application(argc, argv);
         if (qEnvironmentVariableIsSet("MR_TEST_OCR_SLEEP"))
             QThread::msleep(10000);
@@ -1782,7 +1797,11 @@ int main(int argc, char **argv)
             if (tsv.size() > 8 * 1024 * 1024)
                 return 2;
         }
-        QFile output(application.arguments()[2] + QStringLiteral(".tsv"));
+        const QStringList arguments = application.arguments();
+        const int outputFlag = arguments.indexOf(QStringLiteral("--output"));
+        if (outputFlag < 0 || outputFlag + 1 >= arguments.size())
+            return 2;
+        QFile output(arguments[outputFlag + 1]);
         return output.open(QIODevice::WriteOnly) && output.write(tsv) == tsv.size() ? 0 : 1;
     }
     QQuickStyle::setStyle(QStringLiteral("Basic"));

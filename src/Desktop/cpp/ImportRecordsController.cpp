@@ -347,7 +347,8 @@ void ImportRecordsController::recognizeImage(const QString &path, const QByteArr
         QVariantMap row = value.toMap();
         QVariantMap evidence;
         for (const QString &key : {QStringLiteral("source_rect"), QStringLiteral("source_image"), QStringLiteral("ocr_confidence"),
-                                  QStringLiteral("icon_confidence"), QStringLiteral("needs_review"), QStringLiteral("warnings"),
+                                  QStringLiteral("icon_confidence"), QStringLiteral("icon_evidence_type"),
+                                  QStringLiteral("needs_review"), QStringLiteral("warnings"),
                                   QStringLiteral("duty_level"), QStringLiteral("source_type"), QStringLiteral("job_candidate_id"),
                                   QStringLiteral("ocr_duty_name"), QStringLiteral("duty_candidate_name"),
                                   QStringLiteral("duty_candidate_pending"),

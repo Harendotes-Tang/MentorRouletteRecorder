@@ -37,3 +37,13 @@ jobs_framed\<abbr>.png
 content_types\icon_<id>.png
 roles\{tank,healer,melee,ranged,magic,allrounder}.png
 ```
+
+## 小型职业图标分类器
+
+本项目还从上述本地图标训练小型职业分类器。维护者于 2026-10-10 明确要求将已验证的
+固定权重纳入 `1.7.0-beta.3`；本次沿用 2026-09-07 的非商业素材分发决定及版权声明，
+不声称取得新的上游许可或独立模型许可。权重 SHA256、训练来源与本次授权范围见
+[`../models/job-icon-classifier.metadata.json`](../models/job-icon-classifier.metadata.json)。
+
+`MR_BUNDLE_GAME_ICONS=OFF` 同时排除内嵌分类器权重。训练脚本产生的新权重仍默认
+`PUBLIC_DISTRIBUTION_READY=false`，须另行核验来源与分发决定；当前固定模型的授权不自动覆盖重训产物。
