@@ -111,7 +111,7 @@ public sealed class StatisticsTrendTests
     }
 
     [Fact]
-    public void ARunWithNoMatchTimeFallsOutOfTheSeriesButNotOutOfTheTotal()
+    public void ARunWithNoMatchTimeUsesItsActualEntryDateInTheSeries()
     {
         using var fixture = new TestDatabase();
         var runs = new RunRepository(fixture.Database);
@@ -126,7 +126,7 @@ public sealed class StatisticsTrendTests
         var dashboard = Repository(fixture).GetDashboard();
 
         Assert.Equal(1, dashboard.CompletedCount);
-        Assert.Equal(0, dashboard.Trend.Buckets.Sum(bucket => bucket.CompletedCount));
+        Assert.Equal(1, dashboard.Trend.Buckets.Sum(bucket => bucket.CompletedCount));
     }
 
     [Fact]

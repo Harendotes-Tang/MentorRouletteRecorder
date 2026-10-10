@@ -65,25 +65,39 @@ public sealed class RunImportIpcTests
         Assert.Equal("合成截图心得经核对", run["reflection"]!["text"]!.GetValue<string>());
         Assert.Equal("unknown", run["reflection"]!["mood"]!.GetValue<string>());
         Assert.Equal("COMPLETED", run["result"]!.GetValue<string>());
-        Assert.True(run["pending_review"]!.GetValue<bool>());
+        Assert.False(run["pending_review"]!.GetValue<bool>());
+        Assert.True(run["import_metadata"]!["incomplete"]!.GetValue<bool>());
+        Assert.Equal("IMPORT", run["source"]!.GetValue<string>());
+        Assert.Null(run["matched_at_utc"]);
         Assert.Null(run["entered_at_utc"]);
         Assert.Null(run["ended_at_utc"]);
         Assert.Equal("2026-10-08T12:30:00.000Z", run["import_metadata"]!["source_recorded_at_utc"]!.GetValue<string>());
-        Assert.Equal(0, (await client.SendAsync("GetDashboardStats")).Require()["completed_count"]!.GetValue<int>());
+        Assert.Null(run["duration_ms"]);
+        var initialStats = (await client.SendAsync("GetDashboardStats")).Require();
+        Assert.Equal(1, initialStats["completed_count"]!.GetValue<int>());
+        Assert.Equal(1, initialStats["achievement_progress"]!.GetValue<int>());
+        Assert.Equal(0, initialStats["unfinished_pending_review"]!.GetValue<int>());
+        Assert.Null(initialStats["avg_duration_ms"]);
         var runId = run["run_id"]!.GetValue<string>();
         var incompleteCorrection = new JsonObject
         {
-            ["run_id"] = runId, ["expected_revision"] = 1, ["reason"] = "合成补齐",
-            ["changes"] = new JsonObject { ["result"] = "COMPLETED", ["pending_review"] = false },
+            ["run_id"] = runId, ["expected_revision"] = 1, ["reason"] = "合成备注补充",
+            ["changes"] = new JsonObject { ["note"] = "已确认通关，实际游戏时间不详" },
         };
-        Assert.Equal(ErrorCodes.BadRequest, (await client.SendAsync("CorrectRun", incompleteCorrection.DeepClone().AsObject())).ErrorCode);
+        var noteEdited = (await client.SendAsync("CorrectRun", incompleteCorrection.DeepClone().AsObject())).Require()["run"]!;
+        Assert.Null(noteEdited["entered_at_utc"]);
+        Assert.Null(noteEdited["ended_at_utc"]);
+        Assert.Null(noteEdited["duration_ms"]);
+        Assert.True(noteEdited["import_metadata"]!["incomplete"]!.GetValue<bool>());
+        incompleteCorrection["expected_revision"] = 2;
+        incompleteCorrection["reason"] = "补充已知游戏事实";
         var changes = incompleteCorrection["changes"]!.AsObject();
         changes["entered_at_utc"] = "2026-10-08T12:00:00.000Z";
         changes["ended_at_utc"] = "2026-10-08T12:20:00.000Z";
         changes["duration_ms"] = null;
         Assert.True((await client.SendAsync("CorrectRun", incompleteCorrection)).Ok);
         Assert.Equal(1, (await client.SendAsync("GetDashboardStats")).Require()["completed_count"]!.GetValue<int>());
-        Assert.Equal(2, (await client.SendAsync("GetRunRevisions", new JsonObject { ["run_id"] = runId })).Require()["items"]!.AsArray().Count);
+        Assert.Equal(3, (await client.SendAsync("GetRunRevisions", new JsonObject { ["run_id"] = runId })).Require()["items"]!.AsArray().Count);
     }
 
     [Fact]
@@ -117,10 +131,10 @@ public sealed class RunImportIpcTests
             ["rows"] = new JsonArray(new JsonObject
             {
                 ["duty_name"] = "合成表格副本", ["job_name"] = "骑士", ["result"] = "COMPLETED",
-                ["entered_at_utc"] = "2026-10-01T12:00:00.000Z", ["ended_at_utc"] = "2026-10-01T12:20:00.000Z",
+                ["source_recorded_at"] = "2026-10-01",
             }),
         })).Require();
-        Assert.False(preview["rows"]![0]!["incomplete"]!.GetValue<bool>());
+        Assert.True(preview["rows"]![0]!["incomplete"]!.GetValue<bool>());
         var payload = new JsonObject
         {
             ["preview_id"] = preview["preview_id"]!.DeepClone(), ["row_numbers"] = new JsonArray(1),

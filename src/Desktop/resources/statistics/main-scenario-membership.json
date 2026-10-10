@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "scope": "MENTOR_COMPLETIONS",
+  "data_version": "2026-10-10",
+  "catalogue_version": "2026-09-04",
+  "source": "Explicit main-scenario roulette duty membership from the official Patch 6.1 notes, cross-checked against the installed CN and GLOBAL duty catalogues. Used only to classify already-counted mentor completions; not to identify a roulette on the wire.",
+  "official_source_url": "https://eu.finalfantasyxiv.com/lodestone/topics/detail/c73cd284013587066d8f9e697fab1db9f007372c/",
+  "official_source_section": "The duties listed within Duty Roulette: Main Scenario have been changed as follows",
+  "local_sources": [
+    "data/duties/cn.2026-09-04.json",
+    "data/duties/global.2026-09-04.json"
+  ],
+  "duties": [
+    { "content_id": 15, "local_name": "神兵要塞帝国南方堡", "official_name": "Castrum Meridianum" },
+    { "content_id": 16, "local_name": "最终决战天幕魔导城", "official_name": "The Praetorium" },
+    { "content_id": 830, "local_name": "究极神兵破坏作战", "official_name": "The Porta Decumana" }
+  ]
+}

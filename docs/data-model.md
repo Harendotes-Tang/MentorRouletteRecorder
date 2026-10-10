@@ -27,7 +27,7 @@ Microsoft.Data.Sqlite 仍会自行重试至命令超时（默认 5 秒）为止�
 | 时长 | `duration_ms` 为整数毫秒，来自**单调时钟**（`Stopwatch`）。绝不由两个墙钟时间戳相减得出。手工补录时若只给出起止时间，则由它们计算，并要求结果 `>= 0`。 |
 | 主键 | 一律 UUID v4 的 `TEXT`（小写带连字符）。 |
 | 布尔 | `INTEGER`，取值 0 或 1，并加 `CHECK` 约束。 |
-| 删除 | 业务记录**只做软删除**（`soft_deleted = 1`）。修订表 `run_revisions` **只追加**，永不 UPDATE / DELETE。 |
+| 删除 | 先软删除（`soft_deleted = 1`）；保留期内可恢复。已软删除记录可经受控永久清理移除，普通修订仍只追加。 |
 | 未知 | 未知即 `NULL`，绝不填占位数值。展示层把 `job_id IS NULL` 显示为 `未知`（自成一类）。 |
 
 ## 1. `mentor_runs` —— 一次导随尝试
@@ -50,7 +50,7 @@ Microsoft.Data.Sqlite 仍会自行重试至命令超时（默认 5 秒）为止�
 | `job_name` | TEXT | NULL | 职业名称；`job_id IS NULL` 时为 `未知` |
 | `role` | TEXT | NOT NULL, IN (`TANK`,`HEALER`,`DPS`,`UNKNOWN`) | 由 `job_id` 推导 |
 | `matched_at_utc` | TEXT | NULL | 匹配弹窗出现时间 |
-| `entered_at_utc` | TEXT | NULL | 进入副本时间。**判定是否计入 attempt 的依据** |
+| `entered_at_utc` | TEXT | NULL | 进入副本时间。采集记录据此判定 attempt；已确认且结果已知的历史导入允许保持未知 |
 | `ended_at_utc` | TEXT | NULL | 结束时间 |
 | `duration_ms` | INTEGER | NULL, `>= 0` | 单调时钟测得的时长 |
 | `result` | TEXT | NOT NULL, IN (`COMPLETED`,`LEFT_OR_ABANDONED`,`CANCELLED_BEFORE_ENTRY`,`DISCONNECTED`,`INTERRUPTED`,`UNKNOWN`) | 结果 |
@@ -93,14 +93,20 @@ INDEX ix_runs_pending_review ON mentor_runs(pending_review) WHERE pending_review
   [state-machine.md](state-machine.md) §3.9），或由不声明 `DUTY_RESULT` 的档案在离开副本前没有收到通关结算时
   置为 `UNKNOWN`（§3.10）；全部来源见 [statistics-definitions.md](statistics-definitions.md) §12。
   待复核不等于结果未知：生成记录的校准事后被撤下时，记录只加上该标记，原结果（可能是 `COMPLETED`）不变，
-  照常计入统计与成就进度。它是
-  `GetDashboardStats.unfinished_pending_review` 的唯一依据。此前该口径由
+  照常计入统计与成就进度。非历史导入且具备统计资格的记录中，该标志是
+  `GetDashboardStats.unfinished_pending_review` 的计数依据。此前该口径由
   `result = INTERRUPTED AND detection_confidence = LOW AND manually_corrected = 0` 推断，
   现已改为直接读取该列，不再通过置信度间接判断待复核状态。
-- Collector **永远不会**自行清除该标记。用户通过 `CorrectRun` 提交结果或显式设置
+- 普通采集不会自行清除该标记。用户通过 `CorrectRun` 提交结果或显式设置
   `pending_review=false`，以及 `SoftDeleteRun`（软删除该记录），会将其置 0。
   仅更正备注等其他字段时，待复核标记保留；人工字段保护读取 `run_revisions`，
   不以历史标记冻结整行。
+- 历史导入不因未知游戏时间进入总览待复核。升级时，兼容维护仅依据明确导入来源、导入元数据或
+  IMPORT 创建修订恢复导入身份，并审计清除旧的时间缺口标志；不会据缺进本时间猜测导入身份或改写结果。
+  该导入兼容维护修订不能撤销，缺失事实仍显示「待补充」。
+  旧记录被重启收尾误改为取消或中断时，仅在同库完整 IMPORT 初值、连续系统修订、对应重启事件与当前末态
+  都证明该误写且无人为游戏字段决定时，恢复审计中的已知结果及被误写的时间字段；保留其他人工编辑。
+  审计缺失、损坏、断链或冲突时不恢复结果，外部备份中的缺失链不能用于推断。
 - `note` 是用户在更正对话框中手工填写的本地备注文本，永远不来自抓包内容，也不离开本机。
 
 迁移 0002 会把历史上符合旧口径的记录回填为 `pending_review = 1`，因此升级前后
@@ -200,7 +206,8 @@ UNIQUE INDEX ux_events_key ON run_events(event_key) WHERE event_key IS NOT NULL
 
 ## 3. `run_revisions` —— 只追加的审计表
 
-每次变更写一行；**永不 UPDATE，永不 DELETE**（含软删除与恢复本身）。
+每次普通变更写一行，不 UPDATE 或 DELETE（含软删除与恢复本身）。schema v10 的永久清理事务
+通过指定 `run_id` 的临时授权删除对应整条修订链，普通写操作不具备该授权。
 
 | 列 | 类型 | 约束 | 说明 |
 |---|---|---|---|
@@ -374,9 +381,11 @@ INDEX ix_revisions_run ON run_revisions(run_id, revision)
 schema v9 通过 `migrations/0009_personal_record_import.sql` 增加 `run_import_metadata` 与
 `run_import_batches`。前者按 `run_id` 保存来源类型/名称、原站时间原文及可确定的 UTC、导入时间、
 唯一的来源指纹和 `mentor_confirmed`；后者保存预览/请求编号、选择指纹和提交回执，支持重启后确认同一批次。
-`Run.import_metadata` 是可选投影，`incomplete` 按待复核状态、结果及所需游戏时间字段计算，不是另一份可修改的数据库标志。
+`Run.import_metadata` 是可选投影，`incomplete` 按结果及所需游戏时间字段计算，不是另一份可修改的数据库标志，
+也不是是否计数或是否待复核的判断条件。
 原站只有日期时保留原文，UTC 未知；原站时间不填入实际匹配、进本或结束时间。
-来源缺少结果时，导入预览按用户选择默认通关并允许修改；缺少实际游戏信息的记录仍待补充且不计统计。
+来源缺少结果时，导入预览按用户选择默认通关并允许修改；确认本人导随及实际结果后，缺游戏时间的记录
+只显示待补充，仍计入完成次数与成就。结果未知或未经确认的导入不计统计。
 备份导入只合并记录和心得，不复制来源数据库的采集外键、设置或备注附件。
 提交带 `deduct_from_baseline = true` 时，同一事务内还会把本次新写入且计入进度的通关数从 `achievement_settings.baseline_completed_count`
 中扣除（最低到 0），并以该提交的请求编号追加一条 `achievement.baseline_history` 记录；回执中带 `baseline_deducted_count` 与扣除后的基数
@@ -396,3 +405,19 @@ CSV 的 `date` 列是**UTC 日历日**（取 `entered_at` / `matched_at` / `ende
 时间戳，本身没有歧义。但对 UTC+8 的用户而言，当地 22:00 进行的一场记录，
 其 `date` 会落在**前一天**。
 `duty_source`（§1.4）不在导出里。
+
+## 11. 回收站与永久清理（schema v10）
+
+`migrations/0010_history_retention.sql` 增加 `mentor_runs.deleted_at_utc`、默认 30 天的
+`history_retention_settings`（0 为永不自动清理）以及索引。旧软删除记录的计时起点为升级时刻，
+恢复后时间清空，再次软删除重新计时。升级旧库前保留并验证数据库快照。
+该升级快照使用 `backups/history_retention_upgrade_<时间>_<编号>.db`，不参加常规备份的滚动清理；
+快照未能完成或校验失败时中止升级。
+
+永久清理事务仅处理已软删除记录，删除记录、事件、修订、心得、导入来源及包含正文的旧回执。
+`run_purge_authorizations` 临时授权对应修订删除，事务结束不保留授权；
+`ipc_request_tombstones` 与 `purged_run_tombstones` 保存无正文的编号/指纹/时间，阻止旧请求重放取回或重建内容。
+`pending_image_cleanup` 保留桌面端尚未确认的附件清理任务，只有成功清理后才删除队列项。
+队列按最近尝试顺序轮转，单页清理失败不会挡住后续记录；永久删除后的采集迟到事件只推进跟随状态，
+不重建记录或向已删除记录写入事件。
+原有备份及用户导出文件不参与永久清理。

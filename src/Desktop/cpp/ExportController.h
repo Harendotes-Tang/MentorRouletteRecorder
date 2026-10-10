@@ -12,6 +12,7 @@
 #include <QObject>
 #include <QString>
 #include <QVariantMap>
+#include <QStringList>
 
 namespace mr {
 
@@ -35,6 +36,9 @@ public:
     /// The filter QueryRuns is currently showing, so an export covers exactly
     /// the rows the user is looking at.
     void setHistoryFilter(const QJsonObject &filter) { m_historyFilter = filter; }
+    void setCheckedRunIds(const QStringList &ids) { m_checkedRunIds = ids; }
+    /// 勾选时只按精确 ID 导出，包括明确选中的回收站记录。
+    QJsonObject effectiveHistoryFilter() const;
 
     void exportCsv();
     void exportJson();
@@ -73,6 +77,7 @@ private:
 
     IBackend *m_backend = nullptr;
     QJsonObject m_historyFilter;
+    QStringList m_checkedRunIds;
     QString m_targetOverride;
     bool m_integrityRunning = false;
     QVariantMap m_integrityResult;

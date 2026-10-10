@@ -6,6 +6,8 @@
 #include <QPointer>
 #include <QVariantList>
 #include <QVariantMap>
+#include <QMap>
+#include <QStringList>
 #include "RunListModel.h"
 
 namespace mr {
@@ -53,6 +55,25 @@ public:
     void undoSelectedRunRevision(const QString &reason);
     void softDeleteSelectedRun(const QString &reason);
     void restoreSelectedRun(const QString &reason);
+    /// 勾选保存当时的修订，不随翻页或后台刷新偷偷推进冲突基线。
+    QStringList checkedRunIds() const { return m_checkedOrder; }
+    int checkedRunCount() const { return m_checkedOrder.size(); }
+    int checkedDeletedCount() const;
+    bool allCurrentPageChecked() const;
+    bool batchRunning() const { return m_batchRunning; }
+    QString batchFeedback() const { return m_batchFeedback; }
+    void setRunChecked(const QVariantMap &run, bool checked);
+    void setCurrentPageChecked(bool checked);
+    void clearCheckedRuns();
+    void mutateCheckedRuns(const QString &action, const QString &reason);
+    bool filterConfirmationPending() const { return m_filterConfirmationPending; }
+    void confirmHistoryFilterChange(bool apply);
+    int retentionDays() const { return m_retentionDays; }
+    bool retentionLoaded() const { return m_retentionLoaded; }
+    bool retentionSaving() const { return m_retentionSaving; }
+    QString retentionFeedback() const { return m_retentionFeedback; }
+    void refreshRetentionSettings();
+    void updateRetentionSettings(int days);
 
 Q_SIGNALS:
     void selectionChanged();
@@ -71,6 +92,11 @@ Q_SIGNALS:
     void toastRequested(const QString &message);
     /// Accepted mutations invalidate other views as well as the history list.
     void refreshRequested();
+    void checkedRunsChanged();
+    void batchChanged();
+    void batchSucceeded(const QString &action, const QStringList &runIds);
+    void filterConfirmationChanged();
+    void retentionChanged();
 
 private:
     void loadRevisionsForSelection();
@@ -109,6 +135,18 @@ private:
                        const QString &code);
     UnansweredMutation m_unansweredCreate;
     UnansweredMutation m_unansweredCorrection;
+    UnansweredMutation m_unansweredBatch;
+    QMap<QString, QJsonObject> m_checkedRuns;
+    QStringList m_checkedOrder;
+    QJsonObject m_proposedFilter;
+    bool m_filterConfirmationPending = false;
+    bool m_batchRunning = false;
+    QString m_batchFeedback;
+    int m_retentionDays = -1;
+    bool m_retentionLoaded = false;
+    bool m_retentionSaving = false;
+    quint64 m_retentionGeneration = 0;
+    QString m_retentionFeedback;
     /// Contract cap for GetRunRevisions page_size (contracts/ipc-protocol: 200).
     static constexpr int kRevisionPageSize = 200;
     /// Upper bound on pages read for one chain (10 000 revisions); a guard

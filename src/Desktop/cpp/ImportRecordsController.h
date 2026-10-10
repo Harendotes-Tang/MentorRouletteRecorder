@@ -49,9 +49,10 @@ class ImportRecordsController final : public QObject
     Q_PROPERTY(QVariantMap columnMapping READ columnMapping WRITE setColumnMapping NOTIFY changed)
     Q_PROPERTY(QVariantMap commitResult READ commitResult NOTIFY changed)
     Q_PROPERTY(QVariantList jobChoices READ jobChoices CONSTANT)
+    Q_PROPERTY(QVariantList dutyChoices READ dutyChoices CONSTANT)
     /// The stored achievement baseline (安装前已完成次数), fed by the owner from the dashboard.
     Q_PROPERTY(int baselineCount READ baselineCount WRITE setBaselineCount NOTIFY changed)
-    /// Selected rows the Collector will add to the progress: confirmed, complete, COMPLETED, contributing.
+    /// Selected reviewed mentor completions; unknown game times do not prevent contribution.
     Q_PROPERTY(int contributingSelectedCount READ contributingSelectedCount NOTIFY changed)
     /// True when the batch could count twice: a baseline is stored and selected rows add to the progress.
     Q_PROPERTY(bool baselineChoiceOffered READ baselineChoiceOffered NOTIFY changed)
@@ -95,6 +96,7 @@ public:
     void setColumnMapping(const QVariantMap &mapping);
     QVariantMap commitResult() const { return m_commitResult; }
     QVariantList jobChoices() const;
+    QVariantList dutyChoices() const;
     int baselineCount() const { return m_baselineCount; }
     void setBaselineCount(int count);
     int contributingSelectedCount() const;

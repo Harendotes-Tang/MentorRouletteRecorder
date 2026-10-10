@@ -19,6 +19,38 @@ Item {
 
     property string detailTab: "info"
     property bool suspendFilter: false
+    readonly property bool narrowFilters: page.width < 1020
+    readonly property int checkedCount: App.checkedHistoryRunCount
+    function isChecked(runId) { return App.checkedHistoryRunIds.indexOf(runId) >= 0 }
+    function importIncomplete(run) {
+        if (run.source !== "IMPORT") return false
+        if (run.import_metadata) return !!run.import_metadata.incomplete
+        const result = run.result || "UNKNOWN"
+        return result === "UNKNOWN" || (result !== "CANCELLED_BEFORE_ENTRY"
+            && (!run.entered_at_utc || (result === "COMPLETED" && !run.ended_at_utc)))
+    }
+    function requestBatch(action) {
+        batchDialog.action = action
+        batchDialog.submitted = false
+        batchReason.text = action === "purge" ? qsTr("永久删除回收站记录")
+                         : action === "restore" ? qsTr("恢复回收站记录") : qsTr("批量移入回收站")
+        batchDialog.open()
+    }
+    function dateLabel(run) {
+        const actual = run.matched_at_utc || run.entered_at_utc || run.ended_at_utc
+        if (actual) return Fmt.localDate(actual)
+        const source = run.import_metadata || ({})
+        if (source.source_recorded_at_utc)
+            return qsTr("原站\n%1").arg(Fmt.localDate(source.source_recorded_at_utc))
+        if (source.source_recorded_at) {
+            const date = /^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})$/.exec(source.source_recorded_at)
+            if (date) {
+                const normalized = date[1] + "-" + String(date[2]).padStart(2, "0") + "-" + String(date[3]).padStart(2, "0")
+                if (RunForm.isValidDate(normalized)) return qsTr("原站\n%1").arg(normalized)
+            }
+        }
+        return Fmt.dash()
+    }
     // A drill-down from 副本统计 arrives as a content_id; the 副本 chip below
     // mirrors it so the two never disagree about what is filtered.
     property var contentFilter: null
@@ -52,7 +84,8 @@ Item {
     // columns centre too, so a title and its figures line up. 副本 is the one
     // exception: an icon, a name and a second line read from the left.
     readonly property var columns: [
-        { key: "matched_at_utc", label: qsTr("日期"), width: page.dateColumnWidth },
+        { key: "", label: "", width: 32 },
+        { key: "history_date", label: qsTr("日期"), width: page.dateColumnWidth },
         { key: "entered_at_utc", label: qsTr("进本"), width: page.timeColumnWidth },
         { key: "ended_at_utc", label: qsTr("结束"), width: page.timeColumnWidth },
         { key: "duty_name", label: qsTr("副本"), width: page.dutyColumnWidth, fill: true },
@@ -78,8 +111,8 @@ Item {
     /// underneath it. The shell binds this; alone, the page reserves nothing.
     property real reservedBottom: 0
     readonly property int rowsThatFit: {
-        const fixed = pageHeader.height + filterRow.height + filterSeparator.height
-                    + tableHeader.height + pagerRow.height + contentColumn.spacing * 5
+        const fixed = pageHeader.height + filterRow.height + (activeFilterRow.visible ? activeFilterRow.height : 0) + batchBar.height + (batchFeedback.visible ? batchFeedback.height : 0) + filterSeparator.height
+                    + tableHeader.height + pagerRow.height + contentColumn.spacing * (6 + (activeFilterRow.visible ? 1 : 0) + (batchFeedback.visible ? 1 : 0))
                     + Math.max(0, page.reservedBottom)
         return Math.max(page.minimumRowsPerPage, Math.floor((page.height - fixed) / page.rowHeight))
     }
@@ -138,7 +171,7 @@ Item {
         // its last answer until the date is whole. An inverted range waits the same way.
         if (!fromField.valid || !toField.valid || page.rangeInverted)
             return
-        const filter = { date_field: "matched_at_utc" }
+        const filter = { date_field: "history_date" }
         if (searchField.text.trim().length > 0)
             filter.text = searchField.text.trim()
         const from = toUtcRange(fromField.text.trim(), false)
@@ -147,6 +180,8 @@ Item {
             filter.from_utc = from
         if (to)
             filter.to_utc = to
+        if (from) filter.history_from_day = fromField.text.trim()
+        if (to) filter.history_to_day = toField.text.trim()
         if (page.contentFilter !== null && page.contentFilter !== undefined)
             filter.content_id = [page.contentFilter]
         if (categoryBox.currentIndex > 0)
@@ -261,6 +296,7 @@ Item {
     Component.onCompleted: {
         page.pageHost = page.findPageHost()
         page.syncFilter()
+        if (App.historyFilterConfirmationPending) filterConfirmation.open()
     }
 
     Connections {
@@ -268,6 +304,14 @@ Item {
 
         function onHistoryFilterChanged() {
             page.syncFilter()
+        }
+        function onHistoryFilterConfirmationChanged() {
+            if (App.historyFilterConfirmationPending && !filterConfirmation.visible)
+                filterConfirmation.open()
+        }
+        function onHistoryBatchChanged() {
+            if (batchDialog.submitted && !App.historyBatchRunning && page.checkedCount === 0)
+                batchDialog.close()
         }
     }
 
@@ -298,8 +342,8 @@ Item {
                                                              .arg(App.runs.page)
                                                              .arg(App.runs.pageCount)
 
-                AppButton { text: qsTr("导出 CSV"); iconName: "file-down"; onClicked: App.exportCsv() }
-                AppButton { text: qsTr("导出 JSON"); iconName: "file-json"; onClicked: App.exportJson() }
+                AppButton { text: page.checkedCount > 0 ? qsTr("导出选中 CSV (%1)").arg(page.checkedCount) : qsTr("导出 CSV"); iconName: "file-down"; enabled: !App.historyBatchRunning; onClicked: App.exportCsv() }
+                AppButton { text: page.checkedCount > 0 ? qsTr("导出选中 JSON (%1)").arg(page.checkedCount) : qsTr("导出 JSON"); iconName: "file-json"; enabled: !App.historyBatchRunning; onClicked: App.exportJson() }
                 AppButton { text: qsTr("导入记录"); iconName: "file-input"; onClicked: page.openImportRequested() }
                 AppButton {
                     text: qsTr("新增记录")
@@ -318,6 +362,7 @@ Item {
                 id: filterRow
                 Layout.fillWidth: true
                 spacing: 6
+                enabled: !App.historyBatchRunning
 
                 readonly property int controlHeight: Theme.eorzea ? 32 : 30
                 // Width of everything after the search field, gaps included.
@@ -371,7 +416,7 @@ Item {
                 // fit the single row.
                 Chip {
                     id: dutyChip
-                    visible: page.contentFilter !== null && page.contentFilter !== undefined
+                    visible: false
                     height: filterRow.controlHeight
                     text: page.dutyLabel(page.contentFilter)
                     checked: true
@@ -386,21 +431,29 @@ Item {
                 Chip {
                     id: pendingChip
                     objectName: "pendingReviewChip"
-                    visible: page.pendingReviewFilter
+                    visible: true
                     height: filterRow.controlHeight
                     text: qsTr("待复核")
-                    checked: true
-                    removable: true
+                    checked: page.pendingReviewFilter
+                    activeFocusOnTab: true
+                    Accessible.role: Accessible.CheckBox
+                    Accessible.checked: checked
                     Accessible.name: qsTr("待复核筛选")
-                    onRemoved: {
-                        page.pendingReviewFilter = false
+                    onToggled: function(checked) {
+                        page.pendingReviewFilter = checked
+                        // Chip's TapHandler assigns checked; restore the mirror so
+                        // cancelling a filter confirmation restores its visual state.
+                        pendingChip.checked = Qt.binding(function() { return page.pendingReviewFilter })
                         page.scheduleFilter()
                     }
+                    Keys.onSpacePressed: function(event) { page.pendingReviewFilter = !page.pendingReviewFilter; page.scheduleFilter(); event.accepted = true }
+                    border.width: activeFocus ? 1 : 0
+                    border.color: Theme.accent
                 }
 
                 StyledComboBox {
                     id: categoryBox
-                    width: 86
+                    width: 78
                     model: [qsTr("全部类型")].concat(App.categoryOptions)
                     displayText: currentIndex === 0 ? qsTr("类型") : currentText
                     Accessible.name: qsTr("类型筛选")
@@ -410,7 +463,7 @@ Item {
                 StyledComboBox {
                     id: jobBox
                     objectName: "historyJobFilter"
-                    width: 86
+                    width: 78
                     // The first row clears this filter; the closed field keeps its short label.
                     model: [{ job_id: null, job_name: qsTr("全部职业") }].concat(App.battleJobOptions)
                     textRole: "job_name"
@@ -422,23 +475,9 @@ Item {
                     }
                 }
 
-                Chip {
-                    objectName: "retainedJobFilterChip"
-                    visible: page.hasRetainedJobFilter
-                    height: filterRow.controlHeight
-                    text: qsTr("职业：%1").arg(Jobs.jobName(page.retainedJobFilter))
-                    checked: true
-                    removable: true
-                    Accessible.name: text
-                    onRemoved: {
-                        page.retainedJobFilter = null
-                        page.scheduleFilter()
-                    }
-                }
-
                 StyledComboBox {
                     id: resultBox
-                    width: 86
+                    width: 80
                     model: [
                         { value: null, label: qsTr("全部结果") },
                         { value: "COMPLETED", label: qsTr("通关") },
@@ -456,7 +495,8 @@ Item {
 
                 StyledComboBox {
                     id: sourceBox
-                    width: 86
+                    visible: !page.narrowFilters
+                    width: 78
                     model: [
                         { value: null, label: qsTr("全部来源") },
                         { value: "AUTO_NETWORK", label: qsTr("自动识别") },
@@ -471,6 +511,7 @@ Item {
 
                 Chip {
                     id: correctedOnly
+                    visible: !page.narrowFilters
                     height: filterRow.controlHeight
                     text: qsTr("已修正")
                     onToggled: page.scheduleFilter()
@@ -478,6 +519,7 @@ Item {
 
                 Chip {
                     id: withReflection
+                    visible: !page.narrowFilters
                     height: filterRow.controlHeight
                     text: qsTr("有笔记")
                     onToggled: page.scheduleFilter()
@@ -485,6 +527,7 @@ Item {
 
                 Chip {
                     id: includeDeleted
+                    visible: !page.narrowFilters
                     height: filterRow.controlHeight
                     text: qsTr("含已删除")
                     onToggled: page.scheduleFilter()
@@ -493,12 +536,65 @@ Item {
                 // Fixed 40 px: the Flow sums its children into restWidth and the
                 // search field takes whatever is left.
                 AppButton {
+                    id: moreFiltersButton
+                    objectName: "historyMoreFiltersButton"
+                    visible: page.narrowFilters
+                    text: qsTr("更多筛选")
+                    height: filterRow.controlHeight
+                    onClicked: moreFilters.open()
+                }
+                AppButton {
                     variant: "ghost"
                     width: 40
                     height: filterRow.controlHeight
                     text: qsTr("清除")
                     onClicked: page.resetFilter()
                 }
+            }
+
+            Flow {
+                id: activeFilterRow
+                Layout.fillWidth: true
+                visible: (page.contentFilter !== null && page.contentFilter !== undefined) || page.hasRetainedJobFilter
+                         || (page.narrowFilters && (sourceBox.currentIndex > 0 || correctedOnly.checked || withReflection.checked || includeDeleted.checked))
+                spacing: 6
+                Chip { visible: page.contentFilter !== null && page.contentFilter !== undefined; text: page.dutyLabel(page.contentFilter); checked: true; removable: true; onRemoved: { page.contentFilter = null; page.scheduleFilter() } }
+                Chip { objectName: "retainedJobFilterChip"; visible: page.hasRetainedJobFilter; text: qsTr("职业：%1").arg(Jobs.jobName(page.retainedJobFilter)); checked: true; removable: true; Accessible.name: text; onRemoved: { page.retainedJobFilter = null; page.scheduleFilter() } }
+                Chip { visible: page.narrowFilters && sourceBox.currentIndex > 0; text: sourceBox.currentText; checked: true; removable: true; onRemoved: { sourceBox.currentIndex = 0; page.scheduleFilter() } }
+                Chip { visible: page.narrowFilters && correctedOnly.checked; text: qsTr("已修正"); checked: true; removable: true; onRemoved: { correctedOnly.checked = false; page.scheduleFilter() } }
+                Chip { visible: page.narrowFilters && withReflection.checked; text: qsTr("有笔记"); checked: true; removable: true; onRemoved: { withReflection.checked = false; page.scheduleFilter() } }
+                Chip { visible: page.narrowFilters && includeDeleted.checked; text: qsTr("含已删除"); checked: true; removable: true; onRemoved: { includeDeleted.checked = false; page.scheduleFilter() } }
+            }
+
+            Flow {
+                id: batchBar
+                objectName: "historyBatchBar"
+                Layout.fillWidth: true
+                spacing: 8
+                enabled: !App.historyBatchRunning
+                SelectionCheckBox {
+                    objectName: "selectCurrentHistoryPage"
+                    text: qsTr("全选当前页")
+                    checked: App.allCurrentHistoryPageChecked
+                    enabled: !App.runs.loading && App.runs.loadError.length === 0 && App.runs.total > 0
+                    onClicked: App.setCurrentHistoryPageChecked(checked)
+                }
+                Text { height: 32; verticalAlignment: Text.AlignVCenter; text: qsTr("已勾选 %1 条 · 翻页保留").arg(page.checkedCount); color: Theme.textSecondary; font.pixelSize: Theme.fs(12) }
+                AppButton { text: qsTr("取消勾选"); visible: page.checkedCount > 0; variant: "ghost"; onClicked: App.clearCheckedHistoryRuns() }
+                AppButton { objectName: "batchSoftDeleteButton"; text: qsTr("移入回收站"); visible: page.checkedCount > 0; enabled: App.checkedHistoryDeletedCount === 0; onClicked: page.requestBatch("soft_delete") }
+                AppButton { objectName: "batchRestoreButton"; text: qsTr("恢复选中"); visible: page.checkedCount > 0 && App.checkedHistoryDeletedCount > 0; enabled: App.checkedHistoryDeletedCount === page.checkedCount; onClicked: page.requestBatch("restore") }
+                AppButton { objectName: "batchPurgeButton"; text: qsTr("永久删除"); visible: page.checkedCount > 0 && App.checkedHistoryDeletedCount > 0; enabled: App.checkedHistoryDeletedCount === page.checkedCount; onClicked: page.requestBatch("purge") }
+            }
+
+            Text {
+                id: batchFeedback
+                Layout.fillWidth: true
+                visible: text.length > 0
+                text: App.historyBatchRunning ? qsTr("正在处理选中的记录…") : App.historyBatchFeedback
+                textFormat: Text.PlainText
+                color: Theme.textSecondary
+                font.pixelSize: Theme.fs(12)
+                wrapMode: Text.Wrap
             }
 
             Text {
@@ -620,7 +716,8 @@ Item {
                         // sets the tab before selecting.
                         TapHandler {
                             id: rowTap
-                            onTapped: {
+                            onTapped: function(eventPoint) {
+                                if (eventPoint.position.x < 36) return
                                 page.detailTab = "info"
                                 App.selectRun(run)
                             }
@@ -642,15 +739,19 @@ Item {
                             anchors.rightMargin: 4
                             spacing: 0
 
+                            SelectionCheckBox {
+                                objectName: "historyRunCheck_" + run.run_id
+                                Layout.preferredWidth: 32
+                                checked: page.isChecked(run.run_id)
+                                enabled: !App.historyBatchRunning
+                                Accessible.name: qsTr("勾选记录 %1 %2").arg(run.duty_name || qsTr("未知副本")).arg(page.dateLabel(run))
+                                onClicked: App.setHistoryRunChecked(run, checked)
+                            }
+
                             Text {
                                 Layout.preferredWidth: page.dateColumnWidth
                                 textFormat: Text.PlainText
-                                text: run.matched_at_utc ? Fmt.localDate(run.matched_at_utc)
-                                      : run.import_metadata && run.import_metadata.source_recorded_at_utc
-                                        ? qsTr("原站\n%1").arg(Fmt.localDate(run.import_metadata.source_recorded_at_utc))
-                                      : run.import_metadata && run.import_metadata.source_recorded_at
-                                        ? qsTr("原站\n%1").arg(run.import_metadata.source_recorded_at.substring(0, 10))
-                                      : Fmt.dash()
+                                text: page.dateLabel(run)
                                 horizontalAlignment: Text.AlignHCenter
                                 color: Theme.textPrimary
                                 font.pixelSize: Theme.fs(12)
@@ -800,7 +901,8 @@ Item {
                             Text {
                                 Layout.preferredWidth: 92
                                 horizontalAlignment: Text.AlignHCenter
-                                text: [run.pending_review ? qsTr("待复核") : "",
+                                text: [run.source !== "IMPORT" && run.pending_review ? qsTr("待复核") : "",
+                                       page.importIncomplete(run) ? qsTr("待补充") : "",
                                        // 已修正：人改过软件记下的内容。已确认：人只回答了软件
                                        // 留待复核的结局，或补上了它没认出的职业、副本。
                                        run.manually_corrected ? qsTr("已修正")
@@ -875,6 +977,116 @@ Item {
                     iconAfterText: true
                     enabled: App.runs.page < App.runs.pageCount
                     onClicked: App.runs.nextPage()
+                }
+            }
+        }
+    }
+
+    Popup {
+        id: moreFilters
+        objectName: "historyMoreFilters"
+        parent: Overlay.overlay
+        modal: true
+        focus: true
+        width: Math.min(370, page.width - 24)
+        x: parent ? (parent.width - width) / 2 : 0
+        y: parent ? (parent.height - height) / 2 : 0
+        padding: 20
+        background: DialogFrame {}
+        Overlay.modal: Rectangle { color: Theme.modalScrim(moreFilters.palette.shadow) }
+        contentItem: ColumnLayout {
+            spacing: 12
+            HeadingLabel { text: qsTr("更多筛选") }
+            StyledComboBox {
+                objectName: "historyMoreSource"
+                Layout.fillWidth: true
+                model: sourceBox.model
+                textRole: "label"
+                currentIndex: sourceBox.currentIndex
+                Accessible.name: qsTr("来源筛选")
+                onActivated: { sourceBox.currentIndex = currentIndex; page.scheduleFilter() }
+            }
+            SelectionCheckBox { text: qsTr("只看已修正"); checked: correctedOnly.checked; onClicked: { correctedOnly.checked = checked; page.scheduleFilter() } }
+            SelectionCheckBox { text: qsTr("只看有笔记"); checked: withReflection.checked; onClicked: { withReflection.checked = checked; page.scheduleFilter() } }
+            SelectionCheckBox { objectName: "historyMoreIncludeDeleted"; text: qsTr("包含回收站记录"); checked: includeDeleted.checked; onClicked: { includeDeleted.checked = checked; page.scheduleFilter() } }
+            AppButton { Layout.alignment: Qt.AlignRight; text: qsTr("完成"); onClicked: moreFilters.close() }
+        }
+    }
+
+    Dialog {
+        id: filterConfirmation
+        objectName: "historyFilterConfirmation"
+        parent: Overlay.overlay
+        modal: true
+        focus: true
+        width: Math.min(490, page.width - 24)
+        x: parent ? (parent.width - width) / 2 : 0
+        y: parent ? (parent.height - height) / 2 : 0
+        padding: 20
+        closePolicy: Popup.CloseOnEscape
+        property bool answered: false
+        background: DialogFrame {}
+        Overlay.modal: Rectangle { color: Theme.modalScrim(filterConfirmation.palette.shadow) }
+        onOpened: { answered = false; keepFilterButton.forceActiveFocus() }
+        onClosed: { if (!answered) { answered = true; App.confirmHistoryFilterChange(false) } }
+        contentItem: ColumnLayout {
+            spacing: 14
+            HeadingLabel { Layout.fillWidth: true; text: qsTr("更改筛选并取消勾选？"); wrapMode: Text.Wrap }
+            Text { Layout.fillWidth: true; text: qsTr("已经勾选 %1 条记录（含其他页）。更改筛选将清空这些勾选，不会删除记录。").arg(page.checkedCount); textFormat: Text.PlainText; wrapMode: Text.Wrap; color: Theme.textPrimary; font.pixelSize: Theme.fs(13) }
+            RowLayout {
+                Layout.fillWidth: true
+                Item { Layout.fillWidth: true }
+                AppButton { id: keepFilterButton; objectName: "historyKeepSelection"; text: qsTr("保留勾选和筛选"); onClicked: { filterConfirmation.answered = true; App.confirmHistoryFilterChange(false); filterConfirmation.close() } }
+                AppButton { objectName: "historyConfirmFilter"; text: qsTr("取消勾选并更改"); variant: "primary"; onClicked: { filterConfirmation.answered = true; App.confirmHistoryFilterChange(true); filterConfirmation.close() } }
+            }
+        }
+    }
+
+    Dialog {
+        id: batchDialog
+        objectName: "historyBatchConfirmation"
+        parent: Overlay.overlay
+        modal: true
+        focus: true
+        width: Math.min(560, page.width - 24)
+        x: parent ? (parent.width - width) / 2 : 0
+        y: parent ? (parent.height - height) / 2 : 0
+        padding: 20
+        property string action: "soft_delete"
+        property bool submitted: false
+        readonly property bool purge: action === "purge"
+        closePolicy: App.historyBatchRunning ? Popup.NoAutoClose : Popup.CloseOnEscape
+        background: DialogFrame {}
+        Overlay.modal: Rectangle { color: Theme.modalScrim(batchDialog.palette.shadow) }
+        onOpened: batchCancelButton.forceActiveFocus()
+        contentItem: ColumnLayout {
+            spacing: 14
+            HeadingLabel { Layout.fillWidth: true; text: batchDialog.purge ? qsTr("永久删除 %1 条记录？").arg(page.checkedCount) : batchDialog.action === "restore" ? qsTr("恢复 %1 条记录？").arg(page.checkedCount) : qsTr("将 %1 条记录移入回收站？").arg(page.checkedCount); wrapMode: Text.Wrap }
+            Text {
+                Layout.fillWidth: true
+                text: batchDialog.purge
+                    ? qsTr("当前记录、心得、事件与修订正文会被永久移除，关联备注图片会清理；该操作不能撤销。已有备份、导出文件和分享图片保留。图片清理失败会保留任务并重试。")
+                    : batchDialog.action === "restore" ? qsTr("选中的回收站记录将恢复到历史，自动清理计时取消，统计会重新计算。")
+                    : App.historyRetentionDays === 0 ? qsTr("记录会从统计中移除，可以在回收站恢复。当前设为永不自动清理。")
+                    : App.historyRetentionDays < 0 ? qsTr("记录会从统计中移除，可在保留期内恢复。保留期尚未读回，可到设置·数据确认采集器的生效值。")
+                    : qsTr("记录会从统计中移除，可在保留期内恢复。软删除后按设置的 %1 天保留期自动永久清理；关闭软件时顺延到下次启动。").arg(App.historyRetentionDays)
+                textFormat: Text.PlainText
+                wrapMode: Text.Wrap
+                color: batchDialog.purge ? Theme.orangeText : Theme.textPrimary
+                font.pixelSize: Theme.fs(13)
+            }
+            StyledTextField { id: batchReason; objectName: "historyBatchReason"; Layout.fillWidth: true; maximumLength: 500; enabled: !App.historyBatchRunning; placeholderText: qsTr("操作原因（必填）"); Accessible.name: qsTr("批量操作原因") }
+            Text { Layout.fillWidth: true; visible: batchDialog.submitted && App.historyBatchFeedback.length > 0; text: App.historyBatchFeedback; textFormat: Text.PlainText; wrapMode: Text.Wrap; color: Theme.orangeText; font.pixelSize: Theme.fs(12) }
+            RowLayout {
+                Layout.fillWidth: true
+                Item { Layout.fillWidth: true }
+                AppButton { id: batchCancelButton; text: qsTr("取消"); enabled: !App.historyBatchRunning; onClicked: batchDialog.close() }
+                AppButton {
+                    objectName: "historyConfirmBatch"
+                    text: App.historyBatchRunning ? qsTr("正在处理…") : batchDialog.purge ? qsTr("确认永久删除") : batchDialog.action === "restore" ? qsTr("确认恢复") : qsTr("确认移入回收站")
+                    variant: "primary"
+                    enabled: !App.historyBatchRunning && page.checkedCount > 0 && batchReason.text.trim().length > 0
+                    onClicked: { batchDialog.submitted = true; App.mutateCheckedHistoryRuns(batchDialog.action, batchReason.text) }
                 }
             }
         }

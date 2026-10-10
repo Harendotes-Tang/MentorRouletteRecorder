@@ -42,6 +42,7 @@ public sealed class CollectorHost : IDisposable
         Settings = new SettingsRepository(database, clock);
         Statistics = new StatisticsRepository(database, Settings, JobCatalog.Default, DutyCatalog.Default);
         Mutations = new RunMutationService(database, Settings, clock);
+        HistoryRetention = new HistoryRetentionService(database, clock);
         Reflections = new RunReflectionRepository(database);
         ReflectionWrites = new RunReflectionService(database, clock);
         Candidates = new CandidateObservationRepository(database, clock);
@@ -88,6 +89,9 @@ public sealed class CollectorHost : IDisposable
 
     /// <summary>Every write a human can cause.</summary>
     public RunMutationService Mutations { get; }
+
+    /// <summary>Recycle-bin expiry and persistent attachment cleanup tasks.</summary>
+    public HistoryRetentionService HistoryRetention { get; }
 
     /// <summary>导随心得 reads: one per run, plus the dashboard summary.</summary>
     public RunReflectionRepository Reflections { get; }
@@ -204,6 +208,7 @@ public sealed class CollectorHost : IDisposable
             ReclaimOodleTempCopies(path, logger);
             var host = new CollectorHost(database, effectiveClock, Guid.NewGuid().ToString("D"));
             host.Settings.EnsureDefaults();
+            ImportedHistoryMaintenance.Run(host);
             host.Recovery = CrashRecoveryService.Run(host);
             try
             {
@@ -251,6 +256,10 @@ public sealed class CollectorHost : IDisposable
                     Clock = services.Clock, Logger = services.Logger, CollectorVersion = services.CollectorVersion,
                 },
             });
+            host.HistoryRetention.CheckExpired(force: true);
+            host.HistoryRetention.StartDailyChecks(
+                ex => host._logger.WriteError("storage", "history_retention_failed", ex),
+                count => host.LiveEvents.PublishStatsInvalidated($"已清理 {count} 条到期历史记录，请重新查询并处理附件清理任务。"));
             return host;
         }
         catch
@@ -439,6 +448,7 @@ public sealed class CollectorHost : IDisposable
         Exception? failure;
         try
         {
+            HistoryRetention.Dispose();
             // A download in flight is cancelled before anything it could claim into is torn down.
             LiveProtocol?.StopSharedCalibration();
             Speech?.Dispose();

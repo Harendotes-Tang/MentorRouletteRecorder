@@ -7,6 +7,7 @@
 #include "Formatters.h"
 #include "IBackend.h"
 #include "JobCatalog.h"
+#include "NoteImageStore.h"
 #include "RunListModel.h"
 #include "StatsModels.h"
 #include "TtsService.h"
@@ -256,6 +257,20 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
     connect(m_history, &HistoryController::mutationSucceeded, this, &AppController::mutationSucceeded);
     connect(m_history, &HistoryController::toastRequested, this, &AppController::showToast);
     connect(m_history, &HistoryController::refreshRequested, this, &AppController::refreshAll);
+    connect(m_history, &HistoryController::checkedRunsChanged, this, [this] {
+        if (m_export)
+            m_export->setCheckedRunIds(m_history->checkedRunIds());
+        Q_EMIT checkedHistoryRunsChanged();
+    });
+    connect(m_history, &HistoryController::batchChanged, this, &AppController::historyBatchChanged);
+    connect(m_history, &HistoryController::filterConfirmationChanged, this, &AppController::historyFilterConfirmationChanged);
+    connect(m_history, &HistoryController::retentionChanged, this, &AppController::historyRetentionChanged);
+    connect(m_history, &HistoryController::batchSucceeded, this, [this](const QString &action, const QStringList &) {
+        if (action == QLatin1String("purge"))
+            retryHistoryImageCleanup();
+    });
+    m_historyImageCleanupTimer.setInterval(60000);
+    connect(&m_historyImageCleanupTimer, &QTimer::timeout, this, &AppController::retryHistoryImageCleanup);
     connect(m_history, &HistoryController::historyFilterChanged, this, [this] {
         if (m_export)
             m_export->setHistoryFilter(QJsonObject::fromVariantMap(m_history->historyFilter()));
@@ -343,6 +358,7 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
 
         m_reusedConnectFailures = 0;
         m_reusedVacantRelaunch = false;
+        retryHistoryImageCleanup();
         m_backend->subscribeLiveEvents();
         // The daily backup needs a Collector: due at start-up, when there was
         // none yet, or on a day that began while the pipe was down, it runs
@@ -1123,6 +1139,8 @@ void AppController::handleLiveEvent(const QVariantMap &event)
         refreshDashboard();
         refreshTrend();
         refreshReflections();
+        m_history->runs()->reload();
+        retryHistoryImageCleanup();
         m_statistics->dungeons()->reload();
         m_statistics->jobs()->reload();
         return;
@@ -1722,6 +1740,103 @@ void AppController::setHistoryFilter(const QVariantMap &filter)
 void AppController::resetHistoryFilter()
 {
     return m_history->resetHistoryFilter();
+}
+
+void AppController::setHistoryRunChecked(const QVariantMap &run, bool checked)
+{ m_history->setRunChecked(run, checked); }
+void AppController::setCurrentHistoryPageChecked(bool checked)
+{ m_history->setCurrentPageChecked(checked); }
+void AppController::clearCheckedHistoryRuns()
+{ m_history->clearCheckedRuns(); }
+void AppController::mutateCheckedHistoryRuns(const QString &action, const QString &reason)
+{ m_history->mutateCheckedRuns(action, reason); }
+void AppController::confirmHistoryFilterChange(bool apply)
+{ m_history->confirmHistoryFilterChange(apply); }
+void AppController::refreshHistoryRetentionSettings()
+{ m_history->refreshRetentionSettings(); }
+void AppController::updateHistoryRetentionSettings(int days)
+{ m_history->updateRetentionSettings(days); }
+
+void AppController::setNoteImageStore(NoteImageStore *store)
+{
+    m_noteImages = store;
+    if (store) {
+        m_historyImageCleanupTimer.start();
+        retryHistoryImageCleanup();
+    } else {
+        m_historyImageCleanupTimer.stop();
+    }
+}
+
+void AppController::retryHistoryImageCleanup()
+{
+    if (!m_noteImages || !m_backend || !m_backend->isConnected() || m_historyImageCleanupRunning)
+        return;
+    m_historyImageCleanupRunning = true;
+    Q_EMIT historyImageCleanupChanged();
+    m_backend->request(QStringLiteral("GetPendingImageCleanup"))
+        ->whenDone(this, [this](bool ok, const QVariantMap &payload, const QString &code, const QString &message) {
+            if (!ok) {
+                finishHistoryImageCleanup(tr("无法读取附件清理任务：%1").arg(message.isEmpty() ? code : message));
+                return;
+            }
+            m_historyCleanupIds = payload.value(QStringLiteral("run_ids")).toStringList();
+            m_historyCleanupSuccessful.clear();
+            m_historyCleanupFailures.clear();
+            m_historyCleanupIndex = 0;
+            drainHistoryImageCleanup();
+        });
+}
+
+void AppController::drainHistoryImageCleanup()
+{
+    if (!m_noteImages) {
+        finishHistoryImageCleanup(tr("图片服务已关闭，清理任务仍保留，稍后重试。"));
+        return;
+    }
+    if (m_historyCleanupIndex < m_historyCleanupIds.size()) {
+        const QString id = m_historyCleanupIds.at(m_historyCleanupIndex++);
+        const QVariantMap result = m_noteImages->cleanupRun(id);
+        if (result.value(QStringLiteral("ok")).toBool())
+            m_historyCleanupSuccessful.append(id);
+        else
+            m_historyCleanupFailures.append(id.left(8) + QStringLiteral(": ") + result.value(QStringLiteral("error")).toString());
+        // 每个记录之间让出事件循环；一次最多20张普通附件，不阻塞整批2000条。
+        QTimer::singleShot(0, this, &AppController::drainHistoryImageCleanup);
+        return;
+    }
+    const QString failures = m_historyCleanupFailures.isEmpty() ? QString()
+        : tr("%1 个记录的附件清理失败，任务已保留并将重试。%2")
+            .arg(m_historyCleanupFailures.size()).arg(m_historyCleanupFailures.first());
+    if (m_historyCleanupSuccessful.isEmpty()) {
+        finishHistoryImageCleanup(failures);
+        return;
+    }
+    QJsonArray ids;
+    for (const QString &id : m_historyCleanupSuccessful)
+        ids.append(id);
+    m_backend->request(QStringLiteral("AcknowledgeImageCleanup"), {{QStringLiteral("run_ids"), ids}})
+        ->whenDone(this, [this, failures](bool ok, const QVariantMap &, const QString &code, const QString &message) {
+            if (!ok) {
+                finishHistoryImageCleanup(tr("附件已清理，但确认状态未保存，将自动重试：%1 %2")
+                    .arg(message.isEmpty() ? code : message, failures));
+                return;
+            }
+            const bool nextBatch = failures.isEmpty() && m_historyCleanupIds.size() == 2000;
+            finishHistoryImageCleanup(failures);
+            if (nextBatch)
+                QTimer::singleShot(0, this, &AppController::retryHistoryImageCleanup);
+        });
+}
+
+void AppController::finishHistoryImageCleanup(const QString &feedback)
+{
+    const bool changed = feedback != m_historyImageCleanupFeedback;
+    m_historyImageCleanupRunning = false;
+    m_historyImageCleanupFeedback = feedback;
+    Q_EMIT historyImageCleanupChanged();
+    if (changed && !feedback.isEmpty())
+        showToast(feedback);
 }
 
 // A statistics row without a duty or job identity (未知副本, a zone several

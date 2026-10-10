@@ -77,6 +77,7 @@ public sealed class SemanticEventProcessor : ISemanticEventSink, ICaptureLifecyc
     private readonly RunRepository _runs;
     private readonly RunEventRepository _events;
     private readonly RunRevisionRepository _revisions;
+    private readonly IdempotencyRepository _purgedRuns;
     private readonly ManualRunFieldProtection _manualFields;
     private readonly ParserErrorRepository _parserErrors;
     private readonly JobCatalog _jobs;
@@ -127,6 +128,7 @@ public sealed class SemanticEventProcessor : ISemanticEventSink, ICaptureLifecyc
         _runs = new RunRepository(database);
         _events = new RunEventRepository(database);
         _revisions = new RunRevisionRepository(database);
+        _purgedRuns = new IdempotencyRepository(database, clock);
         _manualFields = new ManualRunFieldProtection(database);
         _parserErrors = new ParserErrorRepository(database, clock);
         _jobs = jobs ?? JobCatalog.Default;
@@ -398,6 +400,21 @@ public sealed class SemanticEventProcessor : ISemanticEventSink, ICaptureLifecyc
 
     private void Apply(StateCommand command, SemanticEvent semanticEvent, SqliteTransaction transaction)
     {
+        // A user may permanently remove the active soft-deleted run. The machine must still
+        // consume its later messages and reach the next match, while no erased row or trail is
+        // recreated. Missing rows without a purge tombstone remain real storage failures.
+        var runId = command switch
+        {
+            CreateRunCommand create => create.RunId,
+            EnterDutyCommand enter => enter.RunId,
+            SetDutyCommand duty => duty.RunId,
+            SetJobCommand job => job.RunId,
+            FinishRunCommand finish => finish.RunId,
+            AppendEventCommand append => append.RunId,
+            _ => null,
+        };
+        if (runId is not null && _purgedRuns.IsPurgedRun(runId, transaction: transaction)) return;
+
         switch (command)
         {
             case CreateRunCommand create:

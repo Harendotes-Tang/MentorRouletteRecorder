@@ -3,6 +3,8 @@ namespace MentorRecorder.Collector.Domain.Queries;
 /// <summary>Timestamp column a date range applies to.</summary>
 public enum RunDateField
 {
+    /// <summary>Actual run date with an audited imported source-date fallback.</summary>
+    HistoryDate,
     /// <summary>matched_at_utc.</summary>
     MatchedAtUtc,
 
@@ -16,6 +18,8 @@ public enum RunDateField
 /// <summary>Column a run listing is ordered by.</summary>
 public enum RunSortField
 {
+    /// <summary>Actual run date with an audited imported source-date fallback.</summary>
+    HistoryDate,
     /// <summary>matched_at_utc.</summary>
     MatchedAtUtc,
 
@@ -53,6 +57,13 @@ public sealed record RunFilter
 {
     /// <summary>An empty filter that constrains nothing.</summary>
     public static RunFilter Empty { get; } = new();
+
+    /// <summary>Exact stable record IDs; bounded to 2000 by the IPC contract.</summary>
+    public IReadOnlyList<string> RunIds { get; init; } = Array.Empty<string>();
+
+    /// <summary>Local calendar bounds for source-only date records; accompany HistoryDate UTC bounds.</summary>
+    public string? HistoryFromDay { get; init; }
+    public string? HistoryToDay { get; init; }
 
     /// <summary>Inclusive lower bound of the date range.</summary>
     public DateTimeOffset? FromUtc { get; init; }

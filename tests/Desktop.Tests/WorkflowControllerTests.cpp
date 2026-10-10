@@ -673,7 +673,8 @@ private Q_SLOTS:
     {
         ControlledBackend backend;
         mr::HistoryController history(&backend);
-        const QVariantMap filter{{QStringLiteral("pending_review"), true}};
+        const QVariantMap filter{{QStringLiteral("pending_review"), true},
+                                 {QStringLiteral("date_field"), QStringLiteral("history_date")}};
         history.setHistoryFilter(filter);
         QCOMPARE(history.historyFilter(), filter);
         QCOMPARE(backend.last(QStringLiteral("QueryRuns")).payload.value(QStringLiteral("filter")).toObject(),

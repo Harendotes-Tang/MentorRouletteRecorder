@@ -32,11 +32,14 @@ public static class RequestParsers
         reader.RejectUnknown(
             "from_utc", "to_utc", "date_field", "content_id", "duty_category", "job_id",
             "result", "source", "corrected_only", "include_deleted", "with_reflection",
-            "pending_review", "text");
+            "pending_review", "text", "run_id", "history_from_day", "history_to_day");
 
         var filter = new RunFilter
         {
             FromUtc = reader.Timestamp("from_utc"),
+            RunIds = RunIds(reader, "run_id"),
+            HistoryFromDay = HistoryDay(reader, "history_from_day"),
+            HistoryToDay = HistoryDay(reader, "history_to_day"),
             ToUtc = reader.Timestamp("to_utc"),
             DateField = DateField(reader.String("date_field", 32)),
             ContentIds = reader.IntArray("content_id", 500, minimum: 0),
@@ -55,6 +58,12 @@ public static class RequestParsers
         {
             throw CollectorException.BadRequest("from_utc 不能晚于 to_utc。", "filter.from_utc");
         }
+
+        if ((filter.HistoryFromDay is not null && (filter.DateField != RunDateField.HistoryDate || filter.FromUtc is null)) ||
+            (filter.HistoryToDay is not null && (filter.DateField != RunDateField.HistoryDate || filter.ToUtc is null)))
+            throw CollectorException.BadRequest("历史日历日期仅用于 history_date，并须同时提供对应的 UTC 起止边界。", "filter.history_from_day");
+        if (filter.HistoryFromDay is { } fromDay && filter.HistoryToDay is { } toDay && string.CompareOrdinal(fromDay, toDay) > 0)
+            throw CollectorException.BadRequest("history_from_day 不能晚于 history_to_day。", "filter.history_from_day");
 
         return filter;
     }
@@ -344,15 +353,17 @@ public static class RequestParsers
 
     private static RunDateField DateField(string? text) => text switch
     {
+        "history_date" => RunDateField.HistoryDate,
         null or "entered_at_utc" => RunDateField.EnteredAtUtc,
         "matched_at_utc" => RunDateField.MatchedAtUtc,
         "ended_at_utc" => RunDateField.EndedAtUtc,
         _ => throw CollectorException.BadRequest(
-            "date_field 只能取 matched_at_utc / entered_at_utc / ended_at_utc。", "filter.date_field"),
+            "date_field 只能取 history_date / matched_at_utc / entered_at_utc / ended_at_utc。", "filter.date_field"),
     };
 
     private static RunSortField SortField(string? text) => text switch
     {
+        "history_date" => RunSortField.HistoryDate,
         null or "entered_at_utc" => RunSortField.EnteredAtUtc,
         "matched_at_utc" => RunSortField.MatchedAtUtc,
         "ended_at_utc" => RunSortField.EndedAtUtc,
@@ -367,6 +378,36 @@ public static class RequestParsers
         "asc" => SortDirection.Asc,
         _ => throw CollectorException.BadRequest("sort.direction 只能取 asc 或 desc。", "sort.direction"),
     };
+
+    public static BatchMutateRunsCommand BatchMutateRuns(string requestId, PayloadReader reader)
+    {
+        reader.RejectUnknown("action", "runs", "reason");
+        var targets = reader.ObjectArray("runs", Storage.Mutations.HistoryRetentionService.MaxBatchSize).Select(item =>
+        {
+            item.RejectUnknown("run_id", "expected_revision");
+            return new BatchRunTarget(Guid.Parse(item.RequiredUuid("run_id")).ToString("D"), item.RequiredInt("expected_revision", 1));
+        }).ToArray();
+        Storage.Mutations.HistoryRetentionService.ValidateIds(targets.Select(item => item.RunId).ToArray());
+        return new BatchMutateRunsCommand(requestId, reader.RequiredString("action", 16), targets, RequireReason(reader));
+    }
+
+    public static IReadOnlyList<string> RunIds(PayloadReader reader, string field = "run_ids", bool allowEmpty = true)
+    {
+        if (reader.IsNull(field)) throw CollectorException.BadRequest($"{field} 必须是数组。", field);
+        var ids = reader.StringArray(field, Storage.Mutations.HistoryRetentionService.MaxBatchSize, 36);
+        Storage.Mutations.HistoryRetentionService.ValidateIds(ids, allowEmpty);
+        return ids.Select(id => Guid.Parse(id).ToString("D")).ToArray();
+    }
+
+    private static string? HistoryDay(PayloadReader reader, string field)
+    {
+        if (!reader.Has(field)) return null;
+        var text = reader.String(field, 10);
+        if (text is null || !DateOnly.TryParseExact(text, "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.None, out _))
+            throw CollectorException.BadRequest($"{field} 必须是有效的 yyyy-MM-dd 日历日期。", "filter." + field);
+        return text;
+    }
 }
 
 /// <summary>

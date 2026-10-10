@@ -999,6 +999,7 @@ int main(int argc, char *argv[])
         ? new mr::NoteImageStore(
               QDir::temp().absoluteFilePath(QStringLiteral("MentorRecorder-mock-note-images")), &app)
         : new mr::NoteImageStore(&app);
+    controller.setNoteImageStore(noteImages);
     if (parser.isSet(themeOption))
         controller.setThemeMode(parser.value(themeOption));
 

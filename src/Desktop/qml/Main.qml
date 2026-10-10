@@ -936,6 +936,7 @@ ApplicationWindow {
                                 }
                                 onReflectRequested: function(run) { window.openReflection(run, "") }
                                 onShareRequested: function(run) { window.openShare(run) }
+                                onShareBatchRequested: function(runs) { reflectionShareDialog.openForRuns(runs) }
                                 onOpenRunRequested: function(run) {
                                     App.navigate(1)
                                     App.selectRun(run)

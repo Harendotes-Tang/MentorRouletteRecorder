@@ -416,6 +416,21 @@ public sealed class ContractSchemaTests
             Assert.True((await client.SendAsync("CommitRunImport", importPayload, importRequestId)).Ok);
             Assert.True((await client.SendAsync("CommitRunImport", importPayload.DeepClone().AsObject(), importRequestId)).Require()["replayed"]!.GetValue<bool>());
 
+            Assert.Equal(30, (await client.SendAsync("GetHistoryRetentionSettings")).Require()["retention_days"]!.GetValue<int>());
+            Assert.Equal(0, (await client.SendAsync("UpdateHistoryRetentionSettings", new JsonObject { ["retention_days"] = 0 })).Require()["retention_days"]!.GetValue<int>());
+            var recycleId = await CreateRunAsync(client, "COMPLETED", 900001, 19);
+            foreach (var step in new[] { ("soft_delete", 1), ("restore", 2), ("soft_delete", 3), ("purge", 4) })
+            {
+                var batch = await client.SendAsync("BatchMutateRuns", new JsonObject
+                {
+                    ["action"] = step.Item1, ["reason"] = "回收站契约验证",
+                    ["runs"] = new JsonArray(new JsonObject { ["run_id"] = recycleId, ["expected_revision"] = step.Item2 }),
+                });
+                Assert.Equal(1, batch.Require()["changed_count"]!.GetValue<int>());
+            }
+            Assert.Contains(recycleId, (await client.SendAsync("GetPendingImageCleanup")).Require()["run_ids"]!.AsArray().Select(node => node!.GetValue<string>()));
+            Assert.Equal(1, (await client.SendAsync("AcknowledgeImageCleanup", new JsonObject { ["run_ids"] = new JsonArray(recycleId) })).Require()["acknowledged_count"]!.GetValue<int>());
+
             Assert.Equal(
                 ErrorCodes.BadRequest,
                 (await client.SendAsync("NoSuchMessage")).ErrorCode);

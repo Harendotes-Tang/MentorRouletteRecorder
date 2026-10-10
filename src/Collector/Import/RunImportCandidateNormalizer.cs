@@ -119,7 +119,9 @@ internal static class RunImportCandidateNormalizer
                 DurationMs = duration, Result = result,
                 ContributesToGoal = Flag(input, "contributes_to_goal") ?? true,
                 SoftDeleted = Flag(input, "soft_deleted") ?? false,
-                PendingReview = Flag(input, "pending_review") ?? false,
+                // Commit requires selected, reviewed personal records. Missing time is
+                // informational and imported UNKNOWN stays out of dashboard review too.
+                PendingReview = false,
                 Note = Text(input, "note", 1000),
                 ImportMetadata = metadata,
                 Reflection = text is null ? null : new RunReflection(mood, text, now, now),
@@ -131,11 +133,10 @@ internal static class RunImportCandidateNormalizer
                 && matched is null && entered is null && ended is null && sourceRecorded is null && sourceUtc is null
                 && text is null && run.Note is null)
                 throw Bad("该行没有副本、职业、游戏时间、原站时间或心得内容，请映射或补充至少一项事实。");
-            if (run.Result == RunResult.Unknown || (run.Result != RunResult.CancelledBeforeEntry
-                && (run.EnteredAtUtc is null || (run.Result == RunResult.Completed && run.EndedAtUtc is null))))
-                run = run with { PendingReview = true };
             run = RunMutationValidation.ValidateFinalValue(run, input.ContainsKey("duration_ms"));
-            if (run.IsIncompleteImport) warnings.Add("实际游戏时间或结果未补齐；保留为待补充历史，不计统计或成就。");
+            if (run.IsIncompleteImport) warnings.Add(run.Result == RunResult.Unknown
+                ? "结果未知，保留为待补充历史；不计通关或成就。"
+                : "实际游戏时间待补充；核对本人导随及结果后，已确认通关正常计数，未知耗时不计平均耗时。");
             if (text is not null && mood == ReflectionMood.Unknown) warnings.Add("原来源没有记录心情，保留为未记录心情。");
             if (input["warnings"] is JsonArray sourceWarnings)
                 warnings.AddRange(sourceWarnings.OfType<JsonValue>().Select(value => value.ToString()).Take(20));

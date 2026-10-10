@@ -60,8 +60,9 @@ public static class RunMutationRules
                 run);
         }
 
-        var incompleteImport = run.Source == RunSource.Import && run.ImportMetadata is not null
-            && (run.Result == RunResult.Unknown || run.PendingReview);
+        // Accepted personal history may have no recalled endpoints. Supplied times still
+        // cross the ordering and duration checks; this never weakens capture/manual rules.
+        var incompleteImport = run.IsImportedHistory;
         if (!incompleteImport && run.Result != RunResult.CancelledBeforeEntry && run.EnteredAtUtc is null)
         {
             throw Violation(
@@ -100,7 +101,7 @@ public static class RunMutationRules
     public static bool ReadsAsInFlight(MentorRun run)
     {
         ArgumentNullException.ThrowIfNull(run);
-        return run.Source == RunSource.AutoNetwork && run.Result == RunResult.Unknown &&
+        return !run.IsImportedHistory && run.Source == RunSource.AutoNetwork && run.Result == RunResult.Unknown &&
             run.EndedAtUtc is null && !run.PendingReview;
     }
 

@@ -710,8 +710,6 @@ private Q_SLOTS:
         QTest::newRow("entry-before-match") << QVariantMap{{"matchedDate", "2026-10-09"}, {"matchedTime", "10:00:00"}, {"enteredDate", "2026-10-09"}, {"enteredTime", "09:00:00"}} << QStringLiteral("ERR_TIME_ORDER");
         QTest::newRow("end-before-entry") << QVariantMap{{"enteredDate", "2026-10-09"}, {"enteredTime", "10:00:00"}, {"endedDate", "2026-10-09"}, {"endedTime", "09:00:00"}} << QStringLiteral("ERR_NEGATIVE_DURATION");
         QTest::newRow("end-before-match") << QVariantMap{{"matchedDate", "2026-10-09"}, {"matchedTime", "10:00:00"}, {"endedDate", "2026-10-09"}, {"endedTime", "09:00:00"}} << QStringLiteral("ERR_TIME_ORDER");
-        QTest::newRow("complete-without-times") << QVariantMap{{"resultCode", "COMPLETED"}} << QStringLiteral("ERR_BAD_REQUEST");
-        QTest::newRow("complete-without-end") << QVariantMap{{"resultCode", "COMPLETED"}, {"matchedDate", "2026-10-09"}, {"matchedTime", "09:00:00"}, {"enteredDate", "2026-10-09"}, {"enteredTime", "09:02:00"}} << QStringLiteral("ERR_BAD_REQUEST");
     }
 
     void incompleteImportStillRejectsInvalidTimesAndResultConfirmation()
@@ -735,9 +733,8 @@ private Q_SLOTS:
     {
         QTest::addColumn<QString>("source");
         QTest::addColumn<bool>("metadata");
-        QTest::newRow("automatic") << QStringLiteral("AUTO_NETWORK") << true;
-        QTest::newRow("manual") << QStringLiteral("MANUAL") << true;
-        QTest::newRow("import-without-provenance") << QStringLiteral("IMPORT") << false;
+        QTest::newRow("automatic") << QStringLiteral("AUTO_NETWORK") << false;
+        QTest::newRow("manual") << QStringLiteral("MANUAL") << false;
     }
 
     void incompleteImportContextDoesNotRelaxOtherRunSources()
@@ -758,7 +755,27 @@ private Q_SLOTS:
         QCOMPARE(fixture.dialog()->property("errorCode").toString(), QStringLiteral("ERR_BAD_REQUEST"));
     }
 
-    void reselectingTheDefaultImportedResultRequiresCompleteTimes()
+    void reviewedImportedCompletionCountsWhileTimeGapsRemainInformational()
+    {
+        DialogFixture fixture;
+        QVERIFY2(fixture.create(), qPrintable(fixture.errors));
+        auto value = incompleteImportedRun(QStringLiteral("COMPLETED"));
+        value.insert(QStringLiteral("pending_review"), false);
+        value.insert(QStringLiteral("import_metadata"), QVariantMap{{QStringLiteral("incomplete"), true}, {QStringLiteral("mentor_confirmed"), true}});
+        QVERIFY(fixture.openForRun(value));
+        QVERIFY(fixture.dialog()->property("countedBefore").toBool());
+        QVERIFY(fixture.dialog()->property("countsAfterSave").toBool());
+        QCOMPARE(fixture.dialog()->property("progressDelta").toInt(), 0);
+        fixture.dialog()->setProperty("noteText", QStringLiteral("已核对通关，时间不详"));
+        QSignalSpy corrections(fixture.dialog(), SIGNAL(correctRequested(QVariant,QString)));
+        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
+        QCOMPARE(corrections.count(), 1);
+        const auto changes = asMap(corrections.at(0).at(0));
+        QCOMPARE(changes.keys(), QStringList{QStringLiteral("note")});
+        QVERIFY(!fixture.dialog()->property("confirmsImportedFacts").toBool());
+    }
+
+    void reselectingTheDefaultImportedResultConfirmsWithoutInventingTimes()
     {
         DialogFixture fixture;
         QVERIFY2(fixture.create(), qPrintable(fixture.errors));
@@ -767,8 +784,11 @@ private Q_SLOTS:
         QVERIFY(fixture.dialog()->property("importedResultSelected").toBool());
         QSignalSpy corrections(fixture.dialog(), SIGNAL(correctRequested(QVariant,QString)));
         QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
-        QCOMPARE(corrections.count(), 0);
-        QCOMPARE(fixture.dialog()->property("errorCode").toString(), QStringLiteral("ERR_BAD_REQUEST"));
+        QCOMPARE(corrections.count(), 1);
+        QCOMPARE(fixture.dialog()->property("errorCode").toString(), QString());
+        const auto changes = asMap(corrections.at(0).at(0));
+        QCOMPARE(changes.keys(), QStringList{QStringLiteral("result")});
+        QVERIFY(fixture.dialog()->property("countsAfterSave").toBool());
     }
 
     void reselectingCompletePendingImportedResultConfirmsWithoutFieldChanges_data()
@@ -867,7 +887,7 @@ private Q_SLOTS:
         QTest::addColumn<bool>("pendingReview");
         QTest::addColumn<bool>("confirmResult");
         QTest::newRow("incomplete-import") << QStringLiteral("IMPORT") << true << true << true;
-        QTest::newRow("incomplete-without-pending") << QStringLiteral("IMPORT") << true << false << true;
+        QTest::newRow("incomplete-without-pending") << QStringLiteral("IMPORT") << true << false << false;
         QTest::newRow("pending-only-import") << QStringLiteral("IMPORT") << false << true << true;
         QTest::newRow("settled-import") << QStringLiteral("IMPORT") << false << false << false;
         QTest::newRow("automatic-time-correction") << QStringLiteral("AUTO_NETWORK") << false << true << false;
@@ -896,9 +916,9 @@ private Q_SLOTS:
         }
         QVERIFY(fixture.openForRun(value));
         if (incomplete) {
-            QVERIFY(!fixture.dialog()->property("countedBefore").toBool());
+            QCOMPARE(fixture.dialog()->property("countedBefore").toBool(), !pendingReview);
             QCOMPARE(fixture.dialog()->property("progressDelta").toInt(), 0);
-            QVERIFY(fixture.dialog()->property("progressExplanation").toString().contains(QStringLiteral("待补充")));
+            QVERIFY(fixture.dialog()->property("progressExplanation").toString().contains(pendingReview ? QStringLiteral("未知游戏时间") : QStringLiteral("已经计入")));
         }
         const auto matched = QDateTime::fromString(QStringLiteral("2026-09-04T12:39:05.125Z"), Qt::ISODateWithMs).toLocalTime();
         const auto entered = matched.addSecs(120);

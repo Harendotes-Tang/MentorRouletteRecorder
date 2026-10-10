@@ -20,7 +20,7 @@ public sealed class RunRepository
         "mentor_roulette_id, content_id, territory_id, duty_name, duty_category, job_id, job_name, role, " +
         "matched_at_utc, entered_at_utc, ended_at_utc, duration_ms, result, detection_confidence, source, " +
         "contributes_to_goal, manually_created, manually_corrected, soft_deleted, " +
-        "created_at_utc, updated_at_utc, pending_review, note, duty_source";
+        "created_at_utc, updated_at_utc, pending_review, note, duty_source, deleted_at_utc";
 
     private readonly SqliteDatabase _database;
     private readonly RunReflectionRepository _reflections;
@@ -52,7 +52,7 @@ public sealed class RunRepository
             "$mentor_roulette_id, $content_id, $territory_id, $duty_name, $duty_category, $job_id, $job_name, $role, " +
             "$matched_at_utc, $entered_at_utc, $ended_at_utc, $duration_ms, $result, $detection_confidence, $source, " +
             "$contributes_to_goal, $manually_created, $manually_corrected, $soft_deleted, " +
-            "$created_at_utc, $updated_at_utc, $pending_review, $note, $duty_source);";
+            "$created_at_utc, $updated_at_utc, $pending_review, $note, $duty_source, $deleted_at_utc);";
         BindRun(command, run);
         command.ExecuteNonQuery();
     }
@@ -83,7 +83,7 @@ public sealed class RunRepository
             "manually_corrected = $manually_corrected, " +
             "soft_deleted = $soft_deleted, created_at_utc = $created_at_utc, " +
             "updated_at_utc = $updated_at_utc, pending_review = $pending_review, note = $note, " +
-            "duty_source = $duty_source " +
+            "duty_source = $duty_source, deleted_at_utc = $deleted_at_utc " +
             "WHERE run_id = $run_id AND revision = $expected_revision;";
         BindRun(command, run);
         command.Parameters.AddWithValue("$expected_revision", expectedRevision);
@@ -217,6 +217,7 @@ public sealed class RunRepository
             $"SELECT {Columns} FROM mentor_runs " +
             "WHERE soft_deleted = 0 AND result = 'UNKNOWN' AND ended_at_utc IS NULL " +
             "AND capture_session_id IS NOT NULL " +
+            "AND NOT " + RunFilterSql.ImportedHistoryPredicate + " " +
             "AND ($current IS NULL OR capture_session_id <> $current) " +
             "ORDER BY created_at_utc ASC;";
         command.Parameters.AddWithValue("$current", (object?)currentSessionId ?? DBNull.Value);
@@ -378,6 +379,7 @@ public sealed class RunRepository
         command.Parameters.AddWithValue("$updated_at_utc", UtcTimestamp.ToText(run.UpdatedAtUtc));
         command.Parameters.AddWithValue("$pending_review", run.PendingReview ? 1 : 0);
         command.Parameters.AddWithValue("$note", (object?)run.Note ?? DBNull.Value);
+        command.Parameters.AddWithValue("$deleted_at_utc", (object?)UtcTimestamp.ToTextOrNull(run.DeletedAtUtc) ?? DBNull.Value);
         command.Parameters.AddWithValue(
             "$duty_source",
             run.DutySource is { } dutySource ? EnumWire<DutySource>.Format(dutySource) : (object)DBNull.Value);
@@ -420,6 +422,7 @@ public sealed class RunRepository
             UpdatedAtUtc = UtcTimestamp.Parse(reader.GetString(26)),
             PendingReview = reader.GetInt32(27) == 1,
             Note = GetNullableString(reader, 28),
+            DeletedAtUtc = UtcTimestamp.ParseOrNull(GetNullableString(reader, 30)),
             DutySource = GetNullableString(reader, 29) is { } source
                 ? EnumWire<DutySource>.Parse(source)
                 : null,

@@ -14,6 +14,7 @@ ColumnLayout {
 
     readonly property var integrity: App.integrityCheckResult || ({})
     signal openImportRequested()
+    Component.onCompleted: App.refreshHistoryRetentionSettings()
 
     function captureSettingDescription(text) {
         if (!App.captureSettingsSupported)
@@ -162,6 +163,84 @@ ColumnLayout {
             color: Theme.textSecondary
             font.pixelSize: Theme.fs(11)
             wrapMode: Text.WordWrap
+        }
+    }
+
+    SettingsPanel {
+        objectName: "historyRetentionCard"
+        kicker: qsTr("回收站")
+        SettingsRow {
+            label: qsTr("删除记录保留期")
+            description: qsTr("普通删除先移入回收站；默认保留 30 天，到期永久清理当前记录、心得和备注图片。旧删除从升级日起算。")
+            StyledComboBox {
+                id: retentionMode
+                objectName: "historyRetentionMode"
+                Layout.preferredWidth: 160
+                enabled: App.historyRetentionLoaded && App.historyRetentionDays >= 0 && !App.historyRetentionSaving
+                model: [qsTr("按天自动清理"), qsTr("永不自动清理")]
+                currentIndex: App.historyRetentionDays === 0 ? 1 : 0
+                onActivated: if (currentIndex === 1) App.updateHistoryRetentionSettings(0)
+            }
+        }
+        SettingsRow {
+            visible: retentionMode.currentIndex === 0
+            label: qsTr("保留天数")
+            description: App.historyRetentionDays > 0 ? qsTr("当前生效：%1 天。恢复取消计时，再次删除重新起算。").arg(App.historyRetentionDays) : qsTr("1–36500 天；保存后生效。")
+            StyledTextField {
+                id: retentionDays
+                objectName: "historyRetentionDays"
+                Layout.preferredWidth: 90
+                enabled: App.historyRetentionLoaded && App.historyRetentionDays >= 0 && !App.historyRetentionSaving
+                text: App.historyRetentionDays > 0 ? String(App.historyRetentionDays) : "30"
+                inputMethodHints: Qt.ImhDigitsOnly
+                validator: IntValidator { bottom: 1; top: 36500 }
+                Accessible.name: qsTr("回收站保留天数")
+            }
+            AppButton {
+                objectName: "saveHistoryRetention"
+                text: App.historyRetentionSaving ? qsTr("正在保存…") : qsTr("保存")
+                enabled: App.historyRetentionLoaded && App.historyRetentionDays >= 0 && !App.historyRetentionSaving && retentionDays.acceptableInput
+                onClicked: App.updateHistoryRetentionSettings(Number(retentionDays.text))
+            }
+        }
+        Text {
+            Layout.fillWidth: true
+            text: qsTr("清理只在软件运行时检查，关闭期间到期将在下次启动处理。已有备份、导出文件和分享图片保留，不会随回收站清理。")
+            textFormat: Text.PlainText
+            color: Theme.textSecondary
+            font.pixelSize: Theme.fs(12)
+            wrapMode: Text.Wrap
+        }
+        Text {
+            objectName: "historyRetentionFeedback"
+            Layout.fillWidth: true
+            visible: text.length > 0
+            text: App.historyRetentionFeedback
+            textFormat: Text.PlainText
+            color: Theme.textSecondary
+            font.pixelSize: Theme.fs(12)
+            wrapMode: Text.Wrap
+        }
+        Text {
+            objectName: "historyImageCleanupFeedback"
+            Layout.fillWidth: true
+            visible: text.length > 0
+            text: App.historyImageCleanupFeedback
+            textFormat: Text.PlainText
+            color: Theme.orangeText
+            font.pixelSize: Theme.fs(12)
+            wrapMode: Text.Wrap
+        }
+        AppButton {
+            text: App.historyImageCleanupRunning ? qsTr("正在重试清理…") : qsTr("重试附件清理")
+            enabled: !App.historyImageCleanupRunning && App.backendConnected
+            onClicked: App.retryHistoryImageCleanup()
+        }
+        AppButton {
+            text: qsTr("重新读取保留期")
+            visible: App.historyRetentionDays < 0
+            enabled: !App.historyRetentionSaving && App.backendConnected
+            onClicked: App.refreshHistoryRetentionSettings()
         }
     }
 }

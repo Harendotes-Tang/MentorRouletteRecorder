@@ -108,6 +108,7 @@ public static class Wire
             ["manually_created"] = run.ManuallyCreated,
             ["manually_corrected"] = run.ManuallyCorrected,
             ["soft_deleted"] = run.SoftDeleted,
+            ["deleted_at_utc"] = UtcTimestamp.ToTextOrNull(run.DeletedAtUtc),
 
             // Proposed contract additions; see the change requests in docs/data-model.md.
             ["pending_review"] = run.PendingReview,

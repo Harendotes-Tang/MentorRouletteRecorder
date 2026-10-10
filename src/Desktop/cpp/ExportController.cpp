@@ -1,4 +1,5 @@
 #include "ExportController.h"
+#include <QJsonArray>
 
 #include "Formatters.h"
 #include "IBackend.h"
@@ -63,6 +64,16 @@ QString ExportController::chooseExportPath(const QString &suggestedName,
                                         suggested, filter);
 }
 
+QJsonObject ExportController::effectiveHistoryFilter() const
+{
+    if (m_checkedRunIds.isEmpty())
+        return m_historyFilter;
+    QJsonArray ids;
+    for (const QString &id : m_checkedRunIds)
+        ids.append(id);
+    return {{QStringLiteral("run_id"), ids}, {QStringLiteral("include_deleted"), true}};
+}
+
 void ExportController::exportCsv()
 {
     if (!m_backend)
@@ -74,7 +85,7 @@ void ExportController::exportCsv()
     if (path.isEmpty())
         return;
 
-    m_backend->exportCsv(path, m_historyFilter)
+    m_backend->exportCsv(path, effectiveHistoryFilter())
         ->whenDone(this, [this](bool ok, const QVariantMap &payload, const QString &code,
                                 const QString &message) {
             if (!ok) {
@@ -102,7 +113,7 @@ void ExportController::exportJson()
     if (path.isEmpty())
         return;
 
-    m_backend->exportJson(path, m_historyFilter)
+    m_backend->exportJson(path, effectiveHistoryFilter())
         ->whenDone(this, [this](bool ok, const QVariantMap &payload, const QString &code,
                                 const QString &message) {
             if (!ok) {

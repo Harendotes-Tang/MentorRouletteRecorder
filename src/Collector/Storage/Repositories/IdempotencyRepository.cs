@@ -1,5 +1,6 @@
 using Microsoft.Data.Sqlite;
 using MentorRecorder.Collector.Domain.Time;
+using MentorRecorder.Collector.Contracts.Errors;
 
 namespace MentorRecorder.Collector.Storage.Repositories;
 
@@ -56,6 +57,7 @@ public sealed class IdempotencyRepository
 
     private string? Lookup(string requestId, SqliteTransaction? transaction)
     {
+        ThrowIfPurgedRequest(requestId, transaction);
         using var command = _database.CreateCommand();
         command.Transaction = transaction;
         command.CommandText =
@@ -72,8 +74,8 @@ public sealed class IdempotencyRepository
     ///
     /// <c>run_revisions.request_id</c> and <c>candidate_reviews.request_id</c> are UNIQUE, so a
     /// replay arriving after the retention window would otherwise die on the constraint and be
-    /// reported as <c>ERR_INTERNAL</c> (review finding M-7). The append-only audit chain is never
-    /// pruned. Baselines instead retain an execution marker after their response expires; any
+    /// reported as <c>ERR_INTERNAL</c> (review finding M-7). Audit rows or permanent-deletion tombstones retain
+    /// execution identity. Baselines retain a marker after their response expires; any
     /// surviving legacy baseline audit also proves execution. A missing response therefore means
     /// a conflict rather than a replay. Runs in the caller's transaction so the
     /// answer cannot race the write.
@@ -97,7 +99,8 @@ public sealed class IdempotencyRepository
             "SELECT EXISTS(SELECT 1 FROM run_revisions WHERE request_id = $request_id) " +
             "OR EXISTS(SELECT 1 FROM candidate_reviews WHERE request_id = $request_id) " +
             "OR EXISTS(SELECT 1 FROM run_import_batches WHERE request_id = $request_id) " +
-            "OR EXISTS(SELECT 1 FROM ipc_idempotency WHERE request_id = $request_id AND message_type = $baseline_type);";
+            "OR EXISTS(SELECT 1 FROM ipc_idempotency WHERE request_id = $request_id AND message_type = $baseline_type) " +
+            "OR EXISTS(SELECT 1 FROM ipc_request_tombstones WHERE request_id = $request_id);";
         command.Parameters.AddWithValue("$request_id", requestId);
         command.Parameters.AddWithValue("$baseline_type", BaselineMessageType);
         if (Convert.ToInt64(command.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture) != 0)
@@ -134,6 +137,45 @@ public sealed class IdempotencyRepository
         }
     }
 
+    /// <summary>Refuses delayed requests without returning any permanently deleted content.</summary>
+    public void ThrowIfPurgedRequest(string requestId, SqliteTransaction? transaction = null, string? previewId = null)
+    {
+        if (transaction is null)
+        {
+            _database.Read(_ => { ThrowIfPurgedRequestCore(requestId, null, previewId); return 0; });
+            return;
+        }
+        ThrowIfPurgedRequestCore(requestId, transaction, previewId);
+    }
+
+    private void ThrowIfPurgedRequestCore(string requestId, SqliteTransaction? transaction, string? previewId)
+    {
+        using var command = _database.CreateCommand(); command.Transaction = transaction;
+        command.CommandText = "SELECT EXISTS(SELECT 1 FROM ipc_request_tombstones WHERE request_id=$id OR preview_id=$preview);";
+        command.Parameters.AddWithValue("$id", requestId);
+        command.Parameters.AddWithValue("$preview", (object?)previewId ?? DBNull.Value);
+        if (Convert.ToInt64(command.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture) != 0)
+            throw new CollectorException(ErrorCodes.IdempotencyConflict,
+                "该请求涉及已永久删除的记录，不能重放；请刷新历史记录。",
+                new Dictionary<string, object?> { ["request_id"] = requestId, ["reason"] = "RECORD_PURGED" }, field: "request_id");
+    }
+
+    /// <summary>Prevents a new import preview from recreating an erased stable ID or source fingerprint.</summary>
+    public bool IsPurgedRun(string runId, string? sourceFingerprint = null, SqliteTransaction? transaction = null)
+    {
+        if (transaction is null) return _database.Read(_ => PurgedRunLookup(runId, sourceFingerprint, null));
+        return PurgedRunLookup(runId, sourceFingerprint, transaction);
+    }
+
+    private bool PurgedRunLookup(string runId, string? fingerprint, SqliteTransaction? transaction)
+    {
+        using var command = _database.CreateCommand(); command.Transaction = transaction;
+        command.CommandText = "SELECT EXISTS(SELECT 1 FROM purged_run_tombstones WHERE run_id=$id OR source_fingerprint=$fingerprint);";
+        command.Parameters.AddWithValue("$id", runId);
+        command.Parameters.AddWithValue("$fingerprint", (object?)fingerprint ?? DBNull.Value);
+        return Convert.ToInt64(command.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture) != 0;
+    }
+
     /// <summary>Records the response of an applied request. Must run in the same transaction as the change.</summary>
     /// <param name="requestId">Client-generated request id.</param>
     /// <param name="messageType">Message type, for diagnostics.</param>
@@ -162,7 +204,7 @@ public sealed class IdempotencyRepository
 
     /// <summary>
     /// Removes expired response bodies in the caller's transaction. Baseline rows become
-    /// JSON-null execution markers; other rows are removed because their durable audit survives.
+    /// JSON-null execution markers; other rows rely on durable audit or permanent-deletion tombstones.
     ///
     /// It runs here rather than on a timer because this is the only moment the table is known
     /// to be growing, and because a sweep in the same transaction as the insert cannot leave

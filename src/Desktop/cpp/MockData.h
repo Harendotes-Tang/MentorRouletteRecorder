@@ -45,25 +45,33 @@ inline QString mockUuid(const QString &seed)
              QString::fromLatin1(hash.mid(20, 12)));
 }
 
-/// docs/statistics-definitions.md 1 - "confirmed mentor". An imported run is one when
-/// it carries the roulette id, like an automatic one (MentorRun.IsConfirmedMentor,
-/// RunFilterSql; review S33-1).
+/// Mirrors MentorRun.IsConfirmedMentor, including confirmed imported history.
 inline bool isConfirmedMentor(const QJsonObject &run)
 {
     const QString source = run.value(QStringLiteral("source")).toString();
+    const QJsonObject metadata = run.value(QStringLiteral("import_metadata")).toObject();
+    if (source == QLatin1String("IMPORT") || !metadata.isEmpty())
+        return !run.value(QStringLiteral("pending_review")).toBool(false)
+            && run.value(QStringLiteral("result")).toString() != QLatin1String("UNKNOWN")
+            && (run.value(QStringLiteral("mentor_roulette_id")).isDouble()
+                || metadata.value(QStringLiteral("mentor_confirmed")).toBool(false));
     if (source == QLatin1String("MANUAL"))
         return true;
-    if (source == QLatin1String("AUTO_NETWORK") || source == QLatin1String("IMPORT"))
+    if (source == QLatin1String("AUTO_NETWORK"))
         return !run.value(QStringLiteral("mentor_roulette_id")).isNull();
     return false;
 }
 
-/// docs/statistics-definitions.md 2 - only runs that actually entered a duty
-/// take part in attempt_count and therefore in every rate.
+/// Mirrors StatisticsRepository.IsAttempt: known imported outcomes count even
+/// when source history did not provide the gameplay timestamps.
 inline bool hasEntered(const QJsonObject &run)
 {
     const QJsonValue value = run.value(QStringLiteral("entered_at_utc"));
-    return value.isString() && !value.toString().isEmpty();
+    if (value.isString() && !value.toString().isEmpty()) return true;
+    const QString result = run.value(QStringLiteral("result")).toString();
+    return (run.value(QStringLiteral("source")).toString() == QLatin1String("IMPORT")
+            || run.value(QStringLiteral("import_metadata")).isObject())
+        && result != QLatin1String("UNKNOWN") && result != QLatin1String("CANCELLED_BEFORE_ENTRY");
 }
 
 inline bool isSoftDeleted(const QJsonObject &run)

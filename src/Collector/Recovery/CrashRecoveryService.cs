@@ -4,6 +4,7 @@ using MentorRecorder.Collector.Domain.Time;
 using MentorRecorder.Collector.Ipc;
 using MentorRecorder.Collector.Domain.Events;
 using MentorRecorder.Collector.Storage.Mutations;
+using MentorRecorder.Collector.Storage;
 
 namespace MentorRecorder.Collector.Recovery;
 
@@ -169,7 +170,8 @@ public static class CrashRecoveryService
                 "SELECT run_id FROM mentor_runs " +
                 "WHERE soft_deleted = 0 AND capture_session_id IS NOT NULL " +
                 "AND entered_at_utc IS NULL AND ended_at_utc IS NOT NULL " +
-                "AND result IN ($interrupted, $unknown) ORDER BY created_at_utc ASC;";
+                "AND result IN ($interrupted, $unknown) AND NOT " +
+                RunFilterSql.ImportedHistoryPredicate + " ORDER BY created_at_utc ASC;";
             command.Parameters.AddWithValue("$interrupted", EnumWire<RunResult>.Format(RunResult.Interrupted));
             command.Parameters.AddWithValue("$unknown", EnumWire<RunResult>.Format(RunResult.Unknown));
             using var reader = command.ExecuteReader();

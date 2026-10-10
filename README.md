@@ -26,7 +26,7 @@
 离开副本三个事件并生成记录，按职业、副本、耗时与结果汇总为历史与统计。不注入、不读内存、不发包、
 无遥测；所有数据仅保存在本机。
 
-**当前源码版本：** `1.7.0-beta.3`（测试版，版本来源为 [Directory.Build.props](Directory.Build.props)）。
+**当前源码版本：** `1.7.0-beta.5`（测试版，版本来源为 [Directory.Build.props](Directory.Build.props)）。
 下文包含该测试版的记录导入、离线截图识别与心得库功能；正式版与测试版的区别见[安装](#安装)，
 本轮变更见 [CHANGELOG.md](CHANGELOG.md)。
 
@@ -45,8 +45,8 @@
 > started only when the user clicks 「立即安装」; nothing is downloaded or installed automatically.
 > Setting `MR_DISABLE_SHARED_FETCH=1`, `MR_DISABLE_ONLINE_SPEECH=1` and `MR_DISABLE_UPDATE_CHECK=1`
 > disables all three.
-> The current source version is `1.7.0-beta.3`. It also supports local record imports from CSV,
-> XLSX, native JSON, database backups, pasted tables and screenshots. Screenshot OCR runs offline;
+> The current source version is `1.7.0-beta.5`. It also supports local record imports from CSV,
+> XLS/XLSX, native JSON, database backups, pasted tables and screenshots. Screenshot OCR runs offline;
 > imports require preview and confirmation, and conflicts preserve local records. Reflection sharing
 > saves a PNG locally without uploading it.
 > Supported client: Chinese server (国服) `2026.08.05`; see
@@ -77,7 +77,7 @@
   副本内收到通关结算时自动记为通关。
 - **历史与统计**：按副本、职业、职能统计次数与耗时，提供成就进度与完成趋势。
 - **补录与更正**：支持手工补录、更正、软删除与撤销。所有修改以追加式修订链保存，历史不会丢失。
-- **记录导入**：支持 CSV、XLSX、原生 JSON、软件数据库备份、粘贴表格与截图。先预览、核对并勾选记录，
+- **记录导入**：支持 CSV、XLS/XLSX、原生 JSON、软件数据库备份、粘贴表格与截图。先预览、核对并勾选记录，
   再确认导入；重复记录跳过，冲突保留本地。已计入成就基数的历史通关可在导入时从基数中扣除。
 - **离线截图识别**：支持 dlog 手机卡片与网页记录列表，使用随包 OCR 在本机识别，
   可对照原图修改副本、职业、时间、结果与心得；缺失的实际游戏时间保留未知。
@@ -163,12 +163,14 @@
    表格、粘贴与截图默认「已包含」，数据库备份与原生 JSON 默认「未包含」，应按实际情况选择。
 4. **确认导入。** 点击「导入选中的 N 条」，核对保存结果与基数调整提示；重复记录跳过，冲突记录保留本地。
 
-**原站记录时间不等于实际游戏时间。** 缺少必要的实际游戏时间（例如通关记录的进入或结束时间）时，
-记录保留为待补充历史，不计入统计与成就；之后可以继续补充已知信息，也可以只修改备注、心得或附图。
-不要为了计入进度而补造未知时间。导入记录尚待复核或未确认属于导随时，也不会计入完成与成就进度。
+**原站记录时间不等于实际游戏时间。** 在预览中确认本人导随及通关结果后，即使缺少进入或结束时间，
+通关仍计入统计与成就；未知游戏时间与耗时保持空值，只在历史记录显示「待补充」，不因此进入总览待复核提示。
+原站日期用于历史排序、日期筛选与完成趋势。结果未知或无法确认属于导随的记录不计入完成与成就。
+之后可以继续补充已知信息，也可以只修改备注、心得或附图，不需要为了计入进度补造未知时间。
 
-截图与识别正文只在本机处理。到「全部心得」点击「生成分享图片」，检查包含副本、职业与完整心得的预览后，
-选择「保存 PNG 图片」；软件只保存本地文件，分享由用户自行完成。备注图片的保存与备份范围见
+截图与识别正文只在本机处理。在「全部心得」勾选记录后生成分享图片，可选择逐条 PNG 或合并长图，
+预览与输出保留副本、职业及完整心得，并显示实际保存结果；失败的项目可以重试。
+软件只保存本地文件，分享由用户自行完成。备注图片的保存与备份范围见
 [数据保存在哪里](#常见问题)。
 
 ## 离线截图 OCR

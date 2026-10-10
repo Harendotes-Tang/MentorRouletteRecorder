@@ -1,5 +1,14 @@
 # IPC 契约变更记录 / IPC contract changelog
 
+## 2026-10-10 · 历史多选、回收站保留期与导入时间豁免
+
+- 新增 `BatchMutateRuns { action, runs: [{ run_id, expected_revision }], reason }`，支持 `soft_delete`、`restore` 与仅限已软删除目标的 `purge`；整批校验与提交，冲突不部分执行。结果带 `changed_count`、`run_ids` 与 `action`。
+- 新增 `GetHistoryRetentionSettings {}` / `UpdateHistoryRetentionSettings { retention_days }`。默认 30 天，0 表示永不自动清理，允许 1–36500 天；应答报告实际保存值。`Run.deleted_at_utc` 为可空的最近软删除时间。
+- 新增 `GetPendingImageCleanup {}` / `AcknowledgeImageCleanup { run_ids }`。获取应答带 `run_ids`，按最近尝试顺序轮转，每页最多 2000 条；成功清理对应本地附件后再确认。
+- `RunFilter.run_id` 支持最多 2000 个精确记录编号；选择导出不重用其他页面筛选，目标缺失时拒绝写出文件。`date_field` 与排序可采用 `history_date`；`history_from_day` / `history_to_day` 仅随对应 UTC 边界使用，保持仅有原站日历日的筛选语义。
+- 已确认且结果已知的本人导随历史 IMPORT 不因未知游戏时间待复核或被排除统计；`import_metadata.incomplete` 仅表示事实待补充。总览待复核计数排除历史导入，实际时间/耗时仍保持未知。成就基数扣除使用同一统计资格，兼容旧请求与已有回执。
+- 永久删除清除对应正文和旧回执，保留无正文墓碑防止重放。旧采集服务不识别新消息或筛选字段时明确拒绝，新桌面端不将拒绝报告成成功。
+
 ## 2026-10-09 · `CommitRunImport` 可以从成就基数中扣除本批已包含的通关（一个可选请求字段、两个可选应答字段）
 
 附加式变更，不新增消息类型。

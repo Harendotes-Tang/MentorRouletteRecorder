@@ -37,6 +37,18 @@ Item {
     property real shownMax: 1
     /// What the repeater draws: one entry per bar (see barEntry()).
     property var bars: []
+    onBarsChanged: {
+        // Keep delegates for surviving slots when merge hands over to regrow.
+        // Replacing an array model would destroy all old rectangles and create
+        // a full new set in the same frame, including for height-only updates.
+        if (barRows.count > bars.length)
+            barRows.remove(bars.length, barRows.count - bars.length)
+        const existing = barRows.count
+        for (let i = 0; i < existing; ++i)
+            barRows.set(i, { entry: bars[i] })
+        for (let i = existing; i < bars.length; ++i)
+            barRows.append({ entry: bars[i] })
+    }
 
     // The phase after `merge` needs the series it merged from and into.
     property var pendingSeries: []
@@ -123,6 +135,11 @@ Item {
         return trendLayer.bezier(Math.min(1, Math.max(0, x)), trendLayer.phaseCurve(trendLayer.phase))
     }
 
+    // Merge and height phases move every bar on the same clock. Solve their
+    // easing once per clock update rather than once per delegate; staggered
+    // bars still use their own delayed progress.
+    readonly property real sharedProgress: trendLayer.progressOf(0)
+
     // ------------------------------------------------------------- 数据 --
     function barEntry(index, n, count, max) {
         return { index: index, n: n, count: count, max: max,
@@ -158,10 +175,14 @@ Item {
         trendLayer.shown = series
         trendLayer.shownMax = max
 
-        trendLayer.stop()
+        // The next phase supplies its own entries. Do not construct a resting
+        // repeater only to destroy it again immediately for the moving bars.
+        trendLayer.stop(false)
         if (!Theme.motion || previous.length === 0 || series.length === 0
-                || trendLayer.width <= 0 || trendLayer.height <= 0)
+                || trendLayer.width <= 0 || trendLayer.height <= 0) {
+            trendLayer.bars = trendLayer.restingBars(series, max)
             return
+        }
 
         if (series.length === previous.length)
             trendLayer.startHeight(previous, previousMax, series, max)
@@ -234,13 +255,14 @@ Item {
     }
 
     /// Ends any running phase, leaving the bars at rest on the accepted series.
-    function stop() {
+    function stop(rebuildBars) {
         trendLayer.generation += 1
         clock.stop()
         trendLayer.phase = ""
         trendLayer.elapsed = 0
         trendLayer.pendingSeries = []
-        trendLayer.bars = trendLayer.restingBars(trendLayer.shown, trendLayer.shownMax)
+        if (rebuildBars !== false)
+            trendLayer.bars = trendLayer.restingBars(trendLayer.shown, trendLayer.shownMax)
     }
 
     NumberAnimation {
@@ -263,18 +285,25 @@ Item {
         function onMotionChanged() { if (!Theme.motion) trendLayer.stop() }
     }
 
+    ListModel {
+        id: barRows
+        dynamicRoles: true
+    }
+
     Repeater {
         id: repeater
 
-        model: trendLayer.bars
+        model: barRows
 
         delegate: Rectangle {
             id: bar
 
-            required property var modelData
+            required property var entry
             required property int index
+            readonly property var modelData: entry
 
-            readonly property real progress: trendLayer.progressOf(bar.modelData.delay)
+            readonly property real progress: bar.modelData.delay === 0
+                ? trendLayer.sharedProgress : trendLayer.progressOf(bar.modelData.delay)
             readonly property string phase: trendLayer.phase
             readonly property real length: {
                 const to = trendLayer.lengthFor(bar.modelData.count, bar.modelData.max)

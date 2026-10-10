@@ -49,7 +49,7 @@ public sealed class RunImportServiceTests
         Wire.Run(TestDatabase.Run(enteredAt: new DateTimeOffset(2026, 9, 4, hour, 0, 0, TimeSpan.Zero), contributesToGoal: contributesToGoal));
 
     [Fact]
-    public void MissingOutcomeUsesUserDefaultCompletionButMissingTimesRemainPending()
+    public void MissingOutcomeUsesReviewedDefaultCompletionAndUnknownTimesRemainInformational()
     {
         using var fixture = new TestDatabase();
         var candidate = History(); candidate.Remove("result");
@@ -59,7 +59,11 @@ public sealed class RunImportServiceTests
         Assert.True(Row(preview)["incomplete"]!.GetValue<bool>());
         Assert.Contains(Row(preview)["warnings"]!.AsArray(), value => value!.GetValue<string>().Contains("默认通关", StringComparison.Ordinal));
         Commit(service, preview);
-        Assert.Equal(0, new StatisticsRepository(fixture.Database, Settings(fixture)).GetDashboard().CompletedCount);
+        var stats = new StatisticsRepository(fixture.Database, Settings(fixture)).GetDashboard();
+        Assert.Equal(1, stats.CompletedCount);
+        Assert.Equal(1, stats.AchievementProgress);
+        Assert.Equal(0, stats.UnfinishedPendingReview);
+        Assert.Null(stats.AverageDurationMs);
     }
 
     [Fact]
@@ -185,17 +189,24 @@ public sealed class RunImportServiceTests
     }
 
     [Fact]
-    public void CompletionConfirmationWithoutActualEndpointsIsRejectedAtomically()
+    public void CompletionConfirmationWithoutActualEndpointsPreservesUnknownTimesAndAuditsDecision()
     {
         using var fixture = new TestDatabase();
         var service = new RunImportService(fixture.Database, fixture.Clock);
         var preview = service.PreviewSource("ROWS", rows: new JsonArray(History()), timeZone: "+08:00");
         var runId = Commit(service, preview)["run_ids"]![0]!.GetValue<string>();
         var changes = new RunChangeSet { Specified = new HashSet<string> { RunFields.Result }, Result = RunResult.Completed };
-        Assert.Throws<CollectorException>(() => new RunMutationService(fixture.Database, Settings(fixture), fixture.Clock)
-            .CorrectRun(new CorrectRunCommand(Id(), runId, 1, "确认完成", changes)));
-        Assert.Equal(RunResult.Unknown, new RunRepository(fixture.Database).Get(runId)!.Result);
-        Assert.Equal(1, Count(fixture, "run_revisions"));
+        new RunMutationService(fixture.Database, Settings(fixture), fixture.Clock)
+            .CorrectRun(new CorrectRunCommand(Id(), runId, 1, "确认完成", changes));
+        var run = new RunRepository(fixture.Database).Get(runId)!;
+        Assert.Equal(RunResult.Completed, run.Result);
+        Assert.True(run.IsIncompleteImport);
+        Assert.False(run.PendingReview);
+        Assert.Null(run.EnteredAtUtc);
+        Assert.Null(run.EndedAtUtc);
+        Assert.Null(run.DurationMs);
+        Assert.Equal(1, new StatisticsRepository(fixture.Database, Settings(fixture)).GetDashboard().CompletedCount);
+        Assert.Equal(2, Count(fixture, "run_revisions"));
     }
 
     [Fact]
@@ -404,7 +415,8 @@ public sealed class RunImportServiceTests
     /// The baseline is what the game showed before this software was installed, so history imported
     /// from a spreadsheet or a screenshot of that time is already inside it. When the user says so, the
     /// commit deducts exactly the imported completions the progress would otherwise add a second time:
-    /// a completion excluded from the goal and an incomplete record are imported but not deducted.
+    /// a completion excluded from the goal and an unknown outcome are not deducted, whereas a
+    /// reviewed completion with unknown game endpoints is counted and deducted normally.
     /// </summary>
     [Fact]
     public void DeductingFromBaselineRemovesOnlyTheImportedCompletionsThatCountAndRecordsWhy()
@@ -412,23 +424,24 @@ public sealed class RunImportServiceTests
         using var fixture = new TestDatabase();
         SetBaseline(fixture, 1500);
         var service = new RunImportService(fixture.Database, fixture.Clock);
-        var rows = new JsonArray(CompletedRun(1), CompletedRun(2), CompletedRun(3, contributesToGoal: false), History());
+        var timeExempt = History("已确认通关，时间不详"); timeExempt["result"] = "COMPLETED";
+        var rows = new JsonArray(CompletedRun(1), CompletedRun(2), CompletedRun(3, contributesToGoal: false), History(), timeExempt);
         var preview = service.PreviewSource("JSON", rows: rows, timeZone: "+08:00");
         Assert.All(preview["rows"]!.AsArray(), row => Assert.True(row!["can_import"]!.GetValue<bool>()));
         var requestId = Id();
-        var committed = service.Commit(preview["preview_id"]!.GetValue<string>(), new[] { 1, 2, 3, 4 }, true, requestId, deductFromBaseline: true);
-        Assert.Equal(4, committed["imported_count"]!.GetValue<int>());
-        Assert.Equal(2, committed["baseline_deducted_count"]!.GetValue<int>());
-        Assert.Equal(1498, committed["baseline_completed_count"]!.GetValue<int>());
+        var committed = service.Commit(preview["preview_id"]!.GetValue<string>(), new[] { 1, 2, 3, 4, 5 }, true, requestId, deductFromBaseline: true);
+        Assert.Equal(5, committed["imported_count"]!.GetValue<int>());
+        Assert.Equal(3, committed["baseline_deducted_count"]!.GetValue<int>());
+        Assert.Equal(1497, committed["baseline_completed_count"]!.GetValue<int>());
         var settings = Settings(fixture);
         var stats = new StatisticsRepository(fixture.Database, settings).GetDashboard();
-        Assert.Equal(1498, stats.BaselineCompletedCount);
-        Assert.Equal(3, stats.CompletedCount);
+        Assert.Equal(1497, stats.BaselineCompletedCount);
+        Assert.Equal(4, stats.CompletedCount);
         Assert.Equal(1500, stats.AchievementProgress);
         var audit = Assert.Single(settings.ReadBaselineAudit());
         Assert.Equal(requestId, audit.RequestId);
-        Assert.Equal(1498, audit.BaselineCompletedCount);
-        Assert.Contains("导入 2 条", audit.Reason, StringComparison.Ordinal);
+        Assert.Equal(1497, audit.BaselineCompletedCount);
+        Assert.Contains("导入 3 条", audit.Reason, StringComparison.Ordinal);
     }
 
     [Fact]

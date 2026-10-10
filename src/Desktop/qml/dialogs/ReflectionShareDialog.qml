@@ -8,8 +8,10 @@ Dialog {
     objectName: "reflectionShareDialog"
     property var controller: typeof ReflectionShare !== "undefined" ? ReflectionShare : null
     property var runData: ({})
+    property var runsData: []
     readonly property var reflection: runData.reflection || ({})
     readonly property bool busy: controller && controller.busy
+    readonly property bool batch: runsData.length > 1
     modal: true
     width: Math.min(800, Overlay.overlay ? Overlay.overlay.width - 48 : 800)
     height: Math.min(850, Overlay.overlay ? Overlay.overlay.height - 48 : 850)
@@ -19,30 +21,67 @@ Dialog {
     background: DialogFrame {}
 
     function openForRun(run) {
-        if (visible || busy || !run || !run.reflection || !run.reflection.text) return
-        runData = run
+        openForRuns([run])
+    }
+    function openForRuns(runs) {
+        if (visible || busy || !runs) return
+        const valid = []
+        const seen = ({})
+        for (let i = 0; i < runs.length; ++i) {
+            const run = runs[i]
+            if (!run || !run.reflection || !run.reflection.text) continue
+            if (run.run_id && seen[run.run_id]) continue
+            if (run.run_id) seen[run.run_id] = true
+            valid.push(run)
+        }
+        if (valid.length === 0) return
+        runsData = valid
+        runData = valid[0]
+        outputMode.currentIndex = 0
         if (controller) controller.resetFeedback()
         open()
     }
-    function dateLabel() {
-        if (runData.matched_at_utc)
-            return qsTr("游玩时间：%1").arg(Fmt.localDateTime(runData.matched_at_utc))
-        const source = runData.import_metadata || ({})
-        if (source.source_recorded_at_utc)
-            return qsTr("原站记录时间：%1").arg(Fmt.localDateTime(source.source_recorded_at_utc))
-        if (source.source_recorded_at)
-            return qsTr("原站记录时间：%1").arg(source.source_recorded_at)
-        return qsTr("游玩时间未知")
+    function captureEntries() {
+        const entries = []
+        for (let i = 0; i < cards.count; ++i)
+            entries.push({ run_id: runsData[i].run_id, label: runsData[i].duty_name || qsTr("未知副本"), item: cards.itemAt(i) })
+        return entries
+    }
+    function saveSelected() {
+        if (!controller || busy) return
+        if (batch && outputMode.currentIndex === 0)
+            controller.saveBatchPicked(captureEntries())
+        else
+            controller.savePicked(batch ? combined : cards.itemAt(0))
+    }
+    onOpened: {
+        if (batch) outputMode.forceActiveFocus()
+        else saveButton.forceActiveFocus()
     }
     contentItem: ColumnLayout {
         spacing: 12
         HeadingLabel { text: qsTr("生成分享图片"); font.pixelSize: Theme.dialogTitleSize(20) }
         Text {
             Layout.fillWidth: true
-            text: qsTr("预览包含完整心得和副本、职业等信息。图片仅保存到你选择的位置。")
+            text: dialog.batch ? qsTr("已选 %1 条。预览按选择顺序包含完整心得和元数据，图片仅保存到你选择的位置。").arg(dialog.runsData.length)
+                              : qsTr("预览包含完整心得和副本、职业等信息。图片仅保存到你选择的位置。")
             color: Theme.textSecondary
             font.pixelSize: Theme.fs(12)
             wrapMode: Text.Wrap
+        }
+        RowLayout {
+            Layout.fillWidth: true
+            visible: dialog.batch
+            spacing: 8
+            Text { text: qsTr("输出方式"); color: Theme.textSecondary; font.pixelSize: Theme.fs(12) }
+            StyledComboBox {
+                id: outputMode
+                objectName: "reflectionImageOutputMode"
+                Layout.fillWidth: true
+                model: [qsTr("逐条 PNG（每条一张，选择文件夹）"), qsTr("合成长图（按预览顺序保存一张）")]
+                enabled: !dialog.busy
+                onActivated: if (dialog.controller) dialog.controller.resetFeedback()
+            }
         }
         ScrollView {
             id: preview
@@ -52,69 +91,26 @@ Dialog {
             clip: true
             contentWidth: availableWidth
             ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
-            // 捕获卡片自身而不是 ScrollView 的可见视口，长正文不会被分页裁切。
+            // Repeater 实例化每一条完整卡片；抓图对象为卡片/组合自身，绝不捕获可见视口。
             Rectangle {
-                id: card
-                objectName: "reflectionShareCard"
+                id: combined
+                objectName: "reflectionShareCombinedCard"
                 width: preview.availableWidth
-                height: shareContents.implicitHeight + 64
+                height: stack.implicitHeight
                 color: Theme.surface
-                border.width: 1
-                border.color: Theme.border
-                ColumnLayout {
-                    id: shareContents
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.top: parent.top
-                    anchors.margins: 32
-                    spacing: 16
-                    Text { text: qsTr("导随心得"); color: Theme.textSecondary; font.pixelSize: Theme.fs(13) }
-                    RowLayout {
-                        Layout.fillWidth: true
-                        JobIcon { jobId: dialog.runData.job_id; size: 38 }
-                        Text {
-                            Layout.fillWidth: true
-                            text: dialog.runData.duty_name || qsTr("未知副本")
-                            textFormat: Text.PlainText
-                            color: Theme.textPrimary
-                            font.pixelSize: Theme.fs(22)
-                            font.bold: true
-                            wrapMode: Text.Wrap
+                Column {
+                    id: stack
+                    width: parent.width
+                    spacing: 12
+                    Repeater {
+                        id: cards
+                        model: dialog.runsData
+                        ReflectionShareCard {
+                            required property var modelData
+                            width: stack.width
+                            runData: modelData
                         }
                     }
-                    Text {
-                        Layout.fillWidth: true
-                        text: (dialog.runData.job_name || qsTr("未知职业")) + " · " + Fmt.resultLabel(dialog.runData.result || "UNKNOWN")
-                        textFormat: Text.PlainText
-                        color: Theme.textSecondary
-                        font.pixelSize: Theme.fs(14)
-                        wrapMode: Text.Wrap
-                    }
-                    Text {
-                        Layout.fillWidth: true
-                        text: dialog.dateLabel()
-                        textFormat: Text.PlainText
-                        color: Theme.textSecondary
-                        font.pixelSize: Theme.fs(13)
-                        wrapMode: Text.Wrap
-                    }
-                    Text {
-                        text: Theme.moodLabel(dialog.reflection.mood)
-                        color: Theme.textSecondary
-                        font.pixelSize: Theme.fs(13)
-                    }
-                    Rectangle { Layout.fillWidth: true; height: 1; color: Theme.border }
-                    Text {
-                        objectName: "reflectionShareFullText"
-                        Layout.fillWidth: true
-                        text: dialog.reflection.text || ""
-                        textFormat: Text.PlainText
-                        color: Theme.textPrimary
-                        font.pixelSize: Theme.fs(18)
-                        wrapMode: Text.Wrap
-                        lineHeight: 1.55
-                    }
-                    Text { text: qsTr("导随记录"); color: Theme.textSecondary; font.pixelSize: Theme.fs(12) }
                 }
             }
         }
@@ -124,21 +120,61 @@ Dialog {
             visible: text.length > 0
             text: controller ? controller.feedback : qsTr("分享服务未就绪。")
             textFormat: Text.PlainText
-            color: controller && controller.savedPath.length > 0 ? Theme.green : Theme.textSecondary
+            color: controller && controller.failedCount > 0 ? Theme.orangeText
+                : controller && (controller.savedPath.length > 0 || controller.successfulCount > 0) ? Theme.green : Theme.textSecondary
             font.pixelSize: Theme.fs(12)
             wrapMode: Text.Wrap
+        }
+        ScrollView {
+            id: batchResultsView
+            objectName: "reflectionBatchResults"
+            Layout.fillWidth: true
+            Layout.preferredHeight: Math.min(110, resultContents.implicitHeight)
+            visible: !!dialog.controller && dialog.controller.batchResults.length > 0
+            clip: true
+            contentWidth: availableWidth
+            ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+            Column {
+                id: resultContents
+                width: batchResultsView.availableWidth
+                spacing: 8
+                Repeater {
+                    model: dialog.controller ? dialog.controller.batchResults : []
+                    Text {
+                        required property var modelData
+                        width: resultContents.width
+                        text: (modelData.label || qsTr("未知副本")) + " · "
+                            + (modelData.status === "saved" ? qsTr("已保存：%1").arg(modelData.path)
+                               : modelData.status === "failed" ? qsTr("失败：%1").arg(modelData.error) : qsTr("等待生成"))
+                        textFormat: Text.PlainText
+                        color: modelData.status === "failed" ? Theme.red : Theme.textSecondary
+                        font.pixelSize: Theme.fs(12)
+                        wrapMode: Text.WrapAnywhere
+                    }
+                }
+            }
         }
         RowLayout {
             Layout.fillWidth: true
             AppButton { text: qsTr("关闭"); enabled: !dialog.busy; onClicked: dialog.close() }
             Item { Layout.fillWidth: true }
             AppButton {
+                objectName: "retryFailedReflectionImagesButton"
+                visible: !!dialog.controller && dialog.controller.failedCount > 0
+                text: qsTr("仅重试失败项")
+                enabled: !dialog.busy
+                onClicked: dialog.controller.retryFailed()
+            }
+            AppButton {
+                id: saveButton
                 objectName: "saveReflectionImageButton"
-                text: dialog.busy ? qsTr("正在保存…") : qsTr("保存 PNG 图片")
+                text: dialog.busy ? qsTr("正在保存…")
+                    : dialog.batch && outputMode.currentIndex === 0 ? qsTr("保存逐条 PNG")
+                    : dialog.batch ? qsTr("保存合成长图") : qsTr("保存 PNG 图片")
                 iconName: "image-down"
                 variant: "primary"
                 enabled: !!dialog.controller && !dialog.busy
-                onClicked: dialog.controller.savePicked(card)
+                onClicked: dialog.saveSelected()
             }
         }
     }

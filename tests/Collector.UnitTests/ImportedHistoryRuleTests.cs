@@ -21,8 +21,8 @@ public sealed class ImportedHistoryRuleTests
         Assert.Null(validated.EndedAtUtc);
         Assert.Null(validated.DurationMs);
         Assert.Throws<RunRuleViolationException>(() =>
-            RunMutationRules.ValidateFinalValue(candidate with { Source = RunSource.Manual }, false));
+            RunMutationRules.ValidateFinalValue(candidate with { Source = RunSource.Manual, ImportMetadata = null }, false));
         Assert.Throws<RunRuleViolationException>(() =>
-            RunMutationRules.ValidateFinalValue(candidate with { Source = RunSource.AutoNetwork }, false));
+            RunMutationRules.ValidateFinalValue(candidate with { Source = RunSource.AutoNetwork, ImportMetadata = null }, false));
     }
 }

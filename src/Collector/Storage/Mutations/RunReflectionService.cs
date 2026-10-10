@@ -108,7 +108,7 @@ public sealed class RunReflectionService
     {
         var run = _runs.GetInternal(command.RunId, transaction)
             ?? throw CollectorException.NotFound(command.RunId);
-        if (command.Mood == ReflectionMood.Unknown && run.Source != RunSource.Import)
+        if (command.Mood == ReflectionMood.Unknown && !run.IsImportedHistory)
         {
             throw CollectorException.BadRequest("未记录心情仅适用于导入的心得。", "mood");
         }

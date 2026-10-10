@@ -46,6 +46,7 @@ class AppSettings;
 class CollectorProcess;
 class ExportController;
 class IBackend;
+class NoteImageStore;
 class TtsService;
 
 // `final`: the constructor calls refreshAll(), which reaches the virtual Host slot
@@ -212,6 +213,19 @@ class AppController final : public QObject, public CaptureValidationController::
     Q_PROPERTY(QVariantList categoryOptions READ categoryOptions NOTIFY optionsChanged)
     Q_PROPERTY(QVariantList jobOptions READ jobOptions NOTIFY optionsChanged)
     Q_PROPERTY(QVariantMap historyFilter READ historyFilter NOTIFY historyFilterChanged)
+    Q_PROPERTY(QStringList checkedHistoryRunIds READ checkedHistoryRunIds NOTIFY checkedHistoryRunsChanged)
+    Q_PROPERTY(int checkedHistoryRunCount READ checkedHistoryRunCount NOTIFY checkedHistoryRunsChanged)
+    Q_PROPERTY(int checkedHistoryDeletedCount READ checkedHistoryDeletedCount NOTIFY checkedHistoryRunsChanged)
+    Q_PROPERTY(bool allCurrentHistoryPageChecked READ allCurrentHistoryPageChecked NOTIFY checkedHistoryRunsChanged)
+    Q_PROPERTY(bool historyBatchRunning READ historyBatchRunning NOTIFY historyBatchChanged)
+    Q_PROPERTY(QString historyBatchFeedback READ historyBatchFeedback NOTIFY historyBatchChanged)
+    Q_PROPERTY(bool historyFilterConfirmationPending READ historyFilterConfirmationPending NOTIFY historyFilterConfirmationChanged)
+    Q_PROPERTY(int historyRetentionDays READ historyRetentionDays NOTIFY historyRetentionChanged)
+    Q_PROPERTY(bool historyRetentionLoaded READ historyRetentionLoaded NOTIFY historyRetentionChanged)
+    Q_PROPERTY(bool historyRetentionSaving READ historyRetentionSaving NOTIFY historyRetentionChanged)
+    Q_PROPERTY(QString historyRetentionFeedback READ historyRetentionFeedback NOTIFY historyRetentionChanged)
+    Q_PROPERTY(bool historyImageCleanupRunning READ historyImageCleanupRunning NOTIFY historyImageCleanupChanged)
+    Q_PROPERTY(QString historyImageCleanupFeedback READ historyImageCleanupFeedback NOTIFY historyImageCleanupChanged)
 
     // -- feedback -----------------------------------------------------------
     Q_PROPERTY(QString toastMessage READ toastMessage NOTIFY toastChanged)
@@ -401,6 +415,21 @@ public:
     QVariantList categoryOptions() const;
     QVariantList jobOptions() const;
     QVariantMap historyFilter() const { return m_history->historyFilter(); }
+    QStringList checkedHistoryRunIds() const { return m_history->checkedRunIds(); }
+    int checkedHistoryRunCount() const { return m_history->checkedRunCount(); }
+    int checkedHistoryDeletedCount() const { return m_history->checkedDeletedCount(); }
+    bool allCurrentHistoryPageChecked() const { return m_history->allCurrentPageChecked(); }
+    bool historyBatchRunning() const { return m_history->batchRunning(); }
+    QString historyBatchFeedback() const { return m_history->batchFeedback(); }
+    bool historyFilterConfirmationPending() const { return m_history->filterConfirmationPending(); }
+    int historyRetentionDays() const { return m_history->retentionDays(); }
+    bool historyRetentionLoaded() const { return m_history->retentionLoaded(); }
+    bool historyRetentionSaving() const { return m_history->retentionSaving(); }
+    QString historyRetentionFeedback() const { return m_history->retentionFeedback(); }
+    bool historyImageCleanupRunning() const { return m_historyImageCleanupRunning; }
+    QString historyImageCleanupFeedback() const { return m_historyImageCleanupFeedback; }
+    /// main() 注入既有图片根；测试使用临时根。没有 store 时不消费清理任务。
+    void setNoteImageStore(NoteImageStore *store);
 
     QString toastMessage() const { return m_toastMessage; }
 
@@ -484,6 +513,14 @@ public Q_SLOTS:
 
     void setHistoryFilter(const QVariantMap &filter);
     void resetHistoryFilter();
+    void setHistoryRunChecked(const QVariantMap &run, bool checked);
+    void setCurrentHistoryPageChecked(bool checked);
+    void clearCheckedHistoryRuns();
+    void mutateCheckedHistoryRuns(const QString &action, const QString &reason);
+    void confirmHistoryFilterChange(bool apply);
+    void refreshHistoryRetentionSettings();
+    void updateHistoryRetentionSettings(int days);
+    void retryHistoryImageCleanup();
     /// Jump to the history page pre-filtered by one duty or one job.
     void showHistoryForContent(const QVariant &contentId);
     void showHistoryForJob(const QVariant &jobId);
@@ -572,6 +609,11 @@ Q_SIGNALS:
     void optionsChanged();
     void recentDutiesChanged();
     void historyFilterChanged();
+    void checkedHistoryRunsChanged();
+    void historyBatchChanged();
+    void historyFilterConfirmationChanged();
+    void historyRetentionChanged();
+    void historyImageCleanupChanged();
     void toastChanged();
     void firstRunChanged();
     void adaptersChanged();
@@ -737,6 +779,16 @@ private:
     /// names a live holder; a vacant lease is taken on the first failure.
     static constexpr int kReusedTakeoverAttempts = 4;
     HistoryController *m_history = nullptr;
+    QPointer<NoteImageStore> m_noteImages;
+    QTimer m_historyImageCleanupTimer;
+    bool m_historyImageCleanupRunning = false;
+    QString m_historyImageCleanupFeedback;
+    QStringList m_historyCleanupIds;
+    QStringList m_historyCleanupSuccessful;
+    QStringList m_historyCleanupFailures;
+    int m_historyCleanupIndex = 0;
+    void drainHistoryImageCleanup();
+    void finishHistoryImageCleanup(const QString &feedback);
     QVariantList m_recentDuties;
     StatisticsController *m_statistics = nullptr;
     TtsService *m_tts = nullptr;
