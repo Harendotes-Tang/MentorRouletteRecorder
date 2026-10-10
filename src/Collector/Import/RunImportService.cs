@@ -49,7 +49,7 @@ public sealed class RunImportService
     {
         cancellationToken.ThrowIfCancellationRequested();
         sourceKind = sourceKind.ToUpperInvariant();
-        if (!new[] { "CSV", "XLSX", "JSON", "BACKUP", "PASTE", "SCREENSHOT", "ROWS" }.Contains(sourceKind, StringComparer.Ordinal))
+        if (!new[] { "CSV", "XLS", "XLSX", "JSON", "BACKUP", "PASTE", "SCREENSHOT", "ROWS" }.Contains(sourceKind, StringComparer.Ordinal))
             throw CollectorException.BadRequest("不支持的记录来源格式。", "source_kind");
         if (sourceName?.Length > 500) throw CollectorException.BadRequest("来源名称超过 500 字符。", "source_name");
         if (filePath is not null)

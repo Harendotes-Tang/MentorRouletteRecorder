@@ -475,6 +475,8 @@ QVariantMap rowCandidate(const QImage &image, const RowRecord &row, const QList<
         addWarning(warnings, QStringLiteral("等级前缀识别不完整，已依据所在行和日期保留，请核对副本标题。"));
     if (row.misreadLevelDigits)
         addWarning(warnings, QStringLiteral("等级数字识别不清，已按字形相近的数字读取，请核对等级。"));
+    if (row.noteWrapJoined)
+        addWarning(warnings, QStringLiteral("心得中的自动折行已合并，请对照原图核对分段。"));
     Evidence evidence;
     evidence.rect = row.rect;
     evidence.iconArea = row.iconArea;

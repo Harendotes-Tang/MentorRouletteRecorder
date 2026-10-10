@@ -124,6 +124,8 @@ public static class DecodedReplayRunner
             new StateMachineOptions
             {
                 MatchWindow = effectiveProfile?.MatchWindow ?? StateMachineOptions.Default.MatchWindow,
+                IsKnownDuty = territory =>
+                    duties.FindByTerritory(territory, effectiveProfile?.Region ?? Region.Unknown) is not null,
             },
             () => SemanticEventProcessor.DeterministicId(fixture.FixtureId + ":run:" + runOrdinal++));
 

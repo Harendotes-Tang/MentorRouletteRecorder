@@ -1,11 +1,15 @@
 import QtQuick
+import QtQuick.Templates as T
 import MentorRecorder
 
 // `.sw`: 40x22 square-ish inset track in the eorzea style; in the classic one
 // workbench's 36x20 pill, neutral-300 when off, accent when on, with a 16 px
 // white knob.
-Item {
+FocusScope {
     id: root
+
+    property string accessibleName: ""
+    activeFocusOnTab: enabled
 
     // A pure view of the owning setting. The switch does NOT flip itself:
     // assigning to `checked` from inside destroys the caller's binding for
@@ -19,7 +23,7 @@ Item {
 
     // `.sw:active::after`: the knob stretches from 16 to 20 px while pressed,
     // growing away from the side it rests on.
-    readonly property bool pressed: tap.pressed
+    readonly property bool pressed: activation.pressed
     readonly property int knobSize: 16
 
     implicitWidth: Theme.eorzea ? 40 : 36
@@ -104,8 +108,37 @@ Item {
         id: hover
     }
 
-    TapHandler {
-        id: tap
-        onTapped: root.toggled(!root.checked)
+    // Native checkbox owns Space, press/release cancellation and accessibility.
+    // Returning the owner's current value preserves rejected/asynchronous writes
+    // instead of leaving an optimistic checked state inside the visual control.
+    T.CheckBox {
+        id: activation
+        objectName: "toggleActivation"
+        anchors.fill: parent
+        focus: true
+        focusPolicy: Qt.NoFocus
+        checked: root.checked
+        Accessible.name: root.accessibleName
+        nextCheckState: function() {
+            root.toggled(!root.checked)
+            return root.checked ? Qt.Checked : Qt.Unchecked
+        }
+    }
+
+    // Retain the record wizard's existing Return shortcut at the shared control.
+    Keys.onReturnPressed: function(event) {
+        if (!event.isAutoRepeat)
+            root.toggled(!root.checked)
+    }
+
+    Rectangle {
+        objectName: "toggleFocusRing"
+        anchors.fill: parent
+        anchors.margins: -3
+        radius: track.radius + 3
+        color: "transparent"
+        border.width: 2
+        border.color: Theme.eorzea ? Theme.gold2 : Theme.accent
+        visible: root.activeFocus
     }
 }

@@ -300,7 +300,7 @@ Item {
 
                 AppButton { text: qsTr("导出 CSV"); iconName: "file-down"; onClicked: App.exportCsv() }
                 AppButton { text: qsTr("导出 JSON"); iconName: "file-json"; onClicked: App.exportJson() }
-                AppButton { text: qsTr("导入记录"); iconName: "file-check"; onClicked: page.openImportRequested() }
+                AppButton { text: qsTr("导入记录"); iconName: "file-input"; onClicked: page.openImportRequested() }
                 AppButton {
                     text: qsTr("新增记录")
                     iconName: "plus"

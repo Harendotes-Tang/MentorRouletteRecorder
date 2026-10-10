@@ -685,9 +685,15 @@ public sealed class MessageDispatcher
         IReadOnlyList<T> rows, PageRequest paging, Func<T, JsonObject> render)
     {
         var items = new JsonArray();
-        foreach (var row in rows.Skip((paging.Page - 1) * paging.PageSize).Take(paging.PageSize))
+        var offset = ((long)paging.Page - 1) * paging.PageSize;
+        // A contract-valid page can be far beyond Int32 offsets. Check the long offset
+        // against the materialised list before casting; an out-of-range page is empty.
+        if (offset < rows.Count)
         {
-            items.Add(render(row));
+            foreach (var row in rows.Skip((int)offset).Take(paging.PageSize))
+            {
+                items.Add(render(row));
+            }
         }
 
         return Wire.PagedItems(items, paging.Page, paging.PageSize, rows.Count);

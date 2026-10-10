@@ -17,10 +17,12 @@ public sealed class IdempotencyRepository
     /// How long a stored response stays replayable.
     ///
     /// The window only has to outlast "send, lose the pipe, resend", which is seconds; a day is
-    /// generous. It is bounded so that a long-lived database does not carry every request id the
-    /// user ever sent (review finding M4).
+    /// generous. Response bodies are bounded; baseline requests retain a lightweight execution
+    /// marker because their visible audit history is capped at 100 entries.
     /// </summary>
     public static readonly TimeSpan RetentionWindow = TimeSpan.FromHours(24);
+
+    private const string BaselineMessageType = "UpdateAchievementBaseline";
 
     private readonly SqliteDatabase _database;
     private readonly IClock _clock;
@@ -37,7 +39,7 @@ public sealed class IdempotencyRepository
     }
 
     /// <summary>
-    /// Looks up a stored response, or null when this request was never applied. The
+    /// Looks up a stored response, or null when it is absent or only an expired marker remains. The
     /// transaction-less form gates itself, because every repository shares one connection and
     /// a command issued outside the gate is refused while another transaction is open.
     /// </summary>
@@ -56,7 +58,10 @@ public sealed class IdempotencyRepository
     {
         using var command = _database.CreateCommand();
         command.Transaction = transaction;
-        command.CommandText = "SELECT response_json FROM ipc_idempotency WHERE request_id = $request_id;";
+        command.CommandText =
+            "SELECT response_json FROM ipc_idempotency WHERE request_id = $request_id " +
+            "AND NOT (message_type = $baseline_type AND response_json = 'null');";
+        command.Parameters.AddWithValue("$baseline_type", BaselineMessageType);
         command.Parameters.AddWithValue("$request_id", requestId);
         return command.ExecuteScalar() as string;
     }
@@ -68,8 +73,9 @@ public sealed class IdempotencyRepository
     /// <c>run_revisions.request_id</c> and <c>candidate_reviews.request_id</c> are UNIQUE, so a
     /// replay arriving after the retention window would otherwise die on the constraint and be
     /// reported as <c>ERR_INTERNAL</c> (review finding M-7). The append-only audit chain is never
-    /// pruned, so it is the durable record that the request already happened; its response is
-    /// gone, hence a conflict rather than a replay. Runs in the caller's transaction so the
+    /// pruned. Baselines instead retain an execution marker after their response expires; any
+    /// surviving legacy baseline audit also proves execution. A missing response therefore means
+    /// a conflict rather than a replay. Runs in the caller's transaction so the
     /// answer cannot race the write.
     /// </summary>
     /// <param name="requestId">Client-generated request id.</param>
@@ -90,9 +96,42 @@ public sealed class IdempotencyRepository
         command.CommandText =
             "SELECT EXISTS(SELECT 1 FROM run_revisions WHERE request_id = $request_id) " +
             "OR EXISTS(SELECT 1 FROM candidate_reviews WHERE request_id = $request_id) " +
-            "OR EXISTS(SELECT 1 FROM run_import_batches WHERE request_id = $request_id);";
+            "OR EXISTS(SELECT 1 FROM run_import_batches WHERE request_id = $request_id) " +
+            "OR EXISTS(SELECT 1 FROM ipc_idempotency WHERE request_id = $request_id AND message_type = $baseline_type);";
         command.Parameters.AddWithValue("$request_id", requestId);
-        return Convert.ToInt64(command.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture) != 0;
+        command.Parameters.AddWithValue("$baseline_type", BaselineMessageType);
+        if (Convert.ToInt64(command.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture) != 0)
+            return true;
+        // Older versions deleted the response even for baselines. The surviving display
+        // history is still evidence, including when another message type reuses this id.
+        return new SettingsRepository(_database, _clock).ReadBaselineAudit(transaction)
+            .Any(entry => string.Equals(entry.RequestId, requestId, StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// Retains execution ids from surviving legacy baseline history before the next baseline
+    /// update can rotate that evidence out. Existing replay responses are never overwritten.
+    /// </summary>
+    /// <param name="history">Existing audit entries, read in the caller's transaction.</param>
+    /// <param name="transaction">Baseline mutation transaction; recovery rolls back with it.</param>
+    internal void RememberBaselineHistory(IReadOnlyList<BaselineAuditEntry> history, SqliteTransaction transaction)
+    {
+        using var command = _database.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText =
+            "INSERT OR IGNORE INTO ipc_idempotency (request_id, message_type, response_json, created_at_utc) " +
+            "VALUES ($request_id, $baseline_type, 'null', $created);";
+        var requestId = command.Parameters.Add("$request_id", SqliteType.Text);
+        var created = command.Parameters.Add("$created", SqliteType.Text);
+        command.Parameters.AddWithValue("$baseline_type", BaselineMessageType);
+        foreach (var entry in history)
+        {
+            if (!Guid.TryParseExact(entry.RequestId, "D", out _) || !UtcTimestamp.TryParse(entry.ChangedAtUtc, out _))
+                continue;
+            requestId.Value = entry.RequestId;
+            created.Value = entry.ChangedAtUtc;
+            command.ExecuteNonQuery();
+        }
     }
 
     /// <summary>Records the response of an applied request. Must run in the same transaction as the change.</summary>
@@ -122,7 +161,8 @@ public sealed class IdempotencyRepository
     }
 
     /// <summary>
-    /// Removes rows that can no longer be replayed, in the caller's transaction.
+    /// Removes expired response bodies in the caller's transaction. Baseline rows become
+    /// JSON-null execution markers; other rows are removed because their durable audit survives.
     ///
     /// It runs here rather than on a timer because this is the only moment the table is known
     /// to be growing, and because a sweep in the same transaction as the insert cannot leave
@@ -136,7 +176,11 @@ public sealed class IdempotencyRepository
 
         using var command = _database.CreateCommand();
         command.Transaction = transaction;
-        command.CommandText = "DELETE FROM ipc_idempotency WHERE created_at_utc < $cutoff;";
+        command.CommandText =
+            "UPDATE ipc_idempotency SET response_json = 'null' " +
+            "WHERE created_at_utc < $cutoff AND message_type = $baseline_type AND response_json <> 'null'; " +
+            "DELETE FROM ipc_idempotency WHERE created_at_utc < $cutoff AND message_type <> $baseline_type;";
+        command.Parameters.AddWithValue("$baseline_type", BaselineMessageType);
         command.Parameters.AddWithValue("$cutoff", UtcTimestamp.ToText(cutoff));
         command.ExecuteNonQuery();
     }

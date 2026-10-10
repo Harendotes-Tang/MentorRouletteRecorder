@@ -18,7 +18,7 @@ public sealed record ImportSourceRow(int RowNumber, JsonObject Values, IReadOnly
 /// 只读取本地来源并建立候选，不验证游戏事实、不写入数据库，也不执行公式、宏或外部链接。
 /// 文件损坏和资源超限抛出 InvalidDataException；可定位的单元格错误留在对应候选中供预览修正。
 /// </summary>
-public static class RunImportSourceParser
+public static partial class RunImportSourceParser
 {
     private const int MaxInputBytes = 20 * 1024 * 1024;
     private const int MaxRows = 5000;
@@ -44,13 +44,13 @@ public static class RunImportSourceParser
         ["副本"] = "duty_name", ["副本名称"] = "duty_name", ["职业"] = "job_name",
         ["心得"] = "reflection_text", ["心情"] = "reflection_mood", ["记录时间"] = "source_recorded_at",
         ["开始时间"] = "entered_at_utc", ["进本时间"] = "entered_at_utc", ["结束时间"] = "ended_at_utc",
-        ["结果"] = "result", ["耗时"] = "duration_ms", ["时长"] = "duration_ms",
+        ["结果"] = "result", ["耗时"] = "duration_ms", ["时长"] = "duration_ms", ["备注"] = "note",
         ["matched_at"] = "matched_at_utc", ["entered_at"] = "entered_at_utc",
         ["ended_at"] = "ended_at_utc", ["duration"] = "duration_ms",
     };
 
     /// <summary>
-    /// 读取 CSV/XLSX/JSON/BACKUP/PASTE；传入 rows 时优先深拷贝已编辑候选，保留预览证据字段。
+    /// 读取 CSV/XLS/XLSX/JSON/BACKUP/PASTE；传入 rows 时优先深拷贝已编辑候选，保留预览证据字段。
     /// SCREENSHOT/ROWS 必须提供 rows。表格映射的键是原表头，值是已知规范字段；未知表头不导入。
     /// </summary>
     public static IReadOnlyList<ImportSourceRow> Parse(
@@ -59,7 +59,7 @@ public static class RunImportSourceParser
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sourceKind);
         var kind = sourceKind.Trim().ToUpperInvariant();
-        if (kind is not ("CSV" or "XLSX" or "JSON" or "BACKUP" or "PASTE" or "SCREENSHOT" or "ROWS"))
+        if (kind is not ("CSV" or "XLS" or "XLSX" or "JSON" or "BACKUP" or "PASTE" or "SCREENSHOT" or "ROWS"))
             throw new InvalidDataException("不支持的导入来源。 ");
         if (rows is not null) return ParseJsonRows(rows, preserveCandidateFields: true);
 
@@ -69,6 +69,7 @@ public static class RunImportSourceParser
             "PASTE" => ParsePastedTable(ReadText(null, text, allowGb18030: false), columnMapping),
             "JSON" => ParseJson(ReadText(filePath, text, allowGb18030: false)),
             "XLSX" => ParseWorkbook(RequireFile(filePath), columnMapping),
+            "XLS" => ParseBinaryWorkbook(RequireFile(filePath), columnMapping),
             "BACKUP" => ParseBackup(RequireFile(filePath)),
             _ => throw new InvalidDataException("该来源必须提供识别或编辑后的候选行。"),
         };
@@ -796,7 +797,9 @@ public static class RunImportSourceParser
     {
         if (value.Length <= MaxCellCharacters) return value;
         AddError(errors, "单元格超过 8000 字符上限，须修正后再导入。");
-        return value[..MaxCellCharacters];
+        var end = MaxCellCharacters;
+        if (char.IsHighSurrogate(value[end - 1]) && char.IsLowSurrogate(value[end])) end--;
+        return value[..end];
     }
 
     private static void AddError(List<string> errors, string message)

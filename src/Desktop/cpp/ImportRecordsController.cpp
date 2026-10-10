@@ -8,22 +8,35 @@
 #include <QClipboard>
 #include <QDir>
 #include <QFileDialog>
+#include <QFile>
 #include <QFileInfo>
 #include <QGuiApplication>
 #include <QImageReader>
 #include <QJsonDocument>
 #include <QMimeData>
 #include <QRegularExpression>
+#include <QSaveFile>
+#include <QStandardPaths>
 #include <QUrl>
 #include <QUuid>
 
 #include <algorithm>
+
+static void initializeImportTemplateResources()
+{
+    static const bool initialized = [] {
+        Q_INIT_RESOURCE(mr_import_templates);
+        return true;
+    }();
+    (void)initialized;
+}
 
 namespace mr {
 
 ImportRecordsController::ImportRecordsController(QObject *parent)
     : QObject(parent), m_ocr(new OfflineOcrEngine(this))
 {
+    initializeImportTemplateResources();
     connect(m_ocr, &OfflineOcrEngine::changed, this, &ImportRecordsController::changed);
     connect(m_ocr, &OfflineOcrEngine::imageRecognized, this, &ImportRecordsController::recognizeImage);
     connect(m_ocr, &OfflineOcrEngine::failed, this, [this](const QString &message) { m_error = message; });
@@ -101,6 +114,7 @@ QString ImportRecordsController::sourceKindForPath(const QString &path)
     const QString suffix = QFileInfo(path).suffix().toLower();
     if (suffix == QLatin1String("csv")) return QStringLiteral("CSV");
     if (suffix == QLatin1String("xlsx")) return QStringLiteral("XLSX");
+    if (suffix == QLatin1String("xls")) return QStringLiteral("XLS");
     if (suffix == QLatin1String("json")) return QStringLiteral("JSON");
     if (suffix == QLatin1String("db") || suffix == QLatin1String("sqlite") || suffix == QLatin1String("sqlite3")) return QStringLiteral("BACKUP");
     if (suffix == QLatin1String("png") || suffix == QLatin1String("jpg") || suffix == QLatin1String("jpeg")
@@ -195,13 +209,77 @@ void ImportRecordsController::chooseFiles()
     if (busy() || pendingCommitConfirmation())
         return;
     const QStringList files = QFileDialog::getOpenFileNames(nullptr, tr("选择导入记录或截图"), {},
-        tr("记录和图片 (*.csv *.xlsx *.json *.db *.sqlite *.sqlite3 *.png *.jpg *.jpeg *.webp *.bmp);;记录文件 (*.csv *.xlsx *.json *.db *.sqlite *.sqlite3);;截图 (*.png *.jpg *.jpeg *.webp *.bmp)"));
+        tr("记录和图片 (*.csv *.xls *.xlsx *.json *.db *.sqlite *.sqlite3 *.png *.jpg *.jpeg *.webp *.bmp);;记录文件 (*.csv *.xls *.xlsx *.json *.db *.sqlite *.sqlite3);;截图 (*.png *.jpg *.jpeg *.webp *.bmp)"));
     if (files.isEmpty())
         return;
     QVariantList paths;
     for (const QString &file : files)
         paths.append(file);
     importFiles(paths);
+}
+
+QString ImportRecordsController::templateInstructions() const
+{
+    QFile file(QStringLiteral(":/resources/import-templates/instructions.txt"));
+    return file.open(QIODevice::ReadOnly) ? QString::fromUtf8(file.readAll())
+                                        : tr("填写说明不可用，请重新安装完整的软件。");
+}
+
+void ImportRecordsController::saveTemplate(const QString &format)
+{
+    if (busy() || pendingCommitConfirmation())
+        return;
+    const QString kind = format.trimmed().toUpper();
+    if (kind != QLatin1String("XLSX") && kind != QLatin1String("JSON")) {
+        saveTemplateToPath(kind, {});
+        return;
+    }
+    const QString suffix = kind == QLatin1String("XLSX") ? QStringLiteral("xlsx") : QStringLiteral("json");
+    QFileDialog chooser(nullptr, kind == QLatin1String("XLSX") ? tr("保存 Excel 导入模板") : tr("保存 JSON 导入模板"));
+    chooser.setAcceptMode(QFileDialog::AcceptSave);
+    chooser.setFileMode(QFileDialog::AnyFile);
+    chooser.setDefaultSuffix(suffix);
+    chooser.setDirectory(QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation));
+    chooser.setNameFilter(kind == QLatin1String("XLSX") ? tr("Excel 工作簿 (*.xlsx)") : tr("JSON 文件 (*.json)"));
+    chooser.selectFile(tr("导随记录导入模板.") + suffix);
+    if (chooser.exec() != QDialog::Accepted || chooser.selectedFiles().isEmpty()) {
+        m_templateError.clear();
+        m_templateStatus = tr("已取消保存模板。");
+        Q_EMIT changed();
+        return;
+    }
+    saveTemplateToPath(kind, chooser.selectedFiles().first());
+}
+
+bool ImportRecordsController::saveTemplateToPath(const QString &format, const QString &path)
+{
+    if (busy() || pendingCommitConfirmation())
+        return false;
+    m_templateStatus.clear();
+    m_templateError.clear();
+    const QString kind = format.trimmed().toUpper();
+    const QString suffix = kind == QLatin1String("XLSX") ? QStringLiteral("xlsx")
+        : kind == QLatin1String("JSON") ? QStringLiteral("json") : QString{};
+    const QString target = localPath(path);
+    if (suffix.isEmpty())
+        m_templateError = tr("请选择 Excel 或 JSON 模板。");
+    else if (target.isEmpty() || QFileInfo(target).suffix().compare(suffix, Qt::CaseInsensitive) != 0)
+        m_templateError = tr("请保存为本地 .%1 文件。").arg(suffix);
+    else {
+        QFile source(QStringLiteral(":/resources/import-templates/personal-records.") + suffix);
+        if (!source.open(QIODevice::ReadOnly))
+            m_templateError = tr("内嵌模板不可用，请重新安装完整的软件。");
+        else {
+            const QByteArray bytes = source.readAll();
+            QSaveFile output(target);
+            if (!output.open(QIODevice::WriteOnly) || output.write(bytes) != bytes.size() || !output.commit())
+                m_templateError = tr("模板保存失败：%1").arg(output.errorString());
+            else
+                m_templateStatus = tr("模板已保存：%1。填写后返回导入记录，核对并勾选本人记录。").arg(QDir::toNativeSeparators(target));
+        }
+    }
+    Q_EMIT changed();
+    return m_templateError.isEmpty();
 }
 
 void ImportRecordsController::importFiles(const QVariantList &pathsOrUrls)
@@ -214,7 +292,7 @@ void ImportRecordsController::importFiles(const QVariantList &pathsOrUrls)
         const QString path = localPath(value);
         const QString nextKind = sourceKindForPath(path);
         if (path.isEmpty() || nextKind.isEmpty() || !QFileInfo(path).isFile()) {
-            fail(tr("请选择可读取的本地 CSV、XLSX、JSON、数据库或截图文件。"));
+            fail(tr("请选择可读取的本地 CSV、XLS、XLSX、JSON、数据库或截图文件。"));
             return;
         }
         if (!kind.isEmpty() && kind != nextKind) {

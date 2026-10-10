@@ -544,7 +544,7 @@ Dialog {
             AppButton {
                 objectName: "pasteReflectionImageButton"
                 text: qsTr("粘贴图片")
-                iconName: "clipboard-check"
+                iconName: "clipboard-paste"
                 compact: true
                 enabled: !dialog.busy
                 onClicked: dialog.pasteNoteImage()
@@ -589,6 +589,7 @@ Dialog {
             spacing: 8
 
             ToggleSwitch {
+                accessibleName: dialog.askingResult ? qsTr("结束后自动询问") : qsTr("通关后自动弹出")
                 scale: 0.8
                 checked: dialog.askingResult ? dialog.confirmEnabled : dialog.promptEnabled
                 onToggled: function(value) {

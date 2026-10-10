@@ -314,7 +314,27 @@ public sealed class PipeConnection
     {
         try
         {
-            await channel.WriteAsync(envelope, cancellationToken).ConfigureAwait(false);
+            try
+            {
+                await channel.WriteAsync(envelope, cancellationToken).ConfigureAwait(false);
+            }
+            catch (CollectorException ex) when (ex.Code == ErrorCodes.Internal)
+            {
+                // FrameChannel encodes and checks the complete body before writing any
+                // bytes. A local response overflow therefore leaves framing intact: return
+                // one bounded failure with the same correlation id, then serve the next ask.
+                _log?.Invoke("response exceeded the frame limit", ex);
+                var refusal = new CollectorException(
+                    ErrorCodes.Internal,
+                    "响应超过 4 MiB 上限，请缩小查询范围或每页条数后重试。",
+                    ex.Details);
+                await channel.WriteAsync(
+                    IpcEnvelope.Failure(
+                        envelope["request_id"]!.GetValue<string>(),
+                        envelope["message_type"]!.GetValue<string>(),
+                        refusal),
+                    cancellationToken).ConfigureAwait(false);
+            }
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or OperationCanceledException)
         {

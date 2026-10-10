@@ -787,7 +787,7 @@ Rectangle {
                     Layout.alignment: Qt.AlignLeft
                     visible: !!root.reflection && !!root.reflection.text
                     text: qsTr("生成分享图片")
-                    iconName: "file-down"
+                    iconName: "image"
                     onClicked: root.shareRequested()
                 }
             }

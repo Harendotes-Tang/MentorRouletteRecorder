@@ -87,7 +87,7 @@ public:
 
     bool autostart() const;
     void setAutostart(bool enabled);
-    /// False when the platform has no per-user autostart mechanism we support.
+    /// False in mock/screenshot/test runs and on unsupported platforms.
     static bool autostartWritable();
 
     bool followFfxiv() const;
@@ -166,7 +166,7 @@ Q_SIGNALS:
     void dataChanged();
 
 private:
-    /// Add or remove the HKCU\...\Run value. No-op off Windows.
+    /// Add or remove the HKCU\...\Run value. No-op off Windows or in Qt test mode.
     static void applyAutostartRegistration(bool enabled);
 
     QSettings m_settings;

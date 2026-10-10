@@ -78,6 +78,27 @@ public static class LocalProfileWriter
         DateTimeOffset confirmedAtUtc,
         string localRoot)
     {
+        using var prepared = Prepare(draft, template, gameBuild, confirmedAtUtc, localRoot);
+        return prepared.Commit();
+    }
+
+    /// <summary>
+    /// Builds and validates a profile, then writes a private temporary file that the catalogue
+    /// cannot select. The caller owns it until Commit atomically publishes it or Dispose removes
+    /// only that temporary file. An existing profile is untouched until Commit succeeds.
+    /// </summary>
+    /// <param name="draft">A draft in the Ready state.</param>
+    /// <param name="template">Template the draft was derived from.</param>
+    /// <param name="gameBuild">Client build the profile is for.</param>
+    /// <param name="confirmedAtUtc">When the user confirmed the timeline.</param>
+    /// <param name="localRoot">The local protocol-profiles root.</param>
+    public static PreparedLocalProfile Prepare(
+        CalibrationDraft draft,
+        CalibrationTemplate template,
+        string gameBuild,
+        DateTimeOffset confirmedAtUtc,
+        string localRoot)
+    {
         ArgumentNullException.ThrowIfNull(draft);
         ArgumentNullException.ThrowIfNull(template);
         ArgumentException.ThrowIfNullOrWhiteSpace(gameBuild);
@@ -106,17 +127,14 @@ public static class LocalProfileWriter
         try
         {
             File.WriteAllText(temporary, json, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
-            File.Move(temporary, path, overwrite: true);
+            return new PreparedLocalProfile(temporary,
+                new LocalProfileWriteResult(path, profileId, document["profile_sha256"]!.GetValue<string>()));
         }
-        finally
+        catch
         {
-            if (File.Exists(temporary))
-            {
-                File.Delete(temporary);
-            }
+            PreparedLocalProfile.RemoveTemporary(temporary);
+            throw;
         }
-
-        return new LocalProfileWriteResult(path, profileId, document["profile_sha256"]!.GetValue<string>());
     }
 
     private static JsonObject Build(

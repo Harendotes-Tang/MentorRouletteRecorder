@@ -30,6 +30,9 @@ class ImportRecordsController final : public QObject
     Q_PROPERTY(QString phase READ phase NOTIFY changed)
     Q_PROPERTY(QString statusText READ statusText NOTIFY changed)
     Q_PROPERTY(QString errorText READ errorText NOTIFY changed)
+    Q_PROPERTY(QString templateStatusText READ templateStatusText NOTIFY changed)
+    Q_PROPERTY(QString templateErrorText READ templateErrorText NOTIFY changed)
+    Q_PROPERTY(QString templateInstructions READ templateInstructions CONSTANT)
     Q_PROPERTY(QString sourceLabel READ sourceLabel NOTIFY changed)
     Q_PROPERTY(QString sourceKind READ sourceKind NOTIFY changed)
     Q_PROPERTY(int sourceImageCount READ sourceImageCount NOTIFY changed)
@@ -68,6 +71,9 @@ public:
     QString phase() const { return m_phase; }
     QString statusText() const;
     QString errorText() const { return m_error; }
+    QString templateStatusText() const { return m_templateStatus; }
+    QString templateErrorText() const { return m_templateError; }
+    QString templateInstructions() const;
     QString sourceLabel() const { return m_sourceName; }
     QString sourceKind() const { return m_sourceKind; }
     int sourceImageCount() const { return m_sourceImages.size(); }
@@ -99,6 +105,10 @@ public:
 
     Q_INVOKABLE void reset();
     Q_INVOKABLE void chooseFiles();
+    /// 另存内嵌 XLSX/JSON 空白模板；取消、成功和失败均不修改当前导入候选。
+    Q_INVOKABLE void saveTemplate(const QString &format);
+    /// 与交互另存共享的原子写入入口；调用者负责既有文件替换确认，供本地验证使用。
+    bool saveTemplateToPath(const QString &format, const QString &path);
     Q_INVOKABLE void importFiles(const QVariantList &pathsOrUrls);
     Q_INVOKABLE void pasteClipboard();
     Q_INVOKABLE void importText(const QString &text);
@@ -159,6 +169,8 @@ private:
     QString m_commitRequestId;
     QString m_phase = QStringLiteral("empty");
     QString m_error;
+    QString m_templateStatus;
+    QString m_templateError;
     int m_current = -1;
     quint64 m_generation = 0;
     bool m_ownConfirmed = false;

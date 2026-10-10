@@ -135,7 +135,7 @@ Dialog {
             AppButton {
                 objectName: "saveReflectionImageButton"
                 text: dialog.busy ? qsTr("正在保存…") : qsTr("保存 PNG 图片")
-                iconName: "file-down"
+                iconName: "image-down"
                 variant: "primary"
                 enabled: !!dialog.controller && !dialog.busy
                 onClicked: dialog.controller.savePicked(card)

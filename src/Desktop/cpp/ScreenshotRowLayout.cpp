@@ -585,20 +585,59 @@ QRect rowDeleteRect(const QList<Word> &all, const RowRecord &row)
     return result;
 }
 
-/** @brief 心得列逐行成文；分页文字只作覆盖提示，贴近删除叉号的心得提示可能遮挡。返回采用的单词。 */
+/**
+ * @brief 仅在前行写到心得列右缘、后行回到列左缘且间距连续时视为自动折行。
+ * 短行、缩进和段落留白保留；跨行非中日韩字母/数字缺少原始空格证据，也保留供核对。
+ */
+bool isNoteAutoWrap(const QRect &previous, const QRect &current, int columnLeft, int columnRight,
+                    const QString &previousText, const QString &currentText)
+{
+    if (!previous.isValid() || !current.isValid() || previousText.isEmpty() || currentText.isEmpty())
+        return false;
+    const QChar last = previousText.back();
+    const QChar first = currentText.front();
+    if (last.isLetterOrNumber() && first.isLetterOrNumber() && !isHan(last) && !isHan(first))
+        return false;
+    const int height = std::min(previous.height(), current.height());
+    const int gap = current.top() - previous.bottom() - 1;
+    return previous.width() >= height * 4
+        && columnRight - previous.right() <= height * 2
+        && current.left() - columnLeft <= std::max(3, height / 2)
+        && current.top() - previous.top() >= height / 2
+        && gap >= -height / 5 && gap <= height * 3 / 4;
+}
+
+/** @brief 心得列按物理顺序成文，合并有列边缘依据的折行；分页与删除遮挡仍保留提示。返回采用的单词。 */
 QList<Word> assignNoteLines(const QList<Word> &notes, RowRecord &row)
 {
     QList<Word> used;
     const int reach = std::max(row.deleteRect.width(), row.levelRect.height());
+    int columnLeft = row.rect.right();
+    for (const Word &word : notes)
+        columnLeft = std::min(columnLeft, word.rect.left());
+    const int columnRight = row.deleteRect.isValid() && !row.deleteMark.isValid()
+        ? row.deleteRect.left() - 1 : row.rect.right();
+    QRect previousLine;
     for (const QList<Word> &note : visualLines(notes)) {
         const QString text = joinWords(note);
         if (text.isEmpty())
             continue;
         if (isChromeOrPaging(text)) {
             row.pagingOverlaps = true;
+            previousLine = {};
             continue;
         }
-        row.note.append(text);
+        QRect lineRect;
+        for (const Word &word : note)
+            lineRect = lineRect.united(word.rect);
+        if (!row.note.isEmpty() && isNoteAutoWrap(previousLine, lineRect, columnLeft, columnRight,
+                                                 row.note.back(), text)) {
+            row.note.back().append(text);
+            row.noteWrapJoined = true;
+        } else {
+            row.note.append(text);
+        }
+        previousLine = lineRect;
         for (const Word &word : note) {
             used.append(word);
             // Within reach of the button on either side (a note may run past it).

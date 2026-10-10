@@ -148,7 +148,7 @@ ColumnLayout {
                         Layout.fillWidth: true
                         spacing: 8
                         AppButton { text: qsTr("编辑心得"); onClicked: page.reflectRequested(entry.run) }
-                        AppButton { text: qsTr("生成分享图片"); iconName: "file-down"; onClicked: page.shareRequested(entry.run) }
+                        AppButton { text: qsTr("生成分享图片"); iconName: "image"; onClicked: page.shareRequested(entry.run) }
                         AppButton { text: qsTr("记录详情"); onClicked: page.openRunRequested(entry.run) }
                     }
                 }

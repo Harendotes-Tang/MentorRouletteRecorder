@@ -1239,37 +1239,43 @@ public sealed partial class LiveProtocolPipeline :
             generation = _calibration.Generation;
         }
 
-        // Disk work stays outside the lock: writing the file and re-reading both directories
-        // is slow, and nothing here depends on state that a message could change meanwhile.
-        LocalProfileWriteResult written;
+        // Build, validate and write only an unpublished temporary file outside the lock.
+        // A discard can complete while this runs; it wins before the atomic publication below.
+        PreparedLocalProfile prepared;
         try
         {
-            written = _calibrationServices.Write(draft, template, build, _clock.UtcNow);
+            prepared = _calibrationServices.PrepareWrite(draft, template, build, _clock.UtcNow);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
         {
             throw new CollectorException(ErrorCodes.ExportFailed, "无法写出本机校准档案：" + ex.Message, inner: ex);
         }
 
-        var select = WithoutWithdrawn(_calibrationServices.ReloadSelect());
+        using var pending = prepared;
         lock (_gate)
         {
-            // The file under this id is now the one the player has just vouched for, whatever
-            // was withdrawn under the same id before (a local profile id names a build).
-            _withdrawnLocalProfiles.Remove(written.ProfileId);
-
-            // Anything that changed what is being calibrated while the lock was released --
-            // a discard, the setting turned off, the game coming back on another build --
-            // wins over this confirmation. The file already on disk is harmless: the next
-            // selection for that build picks it up like any other profile.
             if (_calibration.Generation != generation || _calibration.State != CalibrationState.Ready)
             {
                 throw new CollectorException(
                     ErrorCodes.CalibrationNotReady,
                     "写出档案期间校准状态发生了变化，这次确认作废；请重新核对。",
-                    new Dictionary<string, object?> { ["profile_id"] = written.ProfileId });
+                    new Dictionary<string, object?> { ["profile_id"] = prepared.Result.ProfileId });
             }
 
+            LocalProfileWriteResult written;
+            try
+            {
+                // Only the rename publishes the file. A refusal above disposes the temporary
+                // file without overwriting, deleting or resurrecting any earlier local profile.
+                written = prepared.Commit();
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+            {
+                throw new CollectorException(ErrorCodes.ExportFailed, "无法写出本机校准档案：" + ex.Message, inner: ex);
+            }
+
+            _withdrawnLocalProfiles.Remove(written.ProfileId);
+            var select = WithoutWithdrawn(_calibrationServices.ReloadSelect());
             _select = select;
             var selection = SafeSelect(_game);
             if (!selection.IsUsable || selection.Profile is not { } profile ||

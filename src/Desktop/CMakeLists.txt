@@ -334,6 +334,15 @@ qt_add_resources(MentorRecorderDesktopLib "mr_duties"
     FILES
         "${CMAKE_CURRENT_SOURCE_DIR}/../../data/duties/cn.2026-09-04.json")
 
+# Templates are saved from embedded bytes, independent of install location/network.
+qt_add_resources(MentorRecorderDesktopLib "mr_import_templates"
+    PREFIX "/"
+    BASE ${CMAKE_CURRENT_SOURCE_DIR}
+    FILES
+        resources/import-templates/personal-records.xlsx
+        resources/import-templates/personal-records.json
+        resources/import-templates/instructions.txt)
+
 # ---------------------------------------------------------------------------
 # Bundled fonts.
 #

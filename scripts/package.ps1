@@ -73,7 +73,11 @@ $Windeployqt = Join-Path $QtBin 'windeployqt.exe'
 $QmlSourceDir = Join-Path $RepoRoot 'src\Desktop\qml'
 $MinGwBinConfigured = [Environment]::GetEnvironmentVariable('MR_MINGW_BIN')
 $MinGwBin = if ([string]::IsNullOrWhiteSpace($MinGwBinConfigured)) { 'D:\APPS\Qt\Tools\mingw1310_64\bin' } else { $MinGwBinConfigured }
-$OutputRoot = if ([System.IO.Path]::IsPathRooted($OutputDir)) { $OutputDir } else { Join-Path $RepoRoot $OutputDir }
+$OutputRoot = if ([System.IO.Path]::IsPathRooted($OutputDir)) {
+    [System.IO.Path]::GetFullPath($OutputDir)
+} else {
+    [System.IO.Path]::GetFullPath((Join-Path $RepoRoot $OutputDir))
+}
 
 # Directory.Build.props is the single source of truth for the version: MSBuild stamps the
 # Collector assembly from it, the root CMakeLists.txt reads it for the Desktop VERSIONINFO
@@ -940,7 +944,7 @@ Assert-MultimediaLayout $StageDir
 
 Write-Head '生成校验和 / Generate checksums'
 $hashLines = foreach ($file in Get-ChildItem -LiteralPath $StageDir -Recurse -File | Sort-Object FullName) {
-    $relative = $file.FullName.Substring($StageDir.Length).TrimStart('\')
+    $relative = [System.IO.Path]::GetRelativePath($StageDir, $file.FullName)
     $hash = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
     '{0}  {1}' -f $hash, ($relative -replace '\\', '/')
 }

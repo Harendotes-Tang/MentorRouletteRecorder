@@ -1,4 +1,6 @@
 using System.Text;
+using System.Text.Encodings.Web;
+using System.Text.Unicode;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using MentorRecorder.Collector.Contracts.Errors;
@@ -30,6 +32,14 @@ public static class IpcEnvelope
 
     /// <summary>Message type used when the request type could not be determined.</summary>
     public const string ErrorMessageType = "Error";
+
+    // IPC carries UTF-8 JSON, so escaping every CJK character doubles its byte cost and
+    // can make a valid 200-row history page exceed the frame cap. Keep this encoder local
+    // to transport: file/export formatting and HTML-sensitive escaping stay unchanged.
+    private static readonly JsonSerializerOptions TransportJsonOptions = new(Wire.JsonOptions)
+    {
+        Encoder = JavaScriptEncoder.Create(UnicodeRanges.All),
+    };
 
     /// <summary>
     /// Decodes one frame body. Every failure is expressed as a contract error code rather
@@ -251,7 +261,7 @@ public static class IpcEnvelope
     public static byte[] ToBytes(JsonObject envelope)
     {
         ArgumentNullException.ThrowIfNull(envelope);
-        return Encoding.UTF8.GetBytes(envelope.ToJsonString(Wire.JsonOptions));
+        return Encoding.UTF8.GetBytes(envelope.ToJsonString(TransportJsonOptions));
     }
 
     private static string? ReadString(JsonObject envelope, string name) =>

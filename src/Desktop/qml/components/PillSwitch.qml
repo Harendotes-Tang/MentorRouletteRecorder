@@ -19,6 +19,7 @@ RowLayout {
 
     ToggleSwitch {
         id: toggle
+        accessibleName: root.text
         Layout.alignment: Qt.AlignVCenter
         onToggled: function(value) {
             toggle.checked = value

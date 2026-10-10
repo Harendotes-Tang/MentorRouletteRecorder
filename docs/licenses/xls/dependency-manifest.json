@@ -1,0 +1,301 @@
+{
+  "schema": 1,
+  "scope": "NPOI 2.7.6 HSSF XLS import; existing Collector packages are declared separately",
+  "target": "net8.0-windows7.0/win-x64",
+  "packages": [
+    {
+      "runtime_assets": [
+        {
+          "sha256": "5642f1014ff139bbb1cde0014e5b2081fefd140ce0776af9401ab390f662e266",
+          "file": "NPOI.Core.dll"
+        },
+        {
+          "sha256": "9cbd8b98ffe9044dd747ae3a210e58b79c65bfe34e71a4543c43065ec1d0f762",
+          "file": "NPOI.OOXML.dll"
+        },
+        {
+          "sha256": "3a4790b4228564bcf471df5bb5ac06da8079e14ac47e51068bb4a4bca9db1d3c",
+          "file": "NPOI.OpenXml4Net.dll"
+        },
+        {
+          "sha256": "b399be8186524644e6451460931f6b2357fcaca3dce45a0fad9dbbb010a310dd",
+          "file": "NPOI.OpenXmlFormats.dll"
+        }
+      ],
+      "compile_only": false,
+      "copyright": "Nissl LLC",
+      "license": "Apache-2.0",
+      "repository_commit": "a0f50a01a845aa4dd793cee0ac5b776745966cb6",
+      "authors": "Tony Qu,NPOI Contributors",
+      "nuspec_file": "NPOI-2.7.6.nuspec",
+      "package_sha256": "263a921cb65bea57d640e667f0c75e3df8df77acf5d70f8a27bd7c8dfeb29a7f",
+      "nuget_content_sha512": "itLDt6M2VFcWjTGpzeRNy7Axmp2cVjHpTtf4zVLm6XQvuINlkHFBabBd4s8iCRAupx/NBSzqPxqe7+5fJOY8NQ==",
+      "license_file": "NPOI-2.7.6-LICENSE.txt",
+      "nuget_url": "https://www.nuget.org/packages/NPOI/2.7.6",
+      "version": "2.7.6",
+      "id": "NPOI",
+      "repository_url": "https://github.com/nissl-lab/npoi",
+      "license_source": "NuGet package"
+    },
+    {
+      "runtime_assets": [
+        {
+          "sha256": "e5eeaf6d263c493619982fd3638e6135077311d08c961e1fe128f9107d29ebc6",
+          "file": "BouncyCastle.Cryptography.dll"
+        }
+      ],
+      "compile_only": false,
+      "copyright": "Copyright © Legion of the Bouncy Castle Inc. 2000-2025",
+      "license": "MIT",
+      "repository_commit": "b4f2f6ad76bcd1f11f365ee50cc7447fbce79077",
+      "authors": "Legion of the Bouncy Castle Inc.",
+      "nuspec_file": "BouncyCastle.Cryptography-2.6.2.nuspec",
+      "package_sha256": "623936fb1fd171579c706390390711282898cf2c759a5167852e5ab82208f8cb",
+      "nuget_content_sha512": "7oWOcvnntmMKNzDLsdxAYqApt+AjpRpP2CShjMfIa3umZ42UQMvH0tl1qAliYPNYO6vTdcGMqnRrCPmsfzTI1w==",
+      "license_file": "BouncyCastle.Cryptography-2.6.2-LICENSE.txt",
+      "nuget_url": "https://www.nuget.org/packages/BouncyCastle.Cryptography/2.6.2",
+      "version": "2.6.2",
+      "id": "BouncyCastle.Cryptography",
+      "repository_url": "https://github.com/bcgit/bc-csharp",
+      "license_source": "NuGet package"
+    },
+    {
+      "runtime_assets": [
+        {
+          "sha256": "27fadb63c7b1fb4b80bbc58982f218ae277f802bbc360f1db09b4ffba2e1938f",
+          "file": "Enums.NET.dll"
+        }
+      ],
+      "compile_only": false,
+      "copyright": "Copyright © Tyler Brinkley 2016",
+      "license": "MIT",
+      "repository_commit": "1ce2a8836bc40c16fc99cb6ca4f4ceceba713724",
+      "authors": "Tyler Brinkley",
+      "nuspec_file": "Enums.NET-5.0.0.nuspec",
+      "package_sha256": "f1c45954ebaedfc72ca3b98d00489fc6737ebf45b74fbc41fae478481bd39307",
+      "nuget_content_sha512": "NfGq1iLJZ15XZPgBhjk4Ns1XZ+beaGk6cog6B4LxcROdGoSMdgCJqYXF70P6VTd3dz/vFRY4h1u1lAMqW/DC2w==",
+      "license_file": "Enums.NET-5.0.0-LICENSE.txt",
+      "nuget_url": "https://www.nuget.org/packages/Enums.NET/5.0.0",
+      "version": "5.0.0",
+      "id": "Enums.NET",
+      "repository_url": "https://github.com/TylerBrinkley/Enums.NET",
+      "license_source": "https://raw.githubusercontent.com/TylerBrinkley/Enums.NET/1ce2a8836bc40c16fc99cb6ca4f4ceceba713724/LICENSE.md"
+    },
+    {
+      "runtime_assets": [
+        {
+          "sha256": "f065152984c74a571239a5dadee72587e02f7bfa9eda18480fb4534f39725746",
+          "file": "ExtendedNumerics.BigDecimal.dll"
+        }
+      ],
+      "compile_only": false,
+      "copyright": "Adam White. MIT License. See License.",
+      "license": "MIT",
+      "repository_commit": "8d3de28cf6ee59e9c6be864dacdba7d450c2a026",
+      "authors": "Adam White, Jan Christoph Bernack, Rick Harker",
+      "nuspec_file": "ExtendedNumerics.BigDecimal-2025.1001.2.129.nuspec",
+      "package_sha256": "2c0943f525ac29f5f132ed174eac4f06f5ae37a32b067113ad6b3c055343b159",
+      "nuget_content_sha512": "+woGT1lsBtwkntOpx2EZbdbySv0aWPefE0vrfvclxVdbi4oa2bbtphFPWgMiQe+kRCPICbfFJwp6w1DuR7Ge2Q==",
+      "license_file": "ExtendedNumerics.BigDecimal-2025.1001.2.129-LICENSE.txt",
+      "nuget_url": "https://www.nuget.org/packages/ExtendedNumerics.BigDecimal/2025.1001.2.129",
+      "version": "2025.1001.2.129",
+      "id": "ExtendedNumerics.BigDecimal",
+      "repository_url": "https://github.com/AdamWhiteHat/BigDecimal",
+      "license_source": "https://raw.githubusercontent.com/AdamWhiteHat/BigDecimal/8d3de28cf6ee59e9c6be864dacdba7d450c2a026/LICENSE.txt"
+    },
+    {
+      "runtime_assets": [
+        {
+          "sha256": "39d83f74d87aa398e61f0d409d0f25c245def7e1de91e6945a145fc53f30f2a8",
+          "file": "MathNet.Numerics.dll"
+        }
+      ],
+      "compile_only": false,
+      "copyright": "Copyright Math.NET Project",
+      "license": "MIT",
+      "repository_commit": "",
+      "authors": "Christoph Ruegg, Marcus Cuda, Jurgen Van Gael",
+      "nuspec_file": "MathNet.Numerics.Signed-5.0.0.nuspec",
+      "package_sha256": "efacb58da2fe69baa8c8fdcae27f69845d52d614e9ca5930fffbd31ee9113947",
+      "nuget_content_sha512": "PSrHBVMf41SjbhlnpOMnoir8YgkyEJ6/nwxvjYpH+vJCexNcx2ms6zRww5yLVqLet1xLJgZ39swtKRTLhWdnAw==",
+      "license_file": "MathNet.Numerics.Signed-5.0.0-LICENSE.txt",
+      "nuget_url": "https://www.nuget.org/packages/MathNet.Numerics.Signed/5.0.0",
+      "version": "5.0.0",
+      "id": "MathNet.Numerics.Signed",
+      "repository_url": "https://github.com/mathnet/mathnet-numerics",
+      "license_source": "https://raw.githubusercontent.com/mathnet/mathnet-numerics/v5.0.0/LICENSE.md"
+    },
+    {
+      "runtime_assets": [
+        {
+          "sha256": "631a5fc41df9498d032c0655ebd0e1209430ccffbec55667d89c2566b338ccc0",
+          "file": "Microsoft.IO.RecyclableMemoryStream.dll"
+        }
+      ],
+      "compile_only": false,
+      "copyright": "© Microsoft Corporation. All rights reserved.",
+      "license": "MIT",
+      "repository_commit": "e29a28387da9018fa9605a1dcb3f7a0435aa9974",
+      "authors": "Microsoft",
+      "nuspec_file": "Microsoft.IO.RecyclableMemoryStream-3.0.1.nuspec",
+      "package_sha256": "ba7160ff911c53f5ca25ba1be06b500b8dd87608b95637811acee17e18f8118a",
+      "nuget_content_sha512": "s/s20YTVY9r9TPfTrN5g8zPF1YhwxyqO6PxUkrYTGI2B+OGPe9AdajWZrLhFqXIvqIW23fnUE4+ztrUWNU1+9g==",
+      "license_file": "Microsoft.IO.RecyclableMemoryStream-3.0.1-LICENSE.txt",
+      "nuget_url": "https://www.nuget.org/packages/Microsoft.IO.RecyclableMemoryStream/3.0.1",
+      "version": "3.0.1",
+      "id": "Microsoft.IO.RecyclableMemoryStream",
+      "repository_url": "https://github.com/Microsoft/Microsoft.IO.RecyclableMemoryStream",
+      "license_source": "https://raw.githubusercontent.com/microsoft/Microsoft.IO.RecyclableMemoryStream/e29a28387da9018fa9605a1dcb3f7a0435aa9974/LICENSE"
+    },
+    {
+      "runtime_assets": [
+        {
+          "sha256": "b22a0fe5ef02ad06c86fad14b0cf3dc754a3fad09658fb621677097ad2abb8e3",
+          "file": "NSax.dll"
+        }
+      ],
+      "compile_only": false,
+      "copyright": "",
+      "license": "LGPL-3.0-only",
+      "repository_commit": "b75861cbc49be1ce4b02410e324b5755ffcb17a2",
+      "authors": "NSax",
+      "nuspec_file": "NSax-1.0.2.nuspec",
+      "package_sha256": "bf31a4ce49eecdbf218bbeabd72b015fc3a1ab4a9aa19dc2c693843a57dbef5c",
+      "nuget_content_sha512": "7txlId2RJTQBL3YdSGO7x70+r3HUOCw725lu0OoBgThRl/e3RhAZ2QKYxW2y9dPRtqbFZYHVa8siIeB8+L//Cg==",
+      "license_file": "NSax-1.0.2-LICENSE.txt",
+      "nuget_url": "https://www.nuget.org/packages/NSax/1.0.2",
+      "version": "1.0.2",
+      "id": "NSax",
+      "repository_url": "https://github.com/antony-liu/NSax",
+      "license_source": "https://raw.githubusercontent.com/antony-liu/NSax/b75861cbc49be1ce4b02410e324b5755ffcb17a2/LICENSE"
+    },
+    {
+      "runtime_assets": [
+        {
+          "sha256": "32ea2d0ce3512e74f1c7ad82591fe67e6b8939d76a8a4ff9c93ead030131e71c",
+          "file": "ICSharpCode.SharpZipLib.dll"
+        }
+      ],
+      "compile_only": false,
+      "copyright": "Copyright © 2000-2022 SharpZipLib Contributors",
+      "license": "MIT",
+      "repository_commit": "33f64eb0f28cdd2b084cb822fcc224c7c5aba553",
+      "authors": "ICSharpCode",
+      "nuspec_file": "SharpZipLib-1.4.2.nuspec",
+      "package_sha256": "fe0895aa2930a2b1b65caa9f37db8bca35125ebdf9cc1b99d855f6afc5ff5946",
+      "nuget_content_sha512": "yjj+3zgz8zgXpiiC3ZdF/iyTBbz2fFvMxZFEBPUcwZjIvXOf37Ylm+K58hqMfIBt5JgU/Z2uoUS67JmTLe973A==",
+      "license_file": "SharpZipLib-1.4.2-LICENSE.txt",
+      "nuget_url": "https://www.nuget.org/packages/SharpZipLib/1.4.2",
+      "version": "1.4.2",
+      "id": "SharpZipLib",
+      "repository_url": "https://github.com/icsharpcode/SharpZipLib",
+      "license_source": "https://raw.githubusercontent.com/icsharpcode/SharpZipLib/33f64eb0f28cdd2b084cb822fcc224c7c5aba553/LICENSE.txt"
+    },
+    {
+      "runtime_assets": [
+        {
+          "sha256": "36e2e4c0af507538b1e98babeb475699e2e8908defae586cc519b4b5aedb2e36",
+          "file": "SixLabors.Fonts.dll"
+        }
+      ],
+      "compile_only": false,
+      "copyright": "Copyright © Six Labors",
+      "license": "Apache-2.0",
+      "repository_commit": "be8883caf13f364292508274d68c39c2455ec3e2",
+      "authors": "Six Labors and contributors",
+      "nuspec_file": "SixLabors.Fonts-1.0.1.nuspec",
+      "package_sha256": "7e8c7a7fd679c6e9d55e2cbbd4a4d291bd038ab30dd34b6e5250a1ca9f7a9222",
+      "nuget_content_sha512": "ljezRHWc7N0azdQViib7Aa5v+DagRVkKI2/93kEbtjVczLs+yTkSq6gtGmvOcx4IqyNbO3GjLt7SAQTpLkySNw==",
+      "license_file": "SixLabors.Fonts-1.0.1-LICENSE.txt",
+      "nuget_url": "https://www.nuget.org/packages/SixLabors.Fonts/1.0.1",
+      "version": "1.0.1",
+      "id": "SixLabors.Fonts",
+      "repository_url": "https://github.com/SixLabors/Fonts",
+      "license_source": "https://raw.githubusercontent.com/SixLabors/Fonts/be8883caf13f364292508274d68c39c2455ec3e2/LICENSE"
+    },
+    {
+      "runtime_assets": [],
+      "compile_only": true,
+      "copyright": "Copyright © Six Labors",
+      "license": "Apache-2.0",
+      "repository_commit": "cb115c2293b63155ce29ee1e168024add20bcf28",
+      "authors": "Six Labors and contributors",
+      "nuspec_file": "SixLabors.ImageSharp-2.1.11.nuspec",
+      "package_sha256": "356baef3705adadc196c9ddb808e88a7a72936342a2e01e1f967de96d42f5b50",
+      "nuget_content_sha512": "tUvsejgzUmEbES114yLseRxmFiYlQbH5RyaYXUQsEL7ksDo1/kW+ZL1EfD6iSUfxj7LHU8p110oFvSrRfsaWSQ==",
+      "license_file": "SixLabors.ImageSharp-2.1.11-LICENSE.txt",
+      "nuget_url": "https://www.nuget.org/packages/SixLabors.ImageSharp/2.1.11",
+      "version": "2.1.11",
+      "id": "SixLabors.ImageSharp",
+      "repository_url": "https://github.com/SixLabors/ImageSharp",
+      "license_source": "https://raw.githubusercontent.com/SixLabors/ImageSharp/cb115c2293b63155ce29ee1e168024add20bcf28/LICENSE"
+    },
+    {
+      "runtime_assets": [
+        {
+          "sha256": "d8e4b733fbaec1fe0e808fd6391479f190b170df03e309c5f07dc85445447d22",
+          "file": "System.Security.Cryptography.Pkcs.dll"
+        }
+      ],
+      "compile_only": false,
+      "copyright": "© Microsoft Corporation. All rights reserved.",
+      "license": "MIT",
+      "repository_commit": "81cabf2857a01351e5ab578947c7403a5b128ad1",
+      "authors": "Microsoft",
+      "nuspec_file": "System.Security.Cryptography.Pkcs-8.0.1.nuspec",
+      "package_sha256": "28c348909df243fe4ee962213e3c8021aaecbc8321929dba03a69bcb92a49de5",
+      "nuget_content_sha512": "CoCRHFym33aUSf/NtWSVSZa99dkd0Hm7OCZUxORBjRB16LNhIEOf8THPqzIYlvKM0nNDAPTRBa1FxEECrgaxxA==",
+      "license_file": "System.Security.Cryptography.Pkcs-8.0.1-LICENSE.txt",
+      "nuget_url": "https://www.nuget.org/packages/System.Security.Cryptography.Pkcs/8.0.1",
+      "version": "8.0.1",
+      "id": "System.Security.Cryptography.Pkcs",
+      "repository_url": "https://github.com/dotnet/runtime",
+      "license_source": "NuGet package"
+    },
+    {
+      "runtime_assets": [
+        {
+          "sha256": "b022f4a6ab061d80b94df072badfbabf00489181229ae5b74140aeb07d89513b",
+          "file": "System.Security.Cryptography.Xml.dll"
+        }
+      ],
+      "compile_only": false,
+      "copyright": "© Microsoft Corporation. All rights reserved.",
+      "license": "MIT",
+      "repository_commit": "18fd75c847399745c43b5970fec840ba71064e80",
+      "authors": "Microsoft",
+      "nuspec_file": "System.Security.Cryptography.Xml-8.0.4.nuspec",
+      "package_sha256": "941fd70e782208c4c52fa8b2d81b682603cde85608f625d75f842ee7b628b1bf",
+      "nuget_content_sha512": "1y+ROEEmEOACrQWqRi37GkGHOThPc31m7vezOySpPE9xXN2nTN6ndLYjylvy42aCtQq4owlYhcqaKpQKMDFKFg==",
+      "license_file": "System.Security.Cryptography.Xml-8.0.4-LICENSE.txt",
+      "nuget_url": "https://www.nuget.org/packages/System.Security.Cryptography.Xml/8.0.4",
+      "version": "8.0.4",
+      "id": "System.Security.Cryptography.Xml",
+      "repository_url": "https://github.com/dotnet/runtime",
+      "license_source": "NuGet package"
+    },
+    {
+      "runtime_assets": [
+        {
+          "sha256": "1b9a6a0cd17058d2776e634ee12e90ed375877a281ffd8e2ad5911f54d3d00df",
+          "file": "ZString.dll"
+        }
+      ],
+      "compile_only": false,
+      "copyright": "© Cysharp, Inc.",
+      "license": "MIT",
+      "repository_commit": "3156134075b89a162fe95350a2e92a4c85ccca59",
+      "authors": "Cysharp",
+      "nuspec_file": "ZString-2.6.0.nuspec",
+      "package_sha256": "f50fcbd523e623ea15c6f501233db4da6527f9456ca15ff2d8e7e1a291d7cdea",
+      "nuget_content_sha512": "XE8a+11nZg0LRaf+RGABEWaHIf8yGd5w8v/Ra1iWxMBmAVzwuKbW7G21mS0U7w7sh1lYcgckInWGgnz4qyET8A==",
+      "license_file": "ZString-2.6.0-LICENSE.txt",
+      "nuget_url": "https://www.nuget.org/packages/ZString/2.6.0",
+      "version": "2.6.0",
+      "id": "ZString",
+      "repository_url": "https://github.com/Cysharp/ZString",
+      "license_source": "https://raw.githubusercontent.com/Cysharp/ZString/3156134075b89a162fe95350a2e92a4c85ccca59/LICENSE"
+    }
+  ],
+  "verified_date": "2026-10-10"
+}

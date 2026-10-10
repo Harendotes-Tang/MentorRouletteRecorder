@@ -210,6 +210,84 @@ public sealed class LocalProfileWriterTests : IDisposable
     }
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void DisposingAnUnpublishedProfilePreservesThePreviousCatalogue(bool hasExistingProfile)
+    {
+        var template = CalibrationObserverTests.Template();
+        var existing = hasExistingProfile
+            ? LocalProfileWriter.Write(ReadyDraft(template), template, Build, Confirmed, _root)
+            : null;
+        var original = existing is null ? null : File.ReadAllBytes(existing.Path);
+        using (var pending = LocalProfileWriter.Prepare(ReadyDraft(template), template, Build, Confirmed.AddHours(1), _root))
+        {
+            var selected = new ProfileSelector(ProfileCatalog.LoadMerged(null, _root)).Select(Region.Cn, Build);
+            Assert.Equal(hasExistingProfile, selected.IsUsable);
+            if (existing is not null)
+            {
+                Assert.Equal(original, File.ReadAllBytes(existing.Path));
+                Assert.Equal(existing.Sha256, selected.Profile!.ProfileSha256);
+            }
+        }
+
+        Assert.Equal(hasExistingProfile ? 1 : 0,
+            Directory.EnumerateFiles(_root, "*", SearchOption.AllDirectories).Count());
+        if (existing is not null)
+        {
+            Assert.Equal(original, File.ReadAllBytes(existing.Path));
+        }
+    }
+
+    [Fact]
+    public void CommittingAPreparedProfilePublishesOnceAndDisposalKeepsIt()
+    {
+        var template = CalibrationObserverTests.Template();
+        LocalProfileWriteResult written;
+        using (var pending = LocalProfileWriter.Prepare(ReadyDraft(template), template, Build, Confirmed, _root))
+        {
+            Assert.False(File.Exists(pending.Result.Path));
+            written = pending.Commit();
+            Assert.Throws<InvalidOperationException>(() => pending.Commit());
+        }
+
+        var selected = new ProfileSelector(ProfileCatalog.LoadMerged(null, _root)).Select(Region.Cn, Build);
+        Assert.True(selected.IsUsable);
+        Assert.Equal(written.Sha256, selected.Profile!.ProfileSha256);
+        Assert.Single(Directory.EnumerateFiles(_root, "*", SearchOption.AllDirectories));
+    }
+
+    [Fact]
+    public void AFailedCommitPreservesTheExistingProfileAndCleansOnlyItsTemporaryFile()
+    {
+        var template = CalibrationObserverTests.Template();
+        var existing = LocalProfileWriter.Write(ReadyDraft(template), template, Build, Confirmed, _root);
+        var original = File.ReadAllBytes(existing.Path);
+        using (var destination = new FileStream(existing.Path, FileMode.Open, FileAccess.Read, FileShare.Read))
+        using (var pending = LocalProfileWriter.Prepare(ReadyDraft(template), template, Build, Confirmed.AddHours(1), _root))
+        {
+            var error = Record.Exception(() => pending.Commit());
+            Assert.True(error is IOException or UnauthorizedAccessException);
+        }
+
+        Assert.Equal(original, File.ReadAllBytes(existing.Path));
+        Assert.Single(Directory.EnumerateFiles(_root, "*", SearchOption.AllDirectories));
+    }
+
+    [Fact]
+    public void APreparationIoFailureDoesNotReplaceItsBlockingFile()
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(_root)!);
+        File.WriteAllText(_root, "a file occupies the requested profile root");
+        var template = CalibrationObserverTests.Template();
+
+        Assert.Throws<IOException>(() =>
+            LocalProfileWriter.Prepare(ReadyDraft(template), template, Build, Confirmed, _root));
+
+        Assert.Equal("a file occupies the requested profile root", File.ReadAllText(_root));
+        Assert.Single(Directory.EnumerateFiles(Path.GetDirectoryName(_root)!, "*", SearchOption.AllDirectories));
+    }
+
+    [Theory]
     [InlineData(Region.Cn, "2026.09.01.0000.0000", "cn.2026.09.01.0000.0000.local")]
     [InlineData(Region.Global, "2026.09.01.0000.0000", "global.2026.09.01.0000.0000.local")]
     [InlineData(Region.Cn, "Weird Build_1", "cn.weird-build-1.local")]

@@ -242,7 +242,7 @@
         "incomplete": { "type": "boolean", "description": "Pending or unknown gameplay facts exclude this imported history from statistics; null duration alone does not." }
       }
     },
-    "RunImportSourceKind": { "type": "string", "enum": ["CSV", "XLSX", "JSON", "BACKUP", "PASTE", "SCREENSHOT", "ROWS"] },
+    "RunImportSourceKind": { "type": "string", "enum": ["CSV", "XLS", "XLSX", "JSON", "BACKUP", "PASTE", "SCREENSHOT", "ROWS"] },
     "PreviewRunImportRequest": {
       "type": "object", "additionalProperties": false, "required": ["source_kind"],
       "properties": {

@@ -126,6 +126,9 @@ private slots:
     void dutyCandidatesRequireUniqueSameLevelChineseMatches();
     void webRowsSplitLevelDutyTimeAndNoteIntoColumns();
     void webRowColumnsSpanWrappedLines();
+    void webRowAutoWrapDoesNotBecomeANoteLineBreak_data();
+    void webRowAutoWrapDoesNotBecomeANoteLineBreak();
+    void webRowAutoWrapKeepsPhysicalOrderAcrossFragments();
     void webRowColumnsFollowVisualLinesNotOcrLineNumbers();
     void webRowDeleteMarkIsNeverNoteText();
     void webRowJobIconLeftOfLevelIsMatched_data();
@@ -723,6 +726,90 @@ void ScreenshotImportParserTests::webRowColumnsSpanWrappedLines()
         QVERIFY(!hasWarning(value.toMap(), QStringLiteral("标题识别失败")));
         QVERIFY(!hasWarning(value.toMap(), QStringLiteral("多个时间")));
     }
+}
+
+void ScreenshotImportParserTests::webRowAutoWrapDoesNotBecomeANoteLineBreak_data()
+{
+    QTest::addColumn<QString>("first");
+    QTest::addColumn<QString>("second");
+    QTest::addColumn<int>("firstRight");
+    QTest::addColumn<int>("secondLeft");
+    QTest::addColumn<int>("secondTop");
+    QTest::addColumn<QString>("expected");
+    QTest::addColumn<bool>("joined");
+    QTest::newRow("continuous-chinese")
+        << QStringLiteral("合成心得这次记录已") << QStringLiteral("经完整填写。")
+        << 1408 << 534 << 55 << QStringLiteral("合成心得这次记录已经完整填写。") << true;
+    QTest::newRow("punctuation-and-kaomoji")
+        << QStringLiteral("合成心得(°") << QStringLiteral("▽°)!!!")
+        << 1408 << 534 << 55 << QStringLiteral("合成心得(°▽°)!!!") << true;
+    QTest::newRow("short-line-stays-separate")
+        << QStringLiteral("第一段合成心得。") << QStringLiteral("第二段合成心得。")
+        << 900 << 534 << 55 << QStringLiteral("第一段合成心得。\n第二段合成心得。") << false;
+    QTest::newRow("paragraph-gap-stays-separate")
+        << QStringLiteral("第一段合成心得。") << QStringLiteral("第二段合成心得。")
+        << 1408 << 534 << 91 << QStringLiteral("第一段合成心得。\n第二段合成心得。") << false;
+    QTest::newRow("indented-paragraph-stays-separate")
+        << QStringLiteral("第一段合成心得。") << QStringLiteral("第二段合成心得。")
+        << 1408 << 582 << 55 << QStringLiteral("第一段合成心得。\n第二段合成心得。") << false;
+    // 截图无法提供跨行英文/数字之间的原始空格证据，不自动连词或补空格。
+    QTest::newRow("ascii-boundary-stays-reviewable")
+        << QStringLiteral("synthetic") << QStringLiteral("sample")
+        << 1408 << 534 << 55 << QStringLiteral("synthetic\nsample") << false;
+    QTest::newRow("number-boundary-stays-reviewable")
+        << QStringLiteral("合成编号123") << QStringLiteral("456")
+        << 1408 << 534 << 55 << QStringLiteral("合成编号123\n456") << false;
+}
+
+void ScreenshotImportParserTests::webRowAutoWrapDoesNotBecomeANoteLineBreak()
+{
+    QFETCH(QString, first);
+    QFETCH(QString, second);
+    QFETCH(int, firstRight);
+    QFETCH(int, secondLeft);
+    QFETCH(int, secondTop);
+    QFETCH(QString, expected);
+    QFETCH(bool, joined);
+    // 标题和时间各占两条物理行；心得沿列右缘折行，三个字段不能相互拼接。
+    QImage image = webPage(1422, 160, {QRect(4, 15, 1414, 134)});
+    const QByteArray tsv = kTsvHeader
+        + word(1, 217, 28, 135, 21, QStringLiteral("最终决战天幕魔导"), 96, 1)
+        + word(1, 375, 30, 88, 19, QStringLiteral("2026-10-01"), 96, 2)
+        + word(1, 532, 28, firstRight - 532 + 1, 24, first, 96, 3)
+        + word(1, 105, 42, 45, 21, QStringLiteral("Lv.50"), 96, 4)
+        + word(1, 216, 55, 24, 24, QStringLiteral("城"), 96, 5)
+        + word(1, 375, 56, 66, 19, QStringLiteral("12:34:56"), 96, 6)
+        + word(1, secondLeft, secondTop, 86, 21, second, 96, 7);
+    QString error;
+    const QVariantList rows = mr::ScreenshotImportParser::parse(image, tsv, {}, &error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+    QCOMPARE(rows.size(), 1);
+    const QVariantMap row = rows[0].toMap();
+    QCOMPARE(row.value(QStringLiteral("reflection_text")).toString(), expected);
+    QCOMPARE(row.value(QStringLiteral("duty_name")).toString(), QStringLiteral("最终决战天幕魔导城"));
+    QCOMPARE(row.value(QStringLiteral("source_recorded_at")).toString(), QStringLiteral("2026-10-01 12:34:56"));
+    QCOMPARE(hasWarning(row, QStringLiteral("自动折行")), joined);
+    QVERIFY(row.value(QStringLiteral("needs_review")).toBool());
+}
+
+void ScreenshotImportParserTests::webRowAutoWrapKeepsPhysicalOrderAcrossFragments()
+{
+    QImage image = webPage(1422, 160, {QRect(4, 15, 1414, 134)});
+    // TSV 顺序与画面相反，第二物理行也被分成两个框；连续折行不能按框号或横坐标串错。
+    const QByteArray tsv = kTsvHeader
+        + word(1, 105, 42, 45, 21, QStringLiteral("Lv.50"), 96, 1)
+        + word(1, 217, 40, 135, 21, QStringLiteral("合成副本标题"), 96, 2)
+        + word(1, 375, 30, 88, 19, QStringLiteral("2026-10-01"), 96, 3)
+        + word(1, 375, 56, 66, 19, QStringLiteral("12:34:56"), 96, 4)
+        + word(1, 534, 82, 86, 21, QStringLiteral("第四段。"), 96, 5)
+        + word(1, 608, 55, 801, 21, QStringLiteral("第三段"), 96, 6)
+        + word(1, 534, 55, 65, 21, QStringLiteral("第二段"), 96, 7)
+        + word(1, 532, 28, 877, 24, QStringLiteral("第一段"), 96, 8);
+    const QVariantList rows = mr::ScreenshotImportParser::parse(image, tsv, {});
+    QCOMPARE(rows.size(), 1);
+    const QVariantMap row = rows[0].toMap();
+    QCOMPARE(row.value(QStringLiteral("reflection_text")).toString(), QStringLiteral("第一段第二段第三段第四段。"));
+    QVERIFY(hasWarning(row, QStringLiteral("自动折行")));
 }
 
 void ScreenshotImportParserTests::webRowColumnsFollowVisualLinesNotOcrLineNumbers()

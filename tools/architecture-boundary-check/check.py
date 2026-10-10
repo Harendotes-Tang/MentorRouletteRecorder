@@ -385,7 +385,7 @@ def _source_files(base: Path, suffixes: set[str]) -> list[Path]:
         return []
     return sorted(path for path in base.rglob("*")
                   if path.is_file() and path.suffix.lower() in suffixes
-                  and not any(part.lower() in IGNORED_DIRS for part in path.parts))
+                  and not any(part.lower() in IGNORED_DIRS for part in path.relative_to(base).parts[:-1]))
 
 
 def _mask_xml_non_elements(text: str) -> str:

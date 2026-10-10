@@ -16,6 +16,13 @@
 > 调查日期：**2026-09-04**。所有版本号来自本机实际还原的 NuGet 包与实际安装的 Qt。
 > 面向用户的简版清单见仓库根目录的 [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md)。
 
+2026-10-10 新增真实 XLS 导入的依赖核对记录见
+[`licenses/xls/README.md`](licenses/xls/README.md) 和
+[`licenses/xls/dependency-manifest.json`](licenses/xls/dependency-manifest.json)。
+它以 NPOI 2.7.6 的实际 NuGet 包及新 Release 发布资产为准；登记包括 NSax 的
+LGPL-3.0-only、保留的 SixLabors.Fonts 1.0.1、修复版 System.Security.Cryptography.Xml
+8.0.4 和 ImageSharp 的编译资产排除，不将主库 Apache-2.0 误当全部传递依赖的许可。
+
 ## 1. 结论摘要
 
 | 项目 | 结论 |
@@ -222,8 +229,8 @@ OFL 条件同 §3.2。IBM Plex 的保留字体名为 “Plex”；本项目只�
 
 | 项 | 值 |
 |---|---|
-| 上游 | <https://lucide.dev>，<https://github.com/lucide-icons/lucide>；取自 npm 包 `lucide-static@1.46.0` 的 `icons/*.svg` |
-| 许可证 | **ISC**（全文随附于 `src/Desktop/resources/icons/lucide/LICENSE`）。同一文件的后半段说明：Lucide 从 **Feather** 派生的那些图标同时受 **The MIT License (MIT)**，Copyright (c) 2013-present Cole Bemis 约束。本项目所用的 24 个图标中有 9 个在该名单上：`calendar`、`chevron-left`、`chevron-right`、`clock`、`moon`、`plus`、`radio`、`server`、`x` |
+| 上游 | <https://lucide.dev>，<https://github.com/lucide-icons/lucide>；取自 npm 包 `lucide-static@1.55.0` 的 `icons/*.svg` |
+| 许可证 | **ISC**（全文随附于 `src/Desktop/resources/icons/lucide/LICENSE`）。同一文件的后半段说明：Lucide 从 **Feather** 派生的那些图标同时受 **The MIT License (MIT)**，Copyright (c) 2013-present Cole Bemis 约束。本项目所用的 32 个图标中有 9 个在该名单上：`calendar`、`chevron-left`、`chevron-right`、`clock`、`moon`、`plus`、`radio`、`server`、`x` |
 | 版权 | Copyright (c) 2026 Lucide Icons and Contributors；Feather 派生部分另有 Copyright (c) 2013-present Cole Bemis |
 | 文件 | `src/Desktop/resources/icons/lucide/*.svg`（原样未改；SHA-256 见同目录 `README.md`） |
 | 是否进入构建产物 | **是**，但进入产物的不是 SVG 本身：`tools/lucide-icons/generate.py` 将每个图标的绘制元素生成到 `src/Desktop/qml/components/Lucide.js`。该文件头部带有 ISC 的版权与许可声明，并在包含 Feather 派生图标时一并带上 MIT 的版权与许可声明，随 QML 模块编入 `MentorRecorder.Desktop.exe`。生成器从 LICENSE 文件读取 Feather 名单，`tools/lucide-icons/test_generate.py` 保证生成文件与 SVG、名单一致 |

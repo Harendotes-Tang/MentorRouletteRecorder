@@ -107,24 +107,8 @@ ColumnLayout {
                 objectName: "goalToggle"
                 checked: step.wizard.contributesToGoal
                 enabled: step.wizard.resultCode === "COMPLETED"
-                activeFocusOnTab: enabled
-                Accessible.role: Accessible.CheckBox
-                Accessible.name: qsTr("这是指导者任务，计入成就进度")
-                Accessible.checkable: true
-                Accessible.checked: checked
-                Accessible.onToggleAction: toggled(!checked)
-                Keys.onSpacePressed: toggled(!checked)
-                Keys.onReturnPressed: toggled(!checked)
+                accessibleName: qsTr("这是指导者任务，计入成就进度")
                 onToggled: function(value) { step.wizard.contributesToGoal = value }
-                Rectangle {
-                    anchors.fill: parent
-                    anchors.margins: -3
-                    radius: Theme.radiusS
-                    color: "transparent"
-                    border.width: 2
-                    border.color: Theme.eorzea ? Theme.gold2 : Theme.accent
-                    visible: parent.activeFocus
-                }
             }
 
             ColumnLayout {

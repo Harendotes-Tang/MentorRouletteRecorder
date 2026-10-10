@@ -128,7 +128,7 @@ ColumnLayout {
             AppButton {
                 objectName: "importRecordsButton"
                 text: qsTr("导入记录")
-                iconName: "file-check"
+                iconName: "file-input"
                 onClicked: tab.openImportRequested()
             }
             AppButton {

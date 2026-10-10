@@ -80,7 +80,7 @@ Dialog {
     }
 
     readonly property bool hasRows: controller && controller.rows.length > 0
-    readonly property bool canMapColumns: controller && ["CSV", "XLSX", "PASTE"].indexOf(controller.sourceKind) >= 0
+    readonly property bool canMapColumns: controller && ["CSV", "XLS", "XLSX", "PASTE"].indexOf(controller.sourceKind) >= 0
     property string activeFilter: "all"
     property string navigationHint: ""
     property bool showRecognitionHints: false
@@ -388,6 +388,7 @@ Dialog {
     contentItem: ColumnLayout {
         id: importContent
         objectName: "importContent"
+        KeyNavigation.tab: chooseInput
         spacing: 12
         ColumnLayout {
             Layout.fillWidth: true; spacing: 6
@@ -395,6 +396,7 @@ Dialog {
                 Layout.fillWidth: true
                 Text { textFormat: Text.PlainText; text: qsTr("导入本人记录"); color: Theme.textPrimary; font.pixelSize: Theme.fs(18); font.bold: true }
                 Item { Layout.fillWidth: true }
+                AppButton { objectName: "importTemplatesOpen"; text: qsTr("模板与填写说明"); iconName: "book-open-text"; variant: "ghost"; compact: true; enabled: !dialog.inputLocked; onClicked: templatesDialog.open() }
                 AppButton { text: ""; iconName: "x"; variant: "ghost"; compact: true; Layout.preferredWidth: 26; focusPolicy: Qt.NoFocus; enabled: !dialog.controller || (!dialog.controller.committing && !dialog.controller.pendingCommitConfirmation); Accessible.name: qsTr("关闭导入记录"); onClicked: { dialog.controller.cancel(); dialog.close() } }
             }
             Text { textFormat: Text.PlainText; Layout.fillWidth: true; text: dialog.hasRows ? qsTr("对照原图逐条核对后再导入。缺失结果按通关预填；没有实际游戏时间的记录会保留为待补充历史。") : qsTr("把以前记在别处的导随记录搬进来。导入前可以逐条核对，确认后才写入历史记录。"); color: Theme.textSecondary; font.pixelSize: Theme.fs(12); wrapMode: Text.WordWrap }
@@ -441,7 +443,7 @@ Dialog {
                     border.color: Theme.neutral300; border.width: 1
                     ColumnLayout {
                         anchors.centerIn: parent; width: parent.width - 32; spacing: 12
-                        Image { Layout.alignment: Qt.AlignHCenter; width: 30; height: 30; source: Lucide.source("file-check", Theme.accent) }
+                        Image { Layout.alignment: Qt.AlignHCenter; width: 30; height: 30; source: Lucide.source("folder-open", Theme.accent) }
                         Text { textFormat: Text.PlainText; Layout.fillWidth: true; text: qsTr("把截图或表格文件拖到这里"); color: Theme.textPrimary; font.pixelSize: Theme.fs(16); font.bold: true; horizontalAlignment: Text.AlignHCenter }
                         Text { textFormat: Text.PlainText; Layout.fillWidth: true; text: qsTr("截图可以一次选多张；剪贴板里的截图或表格也能直接粘贴。"); color: Theme.textSecondary; font.pixelSize: Theme.fs(12); wrapMode: Text.WordWrap; horizontalAlignment: Text.AlignHCenter }
                         Item { id: startActions; Layout.alignment: Qt.AlignHCenter; Layout.preferredWidth: sourceActions.implicitWidth; Layout.preferredHeight: 32 }
@@ -457,7 +459,7 @@ Dialog {
                     ColumnLayout {
                         Layout.fillWidth: true; Layout.preferredWidth: 1; spacing: 4
                         SectionHeading { text: qsTr("表格与备份") }
-                        Text { textFormat: Text.PlainText; Layout.fillWidth: true; text: qsTr("支持 CSV、Excel、JSON 和数据库备份。表头不一致时可以指定列映射。"); color: Theme.textSecondary; font.pixelSize: Theme.fs(12); wrapMode: Text.WordWrap }
+                        Text { textFormat: Text.PlainText; Layout.fillWidth: true; text: qsTr("支持 CSV、Excel（.xls / .xlsx）、JSON 和数据库备份。可先保存模板填写；表头不一致时可以指定列映射。"); color: Theme.textSecondary; font.pixelSize: Theme.fs(12); wrapMode: Text.WordWrap }
                     }
                 }
                 AppButton { objectName: "importManualPasteOpen"; text: qsTr("手动粘贴表格文字"); variant: "ghost"; compact: true; Layout.alignment: Qt.AlignLeft; enabled: !dialog.inputLocked; onClicked: pasteDialog.open() }
@@ -579,7 +581,49 @@ Dialog {
                                         ? sourcePane.availableWidth * dialog.evidence.source_rect.height / dialog.evidence.source_rect.width + 8 : 160))
                                     visible: !!dialog.evidence.source_url
                                     color: Theme.insetBackground; radius: Theme.radiusS; clip: true
-                                    Image { objectName: "importSourceImage"; anchors.fill: parent; anchors.margins: 4; source: dialog.evidence.source_url || ""; sourceClipRect: dialog.evidence.source_rect ? Qt.rect(dialog.evidence.source_rect.x || 0, dialog.evidence.source_rect.y || 0, dialog.evidence.source_rect.width || 0, dialog.evidence.source_rect.height || 0) : Qt.rect(0, 0, 0, 0); fillMode: Image.PreserveAspectFit; asynchronous: true; cache: false }
+                                    // OCR coordinates refer to the EXIF-oriented image. Qt's
+                                    // sourceClipRect clips before that transform, so crop the
+                                    // oriented visual here instead of clipping encoded pixels.
+                                    Item {
+                                        id: sourceCrop
+                                        objectName: "importSourceCrop"
+                                        property rect sourceRect: dialog.evidence.source_rect
+                                            ? Qt.rect(dialog.evidence.source_rect.x || 0, dialog.evidence.source_rect.y || 0,
+                                                      dialog.evidence.source_rect.width || 0, dialog.evidence.source_rect.height || 0)
+                                            : Qt.rect(0, 0, 0, 0)
+                                        readonly property rect cropRect: {
+                                            const w = Math.max(0, sourceImage.sourceSize.width)
+                                            const h = Math.max(0, sourceImage.sourceSize.height)
+                                            if (sourceRect.width <= 0 || sourceRect.height <= 0)
+                                                return Qt.rect(0, 0, w, h)
+                                            const x = Math.max(0, Math.min(w, sourceRect.x))
+                                            const y = Math.max(0, Math.min(h, sourceRect.y))
+                                            const right = Math.max(x, Math.min(w, sourceRect.x + sourceRect.width))
+                                            const bottom = Math.max(y, Math.min(h, sourceRect.y + sourceRect.height))
+                                            return Qt.rect(x, y, right - x, bottom - y)
+                                        }
+                                        readonly property real imageScale: cropRect.width > 0 && cropRect.height > 0
+                                            ? Math.max(0, Math.min((parent.width - 8) / cropRect.width,
+                                                                 (parent.height - 8) / cropRect.height)) : 0
+                                        anchors.centerIn: parent
+                                        width: cropRect.width * imageScale
+                                        height: cropRect.height * imageScale
+                                        clip: true
+                                        Image {
+                                            id: sourceImage
+                                            objectName: "importSourceImage"
+                                            autoTransform: true
+                                            // Leave sourceSize unset: its default is the oriented
+                                            // physical pixel size; @2x only shrinks implicit size.
+                                            source: dialog.evidence.source_url || ""
+                                            x: -sourceCrop.cropRect.x * sourceCrop.imageScale
+                                            y: -sourceCrop.cropRect.y * sourceCrop.imageScale
+                                            width: Math.max(0, sourceSize.width) * sourceCrop.imageScale
+                                            height: Math.max(0, sourceSize.height) * sourceCrop.imageScale
+                                            asynchronous: true
+                                            cache: false
+                                        }
+                                    }
                                 }
                                 Text { textFormat: Text.PlainText; Layout.fillWidth: true; visible: !dialog.evidence.source_url; text: qsTr("表格记录没有原图，可对照原文件核对右侧字段和心得。"); color: Theme.textSecondary; font.pixelSize: Theme.fs(12); wrapMode: Text.WordWrap }
                                 SectionHeading { text: qsTr("心得全文") }
@@ -735,8 +779,8 @@ Dialog {
         id: sourceActions
         parent: dialog.hasRows ? reviewActions : startActions
         anchors.fill: parent; spacing: 6
-        AppButton { id: chooseInput; objectName: "importChooseFiles"; text: dialog.hasRows ? qsTr("添加文件") : qsTr("选择文件 / 多张截图"); iconName: dialog.hasRows ? "plus" : "file-check"; variant: dialog.hasRows ? "secondary" : "primary"; enabled: !dialog.inputLocked; onClicked: { dialog.flushEditors(); dialog.controller.chooseFiles() } }
-        AppButton { objectName: "importPasteClipboard"; text: qsTr("粘贴截图或表格"); iconName: "clipboard-check"; enabled: !dialog.inputLocked; onClicked: { dialog.flushEditors(); dialog.controller.pasteClipboard() } ToolTip.visible: hovered; ToolTip.text: qsTr("Ctrl+V（文本编辑框以外）") }
+        AppButton { id: chooseInput; objectName: "importChooseFiles"; text: dialog.hasRows ? qsTr("添加文件") : qsTr("选择文件 / 多张截图"); iconName: dialog.hasRows ? "plus" : "folder-open"; variant: dialog.hasRows ? "secondary" : "primary"; enabled: !dialog.inputLocked; onClicked: { dialog.flushEditors(); dialog.controller.chooseFiles() } }
+        AppButton { objectName: "importPasteClipboard"; text: qsTr("粘贴截图或表格"); iconName: "clipboard-paste"; enabled: !dialog.inputLocked; onClicked: { dialog.flushEditors(); dialog.controller.pasteClipboard() } ToolTip.visible: hovered; ToolTip.text: qsTr("Ctrl+V（文本编辑框以外）") }
         AppButton { objectName: "importMappingOpen"; text: qsTr("列映射"); visible: dialog.canMapColumns; enabled: !dialog.inputLocked; onClicked: { dialog.flushEditors(); mappingDialog.open() } }
     }
     ColumnLayout {
@@ -763,11 +807,57 @@ Dialog {
     Shortcut {
         sequences: [StandardKey.Paste]
         enabled: dialog.opened && !dialog.inputLocked && !pasteDialog.opened && !batchDialog.opened
-                 && !imageDialog.opened && !mappingDialog.opened && !dialog.editorOwnsPaste()
+                 && !imageDialog.opened && !mappingDialog.opened && !templatesDialog.opened && !dialog.editorOwnsPaste()
         onActivated: {
             dialog.flushEditors(); dialog.controller.pasteClipboard()
         }
     }
+    Dialog {
+        id: templatesDialog
+        objectName: "importTemplatesDialog"
+        modal: true
+        width: Math.min(640, dialog.width - 24)
+        height: Math.min(540, dialog.height - 24)
+        x: Math.round((dialog.width - width) / 2)
+        y: Math.round((dialog.height - height) / 2)
+        padding: 18
+        background: DialogFrame {}
+        contentItem: ColumnLayout {
+            spacing: 12
+            Text { textFormat: Text.PlainText; text: qsTr("保存导入模板"); color: Theme.textPrimary; font.pixelSize: Theme.fs(16); font.bold: true }
+            Text { textFormat: Text.PlainText; Layout.fillWidth: true; text: qsTr("保存到本地后填写，再回到这里导入。模板为空白，不包含示例记录。"); color: Theme.textSecondary; font.pixelSize: Theme.fs(12); wrapMode: Text.WordWrap }
+            RowLayout {
+                Layout.fillWidth: true; spacing: 8
+                AppButton { objectName: "importSaveExcelTemplate"; text: qsTr("保存 Excel 模板"); iconName: "file-down"; enabled: !dialog.inputLocked; onClicked: dialog.controller.saveTemplate("XLSX") }
+                AppButton { objectName: "importSaveJsonTemplate"; text: qsTr("保存 JSON 模板"); iconName: "file-json"; enabled: !dialog.inputLocked; onClicked: dialog.controller.saveTemplate("JSON") }
+                Item { Layout.fillWidth: true }
+            }
+            Text {
+                objectName: "importTemplateSaveStatus"
+                textFormat: Text.PlainText; Layout.fillWidth: true; wrapMode: Text.WordWrap
+                text: dialog.controller ? (dialog.controller.templateErrorText || dialog.controller.templateStatusText) : ""
+                visible: text.length > 0
+                color: dialog.controller && dialog.controller.templateErrorText.length > 0 ? Theme.red : Theme.textSecondary
+                font.pixelSize: Theme.fs(12); maximumLineCount: 3; elide: Text.ElideMiddle
+                PlainToolTip { visible: templateStatusHover.hovered; text: parent.text }
+                HoverHandler { id: templateStatusHover }
+            }
+            ScrollView {
+                id: templateHelpScroll
+                objectName: "importTemplateHelpScroll"
+                Layout.fillWidth: true; Layout.fillHeight: true; clip: true
+                Text {
+                    objectName: "importTemplateHelp"
+                    width: templateHelpScroll.availableWidth
+                    textFormat: Text.PlainText; wrapMode: Text.WordWrap
+                    text: dialog.controller ? dialog.controller.templateInstructions : ""
+                    color: Theme.textPrimary; font.pixelSize: Theme.fs(12)
+                }
+            }
+            AppButton { objectName: "importTemplatesClose"; text: qsTr("返回导入"); Layout.alignment: Qt.AlignRight; onClicked: templatesDialog.close() }
+        }
+    }
+
     Dialog {
         id: mappingDialog
         objectName: "importMappingDialog"
@@ -897,7 +987,7 @@ Dialog {
                 Layout.fillWidth: true; Layout.fillHeight: true; clip: true
                 contentWidth: Math.max(width, fullImage.width); contentHeight: Math.max(height, fullImage.height)
                 ScrollBar.vertical: ScrollBar {} ScrollBar.horizontal: ScrollBar {}
-                Image { id: fullImage; objectName: "importWholeImage"; source: dialog.evidence.source_url || ""; width: implicitWidth * imageDialog.zoom; height: implicitHeight * imageDialog.zoom; x: Math.max(0, (fullImageViewport.width - width) / 2); asynchronous: true; cache: false }
+                Image { id: fullImage; objectName: "importWholeImage"; autoTransform: true; source: dialog.evidence.source_url || ""; width: implicitWidth * imageDialog.zoom; height: implicitHeight * imageDialog.zoom; x: Math.max(0, (fullImageViewport.width - width) / 2); asynchronous: true; cache: false }
             }
             Text { textFormat: Text.PlainText; Layout.fillWidth: true; text: qsTr("拖动或滚动查看截图，关闭后继续核对当前记录。"); color: Theme.textSecondary; font.pixelSize: Theme.fs(11) }
         }

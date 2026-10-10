@@ -104,6 +104,38 @@ class BoundaryCheckerTests(unittest.TestCase):
         self.assertTrue(report["ok"])
         self.assertGreaterEqual(report["scanned_counts"]["workflow_files"], 5)
 
+    def test_checkout_ancestors_do_not_hide_sources_or_violations(self) -> None:
+        for index, ancestor in enumerate(("artifacts", "build", "bin", "obj", "BUILD")):
+            with self.subTest(ancestor=ancestor):
+                fixture = Fixture(Path(self.temporary.name) / str(index) / ancestor / "中文 repo with spaces")
+                code, report, stderr = fixture.run()
+                self.assertEqual(0, code, (report, stderr))
+                self.assertGreater(report["scanned_counts"]["domain_files"], 0)
+                fixture.write(
+                    "src/Collector/Domain/Bad.cs",
+                    "using MentorRecorder.Collector.Ipc;\nnamespace MentorRecorder.Collector.Domain;\n",
+                )
+                code, report, stderr = fixture.run()
+                self.assertEqual(1, code, (report, stderr))
+                self.assertTrue(any(item["rule"] == "domain-using"
+                                    for item in report["violations"]), report)
+
+    def test_generated_directories_inside_scan_root_remain_excluded(self) -> None:
+        for generated in ("artifacts", "build", "bin", "obj", "BUILD", ".git", "__pycache__"):
+            self.fixture.write(
+                f"src/Collector/Domain/{generated}/Bad.cs",
+                "using MentorRecorder.Collector.Ipc;\nnamespace MentorRecorder.Collector.Domain;\n",
+            )
+            self.fixture.write(
+                f"src/Collector/{generated}/GlobalUsings.cs",
+                "global using MentorRecorder.Collector.Ipc;\n",
+            )
+            self.fixture.write(f"src/Collector/{generated}/Broken.csproj", "<not-xml")
+        code, report, stderr = self.fixture.run()
+        self.assertEqual(0, code, (report, stderr))
+        self.assertEqual(1, report["scanned_counts"]["domain_files"])
+        self.assertEqual(2, report["scanned_counts"]["collector_csharp_files"])
+
     def test_domain_ordinary_static_and_alias_imports(self) -> None:
         cases = (
             "using MentorRecorder.Collector.Ipc;",

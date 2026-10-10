@@ -55,7 +55,7 @@ public sealed class CalibrationPipelineTests : IDisposable
             var selector = new ProfileSelector(ProfileCatalog.LoadMerged(null, _localRoot));
             return game => selector.Select(game.Region, game.GameBuild);
         },
-        (draft, chosen, build, now) => LocalProfileWriter.Write(draft, chosen, build, now, _localRoot));
+        (draft, chosen, build, now) => LocalProfileWriter.Prepare(draft, chosen, build, now, _localRoot));
 
     private static string OpenSession(TestDatabase db)
     {
@@ -966,20 +966,28 @@ public sealed class CalibrationPipelineTests : IDisposable
             Directory.EnumerateFiles(_localRoot, "*.json", SearchOption.AllDirectories).Any());
     }
 
-    [Fact]
-    public void ADiscardDuringTheDiskWriteWinsOverTheConfirmation()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ADiscardDuringTheDiskWriteWinsOverTheConfirmation(bool hasExistingProfile)
     {
         using var db = new TestDatabase();
         var template = CalibrationObserverTests.Template();
+        var existing = hasExistingProfile
+            ? LocalProfileWriter.Write(CalibrationTrafficCases.Derive(CalibrationTrafficCases.QueueRequest),
+                template, Build, db.Clock.UtcNow.AddDays(-1), _localRoot)
+            : null;
+        var original = existing is null ? null : File.ReadAllBytes(existing.Path);
         LiveProtocolPipeline? pipeline = null;
         var services = Services(template);
         services = services with
         {
-            Write = (draft, chosen, build, now) =>
+            PrepareWrite = (draft, chosen, build, now) =>
             {
-                // Another connection discards while this confirmation is writing the file.
+                var pending = LocalProfileWriter.Prepare(draft, chosen, build, now, _localRoot);
+                // The content is on disk, but another request discards before publication.
                 pipeline!.DiscardCalibration();
-                return LocalProfileWriter.Write(draft, chosen, build, now, _localRoot);
+                return pending;
             },
         };
         pipeline = new LiveProtocolPipeline(db.Database, db.Clock, new LiveEventBus(db.Clock), NoProfile, null, services);
@@ -995,6 +1003,130 @@ public sealed class CalibrationPipelineTests : IDisposable
         Assert.Equal(CalibrationState.Observing, pipeline.CalibrationStatus().State);
         Assert.Equal(ProfileStatus.UnsupportedBuild, pipeline.Current.Status);
         Assert.Equal(RunState.Idle, pipeline.RunState);
+        Assert.Null(new CaptureSessionRepository(db.Database).Get(sessionId)!.ProtocolProfileId);
+
+        // Rebuilding the catalogue is the next launch: a refused confirmation must leave
+        // no usable new file, and must not remove or replace a previously valid profile.
+        var restart = new ProfileSelector(ProfileCatalog.LoadMerged(null, _localRoot))
+            .Select(NewBuild.Region, Build);
+        Assert.Equal(hasExistingProfile, restart.IsUsable);
+        if (existing is not null)
+        {
+            Assert.Equal(original, File.ReadAllBytes(existing.Path));
+        }
+        Assert.Equal(hasExistingProfile ? 1 : 0,
+            Directory.EnumerateFiles(_localRoot, "*", SearchOption.AllDirectories).Count());
+    }
+
+    [Fact]
+    public async Task ADiscardFromAnotherThreadCompletesBeforeThePreparedWriteIsPublished()
+    {
+        using var db = new TestDatabase();
+        using var preparedSignal = new ManualResetEventSlim();
+        using var continueSignal = new ManualResetEventSlim();
+        var services = Services(CalibrationObserverTests.Template());
+        var prepare = services.PrepareWrite;
+        services = services with
+        {
+            PrepareWrite = (draft, template, build, now) =>
+            {
+                var pending = prepare(draft, template, build, now);
+                preparedSignal.Set();
+                if (!continueSignal.Wait(TimeSpan.FromSeconds(10)))
+                {
+                    pending.Dispose();
+                    throw new TimeoutException("the test did not release the prepared write");
+                }
+                return pending;
+            },
+        };
+        var pipeline = new LiveProtocolPipeline(db.Database, db.Clock, new LiveEventBus(db.Clock), NoProfile, null, services);
+        pipeline.Refresh(NewBuild);
+        var sessionId = OpenSession(db);
+        pipeline.OnCaptureStarted(sessionId);
+        Feed(pipeline, sessionId, CalibrationObserverTests.Session1());
+        var verdicts = AllCorrect(pipeline.CalibrationStatus());
+        var confirmation = Task.Run(() => Record.Exception(() => pipeline.ConfirmCalibration(verdicts)));
+        try
+        {
+            Assert.True(await Task.Run(() => preparedSignal.Wait(TimeSpan.FromSeconds(10))));
+            var discard = Task.Run(() => pipeline.DiscardCalibration());
+            var status = await discard.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.Equal(CalibrationState.Observing, status.State);
+            Assert.False(new ProfileSelector(ProfileCatalog.LoadMerged(null, _localRoot))
+                .Select(NewBuild.Region, Build).IsUsable);
+        }
+        finally
+        {
+            continueSignal.Set();
+        }
+
+        var error = Assert.IsType<CollectorException>(await confirmation);
+        Assert.Equal(ErrorCodes.CalibrationNotReady, error.Code);
+        Assert.False(new ProfileSelector(ProfileCatalog.LoadMerged(null, _localRoot))
+            .Select(NewBuild.Region, Build).IsUsable);
+        Assert.Empty(Directory.EnumerateFiles(_localRoot, "*", SearchOption.AllDirectories));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void APreparationFailurePreservesTheReadyDraftAndExistingProfile(bool hasExistingProfile)
+    {
+        using var db = new TestDatabase();
+        var template = CalibrationObserverTests.Template();
+        var existing = hasExistingProfile
+            ? LocalProfileWriter.Write(CalibrationTrafficCases.Derive(CalibrationTrafficCases.QueueRequest),
+                template, Build, db.Clock.UtcNow.AddDays(-1), _localRoot)
+            : null;
+        var original = existing is null ? null : File.ReadAllBytes(existing.Path);
+        var services = Services(template) with
+        {
+            PrepareWrite = (_, _, _, _) => throw new IOException("injected preparation failure"),
+        };
+        var pipeline = new LiveProtocolPipeline(db.Database, db.Clock, new LiveEventBus(db.Clock), NoProfile, null, services);
+        pipeline.Refresh(NewBuild);
+        var sessionId = OpenSession(db);
+        pipeline.OnCaptureStarted(sessionId);
+        Feed(pipeline, sessionId, CalibrationObserverTests.Session1());
+        var ready = pipeline.CalibrationStatus();
+
+        var error = Assert.Throws<CollectorException>(() => pipeline.ConfirmCalibration(AllCorrect(ready)));
+
+        Assert.Equal(ErrorCodes.ExportFailed, error.Code);
+        Assert.Equal(CalibrationState.Ready, pipeline.CalibrationStatus().State);
+        Assert.Null(new CaptureSessionRepository(db.Database).Get(sessionId)!.ProtocolProfileId);
+        if (existing is not null)
+        {
+            Assert.Equal(original, File.ReadAllBytes(existing.Path));
+        }
+        else
+        {
+            Assert.False(Directory.Exists(_localRoot));
+        }
+    }
+
+    [Fact]
+    public void AReloadFailureAfterCommitDoesNotDeleteTheConfirmedProfile()
+    {
+        using var db = new TestDatabase();
+        var services = Services(CalibrationObserverTests.Template()) with
+        {
+            ReloadSelect = () => throw new IOException("injected catalogue read failure"),
+        };
+        var pipeline = new LiveProtocolPipeline(db.Database, db.Clock, new LiveEventBus(db.Clock), NoProfile, null, services);
+        pipeline.Refresh(NewBuild);
+        var sessionId = OpenSession(db);
+        pipeline.OnCaptureStarted(sessionId);
+        Feed(pipeline, sessionId, CalibrationObserverTests.Session1());
+        var ready = pipeline.CalibrationStatus();
+
+        Assert.Throws<IOException>(() => pipeline.ConfirmCalibration(AllCorrect(ready)));
+
+        var restart = new ProfileSelector(ProfileCatalog.LoadMerged(null, _localRoot))
+            .Select(NewBuild.Region, Build);
+        Assert.True(restart.IsUsable);
+        Assert.Single(Directory.EnumerateFiles(_localRoot, "*", SearchOption.AllDirectories));
         Assert.Null(new CaptureSessionRepository(db.Database).Get(sessionId)!.ProtocolProfileId);
     }
 

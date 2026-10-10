@@ -9,15 +9,15 @@ namespace MentorRecorder.Collector.Protocol.Calibration;
 /// <summary>
 /// The three things calibration needs from outside the pipeline, so tests can point every one
 /// of them at a temp directory: where templates come from, how the formal selector is rebuilt
-/// after a local profile was written, and how the profile is written.
+/// after a local profile was written, and how its validated contents are prepared before publication.
 /// </summary>
 /// <param name="SelectTemplate">Template for a region; shipped profiles only in production.</param>
 /// <param name="ReloadSelect">Builds a fresh formal selector over the shipped and local roots.</param>
-/// <param name="Write">Writes a ready draft as a local profile and returns where it landed.</param>
+/// <param name="PrepareWrite">Prepares an unpublished profile; the pipeline owns its commit or disposal.</param>
 public sealed record CalibrationServices(
     Func<Region, CalibrationTemplate?> SelectTemplate,
     Func<Func<GameProcessDetection, ProfileSelection>> ReloadSelect,
-    Func<CalibrationDraft, CalibrationTemplate, string, DateTimeOffset, LocalProfileWriteResult> Write)
+    Func<CalibrationDraft, CalibrationTemplate, string, DateTimeOffset, PreparedLocalProfile> PrepareWrite)
 {
     /// <summary>
     /// Reads the evidence an earlier run of the Collector left for this region, build and
@@ -168,7 +168,7 @@ public sealed record CalibrationServices(
         ArgumentException.ThrowIfNullOrWhiteSpace(root);
         return this with
         {
-            Write = (draft, template, build, now) => LocalProfileWriter.Write(draft, template, build, now, root),
+            PrepareWrite = (draft, template, build, now) => LocalProfileWriter.Prepare(draft, template, build, now, root),
             RetireLocalProfile = (region, build, suffix) => LocalProfileFiles.Retire(root, region, build, suffix),
             RestoreLocalProfile = (region, build) => LocalProfileFiles.Restore(root, region, build),
             HasRetiredLocalProfile = (region, build) => LocalProfileFiles.HasRetired(root, region, build),
@@ -212,7 +212,7 @@ public sealed record CalibrationServices(
                 ProfileCatalog.FindDefaultRoot(), ProfileCatalog.FindLocalRoot(), ProfileCatalog.FindSharedRoot()));
             return game => selector.Select(game.Region, game.GameBuild);
         },
-        (draft, template, build, now) => LocalProfileWriter.Write(draft, template, build, now, ProfileCatalog.LocalRootPath))
+        (draft, template, build, now) => LocalProfileWriter.Prepare(draft, template, build, now, ProfileCatalog.LocalRootPath))
         .WithLocalProfilesIn(ProfileCatalog.LocalRootPath)
         .WithEvidenceIn(CalibrationEvidenceStore.RootPath)
         .WithRouletteNamesIn(RouletteNameOverrides.DefaultPath);

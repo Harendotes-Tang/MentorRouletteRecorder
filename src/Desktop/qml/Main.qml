@@ -702,9 +702,9 @@ ApplicationWindow {
                                 model: [
                                     { index: 0, icon: "layout-dashboard", label: qsTr("总览") },
                                     { index: 1, icon: "history", label: qsTr("历史记录") },
-                                    { index: 7, icon: "file-check", label: qsTr("全部心得") },
+                                    { index: 7, icon: "notebook-pen", label: qsTr("全部心得") },
                                     { index: 2, icon: "swords", label: qsTr("副本统计") },
-                                    { index: 3, icon: "users", label: qsTr("职业统计") },
+                                    { index: 3, icon: "chart-column", label: qsTr("职业统计") },
                                     { index: 4, icon: "activity", label: qsTr("捕获诊断") },
                                     { index: 5, icon: "settings", label: qsTr("设置") },
                                     { index: 6, icon: "clipboard-check", label: qsTr("对照核对") }

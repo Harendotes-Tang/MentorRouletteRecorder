@@ -94,7 +94,7 @@ internal sealed class SharedCalibrationTestBed : IDisposable
                     BeforeReload?.Invoke();
                     return DiskSelect();
                 },
-                (draft, template, build, now) => LocalProfileWriter.Write(draft, template, build, now, LocalRoot))
+                (draft, template, build, now) => LocalProfileWriter.Prepare(draft, template, build, now, LocalRoot))
             .WithSharedProfilesIn(SharedRoot);
         if (!fetch)
         {

@@ -9,7 +9,7 @@
 
 | 项 | 值 |
 |---|---|
-| 上游发布 | npm 包 `lucide-static@1.46.0` 的 `icons/<name>.svg`，原样未改（首行保留上游的许可证注释） |
+| 上游发布 | npm 包 `lucide-static@1.55.0` 的 `icons/<name>.svg`，原样未改（首行保留上游的许可证注释） |
 | 取用方式 | 开发期下载一次；运行时不联网 |
 | 进入构建产物的形式 | 这些 SVG **本身不编入资源**。`tools/lucide-icons/generate.py` 将每个图标的绘制元素写入 `src/Desktop/qml/components/Lucide.js`（含 ISC 声明），QML 模块仅包含该文件 |
 | 着色 | Lucide 的 SVG 使用 `stroke="currentColor"`，Qt 的 SVG 渲染器不支持该取值。`Lucide.js` 在运行时将按钮当前的文字颜色写入 `stroke`，并生成 `data:` 地址供 `Image` 使用 |
@@ -21,27 +21,35 @@
 
 | 文件 | SHA-256 |
 |------|---------|
-| `activity.svg` | `46a64a16f5f773b31bdfd64f42930aaf0952bb4f90e59dc9eb3d5cbce4372117` |
-| `calendar.svg` | `53a4c32c41c0b9e52c14c64453eb29aa38584f7fa642ceca288169144c197c7b` |
-| `chevron-left.svg` | `d5a124b49b704aa914363bab19f4f7213258d8e1e62100627a0ecaa4cb3d2d3a` |
-| `chevron-right.svg` | `3abb8adc7fc16fee93fb45e817cacf63b326d765a390a9202333c692f59ca06a` |
-| `clipboard-check.svg` | `e83569fac42564b6ea8fd245d1aba145b7975b870677dfb214dd603c585cd4e1` |
-| `clock.svg` | `35d53f97cd90c61d03dc44dc3066e18459b40452710252005e0680d8e7743c17` |
-| `file-check.svg` | `4522b2a4cadcc728464fa9a7862144c1d8cfc09c9788e5d8ee6fce85ae63ce56` |
-| `file-down.svg` | `16c8a9587341cc49d3a78a1f627fdd7f7b4a39bab44d1fcd926d0037154c2ea2` |
-| `file-json.svg` | `9264dc95815e7254a7b5971f39b95a6fda1d409b2f42209ec53df468a2ccd920` |
-| `filter-x.svg` | `e4df6a2ec606e9ad087c3a39ece8f703f437a929df6ee3a66a708e844a3c5f38` |
-| `flag.svg` | `ad8bb75e072b630f06522e8c837cbe27202bf3355c2f15014f398ccb557d606b` |
-| `gamepad-2.svg` | `c6657f1b594ec163aeb812c6ebb0e84a3fbe303662f3934730a5527377613338` |
-| `history.svg` | `fa003df2e3e870987f85934a1428e2db2aaa0ebfa9eea22955595b6795d25c4c` |
-| `layout-dashboard.svg` | `3f40ee77c84e4d2176e2bc2a6315eb54893f80cb430c669d285f53cd5047fd4c` |
-| `moon.svg` | `5e34800d69c624984af52ee10097a03f7dc8e3bc2dae18215914f675abdad514` |
-| `network.svg` | `54b53adf698a105bf6ccf0d767908b7f22179705f963af39e11720565f9dec3d` |
-| `plus.svg` | `f729556dad8f5316a6419a5f44ade394885657fab1ca2908ee80dcd5afe81616` |
-| `radio.svg` | `1c83801980a3cdbb0b31f19509331f960ebe1974b7e21557b5116a658b8d946c` |
-| `server.svg` | `cbd7f3b900551c67d02e803ba49d9f1eb85b3de8fd07ed321e5e54fe1d740808` |
-| `settings.svg` | `0ada2477cd92fa2c451d2a776efdd9f61206d2b30bf982b4f92980db709bd4b1` |
-| `sun.svg` | `0c22918e36080bc46e6d96750afc8490b7de945f40de8bb31448931a9bc0d1e0` |
-| `swords.svg` | `15d19bf173849e750bfbadf57794251baee085fa21bf1799a031ff00c2356844` |
-| `users.svg` | `978d9a4f4cfdd415f0b3bab3adca648155c91483f850679d8829aa04208b43e1` |
-| `x.svg` | `7d168da01aba19d3ecdae6abbcc2c6ffc8a1314499178307cfa4beae26794d59` |
+| `activity.svg` | `9cc7ea33e1c9f4f00b54c150807822a5ecceb178c5c7531ba31b3fbb84e94728` |
+| `book-open-text.svg` | `c0dec0992ceabed00881322fce45bca5d63a87c9818796574c4a37a22edaebb7` |
+| `calendar.svg` | `0fb29dc98bc17d84eadeba047341e9444edd2177604e80fce76f3f2f0663b80b` |
+| `chart-column.svg` | `3e68b1a9191034eaf19175a1bc16138e7cc8274249dba44048299774b040c74f` |
+| `chevron-left.svg` | `7cd7d32edf31996a69c66ba9515ed80a8ed1f6e69c2ef12672339f6fcaeb7041` |
+| `chevron-right.svg` | `5498d2d7e15efeafe7d536450801e979b97cfc3bf0f1a5872eb40e5153d4b5ba` |
+| `clipboard-check.svg` | `b2c9f28ddf01dbbf5042a3cc5c126a4c778de21209d3ae7ad7fdc83464bb0151` |
+| `clipboard-paste.svg` | `880af1bd9689fcb1fd189be647227cc486d3ff26c3a5764642abfcfa12b1208e` |
+| `clock.svg` | `3abefb4ed645ece77b115c5495693d8927328c3bd707a2dee3668a1adda4fb4c` |
+| `file-check.svg` | `15f0924a47b65712655916113c14d17180de682ae83837c4ee5bc49d0aa4a82b` |
+| `file-down.svg` | `381a423a1302d0bb757aa17ec8dd536a62330515c96d408f897df0aa322cea8c` |
+| `file-input.svg` | `e42eb88d7975ef2d8799e723bc111009ed3b52f49688dbd2565bffaeb171711f` |
+| `file-json.svg` | `6e6ae88e2d5ba4084d818e27d62d91bf3bf6cb82d81e3ebd5056dc46d8b5914c` |
+| `filter-x.svg` | `5c2a3830a460b98bb20aa3aa50fc82765868783330f6232b4bcda84db33f4231` |
+| `flag.svg` | `02edd5e48863749991b9698dfe31ffc224e1181aabf5976a1a71d9e7697d857f` |
+| `folder-open.svg` | `87cb21914e600ea214e758199adbd382b6808c521ffda282f9d68fb0de0ab00e` |
+| `gamepad-2.svg` | `4dd45a5a6f38fd24984a6dd5acd41882263f6b2e6cc393e8641b3538a8af1f11` |
+| `history.svg` | `b45d03620b1e0af1c34004979915a37d2a00566680adbaa7d0645d8dcb8d71d6` |
+| `image.svg` | `b357397c5bba97e1648bdd485a75bd6cfe7a14a2e277b13c8c270d33f7f0340b` |
+| `image-down.svg` | `d63aabe083e22032b3687e9ce29d585cc5bbb3e87c5878b1e9e488d5634a982b` |
+| `layout-dashboard.svg` | `f8e46ae1a32297a865eb4a96dbf60847030b3a2effa7657033a1401486c03cfd` |
+| `moon.svg` | `d74fd34ca96abb76cbe78ce726933b26f2e988a0f1a651d7e976a30fda5d8bd2` |
+| `network.svg` | `96e22e85e9d80a0de408c987b651be6e5ed94749c23b21e0da0c64b9210146fa` |
+| `notebook-pen.svg` | `597f5235b9893dd7c11ac9873effe63bc922d4954edfd877008bf05cf5cd4479` |
+| `plus.svg` | `573b8f5a3085beb0353f8c7b893fe1cecb9c0606a7be21fb473b93d75f84dc00` |
+| `radio.svg` | `ec2f0b85898e4e0483e6482589945527e1fcd82d831551ca706e2b6f8c9afb9a` |
+| `server.svg` | `f05702fe9ad28d8c6326c973673731386f5d0f4b75bc53e2f9291366078e1dde` |
+| `settings.svg` | `4d6c0b1031459994a9db34f3caed818d69e39b3459ec65b4b9d7048f229280a1` |
+| `sun.svg` | `b12898eac343189c8deccba77223aef1a5582ce69dba6e6b0c4bf8a9a24ae110` |
+| `swords.svg` | `958c2ccec20293ebeda326de6dea2e22bfae63aeda33d80d7bf37e213542b7e3` |
+| `users.svg` | `e9ff817cd8b9092f9fcce5267f4a1e779a536c17b3fa770f4aa8e5c1fb45c665` |
+| `x.svg` | `65b78d9fa306e2b6386fb9f3a9f10e1ba8067fa0d079046e1050db84f18f31f6` |

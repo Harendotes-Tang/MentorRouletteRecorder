@@ -638,7 +638,7 @@ public sealed class SharedCalibrationPipelineTests : IDisposable
         var inert = new CalibrationServices(
             _ => Bed.Template,
             _bed.DiskSelect,
-            (draft, template, build, now) => LocalProfileWriter.Write(draft, template, build, now, _bed.LocalRoot));
+            (draft, template, build, now) => LocalProfileWriter.Prepare(draft, template, build, now, _bed.LocalRoot));
         Assert.False(inert.SharedFetchWired);
         var pipeline = _bed.Pipeline(inert);
 

@@ -36,7 +36,8 @@ struct RowRecord {
     QRect deleteMark; ///< 按像素认出的删除叉号。
     QRect textBand;
     QList<Word> duty;
-    QStringList note;
+    QStringList note; ///< 心得段落；列边缘的连续折行已拼接，短行和明显段落间隔保留。
+    bool noteWrapJoined = false; ///< 曾按画面几何合并折行，预览须提示核对原文分段。
     QString recordedAt;
     bool timeValid = false;
     double confidence = 0;

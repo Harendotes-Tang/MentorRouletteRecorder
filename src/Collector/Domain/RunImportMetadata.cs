@@ -1,7 +1,7 @@
 namespace MentorRecorder.Collector.Domain;
 
 /// <summary>Local provenance of a merged personal record; source time is never a game endpoint.</summary>
-/// <param name="SourceKind">CSV, XLSX, JSON, BACKUP, PASTE or SCREENSHOT.</param>
+/// <param name="SourceKind">CSV, XLS, XLSX, JSON, BACKUP, PASTE or SCREENSHOT.</param>
 /// <param name="SourceName">User-visible origin name, without a local input path.</param>
 /// <param name="SourceRecordedAt">Original source record-time text, when present.</param>
 /// <param name="SourceRecordedAtUtc">Source record time converted using the explicitly selected timezone.</param>

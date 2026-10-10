@@ -95,7 +95,7 @@ void AppSettings::setFirstRunCompleted(bool completed)
 bool AppSettings::autostartWritable()
 {
 #ifdef Q_OS_WIN
-    return true;
+    return !QStandardPaths::isTestModeEnabled();
 #else
     return false;
 #endif
@@ -104,6 +104,8 @@ bool AppSettings::autostartWritable()
 void AppSettings::applyAutostartRegistration(bool enabled)
 {
 #ifdef Q_OS_WIN
+    if (!autostartWritable())
+        return;
     // Per-user Run key only. Never HKLM, never a service, never a scheduled
     // task - uninstalling the app by deleting it must not leave anything that
     // survives outside this one value.
@@ -126,7 +128,9 @@ bool AppSettings::autostart() const
 
 void AppSettings::setAutostart(bool enabled)
 {
-    if (autostart() == enabled)
+    // Mock/screenshot runs use Qt test paths, but an explicit HKCU path would
+    // bypass that isolation. Reject direct writes as well as disabling the UI.
+    if (!autostartWritable() || autostart() == enabled)
         return;
     m_settings.setValue(QStringLiteral("general/autostart"), enabled);
     applyAutostartRegistration(enabled);

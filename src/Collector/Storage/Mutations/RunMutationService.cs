@@ -651,6 +651,8 @@ public sealed class RunMutationService
 
         return _database.RunInTransaction(tx =>
         {
+            if (messageType == "UpdateAchievementBaseline")
+                _idempotency.RememberBaselineHistory(_settings.ReadBaselineAudit(tx), tx);
             if (_idempotency.TryGetResponse(requestId, tx) is { } stored)
             {
                 var snapshot = MutationSnapshotCodec.Deserialize(stored)

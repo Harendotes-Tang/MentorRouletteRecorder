@@ -248,9 +248,15 @@ internal static class RunImportCandidateNormalizer
         if (text is null) return null;
         if (!Regex.IsMatch(text, @"\d{1,2}:\d{2}", RegexOptions.CultureInvariant))
             throw Bad(field + " 缺少明确的时分，不能用日期虚构午夜。");
-        if (Regex.IsMatch(text, @"(?:Z|[+-]\d{2}:\d{2})$", RegexOptions.CultureInvariant)
-            && DateTimeOffset.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.None, out var offsetTime))
-            return UtcTimestamp.Truncate(offsetTime);
+        if (Regex.IsMatch(text, @"(?:Z|[+-]\d{2}:\d{2})$", RegexOptions.CultureInvariant))
+        {
+            // TryParse fills missing calendar fields from the host date. Require the same
+            // complete numeric date as local imports before accepting an explicit offset.
+            if (!Regex.IsMatch(text, @"^\d{4}[-/]\d{1,2}[-/]\d{1,2}(?:T|\s)", RegexOptions.CultureInvariant))
+                throw Bad(field + " 缺少完整日期，请在预览中补充年月日与时间。");
+            if (DateTimeOffset.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.None, out var offsetTime))
+                return UtcTimestamp.Truncate(offsetTime);
+        }
         var formats = new[] { "yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd HH:mm", "yyyy/M/d H:mm:ss", "yyyy/M/d H:mm",
             "yyyy-MM-ddTHH:mm:ss", "yyyy-MM-ddTHH:mm:ss.FFFFFFF", "yyyy-MM-ddTHH:mm" };
         if (!DateTime.TryParseExact(text, formats, CultureInfo.InvariantCulture, DateTimeStyles.None, out var local))

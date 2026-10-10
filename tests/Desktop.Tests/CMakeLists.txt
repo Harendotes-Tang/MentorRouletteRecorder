@@ -843,7 +843,41 @@ add_test(NAME MentorRecorderQmlClosedGame_dark_shared-fetching
         --verify-text "等待游戏启动 · 已安装的游戏版本还没有可用档案 · 见上方校准卡片")
 list(APPEND MR_RECORDING_QML_TESTS MentorRecorderQmlClosedGame_dark_shared-fetching)
 
+# Regression: mock/screenshot preferences must never touch the user's Run key.
+# Compile the real implementation against a settings audit adapter in this target only.
+add_executable(MentorRecorderAppSettingsIsolationTests
+    AppSettingsIsolationTests.cpp AppSettingsAudit.h
+    ${PROJECT_SOURCE_DIR}/src/Desktop/cpp/AppSettings.cpp
+    ${PROJECT_SOURCE_DIR}/src/Desktop/cpp/AppSettings.h)
+target_include_directories(MentorRecorderAppSettingsIsolationTests PRIVATE
+    ${PROJECT_SOURCE_DIR}/src/Desktop/cpp)
+target_link_libraries(MentorRecorderAppSettingsIsolationTests PRIVATE Qt6::Core Qt6::Test)
+if(MSVC)
+    target_compile_options(MentorRecorderAppSettingsIsolationTests PRIVATE
+        "/FI${CMAKE_CURRENT_SOURCE_DIR}/AppSettingsAudit.h")
+else()
+    target_compile_options(MentorRecorderAppSettingsIsolationTests PRIVATE
+        -include "${CMAKE_CURRENT_SOURCE_DIR}/AppSettingsAudit.h")
+endif()
+set_target_properties(MentorRecorderAppSettingsIsolationTests PROPERTIES AUTOMOC TRUE)
+mr_use_ascii_autogen_dir(MentorRecorderAppSettingsIsolationTests)
+add_test(NAME MentorRecorderAppSettingsIsolation COMMAND MentorRecorderAppSettingsIsolationTests)
+
+# Exercise the production QML components, including real EXIF-oriented image pixels.
+foreach(regression IN ITEMS ToggleSwitch ImportImageOrientation)
+    add_executable(MentorRecorder${regression}Tests ${regression}Tests.cpp)
+    target_link_libraries(MentorRecorder${regression}Tests PRIVATE
+        Qt6::Core Qt6::Gui Qt6::Test Qt6::Quick Qt6::Qml Qt6::QuickControls2)
+    target_compile_definitions(MentorRecorder${regression}Tests PRIVATE
+        MR_DESKTOP_QML_DIR="${PROJECT_SOURCE_DIR}/src/Desktop/qml")
+    set_target_properties(MentorRecorder${regression}Tests PROPERTIES AUTOMOC TRUE)
+    mr_use_ascii_autogen_dir(MentorRecorder${regression}Tests)
+    add_test(NAME MentorRecorder${regression} COMMAND MentorRecorder${regression}Tests)
+endforeach()
 set(MR_ALL_DESKTOP_TESTS
+    MentorRecorderAppSettingsIsolation
+    MentorRecorderToggleSwitch
+    MentorRecorderImportImageOrientation
     MentorRecorderReflectionLibrary
     MentorRecorderReflectionShare
     MentorRecorderImportRecordsController
@@ -953,3 +987,7 @@ set_tests_properties(${MR_QML_TESTS} ${MR_VALIDATION_QML_TESTS} ${MR_RECORDING_Q
 set_property(TEST ${MR_ALL_DESKTOP_TESTS} PROPERTY ENVIRONMENT_MODIFICATION
     "PATH=path_list_prepend:${MR_QT_RUNTIME_DIR}"
     "PATH=path_list_prepend:${MR_CXX_RUNTIME_DIR}")
+
+set_property(TEST MentorRecorderAppSettingsIsolation MentorRecorderToggleSwitch
+    MentorRecorderImportImageOrientation APPEND PROPERTY ENVIRONMENT
+    "QT_QUICK_BACKEND=software")

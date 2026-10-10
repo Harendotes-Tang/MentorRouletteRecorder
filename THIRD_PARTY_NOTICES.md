@@ -48,6 +48,34 @@ GCC Runtime Library Exception 3.1 分发（`docs/licenses/GCC-RUNTIME-LIBRARY-EX
 
 ## 其他组件
 
+### Excel 97–2003 二进制 XLS 导入
+
+仅 XLS 只读导入使用固定 **NPOI 2.7.6**（Apache-2.0），来源为
+[NPOI 对应提交](https://github.com/nissl-lab/npoi/tree/a0f50a01a845aa4dd793cee0ac5b776745966cb6)。
+不使用 Excel COM、不运行公式或宏、不解码工作簿内图片。NPOI 2.8 系列未进入本项目。
+
+| 组件 | 实际版本 | 许可证 |
+|---|---|---|
+| NPOI | 2.7.6 | Apache-2.0 |
+| BouncyCastle.Cryptography | 2.6.2 | MIT |
+| Enums.NET | 5.0.0 | MIT |
+| ExtendedNumerics.BigDecimal | 2025.1001.2.129 | MIT |
+| MathNet.Numerics.Signed | 5.0.0 | MIT |
+| Microsoft.IO.RecyclableMemoryStream | 3.0.1 | MIT |
+| NSax | 1.0.2 | LGPL-3.0-only |
+| SharpZipLib | 1.4.2 | MIT |
+| SixLabors.Fonts | 1.0.1 | Apache-2.0 |
+| System.Security.Cryptography.Pkcs | 8.0.1 | MIT |
+| System.Security.Cryptography.Xml | 8.0.4 | MIT |
+| ZString | 2.6.0 | MIT |
+
+字体库由 NPOI 公式解析内部引用，保留其未经修改的 Apache-2.0 二进制。
+**SixLabors.ImageSharp 2.1.11 仅用于编译，不进入运行或发布资产**；它的已知图片
+漏洞按精确 advisory 登记，项目没有关闭 NuGet 全局审计，也没有采用 SixLabors 新版许可。
+实际还原包、版本、源码提交、版权、包 SHA256/内容 SHA512、运行 DLL 哈希与许可证全文
+在 [`docs/licenses/xls/`](docs/licenses/xls/)；其中 NSax 保留 LGPL-3.0 全文和确切源码地址。
+审核说明见 [`docs/licenses/xls/README.md`](docs/licenses/xls/README.md)。
+
 ### 离线截图文字识别
 
 随包的 `ocr/` 使用 **RapidOCR 3.10.0**（Apache-2.0）、**ONNX Runtime
@@ -122,7 +150,7 @@ SharpPcap 与 PacketDotNet 使用未经修改的 NuGet 二进制。许可证全�
 
 ### 内置图标（ISC License）
 
-按钮上的线条图标来自 **Lucide**（<https://lucide.dev>），版本 1.46.0，许可证 ISC，
+按钮上的线条图标来自 **Lucide**（<https://lucide.dev>），版本 1.55.0，许可证 ISC，
 版权 Copyright (c) 2026 Lucide Icons and Contributors。其中 `calendar`、`chevron-left`、
 `chevron-right`、`clock`、`moon`、`plus`、`radio`、`server`、`x` 九个由 Lucide 从 **Feather** 项目派生，同时受
 **The MIT License (MIT)**，Copyright (c) 2013-present Cole Bemis 约束；该名单列于 Lucide 的

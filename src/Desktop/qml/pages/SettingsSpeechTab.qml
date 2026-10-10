@@ -89,6 +89,7 @@ ColumnLayout {
             }
             ToggleSwitch {
                 objectName: "ttsEnabledSwitch"
+                accessibleName: tab.onlineSelected ? qsTr("语音播报") : qsTr("本地语音播报")
                 checked: Settings.ttsEnabled
                 onToggled: function(value) { Settings.ttsEnabled = value }
             }

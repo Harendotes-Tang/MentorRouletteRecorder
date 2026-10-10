@@ -5,14 +5,18 @@
 #include "JobIconClassifier.h"
 
 #include <QCoreApplication>
+#include <QApplication>
 #include <QClipboard>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QFileDialog>
+#include <QFontDatabase>
 #include <QGuiApplication>
 #include <QHash>
 #include <QImage>
 #include <QJsonArray>
+#include <QJsonDocument>
 #include <QPainter>
 #include <QQmlComponent>
 #include <QQmlContext>
@@ -28,7 +32,9 @@
 #include <QSet>
 #include <QTemporaryDir>
 #include <QTest>
+#include <QtTest/qtestwheel.h>
 #include <QThread>
+#include <QTimer>
 #include <QtMath>
 
 class ImportThemeState : public QObject
@@ -219,6 +225,177 @@ private Q_SLOTS:
                 qmlRegisterType(QUrl::fromLocalFile(root + directory + QLatin1Char('/') + file),
                                 "MentorRecorder", 1, 0, name.constData());
             }
+    }
+
+    void embeddedTemplateSavesPreservePreviewAndFailures()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        ImportBackend backend;
+        mr::ImportRecordsController controller;
+        controller.setBackend(&backend);
+        controller.importText(QStringLiteral("副本\n合成副本"));
+        backend.calls.last().reply->succeed(preview());
+        controller.setOwnRecordsConfirmed(true);
+        const auto rows = controller.rows();
+        const auto candidate = controller.currentCandidate();
+        const int selected = controller.selectedCount();
+        const int calls = backend.calls.size();
+        for (const QString &suffix : {QStringLiteral("xlsx"), QStringLiteral("json")}) {
+            const QString path = directory.filePath(QStringLiteral("填写模板.") + suffix);
+            QVERIFY2(controller.saveTemplateToPath(suffix, path), qPrintable(controller.templateErrorText()));
+            QFile saved(path);
+            QFile resource(QStringLiteral(":/resources/import-templates/personal-records.") + suffix);
+            QVERIFY(saved.open(QIODevice::ReadOnly));
+            QVERIFY(resource.open(QIODevice::ReadOnly));
+            const QByteArray bytes = saved.readAll();
+            QCOMPARE(bytes, resource.readAll());
+            QVERIFY(controller.templateStatusText().contains(QDir::toNativeSeparators(path)));
+            if (suffix == QLatin1String("json")) {
+                const auto doc = QJsonDocument::fromJson(bytes);
+                QVERIFY(doc.isArray());
+                QCOMPARE(doc.array().size(), 1);
+                const auto row = doc.array().first().toObject();
+                QVERIFY(!row.contains("run_id"));
+                QVERIFY(row.value("entered_at_utc").isNull());
+                QVERIFY(row.value("ended_at_utc").isNull());
+                QVERIFY(row.value("duty_name").toString().isEmpty());
+            }
+        }
+        const QString existing = directory.filePath(QStringLiteral("保留.json"));
+        createFile(existing, "existing-content");
+        QVERIFY(!controller.saveTemplateToPath(QStringLiteral("XLSX"), existing));
+        QFile original(existing);
+        QVERIFY(original.open(QIODevice::ReadOnly));
+        QCOMPARE(original.readAll(), QByteArray("existing-content"));
+        QVERIFY(!controller.templateErrorText().isEmpty());
+        QVERIFY(controller.templateStatusText().isEmpty());
+        QVERIFY(!controller.saveTemplateToPath(QStringLiteral("JSON"), directory.filePath(QStringLiteral("missing/记录.json"))));
+        QVERIFY(!controller.saveTemplateToPath(QStringLiteral("XLS"), directory.filePath(QStringLiteral("记录.xls"))));
+        QCOMPARE(controller.rows(), rows);
+        QCOMPARE(controller.currentCandidate(), candidate);
+        QCOMPARE(controller.selectedCount(), selected);
+        QVERIFY(controller.ownRecordsConfirmed());
+        QVERIFY(controller.previewValid());
+        QCOMPARE(backend.calls.size(), calls);
+        QVERIFY(controller.templateInstructions().contains(QStringLiteral("毫秒")));
+        QVERIFY(controller.templateInstructions().contains(QStringLiteral("null")));
+        QVERIFY(controller.templateInstructions().contains(QStringLiteral("2000")));
+
+        QTimer::singleShot(0, [] {
+            for (QWidget *widget : QApplication::topLevelWidgets())
+                if (auto *chooser = qobject_cast<QFileDialog *>(widget))
+                    chooser->reject();
+        });
+        controller.saveTemplate(QStringLiteral("JSON"));
+        QVERIFY(controller.templateErrorText().isEmpty());
+        QCOMPARE(controller.templateStatusText(), QStringLiteral("已取消保存模板。"));
+        QCOMPARE(controller.rows(), rows);
+        QCOMPARE(controller.selectedCount(), selected);
+        QVERIFY(controller.ownRecordsConfirmed());
+        QCOMPARE(backend.calls.size(), calls);
+    }
+
+    void templateDialogLayoutAndKeyboard_data()
+    {
+        QTest::addColumn<bool>("dark");
+        QTest::addColumn<bool>("compact");
+        QTest::newRow("light-normal") << false << false;
+        QTest::newRow("dark-normal") << true << false;
+        QTest::newRow("light-compact") << false << true;
+        QTest::newRow("dark-compact") << true << true;
+    }
+
+    void templateDialogLayoutAndKeyboard()
+    {
+        QFETCH(bool, dark);
+        QFETCH(bool, compact);
+#ifdef Q_OS_WIN
+        // 与生产离屏入口一致，注册本机中文字体后才能检查截图中的文字。
+        const QString windowsDir = qEnvironmentVariable("WINDIR", QStringLiteral("C:/Windows"));
+        const int fontId = QFontDatabase::addApplicationFont(
+            QDir(windowsDir).filePath(QStringLiteral("Fonts/msyh.ttc")));
+        const auto families = QFontDatabase::applicationFontFamilies(fontId);
+        QVERIFY2(fontId >= 0 && !families.isEmpty(), "Cannot load system CJK font for template screenshots");
+        QApplication::setFont(QFont(families.first()));
+#endif
+        mr::ImportRecordsController controller;
+        ImportThemeState theme;
+        theme.dark = dark;
+        QQmlEngine engine;
+        engine.rootContext()->setContextProperty(QStringLiteral("ImportRecords"), &controller);
+        engine.rootContext()->setContextProperty(QStringLiteral("App"), &theme);
+        engine.rootContext()->setContextProperty(QStringLiteral("ReduceMotion"), true);
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this, [&warnings](const QList<QQmlError> &errors) {
+            for (const auto &error : errors)
+                warnings.append(error.toString());
+        });
+        QQmlComponent component(&engine);
+        component.setData(R"(import QtQuick
+import QtQuick.Controls
+import MentorRecorder
+ApplicationWindow {
+    width: 980; height: 640; visible: true
+    ImportRecordsDialog { Component.onCompleted: open() }
+})", QUrl::fromLocalFile(QString::fromUtf8(MR_DESKTOP_QML_DIR) + QStringLiteral("/dialogs/ImportTemplateProbe.qml")));
+        QTRY_VERIFY_WITH_TIMEOUT(component.status() != QQmlComponent::Loading, 5000);
+        QVERIFY2(!component.isError(), qPrintable(component.errorString()));
+        std::unique_ptr<QObject> root(component.create());
+        QVERIFY2(root != nullptr, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.get());
+        QVERIFY(window);
+        if (compact)
+            window->resize(680, 520);
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        auto *open = root->findChild<QQuickItem *>(QStringLiteral("importTemplatesOpen"));
+        auto *choose = root->findChild<QQuickItem *>(QStringLiteral("importChooseFiles"));
+        auto *dialog = root->findChild<QObject *>(QStringLiteral("importRecordsDialog"));
+        auto *templates = root->findChild<QObject *>(QStringLiteral("importTemplatesDialog"));
+        auto *excel = root->findChild<QQuickItem *>(QStringLiteral("importSaveExcelTemplate"));
+        auto *json = root->findChild<QQuickItem *>(QStringLiteral("importSaveJsonTemplate"));
+        auto *help = root->findChild<QQuickItem *>(QStringLiteral("importTemplateHelp"));
+        auto *scroll = root->findChild<QQuickItem *>(QStringLiteral("importTemplateHelpScroll"));
+        QVERIFY(open && choose && dialog && templates && excel && json && help && scroll);
+        QTest::qWait(150);
+        QVERIFY(open->isVisible() && choose->isVisible());
+        const auto center = [](QQuickItem *item) { return item->mapToScene(QPointF(item->width()/2, item->height()/2)).toPoint(); };
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, center(open));
+        QTRY_VERIFY(templates->property("opened").toBool());
+        QVERIFY(excel->isVisible() && json->isVisible());
+        QVERIFY(scroll->height() > 70);
+        QVERIFY(help->property("text").toString().contains(QStringLiteral("JSON")));
+        for (QQuickItem *item : {excel, json, scroll}) {
+            const auto rect = item->mapRectToScene(QRectF(0, 0, item->width(), item->height()));
+            QVERIFY(rect.left() >= 0 && rect.right() <= window->width());
+            QVERIFY(rect.top() >= 0 && rect.bottom() <= window->height());
+        }
+        excel->forceActiveFocus(Qt::TabFocusReason);
+        QTest::keyClick(window, Qt::Key_Tab);
+        QTRY_VERIFY(json->hasActiveFocus());
+        const QString evidence = qEnvironmentVariable("MR_IMPORT_TEMPLATE_SCREENSHOTS");
+        if (!evidence.isEmpty()) {
+            QVERIFY(QDir().mkpath(evidence));
+            const QString name = QStringLiteral("templates-%1-%2.png").arg(dark ? QStringLiteral("dark") : QStringLiteral("light"), compact ? QStringLiteral("compact") : QStringLiteral("normal"));
+            QVERIFY(window->grabWindow().save(QDir(evidence).filePath(name)));
+        }
+        auto *flickable = qobject_cast<QQuickItem *>(scroll->property("contentItem").value<QObject *>());
+        QVERIFY(flickable);
+        QTRY_VERIFY(flickable->property("contentHeight").toReal() > flickable->height());
+        for (int step = 0; step < 10; ++step) {
+            QTest::wheelEvent(window, center(scroll), QPoint(0, -1200));
+            QTest::qWait(100);
+        }
+        QTRY_VERIFY(flickable->property("contentY").toReal()
+                    >= flickable->property("contentHeight").toReal() - flickable->height() - 1);
+        if (!evidence.isEmpty()) {
+            const QString name = QStringLiteral("templates-%1-%2-bottom.png").arg(dark ? QStringLiteral("dark") : QStringLiteral("light"), compact ? QStringLiteral("compact") : QStringLiteral("normal"));
+            QVERIFY(window->grabWindow().save(QDir(evidence).filePath(name)));
+        }
+        QTest::keyClick(window, Qt::Key_Escape);
+        QTRY_VERIFY(!templates->property("visible").toBool());
+        QVERIFY(dialog->property("visible").toBool());
+        QVERIFY2(warnings.isEmpty(), qPrintable(warnings.join(QLatin1Char('\n'))));
     }
 
     void realMessageNamesAndOwnRecordConfirmation()
@@ -692,6 +869,12 @@ private Q_SLOTS:
             QPainter painter(&image);
             painter.fillRect(QRect(30, 70, 540, 180), QColor(85, 45, 45));
             painter.fillRect(QRect(50, 110, 72, 72), QColor(220, 185, 75));
+            if (useClassifier) {
+                painter.fillRect(QRect(50, 110, 72, 72), QColor(85, 45, 45));
+                const QImage known(QStringLiteral(":/resources/icons/jobs/28.png"));
+                QVERIFY(!known.isNull());
+                painter.drawImage(QRect(50, 110, 72, 72), known);
+            }
             painter.fillRect(QRect(225, 98, 30, 25), QColor(15, 180, 230));
             if (useClassifier) {
                 painter.fillRect(QRect(50, 110, 72, 72), QColor(85, 45, 45));
@@ -1133,14 +1316,14 @@ private Q_SLOTS:
 
     void backupAndNativeJsonDefaultToKeepingTheBaseline()
     {
-        for (const QString &kind : {QStringLiteral("BACKUP"), QStringLiteral("JSON"), QStringLiteral("XLSX")}) {
+        for (const QString &kind : {QStringLiteral("BACKUP"), QStringLiteral("JSON"), QStringLiteral("XLSX"), QStringLiteral("XLS")}) {
             ImportBackend backend;
             mr::ImportRecordsController controller;
             controller.setBackend(&backend);
             controller.setBaselineCount(1500);
             QTemporaryDir dir;
             const QString extension = kind == QLatin1String("BACKUP") ? QStringLiteral("db")
-                : kind == QLatin1String("JSON") ? QStringLiteral("json") : QStringLiteral("xlsx");
+                : kind == QLatin1String("JSON") ? QStringLiteral("json") : kind == QLatin1String("XLS") ? QStringLiteral("xls") : QStringLiteral("xlsx");
             const QString path = dir.filePath(QStringLiteral("history.") + extension);
             QFile file(path);
             QVERIFY(file.open(QIODevice::WriteOnly));
@@ -1158,13 +1341,14 @@ private Q_SLOTS:
             response.insert("rows", rows);
             backend.calls.last().reply->succeed(response);
             QVERIFY2(controller.baselineChoiceOffered(), qPrintable(kind));
-            QCOMPARE(controller.deductFromBaseline(), kind == QLatin1String("XLSX"));
+            QCOMPARE(controller.deductFromBaseline(), kind == QLatin1String("XLSX") || kind == QLatin1String("XLS"));
         }
     }
 
     void localPathAndFormatBoundary()
     {
         QCOMPARE(mr::ImportRecordsController::sourceKindForPath("C:/records.XLSX"), QStringLiteral("XLSX"));
+        QCOMPARE(mr::ImportRecordsController::sourceKindForPath("C:/records.XLS"), QStringLiteral("XLS"));
         QCOMPARE(mr::ImportRecordsController::sourceKindForPath("C:/mentor.sqlite3"), QStringLiteral("BACKUP"));
         QVERIFY(mr::ImportRecordsController::localPath(QUrl("https://example.invalid/a.png")).isEmpty());
         QVERIFY(mr::ImportRecordsController::localPath("relative.csv").isEmpty());
@@ -1805,7 +1989,8 @@ int main(int argc, char **argv)
         return output.open(QIODevice::WriteOnly) && output.write(tsv) == tsv.size() ? 0 : 1;
     }
     QQuickStyle::setStyle(QStringLiteral("Basic"));
-    QGuiApplication application(argc, argv);
+    QApplication::setAttribute(Qt::AA_DontUseNativeDialogs);
+    QApplication application(argc, argv);
     ImportRecordsControllerTests tests;
     return QTest::qExec(&tests, argc, argv);
 }

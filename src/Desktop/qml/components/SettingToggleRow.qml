@@ -14,6 +14,7 @@ SettingsRow {
 
     ToggleSwitch {
         Layout.alignment: Qt.AlignVCenter
+        accessibleName: root.label
         checked: root.checked
         enabled: root.toggleEnabled
         onToggled: function(value) { root.toggled(value) }

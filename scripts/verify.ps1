@@ -283,8 +283,10 @@ else {
         $leaseDeadline = (Get-Date).AddSeconds(60)
 
         while (-not $ready) {
+            # Start-Process flattens ArgumentList into one native command line. These
+            # paths end in fixed filenames (not a backslash) and may contain spaces.
             $serve = Start-Process -FilePath $collectorExe `
-                -ArgumentList @('--serve', '--db', $probeDb, '--log-dir', $probeLogs, '--json') `
+                -ArgumentList @('--serve', '--db', ('"{0}"' -f $probeDb), '--log-dir', ('"{0}"' -f $probeLogs), '--json') `
                 -PassThru -NoNewWindow `
                 -RedirectStandardOutput $stdout -RedirectStandardError $stderr
 

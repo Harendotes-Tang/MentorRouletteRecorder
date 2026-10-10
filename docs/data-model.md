@@ -294,7 +294,7 @@ INDEX ix_revisions_run ON run_revisions(run_id, revision)
 |---|---|---|---|
 | `request_id` | TEXT | PK | 客户端信封里的 `request_id` |
 | `message_type` | TEXT | NOT NULL | 首次应用时的消息类型 |
-| `response_json` | TEXT | NOT NULL | 首次成功时的变更快照（含请求内容的**指纹**），用于原样重放 |
+| `response_json` | TEXT | NOT NULL | 首次成功时的变更快照（含请求内容的**指纹**），用于原样重放；过期基数请求为 JSON 文本 `null`，仅保留已执行标记 |
 | `created_at_utc` | TEXT | NOT NULL | UTC ISO-8601（毫秒） |
 
 `INDEX ix_idempotency_created ON ipc_idempotency(created_at_utc)`。
@@ -304,17 +304,25 @@ INDEX ix_revisions_run ON run_revisions(run_id, revision)
 指纹**不同**时（同一个 `request_id` 被复用于另一份内容）返回
 `ERR_IDEMPOTENCY_CONFLICT`。回放旧结果会使客户端误认为其**新**改动已经生效，
 拒绝是唯一安全的处理方式。
-该表只存**结果快照**与指纹，不存请求原文。
+该表存**结果快照**与指纹，以及基数请求的轻量已执行标记，不存请求原文。
 
-**保留期是 24 小时。** 每次写入后按 `created_at_utc` 裁去更早的行
-（`IdempotencyRepository.RetentionWindow`）。因此"同一 `request_id` 原样重放"的保证
-只在 24 小时内成立，窗口内跨进程重启仍然有效。
+**结果快照保留期是 24 小时。** 每次写入后按 `created_at_utc` 清理过期响应
+（`IdempotencyRepository.RetentionWindow`）。普通请求删除幂等行；
+`UpdateAchievementBaseline` 将 `response_json` 改为 JSON 文本 `null`，保留
+`request_id`、消息类型及执行时间。包括成功的同值保存，这些标记都跨进程重启保留，
+防止旧请求把后续修改的基数写回旧值。展示用 `achievement.baseline_history` 仍只保留最近 100 条；
+永久执行标记不保存基数正文，并随基数请求次数增长。
 
-超过保留期之后再重放同一个 `request_id` 时，幂等行已不存在，但
-`run_revisions.request_id` / `candidate_reviews.request_id` 的 UNIQUE 约束仍记录该请求已执行。
+因此“同一 `request_id` 原样重放”的保证只在 24 小时响应窗口内成立。
+超过保留期后，`run_revisions.request_id` / `candidate_reviews.request_id` /
+`run_import_batches.request_id` 的持久审计，或基数执行标记，仍证明请求已执行。
 此时**不会**再次应用变更，也不会笼统地报告内部错误，而是返回
 `ERR_IDEMPOTENCY_CONFLICT`，`details = {conflict: "idempotency", request_id, reason: "RESPONSE_EXPIRED"}`、
 `field = "request_id"`，提示调用方换用新的 `request_id` 重发。
+
+基数更新在同一事务内保全旧版仍存在的历史请求标识，再追加/轮转展示历史；
+业务写入失败时，这些标记与设置、审计、响应清理一起回滚。
+旧版若已同时删除请求响应并轮出历史，该请求的执行证据无法追溯；本实现不会虚构它。
 
 ## 7.2 `parser_errors` —— 有界的解析拒绝诊断
 
