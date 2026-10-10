@@ -8,6 +8,8 @@
 
 #include <QDir>
 #include <QFile>
+#include <QFont>
+#include <QFontDatabase>
 #include <QGuiApplication>
 #include <QImage>
 #include <QJsonArray>
@@ -372,6 +374,24 @@ private Q_SLOTS:
         QTRY_COMPARE(category->property("completedTotal").toDouble(), 42.0);
         QCOMPARE(special->property("completedTotal").toDouble(), 42.0);
         QCOMPARE(grid->property("columns").toInt(), width >= 1000 ? 2 : 1);
+        auto *charts = scene.item(QStringLiteral("dungeonChartsColumn"));
+        auto *attempts = scene.item(QStringLiteral("dungeonAttemptsCard"));
+        auto *table = scene.item(QStringLiteral("dungeonTableCard"));
+        QVERIFY(charts && attempts && table);
+        QCOMPARE(category->parentItem(), charts);
+        QCOMPARE(special->parentItem(), charts);
+        QCOMPARE(attempts->parentItem(), charts);
+        QTRY_VERIFY(special->y() >= category->y() + category->height());
+        QTRY_VERIFY(attempts->y() >= special->y() + special->height());
+        if (grid->property("columns").toInt() == 2) {
+            QTRY_VERIFY(table->mapToItem(page, QPointF()).x()
+                        >= charts->mapToItem(page, QPointF()).x() + charts->width());
+            QVERIFY(qAbs(charts->mapToItem(page, QPointF()).y()
+                         - table->mapToItem(page, QPointF()).y()) <= 0.5);
+        } else {
+            QTRY_VERIFY(table->mapToItem(page, QPointF()).y()
+                        >= charts->mapToItem(page, QPointF()).y() + charts->height());
+        }
         const QVariantList before = qmlList(special->property("buckets"));
         QCOMPARE(before.size(), 4);
         QVERIFY(page->setProperty("topLimit", 0));
@@ -386,6 +406,16 @@ private Q_SLOTS:
             QVERIFY(position.x() + chart->width() <= page->width() + 0.5);
             auto *legend = findItem(chart, QStringLiteral("completionPieLegend"));
             QVERIFY(legend);
+            for (int index = 0; index < qmlList(chart->property("buckets")).size(); ++index) {
+                auto *count = findItem(chart, QStringLiteral("completionPieCount") + QString::number(index));
+                auto *share = findItem(chart, QStringLiteral("completionPieShare") + QString::number(index));
+                QVERIFY(count && share);
+                QTRY_VERIFY(count->width() > 0 && share->width() > 0);
+                const QPointF countEnd = count->mapToItem(chart, QPointF(count->width(), 0));
+                const QPointF shareStart = share->mapToItem(chart, QPointF());
+                QVERIFY2(shareStart.x() - countEnd.x() <= 12.0,
+                         "Completion count and percentage must stay together, not at opposite card edges");
+            }
             for (QQuickItem *row : legend->childItems()) {
                 if (!row->objectName().startsWith(QLatin1String("completionPieLegendRow")))
                     continue;
@@ -439,6 +469,25 @@ int main(int argc, char **argv)
     QStandardPaths::setTestModeEnabled(true);
     QQuickStyle::setStyle(QStringLiteral("Basic"));
     QGuiApplication app(argc, argv);
+#ifdef Q_OS_WIN
+    // Offscreen Qt does not enumerate the Windows CJK fallback fonts reliably.
+    // Register the real system fonts, as the production screenshot harness does.
+    const QString windowsDir = qEnvironmentVariable("WINDIR", QStringLiteral("C:/Windows"));
+    QStringList cjkFamilies;
+    for (const char *file : {"Fonts/msyh.ttc", "Fonts/simhei.ttf", "Fonts/simsun.ttc", "Fonts/consola.ttf"}) {
+        const int fontId = QFontDatabase::addApplicationFont(
+            QDir(windowsDir).filePath(QString::fromLatin1(file)));
+        if (fontId >= 0 && cjkFamilies.isEmpty() && QByteArray(file).contains("msyh"))
+            cjkFamilies = QFontDatabase::applicationFontFamilies(fontId);
+    }
+    QFont::insertSubstitutions(QStringLiteral("Noto Serif SC"),
+                              {QStringLiteral("SimSun"), QStringLiteral("NSimSun")});
+    if (!cjkFamilies.isEmpty()) {
+        QFont font = app.font();
+        font.setFamilies(cjkFamilies);
+        app.setFont(font);
+    }
+#endif
     DungeonCompositionTests tests;
     return QTest::qExec(&tests, argc, argv);
 }

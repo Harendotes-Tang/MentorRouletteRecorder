@@ -111,8 +111,8 @@ Item {
     /// underneath it. The shell binds this; alone, the page reserves nothing.
     property real reservedBottom: 0
     readonly property int rowsThatFit: {
-        const fixed = pageHeader.height + filterRow.height + (activeFilterRow.visible ? activeFilterRow.height : 0) + batchBar.height + (batchFeedback.visible ? batchFeedback.height : 0) + filterSeparator.height
-                    + tableHeader.height + pagerRow.height + contentColumn.spacing * (6 + (activeFilterRow.visible ? 1 : 0) + (batchFeedback.visible ? 1 : 0))
+        const fixed = pageHeader.height + filterRow.height + (activeFilterRow.visible ? activeFilterRow.height : 0) + (batchBar.visible ? batchBar.height : 0) + (batchFeedback.visible ? batchFeedback.height : 0) + filterSeparator.height
+                    + tableHeader.height + pagerRow.height + contentColumn.spacing * (5 + (batchBar.visible ? 1 : 0) + (activeFilterRow.visible ? 1 : 0) + (batchFeedback.visible ? 1 : 0))
                     + Math.max(0, page.reservedBottom)
         return Math.max(page.minimumRowsPerPage, Math.floor((page.height - fixed) / page.rowHeight))
     }
@@ -355,7 +355,7 @@ Item {
 
             // -------------------------------------------------- 筛选栏 --
             // One compact row, as in the prototype: search, date range, four
-            // narrow combo boxes, the toggle chips and 清除. A Flow rather than
+            // narrow combo boxes, mark flags, page selection and 清除. A Flow rather than
             // a RowLayout so that on a narrow window the trailing controls wrap
             // to a second line instead of being clipped off the right edge.
             Flow {
@@ -379,7 +379,7 @@ Item {
                 readonly property bool singleLine: restWidth + 120 <= width
                 // Narrow fallback: search + the two dates share the first line,
                 // the combo boxes, chips and 清除 wrap to the second.
-                readonly property real dateWidth: fromField.width + toField.width + 2 * spacing
+                readonly property real dateWidth: fromField.width + toField.width + selectCurrentPage.width + 3 * spacing
 
                 StyledTextField {
                     id: searchField
@@ -392,6 +392,16 @@ Item {
                     // RunFilter.text maxLength: a longer search is refused outright.
                     maximumLength: 200
                     onTextChanged: page.scheduleFilter()
+                }
+
+                SelectionCheckBox {
+                    id: selectCurrentPage
+                    height: filterRow.controlHeight
+                    objectName: "selectCurrentHistoryPage"
+                    text: qsTr("全选当前页")
+                    checked: App.allCurrentHistoryPageChecked
+                    enabled: !App.runs.loading && App.runs.loadError.length === 0 && App.runs.total > 0
+                    onClicked: App.setCurrentHistoryPageChecked(checked)
                 }
 
                 // 年/月/日 with a calendar behind the icon; a typed yyyy-MM-dd
@@ -426,29 +436,6 @@ Item {
                         page.contentFilter = null
                         page.scheduleFilter()
                     }
-                }
-
-                Chip {
-                    id: pendingChip
-                    objectName: "pendingReviewChip"
-                    visible: true
-                    height: filterRow.controlHeight
-                    text: qsTr("待复核")
-                    checked: page.pendingReviewFilter
-                    activeFocusOnTab: true
-                    Accessible.role: Accessible.CheckBox
-                    Accessible.checked: checked
-                    Accessible.name: qsTr("待复核筛选")
-                    onToggled: function(checked) {
-                        page.pendingReviewFilter = checked
-                        // Chip's TapHandler assigns checked; restore the mirror so
-                        // cancelling a filter confirmation restores its visual state.
-                        pendingChip.checked = Qt.binding(function() { return page.pendingReviewFilter })
-                        page.scheduleFilter()
-                    }
-                    Keys.onSpacePressed: function(event) { page.pendingReviewFilter = !page.pendingReviewFilter; page.scheduleFilter(); event.accepted = true }
-                    border.width: activeFocus ? 1 : 0
-                    border.color: Theme.accent
                 }
 
                 StyledComboBox {
@@ -509,28 +496,63 @@ Item {
                     onActivated: page.scheduleFilter()
                 }
 
-                Chip {
-                    id: correctedOnly
-                    visible: !page.narrowFilters
-                    height: filterRow.controlHeight
-                    text: qsTr("已修正")
-                    onToggled: page.scheduleFilter()
-                }
-
-                Chip {
-                    id: withReflection
-                    visible: !page.narrowFilters
-                    height: filterRow.controlHeight
-                    text: qsTr("有笔记")
-                    onToggled: page.scheduleFilter()
-                }
-
-                Chip {
-                    id: includeDeleted
-                    visible: !page.narrowFilters
-                    height: filterRow.controlHeight
-                    text: qsTr("含已删除")
-                    onToggled: page.scheduleFilter()
+                // Four independent flags retain their existing combined filter semantics.
+                StyledComboBox {
+                    id: markBox
+                    objectName: "historyMarkFilter"
+                    width: 118
+                    model: [qsTr("标记类型")]
+                    readonly property int selectedCount: (page.pendingReviewFilter ? 1 : 0)
+                                                       + (correctedOnly.checked ? 1 : 0)
+                                                       + (withReflection.checked ? 1 : 0)
+                                                       + (includeDeleted.checked ? 1 : 0)
+                    displayText: selectedCount > 0 ? qsTr("标记类型 · %1").arg(selectedCount) : qsTr("标记类型")
+                    Accessible.name: qsTr("标记类型筛选，可多选")
+                    popup: Popup {
+                        id: markPopup
+                        y: markBox.height + 4
+                        width: 180
+                        padding: 8
+                        implicitHeight: contentItem.implicitHeight + topPadding + bottomPadding
+                        background: Rectangle {
+                            radius: Theme.radiusS
+                            color: Theme.surface
+                            border.width: 1
+                            border.color: Theme.eorzea ? Theme.gold3 : Theme.border
+                        }
+                        contentItem: ColumnLayout {
+                            spacing: 2
+                            SelectionCheckBox {
+                                id: pendingChip
+                                objectName: "pendingReviewChip"
+                                Layout.fillWidth: true
+                                text: qsTr("待复核")
+                                checked: page.pendingReviewFilter
+                                onClicked: { page.pendingReviewFilter = checked; markPopup.close(); page.scheduleFilter() }
+                            }
+                            SelectionCheckBox {
+                                id: correctedOnly
+                                objectName: "historyCorrectedFilter"
+                                Layout.fillWidth: true
+                                text: qsTr("已修正")
+                                onClicked: { markPopup.close(); page.scheduleFilter() }
+                            }
+                            SelectionCheckBox {
+                                id: withReflection
+                                objectName: "historyReflectionFilter"
+                                Layout.fillWidth: true
+                                text: qsTr("有笔记")
+                                onClicked: { markPopup.close(); page.scheduleFilter() }
+                            }
+                            SelectionCheckBox {
+                                id: includeDeleted
+                                objectName: "historyDeletedFilter"
+                                Layout.fillWidth: true
+                                text: qsTr("含已删除")
+                                onClicked: { markPopup.close(); page.scheduleFilter() }
+                            }
+                        }
+                    }
                 }
 
                 // Fixed 40 px: the Flow sums its children into restWidth and the
@@ -556,30 +578,20 @@ Item {
                 id: activeFilterRow
                 Layout.fillWidth: true
                 visible: (page.contentFilter !== null && page.contentFilter !== undefined) || page.hasRetainedJobFilter
-                         || (page.narrowFilters && (sourceBox.currentIndex > 0 || correctedOnly.checked || withReflection.checked || includeDeleted.checked))
+                         || (page.narrowFilters && (sourceBox.currentIndex > 0))
                 spacing: 6
                 Chip { visible: page.contentFilter !== null && page.contentFilter !== undefined; text: page.dutyLabel(page.contentFilter); checked: true; removable: true; onRemoved: { page.contentFilter = null; page.scheduleFilter() } }
                 Chip { objectName: "retainedJobFilterChip"; visible: page.hasRetainedJobFilter; text: qsTr("职业：%1").arg(Jobs.jobName(page.retainedJobFilter)); checked: true; removable: true; Accessible.name: text; onRemoved: { page.retainedJobFilter = null; page.scheduleFilter() } }
                 Chip { visible: page.narrowFilters && sourceBox.currentIndex > 0; text: sourceBox.currentText; checked: true; removable: true; onRemoved: { sourceBox.currentIndex = 0; page.scheduleFilter() } }
-                Chip { visible: page.narrowFilters && correctedOnly.checked; text: qsTr("已修正"); checked: true; removable: true; onRemoved: { correctedOnly.checked = false; page.scheduleFilter() } }
-                Chip { visible: page.narrowFilters && withReflection.checked; text: qsTr("有笔记"); checked: true; removable: true; onRemoved: { withReflection.checked = false; page.scheduleFilter() } }
-                Chip { visible: page.narrowFilters && includeDeleted.checked; text: qsTr("含已删除"); checked: true; removable: true; onRemoved: { includeDeleted.checked = false; page.scheduleFilter() } }
             }
 
             Flow {
                 id: batchBar
+                visible: page.checkedCount > 0
                 objectName: "historyBatchBar"
                 Layout.fillWidth: true
                 spacing: 8
                 enabled: !App.historyBatchRunning
-                SelectionCheckBox {
-                    objectName: "selectCurrentHistoryPage"
-                    text: qsTr("全选当前页")
-                    checked: App.allCurrentHistoryPageChecked
-                    enabled: !App.runs.loading && App.runs.loadError.length === 0 && App.runs.total > 0
-                    onClicked: App.setCurrentHistoryPageChecked(checked)
-                }
-                Text { height: 32; verticalAlignment: Text.AlignVCenter; text: qsTr("已勾选 %1 条 · 翻页保留").arg(page.checkedCount); color: Theme.textSecondary; font.pixelSize: Theme.fs(12) }
                 AppButton { text: qsTr("取消勾选"); visible: page.checkedCount > 0; variant: "ghost"; onClicked: App.clearCheckedHistoryRuns() }
                 AppButton { objectName: "batchSoftDeleteButton"; text: qsTr("移入回收站"); visible: page.checkedCount > 0; enabled: App.checkedHistoryDeletedCount === 0; onClicked: page.requestBatch("soft_delete") }
                 AppButton { objectName: "batchRestoreButton"; text: qsTr("恢复选中"); visible: page.checkedCount > 0 && App.checkedHistoryDeletedCount > 0; enabled: App.checkedHistoryDeletedCount === page.checkedCount; onClicked: page.requestBatch("restore") }
@@ -955,7 +967,16 @@ Item {
 
                 Item { Layout.fillWidth: true }
 
+                Text {
+                    objectName: "historyCheckedCount"
+                    text: qsTr("已勾选 %1 条 · 翻页保留").arg(page.checkedCount)
+                    textFormat: Text.PlainText
+                    color: Theme.textSecondary
+                    font.pixelSize: Theme.fs(12)
+                }
+
                 AppButton {
+                    objectName: "historyPreviousPage"
                     text: qsTr("上一页")
                     iconName: "chevron-left"
                     enabled: App.runs.page > 1
@@ -1006,9 +1027,6 @@ Item {
                 Accessible.name: qsTr("来源筛选")
                 onActivated: { sourceBox.currentIndex = currentIndex; page.scheduleFilter() }
             }
-            SelectionCheckBox { text: qsTr("只看已修正"); checked: correctedOnly.checked; onClicked: { correctedOnly.checked = checked; page.scheduleFilter() } }
-            SelectionCheckBox { text: qsTr("只看有笔记"); checked: withReflection.checked; onClicked: { withReflection.checked = checked; page.scheduleFilter() } }
-            SelectionCheckBox { objectName: "historyMoreIncludeDeleted"; text: qsTr("包含回收站记录"); checked: includeDeleted.checked; onClicked: { includeDeleted.checked = checked; page.scheduleFilter() } }
             AppButton { Layout.alignment: Qt.AlignRight; text: qsTr("完成"); onClicked: moreFilters.close() }
         }
     }

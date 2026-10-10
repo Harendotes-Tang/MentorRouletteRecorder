@@ -5,6 +5,8 @@
 #include "JobCatalog.h"
 
 #include <QGuiApplication>
+#include <QFont>
+#include <QFontDatabase>
 #include <QDir>
 #include <QJsonArray>
 #include <QQmlComponent>
@@ -200,6 +202,15 @@ ApplicationWindow {
         QTRY_VERIFY(!library.runs()->isLoading());
         auto *select = findVisual(window->contentItem(), QStringLiteral("selectCurrentReflectionPage"));
         QVERIFY(select);
+        auto *toolbar = findVisual(window->contentItem(), QStringLiteral("reflectionToolbar"));
+        QVERIFY(toolbar);
+        // 宽窗口所有操作同排，窄窗口完整控件换行且不越过工具栏边界。
+        for (auto *control : toolbar->childItems()) {
+            QVERIFY(control->x() >= 0);
+            QVERIFY(control->x() + control->width() <= toolbar->width() + 1);
+            if (size.width() >= 1100)
+                QCOMPARE(control->y(), qreal(0));
+        }
         select->forceActiveFocus();
         QTest::keyClick(window, Qt::Key_Space);
         QTRY_COMPARE(library.selectedCount(), 1);
@@ -274,6 +285,24 @@ ApplicationWindow {
 int main(int argc, char **argv) {
     QQuickStyle::setStyle(QStringLiteral("Basic"));
     QGuiApplication app(argc, argv);
+#ifdef Q_OS_WIN
+    // offscreen 平台不枚举系统字体；测试截图显式注册中文字体，生产字体配置保持不变。
+    const QDir windowsDir(qEnvironmentVariable("WINDIR", QStringLiteral("C:/Windows")));
+    QStringList cjkFamilies;
+    for (const char *file : {"Fonts/msyh.ttc", "Fonts/simhei.ttf", "Fonts/simsun.ttc"}) {
+        const int id = QFontDatabase::addApplicationFont(windowsDir.filePath(QString::fromLatin1(file)));
+        if (id >= 0)
+            cjkFamilies.append(QFontDatabase::applicationFontFamilies(id));
+    }
+    if (cjkFamilies.isEmpty()) {
+        qCritical("Cannot load a system CJK font for UI screenshot verification.");
+        return 6;
+    }
+    QFont font = QGuiApplication::font();
+    font.setFamilies(cjkFamilies);
+    QGuiApplication::setFont(font);
+    QFont::insertSubstitutions(QStringLiteral("Noto Serif SC"), {QStringLiteral("SimSun")});
+#endif
     ReflectionLibraryTests tests;
     return QTest::qExec(&tests, argc, argv);
 }

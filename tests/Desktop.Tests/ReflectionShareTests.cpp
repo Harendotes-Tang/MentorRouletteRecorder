@@ -5,6 +5,8 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QGuiApplication>
+#include <QFont>
+#include <QFontDatabase>
 #include <QImage>
 #include <QQmlComponent>
 #include <QQmlContext>
@@ -15,6 +17,7 @@
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QTest>
+#include <QWheelEvent>
 #include <QtMath>
 
 #include <memory>
@@ -216,6 +219,28 @@ ApplicationWindow {
         auto *secondBody = findVisual(cards.at(1), QStringLiteral("reflectionShareFullText"));
         QVERIFY(firstBody && secondBody);
         QTRY_VERIFY(combined->height() > size.height());
+        auto *preview = findVisual(window->contentItem(), QStringLiteral("reflectionSharePreview"));
+        auto *save = findVisual(window->contentItem(), QStringLiteral("saveReflectionImageButton"));
+        auto *mode = findVisual(window->contentItem(), QStringLiteral("reflectionImageOutputMode"));
+        QVERIFY(preview && save && mode);
+        auto *flickable = qvariant_cast<QObject *>(preview->property("contentItem"));
+        QVERIFY(flickable);
+        QTRY_COMPARE(flickable->property("contentHeight").toReal(), combined->height());
+        QVERIFY(flickable->property("contentHeight").toReal() > preview->height());
+        const QPointF savePosition = save->mapToScene(QPointF());
+        const QPointF modePosition = mode->mapToScene(QPointF());
+        const QPointF wheelPosition = preview->mapToScene(QPointF(preview->width() / 2, preview->height() / 2));
+        QWheelEvent wheel(wheelPosition, window->mapToGlobal(wheelPosition.toPoint()), QPoint(), QPoint(0, -120),
+                          Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
+        QCoreApplication::sendEvent(window, &wheel);
+        QTRY_VERIFY(flickable->property("contentY").toReal() > 0);
+        // 到达末尾后仍能看到最后一张卡片，顶部输出方式和底部保存按钮保持固定。
+        flickable->setProperty("contentY", combined->height() - preview->height());
+        const QPointF lastBottom = cards.last()->mapToItem(preview, QPointF(0, cards.last()->height()));
+        QVERIFY(qAbs(lastBottom.y() - preview->height()) < 2);
+        QCOMPARE(save->mapToScene(QPointF()), savePosition);
+        QCOMPARE(mode->mapToScene(QPointF()), modePosition);
+        flickable->setProperty("contentY", 0);
         QCOMPARE(firstBody->property("text").toString(), firstText);
         QCOMPARE(secondBody->property("text").toString(), secondText);
         QVERIFY(cards.at(1)->y() >= cards.at(0)->height());
@@ -415,6 +440,24 @@ Window {
 
 int main(int argc, char **argv) {
     QGuiApplication app(argc, argv);
+#ifdef Q_OS_WIN
+    // offscreen 平台不枚举系统字体；测试截图显式注册中文字体，生产字体配置保持不变。
+    const QDir windowsDir(qEnvironmentVariable("WINDIR", QStringLiteral("C:/Windows")));
+    QStringList cjkFamilies;
+    for (const char *file : {"Fonts/msyh.ttc", "Fonts/simhei.ttf", "Fonts/simsun.ttc"}) {
+        const int id = QFontDatabase::addApplicationFont(windowsDir.filePath(QString::fromLatin1(file)));
+        if (id >= 0)
+            cjkFamilies.append(QFontDatabase::applicationFontFamilies(id));
+    }
+    if (cjkFamilies.isEmpty()) {
+        qCritical("Cannot load a system CJK font for UI screenshot verification.");
+        return 6;
+    }
+    QFont font = QGuiApplication::font();
+    font.setFamilies(cjkFamilies);
+    QGuiApplication::setFont(font);
+    QFont::insertSubstitutions(QStringLiteral("Noto Serif SC"), {QStringLiteral("SimSun")});
+#endif
     QQuickStyle::setStyle(QStringLiteral("Basic"));
     ReflectionShareTests tests;
     return QTest::qExec(&tests, argc, argv);

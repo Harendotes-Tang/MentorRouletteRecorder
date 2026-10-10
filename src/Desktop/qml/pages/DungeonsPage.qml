@@ -6,10 +6,11 @@ import MentorRecorder
 Item {
     id: page
 
-    property int topLimit: 10
+    property int topLimit: 0
     property var rowsCache: []
     property var categoriesCache: []
     property var specialDutiesCache: []
+    readonly property bool wideStatistics: contentColumn.width >= 1000
 
     function reloadRows() {
         rowsCache = App.dungeons.topRows(topLimit === 0 ? 0 : topLimit)
@@ -99,47 +100,56 @@ Item {
                 objectName: "dungeonCompositionGrid"
                 Layout.fillWidth: true
                 visible: App.dungeons.loadError.length === 0
-                columns: contentColumn.width >= 900 ? 2 : 1
+                columns: page.wideStatistics ? 2 : 1
                 columnSpacing: 12
                 rowSpacing: 12
 
+                ColumnLayout {
+                    objectName: "dungeonChartsColumn"
+                    Layout.fillWidth: true
+                    Layout.preferredWidth: page.wideStatistics ? 400 : contentColumn.width
+                    Layout.minimumWidth: page.wideStatistics ? 400 : 0
+                    Layout.maximumWidth: page.wideStatistics ? 400 : Number.POSITIVE_INFINITY
+                    Layout.alignment: Qt.AlignTop
+                    spacing: 12
                 CompletionPieChart {
+                    id: categoryPie
                     objectName: "dungeonCategoryPie"
                     Layout.fillWidth: true
-                    Layout.preferredWidth: 1
-                    Layout.alignment: Qt.AlignTop
                     title: qsTr("副本类型占比")
                     buckets: page.categoriesCache
                 }
 
                 CompletionPieChart {
+                    id: specialPie
                     objectName: "dungeonSpecialPie"
                     Layout.fillWidth: true
-                    Layout.preferredWidth: 1
-                    Layout.alignment: Qt.AlignTop
                     title: qsTr("主线副本与行会令占比")
                     detail: qsTr("主线副本包含南方堡、天幕魔导城和究极神兵破坏作战。")
                     buckets: page.specialDutiesCache
                 }
-            }
 
-            GridLayout {
-                Layout.fillWidth: true
-                Layout.alignment: Qt.AlignTop
-                columns: contentColumn.width >= 1000 ? 2 : 1
-                columnSpacing: 12
-                rowSpacing: 12
-
-                // ------------------------------------------------ 柱状图 --
                 Card {
+                    id: dungeonAttemptsCard
                     objectName: "dungeonAttemptsCard"
                     Layout.fillWidth: true
-                    Layout.preferredWidth: 380
                     Layout.alignment: Qt.AlignTop
-                    padding: 16
-                    spacing: 6
+                    padding: 0
+                    spacing: 0
 
-                    CardKicker { text: qsTr("出现次数 · 点击柱状图筛选历史") }
+                    CardKicker {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 40
+                        Layout.leftMargin: 16
+                        Layout.rightMargin: 16
+                        text: qsTr("出现次数 · 点击筛选历史")
+                    }
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 1
+                        color: Theme.eorzea ? Theme.gold3 : Theme.border
+                    }
 
                     Repeater {
                         model: page.rowsCache
@@ -148,11 +158,14 @@ Item {
                             required property var modelData
 
                             Layout.fillWidth: true
-                            Layout.preferredHeight: 22
+                            Layout.preferredHeight: 32
+                            Layout.leftMargin: 16
+                            Layout.rightMargin: 16
                             spacing: 10
 
                             Text {
-                                Layout.preferredWidth: 150
+                                Layout.preferredWidth: Math.max(110, Math.min(160, dungeonAttemptsCard.width * 0.38))
+                                Layout.minimumWidth: 0
                                 text: modelData.duty_name || qsTr("未知副本")
                                 textFormat: Text.PlainText
                                 color: Theme.textPrimary
@@ -169,7 +182,8 @@ Item {
                             }
 
                             Text {
-                                Layout.preferredWidth: 66
+                                Layout.preferredWidth: 72
+                                horizontalAlignment: Text.AlignRight
                                 text: qsTr("%1  %2%").arg(modelData.attempt_count || 0)
                                                       .arg(Math.round(1000 * Number(modelData.attempt_count || 0)
                                                                       / Math.max(1, App.dungeons.totalAttemptCount)) / 10)
@@ -187,12 +201,12 @@ Item {
                         }
                     }
                 }
+                }
 
-                // -------------------------------------------------- 表格 --
                 Card {
                     objectName: "dungeonTableCard"
                     Layout.fillWidth: true
-                    Layout.preferredWidth: 620
+                    Layout.preferredWidth: page.wideStatistics ? contentColumn.width - 412 : contentColumn.width
                     Layout.alignment: Qt.AlignTop
                     padding: 0
                     spacing: 0

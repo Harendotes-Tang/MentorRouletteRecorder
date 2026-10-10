@@ -16,7 +16,7 @@ Card {
             total += Number(bucket.completed_count || 0)
         return total
     }
-    readonly property bool stacked: width < 420
+    readonly property bool stacked: width < 400
 
     padding: 16
     spacing: 10
@@ -62,12 +62,12 @@ Card {
     GridLayout {
         Layout.fillWidth: true
         columns: root.stacked ? 1 : 2
-        columnSpacing: 16
+        columnSpacing: 12
         rowSpacing: 12
 
         Item {
-            Layout.preferredWidth: 148
-            Layout.preferredHeight: 148
+            Layout.preferredWidth: 128
+            Layout.preferredHeight: 128
             Layout.alignment: root.stacked ? Qt.AlignHCenter : Qt.AlignVCenter
 
             Canvas {
@@ -123,8 +123,10 @@ Card {
 
         ColumnLayout {
             objectName: "completionPieLegend"
-            Layout.fillWidth: true
-            spacing: 8
+            Layout.preferredWidth: 220
+            Layout.maximumWidth: 220
+            Layout.alignment: Qt.AlignLeft | Qt.AlignVCenter
+            spacing: 6
 
             Repeater {
                 model: root.buckets
@@ -145,7 +147,7 @@ Card {
 
                     Text {
                         objectName: "completionPieLabel" + index
-                        Layout.fillWidth: true
+                        Layout.preferredWidth: 88
                         Layout.minimumWidth: 0
                         text: modelData.label || qsTr("未识别")
                         textFormat: Text.PlainText
@@ -156,6 +158,7 @@ Card {
 
                     Text {
                         objectName: "completionPieCount" + index
+                        Layout.preferredWidth: 48
                         text: qsTr("%1 次").arg(modelData.completed_count || 0)
                         color: Theme.textPrimary
                         font.pixelSize: Theme.fs(12)
@@ -166,7 +169,7 @@ Card {
 
                     Text {
                         objectName: "completionPieShare" + index
-                        Layout.preferredWidth: 54
+                        Layout.preferredWidth: 48
                         text: root.shareText(modelData)
                         color: Theme.textSecondary
                         font.pixelSize: Theme.fs(12)

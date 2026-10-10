@@ -62,41 +62,42 @@ ColumnLayout {
     }
 
     Flow {
+        id: toolbar
+        objectName: "reflectionToolbar"
+        readonly property real fixedWidth: job.width + category.width + clearFilter.implicitWidth
+            + selectPage.implicitWidth + clearSelection.implicitWidth + shareSelected.implicitWidth + spacing * 7
+        readonly property real flexibleWidth: width - fixedWidth
         Layout.fillWidth: true
         spacing: 8
         StyledTextField {
             id: search
             objectName: "reflectionSearchField"
-            width: Math.max(150, Math.min(300, parent.width))
+            width: Math.min(toolbar.width, Math.max(150, Math.min(300, toolbar.flexibleWidth - Math.min(170, Math.max(96, toolbar.flexibleWidth * 0.35)))))
             placeholderText: qsTr("搜索副本 / 职业 / 记录备注")
             onTextEdited: debounce.restart()
             onAccepted: { debounce.stop(); page.applyFilter() }
         }
         StyledComboBox {
             id: job
-            width: 150
+            width: 120
             model: [{ job_id: null, job_name: qsTr("全部职业") }].concat(typeof App !== "undefined" ? App.battleJobOptions : [])
             textRole: "job_name"
             onActivated: page.applyFilter()
         }
         StyledComboBox {
             id: category
-            width: 130
+            width: 110
             model: [qsTr("全部类型")].concat(typeof App !== "undefined" ? App.categoryOptions : [])
             onActivated: page.applyFilter()
         }
         AppButton {
+            id: clearFilter
             text: qsTr("清除筛选")
             iconName: "filter-x"
             onClicked: { debounce.stop(); search.text = ""; job.currentIndex = 0; category.currentIndex = 0; page.applyFilter() }
         }
-    }
-    Timer { id: debounce; interval: 300; onTriggered: page.applyFilter() }
-
-    RowLayout {
-        Layout.fillWidth: true
-        spacing: 8
         SelectionCheckBox {
+            id: selectPage
             objectName: "selectCurrentReflectionPage"
             text: qsTr("全选当前页")
             checked: !!page.controller && page.controller.currentPageSelected
@@ -104,20 +105,29 @@ ColumnLayout {
             onToggled: page.controller.setPageSelected(checked)
         }
         Text {
-            Layout.fillWidth: true
+            id: selectionHint
+            objectName: "reflectionSelectionHint"
+            width: Math.min(toolbar.width, Math.max(96, Math.min(170, toolbar.flexibleWidth - search.width)))
+            height: search.height
             text: page.controller && page.controller.selectedCount > 0
                 ? qsTr("已选 %1 条（翻页保留）").arg(page.controller.selectedCount) : qsTr("勾选心得可批量生成图片")
             color: Theme.textSecondary
             font.pixelSize: Theme.fs(12)
-            wrapMode: Text.Wrap
+            verticalAlignment: Text.AlignVCenter
+            elide: Text.ElideRight
+            ToolTip.visible: hintHover.hovered && truncated
+            ToolTip.text: text
+            HoverHandler { id: hintHover }
         }
         AppButton {
+            id: clearSelection
             objectName: "clearReflectionSelection"
             text: qsTr("清空选择")
             enabled: !!page.controller && page.controller.selectedCount > 0
             onClicked: page.controller.clearSelection()
         }
         AppButton {
+            id: shareSelected
             objectName: "shareSelectedReflections"
             text: qsTr("生成选中图片")
             iconName: "file-down"
@@ -126,6 +136,7 @@ ColumnLayout {
             onClicked: page.shareBatchRequested(page.controller.selectedRuns)
         }
     }
+    Timer { id: debounce; interval: 300; onTriggered: page.applyFilter() }
 
     Dialog {
         id: filterConfirmation

@@ -441,10 +441,20 @@ ApplicationWindow {
             QCOMPARE(returned.toString(), QStringLiteral("原站\n2024-09-24"));
         }
         auto *more = findVisual(window->contentItem(), QStringLiteral("historyMoreFiltersButton"));
-        auto *pending = findVisual(window->contentItem(), QStringLiteral("pendingReviewChip"));
+        auto *pending = root->findChild<QQuickItem *>(QStringLiteral("pendingReviewChip"));
         QVERIFY(more && pending);
         QCOMPARE(more->isVisible(), narrow);
-        QVERIFY(pending->isVisible());
+        auto *mark = findVisual(window->contentItem(), QStringLiteral("historyMarkFilter"));
+        auto *selectAll = findVisual(window->contentItem(), QStringLiteral("selectCurrentHistoryPage"));
+        auto *count = findVisual(window->contentItem(), QStringLiteral("historyCheckedCount"));
+        auto *previous = findVisual(window->contentItem(), QStringLiteral("historyPreviousPage"));
+        QVERIFY(mark && selectAll && count && previous);
+        QTRY_VERIFY(mark->isVisible() && selectAll->isVisible());
+        QCOMPARE(selectAll->parentItem(), mark->parentItem());
+        QTRY_COMPARE(selectAll->y(), 0.0);
+        QCOMPARE(count->parentItem(), previous->parentItem());
+        QVERIFY(count->x() < previous->x());
+        QVERIFY(!pending->isVisible());
         const QVariantMap run = app.runs()->runAt(0);
         auto *checkbox = findVisual(window->contentItem(), QStringLiteral("historyRunCheck_") + run.value(QStringLiteral("run_id")).toString());
         QVERIFY(checkbox);
@@ -455,6 +465,8 @@ ApplicationWindow {
         QVERIFY(QDir().mkpath(directory));
         QTest::qWait(50);
         QVERIFY(window->grabWindow().save(directory + QStringLiteral("/history-") + QString::fromLatin1(QTest::currentDataTag()) + QStringLiteral(".png")));
+        clickItem(window, mark);
+        QTRY_VERIFY(pending->isVisible());
         clickItem(window, pending);
         QTRY_VERIFY(app.historyFilterConfirmationPending());
         auto *keep = findVisual(window->contentItem(), QStringLiteral("historyKeepSelection"));
@@ -464,6 +476,8 @@ ApplicationWindow {
         QTRY_VERIFY(!app.historyFilterConfirmationPending());
         QCOMPARE(app.checkedHistoryRunCount(), 1);
         QVERIFY(!app.historyFilter().value(QStringLiteral("pending_review")).toBool());
+        clickItem(window, mark);
+        QTRY_VERIFY(pending->isVisible());
         clickItem(window, pending);
         QTRY_VERIFY(app.historyFilterConfirmationPending());
         auto *accept = findVisual(window->contentItem(), QStringLiteral("historyConfirmFilter"));

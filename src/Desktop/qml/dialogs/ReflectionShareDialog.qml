@@ -55,6 +55,7 @@ Dialog {
             controller.savePicked(batch ? combined : cards.itemAt(0))
     }
     onOpened: {
+        preview.contentItem.contentY = 0
         if (batch) outputMode.forceActiveFocus()
         else saveButton.forceActiveFocus()
     }
@@ -88,9 +89,15 @@ Dialog {
             objectName: "reflectionSharePreview"
             Layout.fillWidth: true
             Layout.fillHeight: true
+            Layout.minimumHeight: 80
+            // Rectangle 的显式 height 不会成为 ScrollView 的隐式内容高度。
+            // 显式绑定完整卡片高度，让滚轮和滚动条都能抵达最后一条心得。
+            Layout.preferredHeight: 320
             clip: true
             contentWidth: availableWidth
+            contentHeight: combined.height
             ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+            ScrollBar.vertical.policy: ScrollBar.AsNeeded
             // Repeater 实例化每一条完整卡片；抓图对象为卡片/组合自身，绝不捕获可见视口。
             Rectangle {
                 id: combined
