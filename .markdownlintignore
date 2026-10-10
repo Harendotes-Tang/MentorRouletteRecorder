@@ -9,3 +9,6 @@ openspec/
 # still has it must lint the same files CI does.
 docs/reviews/
 docs/plans/
+
+# Verbatim upstream OCR license/notice texts retain their original formatting and pinned hashes.
+docs/licenses/ocr/
