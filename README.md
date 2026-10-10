@@ -93,6 +93,7 @@
 <details>
 <summary>更多截图</summary>
 <p align="center"><img src="docs/screenshots/history-light.png" width="800" alt="历史记录页（演示数据）"></p>
+<p align="center"><img src="docs/screenshots/import-light.png" width="800" alt="导入本人记录：添加截图或表格前（演示数据）"></p>
 </details>
 
 **已知限制：** 副本内收到通关结算时，软件自动记为通关并计入进度。该结算目前只在一种副本的一局通关中实测过，
