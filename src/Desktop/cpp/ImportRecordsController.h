@@ -46,6 +46,16 @@ class ImportRecordsController final : public QObject
     Q_PROPERTY(QVariantMap columnMapping READ columnMapping WRITE setColumnMapping NOTIFY changed)
     Q_PROPERTY(QVariantMap commitResult READ commitResult NOTIFY changed)
     Q_PROPERTY(QVariantList jobChoices READ jobChoices CONSTANT)
+    /// The stored achievement baseline (安装前已完成次数), fed by the owner from the dashboard.
+    Q_PROPERTY(int baselineCount READ baselineCount WRITE setBaselineCount NOTIFY changed)
+    /// Selected rows the Collector will add to the progress: confirmed, complete, COMPLETED, contributing.
+    Q_PROPERTY(int contributingSelectedCount READ contributingSelectedCount NOTIFY changed)
+    /// True when the batch could count twice: a baseline is stored and selected rows add to the progress.
+    Q_PROPERTY(bool baselineChoiceOffered READ baselineChoiceOffered NOTIFY changed)
+    /// The user's answer to "already counted in the baseline?"; defaults by source kind until chosen.
+    Q_PROPERTY(bool deductFromBaseline READ deductFromBaseline WRITE setDeductFromBaseline NOTIFY changed)
+    /// How many the Collector would deduct: the contributing rows, capped by the stored baseline.
+    Q_PROPERTY(int baselineDeductionPreview READ baselineDeductionPreview NOTIFY changed)
 
 public:
     explicit ImportRecordsController(QObject *parent = nullptr);
@@ -79,6 +89,13 @@ public:
     void setColumnMapping(const QVariantMap &mapping);
     QVariantMap commitResult() const { return m_commitResult; }
     QVariantList jobChoices() const;
+    int baselineCount() const { return m_baselineCount; }
+    void setBaselineCount(int count);
+    int contributingSelectedCount() const;
+    bool baselineChoiceOffered() const { return previewValid() && m_baselineCount > 0 && contributingSelectedCount() > 0; }
+    bool deductFromBaseline() const;
+    void setDeductFromBaseline(bool deduct);
+    int baselineDeductionPreview() const { return qMin(contributingSelectedCount(), m_baselineCount); }
 
     Q_INVOKABLE void reset();
     Q_INVOKABLE void chooseFiles();
@@ -147,6 +164,10 @@ private:
     bool m_ownConfirmed = false;
     bool m_hasAcceptedPreview = false;
     bool m_batchCommitted = false;
+    int m_baselineCount = 0;
+    // 「这些记录是否已包含在基数中」: the default follows the source kind until the user answers.
+    bool m_deductChosen = false;
+    bool m_deduct = false;
 };
 
 } // namespace mr

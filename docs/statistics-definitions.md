@@ -93,6 +93,14 @@ achievement_progress =
   目标与基数都与已保存的相同时不算修改：不写入设置与审计，也不发布 `stats_invalidated`，应答给出已保存的值。
 - 满足上述条件的已记录完成**全部**叠加在基数之上，不论何时结束（缺少结束时间的记录同样计入），
   也不论基数何时填写、修改过几次。
+- **导入历史记录时可以从基数中扣除。**基数是安装前游戏成就面板显示的完成数，用表格或截图导入的那段历史
+  通常已经在其中；若再按本节口径叠加，就会被计两次。`CommitRunImport` 带 `deduct_from_baseline = true` 时，
+  采集服务在同一事务内统计本次**新写入**的记录中满足本节条件（确认为导随、`result = COMPLETED`、
+  `contributes_to_goal = 1`、非待补充）的条数，从 `baseline_completed_count` 中扣除同样多的次数，
+  最低扣到 0，并以提交的 `request_id` 写入一条基数修改记录（原因写明导入条数）。重复与冲突的行没有写入，
+  不参与扣除；之后这些记录照常按本节叠加，因此进度不变、`completed_count` 增加。不带该字段时基数不动。
+  桌面端只在已保存的基数大于 0 且勾选的记录会计入进度时询问「是否已包含在基数中」，备份与原生 JSON 默认「未包含」，
+  表格、粘贴与截图默认「已包含」；扣除多少以采集服务的统计为准，不以桌面端的预估为准。
 - `baseline_effective_at` 只记录基数最近一次改变的时间，不参与任何统计。基数改变时，它取 `UpdateAchievementBaseline`
   请求中的值；桌面端每次保存成就设置（首次引导、设置页「成就」）都以保存时刻提交。基数与已保存的相同时
   （只修改目标值，或重新填入同一个数），保留原有的时间，请求中的值不被采用。
@@ -315,6 +323,9 @@ avg_duration_ms = AVG(duration_ms) WHERE
 | 一条 `COMPLETED` 但 `contributes_to_goal = 0` | `completed_count = 1`，`achievement_progress` 不增加 |
 | 一条 `COMPLETED` 被软删除 | 完全不出现在任何统计中 |
 | `baseline = 1500`，3 条 `COMPLETED` | `achievement_progress = 1503`，`remaining = 497` |
+| `baseline = 1500`，导入 2 条计入进度的 `COMPLETED`、1 条 `contributes_to_goal = 0` 的 `COMPLETED` 与 1 条结果未知的记录，`deduct_from_baseline = true` | `baseline = 1498`，`completed_count = 3`，`achievement_progress = 1500`，基数修改记录一条 |
+| `baseline = 1`，导入 2 条计入进度的 `COMPLETED`，`deduct_from_baseline = true` | `baseline = 0`，`achievement_progress = 2` |
+| `baseline = 10`，再次导入同一批（全部重复），`deduct_from_baseline = true` | 没有写入，`baseline = 10` 不变，不写修改记录 |
 | `baseline = 1500`，3 条 `COMPLETED` 均在保存基数的时间之前结束 | `achievement_progress = 1503`，`remaining = 497`，`completed_count = 3` |
 | `baseline = 1500`，两条 `COMPLETED` 缺结束时间，进本时间分别在保存基数的时间前后 | 都计入，`achievement_progress = 1502` |
 | `baseline = 0`，2 条 `COMPLETED`（不论何时结束） | 全部计入，`achievement_progress = 2` |

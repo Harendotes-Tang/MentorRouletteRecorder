@@ -670,6 +670,47 @@ Dialog {
                 }
             }
         }
+        // 这些记录是否已包含在基数中: the baseline is the count the game showed before this
+        // software was installed, so imported history of that time is already inside it. The
+        // Collector deducts the contributing completions in the same commit when told so.
+        Rectangle {
+            objectName: "importBaselineChoice"
+            visible: dialog.hasRows && dialog.controller && dialog.controller.baselineChoiceOffered
+            Layout.fillWidth: true; Layout.preferredHeight: baselineChoice.implicitHeight + 18
+            color: Theme.insetBackground; radius: Theme.radiusS
+            ColumnLayout {
+                id: baselineChoice
+                anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top; anchors.margins: 9; spacing: 6
+                Text {
+                    textFormat: Text.PlainText; Layout.fillWidth: true; wrapMode: Text.WordWrap
+                    text: qsTr("勾选的记录中有 %1 条计入进度的通关。它们是否已经包含在成就基数 %2 中？").arg(dialog.controller ? dialog.controller.contributingSelectedCount : 0).arg(dialog.controller ? dialog.controller.baselineCount : 0)
+                    color: Theme.textPrimary; font.pixelSize: Theme.fs(12)
+                }
+                Flow {
+                    Layout.fillWidth: true; spacing: 8
+                    PickChip {
+                        objectName: "importBaselineDeduct"
+                        checked: dialog.controller ? dialog.controller.deductFromBaseline : false
+                        enabled: !dialog.inputLocked
+                        text: qsTr("已包含：保存时从基数中扣除 %1 次，基数改为 %2").arg(dialog.controller ? dialog.controller.baselineDeductionPreview : 0).arg(dialog.controller ? dialog.controller.baselineCount - dialog.controller.baselineDeductionPreview : 0)
+                        onPicked: if (dialog.controller) dialog.controller.deductFromBaseline = true
+                    }
+                    PickChip {
+                        objectName: "importBaselineKeep"
+                        checked: dialog.controller ? !dialog.controller.deductFromBaseline : false
+                        enabled: !dialog.inputLocked
+                        text: qsTr("未包含：照常加在基数之上")
+                        onPicked: if (dialog.controller) dialog.controller.deductFromBaseline = false
+                    }
+                }
+                Text {
+                    textFormat: Text.PlainText; Layout.fillWidth: true; wrapMode: Text.WordWrap
+                    visible: dialog.controller && dialog.controller.deductFromBaseline && dialog.controller.contributingSelectedCount > dialog.controller.baselineCount
+                    text: qsTr("基数只有 %1，只能扣到 0；其余 %2 次照常加在基数之上。").arg(dialog.controller ? dialog.controller.baselineCount : 0).arg(dialog.controller ? dialog.controller.contributingSelectedCount - dialog.controller.baselineCount : 0)
+                    color: Theme.textSecondary; font.pixelSize: Theme.fs(11)
+                }
+            }
+        }
         Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.border }
         RowLayout {
             Layout.fillWidth: true; spacing: 10

@@ -76,10 +76,16 @@ QString ImportRecordsController::statusText() const
         return tr("正在解析和核对重复记录，尚未写入历史。");
     if (m_phase == QLatin1String("commit"))
         return tr("正在保存选中的本人记录，请等待保存结果。");
-    if (m_phase == QLatin1String("complete"))
-        return tr("已导入 %1 条；重复 %2 条；冲突 %3 条保留本地。").arg(m_commitResult.value(QStringLiteral("imported_count")).toInt())
+    if (m_phase == QLatin1String("complete")) {
+        const QString summary = tr("已导入 %1 条；重复 %2 条；冲突 %3 条保留本地。").arg(m_commitResult.value(QStringLiteral("imported_count")).toInt())
             .arg(m_commitResult.value(QStringLiteral("duplicate_count")).toInt())
             .arg(m_commitResult.value(QStringLiteral("conflict_count")).toInt());
+        const int deducted = m_commitResult.value(QStringLiteral("baseline_deducted_count")).toInt();
+        if (deducted <= 0)
+            return summary;
+        const int baseline = m_commitResult.value(QStringLiteral("baseline_completed_count")).toInt();
+        return summary + tr("成就基数已从 %1 改为 %2（扣除 %3 次已导入的通关），进度不变。").arg(baseline + deducted).arg(baseline).arg(deducted);
+    }
     if (pendingCommitConfirmation())
         return tr("上次保存结果尚未确认。请重试确认同一批次；输入和选择暂时锁定，避免重复保存。");
     if (!m_rows.isEmpty() && !previewValid())
@@ -147,6 +153,8 @@ void ImportRecordsController::beginInput(const QString &kind, const QString &nam
     m_error.clear();
     m_current = -1;
     m_ownConfirmed = false;
+    m_deductChosen = false;
+    m_deduct = false;
     m_phase = QStringLiteral("editing");
     invalidatePreview(false);
 }
@@ -712,9 +720,13 @@ void ImportRecordsController::commit()
     std::sort(sorted.begin(), sorted.end());
     for (int number : sorted)
         numbers.append(number);
-    const QJsonObject request = pendingCommitConfirmation() ? m_pendingCommitPayload
+    QJsonObject request = pendingCommitConfirmation() ? m_pendingCommitPayload
         : QJsonObject{{QStringLiteral("preview_id"), m_previewId}, {QStringLiteral("row_numbers"), numbers},
                       {QStringLiteral("confirm_own_records"), true}};
+    // Only an answered question travels: an older Collector rejects fields it does not know,
+    // and with no baseline or no contributing row there is nothing to deduct.
+    if (!pendingCommitConfirmation() && baselineChoiceOffered() && deductFromBaseline())
+        request.insert(QStringLiteral("deduct_from_baseline"), true);
     const quint64 generation = m_generation;
     m_phase = QStringLiteral("commit");
     m_error.clear();
@@ -772,6 +784,60 @@ void ImportRecordsController::setOwnRecordsConfirmed(bool confirmed)
     if (committing() || pendingCommitConfirmation() || m_ownConfirmed == confirmed)
         return;
     m_ownConfirmed = confirmed;
+    Q_EMIT changed();
+}
+
+void ImportRecordsController::setBaselineCount(int count)
+{
+    count = qMax(0, count);
+    if (m_baselineCount == count)
+        return;
+    m_baselineCount = count;
+    Q_EMIT changed();
+}
+
+int ImportRecordsController::contributingSelectedCount() const
+{
+    // Mirrors docs/statistics-definitions.md §4 on the preview the Collector rendered: the
+    // Collector decides at commit; this count only sizes the question and the preview.
+    int count = 0;
+    for (const QVariant &value : m_rows) {
+        const QVariantMap row = value.toMap();
+        if (!row.value(QStringLiteral("selected")).toBool() || row.value(QStringLiteral("incomplete")).toBool())
+            continue;
+        const QVariantMap run = row.value(QStringLiteral("run")).toMap();
+        if (run.isEmpty() || run.value(QStringLiteral("result")).toString() != QLatin1String("COMPLETED"))
+            continue;
+        if (run.contains(QStringLiteral("contributes_to_goal")) && !run.value(QStringLiteral("contributes_to_goal")).toBool())
+            continue;
+        if (run.value(QStringLiteral("soft_deleted")).toBool())
+            continue;
+        const QVariantMap metadata = run.value(QStringLiteral("import_metadata")).toMap();
+        const bool confirmed = !metadata.contains(QStringLiteral("mentor_confirmed"))
+            || metadata.value(QStringLiteral("mentor_confirmed")).toBool()
+            || !run.value(QStringLiteral("mentor_roulette_id")).isNull();
+        if (confirmed)
+            ++count;
+    }
+    return count;
+}
+
+bool ImportRecordsController::deductFromBaseline() const
+{
+    if (m_deductChosen)
+        return m_deduct;
+    // A backup or this software's own JSON export holds runs recorded after installation, which
+    // the baseline never included. Spreadsheets, pasted tables and screenshots usually carry the
+    // history the game's achievement panel - and so the baseline - already counted.
+    return m_sourceKind != QLatin1String("BACKUP") && m_sourceKind != QLatin1String("JSON");
+}
+
+void ImportRecordsController::setDeductFromBaseline(bool deduct)
+{
+    if (committing() || pendingCommitConfirmation() || (m_deductChosen && m_deduct == deduct))
+        return;
+    m_deductChosen = true;
+    m_deduct = deduct;
     Q_EMIT changed();
 }
 

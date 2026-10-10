@@ -877,12 +877,22 @@ MockBackend 在模拟状态切换以及开始或停止捕获时发出这些事�
 保存成功后桌面端重新读取一次总览，toast 取重新读取得到的进度，写作「基数已设为 N · 目标 M · 进度 P · 已重算」；
 重新读取失败时只写「基数已设为 N · 目标 M · 已保存」，不给进度数字（`UpdateAchievementBaseline` 的应答不含进度）。
 内嵌框「进度 = 基数 + 软件记录」之后是数字字体的大号算式 `基数 + 记录 = 进度`（`progressFormula`），
-右侧小字为「修改后立即重算 · 导入时按记录编号去重」。算式预览按当前填写保存之后的进度：
+右侧小字为「修改后立即重算 · 导入已包含在基数中的历史记录时可从基数扣除」。算式预览按当前填写保存之后的进度：
 「基数」取基数栏中正在填写的数（栏内为空或不是大于等于 0 的整数时取已保存的基数），
 「记录」为采集服务给出的 `achievement_progress` 减去已保存的基数，即软件记录的、计入进度的通关，
 不论何时结束都在其中，不计入进度的通关则不在其中；「进度」为两者之和
 （[statistics-definitions.md](statistics-definitions.md) §4）。
 总览的进度环、「还差 N 次」与语音播报中的进度数字取自 `achievement_progress`。
+
+导入记录对话框（`importRecordsDialog`）在底部按钮行之上有一块内嵌框（`importBaselineChoice`），只在已保存的基数大于 0
+且勾选的记录中有会计入进度的通关（`ImportRecords.contributingSelectedCount`）时出现：「勾选的记录中有 N 条计入进度的通关。
+它们是否已经包含在成就基数 B 中？」，下方两枚单选 `PickChip`：「已包含：保存时从基数中扣除 D 次，基数改为 B − D」
+（`importBaselineDeduct`）与「未包含：照常加在基数之上」（`importBaselineKeep`），D 为 N 与 B 中较小者；N 大于 B 时另加一行灰字
+「基数只有 B，只能扣到 0；其余 N − B 次照常加在基数之上。」。默认值按来源：备份与原生 JSON 为「未包含」，表格、粘贴与截图为「已包含」；
+用户的选择在同一批次的重新校验后保留，换来源后重置。选「已包含」时 `CommitRunImport` 带 `deduct_from_baseline = true`，
+保存后的状态行在导入计数之后写「成就基数已从 B 改为 B′（扣除 D 次已导入的通关），进度不变。」，数字取应答中的
+`baseline_deducted_count` 与 `baseline_completed_count`。基数由 `App.baselineCount` 经 `main.cpp` 喂给 `ImportRecords.baselineCount`，
+对话框不直接读 `App`。
 左下为「重新打开首次引导」，右下为主按钮「保存」。
 
 **数据**（`dataSettingsCard`，kicker 为「数据库」）包含以下内容：

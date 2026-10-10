@@ -370,6 +370,9 @@ schema v9 通过 `migrations/0009_personal_record_import.sql` 增加 `run_import
 原站只有日期时保留原文，UTC 未知；原站时间不填入实际匹配、进本或结束时间。
 来源缺少结果时，导入预览按用户选择默认通关并允许修改；缺实际游戏事实的记录仍待补充且不计统计。
 备份导入只合并记录和心得，不复制外库采集外键、设置或备注附件。
+提交带 `deduct_from_baseline = true` 时，同一事务内还会把本次新写入且计入进度的通关数从 `achievement_settings.baseline_completed_count`
+中扣除（最低到 0），并以该提交的请求编号追加一条 `achievement.baseline_history` 记录；回执中带 `baseline_deducted_count` 与扣除后的基数
+（[statistics-definitions.md](statistics-definitions.md) §4）。
 
 `contracts/ipc-v1.schema.json` 中的 `$defs/Run` 与本表一一对应，
 差别仅在于：布尔以 JSON `true/false` 表示；`NULL` 以 JSON `null` 表示；

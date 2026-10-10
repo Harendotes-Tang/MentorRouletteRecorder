@@ -964,6 +964,10 @@ int main(int argc, char *argv[])
     importRecords->setBackend(backend);
     QObject::connect(importRecords, &mr::ImportRecordsController::imported, &controller,
                      [&controller] { controller.refreshAll(); });
+    // The import dialog asks whether a batch is already inside the baseline; it needs the stored one.
+    importRecords->setBaselineCount(controller.baselineCount());
+    QObject::connect(&controller, &mr::AppController::dashboardChanged, importRecords,
+                     [&controller, importRecords] { importRecords->setBaselineCount(controller.baselineCount()); });
     QObject::connect(&controller, &mr::AppController::currentPageChanged,
                      &reflections, [&controller, &reflections] {
         reflections.setActive(controller.currentPage() == 7);

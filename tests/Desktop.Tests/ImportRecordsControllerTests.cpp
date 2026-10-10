@@ -1037,6 +1037,116 @@ private Q_SLOTS:
         QVERIFY(!sync.busy());
     }
 
+    // The baseline question: offered only when a baseline is stored and selected rows would add
+    // to the progress; defaults by source kind; travels with the commit only when answered yes.
+    void baselineDeductionFollowsSourceKindSelectionAndAnswer()
+    {
+        ImportBackend backend;
+        mr::ImportRecordsController controller;
+        controller.setBackend(&backend);
+        controller.setBaselineCount(1500);
+        controller.importText(QStringLiteral("副本\n合成副本"));
+        QJsonObject response = preview();
+        QJsonArray rows = response.value("rows").toArray();
+        QJsonObject first = rows[0].toObject();
+        first.insert("incomplete", false);
+        first.insert("run", QJsonObject{{"result", "COMPLETED"}, {"contributes_to_goal", true}, {"soft_deleted", false},
+                                        {"import_metadata", QJsonObject{{"mentor_confirmed", true}}}});
+        rows[0] = first;
+        response.insert("rows", rows);
+        backend.calls.last().reply->succeed(response);
+        QCOMPARE(controller.contributingSelectedCount(), 1);
+        QVERIFY(controller.baselineChoiceOffered());
+        QVERIFY(controller.deductFromBaseline());
+        QCOMPARE(controller.baselineDeductionPreview(), 1);
+        controller.setRowSelected(0, false);
+        QCOMPARE(controller.contributingSelectedCount(), 0);
+        QVERIFY(!controller.baselineChoiceOffered());
+        controller.setRowSelected(0, true);
+        controller.setOwnRecordsConfirmed(true);
+        controller.commit();
+        QCOMPARE(backend.calls.last().type, QStringLiteral("CommitRunImport"));
+        QVERIFY(backend.calls.last().payload.value("deduct_from_baseline").toBool());
+        controller.setDeductFromBaseline(false); // locked while the commit is unanswered
+        QVERIFY(controller.deductFromBaseline());
+        backend.calls.last().reply->succeed({{"imported_count", 1}, {"duplicate_count", 0}, {"conflict_count", 0},
+                                            {"baseline_deducted_count", 1}, {"baseline_completed_count", 1499}});
+        QCOMPARE(controller.phase(), QStringLiteral("complete"));
+        QVERIFY2(controller.statusText().contains(QStringLiteral("1500 改为 1499")), qPrintable(controller.statusText()));
+
+        // Answered no: nothing travels, and the answer survives a revalidation of the same batch.
+        controller.importText(QStringLiteral("副本\n合成副本"));
+        backend.calls.last().reply->succeed(response);
+        QVERIFY(controller.deductFromBaseline());
+        controller.setDeductFromBaseline(false);
+        controller.updateCandidate(0, {{"duty_name", QStringLiteral("改名副本")}});
+        controller.revalidate();
+        backend.calls.last().reply->succeed(response);
+        QVERIFY(!controller.deductFromBaseline());
+        controller.setOwnRecordsConfirmed(true);
+        controller.commit();
+        QVERIFY(!backend.calls.last().payload.contains("deduct_from_baseline"));
+        backend.calls.last().reply->succeed({{"imported_count", 1}, {"duplicate_count", 0}, {"conflict_count", 0},
+                                            {"baseline_deducted_count", 0}, {"baseline_completed_count", 1500}});
+        QVERIFY(!controller.statusText().contains(QStringLiteral("基数")));
+
+        // No stored baseline: the question is not asked and the default answer does not travel.
+        controller.setBaselineCount(0);
+        controller.importText(QStringLiteral("副本\n合成副本"));
+        backend.calls.last().reply->succeed(response);
+        QVERIFY(!controller.baselineChoiceOffered());
+        controller.setOwnRecordsConfirmed(true);
+        controller.commit();
+        QVERIFY(!backend.calls.last().payload.contains("deduct_from_baseline"));
+        backend.calls.last().reply->succeed({{"imported_count", 1}, {"duplicate_count", 0}, {"conflict_count", 0}});
+
+        // Incomplete, excluded or unconfirmed rows never count towards the question.
+        controller.setBaselineCount(10);
+        controller.importText(QStringLiteral("副本\n合成副本"));
+        QJsonObject excluded = response;
+        QJsonArray excludedRows = excluded.value("rows").toArray();
+        QJsonObject row = excludedRows[0].toObject();
+        QJsonObject run = row.value("run").toObject();
+        run.insert("contributes_to_goal", false);
+        row.insert("run", run);
+        excludedRows[0] = row;
+        excluded.insert("rows", excludedRows);
+        backend.calls.last().reply->succeed(excluded);
+        QCOMPARE(controller.contributingSelectedCount(), 0);
+        QVERIFY(!controller.baselineChoiceOffered());
+    }
+
+    void backupAndNativeJsonDefaultToKeepingTheBaseline()
+    {
+        for (const QString &kind : {QStringLiteral("BACKUP"), QStringLiteral("JSON"), QStringLiteral("XLSX")}) {
+            ImportBackend backend;
+            mr::ImportRecordsController controller;
+            controller.setBackend(&backend);
+            controller.setBaselineCount(1500);
+            QTemporaryDir dir;
+            const QString extension = kind == QLatin1String("BACKUP") ? QStringLiteral("db")
+                : kind == QLatin1String("JSON") ? QStringLiteral("json") : QStringLiteral("xlsx");
+            const QString path = dir.filePath(QStringLiteral("history.") + extension);
+            QFile file(path);
+            QVERIFY(file.open(QIODevice::WriteOnly));
+            file.write("x");
+            file.close();
+            controller.importFiles({path});
+            QCOMPARE(backend.calls.last().type, QStringLiteral("PreviewRunImport"));
+            QCOMPARE(backend.calls.last().payload.value("source_kind").toString(), kind);
+            QJsonObject response = preview();
+            QJsonArray rows = response.value("rows").toArray();
+            QJsonObject first = rows[0].toObject();
+            first.insert("incomplete", false);
+            first.insert("run", QJsonObject{{"result", "COMPLETED"}, {"contributes_to_goal", true}});
+            rows[0] = first;
+            response.insert("rows", rows);
+            backend.calls.last().reply->succeed(response);
+            QVERIFY2(controller.baselineChoiceOffered(), qPrintable(kind));
+            QCOMPARE(controller.deductFromBaseline(), kind == QLatin1String("XLSX"));
+        }
+    }
+
     void localPathAndFormatBoundary()
     {
         QCOMPARE(mr::ImportRecordsController::sourceKindForPath("C:/records.XLSX"), QStringLiteral("XLSX"));

@@ -237,7 +237,7 @@ ColumnLayout {
                 }
                 Text {
                     Layout.fillWidth: true
-                    text: qsTr("修改后立即重算 · 导入时按记录编号去重")
+                    text: qsTr("修改后立即重算 · 导入已包含在基数中的历史记录时可从基数扣除")
                     color: Theme.textSecondary
                     opacity: Theme.dimOpacity(0.5)
                     font.pixelSize: Theme.fs(12)

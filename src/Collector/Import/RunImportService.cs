@@ -23,6 +23,7 @@ public sealed class RunImportService
     private readonly RunReflectionRepository _reflections;
     private readonly RunRevisionRepository _revisions;
     private readonly IdempotencyRepository _idempotency;
+    private readonly SettingsRepository _settings;
     private readonly Dictionary<string, Preview> _previews = new(StringComparer.Ordinal);
     private readonly object _gate = new();
     public const int MaxRows = 5000;
@@ -38,6 +39,7 @@ public sealed class RunImportService
         _reflections = new RunReflectionRepository(database);
         _revisions = new RunRevisionRepository(database);
         _idempotency = new IdempotencyRepository(database, clock);
+        _settings = new SettingsRepository(database, clock);
     }
 
     /// <summary>No run, reflection, audit or receipt is written while constructing this preview.</summary>
@@ -94,8 +96,14 @@ public sealed class RunImportService
     }
 
     /// <summary>Rechecks all selected identities under the write transaction; conflicts never overwrite local data.</summary>
+    /// <param name="deductFromBaseline">
+    /// The user said these records are already counted in the achievement baseline (the completions
+    /// the game showed before this software was installed). The imported completions that contribute
+    /// to the progress are then deducted from <c>baseline_completed_count</c> in the same transaction,
+    /// so the progress does not count them twice (docs/statistics-definitions.md section 4).
+    /// </param>
     public JsonObject Commit(string previewId, IReadOnlyList<int> rowNumbers, bool confirmOwnRecords, string requestId,
-        CancellationToken cancellationToken = default)
+        bool deductFromBaseline = false, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (!confirmOwnRecords) throw CollectorException.BadRequest("请确认本批记录属于本人。", "confirm_own_records");
@@ -104,7 +112,9 @@ public sealed class RunImportService
         if (rowNumbers.Count == 0 || rowNumbers.Count > MaxRows || rowNumbers.Distinct().Count() != rowNumbers.Count)
             throw CollectorException.BadRequest("请选择不重复的可导入行。", "row_numbers");
         var selected = rowNumbers.OrderBy(number => number).ToArray();
-        var selectionFingerprint = RunImportCandidateNormalizer.Hash(previewId + ":" + string.Join(',', selected));
+        // The baseline choice is part of the selection: a retry that changes it is a different commit.
+        var selectionFingerprint = RunImportCandidateNormalizer.Hash(previewId + ":" + string.Join(',', selected)
+            + (deductFromBaseline ? ":deduct_from_baseline" : ""));
         Preview? preview;
         lock (_gate) _previews.TryGetValue(previewId, out preview);
         return _database.RunInTransaction(transaction =>
@@ -159,18 +169,68 @@ public sealed class RunImportService
                 }
                 outcomes.Add(new JsonObject { ["row_number"] = candidate.RowNumber, ["status"] = status, ["run_id"] = matching });
             }
+            var (deducted, baseline) = DeductFromBaseline(deductFromBaseline ? accepted : Array.Empty<string>(), requestId, transaction);
             var response = new JsonObject
             {
                 ["preview_id"] = previewId, ["imported_count"] = accepted.Count,
                 ["duplicate_count"] = duplicateCount, ["conflict_count"] = conflictCount,
                 ["skipped_count"] = 0, ["replayed"] = false,
                 ["run_ids"] = Wire.Strings(accepted), ["rows"] = outcomes,
+                ["baseline_deducted_count"] = deducted, ["baseline_completed_count"] = baseline,
             };
             StoreReceipt(previewId, requestId, selectionFingerprint, response, transaction);
             _idempotency.Store(requestId, "CommitRunImport",
                 new JsonObject { ["fingerprint"] = selectionFingerprint, ["response"] = response.DeepClone() }.ToJsonString(Wire.JsonOptions), transaction);
             return response;
         }, cancellationToken);
+    }
+
+    /// <summary>
+    /// Deducts the newly imported completions that count towards the progress from the stored
+    /// baseline, never below zero, and records the change in the baseline history under the
+    /// commit's request id. Only the rows this commit inserted are counted: duplicates were
+    /// already in the library, and the eligibility test is the statistics query itself.
+    /// </summary>
+    /// <returns>How many completions were deducted, and the baseline as stored afterwards.</returns>
+    private (int Deducted, int Baseline) DeductFromBaseline(IReadOnlyList<string> importedRunIds, string requestId, SqliteTransaction transaction)
+    {
+        var stored = _settings.GetAchievementSettings(transaction);
+        if (importedRunIds.Count == 0 || stored.BaselineCompletedCount == 0) return (0, stored.BaselineCompletedCount);
+        var contributing = CountContributingCompleted(importedRunIds, transaction);
+        var deducted = (int)Math.Min(contributing, stored.BaselineCompletedCount);
+        if (deducted == 0) return (0, stored.BaselineCompletedCount);
+        var now = UtcTimestamp.Truncate(_clock.UtcNow);
+        var settings = stored with
+        {
+            BaselineCompletedCount = stored.BaselineCompletedCount - deducted,
+            BaselineEffectiveAt = now,
+            UpdatedAtUtc = now,
+        };
+        _settings.UpdateAchievementSettings(settings, transaction);
+        var reason = deducted == contributing
+            ? string.Format(CultureInfo.InvariantCulture, "导入 {0} 条已包含在基数中的历史通关，自基数中扣除", contributing)
+            : string.Format(CultureInfo.InvariantCulture, "导入 {0} 条已包含在基数中的历史通关，基数只有 {1}，扣到 0", contributing, stored.BaselineCompletedCount);
+        _settings.AppendBaselineAudit(Guid.NewGuid().ToString("D"), settings, reason, requestId, transaction);
+        return (deducted, settings.BaselineCompletedCount);
+    }
+
+    /// <summary>Counts, among the given runs, those the dashboard adds to the progress: the statistics filter plus COMPLETED and contributing.</summary>
+    private long CountContributingCompleted(IReadOnlyList<string> runIds, SqliteTransaction transaction)
+    {
+        var total = 0L;
+        foreach (var chunk in runIds.Chunk(500))
+        {
+            var filter = RunFilterSql.Build(null, forStatistics: true);
+            var names = chunk.Select((_, index) => "$imported" + index.ToString(CultureInfo.InvariantCulture)).ToArray();
+            using var command = _database.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = $"SELECT COUNT(*) FROM mentor_runs WHERE {filter.Where} AND result = 'COMPLETED' AND contributes_to_goal = 1 " +
+                $"AND run_id IN ({string.Join(',', names)});";
+            RunFilterSql.Bind(command, filter);
+            for (var index = 0; index < chunk.Length; index++) command.Parameters.AddWithValue(names[index], chunk[index]);
+            total += Convert.ToInt64(command.ExecuteScalar(), CultureInfo.InvariantCulture);
+        }
+        return total;
     }
 
     private JsonObject Render(Preview preview, CancellationToken cancellationToken)

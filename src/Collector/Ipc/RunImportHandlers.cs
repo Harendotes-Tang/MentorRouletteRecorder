@@ -34,10 +34,11 @@ public static class RunImportHandlers
     {
         cancellationToken.ThrowIfCancellationRequested();
         var reader = new PayloadReader(payload);
-        reader.RejectUnknown("preview_id", "row_numbers", "confirm_own_records");
+        reader.RejectUnknown("preview_id", "row_numbers", "confirm_own_records", "deduct_from_baseline");
         var response = host.Imports.Commit(reader.RequiredUuid("preview_id"),
             reader.IntArray("row_numbers", RunImportService.MaxRows, minimum: 1),
-            reader.Bool("confirm_own_records") == true, requestId, cancellationToken);
+            reader.Bool("confirm_own_records") == true, requestId,
+            reader.Bool("deduct_from_baseline") == true, cancellationToken);
         if (response["replayed"]?.GetValue<bool>() != true && response["imported_count"]?.GetValue<int>() > 0)
             host.LiveEvents.PublishStatsInvalidated("records_imported");
         return response;

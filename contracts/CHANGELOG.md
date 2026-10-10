@@ -1,5 +1,13 @@
 # IPC 契约变更记录 / IPC contract changelog
 
+## 2026-10-09 · `CommitRunImport` 可以从成就基数中扣除本批已包含的通关（一个可选请求字段、两个可选应答字段）
+
+附加式变更，不新增消息类型。
+
+- **`CommitRunImportRequest.deduct_from_baseline`**（可选布尔）。为 `true` 时，采集服务在同一事务内统计本次新写入的记录中会计入成就进度的通关（确认为导随、`result = COMPLETED`、`contributes_to_goal = true`、非待补充，与 `GetDashboardStats.achievement_progress` 同一口径），从 `baseline_completed_count` 中扣除同样多的次数，最低扣到 0，并以该请求的 `request_id` 追加一条基数修改记录。重复与冲突的行没有写入，不参与扣除。缺省或 `false` 时基数不变。这一选择属于提交的身份：同一 `preview_id` 或 `request_id` 以不同的取值重发答 `ERR_IDEMPOTENCY_CONFLICT`，与改变 `row_numbers` 相同。
+- **`RunImportCommit.baseline_deducted_count`** 与 **`baseline_completed_count`**（可选整数）：本次扣除的次数（未要求扣除时为 0）与提交后保存的基数。此前写下的回执没有这两个字段，重放时照原样返回。
+- 导入写入了记录时照常发布 `stats_invalidated`（`records_imported`），基数的改变随同一次重新读取到达桌面端。旧采集服务对未知字段答 `ERR_BAD_REQUEST`，旧桌面端不发送该字段。
+
 ## 2026-10-05 · 国服的通关结算按内容识别；`Run.pending_review` 的说明改写（无形状变化）
 
 没有新增或改动任何消息、字段与取值，`$defs/MessageType` 仍为 **52** 个业务消息 + `Event` + `Error`。

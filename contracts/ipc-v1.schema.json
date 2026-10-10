@@ -261,7 +261,8 @@
       "properties": {
         "preview_id": { "$ref": "#/$defs/Uuid" },
         "row_numbers": { "type": "array", "minItems": 1, "maxItems": 5000, "uniqueItems": true, "items": { "type": "integer", "minimum": 1 } },
-        "confirm_own_records": { "type": "boolean", "const": true }
+        "confirm_own_records": { "type": "boolean", "const": true },
+        "deduct_from_baseline": { "type": "boolean", "description": "True when the user says these records are already counted in baseline_completed_count: the imported completions that contribute to the achievement are deducted from the baseline in the same transaction, never below zero. Absent or false leaves the baseline alone." }
       }
     },
     "RunImportPreview": {
@@ -305,6 +306,8 @@
         "imported_count": { "type": "integer", "minimum": 0 }, "duplicate_count": { "type": "integer", "minimum": 0 },
         "conflict_count": { "type": "integer", "minimum": 0 }, "skipped_count": { "type": "integer", "minimum": 0 },
         "replayed": { "type": "boolean" }, "run_ids": { "type": "array", "items": { "$ref": "#/$defs/Uuid" } },
+        "baseline_deducted_count": { "type": "integer", "minimum": 0, "description": "How many completions this commit deducted from baseline_completed_count; 0 unless deduct_from_baseline was true. Absent from receipts written before the field existed." },
+        "baseline_completed_count": { "type": "integer", "minimum": 0, "description": "The baseline as stored after this commit." },
         "rows": { "type": "array", "items": {
           "type": "object", "additionalProperties": false, "required": ["row_number", "status", "run_id"],
           "properties": {

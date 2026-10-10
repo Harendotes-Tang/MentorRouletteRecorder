@@ -100,4 +100,44 @@ public sealed class RunImportIpcTests
         Assert.Contains("分", response.ErrorMessage);
         Assert.Empty((await client.SendAsync("QueryRuns")).Require()["items"]!.AsArray());
     }
+
+    [Fact]
+    public async Task DeductFromBaselineLowersTheStoredBaselineInTheSameCommit()
+    {
+        await using var fixture = ServerFixture.Start();
+        await using var client = await fixture.ConnectAsync();
+        (await client.SendAsync("UpdateAchievementBaseline", new JsonObject
+        {
+            ["goal_count"] = 2000, ["baseline_completed_count"] = 1500,
+            ["baseline_effective_at"] = "2026-01-01T00:00:00.000Z", ["reason"] = "安装前已完成 1500 次",
+        })).Require();
+        var preview = (await client.SendAsync("PreviewRunImport", new JsonObject
+        {
+            ["source_kind"] = "XLSX", ["time_zone"] = "+08:00", ["source_name"] = "synthetic",
+            ["rows"] = new JsonArray(new JsonObject
+            {
+                ["duty_name"] = "合成表格副本", ["job_name"] = "骑士", ["result"] = "COMPLETED",
+                ["entered_at_utc"] = "2026-10-01T12:00:00.000Z", ["ended_at_utc"] = "2026-10-01T12:20:00.000Z",
+            }),
+        })).Require();
+        Assert.False(preview["rows"]![0]!["incomplete"]!.GetValue<bool>());
+        var payload = new JsonObject
+        {
+            ["preview_id"] = preview["preview_id"]!.DeepClone(), ["row_numbers"] = new JsonArray(1),
+            ["confirm_own_records"] = true, ["deduct_from_baseline"] = true,
+        };
+        var requestId = Guid.NewGuid().ToString("D");
+        var committed = (await client.SendAsync("CommitRunImport", payload.DeepClone().AsObject(), requestId)).Require();
+        ContractSchema.Validate("$defs/Responses/CommitRunImport", committed, "import deducting from the baseline");
+        Assert.Equal(1, committed["imported_count"]!.GetValue<int>());
+        Assert.Equal(1, committed["baseline_deducted_count"]!.GetValue<int>());
+        Assert.Equal(1499, committed["baseline_completed_count"]!.GetValue<int>());
+        var replayed = (await client.SendAsync("CommitRunImport", payload.DeepClone().AsObject(), requestId)).Require();
+        Assert.True(replayed["replayed"]!.GetValue<bool>());
+        Assert.Equal(1, replayed["baseline_deducted_count"]!.GetValue<int>());
+        var dashboard = (await client.SendAsync("GetDashboardStats")).Require();
+        Assert.Equal(1499, dashboard["baseline_completed_count"]!.GetValue<int>());
+        Assert.Equal(1, dashboard["completed_count"]!.GetValue<int>());
+        Assert.Equal(1500, dashboard["achievement_progress"]!.GetValue<int>());
+    }
 }
