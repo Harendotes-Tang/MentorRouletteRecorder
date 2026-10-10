@@ -173,7 +173,8 @@ class OcrRuntimeTests(unittest.TestCase):
             "$env:MR_OCR_DIR='relative/runtime'\n"
             "$actual=Get-OcrRuntimeDirectory -RepoRoot $repo\n"
             "if (-not [IO.Path]::IsPathRooted($actual)) { throw 'relative override is not absolute' }\n"
-            f"if ($actual -ne {ps(self.repo / 'relative' / 'runtime')}) {{ throw 'relative override failed' }}")
+            f"$expected=[IO.Path]::GetFullPath({ps(self.repo / 'relative' / 'runtime')})\n"
+            "if ($actual -ne $expected) { throw \"relative override failed: actual=$actual; expected=$expected\" }")
         self.manifest["cache_id"] = "../escape"
         self.write_manifest()
         self.run_ps("Read-OcrDependencyManifest -RepoRoot $repo | Out-Null", False)
