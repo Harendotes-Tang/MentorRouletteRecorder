@@ -1,12 +1,7 @@
 {
   "schema_version": 1,
   "date": "2026-10-10",
-  "scope": "Re-run the preserved, already web-layout/Chinese-note-repaired Tesseract probe on the exact five user images; compare recognised fields with frozen neural OCR + classifier preview reports. No source, models, thresholds or installed application changed.",
-  "original_ui_observation": {
-    "records_visible_in_source": 10,
-    "records_visible_in_user_import_screenshot": 5,
-    "provenance": "User supplied screenshots, not a reproduced original-version binary run."
-  },
+  "scope": "Local comparison of Tesseract with template matching and RapidOCR with a fixed job classifier on the same five inputs. Includes web-layout and Chinese-note parser corrections in the Tesseract baseline. Private inputs remain local; only anonymous measurements and hashes are published.",
   "alignment_method": "Match each old source_rect vertical centre to the validated original-image row band in the frozen new report. Compare with that source row, never compact output index. All output centres map to exactly one source band; no duplicate band output.",
   "expectation_sources": {
     "later_four": {
@@ -14,7 +9,7 @@
       "sha256": "f4c8aab72d472f5b60544bc705fb452faabeabc98a2bca14dd7e292f769339b2",
       "bytes": 12424
     },
-    "original": "Human transcription of the original user image, explicitly retained in summarize-comparison.py."
+    "original": "Manual transcription retained only in the local comparison evidence."
   },
   "metric_definitions": {
     "output_records": "All parser-produced rows, including title-empty/time-only records. This is not complete record or field accuracy.",
@@ -94,9 +89,7 @@
   "cases": [
     {
       "case": 0,
-      "label": "original",
       "input": {
-        "file": "codex-clipboard-e71d5edc-ee2f-4e9b-8c3c-bac000b1a006.png",
         "sha256": "22d5fc5f06bb79a395c73e974c78b16bf65410a4b2015cab978e5df62bd50770",
         "bytes": 910453,
         "width": 1851,
@@ -197,9 +190,7 @@
     },
     {
       "case": 1,
-      "label": "additional-1",
       "input": {
-        "file": "codex-clipboard-5da8720c-f74b-430a-8d50-766fd0660b6a.png",
         "sha256": "b73aff1b05702d30f587a9bc061c25c3c0e7730c91b3019df829aadc562393c1",
         "bytes": 380427,
         "width": 1280,
@@ -280,9 +271,7 @@
     },
     {
       "case": 2,
-      "label": "additional-2",
       "input": {
-        "file": "codex-clipboard-74864425-dca9-4f6b-b3f4-338b7ef8cee1.png",
         "sha256": "a92e122eb76e95ec1a465b6f4b34c20cd71a19e929eccf3147ca01abf5ce5628",
         "bytes": 794885,
         "width": 1871,
@@ -381,9 +370,7 @@
     },
     {
       "case": 3,
-      "label": "additional-3",
       "input": {
-        "file": "codex-clipboard-1482ac53-cf47-450a-bf85-848bfe3dfe08.png",
         "sha256": "3a4180956cb567036163be657d598b16acd7f1df948e3dc835103e6fc7ae6b8c",
         "bytes": 849771,
         "width": 1874,
@@ -484,9 +471,7 @@
     },
     {
       "case": 4,
-      "label": "additional-4",
       "input": {
-        "file": "codex-clipboard-22d0267d-ebd8-4f3a-897a-164637d73ece.png",
         "sha256": "94b533a2cfe4a8a0cda9947c5c229abf8a21e131ce21f12356e3bd675384e955",
         "bytes": 859401,
         "width": 1866,

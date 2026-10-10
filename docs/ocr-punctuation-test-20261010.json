@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "date": "2026-10-10",
-  "scope": "Local punctuation follow-up; two primary screenshots + five regression screenshots. Classifier/model thresholds frozen. No user history, commit, installer or publication.",
+  "scope": "Local symbol recognition validation on seven inputs: two targeted inputs and five regression inputs. Classifier models and thresholds frozen. Private screenshots and personal note text remain local. No user history is read or written.",
   "cases": [
     {
       "image": 1,
@@ -14,21 +14,16 @@
       "titles_correct": 10,
       "source_times_correct": 10,
       "reliable_jobs_correct": 10,
-      "note_changes": [
-        {
-          "row": 9,
-          "before": "输入副本的动作逐渐熟练",
-          "after": "。。。。输入副本的动作逐渐熟练"
-        },
-        {
-          "row": 10,
-          "before": "这熟悉的黑屏，这奇葩的打光（定番 dunzi 盾姿没开",
-          "after": "。。。。这熟悉的黑屏，这奇葩的打光（定番 dunzi 盾姿没开"
-        }
-      ],
       "preview_ms": 4516,
       "preview_sha256": "92a57cdf669a26d60fa63a02286b6dae1c60395e267eab488b3e7c9d25c81e90",
-      "tsv_sha256": "311cbe7d8923469d6f9a41a3ecb79f696d178a5e16ac5c90f79a1bbbceab2ca9"
+      "tsv_sha256": "311cbe7d8923469d6f9a41a3ecb79f696d178a5e16ac5c90f79a1bbbceab2ca9",
+      "symbol_observations": [
+        {
+          "category": "leading_hollow_circles",
+          "sequences_restored": 2,
+          "circles_per_sequence": 4
+        }
+      ]
     },
     {
       "image": 2,
@@ -41,21 +36,19 @@
       "titles_correct": 10,
       "source_times_correct": 10,
       "reliable_jobs_correct": 10,
-      "note_changes": [
-        {
-          "row": 9,
-          "before": "(;",
-          "after": "(; '~)"
-        },
-        {
-          "row": 10,
-          "before": "非常痛的本，还好我不是奶妈(●∀•)",
-          "after": "非常痛的本，还好我不是奶妈(●∀●)"
-        }
-      ],
       "preview_ms": 3701,
       "preview_sha256": "68cc9af4a9f8cbd2106714f9f46a600618e9bb2a9e4e41045ff726ad42e7f847",
-      "tsv_sha256": "dc4120903ed469ed73d0a89b3f1822424aeb16e6d160787ee72c11063cfb6a57"
+      "tsv_sha256": "dc4120903ed469ed73d0a89b3f1822424aeb16e6d160787ee72c11063cfb6a57",
+      "symbol_observations": [
+        {
+          "category": "kaomoji_tail",
+          "outcome": "partially_restored"
+        },
+        {
+          "category": "bilateral_filled_circles",
+          "outcome": "restored_with_accent_still_missing"
+        }
+      ]
     },
     {
       "image": 3,
@@ -68,15 +61,15 @@
       "titles_correct": 10,
       "source_times_correct": 10,
       "reliable_jobs_correct": 10,
-      "note_changes": [
-        {
-          "row": 8,
-          "symbol_change": true
-        }
-      ],
       "preview_ms": 5379,
       "preview_sha256": "a4987250bdbd0eb600fa3d320b0852d5a4c487041401379221d575041324bef6",
-      "tsv_sha256": "023f6e8a8fdabc969600282dfe11bd4ed1c7b963d2aaca14aa57d15dcc63c742"
+      "tsv_sha256": "023f6e8a8fdabc969600282dfe11bd4ed1c7b963d2aaca14aa57d15dcc63c742",
+      "symbol_observations": [
+        {
+          "category": "symbol_change",
+          "count": 1
+        }
+      ]
     },
     {
       "image": 4,
@@ -89,10 +82,10 @@
       "titles_correct": 10,
       "source_times_correct": 10,
       "reliable_jobs_correct": 10,
-      "note_changes": [],
       "preview_ms": 2796,
       "preview_sha256": "8ee17252a8d3c478524c4c5ec54f006b4f709d81f8e0166c27836b0162a021cc",
-      "tsv_sha256": "74007d2ba4adde4bfbf2fef47cd58c4bd942744e55d5c060592fdfd19d9fda9c"
+      "tsv_sha256": "74007d2ba4adde4bfbf2fef47cd58c4bd942744e55d5c060592fdfd19d9fda9c",
+      "symbol_observations": []
     },
     {
       "image": 5,
@@ -105,10 +98,10 @@
       "titles_correct": 10,
       "source_times_correct": 10,
       "reliable_jobs_correct": 10,
-      "note_changes": [],
       "preview_ms": 3255,
       "preview_sha256": "2e8b228f51d8e17634deedf01c438ac92f8dc76f9da597ad0a9f6fa908ad3d96",
-      "tsv_sha256": "cc172e176fee81bccdfab89905a4715163bbb37a9fc59f5d84753667166e8a91"
+      "tsv_sha256": "cc172e176fee81bccdfab89905a4715163bbb37a9fc59f5d84753667166e8a91",
+      "symbol_observations": []
     },
     {
       "image": 6,
@@ -121,15 +114,15 @@
       "titles_correct": 10,
       "source_times_correct": 10,
       "reliable_jobs_correct": 10,
-      "note_changes": [
-        {
-          "row": 1,
-          "symbol_change": true
-        }
-      ],
       "preview_ms": 3753,
       "preview_sha256": "50a56520e4bc7f5ae7666ae527bb26baa96016b8c1b8080bd27ce0560ab32f61",
-      "tsv_sha256": "b6281818bca7f7e5ab0615260a43ece280f77633d6aaf49c2cbcd7f13080927c"
+      "tsv_sha256": "b6281818bca7f7e5ab0615260a43ece280f77633d6aaf49c2cbcd7f13080927c",
+      "symbol_observations": [
+        {
+          "category": "symbol_change",
+          "count": 1
+        }
+      ]
     },
     {
       "image": 7,
@@ -142,15 +135,15 @@
       "titles_correct": 10,
       "source_times_correct": 10,
       "reliable_jobs_correct": 10,
-      "note_changes": [
-        {
-          "row": 5,
-          "symbol_change": true
-        }
-      ],
       "preview_ms": 3424,
       "preview_sha256": "26b8e3eed4e049d002dff0f73162c499c7a0ceeb9c1b08a4a47724eb3b952054",
-      "tsv_sha256": "295ddbbba4a46ffaea543c2063d552ac98c93342f032087493b9a09e33bffec2"
+      "tsv_sha256": "295ddbbba4a46ffaea543c2063d552ac98c93342f032087493b9a09e33bffec2",
+      "symbol_observations": [
+        {
+          "category": "symbol_change",
+          "count": 1
+        }
+      ]
     }
   ],
   "totals": {
@@ -228,9 +221,9 @@
   ],
   "limitations": [
     "Not a note character-accuracy benchmark: kaomoji still omit accents, bars, face letters and source spaces.",
-    "The visible space between the two (+速行) blocks is still not recovered.",
-    "A previously detected ooo prefix is retained rather than duplicated or changed to punctuation without suitable evidence.",
-    "New screenshots were used to develop/validate the crop policy; they are not an unseen-parser benchmark.",
-    "The unchanged isolated Collector was used; concurrent XLS source/package acceptance and installed-app upgrade are outside scope."
+    "Spaces between separated symbol/text fragments may be omitted.",
+    "Letter-like prefixes are retained rather than duplicated or changed to punctuation without suitable image evidence.",
+    "Targeted inputs were used to develop and validate the crop policy; this is a development regression result, not an unseen-parser benchmark.",
+    "Preview validation used an isolated Collector and temporary database; installer upgrade and cross-machine acceptance are outside this test scope."
   ]
 }
