@@ -94,7 +94,7 @@ int worker(int argc, char **argv)
         writeFile(ready, QDir::currentPath().toUtf8());
     const QString mode = qEnvironmentVariable("MR_TEST_AI_OCR_MODE");
     if (mode == QLatin1String("sleep"))
-        QThread::msleep(5000);
+        QThread::msleep(15000);
     if (mode == QLatin1String("fail"))
         return 7;
     if (mode == QLatin1String("no-output"))
@@ -350,7 +350,9 @@ private Q_SLOTS:
         qputenv("MR_TEST_AI_OCR_MODE", "sleep");
         mr::OfflineOcrEngine engine;
         engine.setApplicationDirectoryForTesting(app);
-        engine.setTimeoutForTesting(timeout ? 500 : 5000);
+        // Leave cold process startup time before testing expiry. The worker must
+        // outlive this deadline so a normal exit cannot masquerade as a timeout.
+        engine.setTimeoutForTesting(5000);
         QSignalSpy recognized(&engine, &mr::OfflineOcrEngine::imageRecognized);
         QSignalSpy finished(&engine, &mr::OfflineOcrEngine::finished);
         QSignalSpy failures(&engine, &mr::OfflineOcrEngine::failed);
