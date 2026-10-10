@@ -171,7 +171,9 @@ class OcrRuntimeTests(unittest.TestCase):
     def test_cache_id_cannot_escape_and_relative_environment_override_is_resolved(self):
         self.run_ps(
             "$env:MR_OCR_DIR='relative/runtime'\n"
-            "if ((Get-OcrRuntimeDirectory -RepoRoot $repo) -ne (Join-Path $repo 'relative/runtime')) { throw 'relative override failed' }")
+            "$actual=Get-OcrRuntimeDirectory -RepoRoot $repo\n"
+            "if (-not [IO.Path]::IsPathRooted($actual)) { throw 'relative override is not absolute' }\n"
+            f"if ($actual -ne {ps(self.repo / 'relative' / 'runtime')}) {{ throw 'relative override failed' }}")
         self.manifest["cache_id"] = "../escape"
         self.write_manifest()
         self.run_ps("Read-OcrDependencyManifest -RepoRoot $repo | Out-Null", False)
