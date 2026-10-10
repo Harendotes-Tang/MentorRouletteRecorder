@@ -552,6 +552,7 @@ private Q_SLOTS:
     void theConfirmationTemplateSaysWhenItIsSpoken();
     void theRecordSwitchesSayWhenTheyAct();
     void thePendingBannerSaysWhyARunIsPending();
+    void theCurrentRunCardKeepsItsValuesInsideWhileANoticeShows();
     void theExplanationSaysAClearIsRecordedByItself();
     void noPlayerTextSaysTheClearCannotBeSeen();
 };
@@ -2160,6 +2161,66 @@ int main(int argc, char **argv)
     QGuiApplication app(argc, argv);
     UiWorkflowRegressionTests tests;
     return QTest::qExec(&tests, argc, argv);
+}
+
+// 业主反馈（2026-10-09）：没有导随、采集又在等待重新登录时，「当前导随」卡片里的
+// 提示占两行，卡片所在的行高度固定，六个「—」被挤到卡片边框之外。卡片必须装下
+// 自己的全部内容。
+void UiWorkflowRegressionTests::theCurrentRunCardKeepsItsValuesInsideWhileANoticeShows()
+{
+    ShellScene scene;
+    QVERIFY2(scene.create(), qPrintable(scene.errors));
+    scene.backend.answers.insert(QStringLiteral("GetCaptureSettings"),
+                                 QJsonObject{{QStringLiteral("follow_game"), true}});
+    scene.backend.answers.insert(QStringLiteral("GetCaptureValidationStatus"),
+                                 QJsonObject{{QStringLiteral("active"), false}});
+    scene.backend.answers.insert(
+        QStringLiteral("GetStatus"),
+        QJsonObject{{QStringLiteral("capture"),
+                     QJsonObject{{QStringLiteral("state"), QStringLiteral("RUNNING")},
+                                 {QStringLiteral("npcap_installed"), true},
+                                 {QStringLiteral("ffxiv_running"), true},
+                                 {QStringLiteral("region"), QStringLiteral("CN")},
+                                 {QStringLiteral("profile_status"), QStringLiteral("VERIFIED")},
+                                 {QStringLiteral("last_error_code"), QStringLiteral("NONE")},
+                                 {QStringLiteral("messages_decoded"), 0},
+                                 {QStringLiteral("uptime_ms"), 4000},
+                                 {QStringLiteral("midstream_suspected"), true},
+                                 {QStringLiteral("silent_reason"), QStringLiteral("MIDSTREAM")},
+                                 {QStringLiteral("hint"),
+                                  QStringLiteral("已发现游戏连接，但持续未解码出有效 IPC，可能缺少连接起始数据。"
+                                                 "可在方便时登出到标题画面再重新登录（不用关闭游戏），"
+                                                 "让软件尝试捕获新连接。若仍无记录，请导出诊断报告。")}}}});
+    scene.controller.recording()->refresh();
+
+    auto *status = scene.item(QStringLiteral("currentRunCaptureStatus"));
+    QVERIFY(status);
+    QTRY_VERIFY2(status->property("text").toString().contains(QString::fromUtf8("标题画面")),
+                 qPrintable(status->property("text").toString()));
+    QTRY_VERIFY2(status->property("lineCount").toInt() >= 2, "the notice must wrap to show the overflow");
+
+    // The card is the status text's grandparent (Card body → Card); the value grid is
+    // the body child after the status text.
+    QQuickItem *body = status->parentItem();
+    QVERIFY(body);
+    QQuickItem *card = body->parentItem();
+    QVERIFY(card);
+    QQuickItem *grid = nullptr;
+    const auto siblings = body->childItems();
+    for (int index = 0; index < siblings.size(); ++index) {
+        if (siblings[index] == status && index + 1 < siblings.size())
+            grid = siblings[index + 1];
+    }
+    QVERIFY2(grid && grid->property("columns").toInt() == 6, "the value grid follows the notice");
+    QTRY_VERIFY(grid->height() > 0);
+    const qreal gridBottom = grid->mapToItem(card, QPointF(0, grid->height())).y();
+    // Inside the card means above its bottom padding, not merely above its border.
+    const qreal inner = card->height() - card->property("verticalPadding").toReal();
+    QVERIFY2(gridBottom <= inner + 0.5,
+             qPrintable(QStringLiteral("grid bottom %1 exceeds the card's inner height %2")
+                            .arg(gridBottom).arg(inner)));
+    // And the row above did not simply hide the overflow by clipping.
+    QVERIFY(!card->clip());
 }
 
 #include "UiWorkflowRegressionTests.moc"

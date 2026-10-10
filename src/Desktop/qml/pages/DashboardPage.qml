@@ -507,6 +507,11 @@ ScrollView {
                 Card {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
+                    // The row above has a preferred height, not a fixed one: with a two-line
+                    // notice and the value grid the card needs more than its share, and the
+                    // row must grow rather than let the values spill below the border
+                    // (owner's report, 2026-10-09).
+                    Layout.minimumHeight: implicitHeight
                     padding: 16
 
                     RowLayout {
