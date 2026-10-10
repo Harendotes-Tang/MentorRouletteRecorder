@@ -2,13 +2,17 @@
 
 #include <QByteArray>
 #include <QImage>
+#include <QList>
+#include <QRect>
 #include <QString>
 #include <QVariantList>
 
 namespace mr {
 
 /**
- * @brief 将本地 Tesseract TSV 的 dlog 手机卡片文字与图像证据投影为待确认候选。
+ * @brief 将本地 Tesseract TSV 的 dlog 记录截图文字与图像证据投影为待确认候选。
+ *
+ * 支持手机卡片布局与网页单行列表布局，按画面几何区分，不需要用户选择。
  *
  * 本类不启动 OCR、不联网、不写入历史，也不将来源记录时间解释为实际游戏时间。
  * 职业仅在本地模板形状匹配足够明确时提供候选；所有输出仍需用户核对。
@@ -37,6 +41,30 @@ public:
      */
     static QVariantList parse(const QImage &image, const QByteArray &tsv,
                               const QString &sourceImagePath, QString *error = nullptr);
+
+    /**
+     * @brief dlog 网页记录列表中一条单行记录的列范围，坐标均属原图坐标系。
+     *
+     * 等级、日期、时间和删除标记把行分成列：标题列在类型图标（或等级）之后、日期列之前；
+     * 心得列在时间列之后、删除标记或行尾之前。title 与 body 覆盖整行文字带，可含多行。
+     */
+    struct RowGeometry {
+        QRect row;                ///< 行底色的实际范围。
+        QRect level;              ///< 等级单词框。
+        QRect title;              ///< 副本名称列；没有空间时为空矩形。
+        QRect time;               ///< 日期与时间单词的并集；未识别到时间时向日期右方与下方放宽。
+        QRect body;               ///< 心得列；没有空间时为空矩形。
+        QRect deleteMark;         ///< 按像素认出的行尾删除叉号；没有时为空矩形。分区识别时擦除它。
+        bool stackedTime = false; ///< 时间列跨两行（时间在日期的下一行），分区识别按多行处理。
+    };
+
+    /**
+     * @brief 从与 parse() 相同的输入中找出网页单行记录，供本地分区识别裁切各列。
+     * @return 按画面从上到下排列的行几何；输入无效或画面不是单行记录布局时为空。
+     *
+     * 不改变 parse() 的候选字段，也不读写文件。
+     */
+    static QList<RowGeometry> rowFields(const QImage &image, const QByteArray &tsv);
 };
 
 } // namespace mr

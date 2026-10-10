@@ -1,5 +1,6 @@
 #include "OfflineOcrEngine.h"
 #include "ScreenshotImportParser.h"
+#include "ScreenshotRowLayout.h"
 
 #include <QCoreApplication>
 #include <QDir>
@@ -266,6 +267,18 @@ QImage paddedField(const QImage &image, const QRect &rect, const QList<QRect> &d
     return padded;
 }
 
+/** @brief search 区域内白色前景（三个通道都高于 190）的掩码。 */
+std::vector<uchar> whiteMask(const QImage &image, const QRect &search)
+{
+    std::vector<uchar> mask(size_t(search.width()) * size_t(search.height()), 0);
+    for (int y = 0; y < search.height(); ++y)
+        for (int x = 0; x < search.width(); ++x) {
+            const QRgb color = image.pixel(search.left() + x, search.top() + y);
+            mask[size_t(y) * search.width() + x] = std::min({qRed(color), qGreen(color), qBlue(color)}) > 190;
+        }
+    return mask;
+}
+
 /** @brief 仅识别卡片右侧由两条白色对角线组成的独立删除叉号，不按 OCR 假字删正文。 */
 QList<QRect> visibleDeleteMarks(const QImage &image, const QRect &card, const QRect &body)
 {
@@ -275,84 +288,111 @@ QList<QRect> visibleDeleteMarks(const QImage &image, const QRect &card, const QR
     if (search.isEmpty())
         return result;
     const int width = search.width();
-    const int height = search.height();
-    std::vector<uchar> pixels(size_t(width) * size_t(height), 0);
-    for (int y = 0; y < height; ++y)
-        for (int x = 0; x < width; ++x) {
-            const QRgb color = image.pixel(search.left() + x, search.top() + y);
-            pixels[size_t(y) * width + x] = std::min({qRed(color), qGreen(color), qBlue(color)}) > 190;
-        }
-    std::vector<int> pending;
-    for (int y = 0; y < height; ++y) {
-        for (int x = 0; x < width; ++x) {
-            const int first = y * width + x;
-            if (!pixels[size_t(first)])
-                continue;
-            pixels[size_t(first)] = 0;
-            pending.clear();
-            pending.push_back(first);
-            QRect bounds(x, y, 1, 1);
-            for (size_t next = 0; next < pending.size(); ++next) {
-                const int position = pending[next];
-                const int px = position % width;
-                const int py = position / width;
-                bounds = bounds.united(QRect(px, py, 1, 1));
-                for (const QPoint offset : {QPoint(-1, 0), QPoint(1, 0), QPoint(0, -1), QPoint(0, 1)}) {
-                    const int nx = px + offset.x();
-                    const int ny = py + offset.y();
-                    if (nx < 0 || ny < 0 || nx >= width || ny >= height)
-                        continue;
-                    const int index = ny * width + nx;
-                    if (pixels[size_t(index)]) {
-                        pixels[size_t(index)] = 0;
-                        pending.push_back(index);
-                    }
+    for (const auto &part : mr::screenshot::components(whiteMask(image, search), width, search.height(), false)) {
+        const QRect &bounds = part.bounds;
+        const std::vector<int> &pending = part.points;
+        if (bounds.width() < 12 || bounds.height() < 12
+            || bounds.width() > image.width() * 0.06 || bounds.height() > image.width() * 0.06
+            || bounds.width() * 4 < bounds.height() * 3 || bounds.height() * 4 < bounds.width() * 3)
+            continue;
+        const QRect original = bounds.translated(search.topLeft());
+        const double expectedSize = image.width() * 0.024;
+        const double tolerance = std::max(3.0, expectedSize * 0.20);
+        if (std::abs(original.center().x() - image.width() * 0.885) > tolerance
+            || std::abs(original.center().y() - card.center().y()) > tolerance
+            || std::abs(original.width() - expectedSize) > tolerance
+            || std::abs(original.height() - expectedSize) > tolerance)
+            continue;
+        if (!mr::screenshot::isDiagonalCross(pending, width, bounds, 0.13))
+            continue;
+        // An X in XD or beside ordinary prose is text evidence. Keep it
+        // whenever other white foreground touches the button's near area.
+        bool adjoiningText = false;
+        const int margin = std::max(3, original.height() / 4);
+        const QRect vicinity = original.adjusted(-margin, -margin, margin, margin).intersected(body);
+        for (int vy = vicinity.top(); vy <= vicinity.bottom() && !adjoiningText; ++vy)
+            for (int vx = vicinity.left(); vx <= vicinity.right(); ++vx) {
+                if (original.contains(vx, vy))
+                    continue;
+                const QRgb color = image.pixel(vx, vy);
+                if (std::min({qRed(color), qGreen(color), qBlue(color)}) > 190) {
+                    adjoiningText = true;
+                    break;
                 }
             }
-            if (bounds.width() < 12 || bounds.height() < 12
-                || bounds.width() > image.width() * 0.06 || bounds.height() > image.width() * 0.06
-                || bounds.width() * 4 < bounds.height() * 3 || bounds.height() * 4 < bounds.width() * 3)
-                continue;
-            const QRect original = bounds.translated(search.topLeft());
-            const double expectedSize = image.width() * 0.024;
-            const double tolerance = std::max(3.0, expectedSize * 0.20);
-            if (std::abs(original.center().x() - image.width() * 0.885) > tolerance
-                || std::abs(original.center().y() - card.center().y()) > tolerance
-                || std::abs(original.width() - expectedSize) > tolerance
-                || std::abs(original.height() - expectedSize) > tolerance)
-                continue;
-            int diagonal = 0;
-            std::array<int, 4> corners{};
-            for (const int position : pending) {
-                const double dx = double(position % width - bounds.left()) / (bounds.width() - 1);
-                const double dy = double(position / width - bounds.top()) / (bounds.height() - 1);
-                diagonal += std::abs(dx - dy) <= 0.13 || std::abs(dx + dy - 1.0) <= 0.13;
-                if (std::abs(dx - 0.5) > 0.25 && std::abs(dy - 0.5) > 0.25)
-                    ++corners[size_t((dy > 0.5 ? 2 : 0) + (dx > 0.5 ? 1 : 0))];
-            }
-            if (diagonal < pending.size() * 0.85
-                || !std::all_of(corners.begin(), corners.end(), [](int count) { return count >= 3; }))
-                continue;
-            // An X in XD or beside ordinary prose is text evidence. Keep it
-            // whenever other white foreground touches the button's near area.
-            bool adjoiningText = false;
-            const int margin = std::max(3, original.height() / 4);
-            const QRect vicinity = original.adjusted(-margin, -margin, margin, margin).intersected(body);
-            for (int vy = vicinity.top(); vy <= vicinity.bottom() && !adjoiningText; ++vy)
-                for (int vx = vicinity.left(); vx <= vicinity.right(); ++vx) {
-                    if (original.contains(vx, vy))
-                        continue;
-                    const QRgb color = image.pixel(vx, vy);
-                    if (std::min({qRed(color), qGreen(color), qBlue(color)}) > 190) {
-                        adjoiningText = true;
-                        break;
-                    }
-                }
-            if (!adjoiningText)
-                result.append(original.adjusted(-1, -1, 1, 1));
-        }
+        if (!adjoiningText)
+            result.append(original.adjusted(-1, -1, 1, 1));
     }
     return result;
+}
+
+/** @brief 网页单行记录一列的分区识别计划。 */
+struct RowField {
+    QRect rect;
+    QString kind;
+    QString language;
+    int pageSegmentation = 7;
+    QList<QRect> deleteMarks;
+};
+
+/**
+ * @brief 网页单行记录各列的分区计划，自上而下至多 budget 个。标题可能换行、时间可能在日期下一行，
+ * 二者都按多行识别；心得在删除叉号之前截止。分区数用完时其余行保留粗识别，整批不因此中止。
+ */
+QList<RowField> rowFieldPlans(const QImage &image, const QList<mr::ScreenshotImportParser::RowGeometry> &rows,
+                              const QList<OcrWord> &words, qsizetype budget)
+{
+    static const QRegularExpression completeLevel(QStringLiteral(R"(^[Ll]\s*[Vv]\s*[.。．:]?\s*\d{1,3}$)"));
+    QList<RowField> plans;
+    for (const auto &row : rows) {
+        const QRect bounds = row.row.intersected(image.rect());
+        const int padding = std::max(4, row.level.height() / 3);
+        // An empty column has no room; intersecting it would normalise it.
+        QRect body = row.body.isValid() ? row.body.intersected(bounds) : QRect();
+        // The parser found the delete mark in the pixels. It is erased from the
+        // note crop (with its anti-aliased fringe), so text continuing past it
+        // is still read, and its evidence word replaces OCR glyphs standing on it.
+        const QList<QRect> marks = row.deleteMark.isValid() ? QList<QRect>{row.deleteMark.adjusted(-2, -2, 2, 2)}
+                                                            : QList<QRect>{};
+        // The coarse level token anchors the row. A small re-read can only lose
+        // its L, so the level pass runs only when the coarse token is not a
+        // complete Lv with real digits.
+        QString coarseLevel;
+        QList<OcrWord> coarseNote;
+        for (const auto &word : words) {
+            if (row.level.contains(word.rect.center()))
+                coarseLevel += word.text;
+            if (body.isValid() && body.contains(word.rect.center())
+                && std::none_of(marks.cbegin(), marks.cend(), [&](const QRect &mark) {
+                       return mark.contains(word.rect.center());
+                   }))
+                coarseNote.append(word);
+        }
+        const QRect level = completeLevel.match(coarseLevel).hasMatch()
+            ? QRect() : row.level.adjusted(-padding, -padding, padding, padding).intersected(bounds);
+        // A note column without any coarse word is not re-read.
+        if (coarseNote.isEmpty())
+            body = QRect();
+        const QRect title = row.title.isValid() ? row.title.intersected(bounds) : QRect();
+        const QRect time = row.time.isValid()
+            ? row.time.adjusted(-padding, -padding, padding, padding).intersected(bounds) : QRect();
+        for (const RowField &field : {RowField{level, QStringLiteral("level"), QStringLiteral("eng"), 7, {}},
+                                      RowField{title, QStringLiteral("title"), QStringLiteral("chi_sim"), 6, {}},
+                                      RowField{body, QStringLiteral("body"),
+                                               hanCount(coarseNote) > 0 ? QStringLiteral("chi_sim")
+                                                                        : QStringLiteral("chi_sim+eng"), 6, marks},
+                                      RowField{time, QStringLiteral("time"), QStringLiteral("eng"),
+                                               row.stackedTime ? 6 : 7, {}}}) {
+            if (!field.rect.isValid() || field.rect.isEmpty()
+                || qint64(field.rect.width() + kFieldBorder * 2) * (field.rect.height() + kFieldBorder * 2)
+                    > kMaximumFieldPixels)
+                continue;
+            if (plans.size() >= budget)
+                return plans;
+            plans.append(field);
+        }
+    }
+    return plans;
 }
 
 } // namespace
@@ -683,13 +723,19 @@ bool OfflineOcrEngine::prepareFields(const QByteArray &coarseTsv)
         cards.append(QRect(source.value(QStringLiteral("x")).toInt(), source.value(QStringLiteral("y")).toInt(),
                            source.value(QStringLiteral("width")).toInt(), source.value(QStringLiteral("height")).toInt()));
     }
+    // dlog web rows are split into columns by the parser; the card branch below
+    // never handles them, so their icons and surfaces are not refined twice.
+    const auto rows = ScreenshotImportParser::rowFields(m_image, coarseTsv);
+    const auto inRow = [&rows](const QPoint &point) {
+        return std::any_of(rows.begin(), rows.end(), [&point](const auto &row) { return row.row.contains(point); });
+    };
     // A covered footer and a misread Lv prefix can hide a visible final card
     // from the coarse TSV. Its type icon plus an independent dark card surface
     // still provides a local image anchor for new level/title field passes.
     const auto icons = blueHeaderIcons(m_image, QRect(qRound(m_image.width() * 0.20), 0,
                                                       qRound(m_image.width() * 0.42), m_image.height()));
     for (const auto &icon : icons) {
-        bool represented = false;
+        bool represented = inRow(icon.center());
         for (const auto &card : cards) {
             const QRect known = blueHeaderIcon(m_image, card);
             if (known.isValid() && std::abs(known.center().y() - icon.center().y()) < icon.height()) {
@@ -707,6 +753,8 @@ bool OfflineOcrEngine::prepareFields(const QByteArray &coarseTsv)
     static const QRegularExpression date(QStringLiteral(R"(^\d{4}\s*[-－]\s*\d{2}\s*[-－]\s*\d{2}$)"));
     static const QRegularExpression level(QStringLiteral(R"(^(?:[Ll]\s*)?[Vv]\s*[.。．:]?\s*\d{1,3}$)"));
     for (const QRect &coarseCard : cards) {
+        if (inRow(coarseCard.center()))
+            continue;
         const QRect icon = blueHeaderIcon(m_image, coarseCard);
         if (!icon.isValid())
             continue;
@@ -799,6 +847,9 @@ bool OfflineOcrEngine::prepareFields(const QByteArray &coarseTsv)
             m_fields.append(std::move(field));
         }
     }
+    const QList<RowField> plans = rowFieldPlans(m_image, rows, words, kMaximumFields - m_fields.size());
+    for (const RowField &plan : plans)
+        m_fields.append(Field{plan.rect, plan.kind, plan.language, plan.pageSegmentation, plan.deleteMarks});
     if (m_fields.isEmpty())
         return false;
     m_recognizedTsv = serializedWords(visibleWords);

@@ -1,4 +1,6 @@
 #include "ScreenshotImportParser.h"
+#include "ScreenshotOcrText.h"
+#include "ScreenshotRowLayout.h"
 #include "JobCatalog.h"
 
 #include <QDate>
@@ -20,19 +22,19 @@
 #include <cmath>
 #include <limits>
 
+namespace mr::screenshot {
+
+int colorDistance(QRgb a, QRgb b)
+{
+    return std::max({std::abs(qRed(a) - qRed(b)), std::abs(qGreen(a) - qGreen(b)),
+                     std::abs(qBlue(a) - qBlue(b))});
+}
+
+} // namespace mr::screenshot
+
 namespace {
 
-struct Word {
-    QRect rect;
-    QString text;
-    double confidence = 0;
-};
-
-struct Line {
-    QList<Word> words;
-    QRect rect;
-    QString text;
-};
+using namespace mr::screenshot;
 
 struct Header {
     int line = -1;
@@ -42,6 +44,24 @@ struct Header {
     QRect detectedCard;
     bool recoveredLevelPrefix = false;
     bool anchoredDutyTitle = false;
+};
+
+/** @brief 一条候选的全部识别证据；手机卡片与网页单行记录共用同一组候选字段和提示。 */
+struct Evidence {
+    QRect rect;
+    QRect iconArea;
+    bool measuredIconLeft = false; ///< iconArea 的左边已实测越过行圆角（网页单行记录）。
+    int textLeft = 0;
+    QString duty;
+    int level = 0;
+    bool anchoredDutyTitle = false;
+    QString recordedAt;
+    bool timeValid = false;
+    QStringList body;
+    double confidence = 0;
+    bool deletionOverlaps = false;
+    bool pagingOverlaps = false;
+    bool nearEdge = false;
 };
 
 struct DutyNameTemplate {
@@ -66,13 +86,6 @@ struct IconMatch {
     QString runnerUpName;
     double runnerUpConfidence = 0;
 };
-
-bool isHan(const QChar character)
-{
-    const auto script = character.script();
-    return script == QChar::Script_Han || script == QChar::Script_Hiragana
-        || script == QChar::Script_Katakana;
-}
 
 QString normalizedDutyName(const QString &name)
 {
@@ -110,6 +123,18 @@ QList<DutyNameTemplate> loadDutyNameTemplates()
         templates.append({level, name, normalized});
     }
     return templates;
+}
+
+/** @brief 随包副本目录中的最高等级，供网页单行记录检查形近误读的等级；读不到目录时为 0（不检查）。 */
+int catalogueMaxLevel()
+{
+    static const int maxLevel = [] {
+        int top = 0;
+        for (const DutyNameTemplate &candidate : loadDutyNameTemplates())
+            top = std::max(top, candidate.level);
+        return top;
+    }();
+    return maxLevel;
 }
 
 QString matchedDutyName(const QString &ocrName, int level, const QList<DutyNameTemplate> &templates)
@@ -155,181 +180,12 @@ QString matchedDutyName(const QString &ocrName, int level, const QList<DutyNameT
     return bestName;
 }
 
-bool needsWordSpace(const QString &left, const QString &right)
-{
-    if (left.isEmpty() || right.isEmpty())
-        return false;
-    const QChar last = left.back();
-    const QChar first = right.front();
-    if (isHan(last) || isHan(first) || last.isSpace() || first.isSpace())
-        return false;
-    if (QStringLiteral(".,:;!?，。：；！？)]}）】」》").contains(first)
-        || QStringLiteral("([{（【「《").contains(last))
-        return false;
-    return last.isLetterOrNumber() && first.isLetterOrNumber();
-}
-
-QString joinWords(const QList<Word> &words)
-{
-    QString out;
-    for (const Word &word : words) {
-        if (needsWordSpace(out, word.text))
-            out += QLatin1Char(' ');
-        out += word.text;
-    }
-    return out.trimmed();
-}
-
-void finishLine(Line &line)
-{
-    std::sort(line.words.begin(), line.words.end(), [](const Word &a, const Word &b) {
-        return a.rect.left() < b.rect.left();
-    });
-    line.rect = {};
-    for (const Word &word : std::as_const(line.words))
-        line.rect = line.rect.united(word.rect);
-    line.text = joinWords(line.words);
-}
-
-/** @brief 校验 TSV 数值和坐标，按 OCR 行分组后合并同一物理行的稀疏文字块。 */
-bool readLines(const QByteArray &tsv, const QSize &imageSize, QList<Line> &lines, QString &error)
-{
-    QMap<QString, Line> grouped;
-    const QList<QByteArray> rows = tsv.split('\n');
-    if (rows.isEmpty() || !rows.front().startsWith("level\tpage_num\t")) {
-        error = QStringLiteral("识别输出不是有效的 TSV 表格。");
-        return false;
-    }
-
-    int wordCount = 0;
-    for (qsizetype rowIndex = 1; rowIndex < rows.size(); ++rowIndex) {
-        QByteArray row = rows[rowIndex];
-        if (row.endsWith('\r'))
-            row.chop(1);
-        if (row.trimmed().isEmpty())
-            continue;
-        const QList<QByteArray> columns = row.split('\t');
-        if (columns.size() != 12) {
-            error = QStringLiteral("识别输出的列数不完整。");
-            return false;
-        }
-        bool levelOk = false;
-        const int level = columns[0].toInt(&levelOk);
-        if (!levelOk || level < 1 || level > 5) {
-            error = QStringLiteral("识别输出含无效的文字层级。");
-            return false;
-        }
-        if (level != 5)
-            continue;
-
-        std::array<int, 4> geometry{};
-        for (int i = 0; i < 4; ++i) {
-            bool ok = false;
-            geometry[i] = columns[6 + i].toInt(&ok);
-            if (!ok || geometry[i] < 0) {
-                error = QStringLiteral("识别输出含无效的文字位置。");
-                return false;
-            }
-        }
-        if (geometry[2] == 0 || geometry[3] == 0)
-            continue;
-        if (static_cast<qint64>(geometry[0]) + geometry[2] > imageSize.width()
-            || static_cast<qint64>(geometry[1]) + geometry[3] > imageSize.height()) {
-            error = QStringLiteral("识别坐标与原图尺寸不一致。");
-            return false;
-        }
-        bool confidenceOk = false;
-        const double rawConfidence = columns[10].toDouble(&confidenceOk);
-        if (!confidenceOk || !std::isfinite(rawConfidence)
-            || rawConfidence < -1 || rawConfidence > 100) {
-            error = QStringLiteral("识别输出含无效的文字置信度。");
-            return false;
-        }
-        const QString text = QString::fromUtf8(columns[11]).trimmed();
-        if (text.isEmpty())
-            continue;
-        // A bounded number of words also bounds sorting and image matching work.
-        if (++wordCount > 100'000) {
-            error = QStringLiteral("截图识别的文字量超过上限，请分批导入。");
-            return false;
-        }
-        // Left watermark glyphs are image evidence, not text. Keeping their large
-        // OCR boxes out of physical-row merging prevents them joining body lines.
-        if (geometry[0] < imageSize.width() * 0.16)
-            continue;
-        const QString key = QString::fromLatin1(columns[1] + '/' + columns[2] + '/'
-                                               + columns[3] + '/' + columns[4]);
-        grouped[key].words.append({QRect(geometry[0], geometry[1], geometry[2], geometry[3]),
-                                   text, std::max(0.0, rawConfidence) / 100.0});
-    }
-
-    QList<Line> fragments;
-    fragments.reserve(grouped.size());
-    for (Line &line : grouped) {
-        finishLine(line);
-        fragments.append(std::move(line));
-    }
-    std::sort(fragments.begin(), fragments.end(), [](const Line &a, const Line &b) {
-        if (a.rect.center().y() != b.rect.center().y())
-            return a.rect.center().y() < b.rect.center().y();
-        return a.rect.left() < b.rect.left();
-    });
-    for (const Line &fragment : std::as_const(fragments)) {
-        if (!lines.isEmpty()) {
-            Line &previous = lines.back();
-            const int overlap = std::min(previous.rect.bottom(), fragment.rect.bottom())
-                - std::max(previous.rect.top(), fragment.rect.top()) + 1;
-            if (overlap * 2 >= std::min(previous.rect.height(), fragment.rect.height())) {
-                previous.words.append(fragment.words);
-                previous.rect = previous.rect.united(fragment.rect);
-                continue;
-            }
-        }
-        lines.append(fragment);
-    }
-    for (Line &line : lines)
-        finishLine(line);
-    return true;
-}
-
-const QRegularExpression &sourceTimePattern()
-{
-    static const QRegularExpression expression(QStringLiteral(
-        R"((?<!\d)(\d{4})\s*[-－]\s*(\d{2})\s*[-－]\s*(\d{2})\s+(\d{2})\s*[:：]\s*(\d{2})\s*[:：]\s*(\d{2})(?!\d))"));
-    return expression;
-}
-
-QString sourceTime(const QString &text, bool *valid = nullptr)
-{
-    const QRegularExpressionMatch match = sourceTimePattern().match(text);
-    if (!match.hasMatch()) {
-        if (valid)
-            *valid = false;
-        return {};
-    }
-    const QDate date(match.captured(1).toInt(), match.captured(2).toInt(), match.captured(3).toInt());
-    const QTime time(match.captured(4).toInt(), match.captured(5).toInt(), match.captured(6).toInt());
-    if (valid)
-        *valid = date.isValid() && time.isValid();
-    return match.captured(1) + QLatin1Char('-') + match.captured(2) + QLatin1Char('-')
-        + match.captured(3) + QLatin1Char(' ') + match.captured(4) + QLatin1Char(':')
-        + match.captured(5) + QLatin1Char(':') + match.captured(6);
-}
-
 bool isDeleteWord(const Word &word, int imageWidth)
 {
     const QString text = word.text.trimmed();
     return (text == QLatin1String("X") || text == QLatin1String("x")
             || text == QStringLiteral("×") || text == QStringLiteral("✕"))
         && word.rect.left() >= imageWidth * 0.83;
-}
-
-bool isChromeOrPaging(const QString &text)
-{
-    static const QRegularExpression controls(QStringLiteral(
-        R"((?:dlog\s*\.\s*luyulight\s*\.\s*cn|共\s*\d+\s*条记录|\d+\s*/\s*page|\bof\s*\d+|ICP\s*备|^\s*[<>‹›〈〉]+\s*$))"),
-        QRegularExpression::CaseInsensitiveOption);
-    return controls.match(text).hasMatch();
 }
 
 /** @brief 排除被 OCR 当作字母的蓝色副本图标，保留图标右侧真正的副本名称文字。 */
@@ -348,12 +204,6 @@ bool isBlueIconWord(const Word &word, const QImage &image)
         }
     }
     return count > 0 && static_cast<double>(blue) / count > 0.12;
-}
-
-int colorDistance(QRgb a, QRgb b)
-{
-    return std::max({std::abs(qRed(a) - qRed(b)), std::abs(qGreen(a) - qGreen(b)),
-                     std::abs(qBlue(a) - qBlue(b))});
 }
 
 constexpr std::array<double, 9> kSurfaceSamples{0.08, 0.16, 0.24, 0.34, 0.46,
@@ -470,11 +320,14 @@ QList<JobTemplate> loadJobTemplates()
 }
 
 IconMatch matchIcon(const QImage &image, const QRect &card, int textLeft,
-                    const QList<JobTemplate> &templates)
+                    const QList<JobTemplate> &templates, bool measuredLeft = false)
 {
-    const int iconRight = std::min(card.right(), textLeft - std::max(2, image.width() / 80));
+    const int iconRight = std::min(card.right(), measuredLeft ? textLeft - 2
+                                                              : textLeft - std::max(2, image.width() / 80));
     // Exclude the blurred page background beyond the card's rounded left edge.
-    const int iconLeft = std::max(card.left(), qRound(image.width() * 0.08));
+    // A web row's area already starts past its measured rounded corner, and
+    // its icon lies left of 8 % at every window width.
+    const int iconLeft = measuredLeft ? card.left() : std::max(card.left(), qRound(image.width() * 0.08));
     const int verticalInset = std::max(1, card.height() / 20);
     if (iconRight <= iconLeft || templates.isEmpty() || card.height() <= verticalInset * 2)
         return {};
@@ -524,6 +377,121 @@ void addWarning(QStringList &warnings, const QString &warning)
         warnings.append(warning);
 }
 
+void addEvidenceWarnings(QStringList &warnings, const Evidence &evidence, const IconMatch &icon,
+                         bool dutyPending)
+{
+    if (dutyPending)
+        addWarning(warnings, QStringLiteral("副本名称已按同等级目录预填候选，请与原图核对；原识别文字已保留。"));
+    if (icon.id == 0)
+        addWarning(warnings, QStringLiteral("职业图标未可靠匹配，请核对候选职业或保留未知。"));
+    if (evidence.recordedAt.isEmpty())
+        addWarning(warnings, QStringLiteral("来源记录时间缺失，卡片可能被裁切或遮挡。"));
+    else if (!evidence.timeValid)
+        addWarning(warnings, QStringLiteral("来源记录时间无效，请对照原图修正。"));
+    else
+        addWarning(warnings, QStringLiteral("来源记录时间的时区需在预览中确认，不代表实际游戏时间。"));
+    if (evidence.duty.isEmpty())
+        addWarning(warnings, QStringLiteral("副本名称未识别完整，请对照原图补充。"));
+    if (evidence.level == 0)
+        addWarning(warnings, QStringLiteral("卡片标题识别失败，已按来源时间和边框单独保留，请修正副本信息。"));
+    if (evidence.body.isEmpty())
+        addWarning(warnings, QStringLiteral("未识别到心得正文，请检查原图是否被裁切或遮挡。"));
+    if (evidence.confidence < 0.75)
+        addWarning(warnings, QStringLiteral("文字识别把握较低，请逐项对照原图。"));
+    if (evidence.deletionOverlaps)
+        addWarning(warnings, QStringLiteral("删除按钮可能遮挡正文，请对照原图。"));
+    if (evidence.pagingOverlaps)
+        addWarning(warnings, QStringLiteral("分页或浏览器控件覆盖卡片区域，请对照原图确认未识别内容。"));
+    if (evidence.nearEdge)
+        addWarning(warnings, QStringLiteral("卡片接近截图边缘，可能存在未拍到的内容。"));
+}
+
+QVariantMap candidateMap(const QImage &image, const Evidence &evidence, QStringList warnings,
+                         const QList<JobTemplate> &templates, const QList<DutyNameTemplate> &dutyTemplates,
+                         const QString &sourceImagePath)
+{
+    const IconMatch icon = matchIcon(image, evidence.iconArea, evidence.textLeft, templates,
+                                     evidence.measuredIconLeft);
+    const QString dutyCandidate = evidence.anchoredDutyTitle
+        ? matchedDutyName(evidence.duty, evidence.level, dutyTemplates) : QString();
+    const bool dutyPending = !dutyCandidate.isEmpty() && dutyCandidate != evidence.duty;
+    addEvidenceWarnings(warnings, evidence, icon, dutyPending);
+
+    const QRect &rect = evidence.rect;
+    QVariantMap row;
+    row.insert(QStringLiteral("duty_name"), dutyPending ? dutyCandidate : evidence.duty);
+    row.insert(QStringLiteral("ocr_duty_name"), evidence.duty);
+    row.insert(QStringLiteral("duty_candidate_name"), dutyCandidate);
+    row.insert(QStringLiteral("duty_candidate_pending"), dutyPending);
+    row.insert(QStringLiteral("duty_level"), evidence.level > 0 ? QVariant(evidence.level) : QVariant());
+    row.insert(QStringLiteral("reflection_text"), evidence.body.join(QLatin1Char('\n')));
+    row.insert(QStringLiteral("source_recorded_at"), evidence.recordedAt);
+    row.insert(QStringLiteral("job_id"), icon.id > 0 ? QVariant(icon.id) : QVariant());
+    row.insert(QStringLiteral("source_type"), QStringLiteral("screenshot"));
+    row.insert(QStringLiteral("source_image"), sourceImagePath);
+    row.insert(QStringLiteral("source_rect"), QVariantMap{
+        {QStringLiteral("x"), rect.x()}, {QStringLiteral("y"), rect.y()},
+        {QStringLiteral("width"), rect.width()}, {QStringLiteral("height"), rect.height()}});
+    row.insert(QStringLiteral("ocr_confidence"), evidence.confidence);
+    row.insert(QStringLiteral("icon_confidence"), icon.confidence);
+    row.insert(QStringLiteral("job_candidate_id"), icon.candidateId > 0 ? QVariant(icon.candidateId) : QVariant());
+    row.insert(QStringLiteral("job_candidate_name"), icon.candidateName);
+    row.insert(QStringLiteral("icon_runner_up_id"), icon.runnerUpId > 0 ? QVariant(icon.runnerUpId) : QVariant());
+    row.insert(QStringLiteral("icon_runner_up_name"), icon.runnerUpName);
+    row.insert(QStringLiteral("icon_runner_up_confidence"), icon.runnerUpConfidence);
+    row.insert(QStringLiteral("icon_margin"), icon.confidence - icon.runnerUpConfidence);
+    row.insert(QStringLiteral("needs_review"), true);
+    row.insert(QStringLiteral("warnings"), warnings);
+    return row;
+}
+
+QVariantMap rowCandidate(const QImage &image, const RowRecord &row, const QList<JobTemplate> &templates,
+                         const QList<DutyNameTemplate> &dutyTemplates, const QString &sourceImagePath)
+{
+    QStringList warnings;
+    if (row.recoveredLevelPrefix)
+        addWarning(warnings, QStringLiteral("等级前缀识别不完整，已依据所在行和日期保留，请核对副本标题。"));
+    if (row.misreadLevelDigits)
+        addWarning(warnings, QStringLiteral("等级数字识别不清，已按字形相近的数字读取，请核对等级。"));
+    Evidence evidence;
+    evidence.rect = row.rect;
+    evidence.iconArea = row.iconArea;
+    evidence.measuredIconLeft = true;
+    evidence.textLeft = row.levelRect.left();
+    evidence.duty = joinWords(row.duty);
+    evidence.level = row.level;
+    // 行底色已按等级旁的留白找到，副本名称列由等级与日期列夹定，不依赖图标颜色。
+    evidence.anchoredDutyTitle = true;
+    evidence.recordedAt = row.recordedAt;
+    evidence.timeValid = row.timeValid;
+    evidence.body = row.note;
+    evidence.confidence = row.confidence;
+    evidence.deletionOverlaps = row.deletionOverlaps;
+    evidence.pagingOverlaps = row.pagingOverlaps;
+    evidence.nearEdge = row.rect.top() == 0 || row.rect.bottom() >= image.height() - 1;
+    return candidateMap(image, evidence, warnings, templates, dutyTemplates, sourceImagePath);
+}
+
+/**
+ * @brief 校验输入，读出供手机卡片使用的物理行，并按全部单词找出网页单行记录（其行内文字不再作为
+ * 手机卡片标题或时间锚点）。成功时返回空字符串，否则返回中文原因。
+ */
+QString readInput(const QImage &image, const QByteArray &tsv, QList<Line> &lines, QList<RowRecord> &rows)
+{
+    if (image.isNull() || static_cast<qint64>(image.width()) * image.height() > mr::ScreenshotImportParser::MaxImagePixels)
+        return QStringLiteral("截图为空或超过 5000 万像素上限。");
+    if (tsv.isEmpty() || tsv.size() > mr::ScreenshotImportParser::MaxTsvBytes)
+        return QStringLiteral("识别输出为空或超过 8 MiB 上限。");
+    QList<Line> allLines;
+    QString error;
+    if (!readLines(tsv, image.size(), lines, error, &allLines))
+        return error;
+    rows = rowRecords(image, allLines, catalogueMaxLevel());
+    if (rows.size() > mr::ScreenshotImportParser::MaxCandidates)
+        return QStringLiteral("截图中的记录候选超过 1000 条，请分批导入。");
+    return {};
+}
+
 } // namespace
 
 namespace mr {
@@ -538,23 +506,26 @@ QVariantList ScreenshotImportParser::parse(const QImage &image, const QByteArray
             *error = message;
         return QVariantList{};
     };
-    if (image.isNull() || static_cast<qint64>(image.width()) * image.height() > MaxImagePixels)
-        return fail(QStringLiteral("截图为空或超过 5000 万像素上限。"));
-    if (tsv.isEmpty() || tsv.size() > MaxTsvBytes)
-        return fail(QStringLiteral("识别输出为空或超过 8 MiB 上限。"));
-
     QList<Line> lines;
-    QString parseError;
-    if (!readLines(tsv, image.size(), lines, parseError))
-        return fail(parseError);
+    QList<RowRecord> rows;
+    const QString inputError = readInput(image, tsv, lines, rows);
+    if (!inputError.isEmpty())
+        return fail(inputError);
 
     static const QRegularExpression titlePattern(QStringLiteral(
         R"(^\s*[Ll]\s*[Vv]\s*[.。．:]?\s*(\d{1,3})\s*(.*)$)"));
     static const QRegularExpression missingLevelPrefix(QStringLiteral(
         R"(^\s*[Vv]\s*[.。．]\s*(\d{1,3})\s*(.*)$)"));
+    const auto inRow = [&rows](const Line &line) {
+        return std::any_of(rows.cbegin(), rows.cend(), [&line](const RowRecord &row) {
+            return row.rect.contains(line.rect.center());
+        });
+    };
     QList<Header> headers;
     for (qsizetype i = 0; i < lines.size(); ++i) {
         const Line &line = lines[i];
+        if (inRow(line))
+            continue;
         QList<Word> words;
         QRect blueIcon;
         for (const Word &word : line.words) {
@@ -605,7 +576,7 @@ QVariantList ScreenshotImportParser::parse(const QImage &image, const QByteArray
         headers.append({static_cast<int>(i), match.captured(1).toInt(), duty,
                         words.isEmpty() ? line.rect.left() : words.front().rect.left(), detectedCard,
                         recoveredLevelPrefix, anchoredDutyTitle});
-        if (headers.size() > MaxCandidates)
+        if (rows.size() + headers.size() > MaxCandidates)
             return fail(QStringLiteral("截图中的记录候选超过 1000 条，请分批导入。"));
     }
     // Sparse OCR may miss a visible Lv. header entirely. A full source timestamp
@@ -620,6 +591,8 @@ QVariantList ScreenshotImportParser::parse(const QImage &image, const QByteArray
     }
     for (qsizetype anchor = 0; anchor < timeAnchors.size(); ++anchor) {
         const int i = timeAnchors[anchor];
+        if (inRow(lines[i]))
+            continue;
         const int lower = anchor == 0 ? 0 : lines[timeAnchors[anchor - 1]].rect.bottom() + 1;
         const int upper = anchor + 1 == timeAnchors.size() ? image.height() - 1
             : lines[timeAnchors[anchor + 1]].rect.top() - 1;
@@ -653,13 +626,13 @@ QVariantList ScreenshotImportParser::parse(const QImage &image, const QByteArray
             }
         }
         headers.append({first, 0, {}, left, surface});
-        if (headers.size() > MaxCandidates)
+        if (rows.size() + headers.size() > MaxCandidates)
             return fail(QStringLiteral("截图中的记录候选超过 1000 条，请分批导入。"));
     }
     std::sort(headers.begin(), headers.end(), [](const Header &a, const Header &b) {
         return a.line < b.line;
     });
-    if (headers.isEmpty())
+    if (headers.isEmpty() && rows.isEmpty())
         return fail(QStringLiteral("未找到带 Lv. 副本标题或完整来源时间的记录卡片，请检查截图或改用文件导入。"));
 
     const QList<JobTemplate> templates = loadJobTemplates();
@@ -733,63 +706,46 @@ QVariantList ScreenshotImportParser::parse(const QImage &image, const QByteArray
                 deletionOverlaps |= hasDelete;
             }
         }
-        const double confidence = confidenceWeight == 0 ? 0 : confidenceTotal / confidenceWeight;
-        const IconMatch icon = matchIcon(image, rect, header.left, templates);
-        const QString dutyCandidate = header.anchoredDutyTitle
-            ? matchedDutyName(header.duty, header.level, dutyTemplates) : QString();
-        const bool dutyPending = !dutyCandidate.isEmpty() && dutyCandidate != header.duty;
-        if (dutyPending)
-            addWarning(warnings, QStringLiteral("副本名称已按同等级目录预填候选，请与原图核对；原识别文字已保留。"));
-        if (icon.id == 0)
-            addWarning(warnings, QStringLiteral("职业图标未可靠匹配，请核对候选职业或保留未知。"));
-        if (recordedAt.isEmpty())
-            addWarning(warnings, QStringLiteral("来源记录时间缺失，卡片可能被裁切或遮挡。"));
-        else if (!timeValid)
-            addWarning(warnings, QStringLiteral("来源记录时间无效，请对照原图修正。"));
-        else
-            addWarning(warnings, QStringLiteral("来源记录时间的时区需在预览中确认，不代表实际游戏时间。"));
-        if (header.duty.isEmpty())
-            addWarning(warnings, QStringLiteral("副本名称未识别完整，请对照原图补充。"));
-        if (header.level == 0)
-            addWarning(warnings, QStringLiteral("卡片标题识别失败，已按来源时间和边框单独保留，请修正副本信息。"));
-        if (body.isEmpty())
-            addWarning(warnings, QStringLiteral("未识别到心得正文，请检查原图是否被裁切或遮挡。"));
-        if (confidence < 0.75)
-            addWarning(warnings, QStringLiteral("文字识别把握较低，请逐项对照原图。"));
-        if (deletionOverlaps)
-            addWarning(warnings, QStringLiteral("删除按钮可能遮挡正文，请对照原图。"));
-        if (pagingOverlaps)
-            addWarning(warnings, QStringLiteral("分页或浏览器控件覆盖卡片区域，请对照原图确认未识别内容。"));
-        if (rect.bottom() >= image.height() - 1 || (surfaceFound && rect.top() == 0))
-            addWarning(warnings, QStringLiteral("卡片接近截图边缘，可能存在未拍到的内容。"));
-
-        QVariantMap row;
-        row.insert(QStringLiteral("duty_name"), dutyPending ? dutyCandidate : header.duty);
-        row.insert(QStringLiteral("ocr_duty_name"), header.duty);
-        row.insert(QStringLiteral("duty_candidate_name"), dutyCandidate);
-        row.insert(QStringLiteral("duty_candidate_pending"), dutyPending);
-        row.insert(QStringLiteral("duty_level"), header.level > 0 ? QVariant(header.level) : QVariant());
-        row.insert(QStringLiteral("reflection_text"), body.join(QLatin1Char('\n')));
-        row.insert(QStringLiteral("source_recorded_at"), recordedAt);
-        row.insert(QStringLiteral("job_id"), icon.id > 0 ? QVariant(icon.id) : QVariant());
-        row.insert(QStringLiteral("source_type"), QStringLiteral("screenshot"));
-        row.insert(QStringLiteral("source_image"), sourceImagePath);
-        row.insert(QStringLiteral("source_rect"), QVariantMap{
-            {QStringLiteral("x"), rect.x()}, {QStringLiteral("y"), rect.y()},
-            {QStringLiteral("width"), rect.width()}, {QStringLiteral("height"), rect.height()}});
-        row.insert(QStringLiteral("ocr_confidence"), confidence);
-        row.insert(QStringLiteral("icon_confidence"), icon.confidence);
-        row.insert(QStringLiteral("job_candidate_id"), icon.candidateId > 0 ? QVariant(icon.candidateId) : QVariant());
-        row.insert(QStringLiteral("job_candidate_name"), icon.candidateName);
-        row.insert(QStringLiteral("icon_runner_up_id"), icon.runnerUpId > 0 ? QVariant(icon.runnerUpId) : QVariant());
-        row.insert(QStringLiteral("icon_runner_up_name"), icon.runnerUpName);
-        row.insert(QStringLiteral("icon_runner_up_confidence"), icon.runnerUpConfidence);
-        row.insert(QStringLiteral("icon_margin"), icon.confidence - icon.runnerUpConfidence);
-        row.insert(QStringLiteral("needs_review"), true);
-        row.insert(QStringLiteral("warnings"), warnings);
-        candidates.append(row);
+        Evidence evidence;
+        evidence.rect = rect;
+        evidence.iconArea = rect;
+        evidence.textLeft = header.left;
+        evidence.duty = header.duty;
+        evidence.level = header.level;
+        evidence.anchoredDutyTitle = header.anchoredDutyTitle;
+        evidence.recordedAt = recordedAt;
+        evidence.timeValid = timeValid;
+        evidence.body = body;
+        evidence.confidence = confidenceWeight == 0 ? 0 : confidenceTotal / confidenceWeight;
+        evidence.deletionOverlaps = deletionOverlaps;
+        evidence.pagingOverlaps = pagingOverlaps;
+        evidence.nearEdge = rect.bottom() >= image.height() - 1 || (surfaceFound && rect.top() == 0);
+        candidates.append(candidateMap(image, evidence, warnings, templates, dutyTemplates, sourceImagePath));
     }
+    if (rows.isEmpty())
+        return candidates;
+    for (const RowRecord &row : rows)
+        candidates.append(rowCandidate(image, row, templates, dutyTemplates, sourceImagePath));
+    // Web rows and any card found outside them, top to bottom.
+    std::stable_sort(candidates.begin(), candidates.end(), [](const QVariant &a, const QVariant &b) {
+        return a.toMap().value(QStringLiteral("source_rect")).toMap().value(QStringLiteral("y")).toInt()
+            < b.toMap().value(QStringLiteral("source_rect")).toMap().value(QStringLiteral("y")).toInt();
+    });
     return candidates;
+}
+
+QList<ScreenshotImportParser::RowGeometry> ScreenshotImportParser::rowFields(const QImage &image,
+                                                                               const QByteArray &tsv)
+{
+    QList<Line> lines;
+    QList<RowRecord> rows;
+    if (!readInput(image, tsv, lines, rows).isEmpty())
+        return {};
+    QList<RowGeometry> result;
+    result.reserve(rows.size());
+    for (const RowRecord &row : rows)
+        result.append(rowGeometry(row));
+    return result;
 }
 
 } // namespace mr

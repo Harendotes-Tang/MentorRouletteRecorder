@@ -124,6 +124,10 @@ set(MR_CPP_SOURCES
     cpp/OfflineOcrEngine.h
     cpp/ScreenshotImportParser.cpp
     cpp/ScreenshotImportParser.h
+    cpp/ScreenshotRowLayout.cpp
+    cpp/ScreenshotRowLayout.h
+    cpp/ScreenshotOcrText.cpp
+    cpp/ScreenshotOcrText.h
     cpp/InstallerVerifier.cpp
     cpp/InstallerVerifier.h
     cpp/JobCatalog.cpp
