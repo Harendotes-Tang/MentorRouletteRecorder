@@ -37,7 +37,7 @@
 
 开发机上既未安装 FINAL FANTASY XIV，也未安装 Npcap
 （`LIVE_CAPTURE_STATUS = UNVERIFIED`），因此**不存在**任何合法证据，
-本目录随之为空。此为有意为之，并非遗漏。
+本目录未提供真实档案。这是有意设置的限制，并非遗漏。
 
 ## 贡献档案
 
@@ -48,7 +48,7 @@
 3. [`../../docs/privacy-boundary.md`](../../docs/privacy-boundary.md)：硬边界
 
 档案中只应填写**贡献者亲自在本机观察到并可复现**的常量。`compatibility_status` 先设为 `"CANDIDATE"`（枚举只有 `VERIFIED` / `CANDIDATE` / `UNSUPPORTED` / `SYNTHETIC`，没有 `UNVERIFIED`），
-所有被使用的常量均具备 evidence 之后，方可改为 `"VERIFIED"`。
+所有使用的常量均有对应的 evidence 之后，方可改为 `"VERIFIED"`。
 
 提交时**不要**粘贴原始报文、角色名或任何其他玩家的信息。
 来源不明的 opcode 表不予接受。

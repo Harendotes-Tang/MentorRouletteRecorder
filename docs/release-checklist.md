@@ -49,16 +49,16 @@
 | 1 | Windows x64 能构建出两个可执行文件 | `pwsh -File scripts/build.ps1`（dotnet + CMake/Ninja/Qt） | **PASS** | `src/Collector/bin/x64/Release/net8.0-windows/win-x64/MentorRecorder.Collector.exe`、`build/src/Desktop/MentorRecorder.Desktop.exe` |
 | 2 | 两个可执行文件都能启动 | `package.ps1 -Verify`：解包后运行 `--version`、`--capture-doctor --json`、`--screenshot` | **PASS** | 见第 2 节「打包验证」输出 |
 | 3 | 没有 Npcap 时优雅降级（不崩溃、给指引） | `CaptureControllerTests.RefusesToStart_WithoutNpcap`、`ReportsUnavailable_WhenNpcapIsMissing`；`--capture-doctor` 退出码 1 并打印安装指引 | **PASS** | `artifacts/test-results/MentorRecorder.Collector.UnitTests.trx`；`LifecycleProcessTests.TheVersionAndDoctorModesRunWithoutOpeningAnythingAtAll` |
-| 4 | 合成回放能产出 COMPLETED / LEFT_OR_ABANDONED / CANCELLED_BEFORE_ENTRY / INTERRUPTED / UNKNOWN | `ProtocolDecodedReplayTests`（10 个 decoded 夹具 × 2）、`ReplayIntegrationTests`（10 个语义夹具）、`StateMachineTests.EnteredDuty_FinalOutcomesRemainDistinct` | **PASS** | 两个 TRX；`tests/Fixtures/` |
-| 5 | 同一份夹具回放两次不重复计数 | `ProtocolDecodedReplayTests.ReplayingTheSameFixtureTwiceWritesNothingTheSecondTime`（10 组参数） | **PASS** | 集成 TRX；第二次 `RunsCreated = 0`、`EventsAppended = 0` |
+| 4 | 合成样本重放能产出 COMPLETED / LEFT_OR_ABANDONED / CANCELLED_BEFORE_ENTRY / INTERRUPTED / UNKNOWN | `ProtocolDecodedReplayTests`（10 个 decoded 测试样本 × 2）、`ReplayIntegrationTests`（10 个语义测试样本）、`StateMachineTests.EnteredDuty_FinalOutcomesRemainDistinct` | **PASS** | 两个 TRX；`tests/Fixtures/` |
+| 5 | 同一份测试样本重放两次不重复计数 | `ProtocolDecodedReplayTests.ReplayingTheSameFixtureTwiceWritesNothingTheSecondTime`（10 组参数） | **PASS** | 集成 TRX；第二次 `RunsCreated = 0`、`EventsAppended = 0` |
 | 6 | 成就基线可设置并影响进度 | `MutationTests.UpdateAchievementBaseline_StoresGoalBaselineAndAudit`、`StatisticsAfterMutationTests.BaselineChange_RecomputesProgressAndRemaining`、`PipeServerTests.UpdateAchievementBaseline_IsServedAndIdempotent` | **PASS** | 两个 TRX |
 | 7 | 仪表盘数字与固定数据集一致 | `StatisticsTests.Dashboard_*`（3 项）、`ReplayTests.Replay_ProducesTransitionsFinalRunDatabaseWritesAndStatistics` | **PASS** | 单元 TRX；期望值在测试中独立计算，不取自实现 |
 | 8 | 按副本分组的次数统计 | `PipeServerTests.Statistics_AreServedForEveryTable`（`GetDungeonStats`）、`StatisticsTests.GroupedStats_KeepUnknownJobAndUseDutyFallback` | **PASS** | 两个 TRX |
 | 9 | 各项比率（完成率 / 中途退出率 / 断线率）互不混淆 | `StatisticsTests.Dashboard_KeepsCompletionLeaveAndDisconnectSeparate`、`StatisticsAfterMutationTests.DisconnectedAndInterrupted_AreNeverFoldedIntoTheLeaveRate` | **PASS** | 单元 TRX |
-| 10 | 未知职业进入独立分桶而不是被丢弃 | `StatisticsTests.GroupedStats_KeepUnknownJobAndUseDutyFallback`、`ReferenceCatalogTests.DefaultJobCatalog_MapsKnownAndUnknownJobs` | **PASS** | 单元 TRX |
+| 10 | 未知职业单独分组，不丢弃 | `StatisticsTests.GroupedStats_KeepUnknownJobAndUseDutyFallback`、`ReferenceCatalogTests.DefaultJobCatalog_MapsKnownAndUnknownJobs` | **PASS** | 单元 TRX |
 | 11 | 平均时长只统计有真实时长的记录 | `StatisticsAfterMutationTests.CancelledBeforeEntry_IsNeverAnAttemptAndItsShareIsNull`、`ReplayIntegrationTests.CancelledFixture_HasNoEntryTimeAndNoDuration`、`CompletedFixture_MeasuresDurationFromTheMonotonicReadings` | **PASS** | 两个 TRX |
 | 12 | 手工订正产生可追溯的 revision 链 | `MutationTests`（25 项，含 `CorrectRun_KeepsTheOriginalValuesReachableThroughRevisionOne`、`RunRevisions_RefuseUpdateAndDelete`） | **PASS** | 单元 TRX |
-| 13 | 软删除后统计正确排除，恢复后回到统计 | `StatisticsAfterMutationTests.SoftDeletedRun_LeavesEveryStatistic`、`RestoredRun_ReturnsToEveryStatistic`、`MutationTests.SoftDeleteThenRestore_KeepsTheWholeRevisionChain` | **PASS** | 单元 TRX |
+| 13 | 软删除后从统计中排除，恢复后重新计入 | `StatisticsAfterMutationTests.SoftDeletedRun_LeavesEveryStatistic`、`RestoredRun_ReturnsToEveryStatistic`、`MutationTests.SoftDeleteThenRestore_KeepsTheWholeRevisionChain` | **PASS** | 单元 TRX |
 | 14 | CSV / JSON 导出 | `ExportTests`（12 项，含 RFC 4180 转义、BOM、列顺序、路径越界拒绝） | **PASS** | 单元 TRX |
 | 15 | 图表能渲染 | ctest `MentorRecorderQmlLoad` / `QmlDetailPanel` / `QmlEditDialog` / `QmlBaselineDialog`（offscreen 截图） | **PASS** | `build/tests/Desktop.Tests/qml-*.png`；图表实现在 `src/Desktop/qml/charts/` |
 | 16 | 高 DPI | `main.cpp` 设置 `HighDpiScaleFactorRoundingPolicy::PassThrough`；截图用例在 1280×800 下渲染通过 | **PARTIAL** | `src/Desktop/cpp/main.cpp:158`。**尚未**在缩放大于 100% 的真实显示器上人工核对；offscreen 截图恒为 1.0 倍。逐项步骤见第 8 节「高 DPI 人工核对」，该节待人工执行 |
@@ -67,7 +67,7 @@
 | 19 | 不出现任何被禁 API | `python tools/static-boundary-check/check.py`（`rules.json` 中的全部规则，扫描范围见第 3 节）＋ `selftest.py`（反向用例） | **PASS** | 见第 3 节；规则数、文件数与用例数以当次输出为准 |
 | 20 | 协议档案不可用时 fail-closed（不解析、不记录） | `CaptureControllerTests.RefusesToStart_WhenTheProfileIsNotVerified`、`ProtocolDecodedReplayTests.ABuildMismatchWritesNoRunAndLeavesTheStateMachineUntouched`、`SoakBoundsTests.AFailClosedParserRefusesIndefinitelyWithoutGrowing` | **PASS** | 两个 TRX |
 | 21 | 可追溯性：记录携带协议档案与事件摘要 | 档案侧：`CaptureIpcTests.VerifiedProfileFlowsFromCaptureThroughParserIntoLiveIpcAndStorage` 断言 `protocol_profile_id` / `game_build` / `capture_session_id`。事件侧：`run_events` 表有完整轨迹，`RecoveryEndToEndTests` 直接读它 | **PASS** | 事件轨迹现已可读取：`GetRunEvents` 是契约中的一条只读消息，对应第 5 节缺口 G1，该缺口已关闭 |
-| 22 | `BUILD-METADATA.json` 的状态字段与产物本身一致，不是手写的字面量 | `package.ps1` 从产物自己的 `--capture-doctor --json` 与 `--list-profiles --json` 读出 `live_capture_status` / `packaged_verified_profile_status`，并用 `*_source` 字段写明各自的来源（前者是二进制里的编译期常量，后者是对包内档案的真实检查）；`-Verify` 解包后再问一次并断言一致，`public_distribution_ready = true` 时另查是否记录了 `source_commit`、git 能否读出工作区状态、工作区是否干净、包内是否真有 VERIFIED 档案 | **PASS** | 打包产物中的 `BUILD-METADATA.json`；判据见 §7 |
+| 22 | `BUILD-METADATA.json` 的状态字段与产物本身一致，不是手写的字面量 | `package.ps1` 从产物自己的 `--capture-doctor --json` 与 `--list-profiles --json` 读出 `live_capture_status` / `packaged_verified_profile_status`，并用 `*_source` 字段写明各自的来源（前者是二进制里的编译期常量，后者是对包内档案的真实检查）；`-Verify` 解包后再次查询并断言一致，`public_distribution_ready = true` 时另查是否记录了 `source_commit`、git 能否读出工作区状态、工作区是否干净、包内是否真有 VERIFIED 档案 | **PASS** | 打包产物中的 `BUILD-METADATA.json`；判据见 §7 |
 | 23 | 崩溃后重启：已进入副本的未完结记录变 INTERRUPTED + 待复核（从未进本的记为 CANCELLED_BEFORE_ENTRY + 待复核），重启第二次不再变化 | `RecoveryEndToEndTests.ARunLeftUnfinishedByADeadProcessComesBackAsInterruptedAndPendingReview`（真进程 → 真进程） | **PASS** | 集成 TRX |
 | 24 | 单实例：第二个 `--serve` 非零退出，第一个继续服务 | `LifecycleProcessTests.ASecondServeIsRefusedAndTheFirstKeepsServing` | **PASS** | 集成 TRX |
 | 25 | 长时间运行不泄漏、计数自洽 | `SoakTests.AMixedStreamSustainedForTheWholeDurationLeavesEveryInvariantIntact`（默认 15 s，`MR_SOAK_MINUTES` 可延长） | **PASS** | 见第 4 节实测数字 |
@@ -75,7 +75,7 @@
 | 27 | 发布包不含禁止内容、含齐全许可证材料 | `package.ps1` 的 `Assert-NoForbiddenPayload` + `Assert-RequiredContent`，打包目录与**解包目录**各查一次；另由 `Assert-DesktopExecutable` 在暂存前与解包后核对桌面端内嵌的应用程序清单，并拒绝以开发用 Collector 查找（`MR_DEV_COLLECTOR_DISCOVERY`）编译的程序 | **PASS** | 见第 2 节 |
 | 28 | 桌面端被强杀后不留孤儿 Collector | 桌面端固定以 `--serve --parent-pid <自身 pid>` 拉起子进程；`ParentProcessWatchdog` 用 `Process.GetProcessById` + `WaitForExitAsync`（**进程存在性检查，非 `OpenProcess`**）等父进程结束，随后走与 Ctrl+C 完全相同的停止路径，10 秒硬退出兜底。`LifecycleOrphanTests`（2 项，真进程：杀掉替身父进程后断言 Collector 15 s 内退出、退出码 0、`integrity_check = ok`、无残留未关闭的抓包会话）、`WatchdogTests`（8 项）、Qt `LifecycleTests::theCollectorIsAlwaysToldOurProcessIdSoItCannotBeOrphaned` | **PASS** | 集成 TRX；ctest |
 | 29 | 已发布的 CHANGELOG 段落在打 tag 之后不被改写 | `package.ps1` 的 `Assert-ReleasedChangelogSectionsUnchanged`：对每个 `vX.Y.Z` tag，把工作区 `CHANGELOG.md` 里的 `## [X.Y.Z]` 段落与 `git show <tag>:CHANGELOG.md` 的同名段落比较，标题行（含日期）与正文逐字一致；段落被删除或标题被改名同样算作改动，任一不符即打包失败。新的变更只能写进 `[Unreleased]` 或下一个版本 | **PASS** | 打包脚本；缘由见内部工作文档 `reviews/2026-09-08/fix-status.md` 第 H-9 条，该文档不随仓库分发 |
-| 30 | 软件内下载并安装更新：下载、核对、Windows 的管理员批准提示、本软件退出、安装程序完成更新 | 自动化（不联网）：`UpdateChecksumTests`、`UpdateDownloadServiceTests`、`UpdateDownloadFailureTests`、`UpdateDownloadDiskTests` 与集成测试 `UpdateDownloadIpcTests` 都使用替身传输层；ctest `MentorRecorderUpdateInstall`、`MentorRecorderInstallerHold` 与 `MentorRecorderQmlUpdateDownload_*`，模拟后端从不启动安装程序。真机：在装有旧版本的机器上，待新版本的安装程序及其 `.sha256` 按第 2 节发布后，点「下载并安装」，确认进度推进、「取消」后数据目录 `updates\` 中不留 `.part`；再次下载至「立即安装」，确认安装程序被持有期间 Windows 仍弹出管理员批准提示、安装程序的向导仍能出现；批准提示显示期间，`updates\` 中的安装程序不能被删除或改名；选「否」时本软件继续运行并说明原因，此后该文件可以删除；选「是」时本软件退出、采集服务正常停止、安装程序的向导完成更新；新版本下次启动后 `updates\` 中不再留有已用过的安装程序 | **UNVERIFIED** | 自动化部分见 TRX 与 ctest；真机部分待执行 |
+| 30 | 软件内下载并安装更新：下载、核对、Windows 的管理员批准提示、本软件退出、安装程序完成更新 | 自动化（不联网）：`UpdateChecksumTests`、`UpdateDownloadServiceTests`、`UpdateDownloadFailureTests`、`UpdateDownloadDiskTests` 与集成测试 `UpdateDownloadIpcTests` 都使用替身传输层；ctest `MentorRecorderUpdateInstall`、`MentorRecorderInstallerHold` 与 `MentorRecorderQmlUpdateDownload_*`，模拟后端从不启动安装程序。真机：在装有旧版本的机器上，待新版本的安装程序及其 `.sha256` 按第 2 节发布后，点「下载并安装」，确认下载进度持续更新、「取消」后数据目录 `updates\` 中不留 `.part`；再次下载至「立即安装」，确认安装程序被持有期间 Windows 仍弹出管理员批准提示、安装程序的向导仍能出现；批准提示显示期间，`updates\` 中的安装程序不能被删除或改名；选「否」时本软件继续运行并说明原因，此后该文件可以删除；选「是」时本软件退出、采集服务正常停止、安装程序的向导完成更新；新版本下次启动后 `updates\` 中不再留有已用过的安装程序 | **UNVERIFIED** | 自动化部分见 TRX 与 ctest；真机部分待执行 |
 
 **真机验收须补充的条目**：第 16 项（高 DPI 实机缩放）、第 30 项（软件内下载并安装更新），以及全部与真实抓包相关的行为。
 验收机器既没有 Npcap，也没有安装游戏客户端，相关流程见
@@ -143,7 +143,7 @@ pwsh -NoProfile -File scripts/package.ps1 -Force -Verify
 该资产缺失时，所有用户的检查都只会得到"未找到"并静默降级，界面上不出现任何提示。
 
 安装程序必须以 `MentorRecorder-<版本>-setup.exe` 为名，上传到标签为 `v<版本>` 的发布页：
-「下载并安装」请采集服务下载的、「在浏览器中下载」交给浏览器的，都是
+「下载并安装」由采集服务下载，「在浏览器中下载」由浏览器下载，两者使用的地址都是
 `releases/download/v<版本>/MentorRecorder-<版本>-setup.exe`
 （[privacy-boundary.md](privacy-boundary.md) §8.4、§8.6）。名称或标签不符时，两者都只会得到"未找到"。
 
@@ -197,7 +197,7 @@ OK: <N> self-test case(s) passed; the checker rejects what it must.
 每次运行都在输出末尾列出全部生效的标记、理由与被豁免的命中原文，供评审逐一核查。
 细则见 [`tools/static-boundary-check/README.md`](../tools/static-boundary-check/README.md)。
 
-`selftest.py` 是**反向**测试。仅执行 `check.py` 并通过不能说明任何问题，一个永不匹配的
+`selftest.py` 是**反向**测试。仅凭 `check.py` 通过，无法证明检查器有效：一个永不匹配的
 检查器同样会通过。自测将每一条被禁止的标识符植入临时仓库树，要求检查器报告失败、
 命中正确的规则，并覆盖全部应当扫描的位置（`src/`、`src/Desktop/qml/`、`tests/`、`tools/`、
 `scripts/`、`installer/`、`.github/`、CMake、MSBuild）与全部应当扫描的扩展名；同时确认例外标记
@@ -262,7 +262,7 @@ OK: <N> self-test case(s) passed; the checker rejects what it must.
 | IPv4 字面量 | 点分四段 | `[ip]` |
 | 十六进制串 | 连续 **16 位及以上** | `[hex]` |
 
-五个替换按固定顺序执行，匹配范围宽的先执行；失败方向取**宁可多删**：
+五类替换按固定顺序执行，匹配范围宽的先执行；脱敏有疑义时选择**宁可多删**：
 损失部分上下文是可接受的代价，而留下一个地址是事故。
 
 十六进制串的门槛取 16 位而非 8 位，是一项**刻意的取舍**。本构建将 SHA-256 的短前缀
@@ -331,9 +331,9 @@ Get-Content <解包目录>\BUILD-METADATA.json | ConvertFrom-Json |
 > 真正可能与事实不符、也真正起到阻断作用的是第 3 至 6 条。
 > 阻断原因 `public_distribution_blockers` 与控制台输出对前两条均标注「编译期常量」。
 
-`package.ps1 -Verify` 会**回头核对**这份声明：解包之后再次查询产物本身，
+`package.ps1 -Verify` 会**再次核对**这份声明：解包之后再次查询产物本身，
 `live_capture_status` 与 `packaged_verified_profile_status` 必须与元数据中的记录一致。
-前者的比对证明元数据与解包出来的可执行文件出自同一次构建，即同一个常量与自身对齐，
+前者的比对证明元数据与解包出来的可执行文件出自同一次构建，即两处记录的同一个常量一致，
 **不**证明抓包经过实测。若元数据声称 `public_distribution_ready = true`，
 而下列任一情况成立，**打包直接失败**：元数据记录的工作区为 dirty、元数据没有记录 `source_commit`、
 此时 git 无法读出工作区状态、打包之后工作区又出现了未提交改动、包内没有 VERIFIED 档案，
@@ -349,7 +349,7 @@ Get-Content <解包目录>\BUILD-METADATA.json | ConvertFrom-Json |
 代码侧已经成立、无须重测的部分：`src/Desktop/cpp/main.cpp:320-321` 设置
 `Qt::HighDpiScaleFactorRoundingPolicy::PassThrough`；`:316-318` 仅在用户设置了非 100 的
 界面缩放，且 `QT_SCALE_FACTOR` 未被外部指定时才写入该变量。
-待确认的是**布局在放大后是否仍然成立**。
+待确认的是**布局在放大后是否仍能正常显示和操作**。
 
 ### 8.1 怎么跑
 
@@ -368,7 +368,7 @@ Get-Content <解包目录>\BUILD-METADATA.json | ConvertFrom-Json |
 | 页面 | 必须确认 |
 |---|---|
 | 仪表盘 `DashboardPage` | 指标卡片不换行成孤行、数字不被截断、图表坐标轴标签不重叠 |
-| 副本 `DungeonsPage` | 表格列宽不塌缩、表头与内容仍对齐、横向滚动条该出现时出现 |
+| 副本 `DungeonsPage` | 表格列宽不被过度压缩、表头与内容仍对齐、横向滚动条该出现时出现 |
 | 职业 `JobsPage` | 分组标签与“未知职业”分桶均完整可见 |
 | 历史 `HistoryPage` | 分页控件不被挤出视口、行高一致、详情面板能完整展开 |
 | 抓包 `CapturePage` | 五个标记按钮全部可见且可点（不被裁掉第五个）、状态文案不省略、SHA-256 与路径那一栏仍是等宽且不溢出 |
@@ -381,13 +381,13 @@ Get-Content <解包目录>\BUILD-METADATA.json | ConvertFrom-Json |
 - 对话框整体不超出屏幕，标题栏与按钮行均位于可视区内；
 - 确认与取消按钮始终可达，不被内容挤出视口，该条在放大后最容易失效；
 - 内容超长时由对话框内部滚动，而不是将按钮推出视口；
-- 键盘 Tab 序完整可遍历，焦点环清晰可见。
+- 键盘 Tab 键可依次访问所有控件，焦点环清晰可见。
 
 ### 8.4 判定
 
 - 全部无异常：第 1 节第 16 项改为 **PASS**，第 5 节 G5 关闭，并在本节记录实测机器、
   分辨率与三档缩放的截图路径。
-- 出现布局破裂：记录页面或对话框、缩放档位与具体现象，修改 `src/Desktop/qml/Theme.qml`
+- 出现布局异常：记录页面或对话框、缩放档位与具体现象，修改 `src/Desktop/qml/Theme.qml`
   与对应页面后重新执行本节。**在此之前，第 16 项必须保持 PARTIAL，不得标注 PASS。**
 
 ## 9. 分支模型与版本号 / Branches and versions
@@ -401,7 +401,7 @@ Get-Content <解包目录>\BUILD-METADATA.json | ConvertFrom-Json |
 | 分支 | 内容 | 规则 |
 |---|---|---|
 | `main` | 只包含已发布的提交 | 每个发布提交都带一个 `vX.Y.Z` tag；不在其上直接开发 |
-| `dev` | 集成分支 | 功能分支与工作区（worktree）合入此处；测试包从此处切出 |
+| `dev` | 集成分支 | 功能分支与工作树（worktree）合入此处；测试包从此处切出 |
 
 功能分支与工作区一律以 `dev` 为基线，并合回 `dev`；Pull Request 的目标分支是 `dev`
 （见 [CONTRIBUTING.md](../CONTRIBUTING.md)）。CI 对 `main` 与 `dev` 的推送、以及以二者为

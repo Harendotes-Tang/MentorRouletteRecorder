@@ -22,7 +22,7 @@ roulette id 来源，也没有内置指导者 id，因此必须通过 `--roulett
 
 本工具输出两个新文件。任一目标文件已存在时拒绝覆盖：
 
-- `field-candidates.md`：每个 byte offset 的常量、递增、变化分类，以及 roulette 字段候选的偏移、类型、样本支持数。
+- `field-candidates.md`：每个字节偏移的常量、递增、变化分类，以及 roulette 字段候选的偏移、类型、样本支持数。
 - `candidate-messages.json`：独立草稿容器，包含 `messages`、全部 `message_candidates`、对应的 `field_candidates` 证据和分组分析。
   `compatibility_status` 恒为 `CANDIDATE`，`mentor_roulette_id` 恒为 `null`。该文件不是可直接加载的完整协议档案。
 
@@ -33,7 +33,7 @@ UNC/URL 路径以及仓库 `protocol-profiles` 内的输出一律拒绝。输入
 ## 分组和支持数
 
 分组键为 `profile_id / hypothesis_name / opcode / direction / payload_length`。不同档案版本、负载长度和方向的样本不会混用。
-同一 observation id 只计一次；重复 id 的内容若冲突，则拒绝输入。单个独立样本只能标记为 `insufficient`，不足以推导字段。
+同一 observation id 仅计为一个样本；重复 id 的内容若冲突，则拒绝输入。单个独立样本只能标记为 `insufficient`，不足以推导字段。
 `payload_hex` 缺失或为 null 的观测，以及 `ZONE_LOAD` 推断锚点，均跳过并计数。
 
 - `constant`：至少两个独立样本在该字节相等。
@@ -41,10 +41,10 @@ UNC/URL 路径以及仓库 `protocol-profiles` 内的输出一律拒绝。输入
   各连接独立排序。单例连接不产生比较；相同时间戳、字节回绕与数值下降均不判定为递增。
 - `random`：有变化但未满足上述条件，**不证明数据随机性**。
 
-字段候选只使用维护者明确指定弹窗 hypothesis 的有负载、`CORRECT` 样本。
+字段候选只使用维护者明确指定的弹窗 hypothesis 下，具有负载且标记为 `CORRECT` 的样本。
 扫描 little-endian `u8` / `u16` / `u32`；同一偏移和宽度至少在两个不同 observation id 中等于输入值才进入备选。
 `WRONG`、`UNSURE`、未核对和其他 hypothesis 不提供支持。
-部分匹配可能来自不同随机任务，也可能出于巧合。报告同时列出匹配数和 CORRECT 样本总数，不足以据此认定字段语义。
+部分匹配可能来自不同随机任务，也可能出于巧合。报告同时列出匹配数和 CORRECT 样本总数；这些数量本身不足以确认字段语义。
 
 偏移、宽度或分组存在歧义时，`messages` 为空。`message_candidates` 中每个元素都独立符合真实 profile schema 的
 message/field 结构，可由维护者单独复制；其序号对应 `field_candidates` 的档案身份和支持信息。

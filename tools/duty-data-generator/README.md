@@ -23,7 +23,7 @@ python tools/duty-data-generator/test_generate.py            # 离线单元测�
 | `--add-party-size <file>…` | — | 不生成新版本，只为这些已有文件逐行补写 `party_size`（置于 `level` 之后），行顺序与其余字段逐字不变；按各文件记录的 `xivapi_game_version` 抓取，来源记入 `provenance.party_size`。任一步骤失败均不写文件 |
 
 一次运行**同时**写出 `global.<version>.json` 与 `cn.<version>.json`。
-两者共用同一次 XIVAPI 抓取，仅取名所用的列不同。
+两者共用同一次 XIVAPI 抓取，仅名称所用的列不同。
 
 ## 数据来源与字段
 
@@ -50,12 +50,12 @@ User-Agent 固定为 `MentorRecorder-duty-data-generator/1.0 (+local, no telemet
 1. 执行一次 `--dry-run`，核对行数与上一版的差异。差异过大通常意味着上游结构变更；
 2. `python tools/duty-data-generator/generate.py --version <新的 UTC 日期>`；
 3. 新文件与旧文件**并列保留**，不得删除旧文件。`DutyCatalog` 采用最新版本，
-   并以更旧的版本**补空**，使新表中已删除的 `content_id` 仍可查到名称；
+   并用更旧的版本**补充缺失项**，使新表中已删除的 `content_id` 仍可查到名称；
 4. `provenance.xivapi_game_version` 记录 XIVAPI 报告的游戏版本串，用于事后核对。
 
 CSV 的 `Name` 列**按列名定位**。上游表头变更时，生成器**报错退出**，退出码为 1，
 不会将各值整体错位一列，现有文件保持原样。
-XIVAPI 侧的链接字段为软失败：取不到时写 `null` / `UNKNOWN` / `其他`，不作猜测。
+XIVAPI 侧的链接字段允许缺失：取不到时写 `null` / `UNKNOWN` / `其他`，不作猜测。
 因此更新版本后应检查 `duty_category` 中 `其他` 的数量是否异常增长。
 
 ## 不做的事项
@@ -87,7 +87,7 @@ XIVAPI 侧的链接字段为软失败：取不到时写 `null` / `UNKNOWN` / `�
 ## 离线测试
 
 `sample/` 下为一份**人为缩小的**样例，包含 4 行 XIVAPI 数据（其中两行带人数）与 4 行 CSV 数据。
-`test_generate.py` 仅使用该样例，因此可以在完全没有外网的 CI 上运行：
+`test_generate.py` 仅使用该样例，因此可以在完全无法访问外网的 CI 上运行：
 
 ```bash
 python tools/duty-data-generator/test_generate.py
@@ -97,5 +97,5 @@ python tools/duty-data-generator/test_generate.py
 英文与中文两种本地化的行筛选、分类映射与未映射回落、
 `territory_id` / `expansion` / `level` 的透传、`party_size` 的计算与缺失时的 `null`、
 `--add-party-size` 只增加一个字段且不改变行序、排序稳定性、`provenance` 组装、
-`--dry-run` 不写任何文件（以假的下载函数驱动，不保存原始下载、不留临时目录）、`--raw-dir` 或系统临时目录位于仓库内时拒绝运行。
+`--dry-run` 不写任何文件（使用模拟下载函数，不保存原始下载、不留临时目录）、`--raw-dir` 或系统临时目录位于仓库内时拒绝运行。
 另有一条测试读取随包的 `data/duties/*.2026-09-04.json`，确认随机任务涉及的各类行均带有人数。

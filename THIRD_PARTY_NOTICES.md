@@ -32,7 +32,7 @@ SharpPcap 的只读 Npcap 入口交付。本软件不使用 Raw Socket，也不�
 实际使用的模块：Qt Core、Qt Gui、Qt Qml、Qt Quick、Qt Quick Controls、
 **Qt Graphs**（GPLv3-only）、Qt TextToSpeech、Qt Multimedia、Qt Svg。
 
-Qt Multimedia（LGPL-3.0）仅用于播放在线语音取回的 WAV 读音（`QSoundEffect`）。
+Qt Multimedia（LGPL-3.0）仅用于播放在线语音返回的 WAV 音频（`QSoundEffect`）。
 发行包仅包含其 Windows 多媒体后端（`multimedia\windowsmediaplugin.dll`，使用 Windows
 自带的 Media Foundation），**不包含** FFmpeg 后端与 FFmpeg 库（`avcodec` / `avformat` /
 `avutil` / `swresample` / `swscale`）。发行包中一旦出现上述文件，`scripts/package.ps1` 即判定失败。
@@ -53,7 +53,7 @@ GCC Runtime Library Exception 3.1 分发（`docs/licenses/GCC-RUNTIME-LIBRARY-EX
 随包的 `ocr/` 使用 UB Mannheim 第三方 Windows 构建 **Tesseract
 5.4.0.20240606**（Apache-2.0），以及官方 `tessdata_fast` 的简体中文/英文模型
 （Apache-2.0，固定提交 `87416418657359cb625c412a48b6e1d6d41c29bd`）。
-发行包只提取识别所需的 PE 依赖闭包，不包含训练工具。运行时不下载模型、不上传截图。
+发行包只提取识别程序所需的完整 PE 依赖，不包含训练工具。运行时不下载模型、不上传截图。
 来源、逐文件哈希、每个 DLL 的组件归属和许可证见随包的
 `ocr/OCR-DEPENDENCIES.json`；完整许可证和上游版权声明位于 `ocr/licenses/`
 （源码副本位于 `docs/licenses/ocr/`）。
@@ -184,7 +184,7 @@ FINAL FANTASY XIV 是 SQUARE ENIX CO., LTD. 的商标。
 ## 代码来源声明
 
 - 本项目**未从任何 AGPL-3.0 项目复制代码或资源**。
-- 本项目未逐行搬运任何第三方实现。对上游行为的了解来自其公开源码与文档，
+- 本项目未逐行复制任何第三方实现。对上游行为的了解来自其公开源码与文档，
   引用地址已记录在 [`docs/third-party-licenses.md`](docs/third-party-licenses.md) §8。
 - `data/duties/`、`data/jobs/` 中的 id ↔ 名称映射为本项目自行整理的公开信息，
   每个文件需注明来源；**不复制游戏数据文件**。

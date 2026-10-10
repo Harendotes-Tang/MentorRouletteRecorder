@@ -54,7 +54,7 @@ migrations/
 ## schema 7 → 8
 
 `ZONE_TERRITORY` 的字段偏移尚未在副本内负载上核实。此前 `SetDuty` 会把由 `territory_id`
-反查出来的 `content_id` 写进统计聚合列，一个错误的偏移足以污染副本统计。0008 仅为
+反查出来的 `content_id` 写进统计聚合列，偏移错误可能导致副本统计失真。0008 仅为
 `mentor_runs` 增加一列 `duty_source TEXT NULL`，取值受
 `CHECK (duty_source IS NULL OR duty_source IN ('CONTENT_ID', 'TERRITORY', 'MANUAL'))` 约束。
 
@@ -66,7 +66,7 @@ migrations/
 | `NULL` | 这条记录尚无任何副本身份，或为 0008 之前写入的历史行 |
 
 该迁移只增一列，不改动 0001–0007 及其 checksum，也不重建任何表。新增列**不出现在 IPC
-线格式上**，`$defs/Run` 未变，仅作为本机数据库中的来源标注供维护者核对。字段语义见
+传输格式中**，`$defs/Run` 未变，仅作为本机数据库中的来源标注供维护者核对。字段语义见
 [`../docs/data-model.md`](../docs/data-model.md) §1。
 
 ## `schema_migrations` 表

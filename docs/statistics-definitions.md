@@ -3,13 +3,13 @@
 > 本文件中的口径是**固定的**。任何实现、UI 文案与导出结果都必须与此一致。
 > 若将来需要调整，必须先修改本文件并同步修改契约与测试，不允许在实现中就地变通。
 
-本文件定义本软件全部统计指标的计算口径，包括候选集合的过滤前提、各项计数与比率的公式，
+本文件定义本软件全部统计指标的计算口径，包括待统计记录的过滤条件、各项计数与比率的公式，
 以及必须覆盖的边界用例。桌面端、采集服务与导出功能均以本文件为唯一依据，
 供实现者与审阅者查阅。
 
 ## 0. 通用过滤前提
 
-除非另有说明，所有统计的候选集合都先满足：
+除非另有说明，所有待统计记录都须先满足：
 
 ```sql
 soft_deleted = 0
@@ -45,8 +45,8 @@ NOT (source = 'AUTO_NETWORK' AND result = 'UNKNOWN' AND ended_at_utc IS NULL AND
 
 不满足上述条件的记录不进入任何统计。
 
-本人导入记录的显式导随标记保存在 `run_import_metadata.mentor_confirmed`；旧导入记录仍可由
-`mentor_roulette_id` 确认。带来源元数据且仍待复核、结果未知或缺必要游戏端点的 IMPORT 暂不进入统计，
+导入本人记录时的显式导随标记保存在 `run_import_metadata.mentor_confirmed`；旧导入记录仍可由
+`mentor_roulette_id` 确认。带来源元数据且仍待复核、结果未知或缺少必要游戏时间字段的 IMPORT 暂不进入统计，
 即使预览使用默认通关也不例外。补齐并确认后按下列规则计数；未知耗时只影响平均耗时，不取消已确认的通关。
 
 ## 2. 尝试次数 `attempt_count`
@@ -91,13 +91,13 @@ achievement_progress =
 - `baseline_completed_count` 是用户自行申报的、开始使用本软件之前已完成的次数，
   经 `UpdateAchievementBaseline` 设置。该消息必须携带 `reason`；目标或基数有变化时写入审计。
   目标与基数都与已保存的相同时不算修改：不写入设置与审计，也不发布 `stats_invalidated`，应答给出已保存的值。
-- 满足上述条件的已记录完成**全部**叠加在基数之上，不论何时结束（缺少结束时间的记录同样计入），
+- 满足上述条件的已记录通关次数**全部**叠加在基数之上，不论何时结束（缺少结束时间的记录同样计入），
   也不论基数何时填写、修改过几次。
 - **导入历史记录时可以从基数中扣除。**基数是安装前游戏成就面板显示的完成数，用表格或截图导入的那段历史
   通常已经在其中；若再按本节口径叠加，就会被计两次。`CommitRunImport` 带 `deduct_from_baseline = true` 时，
   采集服务在同一事务内统计本次**新写入**的记录中满足本节条件（确认为导随、`result = COMPLETED`、
   `contributes_to_goal = 1`、非待补充）的条数，从 `baseline_completed_count` 中扣除同样多的次数，
-  最低扣到 0，并以提交的 `request_id` 写入一条基数修改记录（原因写明导入条数）。重复与冲突的行没有写入，
+  最低减至 0，并以提交的 `request_id` 写入一条基数修改记录（原因写明导入条数）。重复与冲突的行没有写入，
   不参与扣除；之后这些记录照常按本节叠加，因此进度不变、`completed_count` 增加。不带该字段时基数不动。
   桌面端只在已保存的基数大于 0 且勾选的记录会计入进度时询问「是否已包含在基数中」，备份与原生 JSON 默认「未包含」，
   表格、粘贴与截图默认「已包含」；扣除多少以采集服务的统计为准，不以桌面端的预估为准。
@@ -106,7 +106,7 @@ achievement_progress =
   （只修改目标值，或重新填入同一个数），保留原有的时间，请求中的值不被采用。
   存储的值、审计记录与应答中的 `baseline_effective_at` 都是实际保留的那一个。
 - `UpdateAchievementBaseline` 校验「基数 + 已记录完成」是否超出 Int32 时，使用与本节完全相同的口径
-  （`CountContributingCompleted`），同样计入全部满足上述条件的已记录完成，不论何时结束。
+  （`CountContributingCompleted`），同样计入全部满足上述条件的已记录通关次数，不论何时结束。
 - 记录被用户取消勾选 `contributes_to_goal` 后**不计入进度**，但**仍计入**
   `attempt_count` 与 `completed_count`，因为它仍然是一次真实的完成。
 - `pending_review` 不参与本口径：结果为 `COMPLETED` 而待复核的记录（例如生成它的校准事后被撤下，见 §12）
@@ -144,11 +144,11 @@ leave_rate = null                                                  (attempt_coun
 > 自我评价。UI 上这三类必须各自成行，并可单独查看。
 >
 > `DISCONNECTED` 一行由真实链路产生：进本之后，最后一条仍在投递解码消息的游戏连接收到 FIN/RST、
-> 同一连接上出现新的握手，或在持续约 1 秒的读数中都不再出现于系统连接表，而游戏进程仍在运行时，
+> 同一连接上出现新的握手，或持续约 1 秒的监测结果均表明该连接已从系统连接表中消失，而游戏进程仍在运行时，
 > 即产生该结果（见 [state-machine.md](state-machine.md) §3.6）。仍有其他连接在投递消息时（例如只有聊天服务器的
-> 连接断开重连），不产生该结果；连接的单个方向被放弃也不产生该结果，它何时使记录按丢失观测收尾为 `INTERRUPTED`
+> 连接断开重连），不产生该结果。连接的单个方向被放弃也不产生该结果；此时记录在什么条件下会因观测丢失而收尾为 `INTERRUPTED`，
 > 见同一文件 §3.7 与 §7.5。
-> 此前该结果没有任何生产者，该行恒为 0，掉线只会归入 `INTERRUPTED` 或 `UNKNOWN`。
+> 此前没有任何路径会生成该结果，该行恒为 0，掉线只会归入 `INTERRUPTED` 或 `UNKNOWN`。
 
 ## 8. 平均时长 `avg_duration_ms`
 
@@ -170,11 +170,11 @@ avg_duration_ms = AVG(duration_ms) WHERE
 
 - **只统计 `COMPLETED`**，未完成的副本时长不具可比性。
 - 时间必须合法，即非空且顺序正确，同时 `duration_ms >= 0`。
-- `duration_ms` 来自单调时钟。统计时不允许以 `ended - entered` 现算来补齐缺失值，
+- `duration_ms` 来自单调时钟。统计时不允许通过 `ended - entered` 临时计算并补齐缺失值，
   缺失的记录一律排除。
-- 由国服通关结算自动收尾的记录，时长取到收到结算为止；由用户把 `UNKNOWN` 确认为通关的记录，
-  时长仍取到离开副本为止（[state-machine.md](state-machine.md) §3.4.1）。两者都是 `COMPLETED`，一并计入平均，
-  口径不变。
+- 由国服通关结算自动收尾的记录，时长计算至收到结算时；由用户把 `UNKNOWN` 确认为通关的记录，
+  时长仍计算至离开副本时（[state-machine.md](state-machine.md) §3.4.1）。两者都是 `COMPLETED`，均计入平均时长，
+  统计口径不变。
 
 ## 9. 结果分布 `GetResultStats`
 
@@ -200,13 +200,13 @@ avg_duration_ms = AVG(duration_ms) WHERE
   （见 [state-machine.md](state-machine.md) §3.11 与 [data-model.md](data-model.md) §1.4）。
   若仍只按 `content_id` 聚合，仅按区域识别出的副本会全部并入"未知副本"一行；
   若按原始 `territory_id` 聚合，同一副本会因识别方式不同而出现两行。
-- 按区域唯一反查得到的那一组在 IPC 上回报副本表给出的 **`content_id`**（这是副本表的事实，
-  不是采集观测，记录本身仍不写入）；区域对应多个副本的那一组回报 **`content_id: null`**，
-  名称取自 `DutyCatalog.FindByTerritory` 的并列打破结果。
+- 按区域唯一反查得到的那一组在 IPC 中返回副本表给出的 **`content_id`**（这是副本表的事实，
+  不是采集观测，记录本身仍不写入）；区域对应多个副本的那一组返回 **`content_id: null`**，
+  名称取自 `DutyCatalog.FindByTerritory` 在并列项中选出的结果。
 - 与此对应，`content_id` 筛选（`RunFilter.content_id`，用于 `QueryRuns` 与各统计的 `filter`）
   同时命中 `content_id` 相符的记录，以及 `content_id` 为 NULL 而 `territory_id` 唯一对应该副本的记录，
   因此从副本统计点进历史列表看到的记录集与统计行一致（`RunFilterSql.AddContentIds`）。
-  回报 `content_id: null` 的行（「未知副本」与同一区域对应多个副本的行）没有可用于筛选的副本标识，
+  返回 `content_id: null` 的行（「未知副本」与同一区域对应多个副本的行）没有可用于筛选的副本标识，
   桌面端点击这类行时不跳转，只提示历史记录无法单独列出它们；职业统计中 `job_id` 为空的行同理。
 - `content_id` 与 `territory_id` **均**为 NULL 的记录聚成**一行**，
   `content_id = null`，`duty_name = "未知副本"`。用户把副本更正为「未知副本」时，
@@ -215,7 +215,7 @@ avg_duration_ms = AVG(duration_ms) WHERE
 - 每行输出 `attempt_count`、`completed_count`、`completion_rate`、`avg_duration_ms`，
   口径与上文完全一致，仅将候选集限制在该组之内。
 - `duty_name` 取该组下最近一次非空的名称，查不到时回退到 `data/duties/` 映射表。
-- 排序依次按 `attempt_count` 降序、`content_id`，最后以 `duty_name` 做稳定的并列打破，
+- 排序依次按 `attempt_count` 降序、`content_id`，最后以 `duty_name` 确定并列项的稳定顺序，
   否则两组 `content_id = null` 的行顺序不确定。
 
 ## 11. 职业统计 `GetJobStats`
@@ -241,7 +241,7 @@ avg_duration_ms = AVG(duration_ms) WHERE
 | `leave_rate` | §7 |
 | `avg_duration_ms` | §8 |
 | `result_breakdown` | §9 |
-| `unfinished_pending_review` | 现有正式数据与未删除过滤范围内 `pending_review = 1` 的条数（见下） |
+| `unfinished_pending_review` | 正式记录中满足未删除条件及当前筛选、且 `pending_review = 1` 的条数（见下） |
 | `trend` | §12.1 |
 
 `unfinished_pending_review` 的口径是 `pending_review` 标志本身，而非
@@ -264,8 +264,8 @@ avg_duration_ms = AVG(duration_ms) WHERE
   此类记录的 `entered_at_utc` 为 `NULL`，因此**不计入 attempt**，也不进入完成率分母，
   只增加一条待复核；
 - 纯自动写入时结果为 `COMPLETED`、但进入或结束时刻缺失的记录。此类记录改记为
-  `UNKNOWN` + `LOW` 并交付复核，而不是将自相矛盾的行原样写入；
-- 共享校准被撤回或被本机流量证伪而撤下时，这份校准开始记录之后生成的记录；本机校准被本机流量
+  `UNKNOWN` + `LOW` 并交由用户复核，而不是将自相矛盾的行原样写入；
+- 共享校准被撤回或被本机流量证伪而撤下时，开始使用这份校准之后生成的记录；本机校准被本机流量
   证伪而撤下时，它生成的记录。这类记录只经一条系统修订加上待复核标志，结果与其他字段不变，
   用户已经作出决定的字段照常受人工字段保护。
 
@@ -293,9 +293,9 @@ avg_duration_ms = AVG(duration_ms) WHERE
 - 调用方提供的 `RunFilter` 在此基础上叠加，再与最近 N 个桶的窗口取交集。
 - **空桶必须显式出现**，其 `completed_count = 0`。序列长度恒等于上表的桶数，不允许压缩。
 
-### 时区：桶在服务端按 UTC 划，标签在客户端按本地时区显示
+### 时区：桶在服务端按 UTC 划分，标签在客户端按本地时区显示
 
-这是一项**刻意的**设计选择，在此记录是因为它会被反复质疑。
+这是一项**有意采用的**设计选择，以下说明其理由与限制。
 
 - **桶边界按 UTC 划分。** 同一个采集服务在回答两个不同时区客户端的同一问题时，
   必须给出同一条序列。若按本地时区分桶，序列会随提问方而变化，导出的 CSV 与截图
@@ -347,4 +347,4 @@ avg_duration_ms = AVG(duration_ms) WHERE
 - 比率以 `[0, 1]` 区间内的浮点数经 IPC 传输，由 UI 负责格式化为百分比，默认保留一位小数。
 - 平均时长以毫秒数传输，由 UI 格式化为 `mm:ss` 或 `hh:mm:ss`。
 - 计数为整数，永不为负。
-- `null` 一律显示为 `—`，并在 tooltip 中说明"样本不足"。
+- `null` 一律显示为 `—`，并在悬停提示中说明"样本不足"。

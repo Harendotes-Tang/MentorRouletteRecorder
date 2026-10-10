@@ -1,6 +1,6 @@
-# 固件重放 / Fixture Replay
+# 测试样本重放 / Fixture Replay
 
-本工具以离线固件驱动解析器与状态机。本文面向用重放验证解析与判定逻辑的维护者。
+本工具以离线测试样本驱动解析器与状态机。本文面向用重放验证解析与判定逻辑的维护者。
 运行重放**不需要游戏、不需要 Npcap、不需要真实 opcode**，
 可确定性地覆盖 [`../../docs/state-machine.md`](../../docs/state-machine.md)
 中的全部状态迁移，以及
@@ -13,12 +13,12 @@
 
 |  | `--replay` | `--replay-decoded` |
 |---|---|---|
-| 输入 | **语义事件**固件 `tests/Fixtures/*.fixture.json` | **解码报文**固件 `tests/Fixtures/decoded/*.decoded.json` |
-| 固件里是什么 | `kind` + 字段（`roulette_id` / `victory` / …） | `opcode` + `payload_hex` 字节 |
+| 输入 | **语义事件**测试样本 `tests/Fixtures/*.fixture.json` | **解码报文**测试样本 `tests/Fixtures/decoded/*.decoded.json` |
+| 测试样本里是什么 | `kind` + 字段（`roulette_id` / `victory` / …） | `opcode` + `payload_hex` 字节 |
 | 跳过了什么 | 抓包**和**协议解析 | 只跳过抓包 |
 | 走的真实代码 | 状态机 → `SemanticEventProcessor` → SQLite | `ProfileMessageParser` → 状态机 → `SemanticEventProcessor` → SQLite |
-| 需要协议档案吗 | 不需要（档案由固件的 `profile` 段**声明**） | 需要，`--profile`；省略时按固件的 `profile` 字段在已安装的 `protocol-profiles/` 里查找 |
-| 覆盖的是 | 判定规则 | 字节 → 语义事件的解析规则，以及它与判定的接线 |
+| 需要协议档案吗 | 不需要（档案由测试样本的 `profile` 段**声明**） | 需要，`--profile`；省略时按测试样本的 `profile` 字段在已安装的 `protocol-profiles/` 里查找 |
+| 覆盖的是 | 判定规则 | 字节 → 语义事件的解析规则，以及解析结果与判定逻辑的衔接 |
 
 ```
 MentorRecorder.Collector.exe --replay <fixture.json> [--db <path>]
@@ -36,8 +36,8 @@ MentorRecorder.Collector.exe --replay-decoded <fixture.decoded.json> [--profile 
 ## 为什么可行
 
 状态机被设计为单线程、无 I/O 的纯逻辑：输入是有序的语义事件序列，时间由事件携带，
-输出是状态迁移与一组**待宿主执行的命令**（建记录、记进入、记职业、收尾、追加事件、
-记解析拒绝）。它不访问数据库，也不读取时钟。
+输出是状态迁移与一组**待宿主执行的命令**（创建记录、记录进入副本与职业、收尾、追加事件、
+记录解析拒绝）。它不访问数据库，也不读取时钟。
 
 解析器同理：`ProfileMessageParser` 中**没有任何 opcode，也没有任何偏移**，
 其读取内容全部来自 `ProtocolProfile`。唯一的例外是国服的通关结算：它与 opcode 无关，
@@ -45,8 +45,8 @@ MentorRecorder.Collector.exe --replay-decoded <fixture.decoded.json> [--profile 
 （见 [`../../docs/protocol-profile-format.md`](../../docs/protocol-profile-format.md) §12）。
 
 因此两个重放器可以把同一批命令交给**真实**的 SQLite 写入层 `SemanticEventProcessor`，
-活体抓包使用的也是该组件，从而得到与线上完全一致的写入行为。
-若重放另有一套持久化规则，固件通过便不再能证明活体抓包具有同样的行为。
+实时抓包使用的也是该组件，从而使用与实时采集相同的写入逻辑。
+若重放另有一套持久化规则，测试样本通过便无法证明实时抓包采用相同的写入规则。
 
 ## 输出
 
@@ -54,7 +54,7 @@ MentorRecorder.Collector.exe --replay-decoded <fixture.decoded.json> [--profile 
 
 | 字段 | 内容 |
 |---|---|
-| `fixture_id` / `fixture_sha256` | 固件身份与已校验的哈希 |
+| `fixture_id` / `fixture_sha256` | 测试样本身份与已校验的哈希 |
 | `database_path` | 实际写入的数据库 |
 | `profile_status` / `profile_usable` | 绑定的档案状态，以及状态机是否被允许工作 |
 | `parsed_events[]` | **解析出的事件**：类型、事件键、观察时间、单调读数 |
@@ -71,17 +71,17 @@ MentorRecorder.Collector.exe --replay-decoded <fixture.decoded.json> [--profile 
 | 字段 | 内容 |
 |---|---|
 | `profile_path` / `profile_id` | 实际使用的档案文件与标识 |
-| `build_matched` | 固件声明的 `game_build` 是否等于档案的 `game_build` |
-| `messages_read` | 喂给解析器的解码报文条数 |
+| `build_matched` | 测试样本声明的 `game_build` 是否等于档案的 `game_build` |
+| `messages_read` | 传入解析器的解码报文条数 |
 | `parser` | 解析器计数：`parse_ok` / `parse_failed` / `duplicates` / `ignored` / `errors[] = {code, count}`；`ignored` 是档案未声明的 opcode，不算失败 |
 
-`build_matched = false` 时档案被**整个撤下**：`profile_id` 变为 `null`，
+`build_matched = false` 时档案被**整体停用**：`profile_id` 变为 `null`，
 `profile_status` 变为 `UNSUPPORTED`，每条报文都被 `E_PROFILE_UNSUPPORTED` 拒绝，写入为零。
 这是"游戏已更新而档案未更新"的离线复现。以旧结构解析新版本，正是本项目拒绝出现的失败。
 
 ## 幂等：重放两次不会产生重复
 
-对同一个数据库重放同一个固件两次，第二次的 `runs_created`、`runs_updated`、
+对同一个数据库重放同一个测试样本两次，第二次的 `runs_created`、`runs_updated`、
 `events_appended`、`revisions_appended` 全为 0，`idempotent_replay` 为 `true`，
 而 `runs` 与 `statistics` 与第一次逐字段相同。
 
@@ -94,7 +94,7 @@ MentorRecorder.Collector.exe --replay-decoded <fixture.decoded.json> [--profile 
 
 第二条机制同时保证：**Collector 中途重启不会重复插入进行中的记录。**
 
-> `idempotent_replay` 表示本次重放遇到了已经存在的记录。**零写入**的固件
+> `idempotent_replay` 表示本次重放遇到了已经存在的记录。**零写入**的测试样本
 > （`non_mentor_roulette_then_zone_v1`、`unknown_profile_v1`、`synthetic_non_mentor`、
 > `synthetic_constraint_fail`、`synthetic_build_mismatch`）第二次运行仍为 `false`，
 > 因为它们第一次也未创建任何记录。
@@ -153,33 +153,33 @@ $ # 同一个 --db 再跑一次
 
 两个模式各有自己的 fail-closed 用例：
 
-- `--replay`：固件可以声明一个不可用的档案（`profile.status = "UNSUPPORTED_BUILD"`），
+- `--replay`：测试样本可以声明一个不可用的档案（`profile.status = "UNSUPPORTED_BUILD"`），
   于是状态机拒绝每一个事件：`runs` 为空，`events_appended` 为 0，
   `parser_errors` 等于事件总数，并写进 `parser_errors` 诊断表。
   `unknown_profile_v1` 即为该用例。
 - `--replay-decoded`：`synthetic_build_mismatch` 声明 `game_build = synthetic-build-2`，
-  而档案为 `synthetic-build-1`，因此档案被整个撤下，3 条报文全部记为
+  而档案为 `synthetic-build-1`，因此档案被整体停用，3 条报文全部记为
   `E_PROFILE_UNSUPPORTED`，`parsed_events` / `transitions` / `runs` 均为空。
-  此时 `writes.parser_errors` 为 **0**，因为拒绝发生在解析器中，状态机未被触及；
+  此时 `writes.parser_errors` 为 **0**，因为拒绝发生在解析器中，状态机未处理任何事件；
   相应数字记在 `parser.parse_failed` 中。
-  将任一份 decoded 固件与 `--profile protocol-profiles/cn/cn-unsupported.json` 搭配，
+  将任一份 decoded 测试样本与 `--profile protocol-profiles/cn/cn-unsupported.json` 搭配，
   结果相同。
 
 ## 覆盖情况
 
-固件清单、每个固件断言的行为、以及两种格式的说明见
+测试样本清单、每个测试样本断言的行为、以及两种格式的说明见
 [`../../tests/Fixtures/README.md`](../../tests/Fixtures/README.md)。
 
-- 语义固件覆盖：`COMPLETED`、`CANCELLED_BEFORE_ENTRY`、`LEFT_OR_ABANDONED`、
+- 语义测试样本覆盖：`COMPLETED`、`CANCELLED_BEFORE_ENTRY`、`LEFT_OR_ABANDONED`、
   `DISCONNECTED`、`INTERRUPTED`、`UNKNOWN_FINAL_STATE`、非导随 `roulette_id`（零写入）、
   重复事件去重、档案不可用（fail-closed）、连续两次导随。
-- 解码固件覆盖：`COMPLETED`、`LEFT_OR_ABANDONED`、`CANCELLED_BEFORE_ENTRY`、
+- 解码测试样本覆盖：`COMPLETED`、`LEFT_OR_ABANDONED`、`CANCELLED_BEFORE_ENTRY`、
   非导随 `roulette_id`、重复报文，四种解析拒绝
   （`E_LEN_MISMATCH`、`E_OFFSET_OOB`、`E_FIELD_CONSTRAINT`、`E_PROFILE_UNSUPPORTED`），
   未声明 opcode 被计入 `ignored` 而非失败，
   以及通关结算按内容识别（出现在未声明的 opcode 上）及其缺失时的 `UNKNOWN` 待复核。
 
-重启恢复得到的 `INTERRUPTED_PENDING_REVIEW` 不由固件覆盖。该状态不是事件驱动的，
+重启恢复得到的 `INTERRUPTED_PENDING_REVIEW` 不由测试样本覆盖。该状态不是事件驱动的，
 而是启动时的一次性扫描，由
 [`../../tests/Collector.IntegrationTests/CrashRecoveryTests.cs`](../../tests/Collector.IntegrationTests/CrashRecoveryTests.cs)
 覆盖。
@@ -190,21 +190,21 @@ $ # 同一个 --db 再跑一次
 [`../../tests/Collector.IntegrationTests/ProtocolDecodedReplayTests.cs`](../../tests/Collector.IntegrationTests/ProtocolDecodedReplayTests.cs)
 的 `Expectations` 表中，均为**按文档手工计算**的结果，并非抄录程序输出。
 
-## 新增固件的步骤
+## 新增测试样本的步骤
 
 1. 按 [`../../tests/Fixtures/README.md`](../../tests/Fixtures/README.md) 规定的格式编写文件；
-2. 生成 `.sha256` 旁文件并更新同目录的 `SHA256SUMS`；
-3. 解码固件还须将新文件登记进其所属的那份合成档案
+2. 在同一目录生成 `.sha256` 校验文件并更新同目录的 `SHA256SUMS`；
+3. 解码测试样本还须将新文件登记进其所属的那份合成档案
    （`synthetic-v1.json` 或 `synthetic-cn-shape-v1.json`）的 `fixtures[]`，
    随后执行 `python tools/protocol-profile-validator/validate.py --stamp` 重新盖章；
 4. 在对应的 `Expectations` 表中**手工计算**并填入期望值。
    计算依据为文档，不得抄录程序输出，否则该测试只是在记录既有缺陷。
 
-## 真机 trace 与固件的关系
+## 真机 trace 与测试样本的关系
 
-`--capture-trace` 产出的 `.jsonl` **不是固件**，既不能用于重放，也不得放入本目录。
+`--capture-trace` 产出的 `.jsonl` **不是测试样本**，既不能用于重放，也不得放入本目录。
 
-|  | 抓包取证 trace | 解码固件 `*.decoded.json` |
+|  | 抓包取证 trace | 解码测试样本 `*.decoded.json` |
 |---|---|---|
 | 来自 | 真机上的一次真实会话 | 手写 / 手算的离线样本 |
 | 里面有 | opcode、方向、段类型、负载**长度**、负载 SHA-256 前 12 位、用户标记 | opcode + **完整的 `payload_hex` 字节** |
@@ -217,17 +217,17 @@ $ # 同一个 --db 再跑一次
 1. `--capture-trace` 在真机上取证，`--trace-report` 给出候选 opcode；
 2. 至少在**第二次独立会话**中复现同一个候选（见
    [`../../docs/live-validation-guide.md`](../../docs/live-validation-guide.md) §3.5）；
-3. 完成上述两步后，才**手工编写**一份最小的解码固件，按
+3. 完成上述两步后，才**手工编写**一份最小的解码测试样本，按
    [`../../docs/protocol-profile-format.md`](../../docs/protocol-profile-format.md)
    §3 声明的结构填写该 opcode 的报文体，并按上一节的四个步骤登记；
 4. 在档案中补上 `evidence`（`method = "OBSERVED_LOCAL_TRAFFIC"`，注明样本数），
    状态先置为 `CANDIDATE`。
 
-**不得**将 trace 转换为固件。trace 中没有负载字节，任何"补齐"出的字节都是编造的，
+**不得**将 trace 转换为测试样本。trace 中没有负载字节，任何"补齐"出的字节都是编造的，
 而编造的常量正是 [`../../docs/privacy-boundary.md`](../../docs/privacy-boundary.md)
 §2 第 12 条所禁止的。
 
 `synthetic_duty_clear` / `synthetic_duty_no_clear` 借用了 trace 中各条报文的时刻。
 其中通用控制报文的内容并非补齐：这类报文的内容可以完全预测，取证时逐条与 trace 中负载哈希的前 12 位核对过
 （通关结算见 [`../../docs/protocol-profile-format.md`](../../docs/protocol-profile-format.md) §12）；
-固件中的 opcode 与副本编号仍是编造的。
+测试样本中的 opcode 与副本编号仍是编造的。

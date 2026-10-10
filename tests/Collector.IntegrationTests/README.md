@@ -8,9 +8,9 @@
 
 ## 覆盖内容
 
-`PipeServerTests` —— 端到端的线协议：
+`PipeServerTests` —— 端到端的 IPC 协议：
 
-- `GetVersion` 握手；`GetStatus` 报告 schema 版本与如实的抓包状态；
+- `GetVersion` 握手；`GetStatus` 报告 schema 版本与实际抓包状态；
 - 抓包类消息的 Phase 1 占位答复（`ERR_NPCAP_MISSING` / `ERR_CAPTURE_NOT_RUNNING`，
   `npcap_installed = false`，`injected_hook_enabled = false`）；
 - `QueryRuns` 分页（页间不重叠）与 `page_size > 200` 被拒；
@@ -23,7 +23,7 @@
 - 四张统计表；导出与备份写出真实文件；导出至用户目录之外被拒；
 - 契约中**每一个** `message_type` 均有答复（载荷或明确的错误码）。
 
-`ReplayIntegrationTests` —— 逐个重放固件，期望值依据
+`ReplayIntegrationTests` —— 逐个重放测试样本，期望值依据
 [`../../docs/state-machine.md`](../../docs/state-machine.md) 与
 [`../../docs/statistics-definitions.md`](../../docs/statistics-definitions.md) **手算**后
 写入 `Expectations` 表；另覆盖“重放两次不产生任何重复写入”。

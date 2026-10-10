@@ -26,7 +26,7 @@ C++20 / Qt 6 Quick / QML / Qt Quick Controls / Qt Graphs 桌面端。
    （契约见 [`../../contracts/ipc-v1.schema.json`](../../contracts/ipc-v1.schema.json)）。
 2. **桌面端只作客户端，从不监听。** 不得使用 `QTcpServer` / `QLocalServer` /
    `QWebSocketServer` / `QHttpServer`；不得使用 `QNetworkAccessManager`。
-   由 `tools/static-boundary-check` 强制（规则 `NET-005`、`NET-006`）。
+   由 `tools/static-boundary-check` 强制检查（规则 `NET-005`、`NET-006`）。
 3. 界面默认使用简体中文；所有面向用户的字符串均通过 `qsTr()` 处理并纳入翻译文件。
 4. 未定义的统计值（`null`）显示为 `—`，**不得以 0 代替**。
 5. `DISCONNECTED` / `INTERRUPTED` / `UNKNOWN` 在任何图表中都必须与

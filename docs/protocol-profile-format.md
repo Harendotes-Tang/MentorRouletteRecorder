@@ -2,7 +2,7 @@
 
 本文档定义协议档案（protocol profile）的文件格式、证据要求、加载校验流程与本机校准机制，
 面向编写协议档案与评审其证据的读者。
-档案中的每一个常量都必须可追溯到证据，加载器按本文档的规则逐项校验，任一项不满足即整份拒绝。
+档案中的每一个常量都必须可追溯到证据。加载器按本文档的规则逐项校验，任一项不满足即拒绝整份档案。
 
 > **当前国服事件档案：`VERIFIED (cn.2026.08.05)`，2026-09-07 起。**
 > 它声明 `CONTENT_FINDER_POP`（S2C `0x0323`，第 16 字节 = 随机任务编号）与
@@ -16,7 +16,7 @@
 ## 1. 协议档案是什么
 
 一份**协议档案（protocol profile）** 把"某个具体客户端版本的网络协议细节"
-从代码中分离出来，做成可审计、可替换、可失效的数据文件。
+从代码中分离出来，做成可审计、可替换、可标记失效的数据文件。
 
 代码中**不允许**出现任何硬编码的 opcode 或结构偏移。
 `src/Collector/Protocol/Parsing/ProfileMessageParser.cs` 中不存在任何此类常量：
@@ -28,7 +28,7 @@
 
 - 游戏更新时只需要新增一份档案，不需要改代码；
 - 每个常量都能追溯到证据；
-- 版本不匹配时可以干净地 fail-closed，而不是用旧常量解析出错误数据。
+- 版本不匹配时可以明确按 fail-closed 规则停止解析，避免使用旧常量解析出错误数据。
 
 ## 2. 文件布局
 
@@ -143,12 +143,12 @@ protocol-profiles/
 | `ZONE_LEFT` | —— | `territory_id` | `ZoneLeft` |
 | `INSTANCE_LEFT` | —— | —— | `InstanceLeft` |
 | `MATCH_CANCELLED` | —— | —— | `MatchCancelled` |
-| `MATCH_ANNOUNCED` | —— | —— | `MatchAnnounced`（只说「匹配成功了」，不说是哪个轮盘；见 §11.5） |
+| `MATCH_ANNOUNCED` | —— | —— | `MatchAnnounced`（只通知匹配成功，不携带轮盘编号；见 §11.5） |
 
 档案可以声明表中没有的字段名（例如 `padding`）。这类字段**会被读取并校验约束**，
 但不会进入语义事件，从而使"该段必须为某个固定值"成为可表达的健壮性检查。
 
-`CONTENT_FINDER_POP` 与 `ZONE_INITIALIZATION` 在带字段 `messages` 的非 `UNSUPPORTED`
+`CONTENT_FINDER_POP` 与 `ZONE_INITIALIZATION` 在 `messages` 中含字段定义的非 `UNSUPPORTED`
 档案里**必须**齐全。`DUTY_RESULT` 为可选。缺少该消息时，只有国服档案能由按内容识别的通关结算（§12）
 产生 `COMPLETED`；没有收到通关结算的离开一律以 `UNKNOWN` 收尾并标记待复核
 （[state-machine.md](state-machine.md) §3.10）。
@@ -260,7 +260,7 @@ protocol-profiles/
 
 规范化 JSON 的语法经过刻意收窄，以保证 C# 与 Python 两份实现不会发生漂移：
 
-- 对象的键按**序数序**排序；
+- 对象的键按**字符序数**排序；
 - 没有任何空白；
 - **数字必须是整数**（出现小数会直接拒绝档案，而不是四舍五入）；
 - 字符串只用 `\" \\ \b \f \n \r \t` 这些短转义，其余 `< 0x20` 的控制字符用
@@ -269,7 +269,7 @@ protocol-profiles/
 实现：`src/Collector/Protocol/Profiles/CanonicalJson.cs` 与
 `tools/protocol-profile-validator/validate.py` 的 `canonical()`。
 
-盖章：
+写入校验哈希：
 
 ```bash
 python tools/protocol-profile-validator/validate.py --stamp protocol-profiles/**/*.json
@@ -311,7 +311,7 @@ python tools/protocol-profile-validator/validate.py --stamp protocol-profiles/**
 | `VERIFIED` | 所有被使用的常量都有证据 | **唯一**允许自动记录的状态。随包档案与本机校准写出的档案（§11）同等对待 |
 | `CANDIDATE` | opcode 或结构假设，尚未完成真机字段验证 | 默认不加载；显式候选模式可观察 hypotheses；正式解析始终 fail-closed |
 | `UNSUPPORTED` | 该区服 / 该版本没有可用档案 | fail-closed；且**不得声明任何消息**，`mentor_roulette_id` 必须为 `null` |
-| `SYNTHETIC` | 为离线测试编造 | 只有显式传入路径（`--profile` / `--replay-decoded`）时才会被加载；活体选择必须显式 `allow_synthetic` 才看得见它 |
+| `SYNTHETIC` | 为离线测试编造 | 只有显式传入路径（`--profile` / `--replay-decoded`）时才会被加载；实时采集选择档案时，必须显式启用 `allow_synthetic` 才会将其纳入选择范围 |
 | `AMBIGUOUS` | **不是**档案里的取值 | 同类别的两份档案声明同一个 `region` + `game_build` 时两份都拒绝；正式与候选类别分别检查 |
 
 `AMBIGUOUS` 被有意设计为互相否决。按文件名、修改时间或 `compatibility_status`
@@ -385,7 +385,7 @@ python tools/protocol-profile-validator/validate.py [--stamp] <file>...
 
 | 代码 | 含义 |
 |---|---|
-| `E_UNKNOWN_OPCODE` | 没有任何档案消息认领这个 `(direction, opcode[, segment_type])`。**实时解析器自 contracts/CHANGELOG.md 第 18 条起不再将其记为失败**：只计入 `ignored`，不进入错误环、不落库；该代码保留给固件回放工具与历史行 |
+| `E_UNKNOWN_OPCODE` | 没有任何档案消息认领这个 `(direction, opcode[, segment_type])`。**实时解析器自 contracts/CHANGELOG.md 第 18 条起不再将其记为失败**：只计入 `ignored`，不进入错误环、不落库；该代码保留给样本重放工具与历史行 |
 | `E_LEN_MISMATCH` | 报文体长度不满足声明的长度规则 |
 | `E_OFFSET_OOB` | 某个字段会读到报文体之外 |
 | `E_FIELD_CONSTRAINT` | 字段值落在 `constraints` 之外。**`role: "selector"` 的字段除外**：它不命中只计入 `ignored`，不进环、不落库（§3.4） |
@@ -410,10 +410,10 @@ UI 相应地显示"协议不受支持"或"协议解析异常"。
 4. `python tools/protocol-profile-validator/validate.py --stamp <file>`；
 5. `MentorRecorder.Collector --validate-profile <file>` 必须返回 0；
 6. 在真机上按 [live-validation-guide.md](live-validation-guide.md) 走一遍验证流程；
-7. 所有被使用的常量都有证据之后，才可以把状态改成 `"VERIFIED"` 并重新盖章。
+7. 所有被使用的常量都有证据之后，才可以把状态改成 `"VERIFIED"` 并重新写入校验哈希。
 
 提交时**不得**粘贴原始报文、角色名或任何其他玩家的信息。
-来源不明的 opcode 表将被直接关闭。
+包含来源不明 opcode 表的提交将被直接关闭。
 
 ## 11. 本机校准档案与 `calibration` 模板段
 
@@ -474,7 +474,7 @@ VERIFIED 模板还必须有 `field = "calibration.finder_request"` 的非 SYNTHE
 时间线上标为「错」的一行只否定它自己所说的内容：「排本」一行否定该次申请与回执的配对；「进入副本」「离开副本」
 一行否定该次换区是这场匹配所进、所出的副本，不否定换区标记本身；「匹配弹窗」一行否定宣布匹配的那条报文
 （按出现时机认出的通知、回执中表示"已匹配"的状态取值，或独立的匹配报文），不否定回执 opcode（它仍回应每一次申请）。
-标错之后校准重新观察，再打一把随机任务即可重新核对；「清空进度并重新观察」清除此前的全部否定，
+标错之后校准重新观察，再完成一次随机任务即可重新核对；「清空进度并重新观察」清除此前的全部否定，
 只保留被本机流量证伪的弹窗 opcode（§11.4）。
 
 「匹配成功」作为独立报文识别时（回执不携带匹配状态的版本），候选还须通过一致性检查：
@@ -500,7 +500,7 @@ VERIFIED 模板还必须有 `field = "calibration.finder_request"` 的非 SYNTHE
 国服 2026.09.15 客户端的匹配通知在**任何字节位置**都不携带所排的轮盘编号，
 按数值寻找的三条路径（回执状态、模板偏移、任意偏移扫描）因此全部落空，
 档案只能按排本申请推断匹配（`CONTENT_FINDER_POP` 方向为 CLIENT_TO_SERVER）。
-这样的档案记录正确，但弹窗出现时没有任何可播报的时刻。
+这样的档案可以正确记录，但无法确定匹配弹窗出现的时刻，因此不能在弹窗出现时播报。
 
 `MATCH_ANNOUNCED` 补上这个时刻，且**只**补这个时刻：
 
@@ -509,7 +509,7 @@ VERIFIED 模板还必须有 `field = "calibration.finder_request"` 的非 SYNTHE
   的档案里。两条规则在 `ProfileLoader` 与 `tools/protocol-profile-validator/validate.py`
   中一致实现，违反其一即 `E_PROFILE_MESSAGE_CONTEXT`。
 - 可选：缺少它的档案与 1.2.x 的行为完全相同。
-- **不进校准码**：该 opcode 由本机的时机证据认定，证据不随分享码传播，
+- **不写入校准码**：该 opcode 由本机的时机证据认定，证据不随分享码传播，
   因此带有它的档案分享出去仍是纯 QueueRequest 档案（格式 v1 不变），
   接收方自行在本机寻找自己的那一条。
 
@@ -517,13 +517,13 @@ VERIFIED 模板还必须有 `field = "calibration.finder_request"` 的非 SYNTHE
 
 | 子句 | 要求 |
 |---|---|
-| 存活 | 观察器的时机表里仍在（离群比例 ≤ 1/5、总数 ≤ 400），且 `timing_overflow` 为 0 |
+| 保留情况 | 候选仍保留在观察器的时机表中（离群比例 ≤ 1/5、总数 ≤ 400），且 `timing_overflow` 为 0 |
 | 位置 | 不是任何换区簇的成员；不是回执 opcode；不在用户拒绝过的 opcode 里 |
 | 覆盖 | 每一次「自己申请后进入已知副本」之前的模板匹配窗口内都至少出现一次，且晚于对应申请 |
 | 样本 | 这样的进本至少 2 次，且涉及至少 2 个不同的轮盘 |
 | 频次 | 每个排本窗口（申请到进本）内出现不超过 8 次 |
 | 提前量下限 | 各次进本的最小提前量不少于 3 秒。弹窗与读条之间隔着玩家与队友的确认和倒计时；只提前一秒的报文宣布的是读条，不是匹配。并列判据只在候选之间比较，没有下限时，真正的弹窗一旦不在候选之列，这类报文就会无对手地胜出 |
-| 其后有副本 | 表中保留的出现里，至少一半在模板匹配窗口内跟着一次已知副本的加载（自己排的或队长排的均可）。排本申请要到换区才清除，长时间排队期间在城里首次见到的报文都算「排本期间出现」且不会离群；匹配通知与它们的区别在于其后几乎总有副本 |
+| 其后有副本 | 表中保留的记录中，至少一半在模板匹配窗口内随后发生过一次已知副本的加载（自己排的或队长排的均可）。排本申请要到换区才清除，长时间排队期间在城里首次见到的报文都算「排本期间出现」且不会被归为离群；匹配通知与它们的区别在于其后几乎总会进入副本 |
 | 并列 | 取「各次进本的最小提前量」最大者；提前量再并列则不出结论 |
 
 时间线上每次进本给出一行「匹配弹窗：<轮盘名>（按出现时机认出，读条前约 N 秒）」，需要用户确认；
@@ -537,7 +537,7 @@ VERIFIED 模板还必须有 `field = "calibration.finder_request"` 的非 SYNTHE
 
 本机档案一旦生效，校准卡片连同「清空进度并重新观察」与「导入校准码」就从界面上消失
 （采集服务在没有校准进行时拒绝导入）。玩家若怀疑本机认错了报文，或者拿到了其他玩家更好的校准码，
-此前只能自己去文件夹里改文件名。「重新校准」是这条退路：`DiscardCalibration` 的可选请求字段
+此前只能自行到文件夹中修改文件名。「重新校准」为此提供操作入口：`DiscardCalibration` 的可选请求字段
 `retire_local_profile = true`（附加式契约变更，缺省 `false` 即原来的「重新观察」）。
 当前生效的是本机档案（`profile_origin = LOCAL_CALIBRATION`）时：
 
@@ -557,25 +557,25 @@ VERIFIED 模板还必须有 `field = "calibration.finder_request"` 的非 SYNTHE
 
 停用之后可能发现是误判。真实例子：一位玩家的本机档案本来读得出服务器的匹配报文（弹窗有语音），
 她为了试朋友的校准码把它停用了，客户端先下载到按排本推断的公开校准码，她同意了，
-从此用着更弱的共享档案，而自己的那份还躺在磁盘上、只是换了个名字——没有任何界面能把它换回来。
+此后便一直使用能力较弱的共享档案，而自己的那份仍保存在磁盘上，只是改了文件名，界面却没有恢复入口。
 停用只要一次点击，撤销也必须只要一次点击。
 
 `DiscardCalibration` 的第二个可选字段 `restore_local_profile = true`（与 `retire_local_profile` 互斥，
-同时为真答 `ERR_BAD_REQUEST`）：
+同时为真时返回 `ERR_BAD_REQUEST`）：
 
 - `<profile_id>.json.retired` **改名回** `.json`，是改名不是重写——重写会改变
   `profile_sha256`，那就不再是玩家当初核对过的那一份；
 - 同名 `.json` 已存在时**拒绝**：那是此后确认的新校准，悄悄覆盖它等于用旧答案换掉新答案；
 - `.json.contradicted`（§11.4，流量证伪后自动撤下的）**永不可恢复**：不是玩家选择停用的，
   明天它读到的仍是同一条错误报文；
-- 改名之后先重新读目录，再动当前生效的档案。目录暂时读不到时，文件改回 `.retired`，当前生效的档案不受影响，
+- 改名之后先重新读取目录，再处理当前生效的档案。目录暂时读不到时，文件改回 `.retired`，当前生效的档案不受影响，
   并以 `ERR_CALIBRATION_NOT_READY` 答「暂时读不到校准档案，上一份本机校准还没有换回来，请稍后再试一次。」；
 - 重新读出的目录按 §11.2 的目录合并规则仍选中当前生效的档案时，它不停用，进行中的记录不受影响；
   否则当前生效的档案（含正在使用的共享档案）先按停止捕获收尾并解绑，再按同一规则重选。
   通常恢复出来的本机档案会被选中：同为认得出匹配报文、或同为按排本推断的档案时，本机排在共享之前；
-- 共享校准只是**被让位**，不是被撤下：共享会话在选择不再是它的档案时自行放手
+- 共享校准只是**让位给更优先的档案**，并非被撤下：选择结果不再是共享档案时，共享会话自行释放该绑定
   （`SharedCalibrationSession.ReconcileBound`），因此不注销校准码、不记录玩家拒绝、
-  不给任何记录打待复核标记。没有东西证伪过那份校准码，它只是被更高优先级的档案盖过；
+  不给任何记录打待复核标记。那份校准码并未被证伪，只是被更高优先级的档案替代；
 - 校准证据**不**丢弃（这不是「重新观察」）；角色随即重新求值，例如缺少 `PLAYER_JOB`
   的非排本推断档案会重新进入 §11.7 的补全角色；
 - 恢复出来的文件与其他档案一样要过 `ProfileLoader` 校验。重选之后它没有被选中，分两种情况：
@@ -591,9 +591,9 @@ VERIFIED 模板还必须有 `field = "calibration.finder_request"` 的非 SYNTHE
     并以 `ERR_CALIBRATION_NOT_READY` 答「上一份本机校准已经无法使用，请重新校准。」
 
 `CaptureStatus.calibration.retired_local_profile_available`（可选布尔）告诉桌面端这条退路是否存在：
-磁盘上有 `.json.retired`、且当前没有本机档案生效时为真。它在**每次读取状态快照时**现算
+磁盘上有 `.json.retired`、且当前没有本机档案生效时为真。它在**每次读取状态快照时**即时计算
 （一次 `File.Exists`），而不是缓存：状态读取都由请求驱动（`GetCaptureStatus`、桌面端两秒一次的
-记录轮询、诊断报告），从不在抓包线程的报文路径上；而缓存需要由本进程之外的事情来失效——
+记录轮询、诊断报告），从不在抓包线程的报文处理路径上计算；使用缓存则需要感知本进程之外的文件变化才能使缓存失效，
 玩家自己在资源管理器里把文件改回去，正是本功能要替代的那种操作。
 
 ### 11.7 补全职业：已完成的本机档案自行补上 `PLAYER_JOB`
@@ -602,7 +602,7 @@ VERIFIED 模板还必须有 `field = "calibration.finder_request"` 的非 SYNTHE
 因为这类档案下校准本来就一直开着。按排本推断的共享档案同样如此：校准码不携带匹配通知（§11.5），
 接收方在本机自行寻找；核对确认后写出的本机档案在目录中排在共享档案之前（§11.2），并在当前会话的两场记录之间换用。
 读得出服务器匹配报文的档案则不然：校准已经结束，
-卡片与观察器都已收起，写在职业判据修好之前的档案会让**这一版游戏的每一条记录**永远记成「职业未知」。
+卡片与观察器都已收起，在职业判据修复之前写出的档案会让**这一版游戏的每一条记录**始终记成「职业未知」。
 
 因此这类档案旁边也保留一个不出现在界面上的校准角色（`LiveProtocolPipeline.CalibrationRoles()` 的
 `Completing`）：
@@ -619,7 +619,7 @@ VERIFIED 模板还必须有 `field = "calibration.finder_request"` 的非 SYNTHE
   否则在这一场结束之后于同一会话内换用（[state-machine.md](state-machine.md) §7.4）。角色随即重新求值，
   档案有了职业便不再处于这一角色。
 
-匹配报文与当前档案不一致的草稿**永远不会**在这里被提出来：那是替换而不是补全，
+匹配报文与当前档案不一致的草稿**永远不会**在这里提示用户确认：那是替换而不是补全，
 悄悄换掉一条今天工作正常的匹配报文，比「职业未知」更糟。
 
 ## 12. 通关结算信号（按内容识别，不属于档案）
@@ -704,9 +704,9 @@ opcode 不参与判断：同一内容出现在任何 opcode 上都按通关结�
   国际服目前也没有可用档案。
 - **声明了 `DUTY_RESULT` 的档案**：不比较，行为与此前完全相同，结局由档案自身的结算报文给出（§3.1）。
 - **`SYNTHETIC` 档案**（只用于离线测试，`region` 必须为 `UNKNOWN`）：不声明 `DUTY_RESULT` 时比较，
-  以便解码固件重放这一信号（[`../tests/Fixtures/README.md`](../tests/Fixtures/README.md)）。
+  以便通过解码测试样本重放这一信号（[`../tests/Fixtures/README.md`](../tests/Fixtures/README.md)）。
 
-### 12.5 为什么不进档案、校准与校准码
+### 12.5 为什么不纳入档案、校准与校准码
 
 - 判据与 opcode 无关，游戏更新后不需要重新学习，也就没有需要写进档案的数值。
 - `profile.schema.json` 没有对应字段；本机校准不观察它，本机档案文件与共享校准码都不携带它，也不因此改变。

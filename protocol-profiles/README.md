@@ -5,7 +5,7 @@
 > `cn/cn.2026.08.05.json` 是第一份真实的 `VERIFIED` 档案，声明弹窗（S2C `0x0323`）与换区
 > （S2C `0x014a`）两条消息，`mentor_roulette_id = 9`，不含 `DUTY_RESULT`。
 > 其 `finder_state` 声明为 `"role": "selector"`（见下文）。该档案另带一个可选的
-> `calibration` 模板段（本机校准的形状知识，见 `../docs/protocol-profile-format.md` §3.6），并据此重新盖章，
+> `calibration` 模板段（本机校准所需的报文结构，见 `../docs/protocol-profile-format.md` §3.6），并据此重新盖章，
 > `profile_sha256` 为 `8c6ffec309e0597f723a09e5c787759475828aaf6152402d3c94a24af92b3cd1`。
 > 每个常量的来源均记录在其 `provenance.evidence` 中。`global/` 仍只有 `UNSUPPORTED` 占位。
 > `synthetic/synthetic-v1.json` 的每个常量均为**编造值**，仅服务于离线测试。
@@ -54,7 +54,7 @@ protocol-profiles/
 | `VERIFIED` | 每一条消息的 opcode 都有非 `SYNTHETIC` 的证据条目 | **唯一**允许自动记录的状态 |
 | `CANDIDATE` | 结构已提出，但未在真机确认 | fail-closed：解析器拒绝一切 |
 | `UNSUPPORTED` | 该区服 / 该版本没有可用档案 | fail-closed；且**不得声明任何消息**，`mentor_roulette_id` 必须为 `null` |
-| `SYNTHETIC` | 为离线测试编造 | 只能放在 `synthetic/`；活体档案选择里**隐形** |
+| `SYNTHETIC` | 为离线测试编造 | 只能放在 `synthetic/`；实时采集选择档案时**不纳入候选** |
 
 另有一个**不出现在文件中**、由目录扫描产生的状态 `AMBIGUOUS`：
 两份均通过校验的档案声明同一个 `(region, game_build)` 时，**两份均被拒绝**。
@@ -94,7 +94,7 @@ MentorRecorder.Collector.exe --list-profiles [--profiles-dir <path>] [--json]
    `USER_CONFIRMED`（使用者按[真机验证流程](../docs/live-validation-guide.md)确认）；
 3. `mentor_roulette_id` 非 `null`，且 `CONTENT_FINDER_POP` / `ZONE_INITIALIZATION` 齐全；
    `DUTY_RESULT` 可选，一经声明必须带非空 `victory_values`；未声明时，国服由按内容识别的通关结算给出通关，
-   没有收到它的离开以 `UNKNOWN` 待复核收尾（[state-machine.md](../docs/state-machine.md) §3.10）；
+   离开副本时若未收到该结算，则以 `UNKNOWN` 收尾并标记待复核（[state-machine.md](../docs/state-machine.md) §3.10）；
 4. `profile_sha256` 为规范化文档的哈希，
    通过 `python tools/protocol-profile-validator/validate.py --stamp <file>` 盖章；
 5. `MentorRecorder.Collector.exe --validate-profile <file>` 返回 0。
@@ -132,7 +132,7 @@ MentorRecorder.Collector.exe --list-profiles [--profiles-dir <path>] [--json]
 
 理由在于：用于真机验证的发布包**绝不能**将编造的 opcode 作为"已安装的档案"
 呈现。合成档案仅在显式传入路径（`--profile` / `--replay-decoded`）
-或调用方显式指定 `allowSynthetic` 时使用，活体抓包路径不会读取。
+或调用方显式指定 `allowSynthetic` 时使用，实时抓包路径不会读取。
 
 合成档案随源码仓库一起维护，供离线测试使用，但 `scripts/package.ps1` 会断言发布目录中
 不存在 `protocol-profiles/synthetic/`，任何合成档案进入发布包都会令打包失败。
@@ -146,4 +146,4 @@ MentorRecorder.Collector.exe --list-profiles [--profiles-dir <path>] [--json]
 | [`../docs/live-validation-guide.md`](../docs/live-validation-guide.md) | 真机验证流程 |
 | [`../docs/privacy-boundary.md`](../docs/privacy-boundary.md) | 硬边界：不推测 opcode，不长期保存原始报文 |
 | [`oodle-signatures/README.md`](oodle-signatures/README.md) | Oodle 签名档案：状态规则、`reproduction` 字段、验证记录 |
-| [`../tests/Fixtures/README.md`](../tests/Fixtures/README.md) | `synthetic-v1.json` 背书的解码固件 |
+| [`../tests/Fixtures/README.md`](../tests/Fixtures/README.md) | `synthetic-v1.json` 校验的解码测试样本 |

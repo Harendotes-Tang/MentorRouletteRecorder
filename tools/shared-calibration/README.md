@@ -1,6 +1,6 @@
 # tools/shared-calibration — 共享校准公开仓库的工具
 
-共享校准阶段 D。本文面向维护公开校准仓库的维护者。
+共享校准阶段 D。本文面向公开校准仓库的维护者。
 本目录是公开数据仓库 `Harendotes-Tang/MentorRecorder-Calibrations` 中 `tools/`、Issue 表单与工作流的**唯一源头**。
 该仓库名与客户端 `SharedCalibrationClient.Owner` / `Repository` 一致。
 公开仓库中的副本由 `sync_public_repo.py` 生成，不在公开仓库内手工修改。
@@ -20,9 +20,9 @@
 | `index.py` | `index.json`（客户端读取格式的精确移植）与 `submissions.json` 台账；`add_submission`、`revoke`、`lift_hold`、`prune`、`update_conflicts` | 是 |
 | `issue.py` | 读两个 Issue 表单的正文（提交表单、报告表单）；标题只用来发现不一致；回显内容的转义 | 是 |
 | `publish.py` | Action 的命令行：`check`、`update-index`、`push-failed`、`field`、`event-field`、`pending`、`wrap-event`、`report`；维护者命令 `revoke`、`lift`、`prune` | 是 |
-| `publish_issue.sh` | 处理一个提交 Issue：现查状态与标签 → 查账号 → 校验、提交、推送（推送被拒时从新的 main 重新开始）→ 回复、打标签、关闭 | 是 |
+| `publish_issue.sh` | 处理一个提交 Issue：实时查询状态与标签 → 查账号 → 校验、提交、推送（推送被拒时从新的 main 重新开始）→ 回复、打标签、关闭 | 是 |
 | `sweep_issues.sh` | 定时补处理：逐个处理尚未回复的提交 | 是 |
-| `report_issue.sh` | 处理一个「报告校准有误」Issue：现查状态与标签 → 校验栏目 → 回复一次、打两个标签；不改任何文件，不关闭 Issue | 是 |
+| `report_issue.sh` | 处理一个「报告校准有误」Issue：实时查询状态与标签 → 校验栏目 → 回复一次、打两个标签；不改任何文件，不关闭 Issue | 是 |
 | `public-repo/` | 公开仓库的 README、LICENSE、两个 Issue 表单、两个工作流、`.gitattributes`（`dot-` 前缀的文件同步时改名为点文件） | 是（改名后） |
 | `sync_public_repo.py` | 把上面这些与随包模板、空索引、许可全文组装成公开仓库的完整文件集 | 否 |
 | `generate_index_sample.py` | 生成 C# 回归测试读的 `tests/Fixtures/shared-calibration/index-sample*` | 否 |
@@ -41,7 +41,7 @@
   `generate_index_sample.py` 只通过 `index.add_submission` 与 `index.revoke` 生成样本索引与校准码文件，
   并像 `update-index`、`revoke` 一样在每一步之后用 `index.update_conflicts` 重算标记，因此样本含带标记与不带标记的条目；
   `SharedCalibrationPublicRepoSampleTests.cs` 用已发布的 `SharedCalibrationIndex` 与 `SharedCalibrationClient` 读取它，
-  要求挑选顺序与 Python 完全一致；`test_index_sample.py` 保证夹具即生成器的输出，不得手工修改。重新生成：
+  要求挑选顺序与 Python 完全一致；`test_index_sample.py` 保证测试样本即生成器的输出，不得手工修改。重新生成：
 
   ```powershell
   python tools/shared-calibration/generate_index_sample.py          # 写入
@@ -53,8 +53,8 @@
 
 ## Action 执行的规则
 
-1. 只处理带 `share-calibration` 标签、仍然打开、尚无结果标签（`published` / `rejected` / `needs-maintainer`）的 Issue。
-   **状态与标签一律现查**（`gh issue view --json state,labels`，交给 `publish.py` 的 `--live`），不取事件里的那一份：
+1. 只处理带 `share-calibration` 标签、仍处于打开状态、尚无结果标签（`published` / `rejected` / `needs-maintainer`）的 Issue。
+   **状态与标签一律实时查询**（`gh issue view --json state,labels`，交给 `publish.py` 的 `--live`），不取事件里的那一份：
    同一个 Issue 的 `labeled` 事件、编辑、重投的事件都可能排在已经作答的那次运行之后，事件里记着的却是它触发那一刻的标签。
    转交维护者的 Issue 保持打开、带着 `needs-maintainer`，因此只有现查的标签能挡住第二次回复（结果为 `skipped`，原因 `ALREADY_ANSWERED`）。
 2. 提交者必须是个人账号，`gh api users/<login>` 返回的数字编号必须等于 Issue 作者的编号，账号注册满 **30 天**（正好 30 天算满）。
@@ -62,7 +62,7 @@
 4. 校准码按客户端规则解码；模板必须是 `templates/` 里的某一个；按结构重建必须成立。
    客户端版本号必须是真实客户端的格式 `YYYY.MM.DD.NNNN.NNNN`，且日期是真实的日历日期（`index.is_game_build`）；
    日期也不得晚于提交日（UTC）的次日（`BUILD_IN_FUTURE`），多出的一天留给版本号所用的时区。
-   客户端本身能读的版本号更宽，读取一侧（`read_index`、台账）因此仍按客户端的规则，只有受理新提交时从严。
+   客户端接受的版本号格式更宽松，读取时（`read_index`、台账）因此仍按客户端的规则，只有受理新提交时从严。
 5. **每个 GitHub 账号，每个区服与客户端版本，同时只有一份在用的校准码**（按数字编号判定，改名无效）。
    同一份重复提交不重复计数；**另一份则替换先前那一份**，见下表。
 6. **每个账号的提交量有上限**，防止单个账号把客户端下载的索引写满：同一区服与版本最多先后提交
@@ -118,23 +118,23 @@
   **读不回来的台账不允许被写出去**。
 - **只保留最近 `MAX_REPLACED`（16）项**，并且 `submissions.json` 另有 `MAX_LEDGER_BYTES`（4 MiB）上限，
   超出时按维护者问题（`LEDGER_FULL_BYTES`）处理。两者合起来堵住「两个账号互相把两份码轮流换来换去」把台账撑大的路径。
-  这两个上限是仓库自己的：客户端从不下载台账。
+  这两个上限仅适用于仓库：客户端从不下载台账。
 
 ### 「报告校准有误」的规则
 
-1. 只处理带 `calibration-report` 标签、仍然打开的 Issue。
+1. 只处理带 `calibration-report` 标签、仍处于打开状态的 Issue。
 2. 正文必须恰好有一个「区服」、一个「游戏版本」、一个「现象」栏目；「说明」可留空。
    「区服」与「现象」必须是表单提供的选项，「游戏版本」必须形如客户端版本号；栏目缺失、重复或不合法一律按「没读全」回复。
 3. 打标签 `calibration-report` 与 `needs-maintainer`，回复一次，**Issue 保持打开**。
 4. **不做任何自动撤回**，也不按报告数量设阈值：报告只是维护者查看的理由。撤回始终由维护者执行 `publish.py revoke`。
-5. **状态与标签一律现查**（`gh issue view --json state,labels`），不取事件里的那一份：
+5. **状态与标签一律实时查询**（`gh issue view --json state,labels`），不取事件里的那一份：
    报告不会被关闭，事件又可能被重投或重放，而挡住第二条回复的正是上一次打下的结果标签，
    事件里记着的却是它触发那一刻的标签。已带结果标签的 Issue 直接跳过；现查的内容读不出来时同样跳过，
    宁可漏一条自动回复（维护者按标签仍能找到），也不重复回复。
 6. 回复只由固定文字拼成，不回显正文或标题的任何内容；「说明」的文字根本不会离开 Issue 正文。
 
 > **报告没有定时补处理。** 并发组中同时只保留一个排队任务，短时间内大量报告会让部分任务在开始前被取消，
-> 这些 Issue 因而不会收到自动回复。它们仍带着表单打上的 `calibration-report` 标签、仍然打开，
+> 这些 Issue 因而不会收到自动回复。它们仍带着表单打上的 `calibration-report` 标签、仍处于打开状态，
 > 维护者按标签即可找到；报告不像提交那样需要按时发布，因此没有仿照 `sweep` 再加一个定时任务。
 
 ## 工作流的安全措施
@@ -147,10 +147,10 @@
 - `publish.py` 每次只打印一行 ASCII JSON，Issue 内容不可能出现在日志的行首，因此无法伪装成工作流命令。
 - 只用默认 `GITHUB_TOKEN`。`publish-calibration.yml` 的权限为 `contents: write`、`issues: write`；
   `report-calibration.yml` 不写仓库，权限仅 `contents: read`（检出）与 `issues: write`（回复与打标签）。
-  两个工作流都不用 `pull_request_target`，不读 secrets。
+  两个工作流都不用 `pull_request_target`，不读取 secrets。
 - `publish-calibration.yml` 的两个 job 共用一个 `concurrency` 组，该配置写在 job 上，被 `if` 跳过的事件不占用队列；
   运行中的任务从不取消。`report-calibration.yml` 用**另一个**并发组：报告不碰 `index.json`，既不应排在发布后面，也不应挡住发布。
-- 推送被拒绝时**不执行 rebase**。索引按提交 sha 指向码文件，rebase 会改写该提交，因此每次重试都从新的 main 重新判定、
+- 推送被拒绝时**不执行 rebase**。索引按提交 sha 指向码文件，rebase 会改写该提交，因此每次重试都从最新的 main 重新判定、
   重新生成两个提交，最多 5 次；仍失败则回复并转交维护者。
 - 脚本的全部语句写在函数内，最后一行以 `exit` 结尾，因为 `git reset --hard` 可能在运行中替换脚本文件本身。
 - 每个 `uses:` 都按提交号固定，版本写在行尾注释里；标签可以被改指向别的提交，而这里的任务持有可写本仓库的令牌。

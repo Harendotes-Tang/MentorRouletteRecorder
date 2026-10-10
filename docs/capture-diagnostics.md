@@ -23,7 +23,7 @@
 ## 0. 缺少 Npcap 与游戏进程时的行为
 
 在既未安装 Npcap、也未运行游戏的机器上，下表所列的返回值是预期的 fail-closed 表现，
-而非功能尚未接通。谎报成功会使用户误以为记录正在自动进行，这是本软件最严重的错误形态。
+而非功能尚未接通。错误地报告成功会使用户误以为正在自动记录，这是本软件最严重的错误表现。
 
 | 消息 | 该环境下的返回 |
 |---|---|
@@ -89,7 +89,7 @@
 
 - **默认 `false`**：行为与契约完全一致，返回 `ERR_PROFILE_UNSUPPORTED`。
 - 置为 `true` 后进入**仅诊断模式**：抓包启动，报文仅被计数，
-  **不解析任何字段、不写入任何记录**。此时 live pipeline 退回 `CountingSink`，
+**不解析任何字段、不写入任何记录**。此时实时采集链路退回 `CountingSink`，
   该实现只按 opcode 计数，不读取任何字段。`GetStatus.warnings` 会持续提示
   "抓包正在运行，但协议档案未验证……不会自动写入任何记录（fail-closed）"。
 
@@ -169,7 +169,7 @@ Npcap 的官方安装程序并启动其向导，由用户自行完成安装（[p
 
 锁定身份同时校验 PID 与启动时间；目标退出或 PID 被复用时，先结束旧采集。
 单开时，同一路径中新启动的唯一客户端可自动接续，不必再次点击「记录此窗口」。
-原本已打开的其他号不会被接管；出现多个候选、路径不符或身份无法确认时保持暂停，
+原本已打开的其他客户端不会被接管；出现多个候选、路径不符或身份无法确认时保持暂停，
 需要明确选择。主动切换也先停止旧数据源、排空旧队列并结束会话，进行中的导随按中断处理。
 主动切换时，所有可能拒绝的检查（令牌是否过期、采集验证是否占用等）都在停止旧采集之前完成；
 旧采集停止并释放之后，选择必定提交（旧采集未能及时释放时返回 `ERR_INTERNAL`，提示稍后再选）。
@@ -205,9 +205,9 @@ Npcap 的官方安装程序并启动其向导，由用户自行完成安装（[p
 档案匹配与共享校准获取（§8.2）不必等到玩家登录游戏。这种情况下 `ffxiv_running` 仍为 `false`，
 `ffxiv_process_id` 与 `install_path_readable` 仍为空：已知的是**安装**，不是一个可供监听的客户端，
 启动抓包依旧以 `ERR_FFXIV_NOT_RUNNING` 拒绝。记住的路径只在采集服务内部使用，不进入 IPC 应答、
-日志、诊断报告或数据库。安装被移走、卸载或所在磁盘未接入时，版本重新变为未知并继续 fail-closed；
+日志、诊断报告或数据库。安装目录被移动、游戏被卸载或所在磁盘未接入时，版本重新变为未知并继续 fail-closed；
 该文件不会因此被删除。客户端更新后，`ffxivgame.ver` 在启动器打补丁之前仍是旧版本号，游戏启动后按
-真实版本重新匹配，与今天版本变化时的行为一致。
+真实版本重新匹配，与现有的版本变化处理方式一致。
 
 ## 4. 适配器选择
 
@@ -313,7 +313,7 @@ Npcap 设备，并以该地址设置过滤器 `ip and tcp and host <地址>`；�
 | `connection_count` | 本会话观察到的不同游戏连接数（按连接键去重，上限 64） |
 | `messages_decoded` | 分帧读取成功的报文数 |
 | `decode_errors` | 分帧读取失败的报文数（短包、截断、乱码；**只计数，绝不抛异常**） |
-| `parse_ok` / `parse_fail` / `ignored` / `duplicates` | 来自 `IParserStats`。无可用档案时由 `CountingSink` 暴露为 0，存在 `VERIFIED` 档案时来自 live parser。`ignored` 表示档案未声明的 opcode，不计为失败（contracts/CHANGELOG.md 第 18 条） |
+| `parse_ok` / `parse_fail` / `ignored` / `duplicates` | 来自 `IParserStats`。无可用档案时由 `CountingSink` 暴露为 0，存在 `VERIFIED` 档案时来自实时解析器。`ignored` 表示档案未声明的 opcode，不计为失败（contracts/CHANGELOG.md 第 18 条） |
 | `duty_clear_signals` / `duty_clear_completions` | 本次抓包会话中识别出的国服通关结算次数（[protocol-profile-format.md](protocol-profile-format.md) §12；同一次观察的重复只计一次），以及其中使副本内的导随记录收尾为通关的次数。结算到达时没有导随记录处于副本中（例如非导随的副本）只计前者，因此前者大于后者属于正常。与 `parse_ok` 不同，两者按抓包会话计，只在会话开始时归零：会话内的重新绑定（包括「核对并启用」之后的绑定）、换用共享档案与撤下档案都不清零；会话结束后保留该会话的总数，直到下一次会话开始。尚未开始过会话、或会话中从未绑定比较通关结算的档案时为 0。只见于脱敏报告（§9）与诊断日志（§8），不在 `CaptureStatus` 中 |
 | `dropped` | 有界队列溢出丢弃数 |
 | `queue_depth` / `queue_capacity` | 同上 |
@@ -392,7 +392,7 @@ fail-closed 方式发现，不依赖对未知 opcode 的计数；对未知 opcod
 | `damaged_game_directions` | 已在解码的游戏连接中被放弃的方向数（空洞在容忍时间内无法补齐、无法安全解码的报文，或该方向没有自己的握手），本次会话的累计值。该方向此后不再交出任何报文。每个被放弃的方向另带所属连接的连接键，排在该连接已交出的报文之后单独交给协议管线：该方向本次会话交出过当前档案能解析的报文（或尚无任何方向交出过）时，进行中的记录按丢失观测收尾；同一连接的另一方向交出过这类报文时不算（[state-machine.md](state-machine.md) §3.3、§3.7、§7.5）。累计值本身与 `adapter_dropped` 一样不结束任何记录，只用于校准的健康判断与诊断：该值不为 0 的会话不再计作校准证据 |
 
 **`game_connections` 大于 `preexisting_connections` 时，不能再判定为本软件启动过晚。**
-这两个数值将一份 `messages_decoded: 0` 的报告区分为两种情况。两者相等时，客户端始终沿用
+这两个数值可帮助判断 `messages_decoded: 0` 的报告对应哪种情况。两者相等时，客户端始终沿用
 抓包开始之前已建立的连接，返回标题画面重新登录可以解决问题。前者大于后者时，客户端已在
 抓包期间重新建立连接而本软件仍无法解出报文，说明握手报文在入口处即已丢失，再次登录没有
 意义（2026-09-13）。提示语句与诊断页的警告均依据该区分选择措辞。
@@ -402,9 +402,9 @@ fail-closed 方式发现，不依赖对未知 opcode 的计数；对未知 opcod
 会使该会话不再计作校准证据，日志据此可以解释校准为何没有进展。日志中不含任何地址、路径或报文内容。
 
 **两个超时时长含义不同，不可混用。** 等待连接归属确认的时长为 30 秒。默认 Oodle 模式需要
-复制并扫描 `ffxiv_dx11.exe`，在冷盘上可能超过 5 秒；以 5 秒淘汰该连接等于取消它唯一的机会。
+复制并扫描 `ffxiv_dx11.exe`，在磁盘缓存未预热时可能超过 5 秒；以 5 秒淘汰该连接，就会使其无法完成归属确认。
 空洞容忍时长为 5 秒，且**只丢弃该方向的滞留报文**，解码器与另一方向继续工作。
-此前的实现会连同解码器一并删除整条流，一次丢包便会使一条正常连接的全部计数永久冻结且不报错。
+此前的实现会连同解码器一并删除整条流，一次丢包便会使一条正常连接的全部计数永久停止增长，且不报错。
 
 **首包缓冲预算耗尽不再中止抓包。** pcap 过滤器按本机地址过滤而非按进程过滤，本机所有程序的
 TCP 流量共用同一份预算；归属确认又需等待 30 秒，一次普通下载便会将预算填满。预算耗尽时
@@ -423,7 +423,7 @@ TCP 流量共用同一份预算；归属确认又需等待 30 秒，一次普通
 ## 6. 有界队列与背压
 
 - 容量默认 4096 条，可通过 `application_settings` 的 `capture.queue_capacity` 调整
-  （范围 512–65536，越界自动收敛到边界）。
+  （范围 512–65536，超出范围时自动调整至最近的边界值）。
 - 队列满时的策略为**丢弃最旧的报文**，并累加 `packets_dropped`。
 - **绝不**阻塞抓包回调线程，**绝不**允许队列无界增长。
   抓包回调一旦阻塞会造成驱动层丢包，其诊断难度高于本软件自身丢包。
@@ -435,7 +435,7 @@ TCP 流量共用同一份预算；归属确认又需等待 30 秒，一次普通
   与 2 万条突发，最后断言 `messages_decoded == parse_ok + parse_fail + ignored + dropped`
   严格相等。实测数值见 [release-checklist.md](release-checklist.md) 第 4 节。
 - 解析线程为**单线程**，按观察顺序调用 `IDecodedMessageSink.Accept`。
-  队列自身会捕获 sink 异常并计入 `SinkErrorCount`，worker 不会因此崩溃。生产环境下的
+  队列自身会捕获接收端（sink）的异常并计入 `SinkErrorCount`，工作线程不会因此崩溃。生产环境下的
   `CaptureController` 会将该会话置为 `FAILED`，避免界面仍显示运行中而后续记录持续丢失。
 - 发生丢弃时，丢失本身即作为事件序列空洞交给状态机：进行中的已进本记录判定为 `INTERRUPTED`，
   尚未进本的匹配按「进本前取消」收尾并标记待复核（见 [state-machine.md](state-machine.md) §3.3、§3.7）。
@@ -451,7 +451,7 @@ Machina 在自身线程内将失败写入 `Trace`，而不向调用方抛出异�
 - 写盘同时采样。每一类在每个抓包源生命周期内最多写 **8** 行，此后按至多 **30 秒**一次
   汇总为 `capture/monitor_trace_summary {fatal, decode_error, diagnostic, interval_ms}`，
   并在停止时补写一次。缺少该采样层时，一次丢包会导致该方向后续每个压缩 bundle 各写一行，
-  40–70 分钟便会将当天日志滚掉。**被采样略去的仅是磁盘写入**，
+  40–70 分钟便会将当天日志滚动覆盖。**采样仅减少磁盘写入**，
   下述计数与故障通知不会有任何遗漏。
 - 命中致命标记（`Cannot load`、`Unable to retrieve network data`、`PcapException`、
   `Error opening`、`Cannot find one or more signatures`）时，抓包进入 `FAULTED`
@@ -483,7 +483,7 @@ Machina 在自身线程内将失败写入 `Trace`，而不向调用方抛出异�
 - 十六进制串的门槛取 16 位而非 8 位，目的是**保留短哈希 id**。适配器指纹为 SHA-256 的
   前 12 位（`SanitizedDiagnosticsReport.AdapterFingerprintLength`），UUID 的分段更短。
   这两类值不泄漏任何信息，却是日志中区分两张网卡、两个会话的唯一依据。
-  脱敏只应移除秘密，不应一并移除可诊断性。
+  脱敏只应移除敏感信息，不应同时删除定位问题所需的信息。
 - 替换顺序固定，匹配范围宽的规则先执行，且**宁可多删**。损失少量上下文是可接受的代价，
   遗留一个地址则是事故。
 - 五类规则全部由 `tests/Collector.UnitTests/DiagnosticsLogHygieneTests.cs` 强制，
@@ -493,7 +493,7 @@ Machina 在自身线程内将失败写入 `Trace`，而不向调用方抛出异�
 - 日志写入失败（磁盘已满、权限不足）**绝不**导致进程崩溃。诊断信息可以放弃，用户数据不可以。
 - 采集服务无法启动的原因同样写入日志。数据库无法打开（文件损坏、不是数据库，或被其他程序占用）时记一条
   `startup/open_failed`，含错误码与原因说明。本机通信管道已被占用时记一条 `startup/already_running`，
-  其 `holder` 字段区分三种占用者：应答的本软件实例（`ANSWERED`）、占着管道却不应答的实例（`SILENT`），
+  其 `holder` 字段区分三种占用者：正常应答的本软件实例（`ANSWERED`）、占用管道却不应答的实例（`SILENT`），
   以及属于另一个 Windows 账户或以管理员身份运行的占用者（`OTHER_ACCOUNT`，此时采集服务以退出码 3 停止启动，
   见 [architecture.md](architecture.md) §2.4）。
 - 进程列表持续读取失败时的 `capture/process_listing_failed` / `capture/process_listing_recovered` 见 §3。
@@ -633,7 +633,7 @@ Top 40 opcode，以及按连接标识汇总的每条连接的消息数、首末�
 即 `--trace-report` 能读取的行数），标记行上限 1 万行；达到上限后只计数、不再写入，并在 summary 中标记 `truncated`。
 时长由 `--duration-seconds`、游戏进程退出或 Ctrl+C 三者之一封顶。
 输出路径已存在时命令拒绝覆盖，以免破坏既有证据。
-结束时写出 `<out>.sha256` 边车文件，未附哈希的证据不予采信
+结束时写出配套的 `<out>.sha256` 校验文件，未附哈希的证据不予采信
 （[protocol-profile-format.md](protocol-profile-format.md) §5）。
 
 该模式**不打开数据库、不建立命名管道、不加载协议档案、不解析任何字段**，
@@ -793,16 +793,16 @@ opcode 与负载字节。
 |---|---|
 | `phase` | 总体阶段。`UNAVAILABLE` 表示上次获取时所有源均不可达或未取到校准码，本机校准照常进行；`VERIFYING` 表示已有校准码正等待本机流量核实；`AWAITING_CONSENT` 表示按排本推断的校准码已通过，等待用户确认一次；`VERIFIED` 表示共享档案正在使用；`REJECTED` 表示全部校准码均不匹配、已被撤销、在用档案被撤下，或用户选择了不使用共享校准，此时应先查看 `user_rejected` |
 | `last_fetch_status` / `last_index_attempts` | 该版本最近一次获取的总体结果，以及每个源（`GITHUB_RAW` / `CDN_PRIMARY` / `CDN_FALLBACK`）索引请求的结果码。三个源全部为 `DNS_OR_CONNECT` 或 `TIMEOUT` 表示用户网络无法到达，此时应引导用户使用「导入校准码」 |
-| `candidates[]` | 每份校准码一行，包含 `sha12`（码身份的前 12 位，可与公开仓库中的文件名对照）、`source`（`DOWNLOADED` 为下载，`MANUAL` 为手动导入）、`match_source`、`status`、`verdict`。正在使用的共享档案排在第一位 |
+| `candidates[]` | 每份校准码一行，包含 `sha12`（校准码标识的前 12 位，可与公开仓库中的文件名对照）、`source`（`DOWNLOADED` 为下载，`MANUAL` 为手动导入）、`match_source`、`status`、`verdict`。正在使用的共享档案排在第一位 |
 | `candidates[].criteria[]` | 每条声明报文对应一项判定，包含 `message`（语义名，非 opcode）、`verdict`（`PASS` / `WAIT` / `CONTRADICTED`）、`reason`（中文原因）、`contradicting_sessions`（已有多少个**健康**抓包会话与之矛盾，达到两个才判定为拒绝），以及 `gate`：`REQUIRED` 为绑定前必须通过，`AUDIT` 为绑定后在记录中继续核对（矛盾时仍会撤下），`OPTIONAL` 为从不阻挡绑定（职业）。长期为 `WAIT` 且原因为未观察到登录时的换区，通常说明本软件在游戏登录之后才开始抓包（§5.5），而非校准码存在问题 |
 | `candidates[].staging_overflowed` | 暂存事件超过上限，该校准码在本会话内无法绑定，需在下一个抓包会话重试 |
 | `candidates[].provenance` | 1.1.0 起。`PUBLISHED` 表示本机最近一次读到的索引列出了这份码（下载来的，或导入后在索引里找到的）；`IMPORTED` 表示导入后任何索引都不认识。来源只说明码从哪里来，核实门槛另由各判据的 `gate` 给出：只有本机当前没有可用档案、仓库未给它标冲突标记、至少有一名提交者、且没有提交人数更多的候选时，`PUBLISHED` 的码才是登录时换区判据通过即绑定（`CONTENT_FINDER_POP` 等判据为 `AUDIT`）；其余 `PUBLISHED` 的码与全部 `IMPORTED` 的码须排本与进本判据也通过才绑定（这些判据为 `REQUIRED`）。这样的码长期停在 `VERIFYING`，通常是还没排过本，不是码有问题 |
-| `candidates[].audit_pending` / `audit_pending` | 1.1.0 起。正在使用（或可绑定）的共享档案仍有绑定后核对的判据在等待。为 true 时校准保持布防，记录照常生成；两个健康会话判矛盾会撤下档案并把它自绑定起生成的记录标记待复核 |
+| `candidates[].audit_pending` / `audit_pending` | 1.1.0 起。正在使用（或可绑定）的共享档案仍有绑定后的判据待核对。为 true 时校准继续执行后台核对，记录照常生成；两个健康会话均发现矛盾时，会撤下档案并把它自绑定起生成的记录标记待复核 |
 | `profile_id` / `bound_at_utc` | 正在使用的共享档案，以及它在抓包会话内开始记录的时刻 |
 | `last_refusal` | 上一次绑定或撤下失败的原因令牌：`NOT_SELECTED`（写出后目录未选中它）、`STAGING_NOT_FOR_THIS_SESSION`、`WRITE_FAILED`、`BUILD_*`、`STALE`（写出期间状态发生变化）、`CONTRADICTED`、`REVOKED`、`REJECTED`、`USER_REJECTED`、`INTERNAL`。令牌之外的细节（异常类型、路径）只保留在本机，不写入报告 |
 | `rejected_candidates` | 因矛盾或撤销而被拒绝的校准码数量。矛盾记录跨重启保留，执行「重新观察」时清空 |
 | `user_rejected` | 用户已选择「不用共享的，我自己校准」。在执行「重新观察」之前，该区服与版本不再获取、导入或绑定任何共享校准，本机校准不受影响。该标志与矛盾记录分开存储，不计入 `rejected_candidates` |
-| `recheck` | 1.4.0 起，缺省为 null。已有档案在记录时仍读取索引的那一次：`last_utc` 为读取时刻，`status` 与 `last_fetch_status` 同一套取值，`reason` 说明为何允许读取——`SHARED_IN_USE`（在用的是其他玩家分享的校准，仓库可能已撤回它）或 `QUEUE_INFERRED_IN_USE`（在用的档案按排本推断匹配，认服务器报文的码比它更准）。随包档案或认服务器报文的本机档案在用时不读索引，该字段保持 null；已完整记录过一次且判据全部通过的非排本共享档案结束看护后校准解除布防，同样不再读取 |
+| `recheck` | 1.4.0 起，缺省为 null。表示已有可用档案时仍读取索引的那次检查：`last_utc` 为读取时刻，`status` 与 `last_fetch_status` 采用同一套取值，`reason` 说明为何允许读取——`SHARED_IN_USE`（在用的是其他玩家分享的校准，仓库可能已撤回它）或 `QUEUE_INFERRED_IN_USE`（在用的档案按排本推断匹配，能识别服务器报文的校准码比它更准）。使用随包档案或能识别服务器报文的本机档案时不读索引，该字段保持 null；非排本共享档案已完整记录过一次且判据全部通过时，校准结束后续核对，同样不再读取 |
 
 ## 10. 常见故障排查表
 

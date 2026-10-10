@@ -4,8 +4,8 @@
 本文面向新增或修改协议档案的维护者，说明校验流程、逐项检查规则与两份实现之间的差异。
 
 **校验逻辑的权威实现位于 Collector**（`src/Collector/Protocol/Profiles/`）。
-本目录下的 `validate.py` 是其**独立复刻**，用于 CI，以及不启动 .NET 而修改档案的场景。
-两份实现刻意分别编写，使任何一方的疏漏在另一方暴露。
+本目录下的 `validate.py` 是其**独立实现**，用于 CI，以及不启动 .NET 而修改档案的场景。
+两份实现分别编写，用于交叉检查各自的疏漏。
 
 ```bash
 # 权威实现（C#，与运行时用的是同一份代码）
@@ -61,10 +61,10 @@ Schema 在构建时**内嵌进 Collector 程序集**，因此运行时校验使�
 
 规范化语法刻意收窄，实现见 `CanonicalJson.cs` 与 `validate.py` 的 `canonical()`：
 
-- 对象键按**序数序**排序；
+- 对象键按**字符序数**排序；
 - 无任何空白；
 - **数字必须是整数**。出现小数时直接拒绝档案（`E_PROFILE_CANONICAL`），而不是四舍五入。
-  取决于格式化选择的哈希不成其为哈希；
+  这是为了避免数字格式化方式影响哈希结果；
 - 字符串只用 `\" \\ \b \f \n \r \t` 短转义，其余 `< 0x20` 的控制字符用 `\u00xx`，
   非 ASCII 原样以 UTF-8 输出。
 
@@ -120,11 +120,11 @@ Collector 侧只校验，不写入。
 | `VERIFIED` | **每一条消息的 opcode** 都要在 `provenance.evidence` 里有一条 `field = "messages.<NAME>.opcode"` 且 `method != "SYNTHETIC"` 的条目 | `E_PROFILE_NO_EVIDENCE` |
 
 `SYNTHETIC` 的特殊之处仅在于此：它**通过**校验，编造常量正是其用途。
-但它在活体档案选择中不可见。只有显式传入路径（`--profile` / `--replay-decoded`），
+但它在实时采集的档案选择中不可见。只有显式传入路径（`--profile` / `--replay-decoded`），
 或调用方显式指定 `allowSynthetic`，才能选中它（`ProfileSelector`）。
 `AMBIGUOUS` 不是档案中可以写的取值，它由**目录级**判定产生，见下一节。
 
-### 7. 固件哈希
+### 7. 测试样本哈希
 
 `fixtures[]` 中**存在**的文件必须匹配其 `sha256`，不匹配 → `E_PROFILE_FIXTURE_HASH`，拒绝该档案。
 **不存在**的文件只记一条警告 `W_PROFILE_FIXTURE_MISSING`，并将 `fixture_verified` 置为 `false`。
@@ -142,7 +142,7 @@ Collector 侧只校验，不写入。
 > 两份都不用。**
 
 按文件名、修改时间或 `compatibility_status` 择一，等于让记录的数据取决于
-哪份文件恰好排在前面。协议常量不接受这种沉默的选择。
+哪份文件恰好排在前面。协议常量不接受这种隐式选择。
 
 档案根目录的查找顺序为：`--profiles-dir` 显式指定；否则从可执行文件目录与当前工作目录
 出发，逐级向上查找名为 `protocol-profiles` 的目录。均未找到时按空目录处理，整体 fail-closed。
@@ -186,7 +186,7 @@ $ echo $?
 1
 ```
 
-固件警告源于该副本位于 `build/` 下，相对路径无法指向测试树。
+测试样本警告源于该副本位于 `build/` 下，相对路径无法指向测试树。
 该警告只会使 `fixture_verified` 变为 `false`，并非拒绝的原因。
 
 ### `--json`
@@ -223,7 +223,7 @@ protocol profiles root: <repo-root>\protocol-profiles
 
 第四列为**目录级**状态，取值可能为 `AMBIGUOUS`；第五列表示该绑定是否允许状态机工作。
 `synthetic-v1` 显示 `usable`，因为合成绑定对**离线重放**可用；
-它在活体抓包路径上仍不可见。`--json` 另外给出 `path` / `fixture_verified` /
+它在实时抓包路径上仍不可见。`--json` 另外给出 `path` / `fixture_verified` /
 `error_count`。
 
 ### Python 侧
@@ -237,7 +237,7 @@ $ echo $?
 0
 ```
 
-失败时逐条打印原因，退出码取所有文件中最差的一个：
+失败时逐条打印原因，退出码取所有文件中的最大值：
 
 ```console
 $ python tools/protocol-profile-validator/validate.py build/docs-replay/bad/synthetic-v1.json
@@ -264,7 +264,7 @@ build/docs-replay/bad/synthetic-v1.json: FAILED
 含孤立代理项转义（如 `"\ud800"`）的字符串无法编码为 UTF-8，因而算不出规范化哈希：Python 将该档案判为无效
 （`cannot compute the canonical hash`），`--stamp` 不写文件，命令行上其余档案照常检查；Collector 读取该字符串时同样失败。
 
-此处保留而非抹平这些差异，是因为 Python 侧更严格的一侧正是期望的默认。
+此处保留而非抹平这些差异，是因为 Python 侧的严格检查正是预期的默认要求。
 **若将来统一实现，应由 C# 向 Python 看齐，而非放松 Python 侧。**
 2026-10-03 审计前，Python 侧曾在四处比 Collector 宽松：`calibration` 的 `roulette_field`
 未执行普通字段检查、超出 64 位范围的整数被当作整数、重复键被合并后按合并结果计算哈希、

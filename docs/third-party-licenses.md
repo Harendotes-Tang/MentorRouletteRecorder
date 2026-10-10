@@ -9,9 +9,9 @@
 声明一致；模型来自官方 `tessdata_fast` 固定提交。机器可核验的来源、哈希、
 DLL 归属、许可证正文及源码地址以 `docs/licenses/ocr/dependency-manifest.json` 为准，
 随包副本为 `ocr/OCR-DEPENDENCIES.json`。许可证正文位于 `docs/licenses/ocr/`，
-发布时同时复制至 `ocr/licenses/`。各 DLL 精确字节由发行包和逐文件哈希确定；
+发布时同时复制至 `ocr/licenses/`。各 DLL 的实际内容由发行包和逐文件哈希确定；
 清单内未被 `tesseract --version` 报告的上游许可证标签仅说明文本来源，
-不冒充该 DLL 版本的独立验证。GNU libiconv、JBIG-KIT 与 GCC runtime 的源码
+不代表已独立验证该 DLL 版本的许可证。GNU libiconv、JBIG-KIT 与 GCC runtime 的源码
 获取地址随清单保留；本次未修改这些第三方二进制。
 
 > 调查日期：**2026-09-04**。所有版本号来自本机实际还原的 NuGet 包与实际安装的 Qt。
@@ -148,7 +148,7 @@ Qt 官方文档 `https://doc.qt.io/qt-6/licensing.html` 列出的 GPLv3-only 模
 | **Qt Graphs** | **GPL-3.0-only** | 图表（仪表盘统计） |
 | Qt Charts | GPL-3.0（自 Qt 6.10 起弃用，本项目**不使用**） | — |
 | **Qt TextToSpeech** | LGPL-3.0 | 可选的本地语音播报 |
-| **Qt Multimedia** | LGPL-3.0 | 播放在线语音取回的 WAV（`QSoundEffect`）；Qt TextToSpeech 本身也依赖它。只随包 Windows 后端 `windowsmediaplugin`，**不随包 FFmpeg**（见下） |
+| **Qt Multimedia** | LGPL-3.0 | 播放在线语音取回的 WAV（`QSoundEffect`）；Qt TextToSpeech 本身也依赖它。只随包提供 Windows 后端 `windowsmediaplugin`，**不随包 FFmpeg**（见下） |
 | Qt Svg | LGPL-3.0 | 图标 |
 | Qt Quick 3D / Qt ShaderTools | GPL-3.0-only / LGPL-3.0 | **本项目不使用**（避免不必要的 GPL 依赖） |
 
@@ -222,7 +222,7 @@ OFL 条件同 §3.2。IBM Plex 的保留字体名为 “Plex”；本项目只�
 | 项 | 值 |
 |---|---|
 | 上游 | <https://lucide.dev>，<https://github.com/lucide-icons/lucide>；取自 npm 包 `lucide-static@1.46.0` 的 `icons/*.svg` |
-| 许可证 | **ISC**（全文随附于 `src/Desktop/resources/icons/lucide/LICENSE`）。同一文件的后半段说明：Lucide 从 **Feather** 派生的那些图标同时受 **The MIT License (MIT)**，Copyright (c) 2013-present Cole Bemis 约束。本项目带的 24 个里有 9 个在这份名单上：`calendar`、`chevron-left`、`chevron-right`、`clock`、`moon`、`plus`、`radio`、`server`、`x` |
+| 许可证 | **ISC**（全文随附于 `src/Desktop/resources/icons/lucide/LICENSE`）。同一文件的后半段说明：Lucide 从 **Feather** 派生的那些图标同时受 **The MIT License (MIT)**，Copyright (c) 2013-present Cole Bemis 约束。本项目所用的 24 个图标中有 9 个在该名单上：`calendar`、`chevron-left`、`chevron-right`、`clock`、`moon`、`plus`、`radio`、`server`、`x` |
 | 版权 | Copyright (c) 2026 Lucide Icons and Contributors；Feather 派生部分另有 Copyright (c) 2013-present Cole Bemis |
 | 文件 | `src/Desktop/resources/icons/lucide/*.svg`（原样未改；SHA-256 见同目录 `README.md`） |
 | 是否进入构建产物 | **是**，但进入产物的不是 SVG 本身：`tools/lucide-icons/generate.py` 将每个图标的绘制元素生成到 `src/Desktop/qml/components/Lucide.js`。该文件头部带有 ISC 的版权与许可声明，并在包含 Feather 派生图标时一并带上 MIT 的版权与许可声明，随 QML 模块编入 `MentorRecorder.Desktop.exe`。生成器从 LICENSE 文件读取 Feather 名单，`tools/lucide-icons/test_generate.py` 保证生成文件与 SVG、名单一致 |

@@ -20,10 +20,10 @@ region、game build、exe 大小、exe SHA-256 四项全部精确匹配方可使
 
 **模式回退（0.3.1 起）。** 游戏补丁之后，没有任何档案能按哈希匹配新的 exe，而内置表在国服上
 无法定位训练函数，补丁当日因此无法解码。此时运行时取同区服**最新的 VERIFIED** 档案作为
-模式捐赠者：先按文件字节核对 12 条通配模式各恰好命中一次，且相对跳转落在文件内；再对映射后的
-镜像执行正式扫描，仅要求全部恰好命中一次，**不比对**档案中的 RVA。任一条核对落空即退回内置表，
+模式来源档案：先按文件字节核对 12 条通配模式各恰好命中一次，且相对跳转落在文件内；再对映射后的
+镜像执行正式扫描，仅要求全部恰好命中一次，**不比对**档案中的 RVA。任一条核对失败即退回内置表，
 不因此拒绝抓包。日志与 `CaptureStatus.oodle_signature_source` 记为 `pattern-fallback`，
-`profile_id` 为捐赠档案。模式回退仅用于使补丁后的客户端能够解码与校准；补丁后的正式签名档案仍须用
+`profile_id` 为提供模式的档案。模式回退仅用于使补丁后的客户端能够解码与校准；补丁后的正式签名档案仍须用
 `find_signatures.py` 生成并验证。
 
 ## 状态规则
@@ -72,7 +72,7 @@ region、game build、exe 大小、exe SHA-256 四项全部精确匹配方可使
 因此取证必须在登录之前开始；标题画面为合适时机，此时游戏进程没有 TCP 连接。
 
 本记录仅证明 **Oodle 解压链路** 在该客户端上正确，**不**证明任何协议 opcode。
-协议层的活体状态由 `--capture-doctor` 如实报出
+协议层的实时采集验证状态由 `--capture-doctor` 如实报出
 （`CaptureDiagnostics.LiveCaptureStatus`，当前为 `VERIFIED_POP_TO_EXIT`）。
 请以该自检报告为准，本文件不复述会过期的状态词。
 见 [live-validation-guide.md](../../docs/live-validation-guide.md)。

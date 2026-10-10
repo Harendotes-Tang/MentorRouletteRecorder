@@ -1,6 +1,6 @@
-# 测试固件 / Test Fixtures
+# 测试样本 / Test Fixtures
 
-本目录存放**三类**离线数据，均不含任何真实报文。本文面向新增或修改固件的维护者，说明三类数据的用途、格式与改动要求。
+本目录存放**三类**离线数据，均不含任何真实报文。本文面向新增或修改测试样本的维护者，说明三类数据的用途、格式与改动要求。
 
 ```
 tests/Fixtures/
@@ -11,29 +11,29 @@ tests/Fixtures/
 
 前两类是 [`../../docs/state-machine.md`](../../docs/state-machine.md) 与
 [`../../docs/protocol-profile-format.md`](../../docs/protocol-profile-format.md)
-的**可执行形式**：文档中写明的每一条终态、每一种解析拒绝，本目录都有一个固件将其执行一遍。
-实现与文档任一方变更而另一方未同步时，这些固件会立即失败。
+的**可执行形式**：文档中写明的每一条终态、每一种解析拒绝，本目录都有相应的测试样本用于验证。
+实现与文档任一方变更而另一方未同步时，这些测试样本会立即失败。
 
 工具与命令见 [`../../tools/fixture-replay/README.md`](../../tools/fixture-replay/README.md)。
 
 ---
 
-# 一、语义事件固件 `*.fixture.json`
+# 一、语义事件测试样本 `*.fixture.json`
 
-本类固件跳过抓包**和**协议解析，直接将有序的语义事件送入状态机。
+本类测试样本跳过抓包**和**协议解析，直接将有序的语义事件送入状态机。
 
 ## 硬性要求
 
-- 固件是**人工合成**的，**不是**抓来的真实报文。
+- 测试样本是**人工合成**的，**不是**抓来的真实报文。
 - **不得**包含真实的 opcode、结构偏移、角色名、IP、MAC 或任何其他玩家的信息。
-  固件里的 `roulette_id` / `content_id` / `territory_id` / `job_id` 全是编造的合成值。
+  测试样本里的 `roulette_id` / `content_id` / `territory_id` / `job_id` 全是编造的合成值。
 - `contains_personal_data` 必须为 `false`（加载器会拒绝 `true`）。
-- 固件**不得**声明 `profile.status = "VERIFIED"`：固件不是关于真实协议的证据，
+- 测试样本**不得**声明 `profile.status = "VERIFIED"`：测试样本不是关于真实协议的证据，
   也不得声称自己是。加载器直接拒绝。
-- 每个 `.fixture.json` 必须有同名的 `.sha256` 旁文件，且必须登记在 `SHA256SUMS` 里。
+- 每个 `.fixture.json` 必须在同一目录中有同名的 `.sha256` 校验文件，且必须登记在 `SHA256SUMS` 里。
   三者不一致时加载会失败（`FixtureIntegrityTests` 会验证这一点）。
 
-## 现有固件
+## 现有测试样本
 
 | 文件 | 终态 | 断言的行为 |
 |---|---|---|
@@ -46,13 +46,13 @@ tests/Fixtures/
 | `non_mentor_roulette_then_zone_v1.fixture.json` | `IDLE` | 非导随的 `roulette_id`：**完全不创建任何记录** |
 | `duplicate_events_v1.fixture.json` | `COMPLETED` | 重复的弹出/进入/胜利：只有一条记录、一次完成 |
 | `unknown_profile_v1.fixture.json` | `IDLE` | 档案 `UNSUPPORTED_BUILD`：fail-closed，零写入，只累计解析拒绝计数 |
-| `two_runs_sequence_v1.fixture.json` | `COMPLETED` | 背靠背两次完整导随：两条记录、两次完成 |
+| `two_runs_sequence_v1.fixture.json` | `COMPLETED` | 连续两次完整导随：两条记录、两次完成 |
 
-期望值不写在固件里，而写在
+期望值不写在测试样本里，而写在
 [`../Collector.IntegrationTests/ReplayIntegrationTests.cs`](../Collector.IntegrationTests/ReplayIntegrationTests.cs)
 的 `Expectations` 表中。该表按文档手工计算得出，并非抄录代码输出。
 
-## 格式（语义固件 v1）
+## 格式（语义测试样本 v1）
 
 ```jsonc
 {
@@ -87,7 +87,7 @@ tests/Fixtures/
 
 - 省略或 `"SYNTHETIC"` —— 绑定一个**可用的**离线合成档案，状态机正常工作。
 - 其他任何值（如 `"UNSUPPORTED_BUILD"`、`"NONE"`、`"UNVERIFIED"`）—— 绑定一个
-  **未经验证的 live 档案**，于是状态机 fail-closed，拒绝每一个事件。
+  **未经验证的实时采集档案**，于是状态机 fail-closed，拒绝每一个事件。
   这是离线重放"档案不可用"分支的方式。
 - `"VERIFIED"` —— **拒绝加载**。
 
@@ -98,9 +98,9 @@ tests/Fixtures/
 去重键由 `capture_session_id | direction | kind | monotonic_ms | payload_hash | event_key`
 拼成，因此只有这三者全部相同才算同一次观察。`duplicate_events_v1` 即按此方式编写。
 
-## 改动固件后必须做的事
+## 改动测试样本后必须做的事
 
-1. 重算 `.sha256` 旁文件；
+1. 重新计算同目录的 `.sha256` 校验文件；
 2. 同步更新 `SHA256SUMS`；
 3. 更新 `ReplayIntegrationTests.Expectations` 中对应的手算期望值。
 
@@ -108,17 +108,17 @@ tests/Fixtures/
 
 ---
 
-# 二、解码报文固件 `decoded/*.decoded.json`
+# 二、解码报文测试样本 `decoded/*.decoded.json`
 
-本类固件比语义固件低一层，内容是**字节**。跳过的只有抓包。
+本类测试样本比语义测试样本低一层，内容是**字节**。跳过的只有抓包。
 `ProfileMessageParser` 之后的一切，包括解析、状态机、`SemanticEventProcessor` 与 SQLite，
-都是活体抓包所用的同一份生产代码。
+都是实时抓包所用的同一份生产代码。
 
 这是本仓库中**唯一**一处在没有游戏的情况下将字节转为记录的位置。
 
 ## 硬性要求
 
-- 固件是**人工合成**的，**不是**抓来的真实报文。
+- 测试样本是**人工合成**的，**不是**抓来的真实报文。
 - 必须声明 `"synthetic": true`。加载器（`DecodedFixtureLoader`）对
   `false` 或缺失**直接拒绝**，以确保真实抓包无法被混入测试树并重放。
 - `opcode` / `segment_type` / `payload_hex` 全是为
@@ -127,17 +127,17 @@ tests/Fixtures/
   （类别、副本类型、命令与全零的尾部）。通关结算正是按内容识别的
   （[`../../docs/protocol-profile-format.md`](../../docs/protocol-profile-format.md) §12），
   换成编造的内容便测不到它；其 opcode（61455）与副本编号（`0xF00D`）仍是编造的。
-- 每个 `.decoded.json` 必须有同名的 `.sha256` 旁文件，且必须登记在
-  `decoded/SHA256SUMS` 中（格式与语义固件的同名文件相同：`<64 位十六进制>␠␠<文件名>`）。
+- 每个 `.decoded.json` 必须在同一目录中有同名的 `.sha256` 校验文件，且必须登记在
+  `decoded/SHA256SUMS` 中（格式与语义测试样本的同名文件相同：`<64 位十六进制>␠␠<文件名>`）。
   三者不一致时加载会失败。
 - 同一批文件还须登记进其所属的那份合成档案的 `fixtures[]`（路径 + SHA-256），
   使档案校验器同样核对它们，见
   [`../../tools/protocol-profile-validator/README.md`](../../tools/protocol-profile-validator/README.md) §7。
 
-`ReplayDecodedTests` 逐条验证上述要求：旁文件哈希、`SHA256SUMS` 与文件集合一一对应、
+`ReplayDecodedTests` 逐条验证上述要求：同目录校验文件的哈希、`SHA256SUMS` 与文件集合一一对应、
 将 `synthetic` 改为 `false` 会被拒绝、改动任一字节都会被检出。
 
-## 格式（解码固件 v1）
+## 格式（解码测试样本 v1）
 
 ```jsonc
 {
@@ -165,7 +165,7 @@ tests/Fixtures/
 `payload_hex` 中的空格会被忽略。`messages` 不得为空。
 `direction` 只接受上述两个字面量。其余任何头部字段不合法时，加载失败而非跳过该字段。
 
-## 现有固件
+## 现有测试样本
 
 `--replay-decoded` 配 `protocol-profiles/synthetic/synthetic-v1.json` 时的期望结果
 （手算于 `ProtocolDecodedReplayTests.Expectations`）：
@@ -196,13 +196,13 @@ tests/Fixtures/
 - `synthetic_territory_duty` 使用**第二份**合成档案 `synthetic-cn-shape-v1`，
   其 `game_build` 为 `synthetic-build-3`。两份合成档案若共用同一版本标识，目录级
   选择将变为 `AMBIGUOUS`，两份同时失效。
-  该固件按国服档案的**形状**编写：弹窗只有 `roulette_id`，进本标记没有任何可读字段，
+  该测试样本按国服档案的**形状**编写：弹窗只有 `roulette_id`，进本标记没有任何可读字段，
   区域编号单独作为一条 `ZONE_TERRITORY`（偏移 2）。这是离线复现"记录靠区域播报拿到副本名"
   （[../../docs/state-machine.md](../../docs/state-machine.md) §3.11）的唯一方式，
-  因为 `synthetic-v1` 的进本标记自带 `territory_id`，不会走到借用那一步。
+  因为 `synthetic-v1` 的进本标记自带 `territory_id`，不会进入借用区域信息的分支。
   职业播报排在弹窗**之前**，覆盖"唯一一次职业观察发生在 `IDLE`"的情形。
   合成档案按是否声明 `DUTY_RESULT` 绑定，与在用档案相同。`synthetic-cn-shape-v1` 不声明它，
-  因此该固件与国服一样，离开副本时以 `UNKNOWN` 收尾并标记待复核。
+  因此该测试样本与国服一样，离开副本时以 `UNKNOWN` 收尾并标记待复核。
 - `synthetic_duty_clear` 与 `synthetic_duty_no_clear` 复现 2026-10-05 本机取证中的一局，各条报文的时刻取自取证。
   进本后，通用控制报文在档案**未声明**的 opcode（61455，段类型 3）上出现 7 条，
   其中只有通关结算按内容识别为胜利，其余 6 条计入 `ignored`（`synthetic_duty_no_clear` 中为 4 条）。
@@ -224,12 +224,12 @@ tests/Fixtures/
   仍会将重复事件向下传递；真正的去重由状态机规则与 `run_events.event_key` 上的
   UNIQUE 索引完成。`synthetic_duplicates` 的 7 条报文中有 3 条重复，最终仍只有一条记录。
 
-`RunCount > 0` 的固件重放两次，第二次 `runs_created` / `events_appended` 为 0，
-`idempotent_replay` 为 `true`；零写入的三个固件第二次仍为 `false`，因为它们第一次也未写入。
+`RunCount > 0` 的测试样本重放两次，第二次 `runs_created` / `events_appended` 为 0，
+`idempotent_replay` 为 `true`；零写入的三个测试样本第二次仍为 `false`，因为它们第一次也未写入。
 
-## 改动解码固件后必须做的事
+## 改动解码测试样本后必须做的事
 
-1. 重算 `.sha256` 旁文件；
+1. 重新计算同目录的 `.sha256` 校验文件；
 2. 同步更新 `decoded/SHA256SUMS`；
 3. 更新**它所属那份档案**（`synthetic-v1.json` 或 `synthetic-cn-shape-v1.json`）的
    `fixtures[]` 并 `python tools/protocol-profile-validator/validate.py --stamp <该档案>`；
@@ -239,7 +239,7 @@ tests/Fixtures/
 
 # 三、IPC 请求样本 `ipc-requests/*.json`
 
-**不是重放固件**，不参与状态机，也没有 `.sha256` 旁文件或 `SHA256SUMS`。
+**不是用于重放的测试样本**，不参与状态机，也没有同目录的 `.sha256` 校验文件或 `SHA256SUMS`。
 
 每个文件是一条**完整的请求信封**（`message_type` / `payload` / `protocol_version` /
 `request_id`），由 Qt 桌面端**正式发布使用的** `IBackend` 包装器生成，并固定保存于本目录：
@@ -266,7 +266,7 @@ tests/Fixtures/
 
 **例外（共享校准，2026-09-15）**：`GetCalibrationShareCode`、`CheckSharedCalibration`、`ImportCalibrationCode`、
 `AcceptSharedQueueInference`、`RejectSharedCalibration` 五个样本最初由 Collector 侧手写，以满足第 1 步“契约中每条消息都有样本”的要求。
-桌面端包装器现已实现并加入 `tst_ipcrequests` 的消息列表，生成的载荷与此处逐字相同。`ImportCalibrationCode` 使用 `shared-calibration/vectors.json` 的第一条合法码。
+桌面端包装器现已实现并加入 `tst_ipcrequests` 的消息列表，生成的载荷与此处完全一致。`ImportCalibrationCode` 使用 `shared-calibration/vectors.json` 的第一条合法码。
 
 **例外（在线语音与完整性校验，2026-09-16）**：`GetSpeechSettings`、`UpdateSpeechSettings`、`SynthesizeSpeech`、
 `CheckDatabaseIntegrity` 四个样本同样最初由 Collector 侧手写。
@@ -276,4 +276,4 @@ tests/Fixtures/
 其中 `CheckDatabaseIntegrity` 的桌面端包装器已在界面改版 P4a 实现（`IBackend::checkDatabaseIntegrity()`），
 并已加入 `tst_ipcrequests` 的消息列表，生成的载荷与此处的 `{}` 逐字相同。三个语音样本的桌面端包装器在 P4b 由桌面端实现
 （`IBackend::getSpeechSettings()` / `updateSpeechSettings()` / `synthesizeSpeech()`），同样已加入消息列表，
-生成的载荷与此处逐字相同。
+生成的载荷与此处完全一致。

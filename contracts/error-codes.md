@@ -50,7 +50,7 @@
 | Code | 触发条件 | 典型消息类型 | retryable | 客户端应有的处理 |
 |---|---|---|---|---|
 | `ERR_PROTOCOL_VERSION` | 请求信封的 `protocol_version` 不是 1，或帧无法按 4 字节长度前缀解析 | 任意 | false | 提示版本不匹配，停止使用该连接；Desktop 应提示重新安装以使两个进程版本一致 |
-| `ERR_BAD_REQUEST` | JSON 结构不合法（含同一对象内字段名重复，信封与载荷皆然）、缺少必填字段、字段类型错误、出现契约未声明的字段、`page_size > 200`、时间戳不是带毫秒的 UTC ISO-8601 等；**以及**所选网卡在开始抓包时已不在 Npcap 设备列表中（例如用户中途启用加速器 / VPN、切换 Wi-Fi 或重新获取 IP）；**以及** `StartCapture.process_id` 不是当前锁定的客户端；**以及** `CorrectRun` 会使一条自动记录变为「结果未知、没有结束时间且不在待复核中」（修正前已是这一形态的进行中记录除外） | 任意；网卡与 `process_id` 情形仅出现在 `StartCapture` | 一般为 false；网卡情形为 **true** | 视为编程错误；`payload.field` 指出出错字段路径。网卡情形下 `field = "adapter_id"`，`details.adapter_id` 为原网卡；客户端应重新选择网卡后按秒重试。该错误不表示 Npcap 未安装。`process_id` 情形下 `field = "process_id"`：改变记录对象须用 `SelectGameProcess`。`CorrectRun` 情形下 `field = "ended_at_utc"`：须填写结束时间或选择实际结果（见 `docs/manual-correction.md` §7） |
+| `ERR_BAD_REQUEST` | JSON 结构不合法（包括信封或载荷中同一对象内字段名重复）、缺少必填字段、字段类型错误、出现契约未声明的字段、`page_size > 200`、时间戳不是带毫秒的 UTC ISO-8601 等；**以及**所选网卡在开始抓包时已不在 Npcap 设备列表中（例如用户中途启用加速器 / VPN、切换 Wi-Fi 或重新获取 IP）；**以及** `StartCapture.process_id` 不是当前锁定的客户端；**以及** `CorrectRun` 会使一条自动记录变为「结果未知、没有结束时间且不在待复核中」（修正前已是这一形态的进行中记录除外） | 任意；网卡与 `process_id` 情形仅出现在 `StartCapture` | 一般为 false；网卡情形为 **true** | 视为编程错误；`payload.field` 指出出错字段路径。网卡情形下 `field = "adapter_id"`，`details.adapter_id` 为原网卡；客户端应重新选择网卡后按秒重试。该错误不表示 Npcap 未安装。`process_id` 情形下 `field = "process_id"`：改变记录对象须用 `SelectGameProcess`。`CorrectRun` 情形下 `field = "ended_at_utc"`：须填写结束时间或选择实际结果（见 `docs/manual-correction.md` §7） |
 | `ERR_NOT_FOUND` | `run_id` 不存在（含从未创建过的 UUID） | `CorrectRun` `SoftDeleteRun` `RestoreRun` `GetRunRevisions` `SetRunReflection` | false | 刷新列表 |
 | `ERR_CANDIDATE_OBSERVATION_NOT_FOUND` | 候选观测不存在或已按容量/保留期清理 | `ReviewCandidateObservation` | false | 刷新对照核对列表 |
 | `ERR_REASON_REQUIRED` | 需要理由的操作未提供非空 `reason` | `CreateManualRun` `CorrectRun` `SoftDeleteRun` `RestoreRun` `UpdateAchievementBaseline` | false | 在 UI 中强制填写理由后重试（新 `request_id`） |
@@ -69,14 +69,14 @@
 | `ERR_PROFILE_UNSUPPORTED` | 协议档案状态为 `NONE` 或 `UNSUPPORTED_BUILD`：客户端版本未知或无对应档案 | `StartCapture` `GetProtocolProfileStatus` | false | **fail-closed**：不解析任何报文、不写入任何记录；提示用户仅能手动补录。自 0.3.0 起，"无对应档案但有随包模板"的情况不再触发它，而是进入本机校准（`CaptureStatus.calibration.state = OBSERVING`） |
 | `ERR_CALIBRATION_NOT_READY` | 本机校准还没有可核对的草稿：没有在校准、还在观察、或已阻塞 | `ConfirmCalibration` | false | 按 `CaptureStatus.calibration.blockers` 提示用户继续游玩或导出证据 |
 | `ERR_CALIBRATION_REJECTED` | 用户把校准时间线里的某一项标为"错"，草稿作废，被否决的候选在本次会话内不再提出 | `ConfirmCalibration` | false | 提示"再打一把随机任务"，界面回到校准中 |
-| `ERR_SHARE_CODE_UNAVAILABLE` | 当前生效的档案给不出校准码：没有可用档案（`details.reason = NO_PROFILE`）、是随包档案（`NOT_LOCAL`）、是其他玩家分享的档案（`SHARED`，共享来的不再转手）、或本机档案文件读不出 / 已被改动 / 不是校准写出的形状（`NOT_SHAREABLE`） | `GetCalibrationShareCode` | false | 不显示「分享给其他玩家」；按 `details.reason` 说明原因，不重试 |
+| `ERR_SHARE_CODE_UNAVAILABLE` | 当前生效的档案给不出校准码：没有可用档案（`details.reason = NO_PROFILE`）、是随包档案（`NOT_LOCAL`）、是其他玩家分享的档案（`SHARED`，共享来的不再转手）、或本机档案文件读不出 / 已被改动 / 不符合校准生成的结构（`NOT_SHAREABLE`） | `GetCalibrationShareCode` | false | 不显示「分享给其他玩家」；按 `details.reason` 说明原因，不重试 |
 | `ERR_SPEECH_DISABLED` | 环境变量 `MR_DISABLE_ONLINE_SPEECH` 已设置（除空、`0`、`false` 以外的值）。最先检查，连缓存也不读 | `SynthesizeSpeech` | false | 本次用本机语音播报；这是验证、测试、打包时的正常状态 |
 | `ERR_SPEECH_NOT_CONFIGURED` | 服务为 `none`，或所选服务缺区域 / 地址 / 模型 / 音色，或没有为当前目标保存密钥（换服务、换区域、换地址会删除旧密钥） | `SynthesizeSpeech` | false | 用本机语音播报；设置页提示去填写 |
 | `ERR_SPEECH_AUTH` | 语音服务返回 401 / 403 | `SynthesizeSpeech` | false | 用本机语音播报，并提示一次"密钥无效或与区域不匹配"；`details.http_status` |
 | `ERR_SPEECH_QUOTA` | 语音服务返回 429 | `SynthesizeSpeech` | true | 用本机语音播报，并提示一次"额度或频率用完"；`details.http_status` |
 | `ERR_SPEECH_NETWORK` | 其他非 2xx 状态（`details.reason = HTTP_STATUS`）、任何 3xx（`REDIRECT_REFUSED`，从不跟随）、连接或读取失败（`details.reason` 为 `NAME_RESOLUTION_ERROR`、`CONNECTION_ERROR` 之类的大写记号） | `SynthesizeSpeech` | true | 用本机语音播报，并提示一次；响应正文从不回传 |
 | `ERR_SPEECH_TIMEOUT` | 单次请求连接与读取合计超过 8 秒；或队列已满（同时一条发送中、三条等待，第五条直接失败，`details.reason = QUEUE_FULL`）；或等待超过 8 秒仍未轮到（`QUEUE_WAIT`）；或请求被取消，即采集服务正在停止或该请求所在的连接已断开（`CANCELLED`，正在发送与仍在排队的句子相同） | `SynthesizeSpeech` | true | 该句改用本机语音播报。超出队列的句子不排队，以免播报持续滞后 |
-| `ERR_SPEECH_FORMAT` | 响应 `Content-Type` 不是 `audio/*` / `application/octet-stream`（`details.reason = CONTENT_TYPE`）、超过 5 MB（`TOO_LARGE`）、不是 RIFF/WAVE 16 位 PCM（`NOT_RIFF_WAVE`、`NOT_PCM`、`NOT_16_BIT`、`BAD_FMT`、`NO_DATA` 等），或读音写不进 `tts-cache\`（`CACHE_WRITE`） | `SynthesizeSpeech` | false | 用本机语音播报，并提示一次；这样的响应不写缓存 |
+| `ERR_SPEECH_FORMAT` | 响应 `Content-Type` 不是 `audio/*` / `application/octet-stream`（`details.reason = CONTENT_TYPE`）、超过 5 MB（`TOO_LARGE`）、不是 RIFF/WAVE 16 位 PCM（`NOT_RIFF_WAVE`、`NOT_PCM`、`NOT_16_BIT`、`BAD_FMT`、`NO_DATA` 等），或音频无法写入 `tts-cache\`（`CACHE_WRITE`） | `SynthesizeSpeech` | false | 用本机语音播报，并提示一次；这样的响应不写缓存 |
 | `ERR_DB_BUSY` | SQLite 返回 `SQLITE_BUSY` / `SQLITE_LOCKED`，且已超过重试预算；或 `CheckDatabaseIntegrity` 请求到达时已有一次全库校验在执行（同时只允许一次，不排队）；**以及**进程启动时数据库文件被其他程序锁定 | 任意写操作；`CheckDatabaseIntegrity`；进程启动（不经由 IPC 返回） | true | 稍后以相同 `request_id` 重试（幂等）。启动时的情形：采集服务拒绝启动，退出码 **3**，标准错误的最后一行为带数据库文件位置的中文说明，本机日志记 `startup/open_failed` |
 | `ERR_DB_INTEGRITY` | `PRAGMA integrity_check` 失败、迁移失败或迁移校验失败、检测到 schema 版本高于本程序支持的版本；**以及** SQLite 在打开数据库时报告的其他错误（不是数据库文件或文件已损坏、无法以读写方式打开、磁盘已满、读写出错） | 进程启动（不经由 IPC 返回） | false | 采集服务拒绝启动，退出码 **3**，管道不会打开，因此桌面端收不到这个码；没有只读模式，也无法调用 `BackupDatabase`。标准错误的最后一行为 `ERR_DB_INTEGRITY: <中文说明>`，说明中给出数据库文件位置；同一原因连同 SQLite 的原话记入本机日志 `startup/open_failed`。先把该文件复制一份留底再排查 |
 | `ERR_EXPORT_FAILED` | 目标路径不可写、磁盘空间不足、目标已存在且 `overwrite = false`、路径穿越等 | `ExportCsv` `ExportJson` `BackupDatabase` `ExportDiagnosticsReport` | false | 让用户重新选择路径 |
@@ -118,7 +118,7 @@
 15. 完整性校验没通过 → `CheckDatabaseIntegrity` 正常应答 `passed = false`（而不是 `ERR_DB_INTEGRITY`）。
     该消息查询的正是校验结果，未通过是应答内容，不是故障。
 16. 用失效的令牌选择客户端 → `ERR_FFXIV_NOT_RUNNING`，`retryable = false`（而不是改为锁定同一编号的新进程）。
-    令牌绑定进程编号与完整启动时间，比较不区分大小写。能拒绝的检查都在停止旧采集之前完成；
+    令牌绑定进程编号与完整启动时间，比较不区分大小写。可能导致拒绝的检查都在停止旧采集之前完成；
     旧采集停止之后选择一定提交，所选客户端若已在此期间退出，应答同为 `ERR_FFXIV_NOT_RUNNING`，
     状态显示 `EXITED`，旧客户端不会被重新接上。
 17. 撤销程序为未完结记录写下的收尾修订 → `ERR_UNDO_NOT_ALLOWED`（而不是把记录恢复成“进行中”）。

@@ -3,18 +3,18 @@
 本文件描述 `src/Desktop`（Qt 6 Quick 桌面壳）的界面结构，以及界面与 HTML 原型之间的对应关系。
 读者是桌面端的开发者与评审者。
 
-绑定的视觉规范为 **`DOC/表单提交后设计/mentor-recorder-ff14.dc.html` 与 `ff14.css`**，
+采用的视觉规范为 **`DOC/表单提交后设计/mentor-recorder-ff14.dc.html` 与 `ff14.css`**，
 下称「原型」，对应「艾欧泽亚 / eorzea」界面风格。原型是唯一的视觉基准。
 本文件只说明实现如何映射到原型，不另行定义布局。
 布局与结构以原型为准；艾欧泽亚风格的**色值**自 1.2.0 起改为对照游戏自身窗口配色（深色 = 暖灰石板配浅字，浅色 = 羊皮纸配深棕字，金色只留给标记、进度环与柱条），见 6.1 节，不再照搬 `ff14.css` 的金边深蓝。
 第三种风格 **Harendotes** 与艾欧泽亚共用布局与圆角，色板取自角色毛色：
 深色「夜色狼身」以海军蓝黑为底、橙焰为主色、古金仅作点缀；浅色「白胸冷光」以纯白为面板、冷调蓝灰为背景，
-顶栏与侧栏同为浅色，底边一条焰→金细线。标题用冷白宋体（Noto Serif SC）而非金色 Cinzel。面板不画金色四角，外框为 1 px 对角渐变：自左上角的橙焰经古金过渡，到右下角完全透明并露出面板自身的分割线色边框（components/PanelDecoration.qml，四条直线渐变加三个圆角弧拼成，不依赖 Canvas 或 Qt Quick Shapes）；侧栏状态面板在此风格下使用同一外框。
+顶栏与侧栏同为浅色，底边绘制一条由橙焰过渡到古金的细线。标题用冷白宋体（Noto Serif SC）而非金色 Cinzel。面板不画金色四角，外框为 1 px 对角渐变：自左上角的橙焰经古金过渡，到右下角完全透明并露出面板自身的分割线色边框（components/PanelDecoration.qml，由四段直线渐变和三段圆角弧组成，不依赖 Canvas 或 Qt Quick Shapes）；侧栏状态面板在此风格下使用同一外框。
 
 **「经典 / classic」界面风格**自 2026-09 改版起为**默认风格**，取值以
 **`DOC/表单提交后设计/workbench.css`** 为准，取代早先的 `apple.css`。
 `Settings.uiStyle` 不为 `"eorzea"` 时，`Theme.qml` 整套切换为 workbench 的取值，
-包括色板、圆角、六级字号与 IBM Plex Mono 数字；页面代码只绑定 token，见 §6。
+包括色板、圆角、六级字号与 IBM Plex Mono 数字；页面代码只绑定主题变量（token），见 §6。
 默认值仅影响从未手动选择过风格的用户。`setUiStyle()` 不写入与当前值相同的风格，
 因此配置文件中存在的 `eorzea` 必定来自用户的主动选择。
 执行 `diff mentor-recorder-v2.dc.html mentor-recorder-ff14.dc.html` 可列出两版原型之间的全部改动：
@@ -51,10 +51,10 @@
   既不会被固定高度截断，也不会在页面底部留下大片空白。
 * 历史记录每页行数随窗口高度变化（`HistoryPage.rowsThatFit`）：页头、筛选栏、表头与分页条之外
   能放下多少 44 px 的行就取多少，最少 5 行，因此一页记录与分页条总是完整可见、不留大片空白。
-  窗口尺寸变化经 150 ms 去抖后写入 `RunListModel.pageSize`，模型保持当前页首行仍在视野内，
-  只是落到新的页号上。右下角的「无法自动记录」提示卡浮在页面之上时，`Main.qml` 把它盖住的高度
+  窗口尺寸变化经 150 ms 防抖后写入 `RunListModel.pageSize`，模型保持当前页首行仍在视野内，
+  仅调整其所在页的页码。右下角的「无法自动记录」提示卡浮在页面之上时，`Main.qml` 把它盖住的高度
   绑到 `HistoryPage.reservedBottom`，行数相应减少，分页条不会被它挡住。
-  列标题居中，窄列的单元格随之居中，只有「副本」列从左起排。
+  列标题居中，窄列的单元格随之居中，只有「副本」列左对齐。
 * 捕获诊断页在降级模式面板或提示条出现时、以及打开维护者工具时会变高，此时页面可滚动。
 
 该模型的代价是：很长的列表（例如「全部」副本）会使页面变长，而不是在表格内部滚动。
@@ -82,7 +82,7 @@
 QML 的 `font` 值类型**没有** `families` 列表，只有 `family`，因此无法像 CSS 那样声明字体栈。
 `Theme.headingFamilyFor(text)` 以一个 CJK 区间正则判断文本本身是中文还是拉丁，
 再返回对应的字体家族，`components/HeadingLabel.qml` 即按此实现。
-标题中中英混排的位置（标题栏的 `MENTOR ROULETTE 导随记录器`）本身由两个 `Text` 组成。
+标题中中英混排的位置（标题栏的 `MENTOR ROULETTE 导随记录器`）由两个 `Text` 分别渲染。
 
 Cinzel 随程序分发，许可为 SIL OFL 1.1。字体文件位于 `src/Desktop/resources/fonts/`，
 包括 `Cinzel-Regular.ttf`、`Cinzel-Bold.ttf` 与 `OFL.txt`，
@@ -99,7 +99,7 @@ QFont::insertSubstitutions("Noto Serif SC",
     {"Noto Serif CJK SC", "Songti SC", "SimSun", "NSimSun"});
 ```
 
-因此未安装思源宋体的机器会回落到系统自带的宋体，而不是静默退回无衬线正文字体。
+因此未安装思源宋体的机器会回落到系统自带的宋体，而不是无提示地退回无衬线正文字体。
 
 offscreen 平台不会发现系统字体，因此**仅在 `--screenshot` 模式下**额外注册
 `%WINDIR%\Fonts\msyh.ttc` 与 `simhei.ttf` 作为兜底。
@@ -122,7 +122,7 @@ IBM Plex Mono 随程序分发，许可为 SIL OFL 1.1。字体文件位于 `src/
 仅包含 500 与 600 两个字重：600 用于数字，500 用于等宽文本（导航序号已改为图标）。
 许可见 [third-party-licenses.md](third-party-licenses.md) §3.3。
 
-**字号（仅经典风格）**：页面中书写的仍是艾欧泽亚的像素值，统一经过 `Theme.fs(px)` 换算。
+**字号（仅经典风格）**：页面代码中使用的仍是艾欧泽亚风格的像素值，统一经过 `Theme.fs(px)` 换算。
 经典风格将其归入 workbench 的六级字号 t1–t6，即 18 / 15 / 13 / 12.5 / 11.5 / 11。
 `pixelSize` 为整数，因此 t4 与 t5 落在 13 与 12：
 
@@ -156,9 +156,9 @@ IBM Plex Mono 随程序分发，许可为 SIL OFL 1.1。字体文件位于 `src/
   且本机未忽略该版本或用户已开始下载该版本（`App.update.downloadEngaged`：下载中、校验中或已就绪）时可见，
   内容全部来自 `GetStatus` 应答中的可选对象 `update`。
   「检查新版本并提示」关闭时采集服务报告的 `update_available` 恒为假，此前查到的新版本横幅随即消失。
-  卡片自上而下为标题「有新版本 x.y.z」、一行说明、下载状态（`UpdateDownloadStatus`，前缀 `updateNotice`，见下文）
+  卡片自上而下为标题「有新版本 x.y.z」、说明文字、下载状态（`UpdateDownloadStatus`，前缀 `updateNotice`，见下文）
   与按钮行：主按钮（`downloadInstallerButton`）、「忽略此版本」（`dismissUpdateButton`，下载开始后隐藏）
-  与幽灵按钮「查看更新说明」（`openReleasePageButton`）。
+  与透明文字按钮（ghost）「查看更新说明」（`openReleasePageButton`）。
   说明一行在采集服务支持软件内下载时为「当前 <版本>。只有在你点「下载并安装」之后才会下载，下载完成后还要再点「立即安装」才会安装；
   本软件不会自行下载或安装。」，否则为「当前 <版本>。更新需要用户自行下载安装，本软件不会自动下载或替换任何文件。」。
   主按钮的文字与作用随下载阶段（`App.update.downloadPhase`）变化，三处更新位置（本横幅、设置页「通用」与「关于」）相同，
@@ -166,7 +166,7 @@ IBM Plex Mono 随程序分发，许可为 SIL OFL 1.1。字体文件位于 `src/
 
   | 阶段 | 出现条件（`update.download.state`） | 主按钮 | 下载状态中的一句（`<前缀>DownloadStatusText`） |
   |---|---|---|---|
-  | `offer` | 有新版本，`IDLE` | 「下载并安装」：发出 `StartUpdateDownload`（采集服务没有开始下载时只给一句提示，见下文） | 无 |
+  | `offer` | 有新版本，`IDLE` | 「下载并安装」：发出 `StartUpdateDownload`（采集服务未开始下载时只显示一条提示，见下文） | 无 |
   | `downloading` | `DOWNLOADING` | 「取消」（横幅中改为次要按钮）：发出 `CancelUpdateDownload` | 「<名称>：已下载 P%（R / T MB）」；服务器未声明大小时为「<名称>：已下载 R MB」，不显示进度条 |
   | `verifying` | `VERIFYING` | 「取消」 | 「<名称>：已下载完毕，正在核对发布时公布的校验值…」，进度条满格 |
   | `ready` | `READY` | 「立即安装」；桌面端自行核对期间为「正在校验…」且不可用 | 「<名称>：已下载并通过校验。点「立即安装」后本软件会关闭，由安装程序完成更新；Windows 会请你批准它以管理员身份运行。」；核对期间为「<名称>：正在校验，通过后启动安装程序并关闭本软件。」 |
@@ -175,19 +175,19 @@ IBM Plex Mono 随程序分发，许可为 SIL OFL 1.1。字体文件位于 `src/
 
   其中「<名称>」为「x.y.z 版的安装程序」（版本未知时为「新版本的安装程序」），P、R、T 为百分比、已下载与总大小的兆字节数（保留一位小数）。
   `components/UpdateDownloadStatus.qml` 是三处共用的下载状态：大小已知时的进度条（`<前缀>DownloadProgress`）、上表的一句、
-  「立即安装」没有启动安装程序时的原因（`<前缀>InstallProblemText`，红色），以及幽灵按钮「在浏览器中下载」
+  点击「立即安装」后未能启动安装程序的原因（`<前缀>InstallProblemText`，红色），以及透明文字按钮「在浏览器中下载」
   （`<前缀>BrowserDownloadButton`，只在 `failed` 阶段、或「立即安装」没有启动安装程序之后出现）。
   下载或校验进行中，`UpdateController` 约每秒请总控重读一次 `GetStatus`（`kDownloadPollMs`），状态改变、管道断开或程序退出时停止。
   没有新版本时（例如维护者工具重新下载最新正式版时）失败的说明只以提示给出一次。
-  采集服务两次开始下载之间至少相隔 5 秒，取消的下载收尾之前也不开始新的下载；这时它原样答回当前状态
-  （仍为 `IDLE`，或与点击前相同的失败），桌面端只以提示「没有开始下载，请稍候几秒再试。」说明一次，不显示为失败。
+  采集服务两次开始下载之间至少相隔 5 秒，取消的下载收尾之前也不开始新的下载；此时它原样返回当前状态
+  （仍为 `IDLE`，或与点击前相同的失败），桌面端只显示一次「没有开始下载，请稍候几秒再试。」的提示，不显示为失败。
 
   「立即安装」只在 `ready` 阶段可用。桌面端先确认当前没有正在进行的导随，再按报告的路径核对文件：
   路径位于数据目录（`CollectorProcess::collectorDataDirectory`）下的 `updates\`、文件名恰为该版本的安装程序名，
   是普通文件且本身与所在文件夹都不是链接（`InstallerVerifier`）。随后以 `InstallerHold` 打开该文件：只读打开，
   只允许其他程序读取，路径末端是链接时打开链接本身而不跟随。从此直到安装程序已经启动、程序退出，或这次安装被放弃，
-  文件始终被持有，期间任何程序都不能写入、改名或删除它，也不能改名它的上级文件夹。普通文件与位置两项核对在持有的文件上
-  再做一次：它须是磁盘上的普通文件，系统为它解析出的完整路径（沿途链接全部展开）须与报告的路径相同（只忽略字母大小写）。
+  文件始终被持有，期间任何程序都不能写入、改名或删除它，也不能改名它的上级文件夹。持有文件之后，
+  再核对一次其类型与位置：它须是磁盘上的普通文件，系统为它解析出的完整路径（沿途链接全部展开）须与报告的路径相同（只忽略字母大小写）。
   SHA-256 通过同一次打开以每次 1 MiB、分多轮事件循环读取计算，与报告的值比较。全部通过、并再次确认没有正在进行的导随
   且持有的文件仍在原路径之后，在持有的状态下经系统外壳启动该文件（Windows 随即请求管理员批准），
   启动成功即经 `TrayController::quitApplication()` 正常退出，退出时才释放文件（`stopForQuit`）。
@@ -204,7 +204,7 @@ IBM Plex Mono 随程序分发，许可为 SIL OFL 1.1。字体文件位于 `src/
   「下载的安装程序与发布时公布的校验值不一致，为安全起见没有启动它。可以改为在浏览器中下载。」；
   启动失败（例如在 Windows 的确认窗口中选择了「否」）时为
   「安装程序没有启动（可能是在 Windows 的确认窗口中选择了「否」）。本软件继续运行，可以再点「立即安装」，或改为在浏览器中下载。」。
-  模拟运行从不启动安装程序：使用模拟数据时，`AppController` 为「立即安装」换上一个什么也不启动的启动函数，
+  模拟运行从不启动安装程序：使用模拟数据时，`AppController` 将「立即安装」的启动函数替换为不执行启动操作的函数，
   其他后端使用系统外壳。
 
   「在浏览器中下载」与 `browser` 阶段的「下载新版本」把采集服务给出的安装程序地址（`update.installer_url`）交给系统浏览器，
@@ -226,19 +226,19 @@ IBM Plex Mono 随程序分发，许可为 SIL OFL 1.1。字体文件位于 `src/
   对应原型的 `<input type="date">`）；四个 86 px 的窄下拉框 类型 / 职业 / 结果 / 来源
   （首项即占位文字，不再使用「全部…」）；`.chip` 开关 已修正 / **有心得** / 含已删除；
   以及 `清除`（ghost 纯文字，40 px）。
-  原型没有「待复核」开关。总览的「去复核」下钻到本页时，该筛选与副本下钻一样，
+  原型没有「待复核」开关。通过总览的「去复核」跳转到本页时，该筛选与副本下钻一样，
   以一枚可移除 chip 出现在日期之后，移除该 chip 即清除此筛选（`pendingReviewFilter`）。
   窗口宽 1280 时筛选栏恰为一行；窗口宽度不足时（例如 1100 的最小宽度），
   搜索框与两个日期占第一行，其余控件整体换到第二行，不会被裁切。
 * 原型**删除了「副本」下拉框**，但副本统计页的下钻（`filter.content_id`）必须继续可用。
   实现的做法是：`App.historyFilter.content_id` 非空时，在日期之后增加一枚以副本名命名的
   可移除 chip（`removable`，点击时发出 `removed()`）；点击该 chip 即清除 `content_id` 并重新查询。
-  下钻仍经由 `App.showHistoryForContent()`，不存在第二套筛选状态。
+  跳转并筛选仍经由 `App.showHistoryForContent()`，不存在第二套筛选状态。
 * `有心得` chip 打开时，在 `RunFilter` 中加入 `with_reflection: true`。
 * 「标记」列除 已修正 / 已确认 / 已删除 / 手动创建 之外，还会显示 **有心得**（`run.reflection` 非空）。
   已修正 取自 `run.manually_corrected`（人改过软件记下的内容）；已确认 表示该记录有过修订、已不在待复核，
   但没有任何一次改动推翻软件的记录——通常是用户在「本次导随结果」里回答了是否通关。
-* **筛选实时生效**，带 300 ms 去抖。先前实现中的「应用筛选」按钮已移除。
+* **筛选实时生效**，带 300 ms 防抖。先前实现中的「应用筛选」按钮已移除。
 * 日期输入接受 `yyyy-MM-dd`，由 C++ `RunForm.isValidDate()` 校验。
   值不完整或非法时输入框文字转为红色并保持原样，填写完整之前不发出查询，也不会以空值静默查询，
   列表保留上一次的结果。开始日期晚于结束日期时同样不查询，筛选栏下方以橙字提示
@@ -256,15 +256,15 @@ IBM Plex Mono 随程序分发，许可为 SIL OFL 1.1。字体文件位于 `src/
   或生成记录的校准事后被撤下、保留原结果的记录，后者可能已是通关），由系统修订加上待复核标记的为
   「是 · 需要你确认这条记录（原因见修正历史）」，其余为「是 · 需要你确认这条记录」。
 * 详情页签末尾的「备注」区块：备注文字（经手动修正编辑）之下是该记录的图片条
-  （`components/NoteImageStrip.qml`，64 px，点击缩略图以浮层查看原图），带「添加图片」格子与每张右上角的移除；
+  （`components/NoteImageStrip.qml`，64 px，点击缩略图以浮层查看原图），包含「添加图片」格子与每张图片右上角的移除按钮；
   在这里添加或移除是即时的（`NoteImages.addPicked()` / `removeOne()`），不经向导、不需理由、不产生修订，
   失败原因以红字显示在图片条下方；已软删除的记录不可编辑图片。该区块始终显示，以便入口可见。
   图片来自安装目录的 `note-images\<run_id>\`（C++ `NoteImageStore`，QML 上下文属性 `NoteImages`），
   采集服务与数据库不参与；面板监听 `NoteImages.imagesChanged` 重新读取。
-* 列表第二行的「资料片 · 等级」由 `DutyCatalog::enrich` 从随包资料表补出：先按 `content_id`，
+* 列表第二行的「资料片 · 等级」由 `DutyCatalog::enrich` 从随包资料表补充：先按 `content_id`，
   没有内容编号（区域反查识别的记录）时按 `territory_id` 回查（`lookupByTerritory`），
   同一区域对应多个副本时只补全它们一致的字段。
-* 选中行为 `--color-accent-100` 底色，加左侧 2 px 金色内嵌条，
+* 选中的行使用 `--color-accent-100` 底色，加左侧 2 px 金色内嵌条，
   对应原型的 `box-shadow: inset 2px 0 0 var(--color-gold)`。
 * **详情浮层是绝对定位的覆盖层**，与原型的
   `position:absolute; right:12px; top:12px; bottom:12px` 一致。
@@ -302,7 +302,7 @@ IBM Plex Mono 随程序分发，许可为 SIL OFL 1.1。字体文件位于 `src/
 
 | 块 | 文件 | 何时出现 |
 |---|---|---|
-| 标题行 | `CapturePage.qml` | 始终。标题「捕获诊断」+「被动监听 · 不发包 · 不注入」；右侧普通用户是状态文字（`captureHeaderStatus`：自动监听中 / 等待游戏启动 / 校准中 / 校准待核对 / 监听中 · 收不到游戏数据 / 无法自动记录 / 检查中，取自 `App.recording`，与侧栏同一套判断，点的颜色也相同），维护者是「开始 / 停止捕获」按钮（`captureHeaderAction`，`App.captureActionLabel` / `toggleCapture()`） |
+| 标题行 | `CapturePage.qml` | 始终。标题「捕获诊断」+「被动监听 · 不发包 · 不注入」；右侧普通用户是状态文字（`captureHeaderStatus`：自动监听中 / 等待游戏启动 / 校准中 / 校准待核对 / 监听中 · 收不到游戏数据 / 无法自动记录 / 检查中，取自 `App.recording`，与侧栏同一套判断，状态点的颜色也相同），维护者是「开始 / 停止捕获」按钮（`captureHeaderAction`，`App.captureActionLabel` / `toggleCapture()`） |
 | 降级模式 | `CaptureNpcapPanel.qml` | 未安装 Npcap，或已安装但 `GetStatus.npcap.status` 不是 `READY` |
 | 提示条 | `CaptureNotices.qml` | 各自按需；全部不出现时整块不占位 |
 | 链路 | `CaptureChainPanel.qml` | 始终 |
@@ -343,7 +343,7 @@ IBM Plex Mono 随程序分发，许可为 SIL OFL 1.1。字体文件位于 `src/
   两个适配器都已知时出现。「使用推荐适配器」（`useRecommendedAdapterButton`）写入 `CaptureSettings.adapter_id`。
 * 自动跟随（`captureReadinessNotice`，仅维护者可见，且仅在未捕获时出现）：关闭时显示橙框与「开启自动跟随」。
 
-**链路**的标题行包含小标题「链路」、一句总结，以及两个 ghost 按钮：
+**链路**的标题行包含小标题「链路」、一句总结，以及两个透明文字按钮：
 「重扫 FF14」（`GetStatus` 与档案状态）与「重扫适配器」（`ListCaptureAdapters`）。
 总结（`captureChainSummary`）按链路顺序给出**第一个**阻碍记录的原因，依次为：
 Npcap 未安装或不可用；游戏未运行（见下）；
@@ -401,7 +401,7 @@ Npcap 未安装或不可用；游戏未运行（见下）；
 普通用户视图**不显示 opcode、方向与采集服务原文**，原文中含有十六进制数值；
 最多显示 5 行，超出部分写为「另有 N 条更早的失败未列出」。
 维护者可以看到全部行，说明为「方向 opcode · 采集服务原文」。
-模拟后端的示例行下方有橙色提示，说明该行为模拟数据。
+模拟后端的示例行下方有橙色提示，说明该行使用模拟数据。
 
 **工具**面板的行与行之间有分隔线，复用 `SettingsRow`。
 
@@ -539,19 +539,19 @@ QtTest `MentorRecorderCapturePage`（`tests/Desktop.Tests/CapturePageTests.cpp`�
 
 **「分享给其他玩家」同时出现在协议档案卡上**（`protocolProfileCard`，即捕获页链路上方的提示条），
 只要具备分享条件即会出现。校准卡片仅在 `calibration.state != IDLE` 时出现，
-而重启软件之后本机档案直接生效、校准不再布防；在 0.7.12 中，最需要分享的用户因此没有入口。
+而重启软件之后本机档案直接生效，校准不再处于观察状态；在 0.7.12 中，最需要分享的用户因此没有入口。
 当前的行为是：正在使用的档案由本机校准产生（`profile_origin = LOCAL_CALIBRATION`），
 且采集服务支持共享校准时，协议档案卡上增加一行分享说明与一个 `protocolShareButton`。
 该按钮与校准卡片上的 `sharedShareButton` 调用同一个 `App.calibration.shared.share()`，
 说明句也取自同一处（C++ 的 `shareHint`）。
-**校准卡片存在时该按钮不出现**：校准卡片正在解释刚完成的校准，分享入口置于其上更为连贯，
+**校准卡片存在时该按钮不出现**：校准卡片正在说明刚完成的校准，分享入口放在该卡片上更为连贯，
 同一屏内不应出现两个功能相同的按钮。
 「导入校准码」不随之迁移，因为采集服务只在校准进行中才接受导入。
 
 **「重新校准」也出现在协议档案卡上**（`protocolRecalibrateButton`，次要按钮），
 条件是 `profile_status = VERIFIED` 且 `profile_origin = LOCAL_CALIBRATION`——
-本机档案生效后校准卡片消失，「清空进度并重新观察」与「导入校准码」随之不可达，
-怀疑本机认错了报文、或拿到了更好的校准码的玩家此前无路可走。
+本机档案生效后校准卡片消失，「清空进度并重新观察」与「导入校准码」也随之失去入口，
+此前，怀疑本机识别错了报文，或拿到了更好校准码的玩家，无法重新校准或导入校准码。
 点击先打开确认框（`protocolRecalibrateDialog`，沿用 `DialogFrame`）：
 标题「重新校准这一版游戏？」，正文「现在这份本机校准会停用（文件会保留，不会删除），
 软件回到观察状态：期间不会生成记录，直到重新校准完成，或导入了其他玩家的校准码。之前的记录不受影响。」，
@@ -571,10 +571,10 @@ QtTest `MentorRecorderCapturePage`（`tests/Desktop.Tests/CapturePageTests.cpp`�
 `DiscardCalibration` 并带上 `restore_local_profile = true`；应答到达后，不论成功还是被拒，都重读一次捕获状态。
 副本进行中时同样禁用，并复用「重新校准」那一行灰字。
 停用之后校准卡片会重新出现，若不把这条退路算进协议档案卡的可见条件，整张卡会被隐藏、
-按钮也就不可达，因此 `profileCardVisible` 把它一并计入。
+按钮也就无法使用，因此 `profileCardVisible` 把它一并计入。
 采集服务拒绝时（没有可恢复的、同名档案已存在、恢复后无法通过校验），它给的中文句子
 原样显示在卡片的 `protocolCalibrationError` 一行——此时校准卡片未必在场，这是唯一的说明位置。
-恢复出来的档案被更优先的档案遮蔽时，采集服务的应答说明档案已经放回、为何继续使用现有校准，
+恢复的档案因优先级较低而未被采用时，采集服务的应答说明档案已恢复，以及为何继续使用现有校准，
 在用的校准不被停用（[protocol-profile-format.md](protocol-profile-format.md) §11.6.1）。
 这一应答与真正的拒绝使用同一个错误码，桌面端不解析句子，而是按重读到的状态区分：
 `retired_local_profile_available` 仍为真，说明什么都没有放回，句子留在 `protocolCalibrationError`；
@@ -589,7 +589,7 @@ QtTest `MentorRecorderCapturePage`（`tests/Desktop.Tests/CapturePageTests.cpp`�
   手里拿着更好的校准码的玩家反而无从导入。该状态下按钮由橙框内的
   `sharedConsentImportButton` 承担，`sharedImportButton` 让位，同屏不出现两个同名按钮。`last_refusal`、候选的 `sha12`、`criteria` 与 `last_index_attempts`
   都不显示在卡片上，它们属于脱敏诊断报告的内容。
-* **共享档案正在记录**：在共享档案完整记录一次进出副本之前，采集服务保持校准布防，
+* **共享档案正在记录**：在共享档案完整记录一次进出副本之前，采集服务继续观察校准事件，
   `calibration.state` 仍为 `OBSERVING`。此时卡片小标题改为「共享校准」，
   标题为「已使用其他玩家分享的校准（本机已核实），正在自动记录。」，
   隐藏进度行与「清空进度并重新观察」，采集服务的说明句改用灰色。
@@ -627,7 +627,7 @@ QtTest `MentorRecorderCapturePage`（`tests/Desktop.Tests/CapturePageTests.cpp`�
 * Mock：`--mock-shared fetching|verifying|consent|verified|verified-auditing|imported-published|imported-unpublished|rejected|unavailable|user-rejected|none-for-build|share`，
   截图目标为 `MentorRecorderQmlSharedCalibration_<state>`。
   其中 `verified-auditing`、`imported-published`、`imported-unpublished` 三个状态对应核实门槛按来源分级：
-  分别为登录时已核实、排本与进本仍在核对；导入后命中索引；导入后任何索引都不认识。
+  分别为登录时已核实、排本与进本仍在核对；导入后命中索引；导入后未命中任何索引。
   带 `provenance` 的候选同时带判据的 `gate`（`PUBLISHED` 为 `AUDIT`，`IMPORTED` 为 `REQUIRED`）。
   其余状态不带 `provenance`、`gate` 与 `audit_pending`，用于覆盖旧采集服务的"未报告"分支。
   重启之后的分享入口使用 `--mock-calibration idle --mock-shared share`，
@@ -685,14 +685,14 @@ kicker `padding: 12px 0 4px`；`freeLayout` 面板 `padding: 20px 24px`，间距
   同一位置改为随下载阶段变化的按钮，文字与作用和总览横幅的主按钮相同（「下载并安装」「取消」「立即安装」「重试」，
   或所连接的采集服务不支持软件内下载时的「下载新版本」，见 §4.1），这时它在请求尚未返回或桌面端正在校验时停用；
   其下是同一个下载状态组件（前缀 `settingsUpdate`）。
-  其旁另有幽灵按钮「查看更新说明」（`updateReleaseNotesButton`），只在有新版本时出现，打开发布页。
+  其旁另有透明文字按钮「查看更新说明」（`updateReleaseNotesButton`），只在有新版本时出现，打开发布页。
   作为「检查更新」时，按钮在开关关闭、采集服务未给出更新信息，或上一次检查尚未返回时停用，
   判据是 `App.update.canCheck`（`available && enabled && !checking`）。
   提示共五句，分别对应：有新版本（写明可以点「下载并安装」，不支持软件内下载时写「下载新版本」）、已是最新版本、
   没有检查成功、开关已关闭、本机已通过环境变量禁用；其中失败一句不区分具体原因，也不出现地址或协议标记。
   新版本的横幅提示本身在总览页（§4.1），设置页不重复呈现。
   打开维护者工具时，面板底部另有一行小字「维护者工具：下载已发布的最新正式版的安装程序，即使它不比当前版本新。」
-  与幽灵按钮「重新下载最新正式版」（`reinstallLatestButton`），只在采集服务支持软件内下载时出现：
+  与透明文字按钮「重新下载最新正式版」（`reinstallLatestButton`），只在采集服务支持软件内下载时出现：
   点击发出 `StartUpdateDownload { reinstall: true }`，下载进行中、请求尚未返回或桌面端正在校验时停用。
 * **外观**（`appearanceSettingsCard`）：界面风格（`uiStyleSettingControl`，取值 经典 / 艾欧泽亚，
   副标题「经典：圆角卡片 · 艾欧泽亚：游戏窗口配色 · Harendotes：夜色与橙焰」，绑定 `Settings.uiStyle`；
@@ -777,7 +777,7 @@ kicker `padding: 12px 0 4px`；`freeLayout` 面板 `padding: 20px 24px`，间距
 * `voices` 的每行带有 `group`（`local` / `online`）。在线行来自 `App.speech`
   （`SpeechController::voiceRows`）；所选音色或采集服务当前音色不在内置清单中时补充一行。
   采集服务支持在线语音时，`voiceId` 即为已保存的在线 id，否则为当前使用的本机语音。
-* 语速为 `(percent - 100) / 100`，并夹取到 [-1, 1]；音量为 `percent / 100`。
+* 语速为 `(percent - 100) / 100`，并限制在 [-1, 1] 区间内；音量为 `percent / 100`。
   本机没有可用引擎时不会崩溃，界面也不禁用：语音引擎一行显示中性说明，
   `spoke()` 信号照常发出，便于测试以及后续将播报接入其他输出。
   Windows 的 SAPI **异步**枚举语音，`QTextToSpeech` 构造完成时往往尚未 `Ready`，
@@ -785,7 +785,7 @@ kicker `padding: 12px 0 4px`；`freeLayout` 面板 `padding: 20px 24px`，间距
   每次 `Ready` 重新选择一次语音并重设语速与音量。
   出错时状态行显示引擎原文，`Tts.available` 为假，设置页将该行标为橙色，而不是继续显示「已就绪」。
   一次导随的两句话（匹配与进本）之间只间隔一两秒，因此播报使用 `enqueue()` 排队，
-  只有「试听」与自由文本使用 `stop()` 抢断。
+  只有「试听」与自由文本使用 `stop()` 中断当前播放。
 
 **在线语音的播放**由 `TtsServiceOnline.cpp` 负责，
 `TtsService` 仅在 `Settings.ttsVoice` 为在线 id 时进入该路径：
@@ -826,7 +826,7 @@ kicker `padding: 12px 0 4px`；`freeLayout` 面板 `padding: 20px 24px`，间距
 * `spokeVia(kind, text, route)` 对每句话发出一次，`route` 取 `online` 或 `local`，
   测试据此断言播报顺序与去向。
 
-`SpeechController` 挂在 `App.speech` 上，方式与共享校准挂在 `App.calibration.shared` 相同：
+`SpeechController` 以 `App.speech` 属性提供给界面，共享校准也以同样方式通过 `App.calibration.shared` 提供：
 
 * 属性包括 `loaded`、`supported`、`provider`、`azureRegion`、`openaiBaseUrl`、`openaiModel`、
   `voice`、`hasKey`、`configured`、`targetHost`、`azureVoices`、`openaiVoices`、`busy`、
@@ -853,7 +853,7 @@ kicker `padding: 12px 0 4px`；`freeLayout` 面板 `padding: 20px 24px`，间距
 
 终局状态只采信 `run_finished`。下一次匹配弹窗紧接着到来时，`StateChanged` 会直接跳过终局状态，
 而 `run_finished` 必定发出（`src/Collector/Ipc/LiveEventBus.cs`）。
-终局的那一句先等待一次 `GetDashboardStats` 返回后再播报，因为 `{progress}` 必须是本局之后的数值；
+记录结束时，先等待一次 `GetDashboardStats` 返回，再播报结果，因为 `{progress}` 必须是本局之后的数值；
 且 `UNKNOWN_FINAL_STATE` 的记录**在用户确认通关之前不计入**成就进度。
 映射本身由 `AppController::announcementKind(state)` 实现，是静态映射，可由表驱动测试固定。
 MockBackend 在模拟状态切换以及开始或停止捕获时发出这些事件，
@@ -877,7 +877,7 @@ MockBackend 在模拟状态切换以及开始或停止捕获时发出这些事�
 保存成功后桌面端重新读取一次总览，toast 取重新读取得到的进度，写作「基数已设为 N · 目标 M · 进度 P · 已重算」；
 重新读取失败时只写「基数已设为 N · 目标 M · 已保存」，不给进度数字（`UpdateAchievementBaseline` 的应答不含进度）。
 内嵌框「进度 = 基数 + 软件记录」之后是数字字体的大号算式 `基数 + 记录 = 进度`（`progressFormula`），
-右侧小字为「修改后立即重算 · 导入已包含在基数中的历史记录时可从基数扣除」。算式预览按当前填写保存之后的进度：
+右侧小字为「修改后立即重算 · 导入已包含在基数中的历史记录时可从基数扣除」。算式预览当前输入保存后对应的进度：
 「基数」取基数栏中正在填写的数（栏内为空或不是大于等于 0 的整数时取已保存的基数），
 「记录」为采集服务给出的 `achievement_progress` 减去已保存的基数，即软件记录的、计入进度的通关，
 不论何时结束都在其中，不计入进度的通关则不在其中；「进度」为两者之和
@@ -891,7 +891,7 @@ MockBackend 在模拟状态切换以及开始或停止捕获时发出这些事�
 「基数只有 B，只能扣到 0；其余 N − B 次照常加在基数之上。」。默认值按来源：备份与原生 JSON 为「未包含」，表格、粘贴与截图为「已包含」；
 用户的选择在同一批次的重新校验后保留，换来源后重置。选「已包含」时 `CommitRunImport` 带 `deduct_from_baseline = true`，
 保存后的状态行在导入计数之后写「成就基数已从 B 改为 B′（扣除 D 次已导入的通关），进度不变。」，数字取应答中的
-`baseline_deducted_count` 与 `baseline_completed_count`。基数由 `App.baselineCount` 经 `main.cpp` 喂给 `ImportRecords.baselineCount`，
+`baseline_deducted_count` 与 `baseline_completed_count`。基数由 `App.baselineCount` 经 `main.cpp` 传给 `ImportRecords.baselineCount`，
 对话框不直接读 `App`。
 左下为「重新打开首次引导」，右下为主按钮「保存」。
 
@@ -929,7 +929,7 @@ MockBackend 回 `{passed: true, detail: "ok", checked_at_utc: 现在}`。
 
 **关于**（`aboutSettingsCard`）包含 kicker「导随记录器」与 `v<App.appVersion> · GPL-3.0 或更高版本`。
 版本号一行（`aboutVersionText`）在 `GetStatus.update.update_available` 为真时附带
-「有新版本 x.y.z」，其右侧另有幽灵按钮「查看更新说明」（`aboutOpenReleasePageButton`，只在有新版本时出现）
+「有新版本 x.y.z」，其右侧另有透明文字按钮「查看更新说明」（`aboutOpenReleasePageButton`，只在有新版本时出现）
 与随下载阶段变化的按钮（`aboutDownloadInstallerButton`），文字与作用和总览横幅的主按钮相同（§4.1）；
 版本号一行之下是同一个下载状态组件（前缀 `about`）。
 没有可下载的新版本时（`App.update.downloadPhase` 为空），该位置是「检查更新」（`aboutCheckUpdateButton`），与设置页「通用」的同名按钮
@@ -945,7 +945,7 @@ MockBackend 回 `{passed: true, detail: "ok", checked_at_utc: 现在}`。
 
 「心得」是每条导随记录上的一段自述，结构为 `{mood: good|ok|bad, text}`，
 契约见 `contracts/ipc-v1.schema.json` 中的 `SetRunReflection` 与 `GetReflectionSummary`。
-桌面端只绑定 C++ 侧的下列成员，且**全部做了存在性保护**，
+桌面端只绑定 C++ 侧的下列成员，且**全部做了成员存在性检查**，
 因此后端尚未实现时，界面只显示空状态，而不会报错：
 
 | 界面 | 绑定 |
@@ -993,7 +993,7 @@ MockBackend 回 `{passed: true, detail: "ok", checked_at_utc: 现在}`。
 一条修正中同时写入 `result` 与 `pending_review = false`。
 因此确认本身也是一条可审计的新 revision，且不引入任何新的 IPC 消息。
 
-总览的「待复核」提示条上提供同样的一对按钮，供当时仍在游戏中、未及回答的用户补充确认。
+总览的「待复核」提示条上提供同样的一对按钮，供当时仍在游戏中、未能及时回答的用户补充确认。
 提示条的说明不针对某一条记录：它列出常见原因（崩溃恢复关闭的记录、离开副本前没有收到通关结算、
 生成记录的校准事后被撤下），并说明尚未记为通关的记录在确认“通关”后才计入导随次数。
 待复核的记录可能已是通关（校准被撤下的记录保留原结果），这类记录已经计入进度。
@@ -1056,7 +1056,7 @@ Esc 同样关闭，左侧小字为「此说明可随时在「设置 → 关于�
 | 副本统计 | `GetDungeonStats` | 含 `content_id = null` 的「未知副本」行 |
 | 职业统计 | `GetJobStats` | 含 `job_id = null` 的「未知」行；职能占比由 `job_id` 经职业目录推导 |
 | 副本 / 职业柱状图点击 | `QueryRuns`（`filter.content_id` / `filter.job_id`）| 跳到历史页并预置筛选；`content_id` / `job_id` 为空的行不跳转，只提示原因 |
-| 捕获诊断 | `GetStatus` + `GetCaptureStatus` 形状 + `ListCaptureAdapters` + `GetProtocolProfileStatus` | 计数与 `recent_parser_errors` 是 `CaptureStatus` 的可选字段；缺失即 `—`。见 4.4 |
+| 捕获诊断 | `GetStatus` + `GetCaptureStatus` 数据结构 + `ListCaptureAdapters` + `GetProtocolProfileStatus` | 计数与 `recent_parser_errors` 是 `CaptureStatus` 的可选字段；缺失即 `—`。见 4.4 |
 | 捕获诊断：开始 / 停止捕获 | `StartCapture` / `StopCapture` | 本机无 Npcap ⇒ `ERR_NPCAP_MISSING` |
 | 捕获诊断：导出脱敏诊断报告 | `ExportDiagnosticsReport`（`target_path` 可省略）| 见 4.4 |
 | 设置：成就进度保存 | `UpdateAchievementBaseline`（reason 必填）| 成功后重算总览与趋势 |
@@ -1082,12 +1082,12 @@ Esc 同样关闭，左侧小字为「此说明可随时在「设置 → 关于�
 | `kind` | 行为 |
 |---|---|
 | `run_state_changed` | 先 `GetCurrentRun`，再播报 匹配 / 进本，最后刷新总览；发出时间早于本次桌面端启动的事件（订阅时补发的旧事件）不播报 |
-| `run_finished` | 重新加载列表，刷新总览，**在总览回包里**播报终局那句并弹出「本次导随结果」 |
+| `run_finished` | 重新加载列表，刷新总览，**在总览响应返回后**播报终局那句并弹出「本次导随结果」 |
 | `run_created` / `run_updated` | 重新加载历史列表与当前导随卡 |
 | `stats_invalidated` | 刷新总览、趋势、副本统计、职业统计 |
 | `collector_status` | 直接采用事件里的 `capture` 对象（发出时间早于最近一次读到的捕获状态时不采用），再补一次 `GetStatus` |
 | `heartbeat` | 直接返回：该事件只表明管道存活，落入下一行的处理会每 5 秒产生一串 IPC |
-| 其他 | 一次廉价的 `GetStatus`，绝不静默丢弃 |
+| 其他 | 一次开销较小的 `GetStatus`，绝不静默丢弃 |
 
 每条事件都带有单调递增的 `sequence`。每次连接或重连事件总线时，
 总线会**不加标记地重放**最近 64 条事件，因此序号不高于已采用水位的事件一律丢弃，
@@ -1115,7 +1115,7 @@ Esc 同样关闭，左侧小字为「此说明可随时在「设置 → 关于�
 为使上表第一、二行成立，两个对话框在提交后**不立即关闭**：
 按钮变为「提交中…」并禁用，直到 `AppController::mutationSucceeded` 到达后才关闭。
 否则后端的拒绝理由只能显示在一个已经取代表单的 toast 上。
-`mutationSucceeded` 与 `mutationFailed` 都带有请求的种类与记录编号，每个窗口只采用属于自己那次请求的
+`mutationSucceeded` 与 `mutationFailed` 都带有请求的种类与记录编号，每个窗口只处理自己那次请求的
 回应：别处（「本次导随结果」、设置页的成就进度）同时在途的请求成功或被拒，都不会关闭或写入另一个窗口。
 原因对话框在请求在途期间不能经 Esc 或「取消」关闭（点击窗口之外从不关闭它）。
 
@@ -1143,7 +1143,7 @@ Esc 同样关闭，左侧小字为「此说明可随时在「设置 → 关于�
 | 状态 | 文案 | 触发 |
 |---|---|---|
 | `missing` | 未找到 Collector，安装可能不完整，请重新安装本软件。 | exe 同目录与其 `collector\` 子目录中都没有 `MentorRecorder.Collector.exe`。以 `MR_DEV_COLLECTOR_DISCOVERY` 编译的开发构建改为给出期望位置与构建提示 |
-| `idle` | Collector 可用，未启动 | 还没拉起 |
+| `idle` | Collector 可用，未启动 | 尚未启动 |
 | `starting` | Collector 启动中… | `QProcess::start()` 已发出 |
 | `running` | Collector 运行中 | 本软件启动的子进程仍在运行 |
 | `reused` | Collector 运行中（复用已有实例）| 子进程因单实例租约立刻退出，但管道已连上 |
@@ -1158,15 +1158,15 @@ Esc 同样关闭，左侧小字为「此说明可随时在「设置 → 关于�
 
 桌面端每个用户只运行一个（`SingleInstanceGuard`）：第一个实例持有一个以当前用户管道名命名的
 具名互斥量；再次启动时，新进程置位第一个实例等待的具名事件，使其把窗口调到前台，随后自行退出，
-不会出现第二个托盘图标、第二路播报或第二个 Collector 监管者。截图运行与模拟后端的运行不受此限制。
+不会出现第二个托盘图标、第二路播报或第二个 Collector 管理实例。截图运行与模拟后端的运行不受此限制。
 
-退出路径为：`AppController` 析构，调用 `CollectorProcess::stop()`。子进程是本软件拉起的、
+退出路径为：`AppController` 析构，调用 `CollectorProcess::stop()`。子进程由本软件启动、
 且 `serve.pid` 尚未写出或记录的正是它时，先置位 Collector 的停止事件（`Local\<管道名>.stop`），
 最多等待 10 秒让它正常收尾；没有停止事件可用或到时仍未退出，才执行 `terminate()`，0.5 秒后执行 `kill()`。
 托盘的「退出」菜单项，以及在「关闭时最小化到托盘」**关闭**的情况下关闭窗口，均走这条路径；
 该开关开启时，关闭窗口只把窗口隐藏到托盘。
 进程被 `Stop-Process` 或任务管理器强制结束时不会执行析构。子 Collector 以
-`--serve --parent-pid <桌面端 pid> --parent-start-time <启动时间>` 拉起，自行监视桌面端进程，
+`--serve --parent-pid <桌面端 pid> --parent-start-time <启动时间>` 启动，自行监视桌面端进程，
 发现其结束后走与 Ctrl+C 相同的停止流程，10 秒内未完成则强制退出，因此不会留下孤儿进程。
 
 ## 5. 手动修正对话框与校验
@@ -1253,7 +1253,7 @@ Esc 同样关闭，左侧小字为「此说明可随时在「设置 → 关于�
   截断或无法解码（选择时完整解码一次）、超过 20 张的选择在第三步的错误条里说明。复制到一半失败时已复制的文件一并回滚，
   且不计入「已添加」，暂存列表原样保留，再次保存整批重试。对话框打开期间别处（心得弹窗）
   添加或移除了图片，向导监听 `NoteImages.imagesChanged` 重新读取已有图片，
-  已排队删除而文件已不在的项随之作废。
+  已排队删除、但文件已不存在的项随之作废。
 * `dutyIndex` 与 `jobIndex` 仍是 `currentDutyOptions()` 与 `currentJobOptions()` 中的下标，
   0 表示未知。筛选不改变这两张表，因此切换筛选不会丢失已选的副本。
 
@@ -1393,7 +1393,7 @@ divider 细边与 600 字重 accent 字色。
 从该值渐变到经典浅色的 `#f2f2f7` 时中间态是半透明灰，鼠标划过侧栏时每一项都会闪出深灰块。
 静止态应写作 `Theme.clear(目标色)`，即同一颜色、透明度为 0，渐变便只改变透明度。
 `UiWorkflowRegressionTests::hoverFadeRestsOnTheHoverColour` 在四种风格与主题的组合下
-检查导航项与幽灵按钮各自的 `hoverColor`，经典风格下幽灵按钮的悬停色为 accent-100；
+检查导航项与透明文字按钮各自的 `hoverColor`，经典风格下透明文字按钮的悬停色为 accent-100；
 该测试同时检查主按钮的底色从不停留在透明黑上。
 艾欧泽亚风格下主按钮底色藏在金色渐变之下，切换到经典风格时渐变立即消失，
 底色若从透明黑开始渐变就会闪黑。
@@ -1423,7 +1423,7 @@ divider 细边与 600 字重 accent 字色。
 |---|---|
 | `AppButton` | 按下时缩至 0.96；减少动效时不缩放 |
 | `NavItem` | 悬停时右移 2 px，按下时缩至 0.97；按下时不右移，减少动效时两者均不生效 |
-| `EditRunDialog` 换步 | 新一步淡入并从来向滑入 16 px，下一步自右、上一步自左，时长 `motionMedium`；两种风格相同，减少动效时直接落位（`stepProgress` / `stepDirection`） |
+| `EditRunDialog` 换步 | 新一步淡入，并按切换方向滑入 16 px，下一步自右、上一步自左，时长 `motionMedium`；两种风格相同，减少动效时直接落位（`stepProgress` / `stepDirection`） |
 | `SegmentedControl` | 选中项放大至 1.05 倍、左右内边距各 +3 px；其余项缩至 0.94、内边距各 −2 px、不透明度 0.75，悬停时回到 1 与 0.97；按下时为 0.92。这是静止样式，截图中同样如此 |
 | `ToggleSwitch` | 按下时圆钮从 16 px 伸长至 20 px，贴所在一侧伸长；悬停时叠加一层 4 % 黑（`brightness(.96)`） |
 | `StyledTextField` / `TextArea` / `ComboBox` | 未聚焦时悬停描边 neutral-400，描边颜色渐变 |
@@ -1441,7 +1441,7 @@ divider 细边与 600 字重 accent 字色。
 
 总览的「完成趋势」由 `charts/GraphsTrendChart.qml` 与 `charts/TrendMotionLayer.qml` 实现，
 对应原型的 `switchTrend()`。静止时由 Qt Graphs 绘制柱体；
-变化期间 Qt Graphs 的柱体隐藏，改由运动层按 Qt Graphs 自身的几何绘制，
+变化期间 Qt Graphs 的柱体隐藏，改由运动层按 Qt Graphs 自身的几何参数绘制，
 即每格 2 px 间隙、剩余宽度的 `barWidth`、居中对齐、圆角 4；
 动画结束时在同一帧交还绘制权，因此不会出现跳变。
 
@@ -1472,7 +1472,7 @@ divider 细边与 600 字重 accent 字色。
 在 t = 0 / 80 / 160 / 260 / 400 / 600 ms 写出 `out-t<ms>.png`，`out.png` 为触发前的一帧；
 2.1 s 后仍有动画在运行则以退出码 12 结束。
 探测运行使用 GPU 渲染（`QT_QUICK_BACKEND=rhi`、`QSG_RENDER_LOOP=basic`）。
-离屏窗口没有交换链，日志中的 `Failed to present` 属于预期输出；帧采用条目抓取，而非 `grabWindow()`。
+离屏窗口没有交换链，日志中的 `Failed to present` 属于预期输出；帧通过条目截图获取，而非 `grabWindow()`。
 `MotionTests` 覆盖以下内容：减少动效时所有时长为 0 且不创建圆形覆盖层；覆盖层只在动画期间存在；
 日 → 周 → 日（含中途打断）之后每根柱的缩放为 1、不透明度为 1，几何与 Qt Graphs 绘制的柱体一致，
 误差小于 0.01 px；经典风格的面板执行弹出动画，艾欧泽亚风格不执行。

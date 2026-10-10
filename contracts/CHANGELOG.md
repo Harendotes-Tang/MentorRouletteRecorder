@@ -4,11 +4,11 @@
 
 附加式变更，不新增消息类型。
 
-- **`CommitRunImportRequest.deduct_from_baseline`**（可选布尔）。为 `true` 时，采集服务在同一事务内统计本次新写入的记录中会计入成就进度的通关（确认为导随、`result = COMPLETED`、`contributes_to_goal = true`、非待补充，与 `GetDashboardStats.achievement_progress` 同一口径），从 `baseline_completed_count` 中扣除同样多的次数，最低扣到 0，并以该请求的 `request_id` 追加一条基数修改记录。重复与冲突的行没有写入，不参与扣除。缺省或 `false` 时基数不变。这一选择属于提交的身份：同一 `preview_id` 或 `request_id` 以不同的取值重发答 `ERR_IDEMPOTENCY_CONFLICT`，与改变 `row_numbers` 相同。
+- **`CommitRunImportRequest.deduct_from_baseline`**（可选布尔）。为 `true` 时，采集服务在同一事务内统计本次新写入的记录中会计入成就进度的通关（确认为导随、`result = COMPLETED`、`contributes_to_goal = true`、非待补充，与 `GetDashboardStats.achievement_progress` 同一口径），从 `baseline_completed_count` 中扣除同样多的次数，扣除后基数不低于 0，并以该请求的 `request_id` 追加一条基数修改记录。重复与冲突的行没有写入，不参与扣除。缺省或 `false` 时基数不变。该选项参与提交的幂等判定：同一 `preview_id` 或 `request_id` 以不同的取值重发时，返回 `ERR_IDEMPOTENCY_CONFLICT`，与改变 `row_numbers` 相同。
 - **`RunImportCommit.baseline_deducted_count`** 与 **`baseline_completed_count`**（可选整数）：本次扣除的次数（未要求扣除时为 0）与提交后保存的基数。此前写下的回执没有这两个字段，重放时照原样返回。
 - 导入写入了记录时照常发布 `stats_invalidated`（`records_imported`），基数的改变随同一次重新读取到达桌面端。旧采集服务对未知字段答 `ERR_BAD_REQUEST`，旧桌面端不发送该字段。
 
-## 2026-10-05 · 国服的通关结算按内容识别；`Run.pending_review` 的说明改写（无形状变化）
+## 2026-10-05 · 国服的通关结算按内容识别；`Run.pending_review` 的说明改写（数据结构不变）
 
 没有新增或改动任何消息、字段与取值，`$defs/MessageType` 仍为 **52** 个业务消息 + `Event` + `Error`。
 
@@ -28,12 +28,12 @@
 
 一项取值规则恢复为 1.5.0 的口径，一个新的可选字段。不新增消息类型。
 
-- `GetDashboardStats.achievement_progress` / `remaining`：进度等于 `baseline_completed_count` 加上全部计入进度的已记录完成（`result = COMPLETED` 且 `contributes_to_goal = true`），不论完成何时结束、基数何时填写或修改。2026-10-03 一节中「结束时间早于 `baseline_effective_at` 的完成不再叠加」的口径只存在于 1.5.1-beta.1 与 beta.2，现已撤回；`baseline_effective_at` 仍随请求与应答传递，只记录基数最近一次改变的时间，不参与任何统计。基数不变时保留已保存的 `baseline_effective_at`、目标与基数都不变的保存不算修改，这两条约定不变。
+- `GetDashboardStats.achievement_progress` / `remaining`：进度等于 `baseline_completed_count` 加上全部计入进度的已记录完成（`result = COMPLETED` 且 `contributes_to_goal = true`），不论记录何时结束、基数何时填写或修改。2026-10-03 一节中「结束时间早于 `baseline_effective_at` 的完成不再叠加」的口径只存在于 1.5.1-beta.1 与 beta.2，现已撤回；`baseline_effective_at` 仍随请求与应答传递，只记录基数最近一次改变的时间，不参与任何统计。基数不变时保留已保存的 `baseline_effective_at`、目标与基数都不变的保存不算修改，这两条约定不变。
 - `UpdateStatus` 新增可选字段 `installer_url`：`latest_version` 对应安装包在本项目发布页上的地址（`releases/download/v<版本>/MentorRecorder-<版本>-setup.exe`），与 `latest_version` 同时出现、同时缺席。采集服务只报告这个地址，从不请求它；桌面端在用户点击下载时把它交给系统浏览器。重启后读回的 `latest_version` 现在同样必须是三段纯数字，否则视为尚未获知。旧桌面端忽略该字段即可。
 
 ## 2026-10-04 · 原样保存成就设置不再算作修改
 
-行为说明，线上格式不变，不新增消息类型。
+行为说明，传输格式不变，不新增消息类型。
 
 - `UpdateAchievementBaseline`：`goal_count` 与 `baseline_completed_count` 都与已保存的值相同时，不写入设置与修改记录，也不发布 `stats_invalidated`；应答给出已保存的值——`updated_at_utc` 与 `baseline_effective_at` 为已保存的时间，`audit_event_id` 为写下当前值的那条修改记录的编号（修改记录中没有这样一条时为新编号），`idempotent_replay` 为 `false`。同一 `request_id` 重发仍按幂等约定返回首次的结果。
 
@@ -44,8 +44,8 @@
 - **`ExportCsv` / `ExportJson` 删除可选字段 `include_revisions`**：它在契约中声明，却从未起作用，导出从不包含修订记录。现在它与其他未声明字段一样答 `ERR_BAD_REQUEST`。桌面端从未发送过它。
 - **`GetResultStats` 的载荷改为 `$defs/ResultStatsRequest`**，只有 `filter`。此前它与 `GetDashboardStats` 共用 `$defs/StatsRequest`，契约允许 `trend_granularity`，而采集服务一直拒绝；现在两边一致。
 - 信封或载荷任意一层的对象内字段名重复，答 `ERR_BAD_REQUEST`，按可读出的 `request_id` 应答，连接保持可用。此前信封内重复会让该请求得不到应答，载荷内重复答 `ERR_INTERNAL`。
-- `UndoRevision` 新增 `ERR_UNDO_NOT_ALLOWED` 情形：撤销程序写下的修订（`actor = SYSTEM`）会让记录回到“进行中”（自动记录、`UNKNOWN`、没有结束时间、不在待复核），或没有进入时间却不是进本前取消时，拒绝且不写入任何内容。此前撤销重启收尾的修订会让记录永久从统计与待复核中消失。判断有误时用 `CorrectRun` 更正。
-- `CorrectRun` 把 `content_id` 显式设为 `null`（未知副本）时，记录观测到的区域 `territory_id` 一并清空，统计、`RunFilter.content_ids` 与副本名称不再把它归回原副本；`UndoRevision` 照旧恢复两者。请求与响应结构不变。
+- `UndoRevision` 新增 `ERR_UNDO_NOT_ALLOWED` 情形：撤销程序写下的修订（`actor = SYSTEM`）会让记录回到“进行中”（自动记录、`UNKNOWN`、没有结束时间、不处于待复核状态），或没有进入时间却不是进本前取消时，拒绝且不写入任何内容。此前撤销重启收尾的修订会让记录永久从统计与待复核中消失。判断有误时用 `CorrectRun` 更正。
+- `CorrectRun` 把 `content_id` 显式设为 `null`（未知副本）时，记录中观测到的区域 `territory_id` 一并清空，统计、`RunFilter.content_ids` 与副本名称不再把它归回原副本；`UndoRevision` 照旧恢复两者。请求与响应结构不变。
 - `GetDashboardStats.achievement_progress` / `remaining`：成就基数大于 0 时，结束时间早于 `baseline_effective_at` 的完成记录不再叠加在基数上（基数已包含它们）；缺结束时间的按进入时间、再按匹配时间判断，都没有的不叠加。基数为 0 时全部计入。`UpdateAchievementBaseline` 的上限校验采用同一口径。字段与类型不变。
 - `UpdateAchievementBaseline`：`baseline_completed_count` 与已保存的基数相同时（只改目标，或重新填入同一个数），保留已保存的 `baseline_effective_at`，不采用请求中的时间；只有基数改变时才以请求中的时间为生效时间。响应中的 `baseline_effective_at` 与审计记录都是实际保存的值。此前每次保存都换成请求中的时间，而桌面端每次发送的都是保存时刻，加上前一条的口径，只修改目标就会让基数生效之后记录的完成从进度中消失。请求与响应结构不变。
 - `CaptureStatus.npcap_version`（以及诊断报告与取证文件头里的 Npcap 版本）改为 Npcap 自身的版本，取自 `Packet.dll`；此前报告的是其中 libpcap 的版本（例如 Npcap 1.88 报为 1.10.6）。只读得到 libpcap 版本时写作 `libpcap 1.10.6`。
@@ -85,8 +85,8 @@
 
 附加式变更：一个既有枚举新增一个取值，字段与消息数目均不变。**消息数目不变**：`$defs/MessageType` 仍为 49 个业务消息 + `Event` + `Error`。
 
-- **`CheckSharedCalibration` 响应的 `outcome` 新增 `RECENTLY_CHECKED`**：手动检查此前唯一的节流是「已有下载在途」，上一轮一结束就能立刻再发起一整轮获取（索引最多 3 个源，加上每个校准码最多 3 个源乘最多 8 个候选）。现在两次手动检查之间有一个只存在于内存、不落盘的最短间隔（不影响「游戏更新后自动获取」原有的六小时节流）。间隔之内的请求答 `RECENTLY_CHECKED`。
-- 为什么不复用 `ALREADY_FETCHING`：那个取值意味着确实有一次下载正在进行，桌面端据此提示「结果会显示在校准卡片上」；而被间隔拒绝时并没有任何下载在途，上一轮的结果早已出来，沿用那句话会让人等一个不会到来的结果。
+- **`CheckSharedCalibration` 响应的 `outcome` 新增 `RECENTLY_CHECKED`**：此前手动检查只在已有下载正在进行时受限，上一轮一结束就能立刻再发起一整轮获取（索引最多 3 个源，加上每个校准码最多 3 个源乘最多 8 个候选）。现在两次手动检查之间有一个只存在于内存、不落盘的最短间隔（不影响「游戏更新后自动获取」原有的六小时节流）。间隔之内的请求答 `RECENTLY_CHECKED`。
+- 为什么不复用 `ALREADY_FETCHING`：那个取值意味着确实有一次下载正在进行，桌面端据此提示「结果会显示在校准卡片上」；而被间隔拒绝时并没有下载正在进行，上一轮的结果早已出来，沿用那句话会让人等一个不会到来的结果。
 - 1.4.0 之前的桌面端不认识这个取值，会落到它的兜底分支（提示「现在不需要获取」），不会报错；采集服务与桌面端随同一版本一起发布。
 
 ## 2026-09-20 · 共享校准在用时也读索引：`CalibrationStatus.shared` 新增 `recheck`（附加）
@@ -247,7 +247,7 @@ docs/plans/shared-calibration.md §18。全部为附加式变更：新字段在 
     `code_sha256` 在无法解码时为 null。`code` 请求上限 65536 字符，超过校准码长度上限（4096）时不解码，直接返回 `MALFORMED`。
   - `AcceptSharedQueueInference {}` → `{outcome}`：`ACCEPTED` / `NOTHING_TO_ACCEPT`。
   - `RejectSharedCalibration {}`（不用共享的，我自己校准）→ `{withdrawn_profile_id, dropped_candidates}`：
-    撤下生效中的共享档案（删除文件、重新选择、重新布防校准），丢弃正在核实的候选，并把"用户拒绝"与矛盾记录分开存放。
+    撤下生效中的共享档案（删除文件、重新选择、重新准备校准），丢弃正在核实的候选，并把"用户拒绝"与矛盾记录分开存放。
     在「重新观察」（`DiscardCalibration`）之前，该区服与版本不再获取、导入或绑定任何共享校准。本机校准不受影响。
     游戏版本未知时不执行任何动作，应答 `{null, 0}`。
 - **新错误码** `ERR_SHARE_CODE_UNAVAILABLE`（contracts/error-codes.md）。
@@ -404,7 +404,7 @@ Collector 占着同一条管道，**且那条管道确实存在、还能接连�
 此前桌面端"确认复核"按钮发送 `{pending_review: false}`，Collector 因字段未声明返回
 `ERR_BAD_REQUEST`；即使声明，纯确认也会落入 `ERR_NO_CHANGES`。现在只带 `pending_review: false`
 的更正是合法的（确认本身就是改动，会写入一条 `CORRECT` 修订并在 `changes_json` 里记录
-`pending_review: true -> false`）；记录不在待复核状态时仍返回 `ERR_NO_CHANGES`；
+`pending_review: true -> false`）；记录不处于待复核状态时仍返回 `ERR_NO_CHANGES`；
 `pending_review: true` 返回 `ERR_BAD_REQUEST`。
 
 ## 2026-09-08 — 诊断报告不再覆盖不是自己生成的文件；新增 `ERR_ALREADY_RUNNING`（第 20 条）
@@ -459,7 +459,7 @@ Collector 在服务同一条管道时，新进程拒绝启动。它**不经由 I
 真正的拒绝（声明消息的长度、偏移、约束错误）被淹没。`parse_fail_count` 的含义收窄为
 "声明消息被拒绝的次数"；`parse_ok_count`、`duplicate_count` 不变。桌面端把缺失的
 `ignored_count` 渲染成 `—`。`E_UNKNOWN_OPCODE` 保留在 `ParserErrorEntry.code` 枚举里，
-供已持久化的旧行与固件回放工具使用。
+供已持久化的旧行与样本重放工具使用。
 
 ## 2026-09-07 — 允许选择任意可写本地导出目录
 
@@ -519,7 +519,7 @@ group / expected_length / research_eligible`），仅供桌面端按用途、用
 `ReviewCandidateObservation`（CORRECT/WRONG/UNSURE，备注最多 2000 字，request_id 幂等并追加历史）
 和 `ExportCandidateEvidence`（可选本地 target_path，返回 JSON 路径、SHA256 与 sidecar 路径）。
 账本独立保留最多 20000 行 / 30 天，清理时关联核对历史一并清理；重复核对请求返回原结果，
-异内容复用 request_id 返回 ERR_IDEMPOTENCY_CONFLICT。缺失或过期观测返回
+以不同内容复用 request_id 返回 ERR_IDEMPOTENCY_CONFLICT。缺失或过期观测返回
 `ERR_CANDIDATE_OBSERVATION_NOT_FOUND`；路径越界或覆盖已有证据返回 ERR_EXPORT_FAILED。
 
 `CaptureStatus` 附加 `candidate_validation_enabled / candidate_profile_id / candidate_observation_count`
@@ -534,7 +534,7 @@ group / expected_length / research_eligible`），仅供桌面端按用途、用
 `ERR_CAPTURE_ALREADY_RUNNING`，须先停止。关闭立即停止候选观测，恢复正式选档需重启捕获。
 
 `protocol_version` 仍然是 **1**。本文件记录的每一条都是**附加性（additive）**的：
-把契约改成描述两端**已经在实现**的线格式，而不是要求任何一端改变已发出的字节。
+把契约改成描述两端**已经实现**的传输格式，而不是要求任何一端改变已发出的字节。
 唯一的例外是 `ERR_IDEMPOTENCY_CONFLICT`（第 12 条）。该情形此前被错误地归入
 `ERR_BAD_REQUEST`，现在有了专用错误码。
 
@@ -563,12 +563,12 @@ group / expected_length / research_eligible`），仅供桌面端按用途、用
 22. **新增消息 `SetRunReflection`**（`$defs/SetRunReflectionRequest` →
     `Responses/SetRunReflection`）：写入、替换或清空一条记录的心得。
     - 没有 `reason`，也没有 `expected_revision`。心得是用户自行记录的内容，不是对观测事实的
-      更正，因此**不 bump `revision`、不写 `run_revisions`**，存放在独立的 `run_reflections` 表里。
+      更正，因此**不递增 `revision`、不写 `run_revisions`**，存放在独立的 `run_reflections` 表里。
     - `text` 由 Collector `Trim()`。trim 后为空表示**删除**这条心得，应答的 `reflection` 为 `null`。
     - 记录不存在 → `ERR_NOT_FOUND`；**软删除的记录仍可写入心得**。
     - 按 `request_id` 幂等（与其它变更消息同一张 `ipc_idempotency` 表、同一套指纹规则）。
     - 写入成功后发布 `stats_invalidated`（`message = "reflection_changed"`）与
-      `run_updated`（携带带 `reflection` 的 run）两个实时事件。
+      `run_updated`（携带包含 `reflection` 的 run）两个实时事件。
 23. **新增消息 `GetReflectionSummary`**（`$defs/GetReflectionSummaryRequest` →
     `Responses/GetReflectionSummary`）：返回 `{reflection_count, pending_completed_count,
     recent, next_pending}`。`recent` 按 `reflection.updated_at_utc` 倒序、排除软删除；
@@ -665,7 +665,7 @@ C++ 端 `src/Desktop/cpp/{IpcFraming.h,IpcClient.cpp,IBackend.cpp}`。
 
 ## 勘误 / Errata —— dc28a27..6d26de2 的四条提交信息与实际内容不符
 
-这四条提交已经推出，重写历史的代价高于收益，因此用本节记录**它们实际改了什么**。
+这四条提交已经推送，重写历史的代价高于收益，因此用本节记录**它们实际改了什么**。
 记在契约 changelog 中，是因为其中 `6d26de2` 确实改动了 `contracts/ipc-v1.schema.json`（+41 行），
 而提交信息对此只字未提，据此追溯字段进入契约的时间会得到错误结论。
 `protocol_version` 仍然是 **1**。本节不改变任何契约，只更正记录。

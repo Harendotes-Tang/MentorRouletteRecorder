@@ -14,9 +14,9 @@
 `busy_timeout = 5000`（超时后返回 `ERR_DB_BUSY`）。
 **例外**：实时抓包写入把**两项**预算一起降到 1 秒，分别是 SQLite 自身的 `busy_timeout`，
 以及驱动层的命令超时（`SqliteConnection.DefaultTimeout`，事务的 `BEGIN IMMEDIATE`
-同样走它）。只降低 `busy_timeout` 无效：SQLite 的忙等待到期返回 BUSY 之后，
+同样受其限制）。只降低 `busy_timeout` 无效：SQLite 等待锁的时限到期并返回 BUSY 之后，
 Microsoft.Data.Sqlite 仍会自行重试至命令超时（默认 5 秒）为止，3 次尝试合计接近 15 秒。
-两项一并降低之后，3 次重试合计约 3 秒。数据库被外部占用时，`GetCurrentRun` 一类 IPC 请求
+同时降低两项超时之后，3 次重试合计约 3 秒。数据库被外部占用时，`GetCurrentRun` 一类 IPC 请求
 不会被解析线程阻塞十余秒。人工变更仍使用 5000 ms。
 
 ## 0. 通用约定
@@ -49,8 +49,8 @@ Microsoft.Data.Sqlite 仍会自行重试至命令超时（默认 5 秒）为止�
 | `job_id` | INTEGER | NULL | 职业 id |
 | `job_name` | TEXT | NULL | 职业名称；`job_id IS NULL` 时为 `未知` |
 | `role` | TEXT | NOT NULL, IN (`TANK`,`HEALER`,`DPS`,`UNKNOWN`) | 由 `job_id` 推导 |
-| `matched_at_utc` | TEXT | NULL | 匹配弹出时间 |
-| `entered_at_utc` | TEXT | NULL | 进入副本时间。**是否计入 attempt 的判据** |
+| `matched_at_utc` | TEXT | NULL | 匹配弹窗出现时间 |
+| `entered_at_utc` | TEXT | NULL | 进入副本时间。**判定是否计入 attempt 的依据** |
 | `ended_at_utc` | TEXT | NULL | 结束时间 |
 | `duration_ms` | INTEGER | NULL, `>= 0` | 单调时钟测得的时长 |
 | `result` | TEXT | NOT NULL, IN (`COMPLETED`,`LEFT_OR_ABANDONED`,`CANCELLED_BEFORE_ENTRY`,`DISCONNECTED`,`INTERRUPTED`,`UNKNOWN`) | 结果 |
@@ -58,7 +58,7 @@ Microsoft.Data.Sqlite 仍会自行重试至命令超时（默认 5 秒）为止�
 | `source` | TEXT | NOT NULL, IN (`AUTO_NETWORK`,`MANUAL`,`IMPORT`) | 数据来源 |
 | `contributes_to_goal` | INTEGER | NOT NULL, 0/1, default 1 | 是否计入成就进度 |
 | `manually_created` | INTEGER | NOT NULL, 0/1 | 是否为手工创建 |
-| `manually_corrected` | INTEGER | NOT NULL, 0/1 | 是否被人工**更正**过：某次 `CorrectRun` 改动了软件已记下的内容后置 1，且不再回退。仅回答待复核记录的结局（`result` / `pending_review` / `contributes_to_goal`）、补上原本为空的职业或副本、或编辑备注，不算更正（`RunMutationRules.OverrulesTheRecord`）。1.3.1 之前每次 `CorrectRun` 都置 1；旧数据在采集服务启动时按各自的修订链重新判定（`CorrectedFlagMaintenance`，不产生修订、不改 `updated_at_utc`） |
+| `manually_corrected` | INTEGER | NOT NULL, 0/1 | 是否被人工**更正**过：某次 `CorrectRun` 改动了软件已记下的内容后置 1，且不再回退。仅确认待复核记录的结果（`result` / `pending_review` / `contributes_to_goal`）、补上原本为空的职业或副本、或编辑备注，不算更正（`RunMutationRules.OverrulesTheRecord`）。1.3.1 之前每次 `CorrectRun` 都置 1；旧数据在采集服务启动时按各自的修订链重新判定（`CorrectedFlagMaintenance`，不产生修订、不改 `updated_at_utc`） |
 | `soft_deleted` | INTEGER | NOT NULL, 0/1, default 0 | 软删除标记 |
 | `pending_review` | INTEGER | NOT NULL, 0/1, default 0 | 「待复核」标记：记录等待用户确认，来源见 §1.1；标记本身不改动结果（schema v2 新增） |
 | `note` | TEXT | NULL | 用户手工填写的备注（schema v2 新增） |
@@ -96,7 +96,7 @@ INDEX ix_runs_pending_review ON mentor_runs(pending_review) WHERE pending_review
   照常计入统计与成就进度。它是
   `GetDashboardStats.unfinished_pending_review` 的唯一依据。此前该口径由
   `result = INTERRUPTED AND detection_confidence = LOW AND manually_corrected = 0` 推断，
-  现已改为直接读取该列，语义不再依赖置信度的巧合。
+  现已改为直接读取该列，不再通过置信度间接判断待复核状态。
 - Collector **永远不会**自行清除该标记。用户通过 `CorrectRun` 提交结果或显式设置
   `pending_review=false`，以及 `SoftDeleteRun`（软删除该记录），会将其置 0。
   仅更正备注等其他字段时，待复核标记保留；人工字段保护读取 `run_revisions`，
@@ -122,26 +122,26 @@ INDEX ix_runs_pending_review ON mentor_runs(pending_review) WHERE pending_review
 |---|---|---|---|
 | `run_id` | TEXT | PK，FK → `mentor_runs(run_id)` ON DELETE CASCADE | 一条记录最多一条心得 |
 | `mood` | TEXT | NOT NULL，取 `good` / `ok` / `bad` / `unknown` | 顺利 / 一般 / 糟心；仅 IMPORT 可保留来源未提供的心情 `unknown` |
-| `text` | TEXT | NOT NULL，`length BETWEEN 1 AND 2000` | 用户手写的正文，已 trim |
+| `text` | TEXT | NOT NULL，`length BETWEEN 1 AND 2000` | 用户填写的正文，已去除首尾空白 |
 | `created_at_utc` | TEXT | NOT NULL | UTC ISO-8601（毫秒） |
 | `updated_at_utc` | TEXT | NOT NULL | UTC ISO-8601（毫秒） |
 
 `INDEX ix_run_reflections_updated ON run_reflections(updated_at_utc DESC)`。
 
 不将其实现为 `mentor_runs` 上的两列，原因是**心得由用户自行撰写，不是抓包得到的事实**。
-因此写入心得
+因此，写入心得时：
 
 - **不**递增 `mentor_runs.revision`，**不**追加 `run_revisions`，也**不需要** `reason`，
   因为没有任何"被更正的观测值"需要留痕；
 - 允许写在**软删除**的记录上，因为用户记述的是当时发生过的事，而不是在编辑一条已丢弃的记录；
 - `text` 经 `Trim()` 后为空即表示**删除**这条心得（`SetRunReflection` 的一条消息同时承担写入与清空）。
 
-按 `request_id` 幂等，与其它变更消息共用 `ipc_idempotency` 表与同一套指纹规则
+按 `request_id` 幂等，与其他变更消息共用 `ipc_idempotency` 表与同一套指纹规则
 （见 §7.1）。写入成功后 Collector 发布 `stats_invalidated`（`message = "reflection_changed"`）
 与 `run_updated` 两个实时事件。
 
 `$defs/Run` 的 `reflection` 属性由该表填充。**每一处**序列化 Run 的位置都会带上它，
-没有心得时取值为 `null`。填充发生在 `RunRepository` 读取行的位置，而不是五处序列化点上。
+没有心得时取值为 `null`。填充发生在 `RunRepository` 读取行的位置，而非五处序列化位置。
 
 ### 1.4 `duty_source` —— 副本身份的来源（schema v8）
 
@@ -151,24 +151,24 @@ INDEX ix_runs_pending_review ON mentor_runs(pending_review) WHERE pending_review
 |---|---|
 | `CONTENT_ID` | 报文里带了明确的 `content_id`（弹窗或进本标记） |
 | `TERRITORY` | 由观察到的 `territory_id` 经本地副本表反查而来 |
-| `MANUAL` | 人工新增或人工更正填的 |
+| `MANUAL` | 由人工新增或更正填写 |
 | `NULL` | 这条记录还没有任何副本身份，或者是 0008 之前写入的历史行 |
 
 引入该列的原因是：`ZONE_TERRITORY` 的字段偏移尚未在副本内负载上核实。此前
 `SetDuty` 会把由 `territory_id` 反查出的 `content_id` 写入 `content_id` 列，
-一个错误的偏移足以污染副本统计。现在**自动写入只落 `territory_id` 与显示用的
-名称、分类**，`content_id` 保持 `NULL`，该列用于说明这条记录的副本身份具有何种可信程度。
+一个错误的偏移足以污染副本统计。现在**自动写入只保存 `territory_id` 与显示用的
+名称、分类**，`content_id` 保持 `NULL`，该列用于说明这条记录的副本身份来自何种依据。
 
 副本统计因此按副本身份聚合：带 `content_id` 的记录按 `content_id` 聚合；只有 `territory_id` 时，
 若本地副本表中该区域只对应一个副本（只查该记录所属区服），归入那个副本的 `content_id`，
 与观察到内容编号的记录同属一行；该区域对应多个副本时按 `territory_id` 单独成行。
 `territory_id` 位于独立的键空间，不会与任何 content id 冲突。按区域唯一反查归入的那一组在
-IPC 上回报副本表给出的 `content_id`，区域对应多个副本的那一组回报 `content_id: null`，
+IPC 中返回副本表给出的 `content_id`，区域对应多个副本的那一组返回 `content_id: null`，
 名称均取自本地副本表。见 [statistics-definitions.md](statistics-definitions.md) §10。
 
 **该列不进入 IPC。** `$defs/Run` 未变，`MentorRun.DutySource` 带 `[JsonIgnore]`，
 界面、实时事件与导出中均不包含该列。它只是本机数据库中供维护者排查偏移的来源标注，
-也不单独产生一条 revision。
+也不单独产生一条修订。
 
 ## 2. `run_events` —— 一次尝试内的事件轨迹
 
@@ -231,11 +231,11 @@ INDEX ix_revisions_run ON run_revisions(run_id, revision)
 | `id` | INTEGER | PK, CHECK (`id = 1`) | 单行 |
 | `goal_count` | INTEGER | NOT NULL, `>= 1`, **default 2000** | 目标次数 |
 | `baseline_completed_count` | INTEGER | NOT NULL, `>= 0`, default 0 | 开始使用本软件之前已完成的次数（用户自报）。计入进度的已记录完成不论何时结束，全部叠加在其上 |
-| `baseline_effective_at` | TEXT | NOT NULL | 基数最近一次改变的时间（UTC），从未改变时为采集服务首次启动写入该行的时间；只作记录，不参与进度或任何统计。只在基数改变时更新为请求中的时间；只改目标或重新填入同一基数时保持不变（[statistics-definitions.md](statistics-definitions.md) §4）。1.5.0 及更早版本每次保存都会改写它，由这些版本写下的值可能是最近一次保存的时间，升级后保持原样 |
+| `baseline_effective_at` | TEXT | NOT NULL | 基数最近一次改变的时间（UTC），从未改变时为采集服务首次启动写入该行的时间；只作记录，不参与进度或任何统计。只在基数改变时更新为请求中的时间；只改目标或重新填入同一基数时保持不变（[statistics-definitions.md](statistics-definitions.md) §4）。1.5.0 及更早版本每次保存都会改写它，这些版本写入的值可能是最近一次保存的时间，升级后保持原样 |
 | `updated_at_utc` | TEXT | NOT NULL | |
 
 基线的每次修改都必须带 `reason`，并写入 `application_settings` 的审计或独立审计行；
-`UpdateAchievementBaseline` 返回 `audit_event_id`。目标与基数都与已保存的相同的保存不算修改：
+`UpdateAchievementBaseline` 返回 `audit_event_id`。保存时，目标与基数均未发生变化则不算修改：
 除用于重发判定的幂等记录外不写入任何内容，返回的 `audit_event_id` 是写下当前值的那条审计记录的编号
 （审计记录中没有这样一条时为新编号）。
 
@@ -262,7 +262,7 @@ INDEX ix_revisions_run ON run_revisions(run_id, revision)
 | `updated_at_utc` | TEXT | NOT NULL | |
 
 默认值：`ui.language = "zh-Hans"`、`tts.enabled = false`、`capture.follow_game = true`（未写入时视为开启；
-旧键 `capture.autostart` 仍被种子为 `false`，只有显式取值 `true` 才被视为用户意图）。
+旧键 `capture.autostart` 的初始值仍为 `false`，只有显式取值 `true` 才被视为用户意图）。
 先行版 1.5.1-beta.1 与 1.5.1-beta.2 曾在启动时检查一次成就基数的 `baseline_effective_at` 并视情况改动，可能留下键
 `achievement.baseline_effective_at_checked`，以及 `achievement.baseline_history` 中请求标识为
 `system:baseline-effective-at-repair` 的一条审计记录。现行版本不再读写前者，后者按普通审计记录对待，两者都不影响进度。
@@ -308,7 +308,7 @@ INDEX ix_revisions_run ON run_revisions(run_id, revision)
 
 **保留期是 24 小时。** 每次写入后按 `created_at_utc` 裁去更早的行
 （`IdempotencyRepository.RetentionWindow`）。因此"同一 `request_id` 原样重放"的保证
-只在 24 小时内成立：跨进程重启仍然有效，跨天则不再成立。
+只在 24 小时内成立，窗口内跨进程重启仍然有效。
 
 超过保留期之后再重放同一个 `request_id` 时，幂等行已不存在，但
 `run_revisions.request_id` / `candidate_reviews.request_id` 的 UNIQUE 约束仍记录该请求已执行。
@@ -322,7 +322,7 @@ INDEX ix_revisions_run ON run_revisions(run_id, revision)
 |---|---|---|---|
 | `error_id` | TEXT | PK | UUID |
 | `occurred_at_utc` | TEXT | NOT NULL | UTC ISO-8601（毫秒） |
-| `capture_session_id` | TEXT | NULL | 所属抓包会话；离线重放时是固件的合成会话 |
+| `capture_session_id` | TEXT | NULL | 所属抓包会话；离线重放时是测试样本的合成会话 |
 | `kind` | TEXT | NOT NULL | 拒绝分类：`E_UNKNOWN_OPCODE` / `E_LEN_MISMATCH` / `E_OFFSET_OOB` / `E_FIELD_CONSTRAINT` / `E_PROFILE_UNSUPPORTED` / `E_INTERNAL`（见 [protocol-profile-format.md](protocol-profile-format.md) §9） |
 | `detail` | TEXT | NULL | **非敏感**说明，例如 `ZONE_INITIALIZATION: payload length 12 violates the declared length rule` |
 
@@ -331,7 +331,7 @@ INDEX ix_revisions_run ON run_revisions(run_id, revision)
 **该表中绝不会出现报文正文、角色名或地址。** `detail` 只由解析器自行拼出的
 "哪条消息的哪个字段违反了哪条声明的规则"构成，不含从报文中读出的字节。
 
-该表是**有界**的：`ParserErrorRepository` 每次写入后把它裁到最新的 1000 行，
+该表是**有界**的：`ParserErrorRepository` 每次写入后只保留最新的 1000 行，
 因此一份错误的档案不会使数据库无限增长。
 写入失败不会打断解析循环；丢失的诊断行不再补写，计数仍保留在 `IParserStats` 中。
 
@@ -358,18 +358,18 @@ INDEX ix_revisions_run ON run_revisions(run_id, revision)
 专用证据导出保留正文并如实标记 `contains_raw_payload`，关闭研究后旧证据仍然保留。
 
 0007 在一个事务内升级既有 256 字节约束，不修改旧迁移 checksum，不重建观测父表，保留
-核对外键与只追加历史。观测保留上限为 20000 条 / 30 天；删除到期观测时清理关联核对。
+核对记录的外键与只追加的历史记录。观测保留上限为 20000 条 / 30 天；删除到期观测时清理关联核对。
 数据库备份可能包含这些原始负载，不能视为脱敏诊断文件。
 
 ## 9. 与 IPC 的映射
 
 schema v9 通过 `migrations/0009_personal_record_import.sql` 增加 `run_import_metadata` 与
 `run_import_batches`。前者按 `run_id` 保存来源类型/名称、原站时间原文及可确定的 UTC、导入时间、
-唯一来源指纹和 `mentor_confirmed`；后者保存预览/请求编号、选择指纹和提交回执，支持跨重启确认同一批次。
-`Run.import_metadata` 是可选投影，`incomplete` 按待复核状态、结果及所需游戏端点计算，不是另一份可修改的数据库标志。
+唯一的来源指纹和 `mentor_confirmed`；后者保存预览/请求编号、选择指纹和提交回执，支持重启后确认同一批次。
+`Run.import_metadata` 是可选投影，`incomplete` 按待复核状态、结果及所需游戏时间字段计算，不是另一份可修改的数据库标志。
 原站只有日期时保留原文，UTC 未知；原站时间不填入实际匹配、进本或结束时间。
-来源缺少结果时，导入预览按用户选择默认通关并允许修改；缺实际游戏事实的记录仍待补充且不计统计。
-备份导入只合并记录和心得，不复制外库采集外键、设置或备注附件。
+来源缺少结果时，导入预览按用户选择默认通关并允许修改；缺少实际游戏信息的记录仍待补充且不计统计。
+备份导入只合并记录和心得，不复制来源数据库的采集外键、设置或备注附件。
 提交带 `deduct_from_baseline = true` 时，同一事务内还会把本次新写入且计入进度的通关数从 `achievement_settings.baseline_completed_count`
 中扣除（最低到 0），并以该提交的请求编号追加一条 `achievement.baseline_history` 记录；回执中带 `baseline_deducted_count` 与扣除后的基数
 （[statistics-definitions.md](statistics-definitions.md) §4）。

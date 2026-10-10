@@ -44,7 +44,7 @@ data/roulettes/
    （`IsKnown`），**不作推测**，**不回退到其他区服**。原则是：
    另一区服的映射恰好共用某个编号，不能作为本区服的证据；
 3. 唯一的例外是 `Region.Unknown`。该取值表示用户手工填写且未指明客户端，
-   并非某个真实区服，因此任何已装载的映射均为当前可给出的最佳答案；
+   并非某个真实区服，因此任何已装载的映射均为当前可提供的名称；
 4. 所有文件缺失时本软件必须正常运行（`RouletteCatalog.Default` 退化为空表，
    全部查询回落到 `RouletteCatalog.UnknownRouletteName`），不得崩溃。
 
@@ -82,7 +82,7 @@ data/roulettes/
   [`../../docs/third-party-licenses.md`](../../docs/third-party-licenses.md)）。
   除编号 9（指导者任务）外，其余九个编号均已在
   `cn.2026.08.05.json` 的本机流量证据中逐一核对。
-- **`global.json`**：**最佳努力（BEST EFFORT）**。英文名称为社区通用称法的
+- **`global.json`**：**最佳努力（BEST EFFORT）**。英文名称根据社区通用称法
   整理，**并非**来自权威的国际服 `ContentRoulette` 导出，亦未经国际服
   本机流量核对。在找到权威来源之前，该文件中的每个名称仅供阅读，
   不构成证据。

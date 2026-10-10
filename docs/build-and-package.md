@@ -87,14 +87,14 @@ Windows 版本资源的 `FILEVERSION` / `PRODUCTVERSION` 是四段数字，放�
 `CHANGELOG.md` 中的 `## [X.Y.Z]` 段落与 `git show <tag>:CHANGELOG.md` 中的同名段落比较：
 标题行（含日期）与正文都必须逐字一致（区分大小写，换行统一为 LF 后比较），不一致则打包失败。
 tag 中有该段落而工作区中找不到（段落被删除，或标题被改成别的版本号）同样算作改动；
-tag 中本来没有该段落时无可保护，跳过。找不到 git 或当前目录不是仓库时跳过该检查并给出提示。已发布段落
+tag 中原本不含该段落时，跳过。找不到 git 或当前目录不是仓库时跳过该检查并给出提示。已发布段落
 记录的是对应 tag 中的内容，tag 之后的改动一律写入 `[Unreleased]` 或下一个版本。
 `vX.Y.Z-beta.N` 形式的先行版 tag 不参与该比较：它标记的是测试包，其条目还在 `[Unreleased]`
 中，本来就会继续改动。该关卡的由来见 `reviews/2026-09-08/fix-status.md`
 （内部工作文档，不随仓库分发）的 H-9。
 
 上述无副作用的函数（读取版本号、归一化两种形状、判定 CHANGELOG 顶部段落、取出并比较已发布段落，
-以及只读地询问 git 的 `Get-SourceTreeState`，见 §5）位于
+以及只读查询 git 的 `Get-SourceTreeState`，见 §5）位于
 `scripts/package-version.ps1`，由 `scripts/package.ps1` 点源引入，并由
 `tools/package-verification/test_package_version.py` 逐条自测；该自测由
 `scripts/run-python-tool-tests.ps1` 自动发现，`verify.ps1` 的「工具自测」关卡会运行它。
@@ -139,7 +139,7 @@ Machina.FFXIV 包中附带的原生注入载荷 `deucalion-*.dll` 从所有构�
 > | `MR_NINJA_EXE` | `ninja.exe` |
 > | `MR_CMAKE_EXE` | `cmake.exe`（`scripts/test.ps1` 另用 `MR_CTEST_EXE` 指 `ctest.exe`） |
 
-标准 configure 命令（MinGW + Ninja + Qt 6.11.2）：
+标准配置命令（MinGW + Ninja + Qt 6.11.2）：
 
 ```powershell
 & "D:\APPS\Qt\Tools\CMake_64\bin\cmake.exe" `
@@ -183,8 +183,8 @@ ctest --test-dir build --output-on-failure
 | `MentorRecorderTtsService` | `TtsService` 模板替换与语速/音量映射（会发声的用例使用 Qt 的静音测试语音引擎，不经过本机语音；缺少该插件时这些用例明确跳过）、MockBackend 的 live 事件、契约 `$defs/LiveEvent` 每个 `kind` 的路由 |
 | `MentorRecorderIpcRequests` | 每种消息的请求样本与 `tests/Fixtures/ipc-requests/` 对拍 |
 | `MentorRecorderLifecycle` | `CollectorProcess` 的重启退避、单实例租约复用、主动停止；IPC 请求的时限；旧版本留下的设置文件（含已不再使用的说明确认记录）照常读取 |
-| `MentorRecorderUpdateInstall` | 下载并安装：`update.download` 的投影与下载期间的状态重读、「立即安装」启动任何程序之前的三项核对（位置、普通文件、SHA-256）、安装程序从核对校验值到启动始终被持有且每一条放弃的路径都释放它、启动之后的退出（退出时才释放）、正式构建交给系统外壳而模拟运行什么也不启动（按程序库实际的组合检查，而非由测试替换）、采集服务原样答回时的「没有开始下载，请稍候几秒再试。」、模拟后端，以及三处界面 |
-| `MentorRecorderInstallerHold` | 在真实文件上检验 `InstallerHold`：按「立即安装」的方式持有的程序仍能启动（`whoami.exe` 的副本运行至退出码 0），持有期间及运行之后都不能以写入方式打开、改名、删除，也不能改名其所在文件夹，释放后可以删除；正被写入的文件无法持有；文件夹不能被持有；经由联接点到达的文件不被视为该路径上的文件；符号链接按链接本身持有且不算普通文件；经由持有读取的内容就是文件内容。本机无法创建所需的链接时相应用例跳过：创建文件符号链接需要相应权限，没有时符号链接一例跳过 |
+| `MentorRecorderUpdateInstall` | 下载并安装：`update.download` 的状态映射与下载期间的状态重读、「立即安装」启动任何程序之前的三项核对（位置、普通文件、SHA-256）、安装程序从核对校验值到启动始终被持有且所有中止路径都释放它、启动之后的退出（退出时才释放）、正式构建交给系统外壳而模拟运行什么也不启动（按程序的实际依赖组合检查，而非由测试替换）、采集服务原样答回时的「没有开始下载，请稍候几秒再试。」、模拟后端，以及三处界面 |
+| `MentorRecorderInstallerHold` | 在真实文件上检验 `InstallerHold`：按「立即安装」的方式持有的程序仍能启动（`whoami.exe` 的副本运行至退出码 0），持有期间及运行之后都不能以写入方式打开、改名、删除，也不能改名其所在文件夹，释放后可以删除；正被写入的文件无法持有；文件夹不能被持有；经由联接点到达的文件不被视为该路径上的文件；符号链接按链接本身持有且不算普通文件；通过所持句柄读取的内容与文件内容一致。本机无法创建所需的链接时相应用例跳过：创建文件符号链接需要相应权限，没有时符号链接一例跳过 |
 | `MentorRecorderQmlUpdateDownload_<阶段>` | 软件内下载四个阶段的模拟截图：`downloading` 与 `verifying` 在总览横幅，`ready` 在设置页「通用」，`failed` 在「关于」；以 `--verify-text` 断言玩家读到的那一句 |
 | `MentorRecorderIpcIntegration` | **拉起真实 Collector 子进程**（使用临时数据库），运行 `GetVersion` / `GetStatus` / `QueryRuns` / `CorrectRun` 的三条错误路径 / `GetRunRevisions` / `BackupDatabase` / live 事件 / 字段白名单 |
 | `MentorRecorderQmlLoad` | 离屏加载整个场景图并抓帧 |
@@ -200,9 +200,9 @@ ctest --test-dir build --output-on-failure
 QML 测试通过 `QQmlApplicationEngine::objectCreationFailed` 将 QML 错误转换为非零退出码。
 每个截图用例还以 `--verify-text` 断言名称所指的内容确实出现在画面上（否则退出码 8）；
 截图运行期间出现任何 QML / JavaScript 运行时警告时，画面照常写出，进程以退出码 10 结束，
-ctest 另以 `FAIL_REGULAR_EXPRESSION` 匹配警告输出，两者任一都使用例失败。
-模拟后端的截图用例若断言了文字、却让并非它所要求的「无法自动记录」提示盖住了被测页面，画面同样写出，
-进程以退出码 13 结束；主题不是该提示的截图用例因此都带 `--mock-recording-state listening`。
+ctest 另以 `FAIL_REGULAR_EXPRESSION` 匹配警告输出，任一检查命中都会导致用例失败。
+模拟后端截图用例要求核对文字时，若测试目标并非「无法自动记录」提示、而该提示却遮挡了被测页面，画面仍会写出，
+进程以退出码 13 结束；不以该提示为测试目标的截图用例因此都带 `--mock-recording-state listening`。
 
 ### 3.3 截图
 
@@ -364,7 +364,7 @@ pwsh -File scripts/package.ps1 -Force -Verify
 `eng.traineddata` 与 `configs/tsv`。固定 Windows 发行来源是 UB Mannheim
 `5.4.0.20240606`，模型来自官方 `tessdata_fast` 提交
 `87416418657359cb625c412a48b6e1d6d41c29bd`。官方下载地址、逐文件 SHA256、
-运行闭包及许可证登记在 `docs/licenses/ocr/dependency-manifest.json`；Windows 发行包是
+完整运行依赖及许可证登记在 `docs/licenses/ocr/dependency-manifest.json`；Windows 发行包是
 Tesseract 文档推荐的第三方构建，不将开发机系统安装作为依赖来源。
 
 先按清单手动获取发行包和两份模型到本机，将模型放在同一目录，再运行：
@@ -416,7 +416,7 @@ Collector 的单实例租约**按用户**划分，而非按数据库划分。因
 上一次运行遗留的，还是同一台机器上另一个自动化会话启动的，进程级测试与
 `verify.ps1` 的监听端口核对都无法运行。
 
-`verify.ps1` 第 1 步会拒绝启动并列出占用进程；进程级测试与监听核对各自有界等待一段时间
+`verify.ps1` 第 1 步会拒绝启动并列出占用进程；进程级测试与监听核对各自在设定时限内等待，超时
 后放弃，因为租约被刚刚结束的进程短暂持有属于正常情况。清理命令：
 
 ```powershell
@@ -603,14 +603,14 @@ Windows 10/11；没有内嵌清单或任一项不符即打包失败。可执行�
 
 这样处理的原因是：可移植 PDB 按**路径段**存储源码路径。0.2.3 的发布包中包含
 `MentorRecorder.Collector.pdb`，其中逐段保存了维护者本机的绝对路径，包括盘符、用户目录
-与仓库名。对于一个截取游戏流量、并按 GPL 承诺提供源码的项目，这属于去匿名化材料。
+与仓库名。对于一个截取游戏流量、并按 GPL 承诺提供源码的项目，这些信息可能暴露维护者的身份。
 **Debug 构建不受影响**，仍生成并列的 `.pdb` 并保留真实路径，本机调试不受限制。
 
 ### 5.2 `-Verify`：从解包目录实际运行一次
 
 `-Verify` 将 zip 解压到临时目录，然后**从解包目录**运行两个可执行文件。
 该步骤不使用工作区中的任何内容，因此仅在开发机上存在的依赖（PATH 上的 Qt、
-构建树中遗留的文件）会在此处暴露，而不会在用户机器上暴露。
+构建树中遗留的文件）会在此处暴露，便于在分发前发现依赖遗漏。
 
 该步骤依次断言：
 
@@ -680,7 +680,7 @@ Windows 10/11；没有内嵌清单或任一项不符即打包失败。可执行�
 - **安装文件夹的访问权限。** 数据盘（如 `D:\`）上的文件夹沿用盘符根目录的权限，常见情况下本机任何用户
   都可以修改其中的程序与卸载程序。安装与升级在写入任何文件之前（`CurStepChanged(ssInstall)` 中的
   `ProtectInstallDirectory`）保护 `{app}`：先以 `System32\icacls.exe /setowner` 把文件夹的所有者设为
-  Administrators，再通过 `SetFileSecurityW` 把它的 ACL 整个换成受保护的一份——Administrators 与 SYSTEM
+  Administrators，再通过 `SetFileSecurityW` 将其 ACL 替换为受保护的访问控制列表——Administrators 与 SYSTEM
   完全控制、Users 读取和执行，可向下继承。这两步都只改动文件夹自身，不会把权限传播给其下已有的文件和
   文件夹：硬链接与它所链接的文件共用同一份安全描述符，传播会连带改动安装文件夹之外的那个文件。此后新建的
   文件和文件夹在创建时继承这份 ACL。账户按众所周知的 SID 指定，不依赖本地化的账户名；`/L` 使 icacls
@@ -693,8 +693,8 @@ Windows 10/11；没有内嵌清单或任一项不符即打包失败。可执行�
   重新建立，随之继承新的 ACL；`note-images` 见下；既不属于本软件、也不在 `[InstallDelete]` 之列的其他
   子文件夹保持原有的权限，程序不从其中加载任何内容。
   `note-images` 是唯一允许普通用户写入的子文件夹。它不存在时由安装程序创建；它若是指向别处的链接，
-  安装停止并提示删除该链接，以免写入权限落到链接所指的位置。它的所有者同样设为 Administrators，ACL 以同样
-  不传播的方式换成受保护的一份——Administrators 与 SYSTEM 完全控制、Users 修改，可向下继承；其中已有的
+  安装停止并提示删除该链接，以免写入权限落到链接所指的位置。它的所有者同样设为 Administrators，ACL 同样以
+  不向已有文件传播的方式替换为受保护的访问控制列表——Administrators 与 SYSTEM 完全控制、Users 修改，可向下继承；其中已有的
   备注图片保持原有的权限不变。`[Dirs]` 中的 `note-images` 条目只保留 `uninsneveruninstall`，不再经由
   `Permissions` 授权。
   上述任一步失败（例如该位置不是本机 NTFS 磁盘），或 `{app}` 是链接或磁盘根目录，安装即停止并说明原因。

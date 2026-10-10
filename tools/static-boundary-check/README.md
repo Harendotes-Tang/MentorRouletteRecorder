@@ -9,7 +9,7 @@
 `MentorRecorder.sln`，即 `rules.json` 的 `scan_files`。
 命中任意一条规则即以非零退出码结束，并逐条打印 `文件:行号`。
 
-`contracts/` 不在扫描范围内。IPC 契约以散文写明边界（"no TCP, no WebSocket"），属于文档而非代码。
+`contracts/` 不在扫描范围内。IPC 契约以说明文字写明边界（"no TCP, no WebSocket"），属于文档而非代码。
 `.md` 与 `.csv` 同理不列入 `include_extensions`。
 
 扫描范围内的排除分三类，均在 `rules.json` 中声明，并由 `selftest.py` 固定：
@@ -52,13 +52,13 @@ pwsh -File scripts/verify.ps1                          # 边界检查 + dotnet t
 
 | 规则 | 分类 | 拦截什么 | 按路径放行 |
 |---|---|---|---|
-| `INJ-001` | `process-injection` | 读他进程内存：`ReadProcessMemory`（含 `Toolhelp32ReadProcessMemory`）、`NtReadVirtualMemory` / `ZwReadVirtualMemory`（含 `NtWow64ReadVirtualMemory64`）、转储进程内存的 `MiniDumpWriteDump` | — |
+| `INJ-001` | `process-injection` | 读取其他进程的内存：`ReadProcessMemory`（含 `Toolhelp32ReadProcessMemory`）、`NtReadVirtualMemory` / `ZwReadVirtualMemory`（含 `NtWow64ReadVirtualMemory64`）、转储进程内存的 `MiniDumpWriteDump` | — |
 | `INJ-002` | `process-injection` | `WriteProcessMemory` | — |
-| `INJ-003` | `process-injection` | 在他进程中分配内存或修改内存保护：`VirtualAllocEx`（含 `VirtualAllocExNuma`）、`VirtualAlloc2`、`VirtualProtectEx`、`NtAllocateVirtualMemory` / `ZwAllocateVirtualMemory`、`NtProtectVirtualMemory` / `ZwProtectVirtualMemory` | — |
+| `INJ-003` | `process-injection` | 在其他进程中分配内存或修改内存保护：`VirtualAllocEx`（含 `VirtualAllocExNuma`）、`VirtualAlloc2`、`VirtualProtectEx`、`NtAllocateVirtualMemory` / `ZwAllocateVirtualMemory`、`NtProtectVirtualMemory` / `ZwProtectVirtualMemory` | — |
 | `INJ-004` | `process-injection` | `CreateRemoteThread` / `CreateRemoteThreadEx` | — |
 | `INJ-005` | `process-injection` | `SetWindowsHookEx*` | — |
 | `INJ-006` | `process-injection` | 底层注入原语：`NtWriteVirtualMemory` / `ZwWriteVirtualMemory`（含 `NtWow64WriteVirtualMemory64`）、`NtCreateThreadEx` / `ZwCreateThreadEx`、`RtlCreateUserThread`、`QueueUserAPC` / `QueueUserAPC2`、`NtQueueApcThread*` / `ZwQueueApcThread*` | — |
-| `INJ-007` | `process-injection` | 打开他进程或其线程的句柄，或为此取得调试特权：`OpenProcess`、`NtOpenProcess` / `ZwOpenProcess`、`OpenThread`、`NtOpenThread` / `ZwOpenThread`、按窗口取进程句柄的 `GetProcessHandleFromHwnd`、逐个打开进程的 `NtGetNextProcess` / `ZwGetNextProcess`、`DebugActiveProcess`、`Process.EnterDebugMode` | — |
+| `INJ-007` | `process-injection` | 打开其他进程或其线程的句柄，或为此取得调试特权：`OpenProcess`、`NtOpenProcess` / `ZwOpenProcess`、`OpenThread`、`NtOpenThread` / `ZwOpenThread`、按窗口取进程句柄的 `GetProcessHandleFromHwnd`、逐个打开进程的 `NtGetNextProcess` / `ZwGetNextProcess`、`DebugActiveProcess`、`Process.EnterDebugMode` | — |
 | `INJ-008` | `process-injection` | `Process.MainModule` / `Process.Modules`（内部以 `PROCESS_QUERY_INFORMATION` 与 `PROCESS_VM_READ` 打开句柄并读模块表），含点号后有空白的写法，以及 C# 属性模式中的写法（`{ MainModule.FileName: … }`、`{ Modules: … }`，名字位于 `{` 或 `,` 之后或行首，后跟 `.` 或 `:`） | — |
 | `INJ-009` | `process-injection` | 会打开所属进程句柄的 `Process` 成员：`.StartTime` `.ExitTime` `.Handle`（方法调用 `.Handle(…)` 除外） `.SafeHandle` `.HasExited` `.ExitCode` `.EnableRaisingEvents` `.PriorityClass` `.PriorityBoostEnabled` `.ProcessorAffinity` `.TotalProcessorTime` `.UserProcessorTime` `.PrivilegedProcessorTime` `.MaxWorkingSet` `.MinWorkingSet` `.WaitForExit` `.WaitForExitAsync` `.WaitForInputIdle` `.Kill`（点号后可有空白），以及 `GetProcessById`；属性成员在 C# 属性模式与对象初始化器中同样拦截（`{ HasExited: false, StartTime: var s }`、`new Process { EnableRaisingEvents = true }`，名字位于 `{` 或 `,` 之后或行首，后跟 `:`、`.` 或 `=`）；PowerShell 管道中不带点号点名这些成员的写法同样拦截：同一行上先有进程来源（`Get-Process` / `gps` / `ps`，或 `[Process]::GetProcesses*`），其后某个 `\|` 之后的 `Select-Object`（含 `-Property`、`-ExpandProperty`）、`ForEach-Object`、`Sort-Object`、`Where-Object`、`Group-Object`、`Measure-Object`、`Format-Table`、`Format-List` 或其别名（`select` `foreach` `%` `sort` `where` `?` `group` `measure` `ft` `fl`）的参数中出现成员名（`Get-Process \| Select-Object StartTime`、`gps \| % Kill`），不分大小写，`#` 之后的注释不计；没有进程来源的同名属性（`$runs \| Sort-Object StartTime`）不构成命中 | 只放行驱动本软件**自身**进程的文件，均为精确路径：父进程看门狗 `src/Collector/Diagnostics/ParentProcessWatchdog.cs`（等待桌面端退出并读取其启动时间）；启动、等待、结束采集服务或替身父进程的测试与脚本。完整名单见 `rules.json`。只有一处命中且命中的并非 `Process` 成员的文件不整文件放行，改用登记在案的行内标记（见下文“例外标记”） |
 | `DEU-001` | `injected-hook` | 启用 Deucalion 注入式钩子（`UseDeucalion = true` 等） | — |
@@ -161,7 +161,7 @@ pwsh -File scripts/verify.ps1                          # 边界检查 + dotnet t
 
 ## 自测（反向测试）
 
-`check.py` 自身通过不能说明问题，因为一个永不匹配的检查器同样会通过。
+仅凭 `check.py` 通过，无法证明检查器有效，因为一个永不匹配的检查器同样会通过。
 `selftest.py` 验证相反方向：它将每一个被禁标识符植入临时仓库树，
 断言 `check.py` **失败**、命中正确的规则、覆盖**全部**应扫描的位置
 （`src/`、`src/Desktop/qml/`、`tests/`、`tools/`、`scripts/`、`installer/`、`.github/`、CMake、MSBuild，
@@ -191,7 +191,7 @@ python tools/static-boundary-check/selftest.py -v    # 逐条打印
 
 ## 已知局限
 
-本检查器逐行匹配正则表达式，不解析任何语言，因此不可能完备。以下写法**不会**被发现，
+本检查器逐行匹配正则表达式，不解析语言语法，因此无法覆盖所有写法。以下写法**不会**被发现，
 只能由代码评审兜底：
 
 - **跨行拆开的标识符或调用**：`process` 换行后再写 `.Kill()`、`Invoke-WebRequest` 用续行符拆开、

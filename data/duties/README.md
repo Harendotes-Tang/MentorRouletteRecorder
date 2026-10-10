@@ -30,14 +30,14 @@ data/duties/
 （`data/duties/*.json` → `MentorRecorder.Collector.Data.Duties.<file>`）。
 因此运行时既不依赖工作目录，也不依赖可执行文件同级目录中是否存在这些文件。
 `cn.sample.json` 一并纳入仓库：`ReferenceCatalogTests`、`StatisticsTests`、`ExportTests` 与
-集成回放测试均依赖其合成名称，缺少该文件将导致测试失败。
+集成重放测试均依赖其合成名称，缺少该文件将导致测试失败。
 
 ## 加载与回退规则（`src/Collector/Reference/DutyCatalog.cs`）
 
 1. 按区服筛选；
 2. **合成样例始终排在真实数据之后**，因此新增样例不会覆盖真实名称；
 3. 所请求的 `data_version` 已安装时使用该版本，否则使用该区服**最新的**一版；
-4. 更旧的版本仍用于**补空**：新表中已删除的 `content_id` 仍可查得名称；
+4. 更旧的版本仍用于**补充缺失项**：新表中已删除的 `content_id` 仍可查得名称；
 5. 所有版本均查不到的 `content_id` 显示为 `未知副本`，**不作推测**，并自成一类
    （见 [`../../docs/statistics-definitions.md`](../../docs/statistics-definitions.md) §10）。
 6. 文件全部缺失时本软件必须正常运行（`duty_name` 保持 `NULL`），不得崩溃。
@@ -62,11 +62,11 @@ python tools/duty-data-generator/generate.py --add-party-size data/duties/cn.202
 
 生成器仅执行两项操作：从 XIVAPI v2 分页读取 `ContentFinderCondition`（英文名、
 `TerritoryType`、`ContentType`、等级需求、`ContentMemberType` 人数）；从 ffxiv-datamining-cn 的 CSV 读取中文名。
-两者按 `ContentFinderCondition` 的行号连接。**原始下载不纳入仓库**，仅将其 SHA-256
+两者按 `ContentFinderCondition` 的行号关联。**原始下载不纳入仓库**，仅将其 SHA-256
 记入 `provenance`。抓取失败时不写出任何文件，保留现有数据。
 
 缺少中文名的行**不会**写入 `cn.*.json`，亦不回退为英文名。界面因此显示 `未知副本`，
-而非形似译名的推测值。
+不使用推测的译名。
 
 ## 字段
 
