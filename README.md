@@ -26,8 +26,8 @@
 离开副本三个事件并生成记录，按职业、副本、耗时与结果汇总为历史与统计。不注入、不读内存、不发包、
 无遥测；所有数据仅保存在本机。
 
-**当前源码版本：** `1.7.0-beta.7`（测试版，版本来源为 [Directory.Build.props](Directory.Build.props)）。
-下文包含该测试版的记录导入、离线截图识别与心得库功能；正式版与测试版的区别见[安装](#安装)，
+**当前源码版本：** `1.7.0`（正式版，版本来源为 [Directory.Build.props](Directory.Build.props)）。
+下文包含本版本的记录导入、离线截图识别与心得库功能；正式版与测试版的区别见[安装](#安装)，
 本轮变更见 [CHANGELOG.md](CHANGELOG.md)。
 
 <p align="center"><img src="docs/screenshots/dashboard-light.png" width="800" alt="总览页（演示数据）"></p>
@@ -45,7 +45,7 @@
 > started only when the user clicks 「立即安装」; nothing is downloaded or installed automatically.
 > Setting `MR_DISABLE_SHARED_FETCH=1`, `MR_DISABLE_ONLINE_SPEECH=1` and `MR_DISABLE_UPDATE_CHECK=1`
 > disables all three.
-> The current source version is `1.7.0-beta.7`. It also supports local record imports from CSV,
+> The current source version is `1.7.0`. It also supports local record imports from CSV,
 > XLS/XLSX, native JSON, database backups, pasted tables and screenshots. Screenshot OCR runs offline;
 > imports require preview and confirmation, and conflicts preserve local records. Reflection sharing
 > saves a PNG locally without uploading it.

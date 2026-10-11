@@ -2,7 +2,7 @@
 
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循语义化版本。
 
-## [Unreleased]
+## [1.7.0] - 2026-10-11
 
 ### 新增
 - 导入窗口可保存空白 Excel 与 JSON 填写模板及中文说明；新增真实 Excel 97–2003 `.xls` 导入，仍先预览核对，冲突保留本地。
