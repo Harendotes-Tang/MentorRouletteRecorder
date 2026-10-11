@@ -132,6 +132,33 @@ public sealed class RunRepository
         return run is null ? null : Attach(run, transaction);
     }
 
+    /// <summary>
+    /// Returns sorted distinct local history days over the full matching set in one month.
+    /// Date bounds are deliberately removed; archival day-only records keep their source day.
+    /// Missing history times stay NULL and cannot fabricate a selectable day.
+    /// </summary>
+    public IReadOnlyList<string> QueryCalendarDays(string month, RunFilter? filter)
+    {
+        var nonDateFilter = (filter ?? RunFilter.Empty) with
+        {
+            FromUtc = null, ToUtc = null, HistoryFromDay = null, HistoryToDay = null,
+        };
+        var fragment = RunFilterSql.Build(nonDateFilter, forStatistics: false);
+        var day = $"date({RunFilterSql.HistorySortDateExpression}, 'localtime')";
+        return _database.Read(_ =>
+        {
+            using var command = _database.CreateCommand();
+            command.CommandText = $"SELECT DISTINCT {day} AS calendar_day FROM mentor_runs " +
+                $"WHERE {fragment.Where} AND substr({day}, 1, 7) = $month ORDER BY calendar_day;";
+            RunFilterSql.Bind(command, fragment);
+            command.Parameters.AddWithValue("$month", month);
+            var days = new List<string>();
+            using var reader = command.ExecuteReader();
+            while (reader.Read()) days.Add(reader.GetString(0));
+            return (IReadOnlyList<string>)days;
+        });
+    }
+
     /// <summary>Lists runs matching a filter, ordered and paged.</summary>
     /// <param name="filter">Filter; null constrains nothing.</param>
     /// <param name="sort">Ordering; null uses the default.</param>

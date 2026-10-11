@@ -13,6 +13,7 @@
 #include <QDir>
 #include <QFile>
 #include <QGuiApplication>
+#include <QFontDatabase>
 #include <QJsonArray>
 #include <QJSValue>
 #include <QPointer>
@@ -450,17 +451,27 @@ ApplicationWindow {
         auto *previous = findVisual(window->contentItem(), QStringLiteral("historyPreviousPage"));
         QVERIFY(mark && selectAll && count && previous);
         QTRY_VERIFY(mark->isVisible() && selectAll->isVisible());
-        QCOMPARE(selectAll->parentItem(), mark->parentItem());
-        QTRY_COMPARE(selectAll->y(), 0.0);
+        auto *tableHeader = root->findChild<QQuickItem *>(QStringLiteral("historyTableHeader"));
+        QVERIFY(tableHeader);
+        QCOMPARE(selectAll->parentItem()->parentItem(), tableHeader);
+        QVERIFY(selectAll->parentItem() != mark->parentItem());
         QCOMPARE(count->parentItem(), previous->parentItem());
         QVERIFY(count->x() < previous->x());
         QVERIFY(!pending->isVisible());
         const QVariantMap run = app.runs()->runAt(0);
         auto *checkbox = findVisual(window->contentItem(), QStringLiteral("historyRunCheck_") + run.value(QStringLiteral("run_id")).toString());
         QVERIFY(checkbox);
+        QCOMPARE(selectAll->mapToScene(QPointF()).x(), checkbox->mapToScene(QPointF()).x());
         clickItem(window, checkbox);
         QTRY_COMPARE(app.checkedHistoryRunCount(), 1);
         QVERIFY(!app.hasSelection()); // 勾选不应打开详情遮住批量操作。
+        clickItem(window, selectAll);
+        QTRY_COMPARE(app.checkedHistoryRunCount(), app.runs()->rowCount());
+        QVERIFY(app.checkedHistoryRunCount() < app.runs()->total());
+        clickItem(window, selectAll);
+        QTRY_COMPARE(app.checkedHistoryRunCount(), 0);
+        clickItem(window, checkbox);
+        QTRY_COMPARE(app.checkedHistoryRunCount(), 1);
         const QString directory = qEnvironmentVariable("MR_HISTORY_UI_EVIDENCE_DIR", QDir::currentPath());
         QVERIFY(QDir().mkpath(directory));
         QTest::qWait(50);
@@ -502,6 +513,15 @@ int main(int argc, char **argv) {
     if (qEnvironmentVariableIsEmpty("QT_QPA_FONTDIR"))
         qputenv("QT_QPA_FONTDIR", "C:/Windows/Fonts");
     QGuiApplication app(argc, argv);
+    // Match main.cpp's screenshot font initialization; offscreen defaults may
+    // otherwise choose a condensed fallback and conceal real layout overflow.
+    QFontDatabase::addApplicationFont(QStringLiteral("C:/Windows/Fonts/msyh.ttc"));
+    QFontDatabase::addApplicationFont(QStringLiteral("C:/Windows/Fonts/simhei.ttf"));
+    QFontDatabase::addApplicationFont(QStringLiteral("C:/Windows/Fonts/consola.ttf"));
+    QFontDatabase::addApplicationFont(QString::fromUtf8(MR_DESKTOP_QML_DIR) + QStringLiteral("/../resources/fonts/IBMPlexMono-SemiBold.ttf"));
+    QFont font;
+    font.setFamilies({QStringLiteral("Microsoft YaHei UI"), QStringLiteral("Microsoft YaHei"), QStringLiteral("Segoe UI")});
+    QGuiApplication::setFont(font);
     QQuickStyle::setStyle(QStringLiteral("Basic"));
     HistoryBatchTests tests;
     return QTest::qExec(&tests, argc, argv);

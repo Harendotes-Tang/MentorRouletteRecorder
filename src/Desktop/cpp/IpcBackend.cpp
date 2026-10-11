@@ -151,6 +151,8 @@ QJsonObject IpcBackend::buildRequestForTest(const QString &messageType,
         backend.getCurrentRun();
     else if (messageType == QLatin1String("SubscribeLiveEvents"))
         backend.subscribeLiveEvents();
+    else if (messageType == QLatin1String("QueryRunCalendarDays"))
+        backend.queryRunCalendarDays(stringArg(args, "month"), objectArg(args, "filter"));
     else if (messageType == QLatin1String("QueryRuns"))
         backend.queryRuns(objectArg(args, "filter"), intArg(args, "page", 1),
                           intArg(args, "page_size", 50), objectArg(args, "sort"));

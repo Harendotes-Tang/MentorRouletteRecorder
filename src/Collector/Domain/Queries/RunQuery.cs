@@ -95,6 +95,9 @@ public sealed record RunFilter
     /// <summary>Include soft-deleted runs in listings. Never affects statistics.</summary>
     public bool IncludeDeleted { get; init; }
 
+    /// <summary>Only soft-deleted listings; takes precedence over IncludeDeleted. Ignored by statistics.</summary>
+    public bool DeletedOnly { get; init; }
+
     /// <summary>Keep only runs that carry a 导随心得.</summary>
     public bool WithReflection { get; init; }
 

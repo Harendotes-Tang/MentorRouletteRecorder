@@ -182,6 +182,8 @@ public:
     BackendReply *subscribeLiveEvents();
 
     // -- queries ------------------------------------------------------------
+    /// Full-month history days, independent of the selected date bounds.
+    BackendReply *queryRunCalendarDays(const QString &month, const QJsonObject &filter = {});
     BackendReply *queryRuns(const QJsonObject &filter, int page, int pageSize,
                             const QJsonObject &sort = {});
     /// Without paging the Collector returns the oldest 50 revisions; callers

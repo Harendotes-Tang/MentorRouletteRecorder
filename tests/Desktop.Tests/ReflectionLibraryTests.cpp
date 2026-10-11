@@ -167,12 +167,16 @@ private Q_SLOTS:
     void realLibraryKeyboardSelectionAndFilterCancel_data() {
         QTest::addColumn<QSize>("size");
         QTest::addColumn<bool>("dark");
-        QTest::newRow("small-light") << QSize(720, 560) << false;
-        QTest::newRow("large-dark") << QSize(1100, 900) << true;
+        QTest::addColumn<QString>("style");
+        QTest::newRow("classic-small-light") << QSize(720, 560) << false << QStringLiteral("classic");
+        QTest::newRow("classic-large-dark") << QSize(1100, 900) << true << QStringLiteral("classic");
+        QTest::newRow("harendotes-small-light") << QSize(720, 560) << false << QStringLiteral("harendotes");
+        QTest::newRow("harendotes-large-dark") << QSize(1100, 900) << true << QStringLiteral("harendotes");
     }
     void realLibraryKeyboardSelectionAndFilterCancel() {
         QFETCH(QSize, size);
         QFETCH(bool, dark);
+        QFETCH(QString, style);
         QueryBackend backend;
         mr::ReflectionLibraryController library(&backend);
         LibraryThemeState theme;
@@ -180,6 +184,11 @@ private Q_SLOTS:
         mr::Formatters formatters;
         mr::JobCatalog jobs;
         QQmlEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this, [&warnings](const QList<QQmlError> &errors) {
+            for (const auto &error : errors) warnings.append(error.toString());
+        });
+        engine.rootContext()->setContextProperty(QStringLiteral("ForceUiStyle"), style);
         engine.rootContext()->setContextProperty(QStringLiteral("App"), &theme);
         engine.rootContext()->setContextProperty(QStringLiteral("Fmt"), &formatters);
         engine.rootContext()->setContextProperty(QStringLiteral("Jobs"), &jobs);
@@ -191,6 +200,7 @@ import QtQuick.Controls
 import MentorRecorder
 ApplicationWindow {
     visible: true; width: 720; height: 560
+    color: Theme.contentBackground
     ReflectionsPage { objectName: "page"; anchors.fill: parent; anchors.margins: 24 }
 })", QUrl());
         std::unique_ptr<QObject> root(component.create());
@@ -204,6 +214,16 @@ ApplicationWindow {
         QVERIFY(select);
         auto *toolbar = findVisual(window->contentItem(), QStringLiteral("reflectionToolbar"));
         QVERIFY(toolbar);
+        auto *search = findVisual(window->contentItem(), QStringLiteral("reflectionSearchField"));
+        QVERIFY(search);
+        QCOMPARE(select->parentItem(), toolbar);
+        QCOMPARE(select->property("text").toString(), QString());
+        QVERIFY(!findVisual(window->contentItem(), QStringLiteral("reflectionSelectionHeader")));
+        QVERIFY(!findVisual(window->contentItem(), QStringLiteral("reflectionSelectionHint")));
+        QTRY_VERIFY(qAbs(select->mapToScene(QPointF(0, select->height() / 2)).y()
+                          - search->mapToScene(QPointF(0, search->height() / 2)).y()) < 1);
+        QCOMPARE(select->x(), qreal(0));
+        QVERIFY(select->x() + select->width() <= search->x());
         // 宽窗口所有操作同排，窄窗口完整控件换行且不越过工具栏边界。
         for (auto *control : toolbar->childItems()) {
             QVERIFY(control->x() >= 0);
@@ -211,10 +231,24 @@ ApplicationWindow {
             if (size.width() >= 1100)
                 QCOMPARE(control->y(), qreal(0));
         }
+        QObject *page = root->findChild<QObject *>(QStringLiteral("page"));
+        QSignalSpy detail(page, SIGNAL(openRunRequested(QVariant)));
+        QVERIFY(detail.isValid());
         select->forceActiveFocus();
-        QTest::keyClick(window, Qt::Key_Space);
+        QTest::keyClick(window, Qt::Key_Tab);
+        QTRY_VERIFY(search->hasActiveFocus());
+        QTest::keyClick(window, Qt::Key_Backtab);
+        QTRY_VERIFY(select->hasActiveFocus());
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
+                          select->mapToScene(QPointF(select->width() / 2, select->height() / 2)).toPoint());
         QTRY_COMPARE(library.selectedCount(), 1);
         QVERIFY(select->property("checked").toBool());
+        QCOMPARE(detail.count(), 0);
+        select->forceActiveFocus();
+        QTest::keyClick(window, Qt::Key_Space);
+        QTRY_COMPARE(library.selectedCount(), 0);
+        QTest::keyClick(window, Qt::Key_Space);
+        QTRY_COMPARE(library.selectedCount(), 1);
         auto *next = findVisual(window->contentItem(), QStringLiteral("reflectionNextPage"));
         QVERIFY(next);
         next->forceActiveFocus();
@@ -225,7 +259,6 @@ ApplicationWindow {
         select->forceActiveFocus();
         QTest::keyClick(window, Qt::Key_Space);
         QTRY_COMPARE(library.selectedCount(), 2);
-        QObject *page = root->findChild<QObject *>(QStringLiteral("page"));
         QSignalSpy share(page, SIGNAL(shareBatchRequested(QVariant)));
         QVERIFY(share.isValid());
         auto *generate = findVisual(window->contentItem(), QStringLiteral("shareSelectedReflections"));
@@ -237,11 +270,10 @@ ApplicationWindow {
         if (!evidence.isEmpty()) {
             QVERIFY(QDir().mkpath(evidence));
             QTest::qWait(80);
-            QVERIFY(window->grabWindow().save(QDir(evidence).filePath(dark
-                ? QStringLiteral("library-dark-large.png") : QStringLiteral("library-light-small.png"))));
+            QVERIFY(window->grabWindow().save(QDir(evidence).filePath(QStringLiteral("library-%1-%2-%3.png")
+                .arg(style, dark ? QStringLiteral("dark") : QStringLiteral("light"))
+                .arg(size.width()))));
         }
-        auto *search = findVisual(window->contentItem(), QStringLiteral("reflectionSearchField"));
-        QVERIFY(search);
         search->forceActiveFocus();
         QTest::keyClick(window, Qt::Key_N);
         QTest::keyClick(window, Qt::Key_Return);
@@ -259,6 +291,7 @@ ApplicationWindow {
         clear->forceActiveFocus();
         QTest::keyClick(window, Qt::Key_Space);
         QTRY_COMPARE(library.selectedCount(), 0);
+        QVERIFY2(warnings.isEmpty(), qPrintable(warnings.join(QLatin1Char('\n'))));
     }
     void inactiveRefreshAndBackendLifetime() {
         auto *backend = new QueryBackend;

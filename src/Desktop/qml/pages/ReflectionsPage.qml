@@ -65,14 +65,25 @@ ColumnLayout {
         id: toolbar
         objectName: "reflectionToolbar"
         readonly property real fixedWidth: job.width + category.width + clearFilter.implicitWidth
-            + selectPage.implicitWidth + clearSelection.implicitWidth + shareSelected.implicitWidth + spacing * 7
+            + selectPage.implicitWidth + clearSelection.implicitWidth + shareSelected.implicitWidth + spacing * 6
         readonly property real flexibleWidth: width - fixedWidth
         Layout.fillWidth: true
         spacing: 8
+        SelectionCheckBox {
+            id: selectPage
+            objectName: "selectCurrentReflectionPage"
+            height: search.height
+            Accessible.name: qsTr("全选当前页心得")
+            checked: !!page.controller && page.controller.currentPageSelected
+            enabled: !!page.runs && !page.runs.loading && page.runs.loadError.length === 0 && page.runs.total > 0
+            onToggled: page.controller.setPageSelected(checked)
+            ToolTip.visible: hovered
+            ToolTip.text: qsTr("全选当前页心得")
+        }
         StyledTextField {
             id: search
             objectName: "reflectionSearchField"
-            width: Math.min(toolbar.width, Math.max(150, Math.min(300, toolbar.flexibleWidth - Math.min(170, Math.max(96, toolbar.flexibleWidth * 0.35)))))
+            width: Math.min(toolbar.width, Math.max(150, Math.min(300, toolbar.flexibleWidth)))
             placeholderText: qsTr("搜索副本 / 职业 / 记录备注")
             onTextEdited: debounce.restart()
             onAccepted: { debounce.stop(); page.applyFilter() }
@@ -95,29 +106,6 @@ ColumnLayout {
             text: qsTr("清除筛选")
             iconName: "filter-x"
             onClicked: { debounce.stop(); search.text = ""; job.currentIndex = 0; category.currentIndex = 0; page.applyFilter() }
-        }
-        SelectionCheckBox {
-            id: selectPage
-            objectName: "selectCurrentReflectionPage"
-            text: qsTr("全选当前页")
-            checked: !!page.controller && page.controller.currentPageSelected
-            enabled: !!page.runs && !page.runs.loading && page.runs.loadError.length === 0 && page.runs.total > 0
-            onToggled: page.controller.setPageSelected(checked)
-        }
-        Text {
-            id: selectionHint
-            objectName: "reflectionSelectionHint"
-            width: Math.min(toolbar.width, Math.max(96, Math.min(170, toolbar.flexibleWidth - search.width)))
-            height: search.height
-            text: page.controller && page.controller.selectedCount > 0
-                ? qsTr("已选 %1 条（翻页保留）").arg(page.controller.selectedCount) : qsTr("勾选心得可批量生成图片")
-            color: Theme.textSecondary
-            font.pixelSize: Theme.fs(12)
-            verticalAlignment: Text.AlignVCenter
-            elide: Text.ElideRight
-            ToolTip.visible: hintHover.hovered && truncated
-            ToolTip.text: text
-            HoverHandler { id: hintHover }
         }
         AppButton {
             id: clearSelection

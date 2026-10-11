@@ -20,6 +20,18 @@ public sealed record PageRequest(int Page, int PageSize);
 /// </summary>
 public static class RequestParsers
 {
+    /// <summary>Reads a strict calendar month without accepting partial or normalized dates.</summary>
+    public static string CalendarMonth(PayloadReader reader)
+    {
+        var month = reader.RequiredString("month", 7);
+        if (month.Length != 7 || !DateOnly.TryParseExact(month + "-01", "yyyy-MM-dd",
+                System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.None, out var date) ||
+            date.ToString("yyyy-MM", System.Globalization.CultureInfo.InvariantCulture) != month)
+            throw CollectorException.BadRequest("month 必须是有效的 YYYY-MM 月份。", "payload.month");
+        return month;
+    }
+
     /// <summary>Reads a <c>$defs/RunFilter</c>.</summary>
     /// <param name="reader">Payload containing the filter, or null.</param>
     public static RunFilter? Filter(PayloadReader? reader)
@@ -31,7 +43,7 @@ public static class RequestParsers
 
         reader.RejectUnknown(
             "from_utc", "to_utc", "date_field", "content_id", "duty_category", "job_id",
-            "result", "source", "corrected_only", "include_deleted", "with_reflection",
+            "result", "source", "corrected_only", "include_deleted", "deleted_only", "with_reflection",
             "pending_review", "text", "run_id", "history_from_day", "history_to_day");
 
         var filter = new RunFilter
@@ -49,6 +61,7 @@ public static class RequestParsers
             Sources = reader.EnumArray<RunSource>("source", 3),
             CorrectedOnly = reader.Bool("corrected_only") ?? false,
             IncludeDeleted = reader.Bool("include_deleted") ?? false,
+            DeletedOnly = reader.Bool("deleted_only") ?? false,
             WithReflection = reader.Bool("with_reflection") ?? false,
             PendingReview = reader.Bool("pending_review"),
             Text = reader.String("text", 200),

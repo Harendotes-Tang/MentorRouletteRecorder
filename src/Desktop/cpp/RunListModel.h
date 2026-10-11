@@ -9,6 +9,9 @@
 
 #include <QAbstractListModel>
 #include <QJsonObject>
+#include <QMap>
+#include <QSet>
+#include <QStringList>
 #include <QQmlEngine>
 #include <QVariantMap>
 
@@ -33,6 +36,12 @@ class RunListModel : public QAbstractListModel
     Q_PROPERTY(QString sortField READ sortField NOTIFY sortChanged)
     Q_PROPERTY(bool sortAscending READ sortAscending NOTIFY sortChanged)
 
+    Q_PROPERTY(QString calendarMonth READ calendarMonth NOTIFY calendarChanged)
+    Q_PROPERTY(bool calendarLoading READ calendarLoading NOTIFY calendarChanged)
+    Q_PROPERTY(QString calendarError READ calendarError NOTIFY calendarChanged)
+    Q_PROPERTY(QStringList calendarAvailableDays READ calendarAvailableDays NOTIFY calendarChanged)
+    Q_PROPERTY(QStringList calendarKnownMonths READ calendarKnownMonths NOTIFY calendarChanged)
+
 public:
     enum Roles { RunRole = Qt::UserRole + 1 };
 
@@ -54,6 +63,17 @@ public:
     bool sortAscending() const { return m_sortAscending; }
 
     void setPageSize(int pageSize);
+    QString calendarMonth() const { return m_calendarMonth; }
+    bool calendarLoading() const { return m_calendarPending.contains(m_calendarMonth); }
+    QString calendarError() const { return m_calendarErrors.value(m_calendarMonth); }
+    QStringList calendarAvailableDays() const;
+    QStringList calendarKnownMonths() const { return m_calendarDays.keys(); }
+    Q_INVOKABLE bool calendarDayAvailable(const QString &day) const;
+    Q_INVOKABLE bool calendarMonthKnown(const QString &month) const;
+    Q_INVOKABLE QString calendarDayError(const QString &day) const;
+    Q_INVOKABLE void setCalendarFilter(const QVariantMap &filter);
+    Q_INVOKABLE void requestCalendarDays(const QString &month);
+    Q_INVOKABLE void ensureCalendarDay(const QString &day);
 
 public Q_SLOTS:
     /// Replace the filter and go back to page 1.
@@ -68,6 +88,7 @@ public Q_SLOTS:
     QVariantMap runAt(int row) const;
 
 Q_SIGNALS:
+    void calendarChanged();
     void pagingChanged();
     void loadingChanged();
     void sortChanged();
@@ -75,6 +96,10 @@ Q_SIGNALS:
     void loadErrorChanged();
 
 private:
+    void loadRows();
+    QJsonObject calendarFilter() const;
+    void invalidateCalendar();
+    void loadCalendarMonth(const QString &month, bool retryError);
     void setLoading(bool loading);
     void setLoadError(const QString &error);
 
@@ -92,6 +117,12 @@ private:
     bool m_loading = false;
     QString m_loadError;
     quint64 m_loadGeneration = 0;
+    QJsonObject m_calendarFilter;
+    QString m_calendarMonth;
+    QMap<QString, QStringList> m_calendarDays;
+    QMap<QString, QString> m_calendarErrors;
+    QSet<QString> m_calendarPending;
+    quint64 m_calendarGeneration = 0;
 };
 
 } // namespace mr

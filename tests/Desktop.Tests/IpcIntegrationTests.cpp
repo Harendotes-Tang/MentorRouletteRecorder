@@ -106,6 +106,7 @@ private Q_SLOTS:
 
     void getVersionMatchesTheContract();
     void queryRunsHonoursFilterAndPaging();
+    void queryCalendarDaysUsesRealPipeAndIgnoresDateBounds();
     void correctRunSurfacesTypedRefusals();
     void createManualRunEmitsLiveEvents();
     void backupDatabaseUsesTheManagedFolder();
@@ -383,6 +384,28 @@ void IpcIntegrationTests::queryRunsHonoursFilterAndPaging()
     const Outcome none = await(m_backend->queryRuns(textFilter, 1, 10, sort));
     QVERIFY(none.ok);
     QCOMPARE(none.payload.value(QStringLiteral("items")).toList().size(), 0);
+}
+
+void IpcIntegrationTests::queryCalendarDaysUsesRealPipeAndIgnoresDateBounds()
+{
+    const Outcome listed = await(m_backend->queryRuns({}, 1, 10));
+    QVERIFY(listed.ok);
+    const QVariantList rows = listed.payload.value(QStringLiteral("items")).toList();
+    QVERIFY(!rows.isEmpty());
+    const QString id = rows.first().toMap().value(QStringLiteral("run_id")).toString();
+    const QDateTime instant = QDateTime::fromString(rows.first().toMap().value(QStringLiteral("entered_at_utc")).toString(), Qt::ISODateWithMs);
+    QVERIFY(instant.isValid());
+    const QString day = instant.toLocalTime().date().toString(Qt::ISODate);
+    const QString month = day.left(7);
+    QJsonObject filter{{QStringLiteral("run_id"), QJsonArray{id}},
+        {QStringLiteral("from_utc"), QStringLiteral("2099-01-01T00:00:00.000Z")}};
+    const Outcome calendar = await(m_backend->queryRunCalendarDays(month, filter));
+    QVERIFY2(calendar.ok, qPrintable(calendar.code + QLatin1Char(' ') + calendar.message));
+    QCOMPARE(calendar.payload.value(QStringLiteral("month")).toString(), month);
+    QCOMPARE(calendar.payload.value(QStringLiteral("days")).toStringList(), QStringList{day});
+    const Outcome invalid = await(m_backend->queryRunCalendarDays(QStringLiteral("2026-13")));
+    QVERIFY(!invalid.ok);
+    QCOMPARE(invalid.code, QStringLiteral("ERR_BAD_REQUEST"));
 }
 
 void IpcIntegrationTests::correctRunSurfacesTypedRefusals()

@@ -1,5 +1,16 @@
 # IPC 契约变更记录 / IPC contract changelog
 
+## 2026-10-11 · 日历可选日期查询
+
+- 新增只读 `QueryRunCalendarDays { month: "YYYY-MM", filter?: RunFilter }`，应答为 `{ month, days: ["YYYY-MM-DD"] }`。日期升序去重，覆盖完整匹配集合，不受分页截断。
+- 查询忽略 `from_utc`、`to_utc`、`history_from_day`、`history_to_day`，保留其他筛选（含删除筛选）；已知历史时刻按本机时区投影，原站仅日期保留原日，未知时间不生成日期。
+- 月份与字段严格校验；旧服务明确拒绝新消息，桌面端不得将失败当作无记录。
+
+## 2026-10-11 · 已删除记录独立筛选
+
+- `RunFilter.deleted_only` 为可选布尔，默认 false。为 true 时，历史列表、分页总数和筛选导出只匹配软删除记录，优先于 `include_deleted`；其他筛选继续取交集。
+- `include_deleted` 单独使用仍包含正常与已删除记录。统计忽略两种删除筛选，始终排除删除记录。旧服务不支持新字段时继续明确报错。
+
 ## 2026-10-10 · 历史多选、回收站保留期与导入时间豁免
 
 - 新增 `BatchMutateRuns { action, runs: [{ run_id, expected_revision }], reason }`，支持 `soft_delete`、`restore` 与仅限已软删除目标的 `purge`；整批校验与提交，冲突不部分执行。结果带 `changed_count`、`run_ids` 与 `action`。

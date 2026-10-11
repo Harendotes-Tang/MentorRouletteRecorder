@@ -2187,6 +2187,29 @@ BackendReply *MockBackend::request(const QString &messageType, const QJsonObject
     } else if (messageType == QLatin1String("SubscribeLiveEvents")) {
         result.insert(QStringLiteral("subscription_id"), ipc::newRequestId());
         result.insert(QStringLiteral("heartbeat_interval_ms"), 5000);
+    } else if (messageType == QLatin1String("QueryRunCalendarDays")) {
+        const QString month = payload.value(QStringLiteral("month")).toString();
+        const QDate first = QDate::fromString(month + QStringLiteral("-01"), Qt::ISODate);
+        bool valid = payload.value(QStringLiteral("month")).isString()
+            && month.size() == 7 && first.isValid()
+            && first.toString(QStringLiteral("yyyy-MM")) == month
+            && (!payload.contains(QStringLiteral("filter")) || payload.value(QStringLiteral("filter")).isNull()
+                || payload.value(QStringLiteral("filter")).isObject());
+        for (auto it = payload.constBegin(); it != payload.constEnd(); ++it)
+            if (it.key() != QLatin1String("month") && it.key() != QLatin1String("filter")) valid = false;
+        const QStringList filterKeys{QStringLiteral("from_utc"), QStringLiteral("to_utc"),
+            QStringLiteral("date_field"), QStringLiteral("content_id"), QStringLiteral("duty_category"),
+            QStringLiteral("job_id"), QStringLiteral("result"), QStringLiteral("source"),
+            QStringLiteral("corrected_only"), QStringLiteral("include_deleted"), QStringLiteral("deleted_only"),
+            QStringLiteral("with_reflection"), QStringLiteral("pending_review"), QStringLiteral("text"),
+            QStringLiteral("run_id"), QStringLiteral("history_from_day"), QStringLiteral("history_to_day")};
+        const QJsonObject filter = payload.value(QStringLiteral("filter")).toObject();
+        for (auto it = filter.constBegin(); it != filter.constEnd(); ++it)
+            if (!filterKeys.contains(it.key())) valid = false;
+        if (!valid) {
+            errorCode = QStringLiteral("ERR_BAD_REQUEST");
+            errorMessage = QString::fromUtf8("日历查询需要有效的 YYYY-MM 月份和筛选对象。");
+        } else result = queryRunCalendarDaysPayload(payload);
     } else if (messageType == QLatin1String("QueryRuns")) {
         result = queryRunsPayload(payload);
     } else if (messageType == QLatin1String("GetHistoryRetentionSettings")) {

@@ -147,9 +147,14 @@ Item {
     // removable chip only while it is on.
     property bool pendingReviewFilter: false
 
+    property bool calendarReady: false
     function scheduleFilter() {
-        if (page.suspendFilter)
-            return
+        if (page.suspendFilter) return
+        if (calendarReady) {
+            App.runs.setCalendarFilter(page.buildFilter(true))
+            App.runs.ensureCalendarDay(fromField.text.trim())
+            App.runs.ensureCalendarDay(toField.text.trim())
+        }
         filterDebounce.restart()
     }
 
@@ -157,6 +162,8 @@ Item {
     // comes straight back through onHistoryFilterChanged, and mirroring it would
     // rewrite the fields under the user's cursor (review OK-5).
     property bool applying: false
+    readonly property var fromField: dateRange.startField
+    readonly property var toField: dateRange.endField
 
     // 开始 later than 结束: the Collector refuses the query, so it is not sent.
     readonly property bool rangeInverted: {
@@ -165,23 +172,18 @@ Item {
         return from !== null && to !== null && from > to
     }
 
-    function applyFilter() {
-        // A half-typed or invalid date is neither queried nor silently left out of
-        // the query (docs/ui-design.md §4.2): its field turns red and the list keeps
-        // its last answer until the date is whole. An inverted range waits the same way.
-        if (!fromField.valid || !toField.valid || page.rangeInverted)
-            return
+    function buildFilter(withoutDates) {
         const filter = { date_field: "history_date" }
         if (searchField.text.trim().length > 0)
             filter.text = searchField.text.trim()
         const from = toUtcRange(fromField.text.trim(), false)
         const to = toUtcRange(toField.text.trim(), true)
-        if (from)
+        if (!withoutDates && from)
             filter.from_utc = from
-        if (to)
+        if (!withoutDates && to)
             filter.to_utc = to
-        if (from) filter.history_from_day = fromField.text.trim()
-        if (to) filter.history_to_day = toField.text.trim()
+        if (!withoutDates && from) filter.history_from_day = fromField.text.trim()
+        if (!withoutDates && to) filter.history_to_day = toField.text.trim()
         if (page.contentFilter !== null && page.contentFilter !== undefined)
             filter.content_id = [page.contentFilter]
         if (categoryBox.currentIndex > 0)
@@ -200,8 +202,18 @@ Item {
             filter.pending_review = true
         if (withReflection.checked)
             filter.with_reflection = true
-        if (includeDeleted.checked)
-            filter.include_deleted = true
+        if (deletedOnly.checked)
+            filter.deleted_only = true
+        return filter
+    }
+
+    function applyFilter() {
+        // A half-typed or invalid date is neither queried nor silently left out of
+        // the query (docs/ui-design.md §4.2): its field turns red and the list keeps
+        // its last answer until the date is whole. An inverted range waits the same way.
+        if (dateRange.selectionPending || !fromField.valid || !toField.valid || page.rangeInverted)
+            return
+        const filter = page.buildFilter(false)
         page.applying = true
         App.setHistoryFilter(filter)
         page.applying = false
@@ -209,6 +221,7 @@ Item {
 
     function resetFilter() {
         page.suspendFilter = true
+        dateRange.selectionPending = false
         searchField.text = ""
         fromField.text = ""
         toField.text = ""
@@ -221,7 +234,7 @@ Item {
         correctedOnly.checked = false
         page.pendingReviewFilter = false
         withReflection.checked = false
-        includeDeleted.checked = false
+        deletedOnly.checked = false
         page.suspendFilter = false
         filterDebounce.stop()
         App.resetHistoryFilter()
@@ -258,6 +271,7 @@ Item {
         filterDebounce.stop()
         const filter = App.historyFilter
         page.suspendFilter = true
+        dateRange.selectionPending = false
         searchField.text = filter.text || ""
         fromField.text = filter.from_utc ? Fmt.localDate(filter.from_utc) : ""
         toField.text = filter.to_utc ? Fmt.localDate(filter.to_utc) : ""
@@ -269,9 +283,14 @@ Item {
         correctedOnly.checked = !!filter.corrected_only
         page.pendingReviewFilter = !!filter.pending_review
         withReflection.checked = !!filter.with_reflection
-        includeDeleted.checked = !!filter.include_deleted
+        deletedOnly.checked = !!filter.deleted_only
         page.contentFilter = firstFilterValue(filter.content_id)
         page.suspendFilter = false
+        if (page.calendarReady) {
+            App.runs.setCalendarFilter(page.buildFilter(true))
+            App.runs.ensureCalendarDay(fromField.text.trim())
+            App.runs.ensureCalendarDay(toField.text.trim())
+        }
     }
 
     // The rows replay their entrance when the page becomes current
@@ -296,6 +315,8 @@ Item {
     Component.onCompleted: {
         page.pageHost = page.findPageHost()
         page.syncFilter()
+        page.calendarReady = true
+        App.runs.setCalendarFilter(page.buildFilter(true))
         if (App.historyFilterConfirmationPending) filterConfirmation.open()
     }
 
@@ -312,6 +333,16 @@ Item {
         function onHistoryBatchChanged() {
             if (batchDialog.submitted && !App.historyBatchRunning && page.checkedCount === 0)
                 batchDialog.close()
+        }
+    }
+
+    Connections {
+        target: App.runs
+        function onCalendarChanged() {
+            if (!page.calendarReady) return
+            App.runs.ensureCalendarDay(fromField.text.trim())
+            App.runs.ensureCalendarDay(toField.text.trim())
+            filterDebounce.restart()
         }
     }
 
@@ -377,9 +408,9 @@ Item {
                     return total
                 }
                 readonly property bool singleLine: restWidth + 120 <= width
-                // Narrow fallback: search + the two dates share the first line,
+                // Narrow fallback: search + the date range share the first line,
                 // the combo boxes, chips and 清除 wrap to the second.
-                readonly property real dateWidth: fromField.width + toField.width + selectCurrentPage.width + 3 * spacing
+                readonly property real dateWidth: dateRange.width + spacing
 
                 StyledTextField {
                     id: searchField
@@ -394,32 +425,29 @@ Item {
                     onTextChanged: page.scheduleFilter()
                 }
 
-                SelectionCheckBox {
-                    id: selectCurrentPage
-                    height: filterRow.controlHeight
-                    objectName: "selectCurrentHistoryPage"
-                    text: qsTr("全选当前页")
-                    checked: App.allCurrentHistoryPageChecked
-                    enabled: !App.runs.loading && App.runs.loadError.length === 0 && App.runs.total > 0
-                    onClicked: App.setCurrentHistoryPageChecked(checked)
-                }
-
-                // 年/月/日 with a calendar behind the icon; a typed yyyy-MM-dd
-                // is accepted as well.
                 DateField {
-                    id: fromField
-                    objectName: "fromDateField"
-                    width: 118
-                    onTextChanged: page.scheduleFilter()
-                    Accessible.name: qsTr("开始日期")
-                }
-
-                DateField {
-                    id: toField
-                    objectName: "toDateField"
-                    width: 118
-                    onTextChanged: page.scheduleFilter()
-                    Accessible.name: qsTr("结束日期")
+                    id: dateRange
+                    objectName: "historyDateRange"
+                    width: 238
+                    rangeMode: true
+                    restrictToRecords: true
+                    availableDays: App.runs.calendarAvailableDays
+                    knownMonths: App.runs.calendarKnownMonths
+                    availabilityLoading: App.runs.calendarLoading
+                    availabilityError: App.runs.calendarError || App.runs.calendarDayError(startText.trim()) || App.runs.calendarDayError(endText.trim())
+                    onCalendarRequested: function(month) {
+                        // Retry failed typed endpoints as well as the visible month.
+                        for (const date of [startText.trim(), endText.trim()]) {
+                            if (App.runs.calendarDayError(date).length > 0)
+                                App.runs.requestCalendarDays(date.slice(0, 7))
+                        }
+                        App.runs.requestCalendarDays(month)
+                    }
+                    onEndpointRequested: date => App.runs.ensureCalendarDay(date)
+                    Accessible.name: qsTr("历史日期范围")
+                    onStartTextChanged: page.scheduleFilter()
+                    onEndTextChanged: page.scheduleFilter()
+                    onSelectionPendingChanged: page.scheduleFilter()
                 }
 
                 // A removable chip rather than a fifth combo box, which would not
@@ -505,7 +533,7 @@ Item {
                     readonly property int selectedCount: (page.pendingReviewFilter ? 1 : 0)
                                                        + (correctedOnly.checked ? 1 : 0)
                                                        + (withReflection.checked ? 1 : 0)
-                                                       + (includeDeleted.checked ? 1 : 0)
+                                                       + (deletedOnly.checked ? 1 : 0)
                     displayText: selectedCount > 0 ? qsTr("标记类型 · %1").arg(selectedCount) : qsTr("标记类型")
                     Accessible.name: qsTr("标记类型筛选，可多选")
                     popup: Popup {
@@ -545,10 +573,10 @@ Item {
                                 onClicked: { markPopup.close(); page.scheduleFilter() }
                             }
                             SelectionCheckBox {
-                                id: includeDeleted
+                                id: deletedOnly
                                 objectName: "historyDeletedFilter"
                                 Layout.fillWidth: true
-                                text: qsTr("含已删除")
+                                text: qsTr("已删除")
                                 onClicked: { markPopup.close(); page.scheduleFilter() }
                             }
                         }
@@ -629,6 +657,7 @@ Item {
             // ---------------------------------------------------- 表头 --
             Rectangle {
                 id: tableHeader
+                objectName: "historyTableHeader"
                 Layout.fillWidth: true
                 Layout.preferredHeight: 32
                 color: Theme.eorzea
@@ -649,8 +678,20 @@ Item {
                     anchors.rightMargin: 4
                     spacing: 0
 
+                    SelectionCheckBox {
+                        objectName: "selectCurrentHistoryPage"
+                        Layout.preferredWidth: 32
+                        Layout.preferredHeight: 30
+                        checked: App.allCurrentHistoryPageChecked
+                        enabled: !App.runs.loading && App.runs.loadError.length === 0 && App.runs.total > 0
+                        Accessible.name: qsTr("全选当前页")
+                        ToolTip.visible: hovered
+                        ToolTip.text: qsTr("全选当前页")
+                        onClicked: App.setCurrentHistoryPageChecked(checked)
+                    }
+
                     Repeater {
-                        model: page.columns
+                        model: page.columns.slice(1)
 
                         delegate: Text {
                             required property var modelData

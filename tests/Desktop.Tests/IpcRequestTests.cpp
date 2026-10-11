@@ -53,6 +53,9 @@ QJsonObject argsFor(const QString &messageType)
         args.insert(QStringLiteral("adapter_id"), QStringLiteral("NPF_TEST_ADAPTER"));
     } else if (messageType == QLatin1String("AddCaptureValidationMarker")) {
         args.insert(QStringLiteral("marker"), QStringLiteral("queued"));
+    } else if (messageType == QLatin1String("QueryRunCalendarDays")) {
+        args.insert(QStringLiteral("month"), QStringLiteral("2026-09"));
+        args.insert(QStringLiteral("filter"), sampleFilter());
     } else if (messageType == QLatin1String("QueryRuns")) {
         QJsonObject sort;
         sort.insert(QStringLiteral("field"), QStringLiteral("entered_at_utc"));
@@ -236,6 +239,7 @@ QStringList allMessageTypes()
         QStringLiteral("GetCurrentRun"),
         QStringLiteral("SubscribeLiveEvents"),
         QStringLiteral("QueryRuns"),
+        QStringLiteral("QueryRunCalendarDays"),
         QStringLiteral("GetRunRevisions"),
         QStringLiteral("GetRunEvents"),
         QStringLiteral("QueryCandidateObservations"),

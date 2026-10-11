@@ -92,6 +92,9 @@ public sealed class ContractSchemaTests
                 });
             Assert.Equal(2, queried.Require()["items"]!.AsArray().Count);
 
+            Assert.True((await client.SendAsync("QueryRunCalendarDays",
+                new JsonObject { ["month"] = "2026-09", ["filter"] = new JsonObject() })).Ok);
+
             var stats = new JsonObject { ["filter"] = new JsonObject() };
             Assert.True((await client.SendAsync("GetDashboardStats", stats.DeepClone().AsObject())).Ok);
 

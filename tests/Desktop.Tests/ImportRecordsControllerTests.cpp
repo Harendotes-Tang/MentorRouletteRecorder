@@ -448,6 +448,159 @@ ApplicationWindow {
         QVERIFY2(warnings.isEmpty(), qPrintable(warnings.join(QLatin1Char('\n'))));
     }
 
+    void successfulRowsRemovedWhileOtherCandidatesRemain()
+    {
+        ImportBackend backend;
+        mr::ImportRecordsController controller;
+        controller.setBackend(&backend);
+        controller.importText(QStringLiteral("副本\n合成副本"));
+        QJsonArray candidates;
+        for (int i = 1; i <= 5; ++i)
+            candidates.append(QJsonObject{{"duty_name", QString::number(i)}, {"reflection_text", QStringLiteral("保留正文")}});
+        QJsonObject response = previewCandidates(candidates, "mixed", {10, 20, 30, 40, 50});
+        QJsonArray rows = response.value("rows").toArray();
+        QJsonObject invalid = rows[4].toObject();
+        invalid.insert("status", "invalid");
+        invalid.insert("can_import", false);
+        rows[4] = invalid;
+        response.insert("rows", rows);
+        backend.calls.last().reply->succeed(response);
+        controller.setRowSelected(3, false);
+        controller.setCurrentRow(3);
+        const QVariantMap current = controller.currentCandidate();
+        controller.setOwnRecordsConfirmed(true);
+        controller.commit();
+        backend.calls.last().reply->succeed({{"imported_count", 1}, {"duplicate_count", 1}, {"conflict_count", 1},
+            {"rows", QJsonArray{QJsonObject{{"row_number", 10}, {"status", "imported"}},
+                                QJsonObject{{"row_number", 20}, {"status", "duplicate"}},
+                                QJsonObject{{"row_number", 30}, {"status", "conflict"}},
+                                QJsonObject{{"row_number", 40}, {"status", "imported"}}}}});
+        QCOMPARE(controller.rows().size(), 4); // Never clear an unsubmitted row, even if a malformed receipt names it.
+        QCOMPARE(controller.summary().value("total").toInt(), 4);
+        QCOMPARE(controller.summary().value("invalid").toInt(), 1);
+        QCOMPARE(controller.currentCandidate(), current);
+        QCOMPARE(controller.currentRow(), 2);
+        QCOMPARE(controller.selectedCount(), 0);
+        QVERIFY(!controller.previewValid());
+        controller.revalidate();
+        const QJsonArray remaining = backend.calls.last().payload.value("rows").toArray();
+        QCOMPARE(remaining.size(), 4);
+        for (int i = 0; i < remaining.size(); ++i)
+            QCOMPARE(remaining[i], candidates[i + 1]);
+        backend.calls.last().reply->succeed(previewCandidates(remaining, "remaining"));
+        QCOMPARE(controller.selectedCount(), 0);
+        controller.setRowSelected(2, true);
+        controller.commit();
+        QCOMPARE(backend.calls.last().payload.value("row_numbers").toArray(), QJsonArray{3});
+        backend.calls.last().reply->succeed({{"imported_count", 1}, {"rows", QJsonArray{QJsonObject{{"row_number", 3}, {"status", "imported"}}}}});
+        QCOMPARE(controller.rows().size(), 3);
+        QVERIFY(controller.currentCandidate().value("duty_name").toString() != QStringLiteral("4"));
+    }
+
+    void failedAndUnidentifiedCommitsPreserveCandidates()
+    {
+        ImportBackend backend;
+        mr::ImportRecordsController controller;
+        controller.setBackend(&backend);
+        controller.importText(QStringLiteral("副本\n合成副本"));
+        backend.calls.last().reply->succeed(preview());
+        controller.setOwnRecordsConfirmed(true);
+        const QVariantList rows = controller.rows();
+        const QVariantMap candidate = controller.currentCandidate();
+        controller.commit();
+        backend.calls.last().reply->fail(QStringLiteral("ERR_BAD_REQUEST"), QStringLiteral("保存失败"));
+        QCOMPARE(controller.rows(), rows);
+        QCOMPARE(controller.currentCandidate(), candidate);
+        QVERIFY(controller.canCommit());
+        controller.commit();
+        backend.calls.last().reply->succeed({{"imported_count", 1}});
+        QCOMPARE(controller.rows().size(), rows.size()); // Aggregate counts are not row identities.
+        QCOMPARE(controller.currentCandidate(), candidate);
+    }
+
+    void allImportedReturnsToSourceSelection_data()
+    {
+        QTest::addColumn<bool>("dark");
+        QTest::newRow("light") << false;
+        QTest::newRow("dark") << true;
+    }
+
+    void allImportedReturnsToSourceSelection()
+    {
+        QFETCH(bool, dark);
+        ImportBackend backend;
+        mr::ImportRecordsController controller;
+        controller.setBackend(&backend);
+        controller.importText(QStringLiteral("副本\n合成副本"));
+        backend.calls.last().reply->succeed(singleRowPreview(QJsonObject{{"duty_name", QStringLiteral("合成副本")}}));
+        ImportThemeState theme;
+        theme.dark = dark;
+        QQmlEngine engine;
+        engine.rootContext()->setContextProperty(QStringLiteral("ImportRecords"), &controller);
+        engine.rootContext()->setContextProperty(QStringLiteral("App"), &theme);
+        engine.rootContext()->setContextProperty(QStringLiteral("ReduceMotion"), true);
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this, [&warnings](const QList<QQmlError> &errors) {
+            for (const auto &error : errors) warnings.append(error.toString());
+        });
+        QQmlComponent component(&engine);
+        component.setData(R"(import QtQuick
+import QtQuick.Controls
+import MentorRecorder
+ApplicationWindow {
+    width: 980; height: 640; visible: true
+    ImportRecordsDialog { Component.onCompleted: open() }
+})", QUrl::fromLocalFile(QString::fromUtf8(MR_DESKTOP_QML_DIR) + QStringLiteral("/dialogs/ImportCleanupProbe.qml")));
+        QTRY_VERIFY_WITH_TIMEOUT(component.status() != QQmlComponent::Loading, 5000);
+        QVERIFY2(!component.isError(), qPrintable(component.errorString()));
+        std::unique_ptr<QObject> root(component.create());
+        QVERIFY2(root != nullptr, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.get());
+        QVERIFY(window && QTest::qWaitForWindowExposed(window));
+        auto *commit = root->findChild<QQuickItem *>(QStringLiteral("importCommit"));
+        auto *choose = root->findChild<QQuickItem *>(QStringLiteral("importChooseFiles"));
+        auto *status = root->findChild<QQuickItem *>(QStringLiteral("importStatus"));
+        auto *reflection = root->findChild<QQuickItem *>(QStringLiteral("importReflectionText"));
+        QVERIFY(commit && choose && status && reflection);
+        controller.setOwnRecordsConfirmed(true);
+        controller.commit();
+        backend.calls.last().reply->fail(QStringLiteral("ERR_TIMEOUT"), QStringLiteral("尚未确认"));
+        QVERIFY(controller.pendingCommitConfirmation());
+        QCOMPARE(controller.rows().size(), 1);
+        const QString id = backend.calls.last().requestId;
+        const QJsonObject request = backend.calls.last().payload;
+        controller.commit();
+        QCOMPARE(backend.calls.last().requestId, id);
+        QCOMPARE(backend.calls.last().payload, request);
+        backend.calls.last().reply->succeed({{"imported_count", 1}, {"rows", QJsonArray{QJsonObject{{"row_number", 1}, {"status", "imported"}}}}});
+        QVERIFY(controller.rows().isEmpty());
+        QVERIFY(controller.currentCandidate().isEmpty());
+        QVERIFY(controller.currentEvidence().isEmpty());
+        QVERIFY(controller.sourceKind().isEmpty());
+        QVERIFY(controller.sourceLabel().isEmpty());
+        QCOMPARE(controller.sourceImageCount(), 0);
+        QVERIFY(!controller.pendingCommitConfirmation());
+        QTRY_VERIFY(!commit->isVisible());
+        QTRY_VERIFY(!reflection->isVisible());
+        QTRY_VERIFY(choose->isVisible() && choose->isEnabled());
+        QTRY_VERIFY(status->isVisible());
+        QVERIFY(status->property("text").toString().contains(QStringLiteral("已导入 1 条")));
+        QTest::qWait(100);
+        const QRectF bounds(QPointF(), QSizeF(window->width(), window->height()));
+        QVERIFY(bounds.contains(QRectF(status->mapToScene(QPointF()), QSizeF(status->width(), status->height()))));
+        QVERIFY(bounds.contains(QRectF(choose->mapToScene(QPointF()), QSizeF(choose->width(), choose->height()))));
+        const QString evidence = qEnvironmentVariable("MR_IMPORT_REVIEW_EVIDENCE_DIR");
+        if (!evidence.isEmpty()) {
+            QVERIFY(QDir().mkpath(evidence));
+            QVERIFY(window->grabWindow().save(QDir(evidence).filePath(QStringLiteral("import-cleared-%1.png").arg(dark ? "dark" : "light"))));
+        }
+        QVERIFY2(warnings.isEmpty(), qPrintable(warnings.join('\n')));
+        controller.revalidate(); // A cleared source must not resurrect imported rows.
+        QCOMPARE(backend.calls.size(), 3);
+        controller.importText(QStringLiteral("副本\n新批次"));
+        QCOMPARE(backend.calls.last().type, QStringLiteral("PreviewRunImport"));
+        QCOMPARE(backend.calls.last().payload.value("text").toString(), QStringLiteral("副本\n新批次"));
+    }
     void realMessageNamesAndOwnRecordConfirmation()
     {
         ImportBackend backend;
@@ -815,6 +968,57 @@ ApplicationWindow {
         QVERIFY(!QFileInfo::exists(clipboardPath));
     }
 
+    void partialScreenshotCommitKeepsOnlyRemainingEvidenceAndAllowsAppend()
+    {
+        ScopedImportOcrEnvironment environment;
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        qputenv("LOCALAPPDATA", directory.path().toUtf8());
+        const QString tsvPath = directory.filePath(QStringLiteral("synthetic.tsv"));
+        createFile(tsvPath, syntheticOcrCard());
+        qputenv("MR_TEST_OCR_TSV_FILE", tsvPath.toUtf8());
+        const QString app = installTestWorker(directory);
+        QVERIFY(!app.isEmpty());
+        const QString firstImage = directory.filePath(QStringLiteral("first.png"));
+        const QString retainedImage = directory.filePath(QStringLiteral("retained.png"));
+        const QString appendedImage = directory.filePath(QStringLiteral("appended.png"));
+        QVERIFY(syntheticImportImage().save(firstImage));
+        QVERIFY(syntheticImportImage().save(retainedImage));
+        QVERIFY(syntheticImportImage().save(appendedImage));
+        ImportBackend backend;
+        mr::ImportRecordsController controller;
+        controller.setBackend(&backend);
+        controller.setOcrApplicationDirectoryForTesting(app);
+        controller.importFiles({firstImage, retainedImage});
+        QTRY_COMPARE_WITH_TIMEOUT(backend.calls.size(), 1, 10000);
+        backend.calls.last().reply->succeed(previewCandidates(backend.calls.last().payload.value("rows").toArray()));
+        controller.updateCandidate(1, {{"reflection_text", "retained edit"}});
+        controller.revalidate();
+        backend.calls.last().reply->succeed(previewCandidates(backend.calls.last().payload.value("rows").toArray()));
+        controller.setRowSelected(0, true);
+        controller.setCurrentRow(1);
+        controller.setOwnRecordsConfirmed(true);
+        const QVariantMap evidence = controller.currentEvidence();
+        controller.commit();
+        backend.calls.last().reply->succeed({{"imported_count", 1}, {"rows", QJsonArray{QJsonObject{{"row_number", 1}, {"status", "imported"}}}}});
+        QCOMPARE(controller.rows().size(), 1);
+        QCOMPARE(controller.sourceImageCount(), 1);
+        QCOMPARE(controller.currentRow(), 0);
+        QCOMPARE(controller.currentEvidence(), evidence);
+        QCOMPARE(controller.currentEvidence().value("source_image").toString(), retainedImage);
+        QCOMPARE(controller.currentCandidate().value("reflection_text").toString(), QStringLiteral("retained edit"));
+        controller.importFiles({appendedImage});
+        QTRY_COMPARE_WITH_TIMEOUT(backend.calls.size(), 4, 10000);
+        const QJsonArray remaining = backend.calls.last().payload.value("rows").toArray();
+        QCOMPARE(remaining.size(), 2);
+        QCOMPARE(remaining.first().toObject().value("reflection_text").toString(), QStringLiteral("retained edit"));
+        backend.calls.last().reply->succeed(previewCandidates(remaining));
+        QCOMPARE(controller.sourceImageCount(), 2);
+        QCOMPARE(controller.selectedCount(), 0);
+        QCOMPARE(controller.currentEvidence().value("source_image").toString(), retainedImage);
+        controller.setCurrentRow(1);
+        QCOMPARE(controller.currentEvidence().value("source_image").toString(), appendedImage);
+    }
     void committedScreenshotBatchStartsFreshAfterAnInputError()
     {
         ScopedImportOcrEnvironment environment;
@@ -844,12 +1048,12 @@ ApplicationWindow {
         controller.setOwnRecordsConfirmed(true);
         controller.commit();
         QCOMPARE(backend.calls.size(), 3);
-        backend.calls.last().reply->succeed({{"imported_count", 1}});
+        backend.calls.last().reply->succeed({{"imported_count", 1}, {"rows", QJsonArray{QJsonObject{{"row_number", 1}, {"status", "imported"}}}}});
         QCOMPARE(controller.phase(), QStringLiteral("complete"));
-        QCOMPARE(controller.sourceImageCount(), 1);
+        QCOMPARE(controller.sourceImageCount(), 0);
         controller.importFiles({directory.filePath(QStringLiteral("missing.png"))});
         QVERIFY(!controller.errorText().isEmpty());
-        QCOMPARE(controller.sourceImageCount(), 1);
+        QCOMPARE(controller.sourceImageCount(), 0);
         controller.cancel(); // A display phase change must not reopen a committed batch for append.
         controller.importFiles({nextImage});
         QVERIFY(!controller.ownRecordsConfirmed());

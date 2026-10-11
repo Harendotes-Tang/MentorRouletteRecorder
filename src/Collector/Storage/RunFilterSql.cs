@@ -111,9 +111,13 @@ public static class RunFilterSql
         var clauses = new List<string>(12);
         var parameters = new List<KeyValuePair<string, object?>>(16);
 
-        if (forStatistics || !filter.IncludeDeleted)
+        if (forStatistics || (!filter.DeletedOnly && !filter.IncludeDeleted))
         {
             clauses.Add("soft_deleted = 0");
+        }
+        else if (filter.DeletedOnly)
+        {
+            clauses.Add("soft_deleted = 1");
         }
 
         if (forStatistics)

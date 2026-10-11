@@ -6,8 +6,11 @@
 #include <QDate>
 #include <QDir>
 #include <QGuiApplication>
+#include <QFontDatabase>
 #include <QQmlComponent>
 #include <QQmlEngine>
+#include <QQmlContext>
+#include <QWheelEvent>
 #include <QQuickItem>
 #include <QQuickStyle>
 #include <QQuickWindow>
@@ -114,6 +117,11 @@ private slots:
     void theArrowsTurnThePagesAcrossAYearEnd();
     void onlyTheChosenDayOfItsOwnMonthIsHighlighted();
     void aClickInTheCalendarNeverReachesTheRowBeneathIt();
+    void rangeSelectionAndCancellation();
+    void monthYearWheelAndKeyboard();
+    void recordAwareRangeDisablesEmptyDatesButSingleDateDoesNot();
+    void rangeCalendarScreenshots_data();
+    void rangeCalendarScreenshots();
 };
 
 void DateFieldTests::initTestCase()
@@ -281,6 +289,14 @@ void DateFieldTests::aClickInTheCalendarNeverReachesTheRowBeneathIt()
     QVERIFY(field->property("calendarOpen").toBool());
     QCOMPARE(scene.root->property("rowTaps").toInt(), 0);
 
+    // The title now opens month selection; choosing September returns to days.
+    QVERIFY(field->property("monthView").toBool());
+    auto *september = findItem(window->contentItem(), QStringLiteral("calendarMonth9"));
+    QVERIFY(september);
+    clickItem(window, september);
+    QTRY_VERIFY(!field->property("monthView").toBool());
+    // Popup and day-grid geometry settle on the next polish after switching views.
+    QTest::qWait(50);
     // A day: it is picked, and nothing underneath is.
     QQuickItem *day3 = dayCell(field, 3);
     QVERIFY(day3);
@@ -290,11 +306,221 @@ void DateFieldTests::aClickInTheCalendarNeverReachesTheRowBeneathIt()
     QCOMPARE(scene.root->property("rowTaps").toInt(), 0);
 }
 
+void DateFieldTests::rangeSelectionAndCancellation()
+{
+    Scene scene;
+    QByteArray qml = kScene;
+    qml.replace("height: 360", "height: 580");
+    qml.replace("width: 118", "width: 238; rangeMode: true");
+    QVERIFY2(scene.create(qml), qPrintable(scene.errors));
+    auto *field = scene.field();
+    auto *window = scene.window();
+    QVERIFY(QTest::qWaitForWindowExposed(window));
+    field->setProperty("startText", QStringLiteral("2026-09-17"));
+    field->setProperty("endText", QStringLiteral("2026-09-19"));
+    QVERIFY(QMetaObject::invokeMethod(field, "openCalendar"));
+    clickItem(window, dayCell(field, 28));
+    QVERIFY(field->property("selectionPending").toBool());
+    QVERIFY(field->property("calendarOpen").toBool());
+    QCOMPARE(field->property("startText").toString(), QStringLiteral("2026-09-28"));
+    QCOMPARE(field->property("endText").toString(), QString());
+    QVERIFY(QMetaObject::invokeMethod(field, "shiftMonth", Q_ARG(QVariant, 1)));
+    QTRY_VERIFY(dayCell(field, 3));
+    clickItem(window, dayCell(field, 3));
+    QTRY_VERIFY(!field->property("calendarOpen").toBool());
+    QCOMPARE(field->property("endText").toString(), QStringLiteral("2026-10-03"));
+    QVERIFY(!field->property("selectionPending").toBool());
+
+    QVERIFY(QMetaObject::invokeMethod(field, "openCalendar"));
+    clickItem(window, dayCell(field, 20));
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_VERIFY(!field->property("calendarOpen").toBool());
+    QCOMPARE(field->property("startText").toString(), QStringLiteral("2026-09-28"));
+    QCOMPARE(field->property("endText").toString(), QStringLiteral("2026-10-03"));
+    QVERIFY(field->hasActiveFocus());
+
+    QVERIFY(QMetaObject::invokeMethod(field, "openCalendar"));
+    clickItem(window, dayCell(field, 20));
+    QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, QPoint(450, 550));
+    QTRY_VERIFY(!field->property("calendarOpen").toBool());
+    QCOMPARE(field->property("startText").toString(), QStringLiteral("2026-09-28"));
+    QCOMPARE(field->property("endText").toString(), QStringLiteral("2026-10-03"));
+
+    // Reverse order is normalized; same-day endpoints are also valid.
+    QVERIFY(QMetaObject::invokeMethod(field, "openCalendar"));
+    clickItem(window, dayCell(field, 20));
+    clickItem(window, dayCell(field, 3));
+    QTRY_VERIFY(!field->property("calendarOpen").toBool());
+    QCOMPARE(field->property("startText").toString(), QStringLiteral("2026-09-03"));
+    QCOMPARE(field->property("endText").toString(), QStringLiteral("2026-09-20"));
+    QVERIFY(QMetaObject::invokeMethod(field, "openCalendar"));
+    clickItem(window, dayCell(field, 8));
+    clickItem(window, dayCell(field, 8));
+    QCOMPARE(field->property("endText").toString(), QStringLiteral("2026-09-08"));
+    QVERIFY(!field->findChild<QObject *>(QStringLiteral("calendarMultiSelect")));
+    QVERIFY(!field->property("calendarOpen").toBool());
+}
+
+void DateFieldTests::recordAwareRangeDisablesEmptyDatesButSingleDateDoesNot()
+{
+    Scene scene;
+    QByteArray qml = kScene;
+    qml.replace("height: 360", "height: 580");
+    qml.replace("width: 118", "width: 238; rangeMode: true; restrictToRecords: true; availableDays: [\"2026-09-07\", \"2026-09-17\"]; knownMonths: [\"2026-09\"]");
+    QVERIFY2(scene.create(qml), qPrintable(scene.errors));
+    auto *field = scene.field();
+    auto *window = scene.window();
+    QVERIFY(QTest::qWaitForWindowExposed(window));
+    field->setProperty("startText", QStringLiteral("2026-09-07"));
+    field->setProperty("endText", QStringLiteral("2026-09-17"));
+    QVERIFY(QMetaObject::invokeMethod(field, "openCalendar"));
+    QTest::qWait(50);
+    QVERIFY(dayCell(field, 7)->isEnabled());
+    QVERIFY(!dayCell(field, 8)->isEnabled());
+    clickItem(window, dayCell(field, 8));
+    QVERIFY(!field->property("selectionPending").toBool());
+    QCOMPARE(field->property("startText").toString(), QStringLiteral("2026-09-07"));
+    clickItem(window, dayCell(field, 7));
+    QVERIFY(field->property("calendarOpen").toBool());
+    QVERIFY(field->property("selectionPending").toBool());
+    clickItem(window, dayCell(field, 7));
+    QTRY_VERIFY(!field->property("calendarOpen").toBool());
+    QCOMPARE(field->property("endText").toString(), QStringLiteral("2026-09-07"));
+    field->setProperty("endText", QStringLiteral("2026-09-08"));
+    QVERIFY(!field->property("valid").toBool());
+
+    // The same component in the new-record wizard permits a record-free date
+    // and commits it after ONE click, regardless of range availability inputs.
+    Scene single;
+    QVERIFY2(single.create(kScene), qPrintable(single.errors));
+    auto *singleField = single.field();
+    QVERIFY(!singleField->property("rangeMode").toBool());
+    QVERIFY(!singleField->property("restrictToRecords").toBool());
+    singleField->setProperty("availableDays", QStringList{});
+    singleField->setProperty("text", QStringLiteral("2026-09-07"));
+    QVERIFY(QTest::qWaitForWindowExposed(single.window()));
+    QVERIFY(QMetaObject::invokeMethod(singleField, "openCalendar"));
+    QTest::qWait(50);
+    QVERIFY(dayCell(singleField, 8)->isEnabled());
+    clickItem(single.window(), dayCell(singleField, 8));
+    QTRY_VERIFY(!singleField->property("calendarOpen").toBool());
+    QCOMPARE(singleField->property("text").toString(), QStringLiteral("2026-09-08"));
+}
+
+void DateFieldTests::monthYearWheelAndKeyboard()
+{
+    Scene scene;
+    QVERIFY2(scene.create(kScene), qPrintable(scene.errors));
+    auto *window = scene.window();
+    QVERIFY(QTest::qWaitForWindowExposed(window));
+    auto *field = scene.field();
+    field->setProperty("text", QStringLiteral("2026-09-17"));
+    window->contentItem()->forceActiveFocus();
+    QTest::keyClick(window, Qt::Key_Tab);
+    QTRY_VERIFY(field->hasActiveFocus());
+    QTest::keyClick(window, Qt::Key_Down, Qt::AltModifier);
+    QTRY_VERIFY(field->property("calendarOpen").toBool());
+    auto *title = field->findChild<QQuickItem *>(QStringLiteral("calendarMonthLabel"));
+    QVERIFY(title->hasActiveFocus());
+    QTest::keyClick(window, Qt::Key_Space);
+    QTRY_VERIFY(field->property("monthView").toBool());
+    auto *year = field->findChild<QQuickItem *>(QStringLiteral("calendarYearSelect"));
+    QVERIFY(year->hasActiveFocus());
+    QTest::keyClick(window, Qt::Key_Tab, Qt::ShiftModifier);
+    QTRY_VERIFY(field->findChild<QQuickItem *>(QStringLiteral("calendarPrevMonth"))->hasActiveFocus());
+    QTest::keyClick(window, Qt::Key_Tab);
+    QTRY_VERIFY(year->hasActiveFocus());
+    QTest::keyClick(window, Qt::Key_Space);
+    auto *yearPopup = year->property("popup").value<QObject *>();
+    QVERIFY(yearPopup);
+    QTRY_VERIFY(yearPopup->property("visible").toBool());
+    QTest::keyClick(window, Qt::Key_Up);
+    QTest::keyClick(window, Qt::Key_Return);
+    auto *grid = field->findChild<QQuickItem *>(QStringLiteral("calendarGrid"));
+    QTRY_COMPARE(grid->property("year").toInt(), 2025);
+    auto *month = findItem(window->contentItem(), QStringLiteral("calendarMonth12"));
+    QVERIFY(month);
+    const QPointF monthPos = month->mapToScene(QPointF(month->width()/2, month->height()/2));
+    QWheelEvent yearWheel(monthPos, window->mapToGlobal(monthPos.toPoint()), QPoint(), QPoint(0, -120),
+                          Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
+    QCoreApplication::sendEvent(window, &yearWheel);
+    QTRY_COMPARE(grid->property("year").toInt(), 2026);
+    clickItem(window, month);
+    QTRY_COMPARE(grid->property("month").toInt(), 11);
+    QVERIFY(!field->property("monthView").toBool());
+    const QPointF dayPos = dayCell(field, 3)->mapToScene(QPointF(10, 10));
+    QWheelEvent monthWheel(dayPos, window->mapToGlobal(dayPos.toPoint()), QPoint(), QPoint(0, -120),
+                           Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
+    QCoreApplication::sendEvent(window, &monthWheel);
+    QTRY_COMPARE(grid->property("year").toInt(), 2027);
+    QCOMPARE(grid->property("month").toInt(), 0);
+    QCOMPARE(field->property("text").toString(), QStringLiteral("2026-09-17"));
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_VERIFY(!field->property("calendarOpen").toBool());
+    QVERIFY(field->hasActiveFocus());
+}
+
+void DateFieldTests::rangeCalendarScreenshots_data()
+{
+    QTest::addColumn<QString>("style");
+    QTest::addColumn<bool>("dark");
+    QTest::newRow("classic-light") << QStringLiteral("classic") << false;
+    QTest::newRow("classic-dark") << QStringLiteral("classic") << true;
+    QTest::newRow("harendotes-light") << QStringLiteral("harendotes") << false;
+    QTest::newRow("harendotes-dark") << QStringLiteral("harendotes") << true;
+}
+void DateFieldTests::rangeCalendarScreenshots()
+{
+    QFETCH(QString, style);
+    QFETCH(bool, dark);
+    Scene scene;
+    QStringList warnings;
+    connect(&scene.engine, &QQmlEngine::warnings, this, [&warnings](const QList<QQmlError> &errors) {
+        for (const auto &error : errors) warnings.append(error.toString());
+    });
+    scene.engine.rootContext()->setContextProperty(QStringLiteral("ForceUiStyle"), style);
+    scene.engine.rootContext()->setContextProperty(QStringLiteral("App"), QVariantMap{{QStringLiteral("dark"), dark}});
+    QByteArray qml = kScene;
+    qml.replace("height: 360", "height: 580; color: Theme.windowBackground");
+    qml.replace("width: 118", "width: 238; rangeMode: true");
+    QVERIFY2(scene.create(qml), qPrintable(scene.errors));
+    auto *field = scene.field();
+    auto *window = scene.window();
+    QVERIFY(QTest::qWaitForWindowExposed(window));
+    field->setProperty("startText", QStringLiteral("2026-09-07"));
+    field->setProperty("endText", QStringLiteral("2026-09-17"));
+    field->setProperty("restrictToRecords", true);
+    field->setProperty("availableDays", QStringList{QStringLiteral("2026-09-07"), QStringLiteral("2026-09-17"), QStringLiteral("2026-09-21")});
+    field->setProperty("knownMonths", QStringList{QStringLiteral("2026-09")});
+    QVERIFY(QMetaObject::invokeMethod(field, "openCalendar"));
+    QTRY_VERIFY(dayCell(field, 7)->property("selected").toBool());
+    QVERIFY(dayCell(field, 10)->property("inRange").toBool());
+    const QString dir = qEnvironmentVariable("MR_HISTORY_REVIEW_EVIDENCE_DIR");
+    if (!dir.isEmpty()) {
+        QVERIFY(QDir().mkpath(dir));
+        QTest::qWait(100);
+        QVERIFY(window->grabWindow().save(dir + QStringLiteral("/date-range-%1-%2.png").arg(style, dark ? QStringLiteral("dark") : QStringLiteral("light"))));
+        clickItem(window, field->findChild<QQuickItem *>(QStringLiteral("calendarMonthLabel")));
+        QTest::qWait(100);
+        QVERIFY(window->grabWindow().save(dir + QStringLiteral("/date-months-%1-%2.png").arg(style, dark ? QStringLiteral("dark") : QStringLiteral("light"))));
+    }
+    QVERIFY2(warnings.isEmpty(), qPrintable(warnings.join('\n')));
+}
+
 int main(int argc, char *argv[])
 {
     qputenv("QT_QPA_PLATFORM", "offscreen");
     QQuickStyle::setStyle(QStringLiteral("Basic"));
     QGuiApplication app(argc, argv);
+    // Match main.cpp's screenshot font initialization; offscreen defaults may
+    // otherwise choose a condensed fallback and conceal real layout overflow.
+    QFontDatabase::addApplicationFont(QStringLiteral("C:/Windows/Fonts/msyh.ttc"));
+    QFontDatabase::addApplicationFont(QStringLiteral("C:/Windows/Fonts/simhei.ttf"));
+    QFontDatabase::addApplicationFont(QStringLiteral("C:/Windows/Fonts/consola.ttf"));
+    QFontDatabase::addApplicationFont(QString::fromUtf8(MR_DESKTOP_QML_DIR) + QStringLiteral("/../resources/fonts/IBMPlexMono-SemiBold.ttf"));
+    QFont font;
+    font.setFamilies({QStringLiteral("Microsoft YaHei UI"), QStringLiteral("Microsoft YaHei"), QStringLiteral("Segoe UI")});
+    QGuiApplication::setFont(font);
     DateFieldTests tests;
     return QTest::qExec(&tests, argc, argv);
 }

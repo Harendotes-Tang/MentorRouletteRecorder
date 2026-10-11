@@ -418,7 +418,7 @@ Dialog {
                 Item { id: reviewZone; Layout.preferredWidth: sourceZone.implicitWidth; Layout.fillHeight: true }
             }
         }
-        Text { textFormat: Text.PlainText; Layout.fillWidth: true; visible: dialog.working || (dialog.hasRows && !dialog.controller.previewValid); text: dialog.controller ? dialog.controller.statusText : ""; color: Theme.textSecondary; font.pixelSize: Theme.fs(12); maximumLineCount: 2; elide: Text.ElideRight; wrapMode: Text.WordWrap }
+        Text { textFormat: Text.PlainText; Layout.fillWidth: true; objectName: "importStatus"; visible: dialog.working || (dialog.controller && dialog.controller.phase === "complete") || (dialog.hasRows && !dialog.controller.previewValid); text: dialog.controller ? dialog.controller.statusText : ""; color: Theme.textSecondary; font.pixelSize: Theme.fs(12); maximumLineCount: 2; elide: Text.ElideRight; wrapMode: Text.WordWrap }
         Text {
             textFormat: Text.PlainText
             id: importErrorLabel

@@ -17,6 +17,53 @@ public sealed class HistoryBatchIpcTests
     };
 
     [Fact]
+    public async Task RealPipe_DeletedOnlyPagesCountsExportAndRestoreUseTheSameFilter()
+    {
+        await using var f = ServerFixture.Start();
+        await using var client = await f.ConnectAsync();
+        var ids = new List<string>();
+        for (var i = 0; i < 3; i++)
+            ids.Add((await client.SendAsync("CreateManualRun", Manual())).Require()["run_id"]!.GetValue<string>());
+        (await client.SendAsync("BatchMutateRuns", Batch("soft_delete", (ids[0], 1), (ids[1], 1)))).Require();
+        var deleted = new JsonObject { ["deleted_only"] = true };
+        ContractSchema.Validate("$defs/RunFilter", deleted, "deleted-only filter");
+        var found = new HashSet<string>();
+        for (var page = 1; page <= 2; page++)
+        {
+            var listed = (await client.SendAsync("QueryRuns", new JsonObject
+            {
+                ["filter"] = deleted.DeepClone(), ["page"] = page, ["page_size"] = 1,
+            })).Require();
+            ContractSchema.Validate("$defs/Responses/QueryRuns", listed, "deleted-only page");
+            Assert.Equal(2, listed["page_info"]!["total"]!.GetValue<int>());
+            var item = Assert.Single(listed["items"]!.AsArray())!;
+            Assert.True(item["soft_deleted"]!.GetValue<bool>());
+            found.Add(item["run_id"]!.GetValue<string>());
+        }
+        Assert.Equal(2, found.Count);
+        Assert.Contains(ids[0], found); Assert.Contains(ids[1], found);
+        async Task<JsonObject> Query(JsonObject filter) => (await client.SendAsync("QueryRuns",
+            new JsonObject { ["filter"] = filter, ["page"] = 1, ["page_size"] = 10 })).Require();
+        Assert.Equal(1, (await Query(new JsonObject()))["page_info"]!["total"]!.GetValue<int>());
+        Assert.Equal(3, (await Query(new JsonObject { ["include_deleted"] = true }))["page_info"]!["total"]!.GetValue<int>());
+        Assert.Equal(2, (await Query(new JsonObject { ["include_deleted"] = true, ["deleted_only"] = true }))["page_info"]!["total"]!.GetValue<int>());
+        Assert.Equal(0, (await Query(new JsonObject { ["deleted_only"] = true, ["text"] = "no-such-note" }))["page_info"]!["total"]!.GetValue<int>());
+        var stats = (await client.SendAsync("GetResultStats", new JsonObject
+        {
+            ["filter"] = new JsonObject { ["deleted_only"] = true, ["include_deleted"] = true },
+        })).Require();
+        Assert.Equal(1, stats["attempt_count"]!.GetValue<int>());
+        var target = Path.Combine(Path.GetDirectoryName(f.DatabasePath)!, "deleted.json");
+        var output = (await client.SendAsync("ExportJson", new JsonObject { ["target_path"] = target, ["filter"] = deleted.DeepClone() })).Require();
+        Assert.Equal(2, output["row_count"]!.GetValue<int>());
+        Assert.All(JsonNode.Parse(File.ReadAllText(target))!.AsArray(), item => Assert.True(item!["soft_deleted"]!.GetValue<bool>()));
+        (await client.SendAsync("BatchMutateRuns", Batch("restore", (ids[0], 2)))).Require();
+        var remaining = await Query(deleted.DeepClone().AsObject());
+        Assert.Equal(1, remaining["page_info"]!["total"]!.GetValue<int>());
+        Assert.Equal(ids[1], Assert.Single(remaining["items"]!.AsArray())!["run_id"]!.GetValue<string>());
+        Assert.Equal(2, (await Query(new JsonObject()))["page_info"]!["total"]!.GetValue<int>());
+    }
+    [Fact]
     public async Task RealPipe_StaleBatchDeletesNothingThenPurgeRefusesOldBodyReplay()
     {
         await using var f = ServerFixture.Start(); await using var client = await f.ConnectAsync();

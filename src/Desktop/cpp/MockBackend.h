@@ -274,6 +274,7 @@ private:
 
     // -- querying -----------------------------------------------------------
     QList<QJsonObject> selectRuns(const QJsonObject &filter, bool forStatistics) const;
+    QJsonObject queryRunCalendarDaysPayload(const QJsonObject &payload) const;
     QJsonObject queryRunsPayload(const QJsonObject &payload) const;
     QJsonObject queryCandidatePayload(const QJsonObject &payload, QString *errorCode,
                                        QString *errorMessage) const;

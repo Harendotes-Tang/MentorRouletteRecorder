@@ -824,12 +824,73 @@ void ImportRecordsController::commit()
             }
             m_pendingCommitPayload = {};
             m_commitResult = payload;
-            m_batchCommitted = true;
+            removeImportedRows(payload);
+            m_batchCommitted = m_rows.isEmpty() || !payload.contains(QStringLiteral("rows"));
             invalidatePreview(false);
             m_phase = QStringLiteral("complete");
             Q_EMIT changed();
             Q_EMIT imported(payload);
         });
+}
+
+void ImportRecordsController::removeImportedRows(const QVariantMap &receipt)
+{
+    QSet<int> imported;
+    for (const QVariant &value : receipt.value(QStringLiteral("rows")).toList()) {
+        const QVariantMap outcome = value.toMap();
+        const int number = outcome.value(QStringLiteral("row_number")).toInt();
+        if (outcome.value(QStringLiteral("status")).toString() == QLatin1String("imported")
+            && m_selected.contains(number))
+            imported.insert(number);
+    }
+    // 汇总数量不能证明具体哪条已保存；缺少逐行回执时保留候选。
+    if (imported.isEmpty())
+        return;
+
+    QVariantList rows;
+    QJsonArray candidates;
+    QVariantList evidence;
+    QVariantMap summary;
+    QSet<QString> retainedImages;
+    int current = -1;
+    for (int i = 0; i < m_rows.size(); ++i) {
+        const QVariantMap row = m_rows[i].toMap();
+        if (imported.contains(row.value(QStringLiteral("row_number")).toInt()))
+            continue;
+        if (i == m_current)
+            current = rows.size();
+        rows.append(row);
+        candidates.append(m_candidates[i]);
+        const QVariantMap source = i < m_evidence.size() ? m_evidence[i].toMap() : QVariantMap();
+        evidence.append(source);
+        retainedImages.insert(source.value(QStringLiteral("source_image")).toString());
+        const QString status = row.value(QStringLiteral("status")).toString();
+        summary[status] = summary.value(status).toInt() + 1;
+        if (row.value(QStringLiteral("incomplete")).toBool())
+            summary[QStringLiteral("incomplete")] = summary.value(QStringLiteral("incomplete")).toInt() + 1;
+    }
+    summary.insert(QStringLiteral("total"), rows.size());
+    m_rows = rows;
+    m_candidates = candidates;
+    m_evidence = evidence;
+    m_summary = summary;
+    m_current = rows.isEmpty() ? -1 : (current >= 0 ? current : qBound(0, m_current, int(rows.size()) - 1));
+    // 后续校验只发送剩余候选，不能重新读取完整来源而恢复已导入项。
+    m_filePath.clear();
+    m_text.clear();
+    m_sourceImages.removeIf([&retainedImages](const QString &path) { return !retainedImages.contains(path); });
+    if (m_sourceKind == QLatin1String("SCREENSHOT"))
+        m_sourceName = screenshotSourceName(m_sourceImages);
+    if (rows.isEmpty()) {
+        m_sourceKind.clear();
+        m_sourceName.clear();
+        m_columnMapping.clear();
+        m_clipboardFiles.reset();
+        m_ownConfirmed = false;
+        m_hasAcceptedPreview = false;
+        m_deductChosen = false;
+        m_deduct = false;
+    }
 }
 
 void ImportRecordsController::cancel()

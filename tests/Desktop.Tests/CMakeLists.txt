@@ -196,7 +196,7 @@ add_test(NAME MentorRecorderReflections
 foreach(MR_REVIEW_SUITE WorkflowController RunFormValidator ExportFailure UiWorkflowRegression EditRunDialogBinding
                         ReflectionDialogBinding Calibration SharedCalibration SharedCalibrationCard Speech
                         CapturePage Motion UpdateNotice UpdateInstall InstallerHold NoteImageStore SingleInstance ShellDialog
-                        RunDetailPanel MockBackend QmlWarningCounter)
+                        RunDetailPanel MockBackend QmlWarningCounter RunListModel)
     add_executable(MentorRecorder${MR_REVIEW_SUITE}Tests ${MR_REVIEW_SUITE}Tests.cpp)
     target_link_libraries(MentorRecorder${MR_REVIEW_SUITE}Tests PRIVATE
         MentorRecorderDesktopLib Qt6::Gui Qt6::Test)
@@ -918,6 +918,7 @@ set(MR_ALL_DESKTOP_TESTS
     MentorRecorderShellDialog
     MentorRecorderRunDetailPanel
     MentorRecorderMockBackend
+    MentorRecorderRunListModel
     MentorRecorderQmlWarningCounter
     MentorRecorderIpcRequests
     MentorRecorderLifecycle

@@ -183,6 +183,7 @@ ColumnLayout {
             }
         }
         SettingsRow {
+            objectName: "historyRetentionDaysRow"
             visible: retentionMode.currentIndex === 0
             label: qsTr("保留天数")
             description: App.historyRetentionDays > 0 ? qsTr("当前生效：%1 天。恢复取消计时，再次删除重新起算。").arg(App.historyRetentionDays) : qsTr("1–36500 天；保存后生效。")
@@ -205,6 +206,8 @@ ColumnLayout {
         }
         Text {
             Layout.fillWidth: true
+            objectName: "historyRetentionExplanation"
+            Layout.topMargin: 12
             text: qsTr("清理只在软件运行时检查，关闭期间到期将在下次启动处理。已有备份、导出文件和分享图片保留，不会随回收站清理。")
             textFormat: Text.PlainText
             color: Theme.textSecondary
@@ -232,6 +235,8 @@ ColumnLayout {
             wrapMode: Text.Wrap
         }
         AppButton {
+            objectName: "historyImageCleanupRetry"
+            Layout.topMargin: 12
             text: App.historyImageCleanupRunning ? qsTr("正在重试清理…") : qsTr("重试附件清理")
             enabled: !App.historyImageCleanupRunning && App.backendConnected
             onClicked: App.retryHistoryImageCleanup()

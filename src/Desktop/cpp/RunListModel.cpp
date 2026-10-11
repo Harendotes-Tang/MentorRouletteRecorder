@@ -3,7 +3,9 @@
 #include "DutyCatalog.h"
 #include "IBackend.h"
 
+#include <QDate>
 #include <QJsonArray>
+#include <QRegularExpression>
 #include <QJsonObject>
 #include <QJsonValue>
 
@@ -16,6 +18,7 @@ void RunListModel::setBackend(IBackend *backend)
     ++m_loadGeneration;
     m_backend = backend;
     setLoading(false);
+    invalidateCalendar();
 }
 
 int RunListModel::rowCount(const QModelIndex &parent) const
@@ -57,15 +60,16 @@ void RunListModel::setPageSize(int pageSize)
     m_pageSize = clamped;
     m_page = m_anchorRow / clamped + 1;
     Q_EMIT pagingChanged();
-    reload();
+    loadRows();
 }
 
 void RunListModel::setFilter(const QVariantMap &filter)
 {
     m_filter = QJsonObject::fromVariantMap(filter);
+    setCalendarFilter(filter);
     m_page = 1;
     m_anchorRow = 0;
-    reload();
+    loadRows();
 }
 
 void RunListModel::goToPage(int page)
@@ -76,7 +80,7 @@ void RunListModel::goToPage(int page)
         return;
     m_page = clamped;
     Q_EMIT pagingChanged();
-    reload();
+    loadRows();
 }
 
 void RunListModel::nextPage()
@@ -100,7 +104,7 @@ void RunListModel::sortBy(const QString &field)
     m_page = 1;
     m_anchorRow = 0;
     Q_EMIT sortChanged();
-    reload();
+    loadRows();
 }
 
 QVariantMap RunListModel::runAt(int row) const
@@ -127,6 +131,12 @@ void RunListModel::setLoadError(const QString &error)
 }
 
 void RunListModel::reload()
+{
+    invalidateCalendar();
+    loadRows();
+}
+
+void RunListModel::loadRows()
 {
     const quint64 generation = ++m_loadGeneration;
     if (!m_backend)
@@ -171,7 +181,7 @@ void RunListModel::reload()
                     m_page = lastPage;
                     m_anchorRow = qBound(0, m_anchorRow, qMax(0, total - 1));
                     Q_EMIT pagingChanged();
-                    reload();
+                    loadRows();
                     return;
                 }
 
@@ -190,6 +200,137 @@ void RunListModel::reload()
                 setLoading(false);
                 Q_EMIT pagingChanged();
             });
+}
+
+namespace {
+bool validCalendarMonth(const QString &month)
+{
+    static const QRegularExpression pattern(QStringLiteral("^[0-9]{4}-[0-9]{2}$"));
+    const QDate date = QDate::fromString(month + QStringLiteral("-01"), QStringLiteral("yyyy-MM-dd"));
+    return pattern.match(month).hasMatch() && date.isValid() && date.year() >= 100;
+}
+bool validCalendarDay(const QString &day)
+{
+    static const QRegularExpression pattern(QStringLiteral("^[0-9]{4}-[0-9]{2}-[0-9]{2}$"));
+    const QDate date = QDate::fromString(day, QStringLiteral("yyyy-MM-dd"));
+    return pattern.match(day).hasMatch() && date.isValid() && date.year() >= 100;
+}
+}
+
+QJsonObject RunListModel::calendarFilter() const
+{
+    QJsonObject filter = m_calendarFilter;
+    for (const QString &key : {QStringLiteral("from_utc"), QStringLiteral("to_utc"),
+                               QStringLiteral("history_from_day"), QStringLiteral("history_to_day")})
+        filter.remove(key);
+    return filter;
+}
+
+QStringList RunListModel::calendarAvailableDays() const
+{
+    QStringList days;
+    for (const QStringList &monthDays : m_calendarDays)
+        days.append(monthDays);
+    return days;
+}
+
+bool RunListModel::calendarDayAvailable(const QString &day) const
+{
+    return validCalendarDay(day) && m_calendarDays.value(day.left(7)).contains(day);
+}
+
+bool RunListModel::calendarMonthKnown(const QString &month) const
+{
+    return m_calendarDays.contains(month);
+}
+
+QString RunListModel::calendarDayError(const QString &day) const
+{
+    return m_calendarErrors.value(day.left(7));
+}
+
+void RunListModel::invalidateCalendar()
+{
+    ++m_calendarGeneration;
+    m_calendarDays.clear();
+    m_calendarErrors.clear();
+    m_calendarPending.clear();
+    Q_EMIT calendarChanged();
+    if (!m_calendarMonth.isEmpty())
+        loadCalendarMonth(m_calendarMonth, false);
+}
+
+void RunListModel::setCalendarFilter(const QVariantMap &filter)
+{
+    QJsonObject scope = QJsonObject::fromVariantMap(filter);
+    for (const QString &key : {QStringLiteral("from_utc"), QStringLiteral("to_utc"),
+                               QStringLiteral("history_from_day"), QStringLiteral("history_to_day")})
+        scope.remove(key);
+    if (scope == m_calendarFilter)
+        return;
+    m_calendarFilter = scope;
+    invalidateCalendar();
+}
+
+void RunListModel::requestCalendarDays(const QString &month)
+{
+    m_calendarMonth = month;
+    Q_EMIT calendarChanged();
+    loadCalendarMonth(month, true);
+}
+
+void RunListModel::ensureCalendarDay(const QString &day)
+{
+    if (validCalendarDay(day))
+        loadCalendarMonth(day.left(7), false);
+}
+
+void RunListModel::loadCalendarMonth(const QString &month, bool retryError)
+{
+    if (m_calendarDays.contains(month) || m_calendarPending.contains(month)
+            || (!retryError && m_calendarErrors.contains(month)))
+        return;
+    if (!validCalendarMonth(month) || !m_backend) {
+        m_calendarErrors.insert(month, !m_backend ? QStringLiteral("日历服务尚未连接")
+                                                 : QStringLiteral("无效的日历月份"));
+        Q_EMIT calendarChanged();
+        return;
+    }
+    const quint64 generation = m_calendarGeneration;
+    m_calendarErrors.remove(month);
+    m_calendarPending.insert(month);
+    Q_EMIT calendarChanged();
+    BackendReply *reply = m_backend->queryRunCalendarDays(month, calendarFilter());
+    reply->whenDone(this, [this, generation, month](bool ok, const QVariantMap &payload,
+                                                   const QString &code, const QString &message) {
+        if (generation != m_calendarGeneration)
+            return;
+        m_calendarPending.remove(month);
+        const QJsonObject answer = QJsonObject::fromVariantMap(payload);
+        const QJsonValue daysValue = answer.value(QStringLiteral("days"));
+        QStringList days;
+        bool valid = ok && answer.value(QStringLiteral("month")).toString() == month
+                        && daysValue.isArray();
+        if (valid) {
+            for (const QJsonValue &value : daysValue.toArray()) {
+                const QString day = value.toString();
+                if (!value.isString() || !validCalendarDay(day) || day.left(7) != month
+                        || (!days.isEmpty() && day <= days.last())) {
+                    valid = false;
+                    break;
+                }
+                days.append(day);
+            }
+        }
+        if (valid) {
+            m_calendarDays.insert(month, days);
+            m_calendarErrors.remove(month);
+        } else {
+            m_calendarErrors.insert(month, ok ? QStringLiteral("日历日期响应格式无效")
+                : (!message.isEmpty() ? message : (!code.isEmpty() ? code : QStringLiteral("日历日期加载失败"))));
+        }
+        Q_EMIT calendarChanged();
+    });
 }
 
 } // namespace mr

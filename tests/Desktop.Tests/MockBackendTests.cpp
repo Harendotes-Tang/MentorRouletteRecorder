@@ -28,6 +28,7 @@
 #include <QStandardPaths>
 #include <QTest>
 #include <QTextToSpeech>
+#include <QTimeZone>
 
 namespace {
 
@@ -117,6 +118,73 @@ class MockBackendTests : public QObject
     Q_OBJECT
 
 private Q_SLOTS:
+    void calendarDaysUseFullSetIgnoreDateBoundsAndKeepLocalHistoryDays()
+    {
+        mr::MockBackend backend;
+        QJsonArray rows;
+        const auto archival = [](const QString &id, const QString &day, int job, bool deleted) {
+            QJsonObject row = autoRun(id, QStringLiteral("COMPLETED"), false);
+            row.insert(QStringLiteral("source"), QStringLiteral("IMPORT"));
+            row.insert(QStringLiteral("matched_at_utc"), QJsonValue::Null);
+            row.insert(QStringLiteral("ended_at_utc"), QJsonValue::Null);
+            row.insert(QStringLiteral("job_id"), job);
+            row.insert(QStringLiteral("soft_deleted"), deleted);
+            row.insert(QStringLiteral("import_metadata"), QJsonObject{
+                {QStringLiteral("source_recorded_at"), day},
+                {QStringLiteral("source_recorded_at_utc"), QJsonValue::Null}});
+            return row;
+        };
+        for (int i = 0; i < 205; ++i)
+            rows.append(archival(QString::number(i), QStringLiteral("2026-09-01"), 24, false));
+        rows.append(archival(QStringLiteral("last"), QStringLiteral("2026/9/30"), 24, false));
+        rows.append(archival(QStringLiteral("deleted"), QStringLiteral("2026-09-15"), 19, true));
+        rows.append(archival(QStringLiteral("unknown"), QStringLiteral("unknown"), 24, false));
+        rows.append(archival(QStringLiteral("invalid"), QStringLiteral("2026-09-31"), 24, false));
+        const QDateTime boundary(QDate(2026, 9, 1), QTime(0, 1), QTimeZone::systemTimeZone());
+        QJsonObject instant = autoRun(QStringLiteral("instant"), QStringLiteral("COMPLETED"), true);
+        instant.insert(QStringLiteral("matched_at_utc"), boundary.toUTC().toString(Qt::ISODateWithMs));
+        instant.insert(QStringLiteral("job_id"), 25);
+        rows.append(instant);
+        QJsonObject historicalPending = archival(QStringLiteral("historical-pending"), QStringLiteral("2026-09-20"), 26, false);
+        historicalPending.insert(QStringLiteral("pending_review"), true);
+        rows.append(historicalPending);
+        QJsonObject livePending = instant;
+        livePending.insert(QStringLiteral("run_id"), QStringLiteral("live-pending"));
+        livePending.insert(QStringLiteral("job_id"), 26);
+        livePending.insert(QStringLiteral("pending_review"), true);
+        rows.append(livePending);
+        backend.resetRuns(rows);
+        QJsonObject filter{{QStringLiteral("job_id"), QJsonArray{24}},
+            {QStringLiteral("from_utc"), QStringLiteral("2026-09-02T00:00:00.000Z")},
+            {QStringLiteral("to_utc"), QStringLiteral("2026-09-03T00:00:00.000Z")},
+            {QStringLiteral("history_from_day"), QStringLiteral("2026-09-02")},
+            {QStringLiteral("history_to_day"), QStringLiteral("2026-09-03")}};
+        const auto query = [&] {
+            return ask(backend, QStringLiteral("QueryRunCalendarDays"), {
+                {QStringLiteral("month"), QStringLiteral("2026-09")}, {QStringLiteral("filter"), filter}});
+        };
+        Answer answer = query();
+        QVERIFY(answer.ok);
+        QCOMPARE(answer.payload.value(QStringLiteral("days")).toArray(),
+            QJsonArray({QStringLiteral("2026-09-01"), QStringLiteral("2026-09-30")}));
+        filter.insert(QStringLiteral("job_id"), QJsonArray{19});
+        QVERIFY(query().payload.value(QStringLiteral("days")).toArray().isEmpty());
+        filter.insert(QStringLiteral("deleted_only"), true);
+        QCOMPARE(query().payload.value(QStringLiteral("days")).toArray(), QJsonArray{QStringLiteral("2026-09-15")});
+        filter = {{QStringLiteral("job_id"), QJsonArray{25}}};
+        QCOMPARE(query().payload.value(QStringLiteral("days")).toArray(), QJsonArray{QStringLiteral("2026-09-01")});
+        filter = {{QStringLiteral("job_id"), QJsonArray{26}}, {QStringLiteral("pending_review"), true}};
+        QCOMPARE(query().payload.value(QStringLiteral("days")).toArray(), QJsonArray{QStringLiteral("2026-09-01")});
+        const Answer invalid = ask(backend, QStringLiteral("QueryRunCalendarDays"), {{QStringLiteral("month"), QStringLiteral("2026-13")}});
+        QVERIFY(!invalid.ok);
+        QCOMPARE(invalid.code, QStringLiteral("ERR_BAD_REQUEST"));
+        QVERIFY(!ask(backend, QStringLiteral("QueryRunCalendarDays"), {
+            {QStringLiteral("month"), QStringLiteral("2026-09")}, {QStringLiteral("page"), 1}}).ok);
+        QVERIFY(!ask(backend, QStringLiteral("QueryRunCalendarDays"), {
+            {QStringLiteral("month"), QStringLiteral("2026-09")},
+            {QStringLiteral("filter"), QJsonObject{{QStringLiteral("unexpected"), true}}}}).ok);
+    }
+
     // DT2-X4: the dataset is anchored to a fixed date for reproducible
     // screenshots, but a live event is something happening now. AppController
     // ignores state events emitted before it started (review OH-1) and capture
@@ -448,6 +516,25 @@ private Q_SLOTS:
     // it was created at the match (DescribeCreation): no job, no entry, no end, result
     // UNKNOWN; whatever was learned or corrected later is not in it. A hand-entered run
     // opens with the player's CREATE_MANUAL instead. The chain ends at the run's revision.
+    void deletedOnlyFiltersBeforePaginationAndDoesNotAffectStatistics()
+    {
+        mr::MockBackend backend;
+        const QJsonObject filter{{QStringLiteral("deleted_only"), true}, {QStringLiteral("include_deleted"), true}};
+        const Answer all = ask(backend, QStringLiteral("QueryRuns"), {{QStringLiteral("filter"), filter},
+            {QStringLiteral("page"), 1}, {QStringLiteral("page_size"), 200}});
+        QVERIFY(all.ok);
+        const QJsonArray items = all.payload.value(QStringLiteral("items")).toArray();
+        QVERIFY(!items.isEmpty());
+        for (const auto &item : items) QVERIFY(item.toObject().value(QStringLiteral("soft_deleted")).toBool());
+        const Answer page = ask(backend, QStringLiteral("QueryRuns"), {{QStringLiteral("filter"), filter},
+            {QStringLiteral("page"), 1}, {QStringLiteral("page_size"), 1}});
+        QCOMPARE(page.payload.value(QStringLiteral("items")).toArray().size(), 1);
+        QCOMPARE(page.payload.value(QStringLiteral("page_info")).toObject().value(QStringLiteral("total")),
+                 all.payload.value(QStringLiteral("page_info")).toObject().value(QStringLiteral("total")));
+        const Answer stats = ask(backend, QStringLiteral("GetResultStats"), {{QStringLiteral("filter"), filter}});
+        const Answer normalStats = ask(backend, QStringLiteral("GetResultStats"));
+        QCOMPARE(stats.payload, normalStats.payload);
+    }
     void everyRunOpensItsRevisionChainWithItsCreation()
     {
         mr::MockBackend backend;

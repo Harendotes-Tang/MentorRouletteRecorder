@@ -33,7 +33,7 @@
       "type": "string",
       "enum": [
         "GetVersion", "GetStatus", "GetCaptureStatus", "ListCaptureAdapters", "StartCapture", "SelectGameProcess",
-        "StopCapture", "GetProtocolProfileStatus", "GetCurrentRun", "QueryRuns", "GetDashboardStats",
+        "StopCapture", "GetProtocolProfileStatus", "GetCurrentRun", "QueryRuns", "QueryRunCalendarDays", "GetDashboardStats",
         "GetDungeonStats", "GetJobStats", "GetResultStats", "CreateManualRun", "CorrectRun",
         "SoftDeleteRun", "RestoreRun", "BatchMutateRuns", "GetHistoryRetentionSettings", "UpdateHistoryRetentionSettings", "GetPendingImageCleanup", "AcknowledgeImageCleanup", "GetRunRevisions", "UpdateAchievementBaseline", "ExportCsv",
         "ExportJson", "BackupDatabase", "SubscribeLiveEvents", "ExportDiagnosticsReport",
@@ -429,6 +429,7 @@
         "source": { "type": "array", "items": { "$ref": "#/$defs/RunSource" }, "maxItems": 3 },
         "corrected_only": { "type": "boolean", "default": false },
         "include_deleted": { "type": "boolean", "default": false, "description": "Soft-deleted runs are excluded unless this is true. They never count towards statistics regardless." },
+        "deleted_only": { "type": "boolean", "default": false, "description": "Only soft-deleted runs in listings and filtered exports; takes precedence over include_deleted. Ignored by statistics, which always exclude deleted runs." },
         "with_reflection": { "type": "boolean", "default": false, "description": "Only runs that have a reflection." },
         "pending_review": { "type": "boolean", "description": "true keeps only runs still flagged for review, false keeps only runs that are not. Omitted means no constraint; there is deliberately no default, because 'not asked for' and 'asked for false' are different queries." },
         "text": { "type": "string", "maxLength": 200, "description": "Case-insensitive substring match over duty_name, job_name and note." }
@@ -893,6 +894,7 @@
         { "if": { "properties": { "message_type": { "const": "GetProtocolProfileStatus" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/EmptyPayload" } } } },
         { "if": { "properties": { "message_type": { "const": "GetCurrentRun" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/EmptyPayload" } } } },
         { "if": { "properties": { "message_type": { "const": "QueryRuns" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/QueryRunsRequest" } } } },
+        { "if": { "properties": { "message_type": { "const": "QueryRunCalendarDays" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/QueryRunCalendarDaysRequest" } } } },
         { "if": { "properties": { "message_type": { "const": "GetDashboardStats" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/StatsRequest" } } } },
         { "if": { "properties": { "message_type": { "const": "GetDungeonStats" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/PagedStatsRequest" } } } },
         { "if": { "properties": { "message_type": { "const": "GetJobStats" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/PagedStatsRequest" } } } },
@@ -1111,6 +1113,13 @@
       }
     },
 
+    "QueryRunCalendarDaysRequest": {
+      "type": "object", "additionalProperties": false, "required": ["month"],
+      "properties": {
+        "month": { "type": "string", "pattern": "^(?!0000)[0-9]{4}-(0[1-9]|1[0-2])$" },
+        "filter": { "$ref": "#/$defs/RunFilter" }
+      }
+    },
     "QueryRunsRequest": {
       "type": "object",
       "additionalProperties": false,
@@ -1692,6 +1701,13 @@
           "state": { "$ref": "#/$defs/RunState" },
           "run": { "oneOf": [{ "$ref": "#/$defs/Run" }, { "type": "null" }] },
           "elapsed_ms": { "oneOf": [{ "$ref": "#/$defs/DurationMs" }, { "type": "null" }] }
+        }
+      },
+      "QueryRunCalendarDays": {
+        "type": "object", "additionalProperties": false, "required": ["month", "days"],
+        "properties": {
+          "month": { "type": "string", "pattern": "^(?!0000)[0-9]{4}-(0[1-9]|1[0-2])$" },
+          "days": { "type": "array", "uniqueItems": true, "items": { "type": "string", "format": "date" } }
         }
       },
       "QueryRuns": {

@@ -139,6 +139,7 @@ private:
     void invalidatePreview(bool rememberSelection = true);
     void acceptPreview(const QVariantMap &payload);
     void discardAppend(const QString &message);
+    void removeImportedRows(const QVariantMap &receipt);
     QString screenshotSourceName(const QStringList &paths) const;
     void fail(const QString &message);
     void recognizeImage(const QString &path, const QByteArray &tsv);

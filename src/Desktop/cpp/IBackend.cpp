@@ -227,6 +227,12 @@ BackendReply *IBackend::subscribeLiveEvents()
     return request(QStringLiteral("SubscribeLiveEvents"));
 }
 
+BackendReply *IBackend::queryRunCalendarDays(const QString &month, const QJsonObject &filter)
+{
+    return request(QStringLiteral("QueryRunCalendarDays"),
+                   {{QStringLiteral("month"), month}, {QStringLiteral("filter"), filter}});
+}
+
 BackendReply *IBackend::queryRuns(const QJsonObject &filter, int page, int pageSize,
                                   const QJsonObject &sort)
 {

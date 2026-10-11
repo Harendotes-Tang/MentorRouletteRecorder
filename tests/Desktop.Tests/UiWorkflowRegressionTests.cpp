@@ -15,6 +15,7 @@
 #include <QDirIterator>
 #include <QFile>
 #include <QGuiApplication>
+#include <QFontDatabase>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QPointer>
@@ -65,7 +66,15 @@ public:
                 reply->fail(code, QStringLiteral("fixture refusal"));
             });
         } else {
-            const QJsonObject answer = answers.value(type);
+            QJsonObject answer = answers.value(type);
+            if (type == QLatin1String("QueryRunCalendarDays") && !answers.contains(type)) {
+                const QString month = payload.value(QStringLiteral("month")).toString();
+                const QDate first = QDate::fromString(month + QStringLiteral("-01"), Qt::ISODate);
+                QJsonArray days;
+                for (int day = 1; day <= first.daysInMonth(); ++day)
+                    days.append(QDate(first.year(), first.month(), day).toString(Qt::ISODate));
+                answer = {{QStringLiteral("month"), month}, {QStringLiteral("days"), days}};
+            }
             QTimer::singleShot(0, reply, [reply, answer] { reply->succeed(answer); });
         }
         return reply;
@@ -530,6 +539,11 @@ private Q_SLOTS:
     void calibrationDialogsLockWhileBusyAndDropAnEarlierReply();
     void calibrationDialogsCannotBeCancelledWhileBusy();
     void historyMirrorsEveryFilterAndClearsStaleControls();
+    void historyDeletedMenuUsesExclusiveFilter();
+    void historyRangeSelectionDoesNotSubmitHalfARange();
+    void historyCalendarUsesOtherFiltersAndBlocksEmptyDates();
+    void recycleBinFooterHasSpacing_data();
+    void recycleBinFooterHasSpacing();
     void historyRetainsAnUnlistedJobDrillDownUntilExplicitlyCleared_data();
     void historyRetainsAnUnlistedJobDrillDownUntilExplicitlyCleared();
     void achievementProgressIsTheCollectorsFigure();
@@ -1225,6 +1239,203 @@ void UiWorkflowRegressionTests::calibrationDialogsCannotBeCancelledWhileBusy()
     QVERIFY(dialog->property("visible").toBool());
 }
 
+void UiWorkflowRegressionTests::historyDeletedMenuUsesExclusiveFilter()
+{
+    UiFixture fixture;
+    QVERIFY2(fixture.create(), qPrintable(fixture.errors));
+    auto *window = qobject_cast<QQuickWindow *>(fixture.root.get());
+    QVERIFY(window);
+    auto *deleted = fixture.root->findChild<QQuickItem *>(QStringLiteral("historyDeletedFilter"));
+    auto *mark = fixture.root->findChild<QQuickItem *>(QStringLiteral("historyMarkFilter"));
+    QVERIFY(deleted && mark);
+    QCOMPARE(deleted->property("text").toString(), QString::fromUtf8("已删除"));
+    deleted->setProperty("checked", true);
+    QVERIFY(QMetaObject::invokeMethod(fixture.history(), "applyFilter"));
+    QVERIFY(fixture.controller.historyFilter().value(QStringLiteral("deleted_only")).toBool());
+    QVERIFY(!fixture.controller.historyFilter().contains(QStringLiteral("include_deleted")));
+    fixture.controller.setHistoryFilter({{QStringLiteral("deleted_only"), true}, {QStringLiteral("text"), QStringLiteral("fixture")}});
+    QTRY_VERIFY(deleted->property("checked").toBool());
+    QVERIFY(QMetaObject::invokeMethod(fixture.history(), "applyFilter"));
+    QCOMPARE(fixture.controller.historyFilter().value(QStringLiteral("text")).toString(), QStringLiteral("fixture"));
+    QObject *popup = mark->property("popup").value<QObject *>();
+    QVERIFY(popup && QMetaObject::invokeMethod(popup, "open"));
+    QTRY_VERIFY(deleted->isVisible());
+    const QString evidence = qEnvironmentVariable("MR_HISTORY_REVIEW_EVIDENCE_DIR");
+    if (!evidence.isEmpty()) {
+        QVERIFY(QDir().mkpath(evidence));
+        QTest::qWait(100);
+        QVERIFY(window->grabWindow().save(QDir(evidence).filePath(QStringLiteral("history-deleted-filter.png"))));
+    }
+    QVERIFY(QMetaObject::invokeMethod(fixture.history(), "resetFilter"));
+    QVERIFY(!deleted->property("checked").toBool());
+    QVERIFY(!fixture.controller.historyFilter().contains(QStringLiteral("deleted_only")));
+}
+
+void UiWorkflowRegressionTests::historyRangeSelectionDoesNotSubmitHalfARange()
+{
+    UiFixture fixture;
+    QVERIFY2(fixture.create(), qPrintable(fixture.errors));
+    auto *window = qobject_cast<QQuickWindow *>(fixture.root.get());
+    QVERIFY(QTest::qWaitForWindowExposed(window));
+    auto *range = fixture.history()->findChild<QQuickItem *>(QStringLiteral("historyDateRange"));
+    QVERIFY(range);
+    auto *from = fixture.history()->findChild<QQuickItem *>(QStringLiteral("fromDateField"));
+    auto *to = fixture.history()->findChild<QQuickItem *>(QStringLiteral("toDateField"));
+    from->setProperty("text", QStringLiteral("2026-09-07"));
+    to->setProperty("text", QStringLiteral("2026-09-09"));
+    QTRY_COMPARE(fixture.controller.historyFilter().value(QStringLiteral("history_to_day")).toString(), QStringLiteral("2026-09-09"));
+    QTest::qWait(450);
+    const int before = fixture.backend.counts.value(QStringLiteral("QueryRuns"));
+    const auto findVisual = [](auto &&self, QQuickItem *parent, const QString &name) -> QQuickItem * {
+        if (parent->objectName() == name) return parent;
+        for (auto *child : parent->childItems()) if (auto *found = self(self, child, name)) return found;
+        return nullptr;
+    };
+    const auto clickDay = [&](int day) {
+        auto *grid = range->findChild<QQuickItem *>(QStringLiteral("calendarGrid"));
+        auto *item = findVisual(findVisual, grid, QStringLiteral("calendarDay%1").arg(day));
+        QVERIFY(item);
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, item->mapToScene(QPointF(item->width()/2, item->height()/2)).toPoint());
+    };
+    QVERIFY(QMetaObject::invokeMethod(range, "openCalendar"));
+    clickDay(28);
+    QVERIFY(range->property("selectionPending").toBool());
+    QTest::qWait(450);
+    QCOMPARE(fixture.backend.counts.value(QStringLiteral("QueryRuns")), before);
+    QVERIFY(QMetaObject::invokeMethod(range, "shiftMonth", Q_ARG(QVariant, 1)));
+    QTest::qWait(20);
+    clickDay(3);
+    QTRY_COMPARE(fixture.controller.historyFilter().value(QStringLiteral("history_from_day")).toString(), QStringLiteral("2026-09-28"));
+    QCOMPARE(fixture.controller.historyFilter().value(QStringLiteral("history_to_day")).toString(), QStringLiteral("2026-10-03"));
+    const auto bounds = fixture.controller.historyFilter();
+    QCOMPARE(bounds.value(QStringLiteral("from_utc")).toString(), QDateTime(QDate(2026, 9, 28), QTime(0, 0)).toUTC().toString(Qt::ISODateWithMs));
+    QCOMPARE(bounds.value(QStringLiteral("to_utc")).toString(), QDateTime(QDate(2026, 10, 3), QTime(23, 59, 59, 999)).toUTC().toString(Qt::ISODateWithMs));
+    const int completed = fixture.backend.counts.value(QStringLiteral("QueryRuns"));
+    QVERIFY(QMetaObject::invokeMethod(range, "openCalendar"));
+    clickDay(5);
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTest::qWait(450);
+    QCOMPARE(fixture.controller.historyFilter(), bounds);
+    QCOMPARE(fixture.backend.counts.value(QStringLiteral("QueryRuns")), completed);
+    QCOMPARE(from->property("text").toString(), QStringLiteral("2026-09-28"));
+    QCOMPARE(to->property("text").toString(), QStringLiteral("2026-10-03"));
+}
+
+void UiWorkflowRegressionTests::historyCalendarUsesOtherFiltersAndBlocksEmptyDates()
+{
+    UiFixture fixture;
+    fixture.backend.answers.insert(QStringLiteral("QueryRunCalendarDays"),
+        {{QStringLiteral("month"), QStringLiteral("2026-09")},
+         {QStringLiteral("days"), QJsonArray{QStringLiteral("2026-09-07"), QStringLiteral("2026-09-17")}}});
+    QVERIFY2(fixture.create(), qPrintable(fixture.errors));
+    auto *window = qobject_cast<QQuickWindow *>(fixture.root.get());
+    QVERIFY(QTest::qWaitForWindowExposed(window));
+    auto *range = fixture.history()->findChild<QQuickItem *>(QStringLiteral("historyDateRange"));
+    auto *job = fixture.history()->findChild<QObject *>(QStringLiteral("historyJobFilter"));
+    QVERIFY(range);
+    QVERIFY(job);
+    range->setProperty("startText", QStringLiteral("2026-09-07"));
+    range->setProperty("endText", QStringLiteral("2026-09-17"));
+    QTRY_VERIFY(range->property("valid").toBool());
+    QTRY_COMPARE(fixture.controller.historyFilter().value(QStringLiteral("history_to_day")).toString(), QStringLiteral("2026-09-17"));
+    QVERIFY(QMetaObject::invokeMethod(range, "openCalendar"));
+    QTRY_COMPARE(fixture.controller.runs()->calendarMonth(), QStringLiteral("2026-09"));
+    const auto findVisual = [](auto &&self, QQuickItem *parent, const QString &name) -> QQuickItem * {
+        if (parent->objectName() == name) return parent;
+        for (auto *child : parent->childItems()) if (auto *found = self(self, child, name)) return found;
+        return nullptr;
+    };
+    auto *grid = range->findChild<QQuickItem *>(QStringLiteral("calendarGrid"));
+    auto *empty = findVisual(findVisual, grid, QStringLiteral("calendarDay8"));
+    auto *start = findVisual(findVisual, grid, QStringLiteral("calendarDay7"));
+    QVERIFY(empty);
+    QVERIFY(start);
+    QTRY_VERIFY(start->isEnabled());
+    QVERIFY(!empty->isEnabled());
+    const auto click = [&](QQuickItem *item) {
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
+            item->mapToScene(QPointF(item->width()/2, item->height()/2)).toPoint());
+    };
+    QTest::qWait(50);
+    click(empty);
+    QVERIFY(!range->property("selectionPending").toBool());
+    click(start);
+    QVERIFY(range->property("selectionPending").toBool());
+    job->setProperty("currentIndex", 1);
+    QVERIFY(QMetaObject::invokeMethod(job, "activated", Q_ARG(int, 1)));
+    QTRY_VERIFY(fixture.backend.lastPayloads.value(QStringLiteral("QueryRunCalendarDays"))
+        .value(QStringLiteral("filter")).toObject().contains(QStringLiteral("job_id")));
+    const auto filter = fixture.backend.lastPayloads.value(QStringLiteral("QueryRunCalendarDays"))
+        .value(QStringLiteral("filter")).toObject();
+    QVERIFY(!filter.contains(QStringLiteral("from_utc")));
+    QVERIFY(!filter.contains(QStringLiteral("history_to_day")));
+    QTRY_VERIFY(start->isEnabled());
+    click(start);
+    QTRY_COMPARE(fixture.controller.historyFilter().value(QStringLiteral("history_to_day")).toString(), QStringLiteral("2026-09-07"));
+    QVERIFY(fixture.controller.historyFilter().contains(QStringLiteral("job_id")));
+}
+
+void UiWorkflowRegressionTests::recycleBinFooterHasSpacing_data()
+{
+    QTest::addColumn<int>("width");
+    QTest::addColumn<QString>("style");
+    QTest::newRow("normal-classic") << 1280 << QStringLiteral("classic");
+    QTest::newRow("compact-classic") << 720 << QStringLiteral("classic");
+    QTest::newRow("normal-harendotes") << 1280 << QStringLiteral("harendotes");
+    QTest::newRow("compact-harendotes") << 720 << QStringLiteral("harendotes");
+}
+
+void UiWorkflowRegressionTests::recycleBinFooterHasSpacing()
+{
+    QFETCH(int, width);
+    QFETCH(QString, style);
+    SettingsFixture fixture;
+    QStringList warnings;
+    connect(&fixture.engine, &QQmlEngine::warnings, this, [&warnings](const QList<QQmlError> &errors) {
+        for (const auto &error : errors) warnings.append(error.toString());
+    });
+    fixture.backend.answers.insert(QStringLiteral("GetHistoryRetentionSettings"), QJsonObject{{QStringLiteral("retention_days"), 30}});
+    fixture.controller.refreshHistoryRetentionSettings();
+    QVERIFY2(fixture.create(style), qPrintable(fixture.errors));
+    QTRY_COMPARE(fixture.controller.historyRetentionDays(), 30);
+    auto *window = qobject_cast<QQuickWindow *>(fixture.root.get());
+    QVERIFY(window);
+    window->setWidth(width);
+    if ((style == QLatin1String("harendotes")) != fixture.controller.isDark())
+        fixture.controller.toggleTheme();
+    QVERIFY(fixture.selectTab(QStringLiteral("data")));
+    auto *text = fixture.item(QStringLiteral("historyRetentionExplanation"));
+    auto *button = fixture.item(QStringLiteral("historyImageCleanupRetry"));
+    auto *card = fixture.item(QStringLiteral("historyRetentionCard"));
+    auto *daysRow = fixture.item(QStringLiteral("historyRetentionDaysRow"));
+    QVERIFY(text && button && card && daysRow);
+    QVERIFY(text->isVisible() && button->isVisible());
+    QTest::qWait(100);
+    const qreal dividerGap = text->mapToScene(QPointF()).y() - daysRow->mapToScene(QPointF(0, daysRow->height())).y();
+    QVERIFY2(dividerGap >= 12, qPrintable(QString::number(dividerGap)));
+    const qreal gap = button->mapToScene(QPointF()).y() - text->mapToScene(QPointF(0, text->height())).y();
+    QVERIFY2(gap >= 12, qPrintable(QString::number(gap)));
+    for (auto *parent = card->parentItem(); parent; parent = parent->parentItem()) {
+        if (parent->metaObject()->indexOfProperty("contentY") >= 0) {
+            parent->setProperty("contentY", qMax(0.0, parent->property("contentHeight").toDouble() - parent->height()));
+            break;
+        }
+    }
+    QTest::qWait(100);
+    const QPointF position = card->mapToScene(QPointF());
+    const QRect bounds(qRound(position.x()), qRound(position.y()), qRound(card->width()), qRound(card->height()));
+    QVERIFY(bounds.contains(button->mapToScene(QPointF(button->width()/2, button->height()/2)).toPoint()));
+    const QString evidence = qEnvironmentVariable("MR_HISTORY_REVIEW_EVIDENCE_DIR");
+    if (!evidence.isEmpty()) {
+        QVERIFY(QDir().mkpath(evidence));
+        const QImage frame = window->grabWindow();
+        QVERIFY(!frame.isNull());
+        const qreal ratio = frame.devicePixelRatio();
+        const QRect pixels(qRound(bounds.x()*ratio), qRound(bounds.y()*ratio), qRound(bounds.width()*ratio), qRound(bounds.height()*ratio));
+        QVERIFY(frame.copy(pixels.intersected(frame.rect())).save(QDir(evidence).filePath(QStringLiteral("recycle-footer-%1-%2.png").arg(width).arg(style))));
+    }
+    QVERIFY2(warnings.isEmpty(), qPrintable(warnings.join('\n')));
+}
 void UiWorkflowRegressionTests::historyMirrorsEveryFilterAndClearsStaleControls()
 {
     UiFixture fixture;
@@ -1239,7 +1450,7 @@ void UiWorkflowRegressionTests::historyMirrorsEveryFilterAndClearsStaleControls(
                        {QStringLiteral("corrected_only"), true},
                        {QStringLiteral("pending_review"), true},
                        {QStringLiteral("with_reflection"), true},
-                       {QStringLiteral("include_deleted"), true}};
+                       {QStringLiteral("deleted_only"), true}};
     filter.insert(QStringLiteral("from_utc"),
                   QDateTime(QDate(2026, 9, 7), QTime(0, 0)).toUTC().toString(Qt::ISODateWithMs));
     filter.insert(QStringLiteral("to_utc"),
@@ -2170,6 +2381,15 @@ int main(int argc, char **argv)
     QStandardPaths::setTestModeEnabled(true);
     QQuickStyle::setStyle(QStringLiteral("Basic"));
     QGuiApplication app(argc, argv);
+    // Match main.cpp's screenshot font initialization; offscreen defaults may
+    // otherwise choose a condensed fallback and conceal real layout overflow.
+    QFontDatabase::addApplicationFont(QStringLiteral("C:/Windows/Fonts/msyh.ttc"));
+    QFontDatabase::addApplicationFont(QStringLiteral("C:/Windows/Fonts/simhei.ttf"));
+    QFontDatabase::addApplicationFont(QStringLiteral("C:/Windows/Fonts/consola.ttf"));
+    QFontDatabase::addApplicationFont(QString::fromUtf8(MR_DESKTOP_QML_DIR) + QStringLiteral("/../resources/fonts/IBMPlexMono-SemiBold.ttf"));
+    QFont font;
+    font.setFamilies({QStringLiteral("Microsoft YaHei UI"), QStringLiteral("Microsoft YaHei"), QStringLiteral("Segoe UI")});
+    QGuiApplication::setFont(font);
     UiWorkflowRegressionTests tests;
     return QTest::qExec(&tests, argc, argv);
 }

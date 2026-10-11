@@ -176,8 +176,9 @@ namespace mr {
 QList<QJsonObject> MockBackend::selectRuns(const QJsonObject &filter,
                                            bool forStatistics) const
 {
+    const bool deletedOnly = !forStatistics && filter.value(QStringLiteral("deleted_only")).toBool(false);
     const bool includeDeleted =
-        !forStatistics && filter.value(QStringLiteral("include_deleted")).toBool(false);
+        !forStatistics && (deletedOnly || filter.value(QStringLiteral("include_deleted")).toBool(false));
     const bool correctedOnly = filter.value(QStringLiteral("corrected_only")).toBool(false);
     const bool withReflection = filter.value(QStringLiteral("with_reflection")).toBool(false);
     const QString text = filter.value(QStringLiteral("text")).toString().trimmed();
@@ -198,7 +199,7 @@ QList<QJsonObject> MockBackend::selectRuns(const QJsonObject &filter,
 
         // Soft-deleted runs never take part in a statistic, whatever the
         // filter says (docs/statistics-definitions.md 0).
-        if (isSoftDeleted(run) && !includeDeleted)
+        if ((isSoftDeleted(run) && !includeDeleted) || (deletedOnly && !isSoftDeleted(run)))
             continue;
         if (!matchesStringArray(filter, QStringLiteral("run_id"), run.value(QStringLiteral("run_id"))))
             continue;
@@ -267,6 +268,43 @@ QList<QJsonObject> MockBackend::selectRuns(const QJsonObject &filter,
     }
 
     return selected;
+}
+
+QJsonObject MockBackend::queryRunCalendarDaysPayload(const QJsonObject &payload) const
+{
+    QJsonObject filter = payload.value(QStringLiteral("filter")).toObject();
+    for (const QString &key : {QStringLiteral("from_utc"), QStringLiteral("to_utc"),
+                               QStringLiteral("history_from_day"), QStringLiteral("history_to_day")})
+        filter.remove(key);
+    const QString month = payload.value(QStringLiteral("month")).toString();
+    QSet<QString> unique;
+    QSet<QString> importedRevisionIds;
+    const bool pendingOnly = filter.value(QStringLiteral("pending_review")).toBool(false);
+    if (pendingOnly) {
+        for (const QJsonValue &value : m_revisions) {
+            const QJsonObject revision = value.toObject();
+            if (revision.value(QStringLiteral("revision")).toInt() == 1
+                && revision.value(QStringLiteral("change_kind")).toString() == QLatin1String("IMPORT"))
+                importedRevisionIds.insert(revision.value(QStringLiteral("run_id")).toString());
+        }
+    }
+    for (const QJsonObject &run : selectRuns(filter, false)) {
+        // RunFilterSql excludes historical imports from the actionable review filter.
+        if (pendingOnly && (run.value(QStringLiteral("source")).toString() == QLatin1String("IMPORT")
+            || run.value(QStringLiteral("import_metadata")).isObject()
+            || importedRevisionIds.contains(run.value(QStringLiteral("run_id")).toString())))
+            continue;
+        QDate day = sourceCalendarDay(run);
+        if (!day.isValid())
+            day = fromIso(fieldForSort(run, QStringLiteral("history_date"))).toLocalTime().date();
+        if (day.isValid() && day.toString(QStringLiteral("yyyy-MM")) == month)
+            unique.insert(day.toString(Qt::ISODate));
+    }
+    QStringList sorted = unique.values();
+    sorted.sort();
+    QJsonArray days;
+    for (const QString &day : sorted) days.append(day);
+    return {{QStringLiteral("month"), month}, {QStringLiteral("days"), days}};
 }
 
 QJsonObject MockBackend::queryRunsPayload(const QJsonObject &payload) const

@@ -47,7 +47,7 @@ public sealed class MessageDispatcher
     public static IReadOnlySet<string> KnownMessageTypes { get; } = new HashSet<string>(StringComparer.Ordinal)
     {
         "GetVersion", "GetStatus", "GetCaptureStatus", "ListCaptureAdapters", "StartCapture", "SelectGameProcess",
-        "StopCapture", "GetProtocolProfileStatus", "GetCurrentRun", "QueryRuns", "GetDashboardStats",
+        "StopCapture", "GetProtocolProfileStatus", "GetCurrentRun", "QueryRuns", "QueryRunCalendarDays", "GetDashboardStats",
         "GetDungeonStats", "GetJobStats", "GetResultStats", "CreateManualRun", "CorrectRun",
         "SoftDeleteRun", "RestoreRun", "GetRunRevisions", "UpdateAchievementBaseline", "ExportCsv",
         "BatchMutateRuns", "GetHistoryRetentionSettings", "UpdateHistoryRetentionSettings", "GetPendingImageCleanup", "AcknowledgeImageCleanup",
@@ -103,6 +103,7 @@ public sealed class MessageDispatcher
             "AddCaptureValidationMarker" => ValidationMarker(reader),
             "GetCurrentRun" => GetCurrentRun(reader),
             "QueryRuns" => QueryRuns(reader),
+            "QueryRunCalendarDays" => QueryRunCalendarDays(reader),
             "GetDashboardStats" => GetDashboardStats(reader),
             "GetDungeonStats" => GetDungeonStats(reader),
             "GetJobStats" => GetJobStats(reader),
@@ -411,6 +412,18 @@ public sealed class MessageDispatcher
             ["state"] = EnumWire<RunState>.Format(current.State),
             ["run"] = current.Run is null ? null : Wire.Run(current.Run),
             ["elapsed_ms"] = current.ElapsedMs,
+        };
+    }
+
+    private JsonObject QueryRunCalendarDays(PayloadReader reader)
+    {
+        reader.RejectUnknown("month", "filter");
+        var month = RequestParsers.CalendarMonth(reader);
+        var days = _host.Runs.QueryCalendarDays(month, RequestParsers.Filter(reader.Object("filter")));
+        return new JsonObject
+        {
+            ["month"] = month,
+            ["days"] = new JsonArray(days.Select(day => (JsonNode)JsonValue.Create(day)!).ToArray()),
         };
     }
 
