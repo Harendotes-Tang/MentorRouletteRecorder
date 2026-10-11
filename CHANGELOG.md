@@ -2,7 +2,7 @@
 
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循语义化版本。
 
-## [Unreleased]
+## [1.7.1] - 2026-10-12
 
 ### 改进
 - 导随心得分享图片改用 v5 纸张样式，单条、批量 PNG 与合成长图共用，保留完整正文和真实记录信息。
