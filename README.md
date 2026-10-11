@@ -26,7 +26,7 @@
 离开副本三个事件并生成记录，按职业、副本、耗时与结果汇总为历史与统计。不注入、不读内存、不发包、
 无遥测；所有数据仅保存在本机。
 
-**当前源码版本：** `1.7.0`（正式版，版本来源为 [Directory.Build.props](Directory.Build.props)）。
+**当前源码版本：** `1.7.1`（正式版，版本来源为 [Directory.Build.props](Directory.Build.props)）。
 下文包含本版本的记录导入、离线截图识别与心得库功能；正式版与测试版的区别见[安装](#安装)，
 本轮变更见 [CHANGELOG.md](CHANGELOG.md)。
 
