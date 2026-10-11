@@ -38,6 +38,7 @@ Dialog {
         runsData = valid
         runData = valid[0]
         outputMode.currentIndex = 0
+        attribution.checked = true
         if (controller) controller.resetFeedback()
         open()
     }
@@ -84,6 +85,15 @@ Dialog {
                 onActivated: if (dialog.controller) dialog.controller.resetFeedback()
             }
         }
+        SelectionCheckBox {
+            id: attribution
+            objectName: "reflectionShareAttributionOption"
+            Layout.fillWidth: true
+            text: qsTr("显示 Powered by 导随记录器 署名")
+            checked: true
+            enabled: !dialog.busy
+            onToggled: if (dialog.controller) dialog.controller.resetFeedback()
+        }
         ScrollView {
             id: preview
             objectName: "reflectionSharePreview"
@@ -99,12 +109,11 @@ Dialog {
             ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
             ScrollBar.vertical.policy: ScrollBar.AsNeeded
             // Repeater 实例化每一条完整卡片；抓图对象为卡片/组合自身，绝不捕获可见视口。
-            Rectangle {
+            Item {
                 id: combined
                 objectName: "reflectionShareCombinedCard"
                 width: preview.availableWidth
                 height: stack.implicitHeight
-                color: Theme.surface
                 Column {
                     id: stack
                     width: parent.width
@@ -116,6 +125,7 @@ Dialog {
                             required property var modelData
                             width: stack.width
                             runData: modelData
+                            showAttribution: attribution.checked
                         }
                     }
                 }

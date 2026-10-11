@@ -4,6 +4,7 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QImageWriter>
+#include <QPainter>
 #include <QQuickItem>
 #include <QQuickItemGrabResult>
 #include <QQuickWindow>
@@ -16,6 +17,99 @@
 #include <QUuid>
 #include <cmath>
 #include <memory>
+
+namespace {
+QQuickItem *findShareVisual(QQuickItem *item, const QString &name)
+{
+    if (item->objectName() == name)
+        return item;
+    for (auto *child : item->childItems())
+        if (auto *found = findShareVisual(child, name))
+            return found;
+    return nullptr;
+}
+
+// Qt 软件抓图会将混有不透明正文片的组合输出为 RGB，角外透明区域随之变黑。
+// 只在 alpha 已丢失时恢复：从实际顶底素材和已渲染几何取 alpha，不给正常 RGBA 重乘蒙版。
+bool restorePaperAlpha(QImage &image, QQuickItem *capture)
+{
+    if (image.hasAlphaChannel())
+        return true;
+    QList<QQuickItem *> cards;
+    const auto collect = [&cards](auto &&self, QQuickItem *item) -> void {
+        if (item->objectName() == QStringLiteral("reflectionShareCard")) {
+            cards.append(item);
+            return;
+        }
+        for (auto *child : item->childItems())
+            self(self, child);
+    };
+    collect(collect, capture);
+    if (cards.isEmpty())
+        return true;
+
+    const qreal ratio = image.devicePixelRatio();
+    const auto pixels = [capture, ratio](QQuickItem *item) {
+        const QRectF bounds = item->mapRectToItem(capture, item->boundingRect());
+        return QRectF(bounds.topLeft() * ratio, bounds.size() * ratio);
+    };
+    QImage restored(image.size(), QImage::Format_ARGB32_Premultiplied);
+    if (restored.isNull())
+        return false;
+    restored.fill(Qt::transparent);
+    {
+        QPainter painter(&restored);
+        for (auto *card : cards) {
+            painter.setClipRect(pixels(card));
+            // 显式源/目标像素矩形，避免 QImage 的 DPR 再次缩放；组合卡片之间保留透明空隙。
+            painter.drawImage(QRectF(restored.rect()), image, QRectF(image.rect()));
+        }
+    }
+    for (auto *card : cards) {
+        auto *bodyPaper = findShareVisual(card, QStringLiteral("reflectionSharePaperBody"));
+        if (!bodyPaper)
+            return false;
+        for (const auto &name : {QStringLiteral("reflectionShareHeader"), QStringLiteral("reflectionShareFooter")}) {
+            auto *cap = findShareVisual(card, name);
+            if (!cap)
+                return false;
+            const QUrl source = cap->property("source").toUrl();
+            if (source.scheme() != QLatin1String("qrc"))
+                return false;
+            const QImage original(QLatin1Char(':') + source.path());
+            if (original.isNull())
+                return false;
+            const QRectF bounds = pixels(cap);
+            const QRect region = bounds.toAlignedRect().intersected(restored.rect());
+            QImage mask(region.size(), QImage::Format_ARGB32_Premultiplied);
+            if (mask.isNull())
+                return false;
+            mask.fill(Qt::transparent);
+            {
+                QPainter painter(&mask);
+                painter.setRenderHint(QPainter::SmoothPixmapTransform);
+                // 底片的亚像素首行仍由下方正文覆盖，不能将此拼接重叠误清为透明。
+                painter.fillRect(pixels(bodyPaper).translated(-region.topLeft()), Qt::white);
+                painter.drawImage(bounds.translated(-region.topLeft()), original);
+            }
+            for (int y = 0; y < region.height(); ++y) {
+                auto *target = reinterpret_cast<QRgb *>(restored.scanLine(region.top() + y)) + region.left();
+                const auto *alpha = reinterpret_cast<const QRgb *>(mask.constScanLine(y));
+                for (int x = 0; x < region.width(); ++x) {
+                    const int a = qAlpha(alpha[x]);
+                    // RGB 抓图中的边缘已经与透明黑合成；保留预乘色，恢复对应 alpha。
+                    if (a < 255)
+                        target[x] = qRgba(qMin(qRed(target[x]), a), qMin(qGreen(target[x]), a),
+                                          qMin(qBlue(target[x]), a), a);
+                }
+            }
+        }
+    }
+    restored.setDevicePixelRatio(ratio);
+    image = restored;
+    return true;
+}
+}
 
 namespace mr {
 ReflectionShareController::ReflectionShareController(QObject *parent) : QObject(parent) {}
@@ -202,7 +296,7 @@ void ReflectionShareController::capturePrepared(QObject *object, const QString &
             return;
         // 保持发出 ready 的对象直到回调返回；done 可能立即开始下一张抓图。
         const auto grab = m_grab;
-        const QImage image = grab->image();
+        QImage image = grab->image();
         ++m_generation;
         m_grab.reset();
         if (!capturedItem || !capturedItem->window()
@@ -217,6 +311,10 @@ void ReflectionShareController::capturePrepared(QObject *object, const QString &
         }
         if (rejectExisting && QFileInfo::exists(target)) {
             done({}, tr("目标文件已存在，未覆盖。请重试生成新的文件名。"));
+            return;
+        }
+        if (!restorePaperAlpha(image, capturedItem)) {
+            done({}, tr("无法保留分享纸张的透明边缘，未保存。请重新打开预览后重试。"));
             return;
         }
         QString error;

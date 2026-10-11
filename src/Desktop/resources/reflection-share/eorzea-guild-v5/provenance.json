@@ -1,0 +1,39 @@
+{
+  "backgroundOrigin": "User supplied Image 2.5 image; saved under source/component-sheet-original.png.",
+  "processing": "Deterministic crop, alpha cleanup, cap seam blending, non-fading source-grain periodic boundary matching, arbitrary-height footer transition, source-border median extraction.",
+  "decorOrigin": "Authored geometry matching the reference; SVG plus supersampled PNG, not official game UI assets.",
+  "jobIcon": "FFXIV framed icon 62119, game texture ui/icon/062000/062119_hr1.tex; copied unchanged from project resources/icons/jobs_framed/19.png; game rights belong to SQUARE ENIX. Replaces the illustrated shield in active assets.",
+  "fonts": "Installed Noto Serif SC / Noto Sans SC; font files not redistributed.",
+  "shortText": "Verbatim user screenshot.",
+  "longText": "Invented example labelled explicitly; not a factual record.",
+  "v2Processing": "Copy v1 pack without changes to v1; 4x supersampled rounded alpha, recompose short/long previews with moved footer label and independent wax PNG.",
+  "v3Processing": "Copy v2; remove footer label and its short rule in rendered previews, add independent mission completion ink stamp; title, metadata, body and all upper pixels retained.",
+  "missionCompleteStamp": {
+    "origin": "Generated using built-in image generation in this chat.",
+    "rawFile": "source/mission-complete-generated-original.png",
+    "cropBox": [
+      53,
+      105,
+      1967,
+      694
+    ],
+    "processing": "Clear only alpha=1 stray background pixels; crop with 12px margin and resample. No recoloring, rotation or text redrawing.",
+    "text": "MISSION COMPLETE",
+    "assetType": "Transparent raster ink stamp; not an official game insignia."
+  },
+  "v4Processing": "Move mission result stamp to user-marked upper-left diagonal header region; add matching FAILED stamp; use game-original framed PLD icon; optional centered powered-by footer.",
+  "missionFailedStamp": {
+    "origin": "Built-in image generation edit of the COMPLETE stamp, changing wording to MISSION FAILED and rust-red ink.",
+    "rawFile": "source/mission-failed-generated-original.png",
+    "cropBox": [
+      2,
+      33,
+      2170,
+      689
+    ],
+    "processing": "Remove alpha=1 stray background pixels, crop and resize. Display overlay additionally rotated +30deg and alpha scaled to 43%."
+  },
+  "failurePreviews": "Explicitly labelled invented status/layout examples; metadata and short/long text are demonstrative, not a reported failed run.",
+  "brand": "Powered by 导随记录器, exact user-requested capitalization; optional independent transparent text layer.",
+  "v5Processing": "Uppercase the first P in Powered by 导随记录器; remove the wax seal from all active assets, all four previews, and component overview. Earlier package versions remain unchanged."
+}

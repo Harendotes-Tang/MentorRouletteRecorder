@@ -1,0 +1,170 @@
+{
+  "version": 5,
+  "name": "eorzea-guild-results-v5",
+  "baseWidth": 1536,
+  "background": {
+    "header": {
+      "file": "assets/background/header.png",
+      "height": 256
+    },
+    "body": {
+      "file": "assets/background/body-tile.png",
+      "tileHeight": 256,
+      "mode": "repeat-y-and-crop-last"
+    },
+    "footer": {
+      "file": "assets/background/footer.png",
+      "height": 134
+    },
+    "bodyEndTransition": {
+      "file": "assets/background/body-end-transition.png",
+      "height": 32,
+      "mode": "overlay-at-body-end"
+    },
+    "paperTile": {
+      "file": "assets/background/paper-tile.png",
+      "size": [
+        768,
+        256
+      ],
+      "mode": "repeat-xy"
+    },
+    "cornerRadius": 36,
+    "outerAlpha": "Transparent rounded outer corners; opaque interior; antialiased edge."
+  },
+  "content": {
+    "left": 112,
+    "right": 112,
+    "width": 1312,
+    "titleX": 244,
+    "titleTop": 129,
+    "metadataTop": 216,
+    "timeTop": 268,
+    "moodTop": 317,
+    "dividerTop": 367,
+    "bodyTopShort": 428,
+    "bodyTopLong": 460,
+    "lineHeight": 66,
+    "paragraphGap": 28,
+    "minimumHeight": 700,
+    "bottomReserve": 156
+  },
+  "colors": {
+    "paper": "#F1E8D8",
+    "primary": "#392618",
+    "secondary": "#6F5740",
+    "ornament": "#9F8057",
+    "moodUpset": "#943D23"
+  },
+  "font": {
+    "titleFamily": "Noto Serif SC",
+    "bodyFamily": "Noto Serif SC",
+    "metadataFamily": "Noto Sans SC",
+    "titlePixels": 64,
+    "bodyPixels": 40,
+    "metadataPixels": 32,
+    "timePixels": 29,
+    "footerPixels": 28,
+    "bundled": false
+  },
+  "rules": [
+    "Scale all values uniformly if changing output width.",
+    "Never stretch header/footer vertically.",
+    "Extend divider line segments but keep center ornament proportional.",
+    "Do not overlay optional corners on already decorated header/footer.",
+    "Wrap long titles and metadata and shift all subsequent positions; do not truncate.",
+    "Header and footer PNGs already include rounded alpha; do not apply the same mask twice.",
+    "Preserve both the original reflection title and duty title.",
+    "Do not draw the former footer label or its short rule.",
+    "A completion stamp must not label an incomplete or unknown-result record complete.",
+    "Show exactly one stamp for a confirmed result: COMPLETE for success, FAILED for failure; show none for unknown.",
+    "Ready diagonal stamp PNG already includes rotation and 43% alpha; do not rotate or multiply its alpha again.",
+    "Preserve original title copy; decorative overprint deliberately overlaps the user-marked header region.",
+    "Powered-by attribution is optional and separate from the blank background.",
+    "Use the exact attribution Powered by 导随记录器 with uppercase P.",
+    "No wax seal decoration in this version."
+  ],
+  "decorations": {
+    "roundedMasks": {
+      "header": "assets/masks/header-round-mask.png",
+      "footer": "assets/masks/footer-round-mask.png",
+      "radius": 36
+    },
+    "missionResultStamp": {
+      "x": 44,
+      "y": 30,
+      "inputWidth": 416,
+      "extraCounterclockwiseRotationDegrees": 30,
+      "intrinsicTilt": "approximately 5 degrees",
+      "opacity": 0.43,
+      "layer": "above header text and job icon, below content divider",
+      "intentionalHeaderOverlap": true,
+      "assets": {
+        "complete": {
+          "master": "assets/decor/mission-complete-stamp.png",
+          "readyOverlay": "assets/decor/mission-complete-stamp-diagonal.png",
+          "readyOverlaySize": [
+            426,
+            320
+          ],
+          "text": "MISSION COMPLETE"
+        },
+        "failed": {
+          "master": "assets/decor/mission-failed-stamp.png",
+          "readyOverlay": "assets/decor/mission-failed-stamp-diagonal.png",
+          "readyOverlaySize": [
+            424,
+            318
+          ],
+          "text": "MISSION FAILED"
+        }
+      },
+      "unknownResult": null,
+      "readyOverlayAlreadyRotatedAndFaded": true
+    }
+  },
+  "footer": {
+    "label": null,
+    "labelRuleVisible": false,
+    "composition": "optional centered Powered by attribution; no wax seal"
+  },
+  "copyInvariants": [
+    "导随心得",
+    "黑风海底阿尼德罗追忆馆",
+    "游玩时间：2026-10-07 23:53:45",
+    "糟心"
+  ],
+  "jobIcon": {
+    "file": "assets/frame/job-paladin-game-framed.png",
+    "sourceSize": [
+      64,
+      64
+    ],
+    "displaySize": [
+      96,
+      96
+    ],
+    "x": 128,
+    "y": 132,
+    "classJobId": 19,
+    "iconId": 62119,
+    "sourcePath": "ui/icon/062000/062119_hr1.tex",
+    "source": "Existing project FFXIV game asset, copied unchanged.",
+    "futureSelection": "Select the game icon matching each record job; no AI-generated substitutes."
+  },
+  "branding": {
+    "text": "Powered by 导随记录器",
+    "optional": true,
+    "enabledInPreview": true,
+    "file": "assets/decor/footer-brand.png",
+    "size": [
+      320,
+      32
+    ],
+    "horizontalAnchor": "center",
+    "topFromBottom": 48,
+    "font": "Noto Sans SC",
+    "fontPixels": 20,
+    "color": "#6F5740"
+  }
+}

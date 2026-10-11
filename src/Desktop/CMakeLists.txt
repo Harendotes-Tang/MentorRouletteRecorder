@@ -351,6 +351,23 @@ qt_add_resources(MentorRecorderDesktopLib "mr_statistics"
     BASE ${CMAKE_CURRENT_SOURCE_DIR}
     FILES resources/statistics/main-scenario-membership.json)
 
+# User-approved v5 share materials are local and independent of the application theme.
+qt_add_resources(MentorRecorderDesktopLib "mr_reflection_share"
+    PREFIX "/"
+    BASE ${CMAKE_CURRENT_SOURCE_DIR}
+    FILES
+        resources/reflection-share/eorzea-guild-v5/background/header.png
+        resources/reflection-share/eorzea-guild-v5/background/body-tile.png
+        resources/reflection-share/eorzea-guild-v5/background/body-end-transition.png
+        resources/reflection-share/eorzea-guild-v5/background/footer.png
+        resources/reflection-share/eorzea-guild-v5/decor/title-rule.png
+        resources/reflection-share/eorzea-guild-v5/decor/side-flourish.png
+        resources/reflection-share/eorzea-guild-v5/decor/divider-full.png
+        resources/reflection-share/eorzea-guild-v5/decor/mission-complete-stamp-diagonal.png
+        resources/reflection-share/eorzea-guild-v5/decor/mission-failed-stamp-diagonal.png
+        resources/reflection-share/eorzea-guild-v5/decor/footer-brand.png
+)
+
 # ---------------------------------------------------------------------------
 # Bundled fonts.
 #
