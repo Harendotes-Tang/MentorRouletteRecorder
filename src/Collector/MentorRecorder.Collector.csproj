@@ -24,7 +24,7 @@
          the old Apache-2.0 release contains affected imaging paths and must not ship. -->
     <PackageReference Include="SixLabors.ImageSharp" Version="[2.1.11]" ExcludeAssets="runtime" />
     <PackageReference Include="SixLabors.Fonts" Version="[1.0.1]" />
-    <PackageReference Include="System.Security.Cryptography.Xml" Version="[8.0.4]" />
+    <PackageReference Include="System.Security.Cryptography.Xml" Version="[10.0.12]" />
     <!-- Exact compile-only package advisories; runtime exclusion is checked by real-file
          tests and the dependency manifest. Do not turn off NuGet auditing globally. -->
     <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-gwg2-r3hj-4w44" />
