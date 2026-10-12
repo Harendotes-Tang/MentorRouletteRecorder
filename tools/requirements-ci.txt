@@ -1,6 +1,8 @@
 # Python packages the CI workflow installs by hand. They live in a requirements file so that
 # Dependabot (.github/dependabot.yml) tracks their versions and security advisories: a version
 # written inline in a `pip install` line is invisible to it.
+# This manifest is scanned at /tools; the separate /tools/LocalAiOcr entry tracks OCR build
+# dependencies so each dependency graph snapshot follows its own manifest boundary.
 #
 # PE parsing dependencies for the offline tools/oodle-signature-finder tests.
 capstone==5.0.9
