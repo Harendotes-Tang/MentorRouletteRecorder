@@ -9,5 +9,5 @@ pefile==2024.8.26
 # The local OCR helper contract tests exercise pixel geometry and symbol extraction.
 # Keep this CPU-only test closure separate from the frozen runtime's build requirements
 # in tools/LocalAiOcr/requirements-build.txt; this file does not deploy the application.
-numpy==2.4.6
+numpy==2.5.3
 opencv-python-headless==5.0.0.93
