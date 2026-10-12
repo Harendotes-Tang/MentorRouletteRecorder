@@ -14,8 +14,8 @@ updates:
     directory: "/"
     schedule:
       interval: "monthly"
-  # tools/requirements-ci.txt: the two packages CI installs for the signature tool's tests. Named
-  # inline in a `pip install` line they were tracked by nothing at all.
+  # tools/requirements-ci.txt declares CI test dependencies; OCR build dependencies have their
+  # own entry below. Versions written inline in a pip install command would not be tracked.
   - package-ecosystem: "pip"
     directory: "/tools"
     exclude-paths:
