@@ -22,7 +22,7 @@
     <PackageReference Include="NPOI" Version="[2.7.6]" />
     <!-- HSSF import never decodes pictures. Keep ImageSharp compile-only:
          the old Apache-2.0 release contains affected imaging paths and must not ship. -->
-    <PackageReference Include="SixLabors.ImageSharp" Version="[2.1.11]" ExcludeAssets="runtime" />
+    <PackageReference Include="SixLabors.ImageSharp" Version="[4.1.3]" ExcludeAssets="runtime" />
     <PackageReference Include="SixLabors.Fonts" Version="[1.0.1]" />
     <PackageReference Include="System.Security.Cryptography.Xml" Version="[8.0.4]" />
     <!-- Exact compile-only package advisories; runtime exclusion is checked by real-file
