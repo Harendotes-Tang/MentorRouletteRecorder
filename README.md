@@ -26,7 +26,7 @@
 离开副本三个事件并生成记录，按职业、副本、耗时与结果汇总为历史与统计。不注入、不读内存、不发包、
 无遥测；所有数据仅保存在本机。
 
-**当前源码版本：** `1.7.1`（正式版，版本来源为 [Directory.Build.props](Directory.Build.props)）。
+**当前源码版本：** `1.7.2`（正式版，版本来源为 [Directory.Build.props](Directory.Build.props)）。
 下文包含本版本的记录导入、离线截图识别与心得库功能；正式版与测试版的区别见[安装](#安装)，
 本轮变更见 [CHANGELOG.md](CHANGELOG.md)。
 
@@ -43,9 +43,12 @@
 > day (enabled by default, can be disabled). The installer of a newer version is downloaded only
 > when the user clicks 「下载并安装」, kept only if it matches the SHA-256 published beside it, and
 > started only when the user clicks 「立即安装」; nothing is downloaded or installed automatically.
+> Shared calibration and update requests try GitHub first and use the fixed GitCode mirrors when
+> GitHub fails. A network-interrupted installer download restarts the complete same-version file from
+> the mirror and keeps the original SHA-256 check.
 > Setting `MR_DISABLE_SHARED_FETCH=1`, `MR_DISABLE_ONLINE_SPEECH=1` and `MR_DISABLE_UPDATE_CHECK=1`
 > disables all three.
-> The current source version is `1.7.0`. It also supports local record imports from CSV,
+> The current source version is `1.7.2`. It also supports local record imports from CSV,
 > XLS/XLSX, native JSON, database backups, pasted tables and screenshots. Screenshot OCR runs offline;
 > imports require preview and confirmation, and conflicts preserve local records. Reflection sharing
 > saves a PNG locally without uploading it.
@@ -325,8 +328,9 @@ OCR、解析器、分类器与导入控制器测试已通过。识别专项测�
 - 无遥测、无账号，不自动下载、不自动安装更新，不上传任何数据。Desktop 与 Collector 通过本机命名管道通信，
   OCR 子进程读取本地临时图片并返回识别结果；这些本机通信不监听网络端口。
 - 界面进程不发起网络请求。后台采集服务仅在以下三种情况下联网：
-  - **共享校准获取**（默认开启）：游戏更新后本机无可用协议档案时，从固定的公开 GitHub 仓库只读下载
-    其他玩家分享的校准，经本机流量核实后方可用于记录。正在使用的档案来自共享校准、或按排本推断匹配时，
+  - **共享校准获取**（默认开启）：游戏更新后本机无可用协议档案时，优先从固定的公开 GitHub 仓库只读下载
+    其他玩家分享的校准，获取失败时尝试固定的 GitCode 镜像；经本机流量核实后方可用于记录。
+    正在使用的档案来自共享校准、或按排本推断匹配时，
     也会按同样的节流读取一次索引，以便及时得知该校准码被撤回或出现了更准的码；请求内容完全相同，
     同样不上传任何内容。可在"设置 → 通用"中关闭
     「游戏更新后获取其他玩家的共享校准」。请求内容与限制见[隐私边界](docs/privacy-boundary.md) §8.2。
@@ -334,8 +338,9 @@ OCR、解析器、分类器与导入控制器测试已通过。识别专项测�
     播报时只将当前这句播报文本发送至所选语音服务。密钥仅保存在本机，并由 Windows 加密。
     详见[隐私边界](docs/privacy-boundary.md) §8.3。
   - **检查新版本**（默认开启）：每次启动检查一次，之后每 24 小时最多一次，也可在"设置 → 通用 → 更新"中点「检查更新」；
-    只读取发布页上的版本号文件，与当前版本比较，发现新版本时在总览页提示一句。
+    优先读取 GitHub 发布页上的版本号文件，获取失败时尝试固定的 GitCode 镜像；与当前版本比较，发现新版本时在总览页提示一句。
     只有点击「下载并安装」后，后台采集服务才从本项目发布页下载该版本的安装程序，并与发布时公布的 SHA-256 核对，一致才保留；
+    下载遇到网络故障时，从镜像重新下载同一版本的完整安装程序，继续使用原 SHA-256 校验。
     只有再点击「立即安装」，界面进程才启动该安装程序（Windows 会请求管理员批准）并退出，由安装程序完成更新。
     不点击就不会下载，也不会安装；下载失败时可改由浏览器下载。可在同一处关闭「检查新版本并提示」，关闭后检查与下载都不再发生。
     详见[隐私边界](docs/privacy-boundary.md) §8.4、§8.6。
