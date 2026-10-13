@@ -85,6 +85,7 @@ SAMPLES: dict[str, str] = {
     "NET-007/github-content-hosts": '        const string Raw = "https://raw.githubusercontent.com/owner/repo/main/index.json";',
     "NET-007/gitcode-api-host": '        const string Api = "https://api.gitcode.com/api/v5/repos/owner/repo";',
     "NET-007/gitcode-asset-hosts": '        const string Asset = "https://file-cdn.gitcode.com/release/file";',
+    "NET-007/gitcode-upload-host": '        const string Upload = "https://file.gitcode.com/release/file";',
     "NET-007/speech-host": '        const string Endpoint = "https://eastasia.tts.speech.microsoft.com/cognitiveservices/v1";',
     "NET-008": '        using var client = new TcpClient("example.invalid", 443);',
     "NET-009/downloads": "        Invoke-WebRequest -Uri $url -OutFile $target",
@@ -1584,10 +1585,27 @@ def cases() -> Iterable[tuple[str, callable]]:
             clean_tree(root)
             plant(root, release_mirror, generator_lines + '\nHOST = "api.gitcode.com"\n'
                   'CDN = "file-cdn.gitcode.com"\nUPLOAD = "file-upload.gitcode.com"\n'
+                  'PUBLISH_UPLOAD = "file.gitcode.com"\n'
                   'SOURCE = "release-assets.githubusercontent.com"')
             expect_clean(root, "the exact release mirror entry point")
 
     yield "release mirror network allowances apply only to its entry point", release_mirror_is_allowed
+
+    for path, allowed in ((release_mirror, True), (client, False), (updates, False),
+                          ("src/Collector/Speech/OnlineSpeechClient.cs", False),
+                          ("tools/release-mirror/selftest.py", False),
+                          ("tools/release-mirror/other.py", False),
+                          ("tools/release-mirror-old/sync_release.py", False)):
+        def gitcode_upload_scope(path: str = path, allowed: bool = allowed) -> None:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                clean_tree(root)
+                plant(root, path, 'HOST = "FILE.GITCODE.COM"')
+                if allowed:
+                    expect_clean(root, f"GitCode upload host in {path}")
+                else:
+                    expect_violation(root, f"GitCode upload host in {path}", "NET-007", "NET-007/gitcode-upload-host")
+        yield f"GitCode upload allowance for {path} is {allowed}", gitcode_upload_scope
 
     for path, allowed in ((client, True), (updates, True),
                           ("src/Collector/Speech/OnlineSpeechClient.cs", False),
