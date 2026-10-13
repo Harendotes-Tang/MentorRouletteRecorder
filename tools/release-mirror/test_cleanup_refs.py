@@ -30,8 +30,9 @@ UNLISTED = "refs/heads/preserve-target-only"
 TAG = "refs/tags/v1.7.2"
 
 
-def entry(ref=REF, expected=B, anchor=A, repo=REPO):
-    return {"repo": repo, "ref": ref, "expected_sha": expected, "merge_anchor": anchor}
+def entry(ref=REF, expected=B, anchor=A, repo=REPO, discard=False):
+    return {"repo": repo, "ref": ref, "expected_sha": expected,
+            "discard_anchor" if discard else "merge_anchor": anchor}
 
 
 def plan(entries=None):
@@ -90,14 +91,41 @@ class FakeGit:
 
 
 class PlanTests(unittest.TestCase):
-    def test_real_plan_is_only_the_three_approved_branches(self):
+    def test_real_plan_preserves_old_approvals_and_exact_retirement_scope(self):
         actual = m.load_plan()
-        self.assertEqual([(e["repo"], e["ref"]) for e in actual], [
+        self.assertEqual([(e["repo"], e["ref"]) for e in actual[:3]], [
             (REPO, "refs/heads/dependabot/pip/tools/LocalAiOcr/setuptools-83.0.0"),
             (REPO, "refs/heads/codex/gitcode-mirror-fallback"),
             (OTHER, "refs/heads/codex/gitcode-actions-mirror")])
         self.assertEqual(actual[1]["expected_sha"], "b47043a0dbd871cf5af8ced63ba1d36b41e9e089")
         self.assertEqual(actual[1]["merge_anchor"], actual[1]["expected_sha"])
+        self.assertEqual(len(actual), 19)
+        discarded = [e for e in actual if "discard_anchor" in e]
+        self.assertEqual(len(discarded), 15)
+        self.assertTrue(all(e["repo"] == REPO and e["ref"].startswith("refs/heads/dependabot/")
+                            and e["discard_anchor"] == "afdb03816f879c3e1143a129e11020170433699e"
+                            for e in discarded))
+        self.assertEqual(actual[-1], entry(
+            ref="refs/heads/fix/dependabot-scan-overlap",
+            expected="0d3cc14d6a496c7bf22d88d6205364a76de51798",
+            anchor="ee7e4d7a436021f5e79bce3f243a5bbeb9652841"))
+
+    def test_discard_evidence_is_distinct_and_unambiguous(self):
+        self.assertEqual(m.validate_plan(plan([entry(discard=True)])), [entry(discard=True)])
+        invalid = [{**entry(), "discard_anchor": A},
+                   {k: v for k, v in entry().items() if k != "merge_anchor"},
+                   entry(discard=True, anchor="0" * 40),
+                   entry(discard=True, anchor="not-a-commit"),
+                   entry(discard=True, ref="refs/heads/dev")]
+        for value in invalid:
+            with self.subTest(value=value), self.assertRaises(m.RefSyncError):
+                m.validate_plan(plan([value]))
+
+    def test_ledger_count_remains_bounded(self):
+        entries = [entry(ref=REF + str(i)) for i in range(m.MAX_ENTRIES)]
+        self.assertEqual(len(m.validate_plan(plan(entries))), m.MAX_ENTRIES)
+        with self.assertRaises(m.RefSyncError):
+            m.validate_plan(plan(entries + [entry(ref=REF + "overflow")]))
 
     def test_protected_tags_and_malformed_refs_rejected(self):
         for ref in ("refs/tags/v1.7.2", "refs/pull/1/head", "main", "refs/heads/main",
@@ -128,6 +156,37 @@ class PlanTests(unittest.TestCase):
 
 
 class CleanupTests(unittest.TestCase):
+    def test_discarded_unmerged_head_is_deleted_only_after_source_absence(self):
+        git = FakeGit()
+        self.assertNotIn(B, git.anchors)  # Discarded change is not merge evidence.
+        git.source[REF] = B
+        self.assertEqual(m.cleanup(git, REPO, [entry(discard=True)], execute=True)[REF],
+                         "retained-source-present")
+        self.assertFalse(git.pushes())
+        git.source.pop(REF)
+        self.assertEqual(m.cleanup(git, REPO, [entry(discard=True)], execute=True)[REF],
+                         "deleted-and-verified")
+        self.assertEqual(len(git.pushes()), 1)
+        self.assertNotIn(REF, git.target)
+        self.assertEqual(git.target[UNLISTED], C)
+
+    def test_discard_anchor_and_target_changes_still_fail_closed(self):
+        for approval, target_sha in ((entry(discard=True, anchor=C), B),
+                                     (entry(discard=True), C)):
+            git = FakeGit()
+            git.target[REF] = target_sha
+            with self.subTest(approval=approval), self.assertRaises(m.RefSyncError):
+                m.cleanup(git, REPO, [approval], execute=True)
+            self.assertFalse(git.pushes())
+
+    def test_discarded_source_reappearance_uses_existing_restricted_restore(self):
+        git = FakeGit()
+        git.after_push = lambda: git.source.update({REF: C})
+        with self.assertRaisesRegex(m.RefSyncError, "reappeared"):
+            m.cleanup(git, REPO, [entry(discard=True)], execute=True)
+        self.assertEqual(git.target[REF], C)
+        self.assertIn("--force-with-lease=" + REF + ":", git.pushes()[1])
+
     def test_default_preview_never_pushes_or_supplies_credentials(self):
         git = FakeGit()
         self.assertEqual(m.cleanup(git, REPO, [entry()]), {REF: "eligible"})

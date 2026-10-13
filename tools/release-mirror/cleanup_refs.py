@@ -19,7 +19,7 @@ from sync_refs import Git, REPOSITORIES, SHA, RefSyncError, parse_refs, reposito
 
 PLAN_PATH = Path(__file__).with_name("cleanup-plan.json")
 MAX_PLAN_BYTES = 16 * 1024
-MAX_ENTRIES = 16
+MAX_ENTRIES = 32
 MAIN = "refs/heads/main"
 
 
@@ -46,8 +46,11 @@ def validate_plan(value: object) -> list[dict[str, str]]:
             "Invalid approval plan entry count")
     seen = set()
     for entry in entries:
+        fields = set(entry) if isinstance(entry, dict) else set()
+        anchors = fields & {"merge_anchor", "discard_anchor"}
         require(isinstance(entry, dict)
-                and set(entry) == {"repo", "ref", "expected_sha", "merge_anchor"}
+                and len(anchors) == 1
+                and fields == {"repo", "ref", "expected_sha"} | anchors
                 and all(isinstance(v, str) for v in entry.values()), "Invalid approval entry")
         repository_urls(entry["repo"])
         ref = entry["ref"]
@@ -60,7 +63,7 @@ def validate_plan(value: object) -> list[dict[str, str]]:
                 "Invalid approved branch name")
         require(ref.lower() not in {"refs/heads/main", "refs/heads/dev"},
                 "Protected branch cannot be approved for deletion")
-        for field in ("expected_sha", "merge_anchor"):
+        for field in {"expected_sha"} | anchors:
             require(SHA.fullmatch(entry[field]) is not None and entry[field] != "0" * 40,
                     "Approval requires complete nonzero commit SHAs")
         identity = (entry["repo"], ref)
@@ -155,13 +158,15 @@ def cleanup(git: Git, repo: str, plan: list[dict[str, str]], *, execute: bool = 
     git.run(["fetch", "--no-tags", source_url, "+refs/heads/main:refs/heads/main"])
     main_sha = git.run(["rev-parse", "--verify", MAIN]).strip()
     require(SHA.fullmatch(main_sha) is not None, "Invalid fetched main commit")
-    for anchor in sorted({entry["merge_anchor"] for entry in entries}):
+    # A discard anchor records the main baseline at explicit abandonment approval;
+    # it does not claim that the discarded dependency change was ever merged.
+    for anchor in sorted({entry.get("merge_anchor", entry.get("discard_anchor")) for entry in entries}):
         require(git.run(["cat-file", "-t", anchor]).strip() == "commit",
-                "Approved merge anchor must be a commit")
+                "Approved retirement anchor must be a commit")
         try:
             git.run(["merge-base", "--is-ancestor", anchor, main_sha])
         except RefSyncError:
-            raise RefSyncError("Approved merge anchor is not verified in GitHub main") from None
+            raise RefSyncError("Approved retirement anchor is not verified in GitHub main") from None
     source, target = remote_refs(git, source_url), remote_refs(git, target_url)
     require(source.get(MAIN) == main_sha, "GitHub main changed during preflight; retry")
     decisions = classify(entries, source, target)

@@ -18,6 +18,102 @@
       "ref": "refs/heads/codex/gitcode-actions-mirror",
       "expected_sha": "077f9717654e8b38aee00cd31649a63a93c8d812",
       "merge_anchor": "3f505bc51a72b9d88d238c299f3b409db7209005"
+    },
+    {
+      "repo": "MentorRouletteRecorder",
+      "ref": "refs/heads/dependabot/nuget/src/Collector/multi-f1afb4641d",
+      "expected_sha": "6e30d53c5a45684258c4d47ca48887f1f98fe057",
+      "discard_anchor": "afdb03816f879c3e1143a129e11020170433699e"
+    },
+    {
+      "repo": "MentorRouletteRecorder",
+      "ref": "refs/heads/dependabot/pip/tools/numpy-2.5.3",
+      "expected_sha": "651aba8fa2081e970a986a4de53e29f93e3dbcf7",
+      "discard_anchor": "afdb03816f879c3e1143a129e11020170433699e"
+    },
+    {
+      "repo": "MentorRouletteRecorder",
+      "ref": "refs/heads/dependabot/pip/tools/setuptools-84.0.0",
+      "expected_sha": "5fdfee96e7bc440b84fefbc49db015dec58cceff",
+      "discard_anchor": "afdb03816f879c3e1143a129e11020170433699e"
+    },
+    {
+      "repo": "MentorRouletteRecorder",
+      "ref": "refs/heads/dependabot/pip/tools/pyinstaller-6.22.3",
+      "expected_sha": "540d72523e2428608767426ff55030c9ae66d7f0",
+      "discard_anchor": "afdb03816f879c3e1143a129e11020170433699e"
+    },
+    {
+      "repo": "MentorRouletteRecorder",
+      "ref": "refs/heads/dependabot/github_actions/actions/setup-node-7.1.0",
+      "expected_sha": "0d4fcce4b57a5f8509bbf058c7978d078e2f46db",
+      "discard_anchor": "afdb03816f879c3e1143a129e11020170433699e"
+    },
+    {
+      "repo": "MentorRouletteRecorder",
+      "ref": "refs/heads/dependabot/github_actions/actions/upload-artifact-7.0.2",
+      "expected_sha": "a8ed14cb86af9b90aa3270e7c7dca0c19c1591b0",
+      "discard_anchor": "afdb03816f879c3e1143a129e11020170433699e"
+    },
+    {
+      "repo": "MentorRouletteRecorder",
+      "ref": "refs/heads/dependabot/pip/tools/LocalAiOcr/numpy-2.5.3",
+      "expected_sha": "b5eca93ce68e691aa6ede027ec2a3ed68ff2486c",
+      "discard_anchor": "afdb03816f879c3e1143a129e11020170433699e"
+    },
+    {
+      "repo": "MentorRouletteRecorder",
+      "ref": "refs/heads/dependabot/pip/tools/LocalAiOcr/pyinstaller-6.22.3",
+      "expected_sha": "b536699751d824913216fd563d996556fa433179",
+      "discard_anchor": "afdb03816f879c3e1143a129e11020170433699e"
+    },
+    {
+      "repo": "MentorRouletteRecorder",
+      "ref": "refs/heads/dependabot/pip/tools/LocalAiOcr/setuptools-84.0.0",
+      "expected_sha": "2b758479f179c35ae80f66d6f98a0bcf5f2c0c8d",
+      "discard_anchor": "afdb03816f879c3e1143a129e11020170433699e"
+    },
+    {
+      "repo": "MentorRouletteRecorder",
+      "ref": "refs/heads/dependabot/nuget/tests/Collector.IntegrationTests/JsonSchema.Net-9.4.1",
+      "expected_sha": "54900b3363170f1d2e9004c8664b1b81a1f65504",
+      "discard_anchor": "afdb03816f879c3e1143a129e11020170433699e"
+    },
+    {
+      "repo": "MentorRouletteRecorder",
+      "ref": "refs/heads/dependabot/nuget/src/Collector/multi-478c29cb6e",
+      "expected_sha": "096fef7f5587ca46cbab98ed0c9ee05a3b604e60",
+      "discard_anchor": "afdb03816f879c3e1143a129e11020170433699e"
+    },
+    {
+      "repo": "MentorRouletteRecorder",
+      "ref": "refs/heads/dependabot/nuget/src/Collector/SixLabors.Fonts-3.2.0",
+      "expected_sha": "b4801de5366a74afd7a0e80b3e85ce6c1ceba075",
+      "discard_anchor": "afdb03816f879c3e1143a129e11020170433699e"
+    },
+    {
+      "repo": "MentorRouletteRecorder",
+      "ref": "refs/heads/dependabot/nuget/src/Collector/multi-9560ed536c",
+      "expected_sha": "fc6f77f835832194ace981dcb0d5b6f09cc5c709",
+      "discard_anchor": "afdb03816f879c3e1143a129e11020170433699e"
+    },
+    {
+      "repo": "MentorRouletteRecorder",
+      "ref": "refs/heads/dependabot/nuget/src/Collector/System.Security.Cryptography.Xml-10.0.12",
+      "expected_sha": "09a08ffaabf217fc45b292866544ad3b690eb7fd",
+      "discard_anchor": "afdb03816f879c3e1143a129e11020170433699e"
+    },
+    {
+      "repo": "MentorRouletteRecorder",
+      "ref": "refs/heads/dependabot/nuget/tests/Collector.IntegrationTests/multi-ac7f895426",
+      "expected_sha": "3f30c078f2ed57e36be0f513ae36466bc823dbc2",
+      "discard_anchor": "afdb03816f879c3e1143a129e11020170433699e"
+    },
+    {
+      "repo": "MentorRouletteRecorder",
+      "ref": "refs/heads/fix/dependabot-scan-overlap",
+      "expected_sha": "0d3cc14d6a496c7bf22d88d6205364a76de51798",
+      "merge_anchor": "ee7e4d7a436021f5e79bce3f243a5bbeb9652841"
     }
   ]
 }
