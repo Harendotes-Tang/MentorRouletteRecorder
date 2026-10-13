@@ -260,6 +260,7 @@ public sealed class SharedCalibrationStoreTests : IDisposable
             new[]
             {
                 new SharedSourceAttempt(SharedCalibrationSource.GithubRaw, SharedFetchOutcome.DnsOrConnect, null, "NAME_RESOLUTION_ERROR"),
+                new SharedSourceAttempt(SharedCalibrationSource.Gitcode, SharedFetchOutcome.HttpStatus, 503),
                 new SharedSourceAttempt(SharedCalibrationSource.CdnPrimary, SharedFetchOutcome.Ok, 200),
             },
             Array.Empty<SharedCalibrationCandidate>(),
@@ -268,6 +269,7 @@ public sealed class SharedCalibrationStoreTests : IDisposable
                 new SharedCodeDiscard(new string('e', 64), "HASH_MISMATCH", new[]
                 {
                     new SharedSourceAttempt(SharedCalibrationSource.CdnPrimary, SharedFetchOutcome.Malformed, 200, "HASH_MISMATCH"),
+                    new SharedSourceAttempt(SharedCalibrationSource.Gitcode, SharedFetchOutcome.Timeout),
                     new SharedSourceAttempt(SharedCalibrationSource.GithubRaw, SharedFetchOutcome.Timeout),
                 }),
             },

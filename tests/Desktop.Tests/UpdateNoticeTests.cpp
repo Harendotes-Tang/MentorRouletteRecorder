@@ -470,6 +470,18 @@ private Q_SLOTS:
         QTest::newRow("encoded-dot-segments")
             << "https://github.com/Harendotes-Tang/MentorRouletteRecorder/%2E%2E/%2E%2E/someone-else/x";
         QTest::newRow("site-root") << "https://github.com/";
+        QTest::newRow("mirror-lookalike-host")
+            << "https://gitcode.com.example.invalid/Harendotes-Tang/MentorRouletteRecorder/releases/v9.9.9";
+        QTest::newRow("mirror-other-owner")
+            << "https://gitcode.com/someone-else/MentorRouletteRecorder/releases/v9.9.9";
+        QTest::newRow("mirror-query")
+            << "https://gitcode.com/Harendotes-Tang/MentorRouletteRecorder/releases/v9.9.9?redirect=x";
+        QTest::newRow("mirror-fragment")
+            << "https://gitcode.com/Harendotes-Tang/MentorRouletteRecorder/releases/v9.9.9#x";
+        QTest::newRow("mirror-other-page")
+            << "https://gitcode.com/Harendotes-Tang/MentorRouletteRecorder/issues";
+        QTest::newRow("mirror-beta")
+            << "https://gitcode.com/Harendotes-Tang/MentorRouletteRecorder/releases/v9.9.9-beta.1";
     }
 
     void refusesAnAddressWithUserInfoAPortOrAnotherHost()
@@ -514,6 +526,25 @@ private Q_SLOTS:
         QCOMPARE(scene.opened.constLast(), QLatin1String(kReleaseUrl));
     }
 
+    void mirrorLinksUseTheExistingUserInitiatedActions()
+    {
+        const QString release = QStringLiteral(
+            "https://gitcode.com/Harendotes-Tang/MentorRouletteRecorder/releases/v9.9.9");
+        const QString installer = QStringLiteral(
+            "https://gitcode.com/Harendotes-Tang/MentorRouletteRecorder/releases/download/v9.9.9/"
+            "MentorRecorder-9.9.9-setup.exe");
+        ControllerScene scene;
+        scene.open(withInstaller(updateStatus(true, QStringLiteral("9.9.9"), release), installer));
+        auto *update = scene.controller();
+        QTRY_VERIFY(update->updateAvailable());
+        QCOMPARE(update->releaseUrl(), release);
+        QCOMPARE(update->property("installerUrl").toString(), installer);
+        QVERIFY(scene.opened.isEmpty());
+        update->openReleasePage();
+        QVERIFY(QMetaObject::invokeMethod(update, "openInstallerDownload"));
+        QCOMPARE(scene.opened, (QStringList{release, installer}));
+    }
+
     void refusesAnInstallerAddressThatIsNotThisProjectsInstaller_data()
     {
         const QString download = QStringLiteral(
@@ -543,6 +574,15 @@ private Q_SLOTS:
         QTest::newRow("no-file") << download;
         QTest::newRow("query") << download + QStringLiteral("MentorRecorder-9.9.9-setup.exe?x=1");
         QTest::newRow("not-a-url") << "javascript:void(0)";
+        QTest::newRow("mirror-mismatched-version")
+            << "https://gitcode.com/Harendotes-Tang/MentorRouletteRecorder/releases/download/v9.9.9/"
+               "MentorRecorder-8.8.8-setup.exe";
+        QTest::newRow("mirror-other-installer")
+            << "https://gitcode.com/Harendotes-Tang/MentorRouletteRecorder/releases/download/v9.9.9/"
+               "Other-9.9.9-setup.exe";
+        QTest::newRow("mirror-old-owner")
+            << "https://gitcode.com/qq_41928679/MentorRouletteRecorder/releases/download/v9.9.9/"
+               "MentorRecorder-9.9.9-setup.exe";
     }
 
     void refusesAnInstallerAddressThatIsNotThisProjectsInstaller()

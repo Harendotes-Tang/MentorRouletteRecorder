@@ -48,6 +48,9 @@ public sealed class UpdateCheckClient
     /// <summary>Name of the release repository.</summary>
     public const string Repository = "MentorRouletteRecorder";
 
+    /// <summary>The mirror repository's stable project ID, verified from its attachment redirects.</summary>
+    public const string GitCodeProjectId = "11065764";
+
     /// <summary>The release asset read; published beside every release as a standalone file.</summary>
     public const string AssetFileName = "BUILD-METADATA.json";
 
@@ -73,6 +76,10 @@ public sealed class UpdateCheckClient
     public static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(15);
 
     private const string ReleaseHost = "github.com";
+    private const string MirrorHost = "gitcode.com";
+    private const string MirrorApiHost = "api." + MirrorHost;
+    private const string MirrorAssetHost = "file-cdn." + MirrorHost;
+
     private const string ContentHost = "githubusercontent.com";
 
     // Where GitHub serves this project's release assets from (it redirects them to the first today).
@@ -142,6 +149,30 @@ public sealed class UpdateCheckClient
     public static string? ChecksumUrl(string? version) =>
         InstallerUrl(version) is { } installer ? installer + ChecksumSuffix : null;
 
+    /// <summary>Bounded anonymous release discovery; returned download URLs are never followed.</summary>
+    public static Uri GitCodeReleasesUri() => new("https://" + MirrorApiHost + "/api/v5/repos/" + Owner + "/" + Repository + "/releases?page=1&per_page=20");
+
+    /// <summary>Exact version release page for a successful mirror check.</summary>
+    public static string? GitCodeReleaseUrl(string? version) => UpdateMetadata.IsVersion(version)
+        ? "https://" + MirrorHost + "/" + Owner + "/" + Repository + "/releases/v" + version : null;
+
+    /// <summary>Exact installer attachment for the browser fallback.</summary>
+    public static string? GitCodeInstallerUrl(string? version) => UpdateMetadata.IsVersion(version)
+        ? "https://" + MirrorHost + "/" + Owner + "/" + Repository + "/releases/download/v" + version + "/MentorRecorder-" + version + "-setup.exe" : null;
+
+    /// <summary>Builds only the three known attachment names for one formal version.</summary>
+    public static Uri GitCodeAssetUri(string version, string fileName)
+    {
+        if (!UpdateVersion.TryParse(version, out _) ||
+            (fileName != AssetFileName && fileName != "MentorRecorder-" + version + "-setup.exe" &&
+             fileName != "MentorRecorder-" + version + "-setup.exe" + ChecksumSuffix))
+        {
+            throw new ArgumentException("not a published attachment");
+        }
+        return new Uri("https://" + MirrorApiHost + "/api/v5/repos/" + Owner + "/" + Repository +
+            "/releases/v" + version + "/attach_files/" + fileName + "/download");
+    }
+
     /// <summary>Production transport: the process-wide client, no redirects, no cookies, the system proxy.</summary>
     public static UpdateCheckTransport HttpTransport { get; } = SendAsync;
 
@@ -173,8 +204,12 @@ public sealed class UpdateCheckClient
     /// the result.
     /// </summary>
     /// <param name="cancellationToken">Stops the check; the result then says CANCELLED.</param>
-    public Task<UpdateCheckResult> FetchAsync(CancellationToken cancellationToken = default) =>
-        GuardAsync(GetMetadataAsync, _timeout, static refusal => refusal, cancellationToken);
+    public async Task<UpdateCheckResult> FetchAsync(CancellationToken cancellationToken = default)
+    {
+        var result = await GuardAsync(GetWithFallbackAsync, _timeout, static refusal => refusal, cancellationToken).ConfigureAwait(false);
+        return result.Outcome == UpdateCheckOutcome.Cancelled && !cancellationToken.IsCancellationRequested
+            ? new UpdateCheckResult(UpdateCheckOutcome.Timeout) : result;
+    }
 
     /// <summary>
     /// Fetches the SHA-256 published beside a version's installer (<see cref="ChecksumUrl"/>): at most
@@ -211,6 +246,54 @@ public sealed class UpdateCheckClient
         var allowed = ReleaseAsset(version);
         return GuardAsync(
             token => OpenAsync(uri, maxBytes, allowed, token), null, UpdateInstallerResponse.Refused, cancellationToken);
+    }
+
+    internal Task<UpdateChecksumResult> FetchChecksumAsync(string version, UpdateSource source, CancellationToken cancellationToken) =>
+        source == UpdateSource.GitHub ? FetchChecksumAsync(version, cancellationToken) :
+        GuardAsync(token => GetChecksumAsync(GitCodeAssetUri(version, "MentorRecorder-" + version + "-setup.exe" + ChecksumSuffix),
+            MirrorAsset(version, "MentorRecorder-" + version + "-setup.exe" + ChecksumSuffix), token),
+            _timeout, UpdateChecksumResult.From, cancellationToken);
+
+    internal Task<UpdateInstallerResponse> OpenInstallerAsync(string version, long maxBytes, UpdateSource source, CancellationToken cancellationToken) =>
+        source == UpdateSource.GitHub ? OpenInstallerAsync(version, maxBytes, cancellationToken) :
+        GuardAsync(token => OpenAsync(GitCodeAssetUri(version, "MentorRecorder-" + version + "-setup.exe"), maxBytes,
+            MirrorAsset(version, "MentorRecorder-" + version + "-setup.exe"), token),
+            null, UpdateInstallerResponse.Refused, cancellationToken);
+
+    private async Task<UpdateCheckResult> GetWithFallbackAsync(CancellationToken cancellationToken)
+    {
+        // Reserve half the check budget for a mirror when the primary stalls.
+        var primary = await GuardAsync(GetMetadataAsync, TimeSpan.FromTicks(Math.Max(1, _timeout.Ticks / 2)),
+            static result => result, cancellationToken).ConfigureAwait(false);
+        if (primary.Outcome is UpdateCheckOutcome.Ok or UpdateCheckOutcome.Cancelled or UpdateCheckOutcome.Disabled)
+        {
+            return primary;
+        }
+        var mirror = await GuardAsync(GetMirrorMetadataAsync, null, static result => result, cancellationToken).ConfigureAwait(false);
+        return mirror.Outcome is UpdateCheckOutcome.Ok or UpdateCheckOutcome.Cancelled or UpdateCheckOutcome.Disabled ? mirror : primary;
+    }
+
+    private async Task<UpdateCheckResult> GetMirrorMetadataAsync(CancellationToken cancellationToken)
+    {
+        var start = GitCodeReleasesUri();
+        var listing = await FollowAsync(start, uri => uri == start, cancellationToken).ConfigureAwait(false);
+        if (listing.Answer is not { } answer) return listing.Refusal!;
+        IReadOnlyList<string>? candidates;
+        using (answer)
+        {
+            var bytes = await ReadBodyAsync(answer, UpdateMirrorReleases.MaxBytes, cancellationToken).ConfigureAwait(false);
+            candidates = bytes is null ? null : UpdateMirrorReleases.Read(bytes);
+        }
+        if (candidates is null) return new(UpdateCheckOutcome.Malformed);
+        foreach (var version in candidates)
+        {
+            var metadata = await GuardAsync(token => GetMetadataAtAsync(GitCodeAssetUri(version, AssetFileName),
+                MirrorAsset(version, AssetFileName), token), null, static result => result, cancellationToken).ConfigureAwait(false);
+            if (metadata.Outcome is UpdateCheckOutcome.Cancelled or UpdateCheckOutcome.Disabled) return metadata;
+            if (metadata.LatestVersion == version)
+                return metadata with { Source = UpdateSource.GitCode };
+        }
+        return new(UpdateCheckOutcome.NotFound);
     }
 
     /// <summary>
@@ -262,9 +345,12 @@ public sealed class UpdateCheckClient
         }
     }
 
-    private async Task<UpdateCheckResult> GetMetadataAsync(CancellationToken cancellationToken)
+    private Task<UpdateCheckResult> GetMetadataAsync(CancellationToken cancellationToken) =>
+        GetMetadataAtAsync(MetadataUri(), IsAllowed, cancellationToken);
+
+    private async Task<UpdateCheckResult> GetMetadataAtAsync(Uri uri, Func<Uri, bool> allowed, CancellationToken cancellationToken)
     {
-        var followed = await FollowAsync(MetadataUri(), IsAllowed, cancellationToken).ConfigureAwait(false);
+        var followed = await FollowAsync(uri, allowed, cancellationToken).ConfigureAwait(false);
         if (followed.Answer is not { } answer)
         {
             return followed.Refusal!;
@@ -280,6 +366,8 @@ public sealed class UpdateCheckClient
             }
 
             var metadata = UpdateMetadata.Read(body);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (IsDisabledNow) return new UpdateCheckResult(UpdateCheckOutcome.Disabled);
             return metadata.Version is { } version
                 ? new UpdateCheckResult(UpdateCheckOutcome.Ok, version, status)
                 : new UpdateCheckResult(UpdateCheckOutcome.Malformed, StatusCode: status, Detail: metadata.Refusal);
@@ -342,6 +430,8 @@ public sealed class UpdateCheckClient
         var uri = start;
         for (var hop = 0; hop <= MaxRedirects; hop++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (IsDisabledNow) return new Followed(null, new UpdateCheckResult(UpdateCheckOutcome.Disabled));
             var response = await _transport(uri, cancellationToken).ConfigureAwait(false);
             var refusal = Judge(response, uri, hop, allowed, out var next);
             if (refusal is null && next is null)
@@ -436,6 +526,7 @@ public sealed class UpdateCheckClient
         var total = 0;
         while (total < buffer.Length)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var read = await body.ReadAsync(buffer.AsMemory(total), cancellationToken).ConfigureAwait(false);
             if (read == 0)
             {
@@ -458,7 +549,7 @@ public sealed class UpdateCheckClient
         uri.IsAbsoluteUri &&
         uri.Scheme == Uri.UriSchemeHttps &&
         uri.IsDefaultPort &&
-        string.IsNullOrEmpty(uri.UserInfo) &&
+        string.IsNullOrEmpty(uri.UserInfo) && uri.Fragment.Length == 0 &&
         (AllowedHosts.Contains(uri.Host, StringComparer.OrdinalIgnoreCase) ||
          uri.Host.EndsWith("." + ContentHost, StringComparison.OrdinalIgnoreCase));
 
@@ -479,6 +570,54 @@ public sealed class UpdateCheckClient
                             !uri.AbsolutePath.Contains('%')
                           : AssetHosts.Contains(uri.Host, StringComparer.OrdinalIgnoreCase));
     }
+
+    private static bool IsMirrorBase(Uri uri) => uri.IsAbsoluteUri && uri.Scheme == Uri.UriSchemeHttps &&
+        uri.IsDefaultPort && uri.UserInfo.Length == 0 && uri.Fragment.Length == 0 && !uri.AbsolutePath.Contains('%');
+
+    private static Func<Uri, bool> MirrorAsset(string version, string fileName)
+    {
+        var api = GitCodeAssetUri(version, fileName);
+        var web = "/" + Owner + "/" + Repository + "/releases/download/v" + version + "/" + fileName;
+        return uri => IsMirrorBase(uri) && (uri == api ||
+            (uri.Host == MirrorHost && uri.AbsolutePath == web && uri.Query.Length == 0) ||
+            (uri.Host == MirrorAssetHost && IsMirrorCdnPath(uri, fileName)));
+    }
+
+    private static bool IsMirrorCdnPath(Uri uri, string fileName)
+    {
+        var parts = uri.AbsolutePath.Split('/');
+        return parts.Length == 5 && parts[1] == GitCodeProjectId &&
+            parts[2] == "releases" && parts[3].Length > 0 && parts[4] == fileName;
+    }
+
+    // SendAsync is a second guard. Per-operation rules above bind the version, file and redirect chain.
+    private static bool IsMirrorTransportUri(Uri uri)
+    {
+        if (!IsMirrorBase(uri)) return false;
+        if (uri == GitCodeReleasesUri()) return true;
+        var prefix = "/api/v5/repos/" + Owner + "/" + Repository + "/releases/v";
+        if (uri.Host == MirrorApiHost && uri.Query.Length == 0 && uri.AbsolutePath.StartsWith(prefix, StringComparison.Ordinal))
+        {
+            var parts = uri.AbsolutePath[prefix.Length..].Split('/');
+            return parts.Length == 4 && parts[1] == "attach_files" && parts[3] == "download" &&
+                IsKnownAttachment(parts[0], parts[2]);
+        }
+        var webPrefix = "/" + Owner + "/" + Repository + "/releases/download/v";
+        if (uri.Host == MirrorHost && uri.Query.Length == 0 && uri.AbsolutePath.StartsWith(webPrefix, StringComparison.Ordinal))
+        {
+            var parts = uri.AbsolutePath[webPrefix.Length..].Split('/');
+            return parts.Length == 2 && IsKnownAttachment(parts[0], parts[1]);
+        }
+        if (uri.Host != MirrorAssetHost) return false;
+        var file = uri.Segments.LastOrDefault() ?? "";
+        return IsMirrorCdnPath(uri, file) && (file == AssetFileName ||
+            (file.StartsWith("MentorRecorder-", StringComparison.Ordinal) &&
+             (file.EndsWith("-setup.exe", StringComparison.Ordinal) || file.EndsWith("-setup.exe.sha256", StringComparison.Ordinal))));
+    }
+
+    private static bool IsKnownAttachment(string version, string name) => UpdateVersion.TryParse(version, out _) &&
+        (name == AssetFileName || name == "MentorRecorder-" + version + "-setup.exe" ||
+         name == "MentorRecorder-" + version + "-setup.exe" + ChecksumSuffix);
 
     // ------------------------------------------------------------ production transport
 
@@ -519,7 +658,7 @@ public sealed class UpdateCheckClient
 
     private static async Task<UpdateTransportResponse> SendAsync(Uri uri, CancellationToken cancellationToken)
     {
-        if (!IsAllowed(uri) || uri.Fragment.Length > 0)
+        if ((!IsAllowed(uri) && !IsMirrorTransportUri(uri)) || uri.Fragment.Length > 0)
         {
             throw new ArgumentException("the update-check transport only fetches its own fixed addresses", nameof(uri));
         }

@@ -220,13 +220,13 @@ public sealed class UpdateDownloadServiceTests : UpdateDownloadTestBase
 
         Advance(TimeSpan.FromSeconds(9));
         Assert.Equal(failed, service.Start());
-        Assert.Equal(2, transport.Requests.Count);
+        Assert.Equal(3, transport.Requests.Count);
 
         Advance(TimeSpan.FromSeconds(1));
         transport.Publish(Published, Installer);
         Assert.Equal(State.Downloading, service.Start().State);
         Assert.Equal(State.Ready, (await SettleAsync(service)).State);
-        Assert.Equal(4, transport.Requests.Count);
+        Assert.Equal(5, transport.Requests.Count);
     }
 
     /// <summary>Start and cancel in a loop - a client gone wrong - starts one download per interval, not one per call.</summary>

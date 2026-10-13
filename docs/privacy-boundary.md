@@ -11,9 +11,9 @@
 出站网络请求只有三类例外，均由采集服务发起：
 
 - **共享校准获取**：游戏更新后本机没有可用档案时（以及 §8.2 所列在用档案仍读取索引的两种情形），
-  从一个固定的公开仓库只读下载其他玩家分享的校准（§8.2）。
+  从固定公开仓库及其镜像只读下载其他玩家分享的校准，每次先尝试 GitHub（§8.2）。
 - **在线语音合成**（**默认关闭**）：用户开启后，播报时将本次要播报的文字发送给用户选定的语音服务，并取回音频（§8.3）。
-- **更新检查与用户主动下载**：更新检查每 24 小时最多一次，只读取本项目发布页上的版本号文件，与本软件自身的版本比较；
+- **更新检查与用户主动下载**：更新检查每 24 小时最多一次，先读取本项目 GitHub 发布元数据，失败时读取 GitCode 的有界发行版清单与元数据，与本软件自身的版本比较；
   发现新版本时仅在界面上提示一句（§8.4）。只有用户点击「下载并安装」后，采集服务才从本项目发布页下载该版本的
   安装程序及其公布的 SHA-256，两者一致才保留文件；只有用户再点击「立即安装」后，桌面端才启动该安装程序并随即退出（§8.6）。
   不自动下载，不自动安装。
@@ -36,8 +36,8 @@
 | 4c | 不把原始报文写成抓包文件（`pcap_dump*`、SharpPcap 的 `CaptureFileWriterDevice`） | `CAP-005` |
 | 5 | 不做游戏自动化、不模拟输入（`SendInput` / `SendKeys` / `keybd_event` / `mouse_event`）、不向窗口投递消息（`PostMessage` / `SendMessage` 系列、`Process.CloseMainWindow`）、不代替玩家操作 | `AUT-001` |
 | 6 | 不做任何反检测、反封禁、隐藏自身、混淆特征的处理 | 人工评审 |
-| 7 | 无遥测、无使用统计、无崩溃上报；不在用户点击之前下载或安装更新：安装程序只在用户点击「下载并安装」后由采集服务下载、经核对发布时公布的 SHA-256 后保留，只在用户再点击「立即安装」后由桌面端经系统外壳启动，随后本软件退出；采集服务从不执行所下载的文件，替换本软件文件的是用户启动的安装程序，而不是运行中的本软件（§8.6）。运行时允许的出站请求只有三类：§8.2 的共享校准获取（只读下载）、§8.3 的在线语音合成（默认关闭，只发送本次要播报的文字），与 §8.4、§8.6 的更新（默认开启、可关闭的版本检查，只读取发布页上的版本号文件；以及用户点击后对该版本安装程序及其校验值的只读下载）。三类请求都只经由 HTTP 客户端发出，不直接使用套接字或域名解析接口；脚本与 QML 不自行下载或请求网络资源，任何代码不以 XML 读取接口从远程地址加载，Python 工具不自行联网（开发期的数据表生成器除外）。唯一的另一处联网在安装程序中：本机没有 Npcap 时下载其官方安装程序（§8.5） | `NET-006` `NET-007` `NET-008` `NET-009` `NET-010` |
-| 8 | 无本软件自己的服务器、无账号体系、无同步、无上传。共享校准存放于一个公开 GitHub 仓库（§8.2），本软件只从该仓库读取；发布由玩家在浏览器中提交 Issue、由仓库的 Action 完成，本软件不发送数据。在线语音合成（§8.3）发往用户选定的语音服务（Azure 语音，或用户填写地址的 OpenAI 兼容接口），发送内容仅为本次要播报的文字，密钥由用户自行提供 | `NET-006` `NET-007` `NET-008` `NET-009` |
+| 7 | 无遥测、无使用统计、无崩溃上报；不在用户点击之前下载或安装更新：安装程序只在用户点击「下载并安装」后由采集服务下载、经核对发布时公布的 SHA-256 后保留，只在用户再点击「立即安装」后由桌面端经系统外壳启动，随后本软件退出；采集服务从不执行所下载的文件，替换本软件文件的是用户启动的安装程序，而不是运行中的本软件（§8.6）。运行时允许的出站请求只有三类：§8.2 的共享校准获取（只读下载）、§8.3 的在线语音合成（默认关闭，只发送本次要播报的文字），与 §8.4、§8.6 的更新（默认开启、可关闭的版本检查，只读取本项目发布元数据及必要的镜像发行版清单；以及用户点击后对该版本安装程序及其校验值的只读下载）。三类请求都只经由 HTTP 客户端发出，不直接使用套接字或域名解析接口；脚本与 QML 不自行下载或请求网络资源，任何代码不以 XML 读取接口从远程地址加载，Python 工具不自行联网（开发期的数据表生成器与 CI 专用 Release 镜像工具除外，见 §2.1）。唯一的另一处联网在安装程序中：本机没有 Npcap 时下载其官方安装程序（§8.5） | `NET-006` `NET-007` `NET-008` `NET-009` `NET-010` |
+| 8 | 无本软件自己的服务器、无账号体系、无用户数据同步或上传。共享校准存放于固定公开 GitHub 仓库及其 GitCode 镜像（§8.2），本软件只读获取；发布由玩家在浏览器中提交 Issue、由仓库的 Action 完成，本软件不发送数据。在线语音合成（§8.3）发往用户选定的语音服务（Azure 语音，或用户填写地址的 OpenAI 兼容接口），发送内容仅为本次要播报的文字，密钥由用户自行提供 | `NET-006` `NET-007` `NET-008` `NET-009` |
 | 9 | 不监听任何 HTTP / TCP / WebSocket / gRPC 端口，也不直接使用 TCP / UDP / QUIC 套接字；进程间通信**只用命名管道** | `NET-001`…`NET-005` `NET-008` |
 | 10 | 不长期存储原始报文负载 | 见 §5 |
 | 11 | 不从 AGPL 项目复制代码 | 见 §7 |
@@ -78,9 +78,12 @@
   行内标记（登记的命中原文为 `CreateDownloadPage(`），该文件中其他任何下载写法照常报错。其余脚本、工作流、QML 与
   桌面端不得自行下载或请求网络资源，桌面端也不得以 `load` / `setSource` 把远程地址交给 QML 引擎。任何代码也不得把远程地址
   交给 XML 读取接口（`XDocument.Load`、`XmlReader.Create` 等）。
-- **`NET-010` 只放行开发期的数据表生成器。** Python 代码不得引入或调用联网模块；按路径放行的只有
-  `tools/duty-data-generator/generate.py`，它在开发期从公开来源下载副本数据表，是仓库中唯一联网的 Python 文件。
+- **`NET-010` 按精确路径放行两个维护工具。** Python 代码不得引入或调用联网模块；例外是开发期下载公开副本数据表的
+  `tools/duty-data-generator/generate.py`，以及 CI 发布同步入口 `tools/release-mirror/sync_release.py`。
+  后者只在维护者的发布工作流中复制本项目原始 Release 附件并匿名回读校验，不随软件运行；其 GitCode 发布令牌来自
+  GitHub Actions secret `GITCODE_MIRROR_TOKEN`，不进入客户端、安装包或用户配置。客户端只使用匿名读取接口。
   `tools/shared-calibration/` 的 Python 只读取保存下来的 `gh` 输出，不需要放行。
+
 - **行内标记。** 一行可以用 `BOUNDARY-ALLOW(<规则编号>): <理由>` 解除**该行**上**该条**规则的**一处**命中，
   其他规则照常检查。每个标记都按「文件 + 规则编号 + 命中原文」逐个登记在 `rules.json` 的 `allow_markers` 中，
   只有该行上该规则恰好只有一处命中、且其原文与登记一致时才生效；同一行出现该规则的第二处命中，或命中换成了
@@ -352,14 +355,16 @@ opcode，按 opcode 与字段名分组，**不与轮盘编号、连接标签或�
 |---|---|---|
 | 入站监听端口 | **否** | 无任何 socket 监听 |
 | 出站连接 | **仅三类**，均只由采集服务发起 | 见下三行。无遥测、无云同步、无账号 |
-| 　· 共享校准获取 | 默认开启，可关闭 | 只读 `GET` 一个固定公开仓库中的索引与校准码，条件与限制见 §8.2 |
+| 　· 共享校准获取 | 默认开启，可关闭 | 只读 `GET` 固定公开仓库及其镜像中的索引与校准码，GitHub 优先，条件与限制见 §8.2 |
 | 　· 在线语音合成 | **默认关闭** | 用户在设置中选择在线语音并填写密钥后，播报时将该条文字 `POST` 给用户选定的语音服务，取回 WAV 音频，条件与限制见 §8.3 |
-| 　· 更新检查与用户主动下载 | 检查默认开启，可关闭；下载只在用户点击时 | 检查每 24 小时最多一次，只读 `GET` 一个固定地址上的版本号文件，与自身版本比较，条件与限制见 §8.4；用户点击「下载并安装」后，只读 `GET` 该版本的校验值与安装程序，核对一致才保留，采集服务从不执行它，条件与限制见 §8.6。不自动下载，不自动安装 |
+| 　· 更新检查与用户主动下载 | 检查默认开启，可关闭；下载只在用户点击时 | 检查每 24 小时最多一次，只读 `GET` 固定仓库的发布元数据与必要的镜像发行版清单，GitHub 优先，条件与限制见 §8.4；用户点击「下载并安装」后，只读 `GET` 该版本的校验值与安装程序，核对一致才保留，采集服务从不执行它，条件与限制见 §8.6。不自动下载，不自动安装 |
 | 安装程序下载 Npcap | 仅在安装过程中、且本机没有 Npcap 时 | 由安装程序（而非运行中的软件）从 `npcap.com` 下载固定版本的 Npcap 官方安装程序，校验 SHA-256 后启动，见 §8.5 |
 | 本机 IPC | 是 | 仅命名管道 `MentorRecorder.<UserSidHash>.v1`，ACL 限当前用户；桌面端连上后核对管道的所有者，不属于当前用户即断开 |
 | 抓包 | 是（只读） | Npcap，仅读取，从不发送 |
 
-开发期存在其他联网行为：NuGet 包还原、`tools/duty-data-generator` 下载公开数据表（`NET-010` 按路径放行的唯一一个 Python 文件）、开发者查阅文档。
+开发与发布期间另有联网行为：NuGet 包还原、`tools/duty-data-generator` 下载公开数据表、`tools/release-mirror/sync_release.py` 在 CI 同步 Release（两个 Python 精确路径例外见 §2.1），以及开发者查阅文档。
+
+仓库引用同步另由 CI 中的 `tools/release-mirror/sync_refs.py` 调用 Git 完成：只向固定的两个 GitCode 仓库推送 GitHub 的 heads/tags，使用精确 lease、原子推送并回读验证，不删除目标独有引用。凭据仅在 Git 子进程环境中按目标 URL 限定，不写入仓库或软件。校准仓库通过源模板映射部署同一个脚本，并监听校准发布工作流成功完成，覆盖 GITHUB_TOKEN 提交不触发 push 工作流的情况。
 发布版本在运行时只发起 §8.2、§8.3 与 §8.4 / §8.6 三类请求，均由采集服务发出；安装时另有 §8.5 的一次下载。
 桌面端不发起任何网络请求：打开网页一律交由系统浏览器处理，在线语音的音频由采集服务取回并写成本机文件后，
 再由桌面端播放。
@@ -386,11 +391,16 @@ opcode，按 opcode 与字段名分组，**不与轮盘编号、连接标签或�
 设计与评审见 plans/shared-calibration.md（内部工作文档，不随仓库分发）。此前，本文件规定发布版在运行时不发起任何网络请求。
 这次调整新增了共享校准的只读下载；允许的请求、触发条件与限制如下。
 
-**只读取一个仓库。** 只读 `GET` 固定公开仓库 [`Harendotes-Tang/MentorRecorder-Calibrations`](https://github.com/Harendotes-Tang/MentorRecorder-Calibrations)
-（2026-09-16 建立）中的 `index.json` 与校准码文件（`.mrc`），按顺序尝试三个源：`raw.githubusercontent.com`、
-`cdn.jsdelivr.net`、`fastly.jsdelivr.net`，前一个失败后才尝试下一个。除本类请求、§8.3 的在线语音合成
-与 §8.4、§8.6 的更新检查及按请求下载外，其余出站行为仍然禁止：遥测、使用统计、崩溃上报、账号。
-0.7.11 发布时该仓库尚未建立，该版本的请求只会得到"未找到"。
+**只读取固定仓库及其镜像。** 只读 `GET` 公开仓库 [`Harendotes-Tang/MentorRecorder-Calibrations`](https://github.com/Harendotes-Tang/MentorRecorder-Calibrations)
+（2026-09-16 建立）及其 [GitCode 同名镜像](https://gitcode.com/Harendotes-Tang/MentorRecorder-Calibrations)中的 `index.json` 与校准码文件（`.mrc`）。
+2026-10-13 增加 GitCode 后备读取；每次新的获取均先从 GitHub Raw 读取索引，失败时依次尝试 GitCode Raw API、原有两个 CDN：
+`raw.githubusercontent.com` → `api.gitcode.com` → `cdn.jsdelivr.net` → `fastly.jsdelivr.net`。
+GitCode 只允许 `/api/v5/repos/Harendotes-Tang/MentorRecorder-Calibrations/raw/index.json?ref=main`，
+以及同一 `raw/` 前缀下的合法校准码路径加唯一的 `?ref=<40位完整提交号>`；不接受其他仓库、任意路径或额外查询参数。
+第一份可读索引具有权威性：没有适用校准或条目已撤回时，不向其他镜像寻找旧候选。校准码先从提供索引的源读取，
+该码读取或校验失败才尝试剩余来源；取消或禁用获取时停止，不因它们触发回退。
+除本类请求、§8.3 的在线语音合成与 §8.4、§8.6 的更新检查及按请求下载外，其余运行时出站行为仍然禁止：遥测、使用统计、崩溃上报、账号。
+0.7.11 发布时该仓库尚未建立，该版本的请求只会得到“未找到”。
 
 **仓库内容。** 仓库中包含玩家提交的校准码、索引 `index.json`，以及提交台账 `submissions.json`。
 台账按区服与客户端版本记录每次提交的 GitHub 账号数字编号、校准码校验值、提交时间与 Issue 编号，以及该账号此前被替换掉的校准码的校验值，
@@ -440,14 +450,14 @@ Action 只使用 GitHub 默认的 `GITHUB_TOKEN`。仓库中的脚本与模板�
 0.7.11 仅实现采集服务一侧，不含上述界面。该版本只能通过下文的**总开关**关闭下载，需要用户同意的共享校准不会启用。
 0.7.12 起界面齐全，包含设置开关、立即检查、分享、导入与同意提示；存放共享校准的公开仓库亦已建立。
 
-**请求不携带标识信息。** 请求没有查询串、没有 Cookie、没有安装 id、没有账号；除固定的
-`User-Agent: MentorRecorder`（不带版本号）外不附加任何请求头。URL 中只有固定的仓库路径，
-以及索引给出的提交号、区服与客户端版本号，这些均为公开信息。
-与任何网络连接一样，对端服务（GitHub、jsDelivr 及其 CDN）可以看到请求的来源 IP 地址与发生时间。
+**请求不携带标识信息。** 请求没有 Cookie、安装 id、账号或令牌；除固定的
+`User-Agent: MentorRecorder`（不带版本号）外不附加任何请求头。GitCode 请求只带上述固定 `ref` 查询参数，
+其他来源不带查询串。URL 中只有固定仓库路径、公开分支或提交号、区服与客户端版本号。
+与任何网络连接一样，对端服务（GitHub、GitCode、jsDelivr 及其 CDN）可以看到请求的来源 IP 地址与发生时间。
 
 **附带流量。** 以下流量由操作系统发起。本软件不额外增加这些请求，但它们确实会发生：
 
-- DNS 解析上述三个主机名；
+- DNS 解析本次实际尝试的上述来源主机名；
 - 遵循系统代理设置时，Windows 可能执行代理自动发现（WPAD / PAC 脚本）；
 - 校验 TLS 证书时，Windows 可能访问证书机构，获取证书链与吊销信息（CRL / OCSP）。
 
@@ -455,10 +465,10 @@ Action 只使用 GitHub 默认的 `GITHUB_TOKEN`。仓库中的脚本与模板�
 
 - 不跟随重定向，任何 3xx 均按失败处理，只接受 2xx。
 - 不存储 Cookie，不发送 Windows 凭据。
-- 响应的最终主机必须在上述三个主机的白名单内。
+- 响应最终地址必须与请求的固定地址完全相同，主机必须在上述四个主机的白名单内。
 - 每个源的每次请求（索引或一份校准码）连接与读取合计 10 秒超时。
 - 边读取边统计字节：索引超过 64 KB、单个校准码超过 4 KB 立即断开；校准码解压后另行限制为 16 KB。
-- 索引按严格格式逐条校验，格式不符的条目丢弃；校准码的哈希必须等于索引中登记的 `code_sha256`，否则丢弃。
+- 索引按严格格式逐条校验，格式不符的条目丢弃；校准码解码后的规范载荷哈希必须等于索引登记的 `code_sha256`，且区服、客户端版本和匹配来源必须一致，否则丢弃。
 - 下载的校准码**不是档案**。它只写入 §9 的 `shared-calibrations\`，须先在本机流量中按结构核实，
   才会生成档案并用于记录（plans/shared-calibration.md §4、§18）。候选按索引给出的提交人数从多到少排列，
   人数相同时没有冲突标记的在前，再依次按首次发布时间与校验值排列；通过核实的候选中，认得出服务器匹配报文的码
@@ -489,13 +499,14 @@ Action 只使用 GitHub 默认的 `GITHUB_TOKEN`。仓库中的脚本与模板�
 §8.3 的 `src/Collector/Speech/OnlineSpeechClient.cs`，与 §8.4 的 `src/Collector/Update/UpdateCheckClient.cs`。
 `NET-007` 管控主机名片段，每个片段有各自的放行名单。`jsdelivr` 只能出现在共享校准获取客户端、公开仓库脚本的镜像目录
 `tools/shared-calibration/`，以及开发期下载公开数据表的 `tools/duty-data-generator/generate.py`；
-`githubusercontent` 另有 `github-content-hosts` 变体，除上述三处外，还可以出现在 §8.4 的更新检查客户端中，此外任何位置都报错；
+`githubusercontent` 另有 `github-content-hosts` 变体，除上述三处外，还可以出现在 §8.4 的更新检查客户端与 CI 专用 `tools/release-mirror/sync_release.py` 中；
+GitCode API 主机仅放行共享校准客户端、更新客户端与该发布工具，GitCode 附件主机仅放行更新客户端与该发布工具。其余位置报错；
 `tts.speech.microsoft.com` 只能出现在在线语音客户端（§8.3）。各处放行互不通用：共享校准客户端中出现语音主机名，
 或语音客户端中出现共享校准的源，同样报错。`NET-008` 禁止直接使用套接字、域名解析、Ping 与 SmtpClient，
 没有任何放行，三个客户端同样只经由 HTTP 客户端联网；`NET-009` 禁止脚本、工作流、QML 与桌面端自行下载或请求
 网络资源，也禁止桌面端把远程地址交给 QML 引擎、任何代码以 XML 读取接口从远程地址加载，只以一个登记在案的行内标记
 放行安装程序中创建 Npcap 下载页的那一行（§2.1、§8.5）；`NET-010` 禁止 Python 代码引入或调用联网模块，
-只按路径放行开发期下载公开数据表的 `tools/duty-data-generator/generate.py`。
+只按精确路径放行开发期数据生成器与 CI Release 同步入口（§2.1）。
 
 ### 8.3 在线语音合成：仅发送播报文字（默认关闭）
 
@@ -573,17 +584,23 @@ Action 只使用 GitHub 默认的 `GITHUB_TOKEN`。仓库中的脚本与模板�
 「下载并安装」后另行下载（§8.6）；无论检查还是下载，采集服务都不执行取回的内容，运行中的本软件也从不替换自身的任何文件。
 这项功能于 2026-09-17 纳入允许的联网范围，新增了自动更新检查。请求内容、触发条件与限制如下。
 
-**只读取一个文件。** 只读 `GET` 一个固定地址
+**GitHub 优先，失败时读取完整镜像发行版。** 每次新的检查先只读 `GET`
 `https://github.com/Harendotes-Tang/MentorRouletteRecorder/releases/latest/download/BUILD-METADATA.json`，
-即本项目最新发布所附带的构建元数据。响应中只解析 `version` 一个字段，并与本软件自身的版本号比较；
-不读取发布说明，不读取资产清单，不读取任何其他文件。取回的内容不落盘、不执行。
-本仓库在正式公开之前为私有仓库，该地址此时返回"未找到"，界面因而不出现任何提示。
+从元数据中解析 `version`，与本软件自身版本比较。GitHub 返回有效版本即结束该次读取；版本不高于当前运行版本时，
+不会再去镜像寻找其他版本。超时、连接、HTTP 或内容校验失败时，才尝试固定镜像仓库 `Harendotes-Tang/MentorRouletteRecorder`。
+镜像清单地址固定为 `https://api.gitcode.com/api/v5/repos/Harendotes-Tang/MentorRouletteRecorder/releases?page=1&per_page=20`。
+只考虑正式三段版本、非草稿与非预发布的发行版，且必须具有名称唯一、类型为附件的原始元数据、同版本安装程序及其 `.sha256` 三项。
+清单最多 20 个发行版、每版最多 100 项资产、正文最多 256 KiB；不采用清单给出的任意下载 URL。
+客户端按版本由新到旧尝试合格候选的元数据，使用本地构造的固定附件 API 路径
+`/api/v5/repos/Harendotes-Tang/MentorRouletteRecorder/releases/v<版本>/attach_files/BUILD-METADATA.json/download`，
+只有元数据版本与标签一致才接受。镜像返回的旧版本不能覆盖本机已经接受的较新版本。
+上述内容只在内存中解析，不落盘、不执行；检查不下载校验文件或安装程序，也不使用发行说明正文。
 
 **触发条件。** 检查只在采集服务应答 `GetStatus` 时顺带发起，因此**只有桌面端处于连接并轮询状态时才会发生**：
 没有桌面端连接的采集服务（例如 `--capture-doctor` 或命令行重放）永远不发出该请求。
 每个进程启动后第一次应答 `GetStatus` 时检查一次（1.1.1 起；上次检查距今不足 1 小时则不检查，以免反复重启变成反复请求），
 之后同一进程内每 24 小时最多一次，并附加 0–2 小时的随机抖动，以免同一时刻集中请求。
-上次检查的时间持久化保存；失败的一次同样计入，不做立即重试。
+上次检查的时间持久化保存；包含后备尝试的整次失败同样计入，不在该次操作结束后立即重试。
 另有一种用户主动触发：设置页与「关于」页的「检查更新」按钮（IPC `CheckUpdateNow`，1.1.1 起）立即检查一次，不受每日节流限制；
 仍受下述开关与总开关约束，关闭时不发出任何请求。
 采集设置 `update_check_enabled` 关闭时不发出任何请求。
@@ -595,10 +612,13 @@ Action 只使用 GitHub 默认的 `GITHUB_TOKEN`。仓库中的脚本与模板�
   旁边另有「在浏览器中下载」（§8.6）。「在浏览器中下载」，以及所连接的采集服务不支持软件内下载时出现在主按钮位置的
   「下载新版本」，把该版本安装程序在本项目发布页上的地址（下文的 `installer_url`）交给系统浏览器，由浏览器下载，
   安装程序由用户自行运行；采集服务没有给出可用的安装程序地址时，改为打开下述发布页，并以一句提示说明已改为打开发布页。
-  「查看更新说明」把固定的公开发布页 `https://github.com/Harendotes-Tang/MentorRouletteRecorder/releases/latest`
-  交给系统浏览器。桌面端先核对地址确为本项目仓库 `https://github.com/Harendotes-Tang/MentorRouletteRecorder/`
-  之下的地址，安装程序的地址还须是该仓库 `releases/download/<标签>/` 下以 `-setup.exe` 结尾、不带查询串与片段的文件，
-  核对通过才交给浏览器打开。下文设置页"通用"与"关于"中的同名按钮行为相同。
+  「查看更新说明」把已接受来源的发布页交给系统浏览器：GitHub 为固定的
+  `https://github.com/Harendotes-Tang/MentorRouletteRecorder/releases/latest`；GitCode 为
+  `https://gitcode.com/Harendotes-Tang/MentorRouletteRecorder/releases/v<版本>`。
+  桌面端先核对 HTTPS、固定 owner/repository 与允许路径；GitCode 链接必须是该正式版本的发布页或
+  `releases/download/v<版本>/MentorRecorder-<版本>-setup.exe`，不能带查询串、片段或其他仓库地址。
+  GitHub 安装程序链接同样限定本项目的发布下载路径。核对通过才交给浏览器；设置页“通用”与“关于”中的同名按钮行为相同。
+
   「忽略此版本」只影响本机的提示，不改变检查本身；它只对被忽略的那一个版本有效，出现更高的版本时横幅会再次出现。
   下载开始之后该按钮隐藏，已经开始的下载不会因忽略而从总览页消失。
 - 设置页"通用"的「更新」中，开关「检查新版本并提示」对应上述 `update_check_enabled`，默认开启。
@@ -609,17 +629,19 @@ Action 只使用 GitHub 默认的 `GITHUB_TOKEN`。仓库中的脚本与模板�
   （默认开启，可关闭），以及只有在用户点击「下载并安装」之后才下载、再点击「立即安装」才启动安装程序。
   该窗口是普通的说明窗口，不需勾选或确认，首次启动时也不弹出；此前记录确认状态与说明版本号的做法已经取消。
 
-**请求不携带标识信息。** 请求没有查询串、没有 Cookie、没有安装 id、没有账号，也不发送 Windows 凭据；
-除固定的 `User-Agent: MentorRecorder`（不带版本号）外不附加任何请求头。地址是固定的仓库路径，不含任何可变部分，
-因此对端无从据此得知发出请求的是哪一个版本、哪一台机器。与任何网络连接一样，对端服务可以看到请求的来源 IP 地址与发生时间。
-安装程序及其校验值的地址含有新版本的版本号，检查本身从不请求它们：只有用户点击「下载并安装」时，采集服务才请求这两个地址
-（§8.6）；用户选择在浏览器中下载时，由系统浏览器请求安装程序的地址，与用户在发布页上自行点击下载相同。
+**请求不携带标识信息。** 请求没有正文、Cookie、安装 id、账号或客户端令牌，也不发送 Windows 凭据；
+除固定的 `User-Agent: MentorRecorder`（不带版本号）外不附加任何请求头。GitCode 清单仅带固定分页查询，
+元数据附件地址含公开版本号；重定向目标可带平台签发的签名查询串。它们不包含当前运行版本、设置或本机标识。
+对端服务可以看到来源 IP、发生时间及所请求的公开版本；安装程序和校验值只在用户点击「下载并安装」后请求（§8.6）。
 
 **附带流量（重定向目标的 CDN 主机）。** `releases/latest/download/` 是一个重定向地址，
 文件本身位于 `*.githubusercontent.com` 之下，具体主机名由 GitHub 决定，并会随时间变化。
 因此本软件显式跟随该重定向，最多 3 跳，且每一跳都必须是 `github.com` 或 `*.githubusercontent.com` 上
 默认端口的 `https` 地址。主机白名单按**后缀**匹配，正是因为 GitHub 会在不同的 `*.githubusercontent.com`
 主机之间迁移发布资产，固定某一个主机名会使检查在下一次迁移后失效。§8.6 的下载不沿用这条规则，使用范围更小的名单。
+GitCode 清单只接受原固定地址；元数据附件允许固定项目的 API 下载地址、`gitcode.com` 同版本同文件的下载路径，
+以及 `file-cdn.gitcode.com/11065764/releases/<发布目录>/BUILD-METADATA.json`。项目数字 ID 固定为 `11065764`，
+不放行其他项目或任意 `*.gitcode.com` 子域；同样逐跳校验，最多 3 跳，拒绝用户信息、片段、非 HTTPS 或非默认端口。
 此外，以下流量与 §8.2 相同，由操作系统发起：DNS 解析上述主机名；遵循系统代理设置时，
 Windows 可能执行代理自动发现（WPAD / PAC 脚本）；校验 TLS 证书时，Windows 可能访问证书机构（CRL / OCSP）。
 
@@ -627,23 +649,25 @@ Windows 可能执行代理自动发现（WPAD / PAC 脚本）；校验 TLS 证�
 
 - 只接受 2xx，以及跳向上述白名单的重定向；超过 3 跳、跳向白名单之外的主机、跳向非 `https` 或非默认端口的地址，均按失败处理。
 - 不存储 Cookie，不发送 Windows 凭据。
-- 连接、重定向与读取的总超时时间为 15 秒。
-- 边读取边统计字节，正文超过 16 KiB 立即断开。
-- 只解析 `version` 一个字段。正文不是 JSON、缺少该字段，或版本号无法解析时按失败处理。
-- 任何失败都**静默降级**：仓库尚未公开而返回 404、断网、被限流、正文不合法，界面上一律不出现任何内容，也不弹出任何提示。
+- 整次检查的连接、重定向与读取总预算仍为 15 秒；GitHub 最多占用前半预算，GitCode 使用剩余预算。
+- 元数据正文超过 16 KiB 立即断开；镜像清单另受上述 256 KiB 与条目数限制。
+- 元数据只解析 `version`；非法 JSON、缺失或非法版本、镜像标签版本不符均拒绝；镜像清单的重复字段、重复资产等歧义同样拒绝。
+- GitHub 失败可在同次操作中回退；用户取消或禁用时停止所有后续请求，不触发镜像尝试。
+- 所有来源均失败时保留此前成功检查所得的版本，不凭网络失败撤销已有更新提示；自动检查不弹出失败提示。
 - **检查不下载安装包，也不执行下载内容。**检查本身不取回安装包，不写入可执行文件；安装程序只在用户要求时下载（§8.6）。
   运行中的本软件从不替换自身的任何文件。
 
-**不上传数据。** 该类请求只有一个 `GET`，没有请求正文；不发送本软件的版本号、设置、记录或任何本机信息。
+**不上传数据。** 该类请求均为匿名只读 `GET`，没有请求正文；不发送本软件的版本号、设置、记录或任何本机信息。
 请求由采集服务发出，桌面端继续禁止 `QNetworkAccessManager`（`NET-006`），发布页与浏览器下载时安装程序的地址一律交由系统浏览器打开。
 检查结果经命名管道传给桌面端，即 `GetStatus` 应答中的可选对象 `update`（`enabled`、`update_available`、
 `latest_version`、`release_url`、`installer_url`、`last_checked_at_utc`、`last_outcome`，以及 §8.6 的下载状态 `download`）；
 「检查更新」对应的 `CheckUpdateNow` 与 §8.6 的两条消息在应答中给出同一个对象。
-其中 `release_url` 即上文那个固定的公开发布页；`installer_url` 是 `latest_version` 所指版本的安装程序，即本项目发布资产
-`https://github.com/Harendotes-Tang/MentorRouletteRecorder/releases/download/v<版本>/MentorRecorder-<版本>-setup.exe`，
-与 `latest_version` 同时出现、同时缺席（`latest_version` 只能是三段纯数字的版本号）。`release_url` 与
-`GetCalibrationShareCode.issue_url` 一样，只用于交给浏览器打开，采集服务从不请求它；`installer_url` 同样交给浏览器打开，
-采集服务只在用户点击「下载并安装」时请求同一地址（§8.6）。
+其中 `release_url` 为上文按已接受来源构造的公开发布页；`installer_url` 为该来源固定项目下
+`releases/download/v<版本>/MentorRecorder-<版本>-setup.exe`，与 `latest_version` 同时出现、同时缺席。
+`latest_version` 只能是三段纯数字版本。`release_url` 与 `GetCalibrationShareCode.issue_url` 一样只交给浏览器打开，
+采集服务从不请求这两个页面。`installer_url` 供浏览器下载使用；软件内下载每次重新从 GitHub 开始，失败才请求
+GitCode 同版本固定附件 API（§8.6），不会因上一轮使用过镜像而优先请求镜像。
+
 脱敏诊断报告中对应 `boundary.outbound.update_check`（`enabled`、`kill_switch`、`last_checked_utc`、
 `last_outcome`、`latest_version`），其中不含主机名，也不含地址。
 
@@ -653,8 +677,8 @@ Windows 可能执行代理自动发现（WPAD / PAC 脚本）；校验 TLS 证�
 
 **静态检查约束。** `NET-006` 的第三个例外是本节的 `src/Collector/Update/UpdateCheckClient.cs`，
 同样按仓库相对路径精确匹配，不按文件名或目录名匹配。`NET-007` 为此增加 `github-content-hosts` 变体：
-`githubusercontent` 除 §8.2 已放行的几处之外，还可以出现在该更新检查客户端中，此外任何位置都报错；
-`jsdelivr` 仍只限于共享校准一侧，更新检查客户端中出现它同样报错。§8.6 的下载同样只经由该文件发出，没有增加任何放行。
+`githubusercontent` 与 GitCode API、附件主机的精确放行范围见 §8.2；新增 GitCode 主机并未新增运行时 HTTP 出口。
+`jsdelivr` 仍只限于共享校准一侧，更新检查客户端中出现它同样报错。§8.6 的下载同样只经由该文件发出。
 
 用户文本的回归测试 `tests/Desktop.Tests/RunDetailPanelTests.cpp` 另有五处精确登记的 `NET-006` 行标记，用于创建资源请求拦截替身。该替身只计数并返回本地失败，绝不调用真实传输层；富文本对照证明拦截有效，正式正文控件必须保持零资源请求。这些标记不放行任何生产联网入口。
 
@@ -698,37 +722,39 @@ Windows 可能执行代理自动发现（WPAD / PAC 脚本）；校验 TLS 证�
 「没有开始下载，请稍候几秒再试。」说明，不当作下载失败。已就绪的安装程序在 5 秒内刚核对过时，再次请求直接报告就绪。要下载的版本就是 §8.4 读到的 `latest_version`，即发布页上最新的正式版，
 只能是三段纯数字的版本号；先行版（测试包）不会被下载。
 
-**只有两个请求。** 两个只读 `GET`，地址由固定的仓库路径与该版本号拼成：
+**每个来源先读校验值，再下载整包。** 每次新的下载均从 GitHub 开始，按固定仓库路径与目标版本构造两个只读 `GET`：
 
-1. 校验值 `https://github.com/Harendotes-Tang/MentorRouletteRecorder/releases/download/v<版本>/MentorRecorder-<版本>-setup.exe.sha256`，
-   即与安装程序一同发布的 SHA-256（64 位十六进制、两个空格与文件名，由 `scripts/package.ps1` 生成）。
-   只接受开头恰好 64 个十六进制字符、其后为结尾或空白的内容，其余一律视为没有校验值（`CHECKSUM_UNAVAILABLE`）；
-2. 安装程序 `https://github.com/Harendotes-Tang/MentorRouletteRecorder/releases/download/v<版本>/MentorRecorder-<版本>-setup.exe`，
-   即 §8.4 的 `installer_url`，边接收边写入磁盘。
+1. `https://github.com/Harendotes-Tang/MentorRouletteRecorder/releases/download/v<版本>/MentorRecorder-<版本>-setup.exe.sha256`；
+   校验值由 `scripts/package.ps1` 生成，只接受开头恰好 64 个十六进制字符、其后为结尾或空白的内容。
+2. `https://github.com/Harendotes-Tang/MentorRouletteRecorder/releases/download/v<版本>/MentorRecorder-<版本>-setup.exe`，边接收边写入磁盘。
 
-校验值读不到时不请求安装程序。两个请求显式跟随重定向，最多 3 跳；途经的每一个地址，以及最终给出内容的地址，
-都必须是默认端口、不带用户信息的 `https` 地址，并且只能是下列两种之一：
+该来源的校验值读不到时不请求其安装程序。GitHub 读取失败、限流、超时、截断、流中断或远端内容校验失败时，
+可在同一次下载中回退 GitCode；先删除失败来源的 `.part`，再读取镜像同版本校验值并从零下载完整安装程序，绝不拼接两源字节。
+GitCode 起始地址为固定的 `/api/v5/repos/Harendotes-Tang/MentorRouletteRecorder/releases/v<版本>/attach_files/<文件名>/download`，
+文件名只能是上述同版本安装程序或 `.sha256`。已从 GitHub 取得的 SHA-256 保持为预期值；镜像公布不同 SHA-256 时拒绝安装。
+用户取消、禁用、总体超时、本机文件读写失败或最终保留文件被改写时，不改用镜像重试。
 
-- `github.com` 上本项目该版本的发布目录 `/Harendotes-Tang/MentorRouletteRecorder/releases/download/v<版本>/` 之下、
-  路径中不含转义字符（`%`）的地址；
-- GitHub 存放发布资产的两个主机 `release-assets.githubusercontent.com` 与 `objects.githubusercontent.com`。
+每个附件请求显式跟随重定向、最多 3 跳。每一跳都必须是默认端口、不带用户信息及片段的 HTTPS 地址；按来源限定：
 
-其他地址一律按失败处理（`HOST_REFUSED`）。这比 §8.4 的检查更窄：检查接受 `*.githubusercontent.com` 下的任何主机，
-而其中有些主机上任何 GitHub 用户都能发布内容，下载的文件却会以管理员权限运行。GitHub 日后若改用其他主机存放发布资产，
-下载会因此失败，此时仍可改用浏览器下载。两个请求都不存储 Cookie，不发送 Windows 凭据，不做自动解压。
-重定向目标带有 GitHub 签发的查询串，日志与应答都不记录任何地址。
+- GitHub：本项目该版本的 `/Harendotes-Tang/MentorRouletteRecorder/releases/download/v<版本>/`，路径不含转义字符；
+  或 `release-assets.githubusercontent.com`、`objects.githubusercontent.com` 两个发布资产主机。
+- GitCode：固定项目同版本同文件的 API 下载入口、`gitcode.com` 下载路径，或
+  `file-cdn.gitcode.com/11065764/releases/<发布目录>/<同一文件名>`。项目 ID 固定为 `11065764`；不允许其他项目或其他附件。
+
+其他地址在发送请求前拒绝。GitHub 下载主机名单比 §8.4 元数据检查更窄；GitCode 不使用泛子域白名单。
+所有请求均不存储 Cookie、不发送 Windows 凭据、不做自动解压。合法 CDN 重定向可携带平台签发的签名查询串，日志与应答不记录地址。
 
 **限制。**
 
 - 校验值：边读取边统计字节，超过 1 KiB 立即断开；连接、重定向与读取合计 15 秒，与 §8.4 的检查相同。
 - 安装程序：声明的长度超过 300 MiB 时不读取，接收的字节超过 300 MiB 时立即放弃（`TOO_LARGE`）；
-  30 秒没有收到任何数据（包括等待该请求的应答）即放弃（`TIMEOUT`）；整个下载（含校验值）最长 30 分钟。
+  30 秒没有收到任何数据（包括等待该请求的应答）即放弃（`TIMEOUT`）；整个下载（含校验值与镜像重试）共用最长 30 分钟预算，切换来源不重置预算。
   连接在声明的长度之前结束时，文件不完整，按失败处理。
 - 任何失败都以一句中文说明告知用户发生了什么、可以怎么做（重试，或「在浏览器中下载」），不显示内部名称或地址。
 
-**发送的内容。** 两个请求的地址都不带查询串（重定向目标中的签名查询串由 GitHub 给出），也没有请求正文、Cookie、安装 id 或账号；
+**发送的内容。** 两个来源的起始附件地址均不带查询串（合法 CDN 重定向可带平台签名查询串），也没有请求正文、Cookie、安装 id、账号或客户端令牌；
 除固定的 `User-Agent: MentorRecorder`（不带版本号）外不附加任何请求头。地址中只有固定的仓库路径与公开的版本号，
-不含任何能认出用户或本机的信息。与任何网络连接一样，GitHub 及其 CDN 可以看到请求的来源 IP 地址与发生时间，
+不含任何能认出用户或本机的信息。与任何网络连接一样，本次实际访问的 GitHub、GitCode 及其 CDN 可以看到请求的来源 IP 地址与发生时间，
 并可由地址得知被下载的是哪一个版本。附带流量（DNS 解析、代理自动发现、证书吊销检查）与 §8.4 相同。
 
 **写入的内容。** 只写入数据目录（数据库所在的文件夹，默认 `%LOCALAPPDATA%\MentorRecorder\`，或 `MR_DATA_DIR` 指向的目录）
@@ -791,8 +817,8 @@ Windows 可能执行代理自动发现（WPAD / PAC 脚本）；校验 TLS 证�
 就绪时另有 `file_path` 与 `sha256`，失败时另有 `failure` 与 `message`），消息为 `StartUpdateDownload` 与 `CancelUpdateDownload`
 （`contracts/ipc-v1.schema.json`）。脱敏诊断报告不包含下载的任何内容。
 
-**网络代码仍只在一个文件中。** 两个请求都经由 §8.4 的 `src/Collector/Update/UpdateCheckClient.cs` 发出，
-该文件仍是更新一侧唯一允许出现 HTTP 客户端（`NET-006`）与 `githubusercontent`（`NET-007`）的地方，静态检查没有为下载增加任何放行；
+**运行时更新网络代码仍只在一个文件中。** 所有来源的检查与附件请求都经由 §8.4 的 `src/Collector/Update/UpdateCheckClient.cs` 发出，
+该文件仍是更新一侧唯一 HTTP 出口（`NET-006`）；GitCode 主机的 `NET-007` 精确例外见 §8.2，没有放行整个目录；
 下载的状态、写盘与核对都在 `src/Collector/Update/` 的其他文件中，只经由该文件联网。桌面端继续禁止 `QNetworkAccessManager`（`NET-006`）
 与自行下载（`NET-009`）：它只发出 `StartUpdateDownload` / `CancelUpdateDownload`，下载进行中约每秒重读一次 `GetStatus` 以显示进度，
 并在安装前持有并读取本机文件计算校验值。
@@ -802,12 +828,12 @@ Windows 可能执行代理自动发现（WPAD / PAC 脚本）；校验 TLS 证�
 用户可通过以下方式核对上述声明：
 
 1. 用 `netstat -ano` 检查本软件的进程没有任何 LISTENING 端口。桌面端进程在任何时候都不应有出站连接。
-   采集服务只在三种情况下短暂建立出站连接：其一是在 §8.2 所列条件下连接这些源的 443 端口，对端地址属于 GitHub 与 jsDelivr 的 CDN；
+   采集服务只在三种情况下短暂建立出站连接：其一是在 §8.2 所列条件下连接这些源的 443 端口，对端地址属于 GitHub、GitCode 与 jsDelivr 的上述固定来源；
    其二是用户开启在线语音之后，播报或点击「测试」时连向用户选定的语音服务（§8.3；Azure 为 `<区域>.tts.speech.microsoft.com` 的 443 端口，
    OpenAI 兼容接口为用户填写的地址）；其三是更新：桌面端处于连接状态时的更新检查（§8.4），每 24 小时最多一次，
-   以及用户点击「下载并安装」之后对安装程序及其校验值的下载（§8.6），都连向 `github.com` 的 443 端口，
-   并跟随其重定向连向其他主机的 443 端口：检查为 `*.githubusercontent.com` 下的主机，下载只能是
-   `release-assets.githubusercontent.com` 或 `objects.githubusercontent.com`；下载持续到安装程序接收完毕，
+   以及用户点击「下载并安装」之后对安装程序及其校验值的下载（§8.6），每次先连向 `github.com` 的 443 端口，
+   并跟随合法重定向：GitHub 检查为 `*.githubusercontent.com`，下载只能是两个指定发布资产主机；失败时可连向
+   `api.gitcode.com` 及固定项目下载重定向的 `gitcode.com`、`file-cdn.gitcode.com`（§8.4、§8.6）。下载持续到安装程序接收完毕，
    或失败、被取消、「检查新版本并提示」被关闭为止。
    在设置中关闭「游戏更新后获取其他玩家的共享校准」与「检查新版本并提示」、并将播报的语音引擎保持为本机语音，
    或设置 `MR_DISABLE_SHARED_FETCH=1`、`MR_DISABLE_ONLINE_SPEECH=1` 与 `MR_DISABLE_UPDATE_CHECK=1` 并重启软件之后，

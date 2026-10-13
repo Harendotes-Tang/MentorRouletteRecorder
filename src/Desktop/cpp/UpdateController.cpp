@@ -9,6 +9,7 @@
 #include <QDesktopServices>
 #include <QDir>
 #include <QMetaType>
+#include <QRegularExpression>
 
 #include <utility>
 
@@ -170,8 +171,9 @@ bool UpdateController::dismissed() const
 
 bool UpdateController::isReleaseUrl(const QUrl &url)
 {
+    const bool mirror = url.host() == QLatin1String("gitcode.com");
     if (!(url.isValid() && url.scheme() == QLatin1String("https")
-          && url.host() == QLatin1String("github.com") && url.userInfo().isEmpty()
+          && (url.host() == QLatin1String("github.com") || mirror) && url.userInfo().isEmpty()
           && url.port() == -1)) {
         return false;
     }
@@ -192,6 +194,21 @@ bool UpdateController::isReleaseUrl(const QUrl &url)
         if (segment == QLatin1String(".") || segment == QLatin1String("..")
             || segment.contains(QLatin1Char('\\')))
             return false;
+    }
+    if (mirror) {
+        // Mirror links name a formal version and this project's exact artifact;
+        // API/CDN addresses are never opened by the Desktop.
+        if (url.hasQuery() || url.hasFragment())
+            return false;
+        static const QRegularExpression version(QStringLiteral("\\Av[0-9]+\\.[0-9]+\\.[0-9]+\\z"));
+        if (segments.size() == 5)
+            return segments.at(3) == QLatin1String("releases")
+                   && version.match(segments.at(4)).hasMatch();
+        return segments.size() == 7 && segments.at(3) == QLatin1String("releases")
+               && segments.at(4) == QLatin1String("download")
+               && version.match(segments.at(5)).hasMatch()
+               && segments.at(6) == QStringLiteral("MentorRecorder-%1-setup.exe")
+                                       .arg(segments.at(5).mid(1));
     }
     return true;
 }

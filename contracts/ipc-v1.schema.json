@@ -1360,7 +1360,7 @@
         "reason": { "$ref": "#/$defs/SharedRecheckReason" }
       }
     },
-    "SharedCalibrationSource": { "type": "string", "enum": ["GITHUB_RAW", "CDN_PRIMARY", "CDN_FALLBACK"], "description": "Source names, never addresses." },
+    "SharedCalibrationSource": { "type": "string", "enum": ["GITHUB_RAW", "GITCODE", "CDN_PRIMARY", "CDN_FALLBACK"], "description": "Source names, never addresses." },
     "SharedFetchOutcome": {
       "type": "string",
       "enum": ["OK", "TIMEOUT", "HTTP_STATUS", "REDIRECT_REFUSED", "HOST_REFUSED", "TOO_LARGE", "MALFORMED", "DNS_OR_CONNECT", "TLS_FAILED", "READ_FAILED", "TRANSPORT_FAILED", "CANCELLED"]

@@ -21,6 +21,7 @@ EXPECTED = {
     ".gitattributes", ".gitignore", ".github/ISSUE_TEMPLATE/config.yml", ".github/ISSUE_TEMPLATE/share-calibration.yml",
     ".github/ISSUE_TEMPLATE/report-calibration.yml", ".github/workflows/publish-calibration.yml",
     ".github/workflows/report-calibration.yml", "LICENSE.md", "LICENSES/GPL-3.0-or-later.txt", "README.md",
+    ".github/workflows/mirror-repository.yml", "tools/sync_refs.py",
     "index.json", "submissions.json", "templates/cn.2026.08.05.json", "tools/index.py", "tools/issue.py",
     "tools/publish.py", "tools/publish_issue.sh", "tools/rebuild.py", "tools/report_issue.sh", "tools/sharecode.py",
     "tools/sweep_issues.sh",
@@ -61,6 +62,27 @@ class SyncTests(unittest.TestCase):
             if path.is_file() and path.suffix in TEXT_SUFFIXES and path.parent.name != "templates":
                 with self.subTest(path.name):
                     self.assertNotIn(b"\r\n", path.read_bytes())
+
+    def test_ref_mirror_tool_comes_from_the_single_main_repository_source(self):
+        canonical = testsupport.REPO / "tools/release-mirror/sync_refs.py"
+        self.assertEqual(canonical.read_bytes().replace(b"\r\n", b"\n"),
+                         (self.out / "tools/sync_refs.py").read_bytes())
+        self.assertFalse((sync_public_repo.PUBLIC_DIRECTORY / "tools/sync_refs.py").exists())
+        self.assertFalse((testsupport.HERE / "sync_refs.py").exists())
+
+    def test_a_missing_mapped_runtime_tool_fails_verification(self):
+        (self.out / "tools/sync_refs.py").unlink()
+        with self.assertRaisesRegex(sync_public_repo.SyncError, "tools/sync_refs.py"):
+            sync_public_repo.verify(self.out)
+
+    def test_the_synced_mirror_entrypoint_can_show_help_without_source_repository_or_credentials(self):
+        environment = dict(os.environ)
+        for name in ("PYTHONPATH", "GITHUB_TOKEN", "GITCODE_MIRROR_TOKEN"):
+            environment.pop(name, None)
+        result = subprocess.run([sys.executable, "-B", str(self.out / "tools/sync_refs.py"), "--help"],
+                                cwd=self.root, env=environment, capture_output=True, text=True, timeout=30)
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn("--repo", result.stdout)
 
     def test_the_licence_text_is_the_projects(self):
         licence = (testsupport.REPO / "LICENSE").read_bytes().replace(b"\r\n", b"\n")

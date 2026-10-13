@@ -83,6 +83,8 @@ SAMPLES: dict[str, str] = {
     "NET-006": "        using var client = new HttpClient();",
     "NET-007/shared-calibration-hosts": '        const string Mirror = "https://cdn.jsdelivr.net/gh/owner/repo@main/index.json";',
     "NET-007/github-content-hosts": '        const string Raw = "https://raw.githubusercontent.com/owner/repo/main/index.json";',
+    "NET-007/gitcode-api-host": '        const string Api = "https://api.gitcode.com/api/v5/repos/owner/repo";',
+    "NET-007/gitcode-asset-hosts": '        const string Asset = "https://file-cdn.gitcode.com/release/file";',
     "NET-007/speech-host": '        const string Endpoint = "https://eastasia.tts.speech.microsoft.com/cognitiveservices/v1";',
     "NET-008": '        using var client = new TcpClient("example.invalid", 443);',
     "NET-009/downloads": "        Invoke-WebRequest -Uri $url -OutFile $target",
@@ -111,6 +113,7 @@ PS1_SITE = "scripts/sample.ps1"
 QML_SITE = "src/Desktop/qml/Sample.qml"
 PY_SITE = "tools/some-tool/sample.py"
 MORE_SAMPLES: tuple[tuple[str, str, str], ...] = (
+    ("NET-007/gitcode-asset-hosts", 'const string Upload = "https://file-upload.gitcode.com/release/file";', DEFAULT_SITE),
     ("INJ-001", "        Toolhelp32ReadProcessMemory(processId, address, buffer, size, out _);", DEFAULT_SITE),
     ("INJ-001", "        NtReadVirtualMemory(handle, address, buffer, size, out _);", DEFAULT_SITE),
     ("INJ-001", "        ZwReadVirtualMemory(handle, address, buffer, size, out _);", DEFAULT_SITE),
@@ -1573,8 +1576,55 @@ def cases() -> Iterable[tuple[str, callable]]:
 
     yield "NET-010 allows the duty-data generator by exact path", generator_is_allowed
 
+    release_mirror = "tools/release-mirror/sync_release.py"
+
+    def release_mirror_is_allowed() -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            clean_tree(root)
+            plant(root, release_mirror, generator_lines + '\nHOST = "api.gitcode.com"\n'
+                  'CDN = "file-cdn.gitcode.com"\nUPLOAD = "file-upload.gitcode.com"\n'
+                  'SOURCE = "release-assets.githubusercontent.com"')
+            expect_clean(root, "the exact release mirror entry point")
+
+    yield "release mirror network allowances apply only to its entry point", release_mirror_is_allowed
+
+    for path, allowed in ((client, True), (updates, True),
+                          ("src/Collector/Speech/OnlineSpeechClient.cs", False),
+                          ("src/Collector/Update/OtherClient.cs", False),
+                          ("tools/release-mirror/selftest.py", False)):
+        def gitcode_api_scope(path: str = path, allowed: bool = allowed) -> None:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                clean_tree(root)
+                plant(root, path, 'HOST = "API.GITCODE.COM"')
+                if allowed:
+                    expect_clean(root, f"GitCode API in {path}")
+                else:
+                    expect_violation(root, f"GitCode API in {path}", "NET-007", "NET-007/gitcode-api-host")
+        yield f"GitCode API allowance for {path} is {allowed}", gitcode_api_scope
+
+    def calibration_cannot_name_asset_cdn() -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            clean_tree(root)
+            plant(root, client, 'HOST = "file-cdn.gitcode.com"')
+            expect_violation(root, "calibration asset CDN", "NET-007", "NET-007/gitcode-asset-hosts")
+    yield "calibration cannot name the GitCode attachment CDN", calibration_cannot_name_asset_cdn
+
+    def mirror_allowance_does_not_allow_sockets() -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            clean_tree(root)
+            plant(root, release_mirror, "raw = socket.socket(socket.AF_INET, socket.SOCK_STREAM)")
+            expect_violation(root, "raw socket in release mirror", "NET-008")
+    yield "release mirror exception does not permit raw sockets", mirror_allowance_does_not_allow_sockets
+
     for elsewhere in (
         "tools/duty-data-generator/test_generate.py",
+        "tools/release-mirror/selftest.py",
+        "tools/release-mirror/other.py",
+        "tools/release-mirror-old/sync_release.py",
         "tools/duty-data-generator/fetch.py",
         "tools/other/duty-data-generator/generate.py",
         "tools/shared-calibration/publish.py",

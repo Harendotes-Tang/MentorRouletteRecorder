@@ -256,7 +256,7 @@ public sealed class UpdateCheckClientTests
         var result = await Client(transport).FetchAsync();
 
         Assert.Equal(Outcome.RedirectRefused, result.Outcome);
-        Assert.Equal(UpdateCheckClient.MaxRedirects + 1, transport.Requests.Count);
+        Assert.Equal(UpdateCheckClient.MaxRedirects + 2, transport.Requests.Count);
     }
 
     [Fact]
@@ -287,7 +287,7 @@ public sealed class UpdateCheckClientTests
         var result = await Client(transport).FetchAsync();
 
         Assert.Equal(Outcome.RedirectRefused, result.Outcome);
-        Assert.Single(transport.Requests);
+        Assert.Equal(new[] { UpdateCheckClient.MetadataUri(), UpdateCheckClient.GitCodeReleasesUri() }, transport.Requests);
     }
 
     [Fact]
@@ -319,7 +319,7 @@ public sealed class UpdateCheckClientTests
             var result = await Client(transport).FetchAsync();
 
             Assert.Equal(Outcome.HostRefused, result.Outcome);
-            Assert.Single(transport.Requests);
+            Assert.Equal(new[] { UpdateCheckClient.MetadataUri(), UpdateCheckClient.GitCodeReleasesUri() }, transport.Requests);
         }
     }
 

@@ -64,13 +64,13 @@ public sealed class SharedCalibrationClientTests
     // ------------------------------------------------------------------------ addresses
 
     [Fact]
-    public void TheSourcesAreOneRepositoryOnThreeHostsTriedInAFixedOrder()
+    public void TheSourcesAreOneRepositoryOnFourHostsTriedInAFixedOrder()
     {
         Assert.Equal("Harendotes-Tang", SharedCalibrationClient.Owner);
         Assert.Equal("MentorRecorder-Calibrations", SharedCalibrationClient.Repository);
-        Assert.Equal(new[] { Source.GithubRaw, Source.CdnPrimary, Source.CdnFallback }, SharedCalibrationClient.SourceOrder);
+        Assert.Equal(new[] { Source.GithubRaw, Source.Gitcode, Source.CdnPrimary, Source.CdnFallback }, SharedCalibrationClient.SourceOrder);
         var hosts = SharedCalibrationClient.SourceOrder.Select(SharedCalibrationClient.HostFor).ToArray();
-        Assert.Equal(3, hosts.Distinct(StringComparer.OrdinalIgnoreCase).Count());
+        Assert.Equal(4, hosts.Distinct(StringComparer.OrdinalIgnoreCase).Count());
         Assert.Equal(hosts.Order(), SharedCalibrationClient.AllowedHosts.Order());
 
         foreach (var source in SharedCalibrationClient.SourceOrder)
@@ -79,7 +79,7 @@ public sealed class SharedCalibrationClientTests
             Assert.Equal(Uri.UriSchemeHttps, uri.Scheme);
             Assert.Equal(SharedCalibrationClient.HostFor(source), uri.Host);
             Assert.True(uri.IsDefaultPort);
-            Assert.Equal(string.Empty, uri.Query);
+            Assert.Equal(source == Source.Gitcode ? "?ref=main" : string.Empty, uri.Query);
             Assert.Equal(string.Empty, uri.Fragment);
             Assert.Equal(string.Empty, uri.UserInfo);
         }
@@ -102,6 +102,136 @@ public sealed class SharedCalibrationClientTests
         Assert.Throws<ArgumentException>(() => SharedCalibrationClient.CodeUri(Source.GithubRaw, "main", path));
         Assert.Throws<ArgumentException>(() => SharedCalibrationClient.CodeUri(Source.GithubRaw, Commit, "../index.json"));
         Assert.Throws<ArgumentException>(() => SharedCalibrationClient.CodeUri(Source.GithubRaw, Commit, path + "?x=1"));
+    }
+
+    [Fact]
+    public void GitcodeAllowsOnlyTheFixedRawRepositoryAndOnePinnedRef()
+    {
+        var index = SharedCalibrationClient.IndexUri(Source.Gitcode);
+        var path = SharedCalibrationIndex.CodePath(Region.Cn, Build, SharedCalibrationIndexTests.Sha('a'));
+        var code = SharedCalibrationClient.CodeUri(Source.Gitcode, Commit, path);
+        var prefix = "/api/v5/repos/" + SharedCalibrationClient.Owner + "/" + SharedCalibrationClient.Repository + "/raw/";
+        Assert.Equal(prefix + "index.json", index.AbsolutePath);
+        Assert.Equal("?ref=main", index.Query);
+        Assert.Equal(prefix + path, code.AbsolutePath);
+        Assert.Equal("?ref=" + Commit, code.Query);
+        Assert.True(SharedCalibrationClient.IsRequestAllowed(index));
+        Assert.True(SharedCalibrationClient.IsRequestAllowed(code));
+
+        foreach (var refused in new[]
+        {
+            new UriBuilder(index) { Query = "" }.Uri,
+            new UriBuilder(index) { Query = "ref=main&ref=main" }.Uri,
+            new UriBuilder(index) { Query = "ref=main&access_token=secret" }.Uri,
+            new UriBuilder(index) { Query = "ref=dev" }.Uri,
+            new UriBuilder(index) { Query = "ref=main%26ref=dev" }.Uri,
+            new UriBuilder(index) { Fragment = "anchor" }.Uri,
+            new UriBuilder(index) { Port = 8443 }.Uri,
+            new UriBuilder(index) { UserName = "user" }.Uri,
+            new UriBuilder(index) { Scheme = "http", Port = -1 }.Uri,
+            new UriBuilder(index) { Host = index.Host + ".invalid" }.Uri,
+            new UriBuilder(index) { Path = prefix.Replace(SharedCalibrationClient.Owner, "other", StringComparison.Ordinal) + "index.json" }.Uri,
+            new UriBuilder(index) { Path = prefix + "other.json" }.Uri,
+            new UriBuilder(code) { Query = "ref=main" }.Uri,
+            new UriBuilder(code) { Query = "ref=" + Commit[..7] }.Uri,
+            new UriBuilder(code) { Query = "ref=" + new string('a', 64) }.Uri,
+            new UriBuilder(code) { Query = "ref=" + Commit + "&x=1" }.Uri,
+        })
+        {
+            Assert.False(SharedCalibrationClient.IsRequestAllowed(refused), refused.AbsoluteUri);
+        }
+
+        foreach (var source in SharedCalibrationClient.SourceOrder.Where(source => source != Source.Gitcode))
+        {
+            Assert.True(SharedCalibrationClient.IsRequestAllowed(SharedCalibrationClient.IndexUri(source)));
+            Assert.True(SharedCalibrationClient.IsRequestAllowed(CodeAt(source, SharedCalibrationIndexTests.Sha('a'))));
+            Assert.False(SharedCalibrationClient.IsRequestAllowed(new UriBuilder(SharedCalibrationClient.IndexUri(source)) { Query = "ref=main" }.Uri));
+        }
+    }
+
+    [Theory]
+    [InlineData(404)]
+    [InlineData(429)]
+    [InlineData(503)]
+    public async Task GitcodeProvidesTheIndexAndPinnedCodeWhenGithubFails(int status)
+    {
+        var code = Code(0xF001);
+        var revoked = Code(0xF002);
+        var transport = new FakeTransport().On(SharedCalibrationClient.IndexUri(Source.GithubRaw),
+            (uri, _) => Task.FromResult(Status(uri, status)));
+        Serve(transport, Source.Gitcode, Index(Entry(code.Sha), Entry(revoked.Sha, revoked: true)), code, revoked);
+
+        var result = await Client(transport).FetchAsync(Region.Cn, Build);
+
+        Assert.Equal(SharedFetchStatus.Ok, result.Status);
+        Assert.Equal(new[] { Source.GithubRaw, Source.Gitcode }, result.IndexAttempts.Select(attempt => attempt.Source));
+        Assert.Equal(code.Sha, Assert.Single(result.Candidates).CodeSha256);
+        Assert.Equal(new[] { revoked.Sha }, result.RevokedCodeSha256s);
+        Assert.Equal(new[] { SharedCalibrationClient.IndexUri(Source.GithubRaw), SharedCalibrationClient.IndexUri(Source.Gitcode), CodeAt(Source.Gitcode, code.Sha) }, transport.Requests);
+    }
+
+    [Fact]
+    public async Task AReadableEmptyGithubIndexDoesNotConsultAStaleMirror()
+    {
+        var code = Code(0xF001);
+        var transport = new FakeTransport().On(SharedCalibrationClient.IndexUri(Source.GithubRaw), Index());
+        Serve(transport, Source.Gitcode, Index(Entry(code.Sha)), code);
+
+        var result = await Client(transport).FetchAsync(Region.Cn, Build);
+
+        Assert.Equal(SharedFetchStatus.NoneForBuild, result.Status);
+        Assert.Empty(result.Candidates);
+        Assert.Equal(SharedCalibrationClient.IndexUri(Source.GithubRaw), Assert.Single(transport.Requests));
+    }
+
+    [Fact]
+    public async Task AChangedGitcodePayloadIsRejectedBeforeTryingTheExistingCdn()
+    {
+        var code = Code(0xF001);
+        var impostor = Code(0xF002);
+        var transport = new FakeTransport();
+        Serve(transport, Source.Gitcode, Index(Entry(code.Sha)));
+        transport.On(CodeAt(Source.Gitcode, code.Sha), Encoding.UTF8.GetBytes(impostor.Code));
+        transport.On(CodeAt(Source.CdnPrimary, code.Sha), Encoding.UTF8.GetBytes(code.Code));
+
+        var result = await Client(transport).FetchAsync(Region.Cn, Build);
+
+        Assert.Equal(code.Code, Assert.Single(result.Candidates).Code);
+        Assert.Contains(CodeAt(Source.CdnPrimary, code.Sha), transport.Requests);
+        Assert.DoesNotContain(SharedCalibrationClient.IndexUri(Source.CdnPrimary), transport.Requests);
+    }
+
+    [Fact]
+    public async Task CancellationBetweenSourcesSendsNoMirrorRequestEvenIfTheTransportIgnoresCancellation()
+    {
+        using var cancel = new CancellationTokenSource();
+        var transport = new FakeTransport().On(SharedCalibrationClient.IndexUri(Source.GithubRaw), (uri, _) =>
+        {
+            cancel.Cancel();
+            return Task.FromResult(Status(uri, 503));
+        });
+
+        var result = await Client(transport).FetchAsync(Region.Cn, Build, cancel.Token);
+
+        Assert.Equal(SharedFetchStatus.Cancelled, result.Status);
+        Assert.Single(transport.Requests);
+    }
+
+    [Fact]
+    public async Task EnablingTheKillSwitchDuringAFailedRequestStopsAllLaterSources()
+    {
+        var disabled = false;
+        var transport = new FakeTransport().On(SharedCalibrationClient.IndexUri(Source.GithubRaw), (uri, _) =>
+        {
+            disabled = true;
+            return Task.FromResult(Status(uri, 503));
+        });
+        var client = new SharedCalibrationClient(transport.Send, readEnvironment: _ => disabled ? "1" : null);
+
+        var result = await client.FetchAsync(Region.Cn, Build);
+
+        Assert.Equal(SharedFetchStatus.Disabled, result.Status);
+        Assert.Single(transport.Requests);
     }
 
     // ---------------------------------------------------------------------- kill switch
@@ -191,15 +321,15 @@ public sealed class SharedCalibrationClientTests
 
         var result = await Client(transport).FetchAsync(Region.Cn, Build);
 
-        Assert.Equal(new[] { Outcome.DnsOrConnect, Outcome.HttpStatus, Outcome.Ok }, result.IndexAttempts.Select(attempt => attempt.Outcome));
-        Assert.Equal(new[] { Source.GithubRaw, Source.CdnPrimary, Source.CdnFallback }, result.IndexAttempts.Select(attempt => attempt.Source));
+        Assert.Equal(new[] { Outcome.DnsOrConnect, Outcome.HttpStatus, Outcome.HttpStatus, Outcome.Ok }, result.IndexAttempts.Select(attempt => attempt.Outcome));
+        Assert.Equal(new[] { Source.GithubRaw, Source.Gitcode, Source.CdnPrimary, Source.CdnFallback }, result.IndexAttempts.Select(attempt => attempt.Source));
         Assert.Equal("NAME_RESOLUTION_ERROR", result.IndexAttempts[0].Detail);
-        Assert.Equal(503, result.IndexAttempts[1].HttpStatus);
+        Assert.Equal(503, result.IndexAttempts[2].HttpStatus);
         Assert.Equal(SharedFetchStatus.Ok, result.Status);
         Assert.Single(result.Candidates);
         // The code is requested first from the source that supplied the index: that source is known to answer.
-        Assert.Equal(4, transport.Requests.Count);
-        Assert.Equal(SharedCalibrationClient.HostFor(Source.CdnFallback), transport.Requests[3].Host);
+        Assert.Equal(5, transport.Requests.Count);
+        Assert.Equal(SharedCalibrationClient.HostFor(Source.CdnFallback), transport.Requests[4].Host);
     }
 
     [Fact]
@@ -295,7 +425,7 @@ public sealed class SharedCalibrationClientTests
             Assert.Equal(Outcome.RedirectRefused, attempt.Outcome);
             Assert.Equal(status, attempt.HttpStatus);
         });
-        Assert.Equal(3, transport.Requests.Count);
+        Assert.Equal(4, transport.Requests.Count);
     }
 
     [Fact]
@@ -313,7 +443,7 @@ public sealed class SharedCalibrationClientTests
         var result = await Client(transport).FetchAsync(Region.Cn, Build);
 
         Assert.Equal(
-            new[] { Outcome.HostRefused, Outcome.HostRefused, Outcome.RedirectRefused },
+            new[] { Outcome.HostRefused, Outcome.HttpStatus, Outcome.HostRefused, Outcome.RedirectRefused },
             result.IndexAttempts.Select(attempt => attempt.Outcome));
     }
 
@@ -366,7 +496,7 @@ public sealed class SharedCalibrationClientTests
             await Task.Delay(Timeout.Infinite, token);
             throw new InvalidOperationException("the delay never ends on its own");
         });
-        Serve(transport, Source.CdnPrimary, Index(Entry(code.Sha)), code);
+        Serve(transport, Source.Gitcode, Index(Entry(code.Sha)), code);
 
         var result = await Client(transport, TimeSpan.FromMilliseconds(100)).FetchAsync(Region.Cn, Build);
 
@@ -397,8 +527,8 @@ public sealed class SharedCalibrationClientTests
 
         var result = await Client(transport).FetchAsync(Region.Cn, Build);
 
-        Assert.Equal(new[] { Outcome.TlsFailed, Outcome.ReadFailed, Outcome.TransportFailed }, result.IndexAttempts.Select(attempt => attempt.Outcome));
-        Assert.Equal("InvalidOperationException", result.IndexAttempts[2].Detail);
+        Assert.Equal(new[] { Outcome.TlsFailed, Outcome.HttpStatus, Outcome.ReadFailed, Outcome.TransportFailed }, result.IndexAttempts.Select(attempt => attempt.Outcome));
+        Assert.Equal("InvalidOperationException", result.IndexAttempts[3].Detail);
         Assert.Equal(SharedFetchStatus.IndexUnavailable, result.Status);
     }
 
@@ -407,7 +537,7 @@ public sealed class SharedCalibrationClientTests
     {
         var code = Code(0xF001);
         var transport = new FakeTransport().On(SharedCalibrationClient.IndexUri(Source.GithubRaw), "<html>blocked</html>"u8.ToArray());
-        Serve(transport, Source.CdnPrimary, Index(Entry(code.Sha)), code);
+        Serve(transport, Source.Gitcode, Index(Entry(code.Sha)), code);
 
         var result = await Client(transport).FetchAsync(Region.Cn, Build);
 
@@ -423,7 +553,7 @@ public sealed class SharedCalibrationClientTests
         var damaged = Encoding.UTF8.GetString(Index(Entry(code.Sha)))
             .Replace("{\"region\"", "{\"\\ud800\":1,\"region\"", StringComparison.Ordinal);
         var transport = new FakeTransport().On(SharedCalibrationClient.IndexUri(Source.GithubRaw), Encoding.UTF8.GetBytes(damaged));
-        Serve(transport, Source.CdnPrimary, Index(Entry(code.Sha)), code);
+        Serve(transport, Source.Gitcode, Index(Entry(code.Sha)), code);
 
         var result = await Client(transport).FetchAsync(Region.Cn, Build);
 

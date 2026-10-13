@@ -14,6 +14,9 @@ public enum SharedCalibrationSource
 
     /// <summary>The same CDN mirror through its second edge network.</summary>
     CdnFallback,
+
+    /// <summary>The domestic repository mirror, read anonymously through its fixed Raw API.</summary>
+    Gitcode,
 }
 
 /// <summary>How one request to one source ended (diagnostics tokens: UPPER_SNAKE_CASE of the member).</summary>

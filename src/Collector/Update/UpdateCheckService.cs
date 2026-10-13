@@ -60,6 +60,7 @@ public sealed class UpdateCheckService : IDisposable
 
     private DateTimeOffset? _lastCheckedAtUtc;
     private string? _latestVersion;
+    private UpdateSource _latestSource;
     private string? _lastOutcome;
     private bool _checkedThisProcess;
     private volatile bool _enabled;
@@ -140,11 +141,13 @@ public sealed class UpdateCheckService : IDisposable
         DateTimeOffset? lastChecked;
         string? latest;
         string? outcome;
+        UpdateSource source;
         lock (_gate)
         {
             lastChecked = _lastCheckedAtUtc;
             latest = _latestVersion;
             outcome = _lastOutcome;
+            source = _latestSource;
         }
 
         // Switched off, nothing is offered: docs/privacy-boundary.md §8.4 promises the banner goes away (audit
@@ -156,8 +159,8 @@ public sealed class UpdateCheckService : IDisposable
             latest,
             lastChecked,
             outcome,
-            UpdateCheckClient.ReleaseUrl,
-            UpdateCheckClient.InstallerUrl(latest));
+            source == UpdateSource.GitCode ? UpdateCheckClient.GitCodeReleaseUrl(latest)! : UpdateCheckClient.ReleaseUrl,
+            source == UpdateSource.GitCode ? UpdateCheckClient.GitCodeInstallerUrl(latest) : UpdateCheckClient.InstallerUrl(latest));
     }
 
     /// <summary>What the sanitized diagnostics report may state. Never an address.</summary>
@@ -391,13 +394,17 @@ public sealed class UpdateCheckService : IDisposable
         }
 
         var now = UtcTimestamp.Truncate(_clock.UtcNow);
+        string? acceptedVersion = null;
         lock (_gate)
         {
             _lastCheckedAtUtc = now;
             _lastOutcome = EnumWire<UpdateCheckOutcome>.Format(result.Outcome);
-            if (result.LatestVersion is { } version)
+            if (result.Outcome == UpdateCheckOutcome.Ok && result.LatestVersion is { } version &&
+                !(result.Source == UpdateSource.GitCode && UpdateVersion.TryParse(_latestVersion, out var previous) &&
+                  UpdateVersion.TryParse(version, out var candidate) && UpdateVersion.IsNewer(previous, candidate)))
             {
-                _latestVersion = version;
+                _latestVersion = acceptedVersion = version;
+                _latestSource = result.Source;
             }
         }
 
@@ -409,7 +416,7 @@ public sealed class UpdateCheckService : IDisposable
 
         // A failed check keeps whatever version the last successful one learned: the user is not
         // told the update vanished because a server was down.
-        if (result.LatestVersion is { } latest)
+        if (acceptedVersion is { } latest)
         {
             values[LatestVersionSetting] = Text(latest);
         }
