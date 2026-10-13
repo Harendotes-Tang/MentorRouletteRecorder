@@ -2,6 +2,13 @@
 
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循语义化版本。
 
+## [Unreleased]
+
+### 改进
+- 校准获取和版本检查仍优先访问 GitHub，连接失败时自动尝试固定的 GitCode 镜像。
+- 安装包下载遇到网络故障时，可从 GitCode 重新下载同一版本的完整文件，保留 SHA256 校验、取消操作和安装确认。
+- 两个仓库通过 GitHub Actions 主动同步到 GitCode，并定时补偿；正式版附件同步保留原文件并在完整校验后最后发布元数据。
+
 ## [1.7.1] - 2026-10-12
 
 ### 改进
