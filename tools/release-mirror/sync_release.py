@@ -31,6 +31,7 @@ MAX_INSTALLER = 2 * 1024**3
 MAX_JSON = 2 * 1024**2
 CDN_HOST = "file-cdn.gitcode.com"
 UPLOAD_HOST = "file-upload.gitcode.com"
+UPLOAD_FILE_HOST = "file.gitcode.com"
 UPLOAD_HEADERS = {"x-obs-meta-project-id", "x-obs-acl", "x-obs-callback", "content-type"}
 
 
@@ -58,7 +59,7 @@ def secure_url(url: str) -> urllib.parse.SplitResult:
 def upload_url_allowed(url: str) -> bool:
     p = secure_url(url)
     # The API returns a signed OBS upload URL; never send the API token there.
-    return p.hostname in {UPLOAD_HOST, CDN_HOST} or bool(
+    return p.hostname in {UPLOAD_HOST, UPLOAD_FILE_HOST, CDN_HOST} or bool(
         re.fullmatch(r"[a-z0-9-]+\.obs\.[a-z0-9-]+\.myhuaweicloud\.com", p.hostname or ""))
 
 
@@ -272,6 +273,8 @@ class RemoteMirror:
         require(set(headers) == UPLOAD_HEADERS and all(isinstance(v, str) and "\r" not in v
                 and "\n" not in v for v in headers.values()), "Unexpected upload headers")
         headers["content-length"] = str(path.stat().st_size)
+        # Emit only an already accepted hostname, never a signed URL or API headers.
+        print("Uploading to verified storage host: " + secure_url(response["url"]).hostname, flush=True)
         with path.open("rb") as body, self.http.open(response["url"], method="PUT",
                                                    data=DeadlineReader(body, self.http.deadline),
                                                    headers=headers) as result:

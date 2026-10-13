@@ -500,7 +500,9 @@ Action 只使用 GitHub 默认的 `GITHUB_TOKEN`。仓库中的脚本与模板�
 `NET-007` 管控主机名片段，每个片段有各自的放行名单。`jsdelivr` 只能出现在共享校准获取客户端、公开仓库脚本的镜像目录
 `tools/shared-calibration/`，以及开发期下载公开数据表的 `tools/duty-data-generator/generate.py`；
 `githubusercontent` 另有 `github-content-hosts` 变体，除上述三处外，还可以出现在 §8.4 的更新检查客户端与 CI 专用 `tools/release-mirror/sync_release.py` 中；
-GitCode API 主机仅放行共享校准客户端、更新客户端与该发布工具，GitCode 附件主机仅放行更新客户端与该发布工具。其余位置报错；
+GitCode API 主机仅放行共享校准客户端、更新客户端与该发布工具，GitCode 附件主机仅放行更新客户端与该发布工具。
+专用上传主机 `file.gitcode.com` 由独立的 `gitcode-upload-host` 规则仅放行 `tools/release-mirror/sync_release.py`，
+不放行更新客户端、校准客户端或同目录其他脚本。其余位置报错；
 `tts.speech.microsoft.com` 只能出现在在线语音客户端（§8.3）。各处放行互不通用：共享校准客户端中出现语音主机名，
 或语音客户端中出现共享校准的源，同样报错。`NET-008` 禁止直接使用套接字、域名解析、Ping 与 SmtpClient，
 没有任何放行，三个客户端同样只经由 HTTP 客户端联网；`NET-009` 禁止脚本、工作流、QML 与桌面端自行下载或请求

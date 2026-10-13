@@ -2,6 +2,7 @@
 """Offline transaction and network-boundary tests; no remote deployment claims."""
 
 import copy
+from contextlib import redirect_stdout
 import hashlib
 import io
 import json
@@ -224,12 +225,68 @@ class NetworkTests(unittest.TestCase):
     def test_upload_destination_policy(self):
         self.assertTrue(m.upload_url_allowed("https://bucket.obs.cn-north-4.myhuaweicloud.com/file?sig=x"))
         self.assertTrue(m.upload_url_allowed(f"https://{m.UPLOAD_HOST}/file"))
+        self.assertTrue(m.upload_url_allowed(f"https://{m.UPLOAD_FILE_HOST}/file?signature=secret"))
         for url in ("https://evil.test/file", f"https://{m.CDN_HOST}.evil.test/file"):
             self.assertFalse(m.upload_url_allowed(url))
         for url in (f"http://{m.CDN_HOST}/file", f"https://user@{m.CDN_HOST}/file",
                     f"https://{m.CDN_HOST}:8443/file", f"https://{m.CDN_HOST}/file#f"):
             with self.assertRaises(m.MirrorError):
                 m.upload_url_allowed(url)
+
+    def test_file_upload_host_rejects_spoofing_credentials_and_nondefault_port(self):
+        self.assertFalse(m.upload_url_allowed(f"https://{m.UPLOAD_FILE_HOST}.evil.test/file"))
+        for url in (f"http://{m.UPLOAD_FILE_HOST}/file", f"https://user:secret@{m.UPLOAD_FILE_HOST}/file",
+                    f"https://{m.UPLOAD_FILE_HOST}:8443/file", f"https://{m.UPLOAD_FILE_HOST}/file#secret"):
+            with self.subTest(url=url), self.assertRaises(m.MirrorError):
+                m.upload_url_allowed(url)
+
+    def test_upload_logs_verified_host_only_and_sends_no_api_token(self):
+        captured = []
+        signed_url = f"https://{m.UPLOAD_FILE_HOST}/private-path?signature=SIGNED-SECRET"
+        class Api(m.Http):
+            def api(self, url, **kwargs):
+                return {"url": signed_url, "headers": {key: "header-value" for key in m.UPLOAD_HEADERS}}
+        class Capture:
+            def open(self, request, timeout):
+                captured.append(request)
+                response = io.BytesIO()
+                response.headers = {"Content-Length": "0"}
+                return response
+        http = Api("API-SECRET")
+        http.opener = Capture()
+        output = io.StringIO()
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "asset"
+            path.write_bytes(b"original bytes")
+            with redirect_stdout(output):
+                m.RemoteMirror(http, TAG, Path(directory)).upload(NAMES[0], path)
+        self.assertEqual(output.getvalue(), "Uploading to verified storage host: " + m.UPLOAD_FILE_HOST + "\n")
+        self.assertEqual(captured[0].get_method(), "PUT")
+        self.assertNotIn("Private-token", captured[0].headers)
+        self.assertNotIn("Authorization", captured[0].headers)
+
+    def test_rejected_upload_url_has_fixed_error_and_no_host_log(self):
+        class Api:
+            def api(self, url, **kwargs):
+                return {"url": "https://secret-host.evil.test/private?signature=SIGNED-SECRET"}
+        output = io.StringIO()
+        with redirect_stdout(output), self.assertRaises(m.MirrorError) as failure:
+            m.RemoteMirror(Api(), TAG, Path("unused")).upload(NAMES[0], Path("unused"))
+        self.assertEqual(str(failure.exception), "Refused upload storage host")
+        self.assertEqual(output.getvalue(), "")
+
+    def test_upload_put_redirect_is_never_followed(self):
+        requests = []
+        class Redirect:
+            def open(self, request, timeout):
+                requests.append(request)
+                raise urllib.error.HTTPError(request.full_url, 307, "redirect",
+                    {"Location": f"https://{m.UPLOAD_HOST}/file"}, io.BytesIO())
+        http = m.Http("API-SECRET")
+        http.opener = Redirect()
+        with self.assertRaises(m.MirrorError):
+            http.open(f"https://{m.UPLOAD_FILE_HOST}/file", method="PUT", data=b"data")
+        self.assertEqual(len(requests), 1)
 
     def test_authenticated_redirect_never_forwards_token(self):
         requests = []

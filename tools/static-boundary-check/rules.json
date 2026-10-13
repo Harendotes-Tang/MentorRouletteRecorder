@@ -481,6 +481,16 @@
     },
     {
       "id": "NET-007",
+      "variant": "gitcode-upload-host",
+      "category": "outbound-network",
+      "pattern": "(?i:file\\.gitcode\\.com)",
+      "message": "GitCode 专用上传主机仅允许出现在发布同步入口 / GitCode upload host is confined to the release synchronization entry point",
+      "allow_paths": [
+        "tools/release-mirror/sync_release.py"
+      ]
+    },
+    {
+      "id": "NET-007",
       "variant": "speech-host",
       "category": "outbound-network",
       "pattern": "(?i:tts\\.speech\\.microsoft\\.com)",
