@@ -358,6 +358,39 @@ class NetworkTests(unittest.TestCase):
                 body.read(1)
         self.assertEqual(source.tell(), 2)
 
+    def test_release_budget_is_60_minutes(self):
+        with patch.object(m.time, "monotonic", return_value=123.0):
+            self.assertEqual(m.Http("").deadline, 123.0 + 60 * 60)
+
+    def test_upload_progress_reports_local_bytes_at_8mib_and_final_only(self):
+        total = m.UPLOAD_PROGRESS_INTERVAL * 2 + 13
+        body = m.DeadlineReader(io.BytesIO(b"x" * total), m.time.monotonic() + 30, total)
+        output = io.StringIO()
+        with redirect_stdout(output):
+            while body.read(8192):
+                pass
+            self.assertEqual(body.read(8192), b"")  # Repeated EOF does not repeat final progress.
+        self.assertEqual(output.getvalue().splitlines(), [
+            f"Upload stream read: {m.UPLOAD_PROGRESS_INTERVAL}/{total} bytes",
+            f"Upload stream read: {m.UPLOAD_PROGRESS_INTERVAL * 2}/{total} bytes",
+            f"Upload stream read: {total}/{total} bytes",
+        ])
+        self.assertEqual(body.consumed, total)
+
+    def test_expired_upload_read_does_not_log_unreturned_block(self):
+        clock = [0.0]
+        class SlowFile:
+            def read(self, size):
+                clock[0] = 3.0
+                return b"x"
+        output = io.StringIO()
+        with redirect_stdout(output), patch.object(m.time, "monotonic", side_effect=lambda: clock[0]):
+            body = m.DeadlineReader(SlowFile(), 3.0, total_bytes=1)
+            with self.assertRaisesRegex(m.MirrorError, "time budget exhausted"):
+                body.read(1)
+        self.assertEqual(output.getvalue(), "")
+        self.assertEqual(body.consumed, 0)
+
     def test_upload_file_reader_rechecks_after_slow_local_read(self):
         clock = [0.0]
         class SlowFile:

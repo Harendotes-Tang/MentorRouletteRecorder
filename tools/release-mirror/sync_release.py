@@ -29,6 +29,7 @@ TAG = re.compile(r"v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\Z")
 SHA = re.compile(r"[0-9a-f]{40}\Z")
 MAX_INSTALLER = 2 * 1024**3
 MAX_JSON = 2 * 1024**2
+UPLOAD_PROGRESS_INTERVAL = 8 * 1024**2
 CDN_HOST = "file-cdn.gitcode.com"
 UPLOAD_HOST = "file-upload.gitcode.com"
 UPLOAD_FILE_HOST = "file.gitcode.com"
@@ -69,17 +70,28 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 class DeadlineReader:
-    """Borrow an upload file; stop http.client's block loop when its budget expires."""
+    """Borrow a file; bound upload reads and report consumption, not server receipt."""
 
-    def __init__(self, source, deadline: float) -> None:
+    def __init__(self, source, deadline: float, total_bytes: int | None = None) -> None:
         self.source = source
         self.deadline = deadline
+        self.total_bytes = total_bytes
+        self.consumed = 0
+        self.last_reported = 0
+        self.next_report = UPLOAD_PROGRESS_INTERVAL
 
     def read(self, size: int = -1) -> bytes:
         require(time.monotonic() < self.deadline, "Release mirror time budget exhausted")
         # http.client normally asks for 8 KiB; also bound callers requesting all bytes.
         block = self.source.read(min(size, 64 * 1024) if size >= 0 else 64 * 1024)
         require(time.monotonic() < self.deadline, "Release mirror time budget exhausted")
+        self.consumed += len(block)
+        if (self.total_bytes is not None and self.consumed > self.last_reported
+                and (self.consumed >= self.next_report or self.consumed == self.total_bytes)):
+            # Only local byte counts: reading a block does not prove remote acceptance.
+            print(f"Upload stream read: {self.consumed}/{self.total_bytes} bytes", flush=True)
+            self.last_reported = self.consumed
+            self.next_report = (self.consumed // UPLOAD_PROGRESS_INTERVAL + 1) * UPLOAD_PROGRESS_INTERVAL
         return block
 
 
@@ -90,7 +102,7 @@ class Http:
         self.gc_token = gitcode_token
         self.gh_token = github_token
         self.opener = urllib.request.build_opener(NoRedirect())
-        self.deadline = time.monotonic() + 25 * 60
+        self.deadline = time.monotonic() + 60 * 60
 
     def open(self, url, *, method="GET", data=None, headers=None, auth=False,
              redirects=()):
@@ -272,11 +284,12 @@ class RemoteMirror:
         headers = {key.lower(): value for key, value in response["headers"].items()}
         require(set(headers) == UPLOAD_HEADERS and all(isinstance(v, str) and "\r" not in v
                 and "\n" not in v for v in headers.values()), "Unexpected upload headers")
-        headers["content-length"] = str(path.stat().st_size)
+        total_bytes = path.stat().st_size
+        headers["content-length"] = str(total_bytes)
         # Emit only an already accepted hostname, never a signed URL or API headers.
         print("Uploading to verified storage host: " + secure_url(response["url"]).hostname, flush=True)
         with path.open("rb") as body, self.http.open(response["url"], method="PUT",
-                                                   data=DeadlineReader(body, self.http.deadline),
+                                                   data=DeadlineReader(body, self.http.deadline, total_bytes),
                                                    headers=headers) as result:
             self.http.read(result, MAX_JSON)
 

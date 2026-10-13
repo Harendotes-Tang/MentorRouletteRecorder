@@ -30,7 +30,7 @@ jobs:
   mirror:
     if: github.repository == 'Harendotes-Tang/MentorRouletteRecorder' && (github.event_name != 'release' || !github.event.release.prerelease)
     runs-on: ubuntu-latest
-    timeout-minutes: 50
+    timeout-minutes: 85
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -47,7 +47,7 @@ jobs:
           GITCODE_MIRROR_TOKEN: ${{ secrets.GITCODE_MIRROR_TOKEN }}
         run: python tools/release-mirror/sync_refs.py --repo MentorRouletteRecorder
       - name: Mirror original assets and verify anonymous downloads
-        timeout-minutes: 30
+        timeout-minutes: 65
         env:
           GITHUB_TOKEN: ${{ github.token }}
           GITCODE_MIRROR_TOKEN: ${{ secrets.GITCODE_MIRROR_TOKEN }}
