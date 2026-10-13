@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "branches": [
+    {
+      "repo": "MentorRouletteRecorder",
+      "ref": "refs/heads/dependabot/pip/tools/LocalAiOcr/setuptools-83.0.0",
+      "expected_sha": "ac21b7147bf83528fe2134cc79a8fb408fc86bf1",
+      "merge_anchor": "6bf1b18bd76a7ce8f91bb559e01e5639e1d8337e"
+    },
+    {
+      "repo": "MentorRouletteRecorder",
+      "ref": "refs/heads/codex/gitcode-mirror-fallback",
+      "expected_sha": "b47043a0dbd871cf5af8ced63ba1d36b41e9e089",
+      "merge_anchor": "b47043a0dbd871cf5af8ced63ba1d36b41e9e089"
+    },
+    {
+      "repo": "MentorRecorder-Calibrations",
+      "ref": "refs/heads/codex/gitcode-actions-mirror",
+      "expected_sha": "077f9717654e8b38aee00cd31649a63a93c8d812",
+      "merge_anchor": "3f505bc51a72b9d88d238c299f3b409db7209005"
+    }
+  ]
+}
