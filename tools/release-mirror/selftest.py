@@ -112,6 +112,24 @@ class TransactionTests(unittest.TestCase):
             self.run_publish(mirror)
         self.assertEqual(mirror.events, [])
 
+    def test_existing_notes_accept_only_line_ending_normalization(self):
+        for ending in ("\r\n", "\r"):
+            with self.subTest(ending=repr(ending)):
+                mirror = FakeMirror(self.hashes)
+                mirror.notes = SOURCE["body"].replace("\n", ending)
+                self.run_publish(mirror)
+                self.assertEqual(mirror.events, [("verify", name) for name in NAMES])
+
+    def test_notes_spaces_content_and_final_newline_differences_still_conflict(self):
+        for notes in (SOURCE["body"] + "\n", " " + SOURCE["body"], SOURCE["body"] + " ",
+                      SOURCE["body"].replace("release", "changed"), None):
+            with self.subTest(notes=notes):
+                mirror = FakeMirror(self.hashes)
+                mirror.notes = notes
+                with self.assertRaises(m.MirrorError):
+                    self.run_publish(mirror)
+                self.assertEqual(mirror.events, [])
+
     def test_source_hash_and_commit_are_required(self):
         exe, checksum, metadata = NAMES
         self.paths[checksum].write_text(self.hashes[exe][1] + "  " + exe, encoding="utf8")
@@ -133,6 +151,39 @@ class TransactionTests(unittest.TestCase):
 
 
 class NetworkTests(unittest.TestCase):
+    def test_create_preserves_original_notes_and_marks_only_current_latest(self):
+        for current, expected in ((TAG, "latest"), ("v1.2.4", "none")):
+            with self.subTest(current=current):
+                posts = []
+                class Api:
+                    def api(self, url, **kwargs):
+                        if url == m.GH + "/releases/latest":
+                            return {"tag_name": current, "draft": False, "prerelease": False}
+                        if url.startswith(m.GC + "/tags?"):
+                            return [{"name": TAG, "commit": {"sha": COMMIT}}]
+                        if url == m.GC + "/releases" and kwargs.get("method") == "POST":
+                            posts.append(kwargs["payload"])
+                            return {}
+                        raise AssertionError("Unexpected request")
+                source = {**SOURCE, "body": "Original\r\nnotes\r\n"}
+                m.RemoteMirror(Api(), TAG, Path("unused")).create(source, COMMIT)
+                self.assertEqual(len(posts), 1)
+                self.assertEqual(posts[0]["release_status"], expected)
+                self.assertEqual(posts[0]["body"], source["body"])
+
+    def test_unknown_or_invalid_github_latest_prevents_create(self):
+        for latest in ({}, {"tag_name": "v1.2.4-beta", "draft": False, "prerelease": False},
+                       {"tag_name": "v1.2.4", "draft": True, "prerelease": False}):
+            calls = []
+            class Api:
+                def api(self, url, **kwargs):
+                    calls.append(url)
+                    return latest
+            with self.subTest(latest=latest):
+                with self.assertRaises(m.MirrorError):
+                    m.RemoteMirror(Api(), TAG, Path("unused")).create(SOURCE, COMMIT)
+                self.assertEqual(calls, [m.GH + "/releases/latest"])
+
     def test_incomplete_source_stops_before_any_other_request(self):
         calls = []
         class SourceOnly:

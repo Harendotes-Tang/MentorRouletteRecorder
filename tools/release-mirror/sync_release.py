@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Copy an official GitHub release to GitCode, publishing metadata last.
 
-Git refs are owned by GitCode Pull mirroring. This tool never creates or changes
+Git refs are synchronized by the preceding Actions ref-sync step. This tool never creates or changes
 tags, deletes attachments, or overwrites conflicting published content.
 API contracts: https://docs.gitcode.com/docs/apis/ (Release and Tag sections).
 """
@@ -202,11 +202,11 @@ def verify_mirror_tag(http: Http, tag: str, commit: str) -> None:
         for item in tags:
             if item.get("name") == tag:
                 require(item.get("commit", {}).get("sha") == commit,
-                        "Mirror tag differs from GitHub; wait for native Pull synchronization")
+                        "Mirror tag differs from GitHub; rerun repository synchronization")
                 return
         if len(tags) < 100:
             break
-    raise MirrorError("Mirror tag not found; wait for native Pull synchronization")
+    raise MirrorError("Mirror tag not found; rerun repository synchronization")
 
 
 def download_url(host: str, tag: str, name: str) -> str:
@@ -226,6 +226,13 @@ def validate_source(tag: str, commit: str, paths: dict[str, Path], hashes: dict)
             "Source build metadata is not a clean distributable build of the release tag")
 
 
+def notes_equal(source: str, mirror) -> bool:
+    """GitCode normalizes newlines; preserve all text, whitespace and final newlines."""
+    if not isinstance(mirror, str):
+        return False
+    return source.replace("\r\n", "\n").replace("\r", "\n") == mirror.replace("\r\n", "\n").replace("\r", "\n")
+
+
 class RemoteMirror:
     def __init__(self, http: Http, tag: str, directory: Path):
         self.http, self.tag, self.directory = http, tag, directory
@@ -237,11 +244,19 @@ class RemoteMirror:
             return None
 
     def create(self, source, commit):
+        # A manually requested historical tag must never replace the current latest.
+        # GitCode represents a formal, non-latest release as release_status="none".
+        latest = self.http.api(GH + "/releases/latest", auth=True)
+        require(isinstance(latest, dict) and latest.get("draft") is False
+                and latest.get("prerelease") is False and isinstance(latest.get("tag_name"), str),
+                "Cannot establish the current formal GitHub release")
+        artifact_names(latest["tag_name"])
+        status = "latest" if self.tag == latest["tag_name"] else "none"
         # Recheck immediately before POST: no tool-driven creation of missing tags.
         verify_mirror_tag(self.http, self.tag, commit)
         self.http.api(GC + "/releases", auth=True, method="POST", payload={
             "tag_name": self.tag, "name": source["name"], "body": source["body"],
-            "target_commitish": commit, "release_status": "latest"})
+            "target_commitish": commit, "release_status": status})
 
     def verify(self, name, expected):
         path = self.directory / ("mirror-" + name)
@@ -270,7 +285,7 @@ def publish(mirror, source: dict, commit: str, paths: dict, hashes: dict) -> Non
     assets = {}
     if existing is not None:
         require(existing.get("tag_name") == source["tag_name"] and not existing.get("prerelease")
-                and existing.get("name") == source["name"] and existing.get("body") == source["body"],
+                and existing.get("name") == source["name"] and notes_equal(source["body"], existing.get("body")),
                 "Existing mirror release identity or notes conflict with GitHub")
         assets = asset_map(existing)
         require(names[2] not in assets or all(n in assets for n in names),
