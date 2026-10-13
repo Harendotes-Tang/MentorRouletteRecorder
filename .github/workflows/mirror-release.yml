@@ -1,6 +1,12 @@
 name: Mirror release to GitCode
 
 on:
+  # Reconcile the latest release when the trusted synchronization code changes.
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/mirror-release.yml'
+      - 'tools/release-mirror/**'
   release:
     types: [published]
   workflow_dispatch:

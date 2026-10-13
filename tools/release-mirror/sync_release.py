@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Copy an official GitHub release to GitCode, publishing metadata last.
 
-Git refs are owned by GitCode Pull mirroring. This tool never creates or changes
+Git refs are synchronized by the preceding Actions ref-sync step. This tool never creates or changes
 tags, deletes attachments, or overwrites conflicting published content.
 API contracts: https://docs.gitcode.com/docs/apis/ (Release and Tag sections).
 """
@@ -202,11 +202,11 @@ def verify_mirror_tag(http: Http, tag: str, commit: str) -> None:
         for item in tags:
             if item.get("name") == tag:
                 require(item.get("commit", {}).get("sha") == commit,
-                        "Mirror tag differs from GitHub; wait for native Pull synchronization")
+                        "Mirror tag differs from GitHub; rerun repository synchronization")
                 return
         if len(tags) < 100:
             break
-    raise MirrorError("Mirror tag not found; wait for native Pull synchronization")
+    raise MirrorError("Mirror tag not found; rerun repository synchronization")
 
 
 def download_url(host: str, tag: str, name: str) -> str:
