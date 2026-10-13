@@ -27,7 +27,7 @@ public sealed class UpdateDownloadFailureTests : UpdateDownloadTestBase
 
         AssertFailed(failed, Failure.ChecksumUnavailable);
         Assert.Equal(Published, failed.Version);
-        Assert.Equal(new[] { ChecksumUri(Published) }, transport.Requests);
+        Assert.Equal(new[] { ChecksumUri(Published), UpdateCheckClient.GitCodeAssetUri(Published, "MentorRecorder-" + Published + "-setup.exe.sha256") }, transport.Requests);
         AssertNothingKept();
     }
 
@@ -45,7 +45,7 @@ public sealed class UpdateDownloadFailureTests : UpdateDownloadTestBase
 
         // 404 is the checksum that is not there; 410 is an answer of another kind, reported as such.
         AssertFailed(failed, status == 404 ? Failure.ChecksumUnavailable : Failure.HttpStatus);
-        Assert.Single(transport.Requests);
+        Assert.Equal(new[] { ChecksumUri(Published), UpdateCheckClient.GitCodeAssetUri(Published, "MentorRecorder-" + Published + "-setup.exe.sha256") }, transport.Requests);
     }
 
     [Fact]
@@ -58,7 +58,7 @@ public sealed class UpdateDownloadFailureTests : UpdateDownloadTestBase
         service.Start();
 
         AssertFailed(await SettleAsync(service), Failure.ChecksumUnavailable);
-        Assert.Single(transport.Requests);
+        Assert.Equal(new[] { ChecksumUri(Published), UpdateCheckClient.GitCodeAssetUri(Published, "MentorRecorder-" + Published + "-setup.exe.sha256") }, transport.Requests);
     }
 
     [Fact]
@@ -131,7 +131,7 @@ public sealed class UpdateDownloadFailureTests : UpdateDownloadTestBase
         service.Start();
 
         AssertFailed(await SettleAsync(service), Failure.RedirectRefused);
-        Assert.Equal(1 + UpdateCheckClient.MaxRedirects + 1, transport.Requests.Count);
+        Assert.Equal(1 + UpdateCheckClient.MaxRedirects + 2, transport.Requests.Count);
         AssertNothingKept();
     }
 

@@ -62,6 +62,15 @@ public enum UpdateCheckRequestOutcome
     Blocked,
 }
 
+/// <summary>The repository used for a successful update lookup.</summary>
+public enum UpdateSource
+{
+    /// <summary>The primary repository.</summary>
+    GitHub,
+    /// <summary>The domestic mirror.</summary>
+    GitCode,
+}
+
 /// <summary>What one check produced.</summary>
 /// <param name="Outcome">How it ended.</param>
 /// <param name="LatestVersion">The published version, when one was read.</param>
@@ -70,8 +79,9 @@ public enum UpdateCheckRequestOutcome
 /// A short non-sensitive token: a refusal reason, or the type name of a transport failure. Never a
 /// message, an address or a host.
 /// </param>
+/// <param name="Source">Source of the accepted metadata; not persisted as a network preference.</param>
 public sealed record UpdateCheckResult(
-    UpdateCheckOutcome Outcome, string? LatestVersion = null, int? StatusCode = null, string? Detail = null);
+    UpdateCheckOutcome Outcome, string? LatestVersion = null, int? StatusCode = null, string? Detail = null, UpdateSource Source = UpdateSource.GitHub);
 
 /// <summary>
 /// The update check as <c>GetStatus</c> reports it. Read from a cache, so asking for it never waits

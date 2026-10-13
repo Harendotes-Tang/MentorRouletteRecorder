@@ -445,14 +445,38 @@
       "variant": "github-content-hosts",
       "category": "outbound-network",
       "pattern": "(?i:githubusercontent)",
-      "message": "内容分发主机名只允许出现在共享校准获取客户端、更新检查客户端、公开仓库脚本目录与开发期数据生成器（docs/privacy-boundary.md §8.2、§8.4、§8.6） / the content host name may only appear in the shared-calibration fetch client, the update-check client, tools/shared-calibration/ and the dev-time duty-data generator (docs/privacy-boundary.md sections 8.2, 8.4 and 8.6)",
+      "message": "内容分发主机名只允许出现在共享校准获取客户端、更新检查客户端、公开仓库脚本目录、开发期数据生成器与专用发布同步脚本（docs/privacy-boundary.md §8.2、§8.4、§8.6） / the content host name may only appear in the shared-calibration fetch client, the update-check client, tools/shared-calibration/ the dev-time duty-data generator and tools/release-mirror/sync_release.py (docs/privacy-boundary.md sections 8.2, 8.4 and 8.6)",
       "allow_paths": [
         "src/Collector/Protocol/Sharing/SharedCalibrationClient.cs",
         "src/Collector/Update/UpdateCheckClient.cs",
-        "tools/duty-data-generator/generate.py"
+        "tools/duty-data-generator/generate.py",
+        "tools/release-mirror/sync_release.py"
       ],
       "allow_path_prefixes": [
         "tools/shared-calibration/"
+      ]
+    },
+    {
+      "id": "NET-007",
+      "variant": "gitcode-api-host",
+      "category": "outbound-network",
+      "pattern": "(?i:api\\.gitcode\\.com)",
+      "message": "GitCode API 主机仅允许出现在两个既有读取客户端和专用发布同步脚本 / GitCode API host is confined to the two read clients and release mirror tool",
+      "allow_paths": [
+        "src/Collector/Protocol/Sharing/SharedCalibrationClient.cs",
+        "src/Collector/Update/UpdateCheckClient.cs",
+        "tools/release-mirror/sync_release.py"
+      ]
+    },
+    {
+      "id": "NET-007",
+      "variant": "gitcode-asset-hosts",
+      "category": "outbound-network",
+      "pattern": "(?i:file-(?:cdn|upload)\\.gitcode\\.com)",
+      "message": "GitCode 附件域名仅允许出现在更新客户端和专用发布同步脚本 / GitCode asset hosts are confined to the update client and release mirror tool",
+      "allow_paths": [
+        "src/Collector/Update/UpdateCheckClient.cs",
+        "tools/release-mirror/sync_release.py"
       ]
     },
     {
@@ -517,9 +541,10 @@
       "id": "NET-010",
       "category": "outbound-network",
       "pattern": "(?:^\\s*(?:import|from)\\s+(?:[\\w.]+(?:\\s+as\\s+\\w+)?\\s*,\\s*)*|\\b(?:__import__|import_module)\\s*\\(\\s*[\"'])(?:urllib\\.request|urllib3|http\\.client|requests|httpx|aiohttp|socket|ftplib|smtplib|poplib|imaplib|nntplib|telnetlib|xmlrpc\\.client|websockets?)(?!\\w)|^\\s*from\\s+(?:urllib|http|xmlrpc)\\s+import\\b[^#\\r\\n]*?\\b(?:request|client)\\b|^(?:[^#\"'\\r\\n]|\"[^\"\\r\\n]*\"|'[^'\\r\\n]*')*?(?:\\burl(?:open|retrieve)\\s*\\(|\\basyncio\\s*\\.\\s*open_connection\\s*\\()",
-      "message": "Python 脚本不得自行联网（导入网络模块 urllib.request、urllib3、http.client、requests、httpx、aiohttp、socket、ftplib、smtplib、poplib、imaplib、nntplib、telnetlib、xmlrpc.client、websockets，含 __import__ / importlib.import_module，以及调用 urlopen / urlretrieve 与 asyncio.open_connection）；唯一例外是开发期从公开来源下载任务数据表的 tools/duty-data-generator/generate.py / Python scripts must not reach the network themselves (importing a network module: urllib.request, urllib3, http.client, requests, httpx, aiohttp, socket, ftplib, smtplib, poplib, imaplib, nntplib, telnetlib, xmlrpc.client or websockets, __import__ and importlib.import_module included, or calling urlopen / urlretrieve or asyncio.open_connection); the one exception is tools/duty-data-generator/generate.py, the dev-time generator that downloads the duty tables from public sources",
+      "message": "Python 脚本不得自行联网（导入网络模块 urllib.request、urllib3、http.client、requests、httpx、aiohttp、socket、ftplib、smtplib、poplib、imaplib、nntplib、telnetlib、xmlrpc.client、websockets，含 __import__ / importlib.import_module，以及调用 urlopen / urlretrieve 与 asyncio.open_connection）；例外仅限开发期任务数据生成器 tools/duty-data-generator/generate.py 和 CI 发布同步脚本 tools/release-mirror/sync_release.py / Python scripts must not reach the network themselves (importing a network module: urllib.request, urllib3, http.client, requests, httpx, aiohttp, socket, ftplib, smtplib, poplib, imaplib, nntplib, telnetlib, xmlrpc.client or websockets, __import__ and importlib.import_module included, or calling urlopen / urlretrieve or asyncio.open_connection); the exact exceptions are tools/duty-data-generator/generate.py and the CI release synchronization entry tools/release-mirror/sync_release.py",
       "allow_paths": [
-        "tools/duty-data-generator/generate.py"
+        "tools/duty-data-generator/generate.py",
+        "tools/release-mirror/sync_release.py"
       ],
       "only_extensions": [
         ".py"

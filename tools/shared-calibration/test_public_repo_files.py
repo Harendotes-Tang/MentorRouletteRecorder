@@ -26,6 +26,7 @@ except ImportError:  # pragma: no cover - depends on the machine
 PUBLIC = testsupport.HERE / "public-repo"
 WORKFLOW = PUBLIC / ".github" / "workflows" / "publish-calibration.yml"
 REPORT_WORKFLOW = PUBLIC / ".github" / "workflows" / "report-calibration.yml"
+MIRROR_WORKFLOW = PUBLIC / ".github" / "workflows" / "mirror-repository.yml"
 FORM = PUBLIC / ".github" / "ISSUE_TEMPLATE" / "share-calibration.yml"
 REPORT_FORM = PUBLIC / ".github" / "ISSUE_TEMPLATE" / "report-calibration.yml"
 CONFIG = PUBLIC / ".github" / "ISSUE_TEMPLATE" / "config.yml"
@@ -173,6 +174,56 @@ class WorkflowSecurityTests(unittest.TestCase):
         for label in (publish.REPORT_LABEL, publish.LABEL_MAINTAINER):
             with self.subTest(label):
                 self.assertIn("gh label create %s" % label, readme, "a new label needs a manual step")
+
+
+class MirrorWorkflowSecurityTests(unittest.TestCase):
+    """Publishing with GITHUB_TOKEN needs workflow_run; only trusted main may consume the mirror secret."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.text = MIRROR_WORKFLOW.read_text(encoding="utf-8")
+
+    def test_mirror_job_never_executes_the_event_head_or_untrusted_shell_expressions(self):
+        for script in run_scripts(self.text):
+            self.assertNotIn("${{", script)
+        self.assertNotIn("head_sha", self.text)
+        self.assertNotIn("pull_request_target", self.text)
+        self.assertIn("ref: main", self.text)
+        self.assertIn("persist-credentials: false", self.text)
+        self.assertIn("contents: read", self.text)
+        self.assertNotIn("contents: write", self.text)
+        self.assertIn("github.event.workflow_run.conclusion == 'success'", self.text)
+        self.assertIn("github.event.workflow_run.head_repository.full_name == github.repository", self.text)
+        self.assertIn("github.repository == 'Harendotes-Tang/MentorRecorder-Calibrations'", self.text)
+        expressions = set(re.findall(r"\$\{\{\s*(.*?)\s*\}\}", self.text))
+        self.assertEqual({"github.repository", "secrets.GITCODE_MIRROR_TOKEN"}, expressions)
+
+    def test_triggers_include_successful_publication_and_periodic_reconciliation(self):
+        self.assertIn("workflows: [publish-calibration]", self.text)
+        self.assertIn("types: [completed]", self.text)
+        self.assertIn("cancel-in-progress: false", self.text)
+        self.assertIn("python tools/sync_refs.py --repo MentorRecorder-Calibrations", self.text)
+        if yaml is None:
+            for name in ("push:", "schedule:", "workflow_dispatch:", "workflow_run:"):
+                self.assertIn(name, self.text)
+            return
+        data = yaml.safe_load(self.text)
+        triggers = data.get("on", data.get(True))
+        self.assertEqual({"push", "schedule", "workflow_dispatch", "workflow_run"}, set(triggers))
+        self.assertEqual({"workflows": ["publish-calibration"], "types": ["completed"], "branches": ["main"]},
+                         triggers["workflow_run"])
+        self.assertEqual({"contents": "read"}, data["permissions"])
+        job = data["jobs"]["mirror"]
+        self.assertIn("timeout-minutes", job)
+        checkouts = [step for step in job["steps"] if step.get("uses", "").startswith("actions/checkout@")]
+        self.assertEqual(1, len(checkouts))
+        self.assertEqual("main", checkouts[0]["with"]["ref"])
+        self.assertIs(False, checkouts[0]["with"]["persist-credentials"])
+
+    def test_mirror_actions_use_the_already_verified_pins(self):
+        used = assert_every_action_is_pinned(self, self.text, "mirror-repository.yml")
+        available = assert_every_action_is_pinned(self, CI.read_text(encoding="utf-8"), "ci.yml")
+        self.assertLessEqual(used, available)
 
 
 class ReportWorkflowSecurityTests(unittest.TestCase):

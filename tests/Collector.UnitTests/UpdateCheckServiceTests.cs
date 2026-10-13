@@ -372,7 +372,7 @@ public sealed class UpdateCheckServiceTests : IDisposable
         await SettleAsync(service);
         var snapshot = service.Snapshot();
 
-        Assert.Equal(2, transport.Calls);
+        Assert.Equal(3, transport.Calls);
         Assert.Equal(T0.AddHours(25), snapshot.LastCheckedAtUtc);
         Assert.Equal("HTTP_STATUS", snapshot.LastOutcome);
         Assert.Equal(Published, snapshot.LatestVersion);

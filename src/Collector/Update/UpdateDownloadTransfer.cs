@@ -64,13 +64,40 @@ internal sealed class UpdateDownloadTransfer
         using var folder = OnDisk(() => _files.Prepare());
         OnDisk(() => _files.RemoveLeftovers());
 
-        var published = await ChecksumAsync(cancellation, overall.Token).ConfigureAwait(false);
-        using var idle = CancellationTokenSource.CreateLinkedTokenSource(overall.Token);
-        idle.CancelAfter(_limits.IdleTimeout);
-        using var installer = await OpenAsync(cancellation, idle.Token).ConfigureAwait(false);
-        _total = installer.ContentLength;
-        _publish(UpdateDownloadSnapshot.Downloading(_version, 0, _total));
-        return await StoreAsync(installer.Body!, published, cancellation, overall.Token, idle).ConfigureAwait(false);
+        string? expected = null;
+        UpdateDownloadFailedException? primaryFailure = null;
+        foreach (var source in new[] { UpdateSource.GitHub, UpdateSource.GitCode })
+        {
+            cancellation.ThrowIfCancellationRequested();
+            if (overall.IsCancellationRequested) throw new UpdateDownloadFailedException(UpdateDownloadFailure.Timeout);
+            if (_client.IsDisabledNow) throw new UpdateDownloadFailedException(UpdateDownloadFailure.Disabled);
+            try
+            {
+                var published = await ChecksumAsync(source, cancellation, overall.Token).ConfigureAwait(false);
+                if (expected is not null && expected != published)
+                    throw new UpdateDownloadFailedException(UpdateDownloadFailure.ChecksumMismatch);
+                expected ??= published;
+                using var idle = CancellationTokenSource.CreateLinkedTokenSource(overall.Token);
+                idle.CancelAfter(_limits.IdleTimeout);
+                using var installer = await OpenAsync(source, cancellation, idle.Token).ConfigureAwait(false);
+                _total = installer.ContentLength;
+                ReceivedBytes = 0;
+                _publish(UpdateDownloadSnapshot.Downloading(_version, 0, _total));
+                return await StoreAsync(installer.Body!, expected, cancellation, overall.Token, idle).ConfigureAwait(false);
+            }
+            catch (UpdateDownloadFailedException ex) when (source == UpdateSource.GitHub &&
+                ex.Failure is not UpdateDownloadFailure.DiskFailed and not UpdateDownloadFailure.Disabled &&
+                !overall.IsCancellationRequested && !cancellation.IsCancellationRequested && ex.ErrorType != "KEPT_FILE_CHANGED")
+            {
+                primaryFailure = ex;
+            }
+            catch (UpdateDownloadFailedException ex) when (source == UpdateSource.GitCode && primaryFailure is not null &&
+                ex.Failure is not UpdateDownloadFailure.DiskFailed and not UpdateDownloadFailure.Disabled and not UpdateDownloadFailure.ChecksumMismatch)
+            {
+                throw primaryFailure;
+            }
+        }
+        throw primaryFailure!;
     }
 
     /// <summary>
@@ -96,17 +123,17 @@ internal sealed class UpdateDownloadTransfer
         _ => UpdateDownloadFailure.TransportFailed,
     };
 
-    private async Task<string> ChecksumAsync(CancellationToken cancellation, CancellationToken overall)
+    private async Task<string> ChecksumAsync(UpdateSource source, CancellationToken cancellation, CancellationToken overall)
     {
-        var result = await _client.FetchChecksumAsync(_version, overall).ConfigureAwait(false);
+        var result = await _client.FetchChecksumAsync(_version, source, overall).ConfigureAwait(false);
         return result.Outcome == UpdateCheckOutcome.Ok
             ? result.Sha256!
             : throw Refused(result.Outcome, result.Detail, checksum: true, cancellation);
     }
 
-    private async Task<UpdateInstallerResponse> OpenAsync(CancellationToken cancellation, CancellationToken idle)
+    private async Task<UpdateInstallerResponse> OpenAsync(UpdateSource source, CancellationToken cancellation, CancellationToken idle)
     {
-        var installer = await _client.OpenInstallerAsync(_version, _limits.MaxBytes, idle).ConfigureAwait(false);
+        var installer = await _client.OpenInstallerAsync(_version, _limits.MaxBytes, source, idle).ConfigureAwait(false);
         if (installer.Result.Outcome == UpdateCheckOutcome.Ok)
         {
             return installer;
@@ -163,7 +190,7 @@ internal sealed class UpdateDownloadTransfer
 
             if (!string.Equals(actual, published, StringComparison.Ordinal))
             {
-                throw new UpdateDownloadFailedException(UpdateDownloadFailure.ChecksumMismatch);
+                throw new UpdateDownloadFailedException(UpdateDownloadFailure.ChecksumMismatch, "KEPT_FILE_CHANGED");
             }
 
             kept = true;
@@ -226,6 +253,7 @@ internal sealed class UpdateDownloadTransfer
     private async Task<int> ReadAsync(
         Stream body, byte[] buffer, CancellationToken cancellation, CancellationTokenSource idle)
     {
+        if (_client.IsDisabledNow) throw new UpdateDownloadFailedException(UpdateDownloadFailure.Disabled);
         idle.CancelAfter(_limits.IdleTimeout);
         try
         {

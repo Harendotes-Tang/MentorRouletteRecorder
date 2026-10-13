@@ -11,6 +11,7 @@ Everything comes from this repository; nothing here creates a repository, pushes
   LICENSES/GPL-3.0-or-later.txt        this repository's LICENSE
   templates/<profile id>.json          every shipped VERIFIED profile with a calibration section, byte for byte
   tools/                               the runtime files of tools/shared-calibration/ (no tests, no generators)
+  tools/sync_refs.py                    the canonical tools/release-mirror/sync_refs.py maintenance entrypoint
 
 Text files other than templates are written with LF line endings, so a Windows checkout of this
 repository cannot hand bash a CRLF script. The result is read back with index.py and rebuild.py.
@@ -36,6 +37,7 @@ RUNTIME_FILES = (
     "report_issue.sh",
 )
 RENAMED = {"dot-gitattributes": ".gitattributes", "dot-gitignore": ".gitignore"}
+EXTERNAL_RUNTIME_FILES = {"tools/sync_refs.py": "tools/release-mirror/sync_refs.py"}
 PROFILE_REGIONS = ("cn", "global")
 LICENSE_TARGET = "LICENSES/GPL-3.0-or-later.txt"
 
@@ -81,6 +83,10 @@ def file_set(repo: Path = REPO) -> dict:
             files[RENAMED.get(relative, relative)] = _lf(path.read_bytes())
     for name in RUNTIME_FILES:
         files["tools/" + name] = _lf((HERE / name).read_bytes())
+    for target, source in EXTERNAL_RUNTIME_FILES.items():
+        if target in files:
+            raise SyncError("mapped runtime file has a second source: " + target)
+        files[target] = _lf((Path(repo) / source).read_bytes())
     files[LICENSE_TARGET] = _lf((Path(repo) / "LICENSE").read_bytes())
     files.update(shipped_templates(repo))
     files.update(repo_index.dump(repo_index.empty_index()))
@@ -98,7 +104,8 @@ def verify(root: Path) -> None:
         raise SyncError("a new public repository starts with an empty index")
     if not templates:
         raise SyncError("the synced repository has no template")
-    missing = [name for name in RUNTIME_FILES if not (Path(root) / "tools" / name).is_file()]
+    required_tools = ["tools/" + name for name in RUNTIME_FILES] + list(EXTERNAL_RUNTIME_FILES)
+    missing = [name for name in required_tools if not (Path(root) / name).is_file()]
     if missing:
         raise SyncError("tools missing: " + ", ".join(missing))
 

@@ -1,0 +1,37 @@
+name: Mirror repository to GitCode
+
+on:
+  push:
+    branches: ['**']
+    tags: ['**']
+  workflow_dispatch:
+  schedule:
+    - cron: '11 * * * *'
+
+permissions:
+  contents: read
+
+# Share the lock with release publication: its tag must arrive before its assets.
+concurrency:
+  group: gitcode-mirror-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    if: github.repository == 'Harendotes-Tang/MentorRouletteRecorder'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: '3.12'
+      - name: Test repository mirror boundaries
+        run: python tools/release-mirror/test_sync_refs.py
+      - name: Synchronize heads and tags with exact leases
+        env:
+          GITCODE_MIRROR_TOKEN: ${{ secrets.GITCODE_MIRROR_TOKEN }}
+        run: python tools/release-mirror/sync_refs.py --repo MentorRouletteRecorder

@@ -68,6 +68,19 @@ public sealed class SharedCalibrationWireTests : IDisposable
         Assert.Null(CalibrationWire.Origin(null));
     }
 
+    [Theory]
+    [InlineData(SharedCalibrationSource.GithubRaw, "GITHUB_RAW")]
+    [InlineData(SharedCalibrationSource.Gitcode, "GITCODE")]
+    [InlineData(SharedCalibrationSource.CdnPrimary, "CDN_PRIMARY")]
+    [InlineData(SharedCalibrationSource.CdnFallback, "CDN_FALLBACK")]
+    public void EveryCalibrationSourceKeepsItsWireToken(SharedCalibrationSource source, string expected)
+    {
+        var snapshot = Busy() with { LastIndexAttempts = new[] { new SharedSourceAttempt(source, SharedFetchOutcome.Ok) } };
+        var node = CalibrationWire.Shared(snapshot);
+
+        Assert.Equal(expected, node["last_index_attempts"]![0]!["source"]!.GetValue<string>());
+    }
+
     [Fact]
     public void TheSharedStatusCarriesTokensAndPrefixesButNoAddressDetailOrPath()
     {

@@ -17,8 +17,9 @@ namespace MentorRecorder.Collector.Protocol.Sharing;
 /// Enforced here whatever the transport is:
 /// <list type="bullet">
 /// <item><see cref="DisableVariable"/> is read on every fetch, before anything is sent.</item>
-/// <item>Only <c>raw.githubusercontent.com</c>, <c>cdn.jsdelivr.net</c> and <c>fastly.jsdelivr.net</c> are
-/// asked, in <see cref="SourceOrder"/>, for one fixed repository; no query string, no fragment.</item>
+/// <item>Only the fixed repository on the four <see cref="AllowedHosts"/> is asked, in
+/// <see cref="SourceOrder"/>. The Raw API permits exactly one fixed branch or commit ref query;
+/// the other sources permit no query, and no source permits a fragment.</item>
 /// <item>Each request has its own <see cref="DefaultSourceTimeout"/> covering connect, headers and body.</item>
 /// <item>A status outside 2xx fails; 3xx is recorded as a refused redirect and never followed; an
 /// answer from any address but the requested one is refused.</item>
@@ -60,6 +61,7 @@ public sealed class SharedCalibrationClient
     public static readonly TimeSpan DefaultSourceTimeout = TimeSpan.FromSeconds(10);
 
     private const string RawHost = "raw.githubusercontent.com";
+    private const string GitcodeHost = "api.gitcode.com";
     private const string CdnHost = "cdn.jsdelivr.net";
     private const string FastlyHost = "fastly.jsdelivr.net";
 
@@ -97,11 +99,12 @@ public sealed class SharedCalibrationClient
     /// <summary>The sources, in the order every request tries them.</summary>
     public static IReadOnlyList<SharedCalibrationSource> SourceOrder { get; } = Array.AsReadOnly(new[]
     {
-        SharedCalibrationSource.GithubRaw, SharedCalibrationSource.CdnPrimary, SharedCalibrationSource.CdnFallback,
+        SharedCalibrationSource.GithubRaw, SharedCalibrationSource.Gitcode,
+        SharedCalibrationSource.CdnPrimary, SharedCalibrationSource.CdnFallback,
     });
 
     /// <summary>Every host an answer may come from.</summary>
-    public static IReadOnlyCollection<string> AllowedHosts { get; } = Array.AsReadOnly(new[] { RawHost, CdnHost, FastlyHost });
+    public static IReadOnlyCollection<string> AllowedHosts { get; } = Array.AsReadOnly(new[] { RawHost, GitcodeHost, CdnHost, FastlyHost });
 
     /// <summary>Production transport: the process-wide client, no redirects, no cookies, the system proxy.</summary>
     public static SharedCalibrationTransport HttpTransport { get; } = SendAsync;
@@ -114,6 +117,7 @@ public sealed class SharedCalibrationClient
     public static string HostFor(SharedCalibrationSource source) => source switch
     {
         SharedCalibrationSource.GithubRaw => RawHost,
+        SharedCalibrationSource.Gitcode => GitcodeHost,
         SharedCalibrationSource.CdnPrimary => CdnHost,
         SharedCalibrationSource.CdnFallback => FastlyHost,
         _ => throw new ArgumentOutOfRangeException(nameof(source)),
@@ -187,7 +191,18 @@ public sealed class SharedCalibrationClient
         var attempts = new List<SharedSourceAttempt>();
         foreach (var source in SourceOrder)
         {
+            if (StoppedStatus(cancellationToken) is { } stopped)
+            {
+                return SharedCalibrationFetchResult.Empty(stopped, attempts);
+            }
+
             var (attempt, body) = await GetAsync(source, IndexUri(source), MaxIndexBytes, cancellationToken).ConfigureAwait(false);
+            if (StoppedStatus(cancellationToken) is { } stoppedAfterRequest)
+            {
+                attempts.Add(attempt);
+                return SharedCalibrationFetchResult.Empty(stoppedAfterRequest, attempts);
+            }
+
             if (attempt.Outcome == SharedFetchOutcome.Ok)
             {
                 var index = SharedCalibrationIndex.Read(body);
@@ -234,7 +249,17 @@ public sealed class SharedCalibrationClient
         var discards = new List<SharedCodeDiscard>();
         foreach (var entry in chosen)
         {
+            if (StoppedStatus(cancellationToken) is { } stopped)
+            {
+                return SharedCalibrationFetchResult.Empty(stopped, indexAttempts);
+            }
+
             var (candidate, discard) = await FetchCodeAsync(entry, order, cancellationToken).ConfigureAwait(false);
+            if (IsDisabled(_readEnvironment(DisableVariable)))
+            {
+                return SharedCalibrationFetchResult.Empty(SharedFetchStatus.Disabled, indexAttempts);
+            }
+
             if (candidate is not null)
             {
                 candidates.Add(candidate);
@@ -263,8 +288,21 @@ public sealed class SharedCalibrationClient
         var reason = "UNREACHABLE";
         foreach (var source in order)
         {
+            if (StoppedStatus(cancellationToken) is { } stopped)
+            {
+                reason = stopped == SharedFetchStatus.Disabled ? "DISABLED" : "CANCELLED";
+                break;
+            }
+
             var uri = CodeUri(source, entry.Commit, entry.Path);
             var (attempt, body) = await GetAsync(source, uri, MaxCodeBytes, cancellationToken).ConfigureAwait(false);
+            if (StoppedStatus(cancellationToken) is { } stoppedAfterRequest)
+            {
+                attempts.Add(attempt);
+                reason = stoppedAfterRequest == SharedFetchStatus.Disabled ? "DISABLED" : "CANCELLED";
+                break;
+            }
+
             if (attempt.Outcome == SharedFetchOutcome.Ok)
             {
                 var (candidate, refusal) = Check(entry, body.Span);
@@ -338,6 +376,12 @@ public sealed class SharedCalibrationClient
         budget.CancelAfter(_sourceTimeout);
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!IsRequestAllowed(uri))
+            {
+                return (new SharedSourceAttempt(source, SharedFetchOutcome.HostRefused), default);
+            }
+
             using var response = await _transport(uri, budget.Token).ConfigureAwait(false);
             var status = response.StatusCode;
             if (status is >= 300 and < 400)
@@ -355,7 +399,7 @@ public sealed class SharedCalibrationClient
                 return (new SharedSourceAttempt(source, SharedFetchOutcome.HostRefused, status), default);
             }
 
-            if (response.FinalUri != uri)
+            if (!string.Equals(response.FinalUri.AbsoluteUri, uri.AbsoluteUri, StringComparison.Ordinal))
             {
                 return (new SharedSourceAttempt(source, SharedFetchOutcome.RedirectRefused, status), default);
             }
@@ -436,9 +480,82 @@ public sealed class SharedCalibrationClient
         string.IsNullOrEmpty(uri.UserInfo) &&
         AllowedHosts.Contains(uri.Host, StringComparer.OrdinalIgnoreCase);
 
+    private SharedFetchStatus? StoppedStatus(CancellationToken cancellationToken) =>
+        IsDisabled(_readEnvironment(DisableVariable)) ? SharedFetchStatus.Disabled :
+        cancellationToken.IsCancellationRequested ? SharedFetchStatus.Cancelled : null;
+
+    /// <summary>Only the generated index address or a valid immutable code address may reach the production transport.</summary>
+    internal static bool IsRequestAllowed(Uri uri)
+    {
+        if (!IsAllowed(uri) || uri.Fragment.Length != 0)
+        {
+            return false;
+        }
+
+        foreach (var source in SourceOrder)
+        {
+            if (!string.Equals(uri.Host, HostFor(source), StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (string.Equals(uri.AbsoluteUri, IndexUri(source).AbsoluteUri, StringComparison.Ordinal))
+            {
+                return true;
+            }
+
+            string reference;
+            string path;
+            if (source == SharedCalibrationSource.Gitcode)
+            {
+                var prefix = "/api/v5/repos/" + Owner + "/" + Repository + "/raw/";
+                if (!uri.AbsolutePath.StartsWith(prefix, StringComparison.Ordinal) ||
+                    !uri.Query.StartsWith("?ref=", StringComparison.Ordinal))
+                {
+                    return false;
+                }
+
+                reference = uri.Query[5..];
+                path = uri.AbsolutePath[prefix.Length..];
+            }
+            else
+            {
+                if (uri.Query.Length != 0)
+                {
+                    return false;
+                }
+
+                var prefix = source == SharedCalibrationSource.GithubRaw
+                    ? "/" + Owner + "/" + Repository + "/"
+                    : "/gh/" + Owner + "/" + Repository + "@";
+                if (!uri.AbsolutePath.StartsWith(prefix, StringComparison.Ordinal))
+                {
+                    return false;
+                }
+
+                var remainder = uri.AbsolutePath[prefix.Length..];
+                var separator = remainder.IndexOf('/');
+                if (separator < 0)
+                {
+                    return false;
+                }
+
+                reference = remainder[..separator];
+                path = remainder[(separator + 1)..];
+            }
+
+            return (source != SharedCalibrationSource.Gitcode || reference.Length == 40) &&
+                   SharedCalibrationIndex.IsCommit(reference) && SharedCalibrationIndex.IsCodePath(path) &&
+                   string.Equals(uri.AbsoluteUri, Address(source, reference, path).AbsoluteUri, StringComparison.Ordinal);
+        }
+
+        return false;
+    }
+
     private static Uri Address(SharedCalibrationSource source, string reference, string path) => new(source switch
     {
         SharedCalibrationSource.GithubRaw => "https://" + RawHost + "/" + Owner + "/" + Repository + "/" + reference + "/" + path,
+        SharedCalibrationSource.Gitcode => "https://" + GitcodeHost + "/api/v5/repos/" + Owner + "/" + Repository + "/raw/" + path + "?ref=" + reference,
         SharedCalibrationSource.CdnPrimary => "https://" + CdnHost + "/gh/" + Owner + "/" + Repository + "@" + reference + "/" + path,
         SharedCalibrationSource.CdnFallback => "https://" + FastlyHost + "/gh/" + Owner + "/" + Repository + "@" + reference + "/" + path,
         _ => throw new ArgumentOutOfRangeException(nameof(source)),
@@ -483,7 +600,7 @@ public sealed class SharedCalibrationClient
 
     private static async Task<SharedTransportResponse> SendAsync(Uri uri, CancellationToken cancellationToken)
     {
-        if (!IsAllowed(uri) || uri.Query.Length > 0 || uri.Fragment.Length > 0)
+        if (!IsRequestAllowed(uri))
         {
             throw new ArgumentException("the shared-calibration transport only fetches its own fixed addresses", nameof(uri));
         }

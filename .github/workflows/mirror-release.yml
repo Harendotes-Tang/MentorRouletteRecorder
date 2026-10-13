@@ -1,0 +1,53 @@
+name: Mirror release to GitCode
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '正式版本标签（如 v1.7.1）；留空同步 GitHub 最新正式版'
+        required: false
+        type: string
+  # Release publication can precede attachment uploads; bounded catch-up retries latest only.
+  schedule:
+    - cron: '23 */6 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gitcode-mirror-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    if: github.repository == 'Harendotes-Tang/MentorRouletteRecorder' && (github.event_name != 'release' || !github.event.release.prerelease)
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: '3.12'
+      - name: Test release ordering and validation
+        run: python tools/release-mirror/selftest.py
+      - name: Synchronize release tags before publishing attachments
+        timeout-minutes: 20
+        env:
+          GITCODE_MIRROR_TOKEN: ${{ secrets.GITCODE_MIRROR_TOKEN }}
+        run: python tools/release-mirror/sync_refs.py --repo MentorRouletteRecorder
+      - name: Mirror original assets and verify anonymous downloads
+        timeout-minutes: 30
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITCODE_MIRROR_TOKEN: ${{ secrets.GITCODE_MIRROR_TOKEN }}
+          MIRROR_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        shell: bash
+        run: |
+          args=()
+          if [[ -n "$MIRROR_TAG" ]]; then args+=(--tag "$MIRROR_TAG"); fi
+          python tools/release-mirror/sync_release.py "${args[@]}"
