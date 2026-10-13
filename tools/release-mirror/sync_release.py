@@ -14,6 +14,7 @@ import json
 import os
 from pathlib import Path
 import re
+import subprocess
 import sys
 import tempfile
 import time
@@ -29,7 +30,6 @@ TAG = re.compile(r"v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\Z")
 SHA = re.compile(r"[0-9a-f]{40}\Z")
 MAX_INSTALLER = 2 * 1024**3
 MAX_JSON = 2 * 1024**2
-UPLOAD_PROGRESS_INTERVAL = 8 * 1024**2
 CDN_HOST = "file-cdn.gitcode.com"
 UPLOAD_HOST = "file-upload.gitcode.com"
 UPLOAD_FILE_HOST = "file.gitcode.com"
@@ -69,30 +69,60 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
-class DeadlineReader:
-    """Borrow a file; bound upload reads and report consumption, not server receipt."""
+def curl_quote(value: str) -> str:
+    """Quote one curl config value without permitting additional config lines."""
+    require(all(ord(c) >= 32 and ord(c) != 127 for c in value), "Unsafe upload configuration value")
+    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
-    def __init__(self, source, deadline: float, total_bytes: int | None = None) -> None:
-        self.source = source
-        self.deadline = deadline
-        self.total_bytes = total_bytes
-        self.consumed = 0
-        self.last_reported = 0
-        self.next_report = UPLOAD_PROGRESS_INTERVAL
 
-    def read(self, size: int = -1) -> bytes:
-        require(time.monotonic() < self.deadline, "Release mirror time budget exhausted")
-        # http.client normally asks for 8 KiB; also bound callers requesting all bytes.
-        block = self.source.read(min(size, 64 * 1024) if size >= 0 else 64 * 1024)
-        require(time.monotonic() < self.deadline, "Release mirror time budget exhausted")
-        self.consumed += len(block)
-        if (self.total_bytes is not None and self.consumed > self.last_reported
-                and (self.consumed >= self.next_report or self.consumed == self.total_bytes)):
-            # Only local byte counts: reading a block does not prove remote acceptance.
-            print(f"Upload stream read: {self.consumed}/{self.total_bytes} bytes", flush=True)
-            self.last_reported = self.consumed
-            self.next_report = (self.consumed // UPLOAD_PROGRESS_INTERVAL + 1) * UPLOAD_PROGRESS_INTERVAL
-        return block
+def upload_with_curl(url: str, headers: dict, path: Path, deadline: float) -> None:
+    """PUT via native curl; credentials stay on stdin and only numeric metrics escape."""
+    require(upload_url_allowed(url), "Refused upload storage host")
+    require(set(headers) == UPLOAD_HEADERS and all(isinstance(v, str) and "\r" not in v
+            and "\n" not in v for v in headers.values()), "Unexpected upload headers")
+    total_bytes = path.stat().st_size
+    require(0 < total_bytes <= MAX_INSTALLER, "Invalid upload size")
+    remaining = deadline - time.monotonic()
+    require(remaining > 0, "Release mirror time budget exhausted")
+    # Let curl emit its numeric timeout metrics before the parent hard deadline.
+    transfer_seconds = max(remaining - 2.0, remaining / 2.0)
+    # -q is first on argv, so a user curlrc cannot enable traces, netrc or redirects.
+    # Signed URL/header values are never argv, persisted files, stdout or stderr.
+    options = [
+        ("url", url), ("upload-file", str(path.resolve())), ("request", "PUT"),
+        ("proto", "=https"), ("max-redirs", "0"), ("max-time", f"{transfer_seconds:.6f}"),
+        ("connect-timeout", str(min(60, remaining))), ("speed-limit", "1"), ("speed-time", "60"),
+        ("expect100-timeout", "1"), ("output", os.devnull), ("max-filesize", str(MAX_JSON)),
+        ("user-agent", "MentorRecorder-Release-Mirror"),
+        ("write-out", "%{http_code}|%{size_upload}|%{speed_upload}|%{time_total}"),
+    ]
+    config = "silent\nfail\nno-location\nno-netrc\ngloboff\nhttp1.1\n"
+    config += "\n".join(key + " = " + curl_quote(value) for key, value in options) + "\n"
+    config += "\n".join("header = " + curl_quote(key + ": " + value)
+                        for key, value in headers.items()) + "\n"
+    env = {key: value for key, value in os.environ.items()
+           if "TOKEN" not in key.upper() and not key.upper().startswith(("GIT_", "CURL_"))
+           and key.upper() != "SSLKEYLOGFILE"}
+    print("Uploading to verified storage host: " + secure_url(url).hostname, flush=True)
+    try:
+        result = subprocess.run(["curl", "-q", "--config", "-"], input=config,
+                                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                text=True, encoding="utf-8", errors="replace", env=env,
+                                timeout=remaining, check=False)
+    except subprocess.TimeoutExpired:
+        raise MirrorError("Native upload exceeded release time budget") from None
+    except OSError:
+        raise MirrorError("Native upload could not start; curl is required") from None
+    # Never relay curl errors: they can contain the signed URL or callback headers.
+    metrics = re.fullmatch(r"([0-9]{3})\|([0-9]+)\|([0-9]+(?:\.[0-9]+)?)\|([0-9]+(?:\.[0-9]+)?)",
+                           result.stdout) if len(result.stdout) <= 256 else None
+    require(metrics is not None, "Native upload returned invalid diagnostics")
+    code, count = int(metrics[1]), int(metrics[2])
+    print(f"Native upload metrics: HTTP {code}; bytes={count}/{total_bytes}; "
+          f"average_bytes_per_second={metrics[3]}; seconds={metrics[4]}", flush=True)
+    require(result.returncode == 0 and 200 <= code < 300 and count == total_bytes,
+            f"Native upload failed (exit {result.returncode}, HTTP {code})")
+    require(time.monotonic() < deadline, "Release mirror time budget exhausted")
 
 
 class Http:
@@ -282,16 +312,7 @@ class RemoteMirror:
                                  urllib.parse.urlencode({"file_name": name}), auth=True)
         require(upload_url_allowed(response["url"]), "Refused upload storage host")
         headers = {key.lower(): value for key, value in response["headers"].items()}
-        require(set(headers) == UPLOAD_HEADERS and all(isinstance(v, str) and "\r" not in v
-                and "\n" not in v for v in headers.values()), "Unexpected upload headers")
-        total_bytes = path.stat().st_size
-        headers["content-length"] = str(total_bytes)
-        # Emit only an already accepted hostname, never a signed URL or API headers.
-        print("Uploading to verified storage host: " + secure_url(response["url"]).hostname, flush=True)
-        with path.open("rb") as body, self.http.open(response["url"], method="PUT",
-                                                   data=DeadlineReader(body, self.http.deadline, total_bytes),
-                                                   headers=headers) as result:
-            self.http.read(result, MAX_JSON)
+        upload_with_curl(response["url"], headers, path, self.http.deadline)
 
 
 def publish(mirror, source: dict, commit: str, paths: dict, hashes: dict) -> None:

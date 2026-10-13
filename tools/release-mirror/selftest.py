@@ -6,6 +6,7 @@ from contextlib import redirect_stdout
 import hashlib
 import io
 import json
+import subprocess
 from pathlib import Path
 import tempfile
 import unittest
@@ -240,31 +241,6 @@ class NetworkTests(unittest.TestCase):
             with self.subTest(url=url), self.assertRaises(m.MirrorError):
                 m.upload_url_allowed(url)
 
-    def test_upload_logs_verified_host_only_and_sends_no_api_token(self):
-        captured = []
-        signed_url = f"https://{m.UPLOAD_FILE_HOST}/private-path?signature=SIGNED-SECRET"
-        class Api(m.Http):
-            def api(self, url, **kwargs):
-                return {"url": signed_url, "headers": {key: "header-value" for key in m.UPLOAD_HEADERS}}
-        class Capture:
-            def open(self, request, timeout):
-                captured.append(request)
-                response = io.BytesIO()
-                response.headers = {"Content-Length": "0"}
-                return response
-        http = Api("API-SECRET")
-        http.opener = Capture()
-        output = io.StringIO()
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "asset"
-            path.write_bytes(b"original bytes")
-            with redirect_stdout(output):
-                m.RemoteMirror(http, TAG, Path(directory)).upload(NAMES[0], path)
-        self.assertEqual(output.getvalue(), "Uploading to verified storage host: " + m.UPLOAD_FILE_HOST + "\n")
-        self.assertEqual(captured[0].get_method(), "PUT")
-        self.assertNotIn("Private-token", captured[0].headers)
-        self.assertNotIn("Authorization", captured[0].headers)
-
     def test_rejected_upload_url_has_fixed_error_and_no_host_log(self):
         class Api:
             def api(self, url, **kwargs):
@@ -274,19 +250,6 @@ class NetworkTests(unittest.TestCase):
             m.RemoteMirror(Api(), TAG, Path("unused")).upload(NAMES[0], Path("unused"))
         self.assertEqual(str(failure.exception), "Refused upload storage host")
         self.assertEqual(output.getvalue(), "")
-
-    def test_upload_put_redirect_is_never_followed(self):
-        requests = []
-        class Redirect:
-            def open(self, request, timeout):
-                requests.append(request)
-                raise urllib.error.HTTPError(request.full_url, 307, "redirect",
-                    {"Location": f"https://{m.UPLOAD_HOST}/file"}, io.BytesIO())
-        http = m.Http("API-SECRET")
-        http.opener = Redirect()
-        with self.assertRaises(m.MirrorError):
-            http.open(f"https://{m.UPLOAD_FILE_HOST}/file", method="PUT", data=b"data")
-        self.assertEqual(len(requests), 1)
 
     def test_authenticated_redirect_never_forwards_token(self):
         requests = []
@@ -345,67 +308,107 @@ class NetworkTests(unittest.TestCase):
         self.assertEqual(response.reads, 3)
         self.assertEqual(output.getvalue(), b"xx")
 
-    def test_upload_file_reader_enforces_deadline_between_sent_blocks(self):
-        clock = [0.0]
-        source = io.BytesIO(b"x" * 100)
-        body = m.DeadlineReader(source, 3.0)
-        with patch.object(m.time, "monotonic", side_effect=lambda: clock[0]):
-            self.assertEqual(body.read(1), b"x")
-            clock[0] = 2.0  # Simulated socket sends keep succeeding slowly.
-            self.assertEqual(body.read(1), b"x")
-            clock[0] = 3.0
-            with self.assertRaisesRegex(m.MirrorError, "time budget exhausted"):
-                body.read(1)
-        self.assertEqual(source.tell(), 2)
-
     def test_release_budget_is_60_minutes(self):
         with patch.object(m.time, "monotonic", return_value=123.0):
             self.assertEqual(m.Http("").deadline, 123.0 + 60 * 60)
-
-    def test_upload_progress_reports_local_bytes_at_8mib_and_final_only(self):
-        total = m.UPLOAD_PROGRESS_INTERVAL * 2 + 13
-        body = m.DeadlineReader(io.BytesIO(b"x" * total), m.time.monotonic() + 30, total)
-        output = io.StringIO()
-        with redirect_stdout(output):
-            while body.read(8192):
-                pass
-            self.assertEqual(body.read(8192), b"")  # Repeated EOF does not repeat final progress.
-        self.assertEqual(output.getvalue().splitlines(), [
-            f"Upload stream read: {m.UPLOAD_PROGRESS_INTERVAL}/{total} bytes",
-            f"Upload stream read: {m.UPLOAD_PROGRESS_INTERVAL * 2}/{total} bytes",
-            f"Upload stream read: {total}/{total} bytes",
-        ])
-        self.assertEqual(body.consumed, total)
-
-    def test_expired_upload_read_does_not_log_unreturned_block(self):
-        clock = [0.0]
-        class SlowFile:
-            def read(self, size):
-                clock[0] = 3.0
-                return b"x"
-        output = io.StringIO()
-        with redirect_stdout(output), patch.object(m.time, "monotonic", side_effect=lambda: clock[0]):
-            body = m.DeadlineReader(SlowFile(), 3.0, total_bytes=1)
-            with self.assertRaisesRegex(m.MirrorError, "time budget exhausted"):
-                body.read(1)
-        self.assertEqual(output.getvalue(), "")
-        self.assertEqual(body.consumed, 0)
-
-    def test_upload_file_reader_rechecks_after_slow_local_read(self):
-        clock = [0.0]
-        class SlowFile:
-            def read(self, size):
-                clock[0] = 3.0
-                return b"x"
-        with patch.object(m.time, "monotonic", side_effect=lambda: clock[0]):
-            with self.assertRaisesRegex(m.MirrorError, "time budget exhausted"):
-                m.DeadlineReader(SlowFile(), 3.0).read(1)
 
     def test_missing_secret_fails_without_network(self):
         with patch.dict(m.os.environ, {}, clear=True), patch.object(m.sys, "argv", ["sync_release.py"]):
             with patch.object(m, "synchronize") as sync:
                 self.assertEqual(m.main(), 1)
                 sync.assert_not_called()
+
+
+class CurlTransportTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.path = Path(self.temp.name) / "asset"
+        self.path.write_bytes(b"original")
+        self.url = f"https://{m.UPLOAD_FILE_HOST}/private-path?signature=SIGNED-SECRET"
+        self.headers = {key: "CALLBACK-SECRET" for key in m.UPLOAD_HEADERS}
+
+    def invoke(self, result=None, error=None):
+        output = io.StringIO()
+        with redirect_stdout(output), patch.object(m.subprocess, "run", return_value=result, side_effect=error) as run:
+            try:
+                m.upload_with_curl(self.url, self.headers, self.path, m.time.monotonic() + 120)
+            except m.MirrorError as failure:
+                return run, output.getvalue(), str(failure)
+        return run, output.getvalue(), None
+
+    def test_signed_values_only_on_stdin_and_only_numeric_metrics_logged(self):
+        result = subprocess.CompletedProcess([], 0, "200|8|1234.500|0.250")
+        with patch.dict(m.os.environ, {"GITCODE_MIRROR_TOKEN": "PAT-SECRET", "GITHUB_TOKEN": "GH-SECRET",
+                                      "SSLKEYLOGFILE": "forbidden", "CURL_HOME": "forbidden"}):
+            run, output, failure = self.invoke(result)
+        self.assertIsNone(failure)
+        self.assertEqual(run.call_args.args[0], ["curl", "-q", "--config", "-"])
+        options = run.call_args.kwargs
+        self.assertIn(self.url, options["input"])
+        self.assertIn("CALLBACK-SECRET", options["input"])
+        for secret in ("SIGNED-SECRET", "CALLBACK-SECRET", "PAT-SECRET", "GH-SECRET", "private-path"):
+            self.assertNotIn(secret, output)
+        self.assertNotIn("PAT-SECRET", options["input"])
+        for key in ("GITCODE_MIRROR_TOKEN", "GITHUB_TOKEN", "SSLKEYLOGFILE", "CURL_HOME"):
+            self.assertNotIn(key, options["env"])
+        self.assertEqual(options["stderr"], subprocess.DEVNULL)
+        self.assertIn("Native upload metrics: HTTP 200; bytes=8/8; average_bytes_per_second=1234.500; seconds=0.250", output)
+
+    def test_transfer_is_https_nonredirecting_and_deadline_bounded(self):
+        result = subprocess.CompletedProcess([], 0, "201|8|8|1.000")
+        run, _, failure = self.invoke(result)
+        self.assertIsNone(failure)
+        config = run.call_args.kwargs["input"]
+        for expected in ('proto = "=https"', 'max-redirs = "0"', 'no-location\n', 'no-netrc\n',
+                         'globoff\n', 'http1.1\n', 'speed-limit = "1"', 'speed-time = "60"',
+                         'connect-timeout = "60"', 'max-filesize = "2097152"'):
+            self.assertIn(expected, config)
+        self.assertLessEqual(run.call_args.kwargs["timeout"], 120)
+        native_limit = float(config.split('max-time = "', 1)[1].split('"', 1)[0])
+        self.assertLess(native_limit, run.call_args.kwargs["timeout"])
+        self.assertEqual(run.call_count, 1)
+
+    def test_early_http_error_redirect_partial_success_and_transport_error_fail(self):
+        for exit_code, metrics in ((22, "403|0|0|0.100"), (0, "307|0|0|0.100"),
+                                   (0, "200|7|7|1.000"), (28, "000|4|1|60.000")):
+            with self.subTest(exit=exit_code, metrics=metrics):
+                run, output, failure = self.invoke(subprocess.CompletedProcess([], exit_code, metrics))
+                self.assertIsNotNone(failure)
+                self.assertIn("Native upload failed", failure)
+                self.assertIn("Native upload metrics:", output)
+                self.assertEqual(run.call_count, 1)
+
+    def test_untrusted_diagnostics_and_exception_output_are_not_printed(self):
+        for result, error in ((subprocess.CompletedProcess([], 1, self.url), None),
+                              (None, subprocess.TimeoutExpired(["curl"], 1, output=self.url, stderr="CALLBACK-SECRET")),
+                              (None, OSError(self.url))):
+            with self.subTest(error=type(error).__name__):
+                _, output, failure = self.invoke(result, error)
+                self.assertIsNotNone(failure)
+                self.assertNotIn(self.url, output + failure)
+                self.assertNotIn("CALLBACK-SECRET", output + failure)
+
+    def test_control_character_injection_cannot_create_config_options(self):
+        for value in ('x\nlocation', 'x\rheader: secret', 'x\0y', 'x\ty'):
+            with self.assertRaises(m.MirrorError):
+                m.curl_quote(value)
+        self.assertEqual(m.curl_quote('a"b\\c'), '"a\\"b\\\\c"')
+
+    def test_expired_budget_never_launches_transport(self):
+        with patch.object(m.subprocess, "run") as run:
+            with self.assertRaisesRegex(m.MirrorError, "time budget exhausted"):
+                m.upload_with_curl(self.url, self.headers, self.path, m.time.monotonic() - 1)
+            run.assert_not_called()
+
+    def test_remote_upload_uses_same_response_headers_without_api_token(self):
+        class Api:
+            deadline = 123.0
+            def api(inner, url, **kwargs):
+                return {"url": self.url, "headers": self.headers}
+        with patch.object(m, "upload_with_curl") as upload:
+            m.RemoteMirror(Api(), TAG, self.path.parent).upload(NAMES[0], self.path)
+        upload.assert_called_once_with(self.url, self.headers, self.path, 123.0)
 
 
 if __name__ == "__main__":
