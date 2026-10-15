@@ -104,6 +104,25 @@ public sealed record SharedCandidateSummary(
 
     /// <summary>True while it records (or may bind) with an audited criterion still waiting.</summary>
     public bool AuditPending { get; init; }
+
+    /// <summary>
+    /// Messages on which another code being verified for the build declares something else (plan §20.5), named as the
+    /// criteria are; empty when none. For the profile in use, as it stood when it was bound; empty for one adopted from disk.
+    /// </summary>
+    public IReadOnlyList<string> Disputed { get; init; } = Array.Empty<string>();
+
+    /// <summary>
+    /// True when the codes being verified side with it on every disputed message (<see cref="SharedConsensus.Preferred"/>);
+    /// true when nothing is disputed. One reason a published code may bind on the login burst, not the only one.
+    /// </summary>
+    public bool Preferred { get; init; } = true;
+
+    /// <summary>
+    /// The shape prior this machine computed for the code from the calibration it verified for the previous build
+    /// (<see cref="SharedLocalShapePrior"/>; wire <c>shape_prior</c>): true for the same shape, false for another shape of
+    /// the same kind, null when nothing compares or the profile was adopted from disk. Never the index's own value.
+    /// </summary>
+    public bool? LocalShapePrior { get; init; }
 }
 
 /// <summary>The <c>shared</c> part of calibration status (<c>$defs/SharedCalibrationStatus</c>) and of the diagnostics report.</summary>

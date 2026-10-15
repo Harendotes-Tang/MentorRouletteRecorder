@@ -309,6 +309,26 @@ public sealed class SharedCalibrationClientTests
         Assert.All(transport.Requests, uri => Assert.Equal(SharedCalibrationClient.HostFor(Source.GithubRaw), uri.Host));
     }
 
+    /// <summary>Plan §20.3: what the index says about each code beyond its identity travels with the downloaded code.</summary>
+    [Fact]
+    public async Task TheConflictMarkAndTheShapePriorTravelWithEachDownloadedCode()
+    {
+        var prior = Code(0xF001);
+        var against = Code(0xF002);
+        var unknown = Code(0xF003);
+        var index = Index(
+            SharedCalibrationIndexTests.Entry(prior.Sha, published: "2026-09-15T08:00:00Z", conflicting: true, shapePrior: true),
+            SharedCalibrationIndexTests.Entry(against.Sha, published: "2026-09-14T08:00:00Z", shapePrior: false),
+            SharedCalibrationIndexTests.Entry(unknown.Sha, published: "2026-09-13T08:00:00Z"));
+        var transport = Serve(new FakeTransport(), Source.GithubRaw, index, prior, against, unknown);
+
+        var result = await Client(transport).FetchAsync(Region.Cn, Build);
+
+        Assert.Equal(new[] { unknown.Sha, against.Sha, prior.Sha }, result.Candidates.Select(candidate => candidate.CodeSha256));
+        Assert.Equal(new bool?[] { null, false, true }, result.Candidates.Select(candidate => candidate.ShapePrior));
+        Assert.Equal(new[] { false, false, true }, result.Candidates.Select(candidate => candidate.Conflicting));
+    }
+
     [Fact]
     public async Task EachFailingSourceIsRecordedAndTheNextOneIsTriedInOrder()
     {

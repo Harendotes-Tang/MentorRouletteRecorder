@@ -55,6 +55,9 @@ internal sealed partial class SharedCalibrationSession
 
     private static readonly IReadOnlyDictionary<string, int> NoCounts = new Dictionary<string, int>(StringComparer.Ordinal);
 
+    /// <summary>What a candidate the consensus does not cover counts as (<see cref="ConsensusOf"/>): not preferred.</summary>
+    private static readonly SharedConsensus Unjudged = new(Array.Empty<string>(), Preferred: false);
+
     private readonly object _gate;
 
     // Serialises the two background tasks that touch <region>.<build>.shared.json - a bind writing it and a
@@ -139,6 +142,8 @@ internal sealed partial class SharedCalibrationSession
             AdoptBound(context);
             MaybeFetch(context, manual: false);
         }
+
+        DescribeSettled(context);
     }
 
     /// <summary>
@@ -454,7 +459,7 @@ internal sealed partial class SharedCalibrationSession
             return false;
         }
 
-        retained.Verification = SharedCandidateVerifier.Verify(snapshot, context.Template, inUse, retained.Provenance);
+        retained.Verification = SharedCandidateVerifier.Verify(snapshot, context.Template, inUse, retained.WatchGate);
         if (!RecordContradictions(context, snapshot, inUse, retained.Verification) &&
             retained.Verification.Verdict != SharedVerdict.Contradicted)
         {
@@ -489,47 +494,95 @@ internal sealed partial class SharedCalibrationSession
         _host.SharedRetentionFinished(bound.ProfileId, bound.MatchSource == CalibrationMatchSource.QueueRequest);
     }
 
-    /// <summary>Verifies every candidate; the first that may bind now, one reading the match before one inferring it.</summary>
+    /// <summary>
+    /// Verifies every candidate; of those that may bind now, one reading the match before one inferring it, and within
+    /// each kind the one the consensus prefers (plan §20.5), then the one more accounts submitted, then one with this
+    /// machine's own shape prior, then one the index gives the shape prior, then the download order. Several pass together
+    /// whenever their gates are met by the same evidence - on the login burst, or when the match and the duty entry of
+    /// codes that had to wait for them arrive together.
+    ///
+    /// Two passes (review 2026-10-15). Whether a code is contradicted does not depend on its gate, but its gate depends on
+    /// the codes still standing: judged while contradicted codes drop out one by one, a code could pass under the
+    /// published gate thanks to a supporter dropped later in the same round. So every contradiction of the round first,
+    /// then every gate and verdict over the list that is left.
+    /// </summary>
     private Candidate? ChooseCandidate(SharedContext context, CalibrationSnapshot snapshot)
     {
-        Candidate? announcement = null;
-        Candidate? queue = null;
         foreach (var candidate in _candidates.ToArray())
         {
-            if (!VerifyCandidate(context, snapshot, candidate))
-            {
-                continue;
-            }
-
-            if (candidate.Prepared.Payload.MatchSource == CalibrationMatchSource.QueueRequest)
-            {
-                queue ??= candidate;
-            }
-            else
-            {
-                announcement ??= candidate;
-            }
+            DropIfContradicted(context, snapshot, candidate);
         }
 
-        return announcement ?? queue;
+        var passed = _candidates.ToArray().Where(candidate => VerifyCandidate(context, snapshot, candidate)).ToArray();
+        if (passed.Length == 0)
+        {
+            return null;
+        }
+
+        var consensus = Consensus();
+        return passed
+            .Select((candidate, order) => (Candidate: candidate, Order: order))
+            .OrderBy(item => item.Candidate.Prepared.Payload.MatchSource == CalibrationMatchSource.QueueRequest)
+            .ThenByDescending(item => ConsensusOf(consensus, item.Candidate).Preferred)
+            .ThenByDescending(item => item.Candidate.Submitters)
+            .ThenByDescending(item => item.Candidate.LocalPrior == true)
+            .ThenByDescending(item => item.Candidate.ShapePrior == true)
+            .ThenBy(item => item.Order)
+            .First()
+            .Candidate;
     }
 
     /// <summary>
-    /// Verifies one candidate and updates its status; a contradicted one is dropped. True when it passed, may
-    /// replace what is in force, and has what it needs to bind in this capture session.
+    /// What the candidates being verified say about one another, field by field (plan §20.5). Judged afresh on every use
+    /// rather than kept: it depends on the list and on what the latest index said about each code, both of which change
+    /// under the gate in several places, and at most eight codes make it cheap.
     /// </summary>
-    private bool VerifyCandidate(SharedContext context, CalibrationSnapshot snapshot, Candidate candidate)
+    private IReadOnlyDictionary<string, SharedConsensus> Consensus() =>
+        SharedCandidateConsensus.Judge(_candidates.Select(candidate =>
+            new SharedConsensusCandidate(candidate.Sha, candidate.Prepared.Payload, candidate.Submitters, candidate.LocalPrior)));
+
+    /// <summary>
+    /// What the consensus says about one candidate. Fails closed (review 2026-10-15): a candidate the judgement does not
+    /// cover - which only an inconsistency could produce - is not preferred, so it never earns the published gate by default.
+    /// </summary>
+    private static SharedConsensus ConsensusOf(IReadOnlyDictionary<string, SharedConsensus> consensus, Candidate candidate) =>
+        consensus.GetValueOrDefault(candidate.Sha) ?? Unjudged;
+
+    /// <summary>
+    /// The first pass of <see cref="ChooseCandidate"/>: records the healthy sessions that contradict a candidate and drops
+    /// it once that makes it rejected - the candidate being written included, whose commit then finds it gone. The gate
+    /// only decides what must pass, never what contradicts, so the one it is judged under here changes nothing but what
+    /// the rejected summary shows.
+    /// </summary>
+    private void DropIfContradicted(SharedContext context, CalibrationSnapshot snapshot, Candidate candidate)
     {
         var verification = SharedCandidateVerifier.Verify(snapshot, context.Template, candidate.Prepared.Declared, GateFor(context, candidate));
-        candidate.Verification = verification;
         if (RecordContradictions(context, snapshot, candidate.Prepared.Declared, verification) ||
             verification.Verdict == SharedVerdict.Contradicted)
         {
+            candidate.Verification = verification;
             Drop(candidate, rejected: true);
-            return false;
         }
+    }
 
-        if (ReferenceEquals(candidate, _binding))
+    /// <summary>
+    /// The second pass of <see cref="ChooseCandidate"/>, over candidates nothing contradicts: judges one under the gate
+    /// that holds for the list as it now stands and updates its status. True when it passed, may replace what is in
+    /// force, and has what it needs to bind in this capture session.
+    /// </summary>
+    private bool VerifyCandidate(SharedContext context, CalibrationSnapshot snapshot, Candidate candidate)
+    {
+        // The candidate being written stays under the gate it was chosen under, and its bind commits under it - audits
+        // still pending or meanwhile passed, as the evidence now says - whatever an index read meanwhile does to the
+        // consensus. Re-judged under a gate the consensus had just changed, a code chosen on the login burst would
+        // commit with its audits gone, and could be proven by a staged duty without its match ever seen (review
+        // 2026-10-15).
+        var binding = ReferenceEquals(candidate, _binding);
+        var gate = binding ? candidate.Gate : GateFor(context, candidate);
+        var verification = SharedCandidateVerifier.Verify(snapshot, context.Template, candidate.Prepared.Declared, gate);
+        candidate.Gate = gate;
+        candidate.Verification = verification;
+        if (binding)
         {
             return false;
         }
@@ -560,18 +613,25 @@ internal sealed partial class SharedCalibrationSession
     }
 
     /// <summary>
-    /// The gate a candidate is judged by now (plan §18.3; audit 2026-10-03, ON1-1). A published code binds on the login
-    /// burst, with its match and duty entry audited while it records, only on patch day: nothing usable on this
-    /// machine for it to displace, no conflict mark from the repository, and no other candidate submitted by more
-    /// players. Any other must see its match and duty entry behave first, exactly as a code no index knows must - so
-    /// neither a code's kind nor the conflict mark lets one or two accounts put a code ahead of one many submitted.
-    /// What the code is (its provenance, shown to the player) does not change; only how much it must prove.
+    /// The gate a candidate is judged by now (plan §18.3; audit 2026-10-03, ON1-1; plan §20.5). A published code binds on
+    /// the login burst, with its match and duty entry audited while it records, only on patch day: nothing usable on this
+    /// machine for it to displace, no other candidate submitted by more players, and the candidates being verified siding
+    /// with it on every field in dispute - by more submitters, or on a tied match by the shape prior it alone has, the one
+    /// this machine computed from the calibrations it verified itself and never the index's (<see cref="SharedCandidateConsensus"/>,
+    /// <see cref="SharedLocalShapePrior"/>). Any other must see its match and duty entry behave first, exactly as a
+    /// code no index knows must - so a code of another kind does not let one or two accounts put a code ahead of one many
+    /// submitted, and a tie nothing decides is not settled by a coin toss. The repository conflict mark no longer
+    /// decides this on its own: it was raised over the very codes this machine now compares field by field, and sending
+    /// every code of a build back to full verification over one disputed field brought back the silent first duty that
+    /// plan §18 removed. It stays in the download order. What the code is (its provenance, shown to the player) does not
+    /// change; only how much it must prove.
     /// </summary>
     /// <param name="context">What is being calibrated, with the selection in force.</param>
     /// <param name="candidate">The candidate to judge.</param>
     private SharedCandidateProvenance GateFor(SharedContext context, Candidate candidate) =>
-        candidate.Provenance == SharedCandidateProvenance.Published && candidate.Submitters > 0 && !candidate.Conflicting &&
-        !context.Selection.IsUsable && !_candidates.Any(other => other.Submitters > candidate.Submitters)
+        candidate.Provenance == SharedCandidateProvenance.Published && candidate.Submitters > 0 &&
+        !context.Selection.IsUsable && !_candidates.Any(other => other.Submitters > candidate.Submitters) &&
+        ConsensusOf(Consensus(), candidate).Preferred
             ? SharedCandidateProvenance.Published
             : SharedCandidateProvenance.Imported;
 
@@ -587,6 +647,7 @@ internal sealed partial class SharedCalibrationSession
 
         _binding = chosen;
         chosen.Status = SharedCandidateStatus.Writing;
+        chosen.ChosenConsensus = ConsensusOf(Consensus(), chosen);
         var ticket = new BindTicket(context.Key, context.Template, chosen, Counts(snapshot, chosen.Prepared.Declared), consent);
         Schedule(() =>
         {
@@ -692,7 +753,8 @@ internal sealed partial class SharedCalibrationSession
             summaries.Add(Summary(bound));
         }
 
-        summaries.AddRange(_candidates.Select(Summary));
+        var consensus = Consensus();
+        summaries.AddRange(_candidates.Select(candidate => Summary(candidate, ConsensusOf(consensus, candidate))));
         summaries.AddRange(_rejectedSummaries);
         return new SharedCalibrationSnapshot(
             Phase(), summaries, _lastFetchStatus, _lastAttempts, _bound?.ProfileId, _bound?.BoundAtUtc, _lastRefusal)
@@ -706,10 +768,16 @@ internal sealed partial class SharedCalibrationSession
     }
 
     /// <summary>A short string that changes whenever the snapshot does in a way the card shows.</summary>
-    public string Signature() => string.Join(",",
-        Phase(), _lastFetchStatus, _bound?.ProfileId, _bound?.Proven, _bound?.Verification?.AuditPending, _rejectedSummaries.Count, UserRejectedNow(),
-        string.Join(";", _candidates.Select(candidate =>
-            candidate.Sha[..12] + ":" + candidate.Provenance + ":" + candidate.Status + ":" + candidate.Verification?.Verdict)));
+    public string Signature()
+    {
+        var consensus = Consensus();
+        return string.Join(",",
+            Phase(), _lastFetchStatus, _bound?.ProfileId, _bound?.Sha, _bound?.Provenance, _bound?.Proven,
+            _bound?.Verification?.AuditPending, _rejectedSummaries.Count, UserRejectedNow(),
+            string.Join(";", _candidates.Select(candidate =>
+                candidate.Sha[..12] + ":" + candidate.Provenance + ":" + candidate.Status + ":" + candidate.Verification?.Verdict + ":" +
+                ConsensusOf(consensus, candidate).Preferred + ":" + ConsensusOf(consensus, candidate).Disputed.Count)));
+    }
 
     private SharedCalibrationPhase Phase() =>
         _bound is not null ? SharedCalibrationPhase.Verified
@@ -720,7 +788,7 @@ internal sealed partial class SharedCalibrationSession
         : _lastFetchStatus is SharedFetchStatus.IndexUnavailable or SharedFetchStatus.CodesUnavailable ? SharedCalibrationPhase.Unavailable
         : SharedCalibrationPhase.None;
 
-    private static SharedCandidateSummary Summary(Candidate candidate) => new(
+    private static SharedCandidateSummary Summary(Candidate candidate, SharedConsensus consensus) => new(
         candidate.Sha[..12], candidate.Source, candidate.Prepared.Payload.MatchSource, candidate.Status,
         candidate.Verification?.Verdict ?? SharedVerdict.Wait,
         candidate.Verification?.Criteria ?? Array.Empty<SharedCriterion>(),
@@ -728,6 +796,9 @@ internal sealed partial class SharedCalibrationSession
     {
         Provenance = candidate.Provenance,
         AuditPending = candidate.Verification?.AuditPending == true,
+        Disputed = consensus.Disputed,
+        Preferred = consensus.Preferred,
+        LocalShapePrior = candidate.LocalPrior,
     };
 
     private static SharedCandidateSummary Summary(BoundProfile bound) => new(
@@ -739,12 +810,33 @@ internal sealed partial class SharedCalibrationSession
     {
         Provenance = bound.Provenance,
         AuditPending = !bound.Proven && bound.Verification?.AuditPending == true,
+        Disputed = bound.Consensus.Disputed,
+        Preferred = bound.Consensus.Preferred,
+        LocalShapePrior = bound.LocalShapePrior,
     };
 
-    /// <summary>A code rebuilt through the template, with what the index said about it (0 and false when nothing).</summary>
+    /// <summary>
+    /// What sharing a proven shared profile back rests on (plan §20.5): the shared profile in force is the one this session
+    /// bound or adopted, and it is proven - a complete duty recorded with no audited criterion left waiting (plan §18.4).
+    /// Null otherwise. A question only, asked with the gate held; reading the code text is left to the caller, off the gate.
+    /// </summary>
+    /// <param name="selection">The selection in force, read under the same gate.</param>
+    public SharedShareProof? ShareProof(ProfileSelection selection) =>
+        _bound is { Proven: true } bound &&
+        selection is { IsUsable: true, Origin: ProfileOrigin.Shared, Profile: { } profile } &&
+        string.Equals(bound.ProfileId, profile.ProfileId, StringComparison.Ordinal) &&
+        (bound.ProfileSha256 is null || string.Equals(bound.ProfileSha256, profile.ProfileSha256, StringComparison.Ordinal))
+            ? new SharedShareProof(profile.ProfileSha256, bound.Sha)
+            : null;
+
+    /// <summary>
+    /// A code rebuilt through the template, with what the index said about it that still matters once the list is in the
+    /// index's order - its submitters and its shape prior (0 and null when nothing) - and the shape prior this machine
+    /// computed itself from the calibrations it verified (<see cref="SharedLocalShapePrior"/>; null when nothing compares).
+    /// </summary>
     private sealed record Prepared(
         string Sha, ShareCodePayload Payload, DeclaredCandidate Declared, ProtocolProfile StagingProfile, int Submitters = 0,
-        bool Conflicting = false);
+        bool? ShapePrior = null, bool? LocalPrior = null);
 
     private sealed class FetchTicket
     {
@@ -760,6 +852,9 @@ internal sealed partial class SharedCalibrationSession
         public CalibrationTemplate Template { get; }
 
         public bool Manual { get; }
+
+        /// <summary>Reads the store only and sends nothing: the offer of stored codes after a withdrawal (review 2026-10-15, L4).</summary>
+        public bool DiskOnly { get; init; }
 
         /// <summary>Why it went out beside a profile already recording, or null when nothing was in force.</summary>
         public SharedRecheckReason? Recheck { get; init; }
@@ -778,7 +873,8 @@ internal sealed partial class SharedCalibrationSession
             Source = source;
             Provenance = provenance;
             Submitters = prepared.Submitters;
-            Conflicting = prepared.Conflicting;
+            ShapePrior = prepared.ShapePrior;
+            LocalPrior = prepared.LocalPrior;
         }
 
         public Prepared Prepared { get; }
@@ -791,14 +887,35 @@ internal sealed partial class SharedCalibrationSession
         /// <summary>Distinct submitters the latest index this machine read gives it; 0 when no index said.</summary>
         public int Submitters { get; set; }
 
-        /// <summary>The latest index this machine read marks it as differing from another code of the same kind.</summary>
-        public bool Conflicting { get; set; }
+        /// <summary>
+        /// The latest index this machine read gives it the shape prior (plan §20.3); null when it said nothing. Orders only:
+        /// anyone who can publish can plant it, so it never decides a gate (security review 2026-10-15).
+        /// </summary>
+        public bool? ShapePrior { get; set; }
+
+        /// <summary>
+        /// The shape prior this machine computed from the calibrations it verified itself (<see cref="SharedLocalShapePrior"/>):
+        /// what breaks a tied match in the consensus. Null when nothing compares.
+        /// </summary>
+        public bool? LocalPrior { get; set; }
 
         public string Sha => Prepared.Sha;
 
         public SharedCandidateStage? Stage { get; set; }
 
         public SharedVerification? Verification { get; set; }
+
+        /// <summary>
+        /// The gate <see cref="Verification"/> was judged under; while the candidate is being written, the one it was
+        /// chosen under, kept until the commit.
+        /// </summary>
+        public SharedCandidateProvenance Gate { get; set; } = SharedCandidateProvenance.Imported;
+
+        /// <summary>
+        /// What the consensus said about it when it was chosen to bind, kept with <see cref="Gate"/> so the profile in use
+        /// reports the consensus it was bound under, not one an index read during the write produced (review 2026-10-15).
+        /// </summary>
+        public SharedConsensus? ChosenConsensus { get; set; }
 
         public SharedCandidateStatus Status { get; set; }
 
@@ -834,7 +951,14 @@ internal sealed partial class SharedCalibrationSession
         /// Gate set the watch judges by. A profile adopted from disk is watched as published: what it records is
         /// already recording, and an imported code that bound had every criterion pass before it did.
         /// </summary>
-        public SharedCandidateProvenance Provenance { get; set; } = SharedCandidateProvenance.Published;
+        public SharedCandidateProvenance WatchGate { get; set; } = SharedCandidateProvenance.Published;
+
+        /// <summary>
+        /// What the card is told about it, kept apart from <see cref="WatchGate"/> (review 2026-10-15): published only while
+        /// this machine keeps the published code text - what 这份校准好用，告诉其他玩家 hands back - and imported otherwise,
+        /// so the card never offers a share that can only fail. Imported until the store has been asked.
+        /// </summary>
+        public SharedCandidateProvenance Provenance { get; set; } = SharedCandidateProvenance.Imported;
 
         public CalibrationMatchSource? MatchSource { get; set; }
 
@@ -857,5 +981,14 @@ internal sealed partial class SharedCalibrationSession
         public bool RanComplete { get; set; }
 
         public bool Proven { get; set; }
+
+        /// <summary>What the candidates said about its code when it was bound; nothing disputed for one adopted from disk.</summary>
+        public SharedConsensus Consensus { get; init; } = SharedConsensus.Undisputed;
+
+        /// <summary>This machine's own shape prior for its code as the candidate had it when bound here; null for one adopted from disk.</summary>
+        public bool? LocalShapePrior { get; init; }
+
+        /// <summary>A profile adopted from disk and proven has been described for the card once; never retried.</summary>
+        public bool Described { get; set; }
     }
 }

@@ -67,16 +67,22 @@ public sealed partial class LiveProtocolPipeline
     /// <summary>
     /// 分享给其他玩家: the share code of the local calibration in force, taken from the profile file this machine
     /// wrote - read back off the gate - never from a draft in memory, with the issue form address that files it.
+    /// 这份校准好用，告诉其他玩家 (plan §20.5): for another player's calibration this machine has proven, the code text
+    /// the store downloaded, with the form preset to say it was verified here. The selection and what the shared
+    /// session vouches for are read together under the gate; the files and the store are read off it.
     /// </summary>
     public SharedShareCodeResult GetCalibrationShareCode()
     {
         ProfileSelection selection;
+        SharedShareProof? proof;
         lock (_gate)
         {
             selection = _selection;
+            proof = _shared.ShareProof(selection);
         }
 
-        return SharedShareCodeExport.From(selection, _calibrationServices.SelectTemplate);
+        return SharedShareCodeExport.From(
+            selection, _calibrationServices.SelectTemplate, proof, _calibrationServices.SharedCalibrations);
     }
 
     /// <summary>Applies <c>capture.shared_calibration_enabled</c>; off cancels a download and keeps a verified profile.</summary>

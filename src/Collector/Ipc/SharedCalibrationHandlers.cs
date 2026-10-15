@@ -7,7 +7,8 @@ using MentorRecorder.Collector.Protocol.Sharing;
 namespace MentorRecorder.Collector.Ipc;
 
 /// <summary>
-/// The five shared-calibration requests: the share code of the local calibration in force,
+/// The five shared-calibration requests: the share code of the local calibration in force (or of another player's
+/// calibration this machine proved),
 /// 立即检查, 导入校准码, accepting queue inference once, and 不用共享的，我自己校准. Normal answers are
 /// outcome tokens; only a share code that cannot be given fails the request. The renderers are
 /// public so the contract tests can hold every success shape against the schema.
@@ -86,6 +87,7 @@ public static class SharedCalibrationHandlers
             ["code_sha256"] = code.CodeSha256,
             ["issue_url"] = code.IssueUrl,
             ["code_in_url"] = code.CodeInUrl,
+            ["basis"] = EnumWire<SharedShareBasis>.Format(code.Basis),
         };
     }
 

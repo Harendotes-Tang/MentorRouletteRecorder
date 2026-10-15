@@ -163,6 +163,11 @@ public static class CalibrationWire
         ["staging_overflowed"] = candidate.StagingOverflowed,
         ["provenance"] = candidate.Provenance is { } provenance ? EnumWire<SharedCandidateProvenance>.Format(provenance) : null,
         ["audit_pending"] = candidate.AuditPending,
+        // Plan §20.5: message names only, as the criteria carry them - never a value the codes disagree about.
+        ["disputed"] = new JsonArray(candidate.Disputed.Select(name => (JsonNode?)JsonValue.Create(name)).ToArray()),
+        ["preferred"] = candidate.Preferred,
+        // This machine's own prior; the index's shape_prior only orders downloads and is not reported here.
+        ["shape_prior"] = candidate.LocalShapePrior,
     };
 
     private static JsonObject Evidence(CalibrationEvidenceSummary evidence, string? carriedSource) => new()

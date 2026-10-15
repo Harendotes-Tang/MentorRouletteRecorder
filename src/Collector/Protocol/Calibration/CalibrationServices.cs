@@ -123,6 +123,20 @@ public sealed record CalibrationServices(
     /// </summary>
     public Func<Region, string, ProtocolProfile?> LoadLocalProfile { get; init; } = (_, _) => null;
 
+    /// <summary>
+    /// Every local profile of a region the loader accepts: this machine's own calibrations, each written only after the
+    /// player confirmed its timeline. What the shared-calibration consensus reads its own shape prior from (plan §20.5),
+    /// so that no value from the repository decides a gate. Inert by default; wired by <see cref="WithLocalProfilesIn"/>.
+    /// Never throws for anything found on disk.
+    /// </summary>
+    public Func<Region, IReadOnlyList<ProtocolProfile>> LoadLocalProfiles { get; init; } = _ => Array.Empty<ProtocolProfile>();
+
+    /// <summary>
+    /// Every shared profile of a region the loader accepts. Only those the shared-calibration store records as settled
+    /// count as verified on this machine; the caller asks the store. Inert by default; wired by <see cref="WithSharedProfilesIn"/>.
+    /// </summary>
+    public Func<Region, IReadOnlyList<ProtocolProfile>> LoadSharedProfiles { get; init; } = _ => Array.Empty<ProtocolProfile>();
+
     /// <summary>The shared-calibration seams pointed at a fetch and a store of the caller's choosing.</summary>
     /// <param name="fetch">Fetches codes for a region and build.</param>
     /// <param name="store">Keeps what was fetched.</param>
@@ -153,8 +167,17 @@ public sealed record CalibrationServices(
         {
             WriteSharedProfile = built => SharedProfileFiles.Write(built, root),
             DeleteSharedProfile = (region, build) => SharedProfileFiles.Delete(root, region, build),
+            LoadSharedProfiles = ProfilesIn(root),
         };
     }
+
+    /// <summary>
+    /// The profiles of a region one directory holds, as the catalogue loads them: refused, candidate and ambiguous files
+    /// left out. A directory that does not exist holds none.
+    /// </summary>
+    /// <param name="root">Profile directory.</param>
+    internal static Func<Region, IReadOnlyList<ProtocolProfile>> ProfilesIn(string root) =>
+        region => ProfileCatalog.Load(root).UsableFor(region);
 
     /// <summary>
     /// The local-profile seams - writing one and putting one away - pointed at a directory;
@@ -174,6 +197,7 @@ public sealed record CalibrationServices(
             HasRetiredLocalProfile = (region, build) => LocalProfileFiles.HasRetired(root, region, build),
             LoadLocalProfile = (region, build) =>
                 ProfileLoader.Validate(LocalProfileFiles.PathFor(root, region, build)).Profile,
+            LoadLocalProfiles = ProfilesIn(root),
         };
     }
 

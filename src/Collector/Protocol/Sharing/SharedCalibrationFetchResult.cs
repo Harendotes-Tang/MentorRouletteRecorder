@@ -111,6 +111,8 @@ public sealed record SharedCodeDiscard(string CodeSha256, string Reason, IReadOn
 /// <param name="Submitters">Distinct submitters according to the index.</param>
 /// <param name="FirstPublishedAtUtc">First publication according to the index.</param>
 /// <param name="Commit">Commit it was downloaded at.</param>
+/// <param name="Conflicting">The index's conflict mark (<see cref="SharedIndexEntry.Conflicting"/>).</param>
+/// <param name="ShapePrior">The index's shape prior (<see cref="SharedIndexEntry.ShapePrior"/>); null when it gave none.</param>
 public sealed record SharedCalibrationCandidate(
     string CodeSha256,
     string Code,
@@ -118,7 +120,8 @@ public sealed record SharedCalibrationCandidate(
     int Submitters,
     DateTimeOffset FirstPublishedAtUtc,
     string Commit,
-    bool Conflicting = false);
+    bool Conflicting = false,
+    bool? ShapePrior = null);
 
 /// <summary>Everything one fetch for a region and build produced, for the pipeline and for diagnostics.</summary>
 /// <param name="Status">How it ended.</param>

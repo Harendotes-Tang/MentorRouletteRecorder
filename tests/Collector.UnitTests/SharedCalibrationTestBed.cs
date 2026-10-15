@@ -95,7 +95,11 @@ internal sealed class SharedCalibrationTestBed : IDisposable
                     return DiskSelect();
                 },
                 (draft, template, build, now) => LocalProfileWriter.Prepare(draft, template, build, now, LocalRoot))
-            .WithSharedProfilesIn(SharedRoot);
+            .WithSharedProfilesIn(SharedRoot) with
+            {
+                // The machine's own calibrations, which its shape prior is read from (plan §20.5).
+                LoadLocalProfiles = CalibrationServices.ProfilesIn(LocalRoot),
+            };
         if (!fetch)
         {
             return services;
@@ -189,7 +193,9 @@ internal sealed class SharedCalibrationTestBed : IDisposable
     /// <param name="Revoked">True to list it as withdrawn from the repository.</param>
     /// <param name="Conflicting">True to mark it as disagreeing with another code of the same build.</param>
     /// <param name="Submitters">Distinct accounts the index says submitted it.</param>
-    internal sealed record Listing(SharedCode Code, bool Revoked = false, bool Conflicting = false, int Submitters = 1);
+    /// <param name="ShapePrior">The index's shape prior for it; null leaves the key out.</param>
+    internal sealed record Listing(
+        SharedCode Code, bool Revoked = false, bool Conflicting = false, int Submitters = 1, bool? ShapePrior = null);
 
     /// <summary>Serves an index listing the codes, and the codes, from the first source.</summary>
     public void Publish(params SharedCode[] codes) => Serve(codes.Select(code => new Listing(code)).ToArray());
@@ -206,7 +212,7 @@ internal sealed class SharedCalibrationTestBed : IDisposable
             .Select(listing => (JsonNode)SharedCalibrationIndexTests.Entry(
                 listing.Code.Sha, submitters: listing.Submitters, build: listing.Code.Payload.GameBuild, revoked: listing.Revoked,
                 matchSource: EnumWire<CalibrationMatchSource>.Format(listing.Code.Payload.MatchSource),
-                conflicting: listing.Conflicting))
+                conflicting: listing.Conflicting, shapePrior: listing.ShapePrior))
             .ToArray();
         Transport.Serve(SharedCalibrationClient.IndexUri(SharedCalibrationSource.GithubRaw), SharedCalibrationIndexTests.Index(entries));
         foreach (var listing in codes)

@@ -15,8 +15,13 @@ namespace MentorRecorder.Collector.Protocol.Sharing;
 /// <param name="Conflicting">
 /// The index marked it as one of several differing codes for the same thing (plan §18.6); breaks a tie in submitters.
 /// </param>
+/// <param name="ShapePrior">
+/// The index's shape prior (plan §20.3), three-valued; written as the optional <c>shape_prior</c> only when known, so a
+/// file from before it existed reads as null without a schema bump.
+/// </param>
 internal sealed record SharedCodeHints(
-    string CodeSha256, int Submitters, DateTimeOffset? FirstPublishedAtUtc, string? Commit, bool Conflicting = false);
+    string CodeSha256, int Submitters, DateTimeOffset? FirstPublishedAtUtc, string? Commit, bool Conflicting = false,
+    bool? ShapePrior = null);
 
 /// <summary>Capture sessions whose traffic contradicted a code under one template.</summary>
 /// <param name="TemplateSha256">Template in force.</param>
@@ -236,7 +241,11 @@ internal sealed record SharedCalibrationState(
             ReadStamp(item, "first_published_at"),
             SharedCalibrationIndex.IsCommit(commit) ? commit : null,
             item.ValueKind == JsonValueKind.Object && item.TryGetProperty("conflicting", out var conflicting) &&
-            conflicting.ValueKind == JsonValueKind.True);
+            conflicting.ValueKind == JsonValueKind.True,
+            item.ValueKind == JsonValueKind.Object && item.TryGetProperty("shape_prior", out var prior) &&
+            prior.ValueKind is JsonValueKind.True or JsonValueKind.False
+                ? prior.GetBoolean()
+                : null);
     }
 
     private static SharedRejection? ReadRejection(JsonElement item)
@@ -402,6 +411,11 @@ internal sealed record SharedCalibrationState(
         if (hints.Conflicting)
         {
             node["conflicting"] = true;
+        }
+
+        if (hints.ShapePrior is { } prior)
+        {
+            node["shape_prior"] = prior;
         }
 
         return node;

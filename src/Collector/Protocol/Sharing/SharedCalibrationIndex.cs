@@ -19,9 +19,19 @@ namespace MentorRecorder.Collector.Protocol.Sharing;
 /// <param name="Commit">Commit that added the file; codes are downloaded by it, so no cache serves other content.</param>
 /// <param name="Revoked">True when the maintainer withdrew the code.</param>
 /// <param name="Conflicting">
-/// True when another published code of the same build, template and match source differs from this one
-/// (plan §18.6): at least one of them is wrong, so neither binds on the login burst alone, and each is picked after an
-/// equally attested code without the mark (audit 2026-10-03, ON1-1). Optional in the index; absent reads as false.
+/// True when another published code of the same build and template declares a different value for one of the messages
+/// both declare (plan §20.3; the zone marker, territory and job across match sources, the match within one): at least one
+/// of them is wrong. It only orders the download - after an equally attested code without the mark (audit 2026-10-03,
+/// ON1-1). Which code may bind on the login burst is decided on this machine, field by field, by
+/// <see cref="SharedCandidateConsensus"/>, which sees the same codes. Optional in the index; absent reads as false.
+/// </param>
+/// <param name="ShapePrior">
+/// Plan §20.3: true when the match has the shape of an unrevoked code of the previous build with codes (same template and
+/// match source), false when that build had codes and none with this shape, null - the key absent - when there was nothing
+/// to compare with. It only orders the download, after the conflict mark: one account can plant it by publishing a code
+/// for an invented earlier build, so it never decides which code binds on the login burst - the consensus breaks a tie
+/// with the prior this machine computes from what it verified itself (<see cref="SharedLocalShapePrior"/>; security
+/// review 2026-10-15) - and it never rejects anything.
 /// </param>
 public sealed record SharedIndexEntry(
     Region Region,
@@ -33,7 +43,8 @@ public sealed record SharedIndexEntry(
     string Path,
     string Commit,
     bool Revoked,
-    bool Conflicting = false);
+    bool Conflicting = false,
+    bool? ShapePrior = null);
 
 /// <summary>An index entry that was not used, and why.</summary>
 /// <param name="Position">Zero-based position in <c>entries</c>.</param>
@@ -222,10 +233,12 @@ public static class SharedCalibrationIndex
     /// <summary>
     /// What to download for a region and build: entries that are not revoked (a revocation of a code
     /// anywhere in the index wins over every other entry for it), each code once, ordered by
-    /// submitters descending, then codes without the conflict mark first, then first published ascending,
-    /// then hash; at most <see cref="MaxCandidates"/>. The conflict mark only breaks a tie: one more account
-    /// publishing a differing code must not push a code many players submitted out of the download, behind
-    /// codes of another kind from one or two accounts (audit 2026-10-03, ON1-1).
+    /// submitters descending, then codes without the conflict mark first, then codes with the shape prior
+    /// (<c>shape_prior == true</c>) first, then first published ascending, then hash; at most
+    /// <see cref="MaxCandidates"/>. The same order as the publishing tool's <c>index.pick_key</c> (plan §20.3).
+    /// The conflict mark and the prior only break a tie in submitters: one more account publishing a differing
+    /// code must not push a code many players submitted out of the download, behind codes of another kind from
+    /// one or two accounts (audit 2026-10-03, ON1-1), and a prior is not a vote.
     /// </summary>
     /// <param name="entries">Entries of a readable index.</param>
     /// <param name="region">Region of the running client.</param>
@@ -238,6 +251,7 @@ public static class SharedCalibrationIndex
             .Where(entry => !revoked.Contains(entry.CodeSha256))
             .OrderByDescending(entry => entry.Submitters)
             .ThenBy(entry => entry.Conflicting)
+            .ThenBy(entry => entry.ShapePrior != true)
             .ThenBy(entry => entry.FirstPublishedAtUtc)
             .ThenBy(entry => entry.CodeSha256, StringComparer.Ordinal)
             .DistinctBy(entry => entry.CodeSha256, StringComparer.Ordinal)
@@ -350,7 +364,21 @@ public static class SharedCalibrationIndex
             conflicting = conflict.GetBoolean();
         }
 
-        entry = new SharedIndexEntry(region, build, sha, source, count, published, path, commit, revoked.GetBoolean(), conflicting);
+        // Optional and three-valued (plan §20.3): absent means nothing to compare with, which is not "different". Any other
+        // kind - a JSON null included - is not something the publisher writes, so the entry is skipped, as for conflicting.
+        bool? shapePrior = null;
+        if (item.TryGetProperty("shape_prior", out var prior))
+        {
+            if (prior.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+            {
+                return "INVALID:shape_prior";
+            }
+
+            shapePrior = prior.GetBoolean();
+        }
+
+        entry = new SharedIndexEntry(
+            region, build, sha, source, count, published, path, commit, revoked.GetBoolean(), conflicting, shapePrior);
         return null;
     }
 

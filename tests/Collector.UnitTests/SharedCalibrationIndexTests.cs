@@ -31,7 +31,8 @@ public sealed class SharedCalibrationIndexTests
         bool revoked = false,
         string matchSource = "ANNOUNCEMENT",
         string? commit = null,
-        bool conflicting = false)
+        bool conflicting = false,
+        bool? shapePrior = null)
     {
         var entry = new JsonObject
         {
@@ -51,6 +52,12 @@ public sealed class SharedCalibrationIndexTests
         if (conflicting)
         {
             entry["conflicting"] = true;
+        }
+
+        // Written only when there was an earlier build to compare with (plan §20.3).
+        if (shapePrior is { } prior)
+        {
+            entry["shape_prior"] = prior;
         }
 
         return entry;
@@ -340,6 +347,68 @@ public sealed class SharedCalibrationIndexTests
         Assert.Equal(
             new[] { Sha('c'), Sha('d'), Sha('a'), Sha('e') },
             SharedCalibrationIndex.Select(read.Entries, Region.Cn, Build).Select(entry => entry.CodeSha256).ToArray());
+    }
+
+    /// <summary>
+    /// Plan §20.3: the shape prior is optional and three-valued - absent means there was no earlier build to compare
+    /// with, which is not the same as "compared and different".
+    /// </summary>
+    [Fact]
+    public void AShapePriorIsOptionalAndAbsentReadsAsUnknownNotAsFalse()
+    {
+        var read = SharedCalibrationIndex.Read(Index(
+            Entry(Sha('a'), shapePrior: true),
+            Entry(Sha('b'), shapePrior: false),
+            Entry(Sha('c'))));
+
+        Assert.Empty(read.Skipped);
+        Assert.True(Assert.Single(read.Entries, entry => entry.CodeSha256 == Sha('a')).ShapePrior);
+        Assert.False(Assert.Single(read.Entries, entry => entry.CodeSha256 == Sha('b')).ShapePrior);
+        Assert.Null(Assert.Single(read.Entries, entry => entry.CodeSha256 == Sha('c')).ShapePrior);
+    }
+
+    [Theory]
+    [InlineData("\"true\"")]
+    [InlineData("1")]
+    [InlineData("null")]
+    [InlineData("{}")]
+    [InlineData("[true]")]
+    public void AShapePriorThatIsNotABooleanSkipsTheEntry(string value)
+    {
+        var entry = Entry(Sha('c'));
+        entry["shape_prior"] = JsonNode.Parse(value);
+
+        var read = SharedCalibrationIndex.Read(Index(entry, Entry(Sha('d'))));
+
+        Assert.Equal(Sha('d'), Assert.Single(read.Entries).CodeSha256);
+        var skip = Assert.Single(read.Skipped);
+        Assert.Equal(0, skip.Position);
+        Assert.Equal("INVALID:shape_prior", skip.Reason);
+    }
+
+    /// <summary>
+    /// Plan §20.3, the order <c>index.pick_key</c> uses too: submitters descending, then codes without the conflict mark,
+    /// then codes with the shape prior, then the earliest published, then the hash.
+    /// </summary>
+    [Fact]
+    public void SelectionOrdersBySubmittersThenTheConflictMarkThenTheShapePriorThenAgeThenHash()
+    {
+        var read = SharedCalibrationIndex.Read(Index(
+            Entry(Sha(1), submitters: 1, published: "2026-09-01T00:00:00Z"),
+            Entry(Sha(2), submitters: 1, published: "2026-09-02T00:00:00Z", shapePrior: true),
+            Entry(Sha(3), submitters: 1, published: "2026-09-01T00:00:00Z", shapePrior: false),
+            Entry(Sha(4), submitters: 1, published: "2026-08-01T00:00:00Z", conflicting: true, shapePrior: true),
+            Entry(Sha(5), submitters: 2, published: "2026-09-09T00:00:00Z", conflicting: true),
+            Entry(Sha(6), submitters: 1, published: "2026-09-03T00:00:00Z", shapePrior: true),
+            Entry(Sha(7), submitters: 1, published: "2026-08-01T00:00:00Z", conflicting: true),
+            // Same everything as 2 but the hash: the lower hash goes first.
+            Entry(Sha(0), submitters: 1, published: "2026-09-02T00:00:00Z", shapePrior: true)));
+
+        var chosen = SharedCalibrationIndex.Select(read.Entries, Region.Cn, Build);
+
+        Assert.Equal(
+            new[] { Sha(5), Sha(0), Sha(2), Sha(6), Sha(1), Sha(3), Sha(4), Sha(7) },
+            chosen.Select(entry => entry.CodeSha256).ToArray());
     }
 
     [Fact]

@@ -513,6 +513,80 @@ public sealed class SharedCalibrationStoreTests : IDisposable
         Assert.Contains("\"conflicting\": true", File.ReadAllText(StateFile), StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// Plan §20.3: the index's shape prior survives in the state file, three-valued, and orders stored codes the way the
+    /// index is downloaded - after submitters and the conflict mark, before age. A state file written before the field
+    /// existed, or holding something else under its key, reads as "nothing known".
+    /// </summary>
+    [Fact]
+    public void AShapePriorSurvivesTheStateFileAndOrdersCodesAfterTheConflictMark()
+    {
+        // Older publication first, so only the prior can put the newer code ahead of it.
+        var older = Candidate(0xF001, submitters: 1) with { FirstPublishedAtUtc = T0.AddDays(-9) };
+        var prior = Candidate(0xF002, submitters: 1) with { FirstPublishedAtUtc = T0.AddDays(-1), ShapePrior = true };
+        var against = Candidate(0xF003, submitters: 1) with { FirstPublishedAtUtc = T0.AddDays(-10), ShapePrior = false };
+        var marked = Candidate(0xF004, submitters: 1) with { FirstPublishedAtUtc = T0.AddDays(-11), ShapePrior = true, Conflicting = true };
+        var many = Candidate(0xF005, submitters: 2);
+        _store.RecordFetch(Region.Cn, Build, Template, Fetched(SharedFetchStatus.Ok, older, prior, against, marked, many), T0);
+
+        var offered = _store.LoadCandidates(Region.Cn, Build, Template);
+
+        Assert.Equal(
+            new[] { many.CodeSha256, prior.CodeSha256, against.CodeSha256, older.CodeSha256, marked.CodeSha256 },
+            offered.Select(candidate => candidate.CodeSha256).ToArray());
+        Assert.Null(offered[0].ShapePrior);
+        Assert.True(offered[1].ShapePrior);
+        Assert.False(offered[2].ShapePrior);
+        Assert.Null(offered[3].ShapePrior);
+        var state = File.ReadAllText(StateFile);
+        Assert.Contains("\"shape_prior\": true", state, StringComparison.Ordinal);
+        Assert.Contains("\"shape_prior\": false", state, StringComparison.Ordinal);
+
+        // Written by a build before §20: no key at all. Something that is not a boolean reads the same way.
+        File.WriteAllText(StateFile, state
+            .Replace("\"shape_prior\": true", "\"shape_prior\": \"yes\"", StringComparison.Ordinal)
+            .Replace(",\r\n      \"shape_prior\": false", string.Empty, StringComparison.Ordinal)
+            .Replace(",\n      \"shape_prior\": false", string.Empty, StringComparison.Ordinal));
+        Assert.DoesNotContain("\"shape_prior\": false", File.ReadAllText(StateFile), StringComparison.Ordinal);
+
+        var reread = _store.LoadCandidates(Region.Cn, Build, Template);
+
+        Assert.All(reread, candidate => Assert.Null(candidate.ShapePrior));
+        Assert.Equal(5, reread.Count);
+    }
+
+    /// <summary>
+    /// Plan §20.5: the text of a stored code, for 这份校准好用，告诉其他玩家 - only for exactly that code, only while it
+    /// still decodes to it, and not once the index revoked it.
+    /// </summary>
+    [Fact]
+    public void TheTextOfAStoredCodeIsGivenOnlyForThatCodeWhileItIsIntactAndNotRevoked()
+    {
+        var code = Candidate(0xF001);
+        var other = Candidate(0xF002);
+        Assert.Null(_store.CodeText(Region.Cn, Build, code.CodeSha256));
+
+        _store.RecordFetch(Region.Cn, Build, Template, Fetched(SharedFetchStatus.Ok, code), T0);
+
+        Assert.Equal(code.Code.Trim(), _store.CodeText(Region.Cn, Build, code.CodeSha256));
+        Assert.Null(_store.CodeText(Region.Cn, Build, other.CodeSha256));
+        Assert.Null(_store.CodeText(Region.Cn, OtherBuild, code.CodeSha256));
+        Assert.Null(SharedCalibrationStore.Inert.CodeText(Region.Cn, Build, code.CodeSha256));
+        Assert.Throws<ArgumentException>(() => _store.CodeText(Region.Cn, Build, "not-a-sha"));
+
+        // Another code under the same twelve-digit name is not this code.
+        File.WriteAllText(FileOf(code), other.Code);
+        Assert.Null(_store.CodeText(Region.Cn, Build, code.CodeSha256));
+        File.WriteAllText(FileOf(code), "not a code");
+        Assert.Null(_store.CodeText(Region.Cn, Build, code.CodeSha256));
+        File.WriteAllText(FileOf(code), code.Code);
+        Assert.Equal(code.Code, _store.CodeText(Region.Cn, Build, code.CodeSha256));
+
+        var revoking = Fetched(SharedFetchStatus.NoneForBuild) with { RevokedCodeSha256s = new[] { code.CodeSha256 } };
+        _store.RecordFetch(Region.Cn, Build, Template, revoking, T0.AddHours(1));
+        Assert.Null(_store.CodeText(Region.Cn, Build, code.CodeSha256));
+    }
+
     /// <summary>Plan §18.4: the settled mark names one profile document and survives the other bookkeeping.</summary>
     [Fact]
     public void SettledIsKeyedByTheProfileDocumentAndSurvivesOtherWrites()
@@ -548,9 +622,14 @@ public sealed class SharedCalibrationStoreTests : IDisposable
         var code = new string('c', 64);
         Assert.Null(_store.BoundSince(Region.Cn, Build, document));
 
+        Assert.Null(_store.BoundCode(Region.Cn, Build, document));
         Assert.True(_store.RecordBound(Region.Cn, Build, document, code, T0));
 
         Assert.Equal(T0, _store.BoundSince(Region.Cn, Build, document));
+        Assert.Equal(code, _store.BoundCode(Region.Cn, Build, document));
+        Assert.Null(_store.BoundCode(Region.Cn, Build, other));
+        Assert.Null(_store.BoundCode(Region.Cn, OtherBuild, document));
+        Assert.Null(SharedCalibrationStore.Inert.BoundCode(Region.Cn, Build, document));
         Assert.Null(_store.BoundSince(Region.Cn, Build, other));
         Assert.Null(_store.BoundSince(Region.Cn, OtherBuild, document));
         _store.RecordFetch(Region.Cn, Build, Template, Fetched(SharedFetchStatus.Ok, Candidate(0xF001)), T0.AddHours(1));
@@ -561,6 +640,8 @@ public sealed class SharedCalibrationStoreTests : IDisposable
 
         Assert.True(_store.RecordBound(Region.Cn, Build, other, code, T0.AddHours(2)));
         Assert.Null(_store.BoundSince(Region.Cn, Build, document));
+        Assert.Null(_store.BoundCode(Region.Cn, Build, document));
+        Assert.Equal(code, _store.BoundCode(Region.Cn, Build, other));
         Assert.Equal(T0.AddHours(2), _store.BoundSince(Region.Cn, Build, other));
         Assert.Throws<ArgumentException>(() => _store.BoundSince(Region.Cn, Build, "not-a-sha"));
         Assert.Throws<ArgumentException>(() => _store.RecordBound(Region.Cn, Build, document, "not-a-sha", T0));

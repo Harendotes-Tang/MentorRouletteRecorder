@@ -46,6 +46,25 @@ public sealed class CalibrationServicesSharedCalibrationTests : IDisposable
         Assert.Equal(SharedFetchStatus.Disabled, result.Status);
         Assert.Empty(result.IndexAttempts);
         Assert.Same(SharedCalibrationStore.Inert, services.SharedCalibrations);
+        // The profiles this machine's own shape prior is read from (plan §20.5): none until a directory is wired.
+        Assert.Empty(services.LoadLocalProfiles(Region.Cn));
+        Assert.Empty(services.LoadSharedProfiles(Region.Cn));
+    }
+
+    [Fact]
+    public void TheVerifiedProfileSeamsReadTheProfileDirectoriesTheyArePointedAt()
+    {
+        var local = Path.Combine(_root, "local");
+        var shared = Path.Combine(_root, "shared");
+        var written = LocalProfileWriter.Write(
+            CalibrationTrafficCases.Derive(CalibrationTrafficCases.ReplyState), SharedCalibrationTestBed.Template, Build,
+            SharedCalibrationTestBed.Confirmed, local);
+
+        var services = Bare().WithLocalProfilesIn(local).WithSharedProfilesIn(shared);
+
+        Assert.Equal(written.ProfileId, Assert.Single(services.LoadLocalProfiles(Region.Cn)).ProfileId);
+        Assert.Empty(services.LoadLocalProfiles(Region.Global));
+        Assert.Empty(services.LoadSharedProfiles(Region.Cn));
     }
 
     [Fact]

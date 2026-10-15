@@ -134,7 +134,9 @@ public static class SharedCandidateVerifier
     /// Which criteria gate binding (plan §18.3): <see cref="SharedCandidateProvenance.Published"/> for a code that may
     /// bind on the login burst, <see cref="SharedCandidateProvenance.Imported"/> for one that must see everything first -
     /// a code no index knows, and since audit 2026-10-03 (ON1-1) also a published one that would displace a usable
-    /// calibration, carries the conflict mark or is outranked by submitters.
+    /// calibration or is outranked by submitters, and since plan §20.5 one the other codes being verified do not side
+    /// with on a field in dispute (<see cref="SharedCandidateConsensus"/>). The repository's conflict mark alone no
+    /// longer decides it.
     /// </param>
     public static SharedVerification Verify(
         CalibrationSnapshot snapshot, CalibrationTemplate template, DeclaredCandidate candidate, SharedCandidateProvenance provenance)

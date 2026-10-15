@@ -1,5 +1,16 @@
 # IPC 契约变更记录 / IPC contract changelog
 
+## 2026-10-15 · 共享校准的字段级共识与「这份校准好用，告诉其他玩家」
+
+附加式变更，不新增消息类型。设计见 plans/shared-calibration.md §20。
+
+- **`SharedCalibrationCandidate.disputed`**（可选字符串数组）、**`preferred`**（可选布尔）、**`shape_prior`**（可选，布尔或 `null`）。采集服务把同一 (区服, 版本, 模板) 下正在核实的候选逐字段比对：换区、区域、职业跨匹配方式比对，匹配报文（匹配方式与 `pop`）只在同一匹配方式内比对，未声明的字段不投票也不构成分歧。`disputed` 列出与其他候选取值不同的报文名（`ZONE_INITIALIZATION`、`ZONE_TERRITORY`、`PLAYER_JOB`、`CONTENT_FINDER_POP`，按此顺序，没有分歧时为空数组）；`preferred` 表示在每个有分歧的字段上，本候选的取值得到的提交账号数严格多于其他取值，或匹配报文票数相同而只有本候选 `shape_prior == true`，没有分歧时为 `true`；`shape_prior` 为这台机器自己算出的结构先验，不是公开索引里的同名字段：与这台机器上一版本核实过的档案的匹配报文形状一致时为 `true`（只看同一区服、同一模板、日期严格更早的最近一个版本；本机校准的档案，以及完整记录过一次且审计全部通过的共享档案；同一天的版本不比较），匹配方式相同而形状不同时为 `false`，没有可比的档案、按排本推断或从磁盘采用的档案为 `null`。索引里的 `shape_prior` 任何账号都可以借一个虚构的更早版本写进去，因此只用于下载与候选排序，不参与门槛。在用档案的这三项取自绑定时的候选；从磁盘采用的为空数组、`true`、`null`。同一对象也写入脱敏诊断报告。旧采集服务不发送，桌面端应把缺省的 `preferred` 视为 `true`。
+- **登录即启用的条件改变（取值规则，字段不变）。**已发布的校准码只有在 `preferred == true` 时才按 `PUBLISHED` 门槛核实（同时仍须本机没有可用档案、`submitters > 0`、没有提交人数更多的候选），此时 `criteria[].gate` 中匹配与进本两项为 `AUDIT`；否则两项为 `REQUIRED`。索引的 `conflicting` 标记不再单独让匹配与进本两项变为 `REQUIRED`，只影响候选顺序。通过核实的候选按 读服务器报文优先 → `preferred` → 提交人数 → 本机的 `shape_prior == true` → 索引的 `shape_prior == true` → 下载顺序 绑定。
+- **`GetCalibrationShareCode` 应答新增可选 `basis`**：`CALIBRATED`（本机校准的档案，与此前相同）或 `VERIFIED`（其他玩家分享、在本机完整记录过一次随机任务且审计判据全部通过的共享档案；码文本取自本机下载保存的校准码）。`issue_url` 在标题之后预填表单的 `basis` 文本框（GitHub 不能预填下拉框），取值逐字等于公开仓库 `issue.py` 接受的两段文字之一，其他非空文字会被 Action 以 `BASIS_INVALID` 拒绝；校准码仍放在最后，地址超长时只去掉校准码。旧采集服务不发送该字段，桌面端应视为 `CALIBRATED`。
+- **重启后仍列出已核实的共享档案（取值规则，字段不变）。**此前在上一次运行中已完整核实（`PROVEN`）、且读服务器匹配报文的共享档案，重启后校准不再布防，`SharedCalibrationStatus.candidates` 为空。现在它作为第一个候选列出：`status = PROVEN`、`audit_pending = false`、`disputed` 为空、`preferred = true`；`provenance` 在本机保存着它的校准码时为 `PUBLISHED`，否则为 `IMPORTED`（例如粘贴导入、从未下载的码）；`shape_prior` 与 `source` 为 `null`。这些全部来自本机已有的文件，不发出任何网络请求。本机记录显示它的校准码已被撤回时，同样在重启后撤下并把它生成的记录标为待复核，此前这一检查只在校准布防时进行。
+- **在用档案的 `provenance` 含义（取值规则，字段不变）。**状态为 `IN_USE` 或 `PROVEN` 的在用档案，`provenance = PUBLISHED` 表示本机保存着这份已发布的校准码（`GetCalibrationShareCode` 能交回的正是它），否则为 `IMPORTED`，与它按哪一套门槛被核对无关。索引只把它列为下载失败的条目时也是 `IMPORTED`。桌面端据此决定是否显示「这份校准好用，告诉其他玩家」。
+- **`ERR_SHARE_CODE_UNAVAILABLE` 的 `details.reason`**：新增 `SHARED_NOT_PROVEN`（在用的共享档案尚未完整记录过一次随机任务或仍有审计判据在等待）；`SHARED` 的含义改为「在用的共享档案已核实通过，但本机没有保存对应的校准码」（例如玩家粘贴导入、从未下载的码），不再表示「共享来的不再转手」。
+
 ## 2026-10-11 · 日历可选日期查询
 
 - 新增只读 `QueryRunCalendarDays { month: "YYYY-MM", filter?: RunFilter }`，应答为 `{ month, days: ["YYYY-MM-DD"] }`。日期升序去重，覆盖完整匹配集合，不受分页截断。
