@@ -169,11 +169,23 @@ class WorkflowSecurityTests(unittest.TestCase):
     def test_every_label_the_scripts_use_is_documented_for_the_manual_setup(self):
         readme = (testsupport.HERE / "README.md").read_text(encoding="utf-8")
         for label in (publish.SUBMISSION_LABEL, publish.REPORT_LABEL, publish.LABEL_PUBLISHED, publish.LABEL_REJECTED,
-                      publish.LABEL_MAINTAINER):
+                      publish.LABEL_MAINTAINER, publish.LABEL_CONFLICTING):
             self.assertIn("`%s`" % label, readme)
-        for label in (publish.REPORT_LABEL, publish.LABEL_MAINTAINER):
+        for label in (publish.REPORT_LABEL, publish.LABEL_MAINTAINER, publish.LABEL_CONFLICTING):
             with self.subTest(label):
                 self.assertIn("gh label create %s" % label, readme, "a new label needs a manual step")
+        self.assertIn("`%s`" % publish.LABEL_CONFLICTING, (PUBLIC / "README.md").read_text(encoding="utf-8"))
+
+    def test_the_conflict_notices_are_best_effort_and_only_use_validated_fields(self):
+        text = (testsupport.HERE / "publish_issue.sh").read_text(encoding="utf-8")
+        for fragment in ("--name conflict_label", "--name conflict_issues", '--body-file "$out/conflict-$rival.md"',
+                         '--add-label "$conflict_label"', "::warning::"):
+            with self.subTest(fragment):
+                self.assertTrue(fragment in text, fragment)
+        # Every value the shell takes from a result is one `field` validates; event-field gives number and login.
+        read = set(re.findall(r"--name ([a-z_]+)", text))
+        self.assertLessEqual(read, set(publish._FIELD_CHECKS) | {"number", "login"})
+        self.assertNotIn("conflicts", read, "the shell reads the two validated fields, never the list itself")
 
 
 class MirrorWorkflowSecurityTests(unittest.TestCase):
@@ -321,24 +333,53 @@ class IssueFormTests(unittest.TestCase):
         self.assertEqual(publish.ISSUE_FORM, FORM.name)
         self.assertIn('"&code="', link)
         self.assertIn('"%s"' % issue_form.TITLE_PREFIX, link)
+        # The client prefills the basis input with one of these texts; any other text is refused as BASIS_INVALID,
+        # so a drift between the two sides must fail here rather than refuse every share.
+        self.assertIn('"&basis="', link)
+        for option in (issue_form.BASIS_OPTION_CALIBRATED, issue_form.BASIS_OPTION_VERIFIED):
+            with self.subTest(option):
+                self.assertIn('"%s"' % option, link)
         text = FORM.read_text(encoding="utf-8")
         for fragment in ("id: %s" % publish.CODE_FIELD_ID, "label: " + issue_form.CODE_LABEL,
+                         "id: %s" % publish.BASIS_FIELD_ID, "label: " + issue_form.BASIS_LABEL,
+                         "placeholder: " + issue_form.BASIS_OPTION_CALIBRATED,
                          "label: " + issue_form.CONFIRM_LABEL, "- label: " + issue_form.CONFIRM_OPTION,
-                         'title: "%s"' % issue_form.TITLE_PREFIX, "- " + publish.SUBMISSION_LABEL):
+                         'title: "%s"' % issue_form.TITLE_PREFIX, "- " + publish.SUBMISSION_LABEL,
+                         "提交同一份校准码会计入提交人数"):
             self.assertIn(fragment, text)
-        self.assertEqual(2, text.count("required: true"))
+        self.assertEqual(2, text.count("required: true"), "the code and the confirmation; the basis stays optional")
         if yaml is None:
             return
         data = yaml.safe_load(text)
         self.assertEqual(issue_form.TITLE_PREFIX, data["title"])
         self.assertEqual([publish.SUBMISSION_LABEL], data["labels"])
         fields = [field for field in data["body"] if field["type"] != "markdown"]
-        self.assertEqual(["textarea", "checkboxes"], [field["type"] for field in fields])
-        code, confirm = fields
+        # GitHub prefills only inputs and textareas from the query string, so the basis is an input (plan section 20.2).
+        self.assertEqual(["textarea", "input", "checkboxes"], [field["type"] for field in fields])
+        code, basis, confirm = fields
         self.assertEqual((publish.CODE_FIELD_ID, issue_form.CODE_LABEL, True),
                          (code["id"], code["attributes"]["label"], code["validations"]["required"]))
-        self.assertEqual(issue_form.CONFIRM_LABEL, confirm["attributes"]["label"])
+        self.assertEqual((publish.BASIS_FIELD_ID, issue_form.BASIS_LABEL, "软件会自动填好，请不要改动。代人提交或留空时按本机校准处理。",
+                          issue_form.BASIS_OPTION_CALIBRATED),
+                         (basis["id"], basis["attributes"]["label"], basis["attributes"]["description"],
+                          basis["attributes"]["placeholder"]))
+        self.assertFalse(basis.get("validations", {}).get("required", False),
+                         "a client that predates the field sends no basis, and its submissions must still be read")
+        self.assertEqual(("confirm", issue_form.CONFIRM_LABEL), (confirm["id"], confirm["attributes"]["label"]))
         self.assertEqual([{"label": issue_form.CONFIRM_OPTION, "required": True}], confirm["attributes"]["options"])
+
+    def test_a_body_the_share_form_renders_reads_back_as_the_basis_the_client_sent(self):
+        if yaml is None:
+            self.skipTest("PyYAML is not installed")
+        data = yaml.safe_load(FORM.read_text(encoding="utf-8"))
+        confirm = next(field for field in data["body"] if field.get("id") == "confirm")
+        self.assertEqual(issue_form.CONFIRM_OPTION, confirm["attributes"]["options"][0]["label"])
+        for stated, basis in ((issue_form.BASIS_OPTION_CALIBRATED, issue_form.BASIS_CALIBRATED),
+                              (issue_form.BASIS_OPTION_VERIFIED, issue_form.BASIS_VERIFIED),
+                              (None, issue_form.BASIS_CALIBRATED)):
+            with self.subTest(stated):
+                form = issue_form.parse_body(testsupport.issue_body("MRC1.x", basis=stated))
+                self.assertEqual((basis, True, None), (form.basis, form.confirmed, form.problem))
 
     def test_blank_issues_are_disabled(self):
         text = CONFIG.read_text(encoding="utf-8")
@@ -377,6 +418,11 @@ def published_texts() -> dict:
                      match_source="ANNOUNCEMENT", submitters=2, file="cn/%s/aaaaaaaaaaaa.mrc" % testsupport.BUILD)
     for status in (publish.PUBLISHED, publish.ADDED, publish.DUPLICATE):
         texts["reply:" + status] = publish.compose_comment(publish.Result(status, **described))
+        texts["reply:verified:" + status] = publish.compose_comment(publish.Result(status, basis="verified", **described))
+    conflicts = ({"code": "b" * 12, "issues": [3, 4], "fields": ["换区报文", "匹配报文"]},)
+    disputed = publish.Result(publish.PUBLISHED, conflicts=conflicts, **described)
+    texts["reply:conflict"] = publish.compose_comment(disputed)
+    texts["notice:conflict"] = publish.compose_conflict_notice(disputed, 3)
     for reason in publish._REFUSALS:
         texts["reply:refused:" + reason] = publish.compose_comment(publish.Result(publish.REFUSED, reason, **described))
     return texts

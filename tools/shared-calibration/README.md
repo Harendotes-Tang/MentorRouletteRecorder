@@ -17,10 +17,10 @@
 |---|---|---|
 | `sharecode.py` | `MRC1.` 校准码的解码、编码、规范化、`code_sha256` 与载荷规则；逐条移植 `ShareCode.cs` | 是 |
 | `rebuild.py` | 按随包模板结构重建校准码并拒绝无效内容；文件开头列明已移植的 C# 规则与留给客户端本机核实的部分 | 是 |
-| `index.py` | `index.json`（客户端读取格式的精确移植）与 `submissions.json` 台账；`add_submission`、`revoke`、`lift_hold`、`prune`、`update_conflicts` | 是 |
+| `index.py` | `index.json`（客户端读取格式的精确移植）与 `submissions.json` 台账；`add_submission`、`revoke`、`lift_hold`、`prune`；两个标记的 `update_marks` / `refresh_marks` 与字段级比对 `disputes` | 是 |
 | `issue.py` | 读两个 Issue 表单的正文（提交表单、报告表单）；标题只用来发现不一致；回显内容的转义 | 是 |
-| `publish.py` | Action 的命令行：`check`、`update-index`、`push-failed`、`field`、`event-field`、`pending`、`wrap-event`、`report`；维护者命令 `revoke`、`lift`、`prune` | 是 |
-| `publish_issue.sh` | 处理一个提交 Issue：实时查询状态与标签 → 查账号 → 校验、提交、推送（推送被拒时从新的 main 重新开始）→ 回复、打标签、关闭 | 是 |
+| `publish.py` | Action 的命令行：`check`、`update-index`、`push-failed`、`field`、`event-field`、`pending`、`wrap-event`、`report`；维护者命令 `revoke`、`lift`、`prune`、`remark` | 是 |
+| `publish_issue.sh` | 处理一个提交 Issue：实时查询状态与标签 → 查账号 → 校验、提交、推送（推送被拒时从新的 main 重新开始）→ 回复、打标签、关闭；有不一致的校准码时通知对方 Issue | 是 |
 | `sweep_issues.sh` | 定时补处理：逐个处理尚未回复的提交 | 是 |
 | `report_issue.sh` | 处理一个「报告校准有误」Issue：实时查询状态与标签 → 校验栏目 → 回复一次、打两个标签；不改任何文件，不关闭 Issue | 是 |
 | `public-repo/` | 公开仓库的 README、LICENSE、两个 Issue 表单、两个工作流、`.gitattributes`（`dot-` 前缀的文件同步时改名为点文件） | 是（改名后） |
@@ -35,11 +35,13 @@
   UTF-16 计长、截断或带尾部数据的 DEFLATE 流、BOM、JSON 嵌套深度 8、`TryGetInt64` 的整数判定。
   规范化 JSON 复制自 `tools/protocol-profile-validator/validate.py`，以使公开仓库能够独立运行；测试比对两份输出一致。
 - **索引**：`index.read_index` / `select` / `revoked_codes` 移植 `SharedCalibrationIndex`，`test_index.py` 复用 C# 测试的输入。
-  可选字段 `conflicting`（§18.6）两端一致：读到非布尔值都记 `INVALID:conflicting`；挑选顺序都先按 `submitters` 从多到少，
-  人数相同时不带标记的条目在前，再按首次发布时间从早到晚、编号排列，即标记只在提交人数相同时起作用；
-  `index.update_conflicts` 只在 `update-index` 与 `revoke` 写文件前重算，字段缺省即「无冲突」，旧索引因此逐字节不变。
+  可选字段 `conflicting`（§18.6，§20.3 起为字段级）与 `shape_prior`（§20.3）两端一致：读到非布尔值分别记
+  `INVALID:conflicting`、`INVALID:shape_prior` 并跳过该条目；挑选顺序（`index.pick_key`）依次为 `submitters` 从多到少、
+  不带 `conflicting` 的在前、`shape_prior` 为 `true` 的在前、首次发布时间从早到晚、编号，即两个标记都只在提交人数相同时起作用。
+  标记只在 `update-index`、`revoke` 与维护者的 `remark` 写文件前重算，字段缺省即「无冲突」「无可比的上一版本」，旧索引因此逐字节不变。
   `generate_index_sample.py` 只通过 `index.add_submission` 与 `index.revoke` 生成样本索引与校准码文件，
-  并像 `update-index`、`revoke` 一样在每一步之后用 `index.update_conflicts` 重算标记，因此样本含带标记与不带标记的条目；
+  并像 `update-index`、`revoke` 一样在每一步之后用 `index.refresh_marks` 重算标记，因此样本含两种标记的各种取值，
+  预期文件也逐条记下每个挑选结果的两个标记；
   `SharedCalibrationPublicRepoSampleTests.cs` 用已发布的 `SharedCalibrationIndex` 与 `SharedCalibrationClient` 读取它，
   要求挑选顺序与 Python 完全一致；`test_index_sample.py` 保证测试样本即生成器的输出，不得手工修改。重新生成：
 
@@ -58,7 +60,12 @@
    同一个 Issue 的 `labeled` 事件、编辑、重投的事件都可能排在已经作答的那次运行之后，事件里记着的却是它触发那一刻的标签。
    转交维护者的 Issue 保持打开、带着 `needs-maintainer`，因此只有现查的标签能挡住第二次回复（结果为 `skipped`，原因 `ALREADY_ANSWERED`）。
 2. 提交者必须是个人账号，`gh api users/<login>` 返回的数字编号必须等于 Issue 作者的编号，账号注册满 **30 天**（正好 30 天算满）。
-3. 正文必须恰好有一个「校准码」栏目、一个「确认」栏目，并勾选「我在软件里逐条核对过校准时间线」；栏目缺失或重复一律拒绝，不作推测。
+3. 正文必须恰好有一个「校准码」栏目、一个「确认」栏目，并勾选「上面的来源属实，我已在软件里核对过」
+   （旧版表单的「我在软件里逐条核对过校准时间线」同样有效）；栏目缺失或重复一律拒绝，不作推测。
+   「这份校准码的来源」是可选的单行输入框：GitHub 只能用查询参数预填文本框与输入框，不能预选下拉框，因此软件在表单地址里带上
+   `basis`，填入「本机校准得到，并逐条核对过校准时间线」或「其他玩家分享，已在我的软件里核实通过并正常记录」。
+   该栏缺失（旧版表单）、为空或为 `_No response_`（旧版软件不带 `basis`）时按本机校准处理；填了这两种文字以外的内容拒绝（`BASIS_INVALID`），
+   出现两次拒绝（`BASIS_AMBIGUOUS`）。
 4. 校准码按客户端规则解码；模板必须是 `templates/` 里的某一个；按结构重建必须成立。
    客户端版本号必须是真实客户端的格式 `YYYY.MM.DD.NNNN.NNNN`，且日期是真实的日历日期（`index.is_game_build`）；
    日期也不得晚于提交日（UTC）的次日（`BUILD_IN_FUTURE`），多出的一天留给版本号所用的时区。
@@ -70,11 +77,14 @@
    `MAX_BUILDS_PER_ACCOUNT_DAY`（2）个区服与版本提交。超出时拒绝（`ACCOUNT_BUILD_LIMIT`、`ACCOUNT_DAILY_LIMIT`），不转交维护者。
    两条合起来，一个账号一天最多新增 6 个条目；没有这两条时，一个账号一小时即可新增约 60 条，约占 64 KB 上限的三分之一。
    条目只能由维护者用 `publish.py prune --region <CN|GLOBAL> --build <版本> [--build <版本> …]` 成批移除：
-   只移除逐个写明的客户端版本，连同其条目、台账行与 `.mrc` 文件，结果仍能被 `index.load` 读回。
+   只移除逐个写明的客户端版本，连同其条目、台账行与 `.mrc` 文件，结果仍能被 `index.load` 读回；
+   加 `--apply` 时还会重算该区服日期晚于被移除版本的各版本的标记，使 `shape_prior` 不再以已移除的版本为依据。
    不加 `--apply` 时只打印将要移除的版本、条目数、台账行数与文件，不改动任何文件；核对无误后加 `--apply` 执行。
    写明的版本在该区服下不存在时，退出码为 2，什么也不删除。工具不按日期自行挑选保留哪些版本：
    版本号由提交者给出，当天日期的版本照常受理，按日期排序会让编造的当天版本排在真实版本之前。
 7. 不设名额上限；同一份码（`code_sha256` 相同）由不同账号提交时 `submitters` 加一，`commit` 与 `first_published_at` 不变。
+   选择「其他玩家分享，已在我的软件里核实通过」的提交与本机校准的提交适用同一套规则、同样计数，
+   只是台账行多一个 `basis: "verified"`（缺省即本机校准），回复的措辞也相应不同。
 8. **已撤销的码不再发布**，无论由谁提交，也无论它是被维护者撤销还是被替换撤下。
    **被维护者撤销的码会暂停它的每个提交账号**在该区服与版本下的提交（`ACCOUNT_HELD`，拒绝并请提交者留言申请复核），
    直到维护者执行 `publish.py lift`。暂停不需要台账新增字段：账号那一行仍指向被撤销的码，就是暂停；
@@ -85,8 +95,66 @@
    客户端读取这样的索引没有问题（撤销按编号判定，下载按提交号）；本机此前已存下同名旧码文件的客户端，
    在所读索引撤销了该旧码时用新码覆盖这个文件；同名文件存着未被撤销的另一份码时仍不覆盖（`NAME_TAKEN`）。
 10. 新码先单独提交 `.mrc` 文件，再把这次提交的 sha 写进索引条目的 `commit` 并提交 `index.json` 与 `submissions.json`；
-    写文件前重算该区服与版本的 `conflicting` 标记；不调用 jsDelivr 清缓存。
+    写文件前重算该区服、该版本以及该区服更晚各版本的 `conflicting` 与 `shape_prior`（见下文「校准码之间不一致时」）；
+    不调用 jsDelivr 清缓存。
 11. 回复中文说明；结果打标签 `published`（已发布、已计入、重复）或 `rejected`（拒绝，关闭为 not planned）；仓库侧问题打 `needs-maintainer`。
+    新码与已发布的码不一致时，另给本 Issue 与对方 Issue 打 `conflicting`，并在对方 Issue 下评论一次；再有账号计入同一份码时只在本 Issue 的回复里提示并打标签，不再评论对方 Issue。
+
+### 校准码之间不一致时
+
+`index.update_marks` 按 §20.3 为一个区服与版本重算两个可选标记，只读该版本已发布、未撤销、码文件可读的条目：
+
+- **`conflicting`（字段级）。** 一份校准码按四个字段比对：换区报文（`zone`）、区域报文（`territory`）、职业报文（`job`）
+  与匹配报文（`match`，即匹配方式加 `pop` 对象）。只有模板哈希相同的码互相比较；换区、区域、职业三个字段跨匹配方式比较，
+  匹配报文只在同一匹配方式内比较；码里缺省的字段（`null`）不投票，也不构成分歧。某份码在任一字段上与另一份不同即标
+  `conflicting: true`，否则不写该字段。§18.6 的旧规则只比较同一匹配方式下的整份码：匹配方式不同、换区报文不同的两份码
+  原先不会被标记，现在会；两份码只因一方缺省某个字段而不同时，原先会被标记，现在不会。
+- **`shape_prior`（结构先验）。** 码的「形状」按匹配方式取：独立报文为长度，marker 为长度与轮盘偏移，回执状态为状态值列表，
+  按排本推断没有形状（从不写该字段）。比较对象是同一区服、同一模板、同一匹配方式下，版本日期**严格早于**本版本的未撤销码中
+  **最近的那一个版本**（同日的多个版本按版本号取较大者；没有日期的版本不参与比较）。该版本有形状相同的码为 `true`，
+  有码但形状都不同为 `false`，没有可比的版本或没有形状时不写。
+  **在本版本有提交记录的账号提交的更早版本的码一律不作比较**（安全评审 2026-10-15）：版本号的日期由提交者给出，
+  否则一个账号可以先为一个日期介于真实上一版本与本版本之间的虚构版本发布自己的形状，再在本版本发布对立的码，
+  让对立码独得 `true`、诚实的码变成 `false`。排除的是在本版本有台账行的所有账号（含被撤销、被替换的码的提交者），
+  而不只是这份码自己的提交者，因此撤销对立码或在真实上一版本补交一份码都不会把先验交还给攻击者。
+  代价是同一个账号连续两个版本都提交时，它在上一版本的码不再为本版本任何一份码提供先验；两个独立账号的情形不受影响。
+  两个不同的账号仍可配合完成上述攻击，这只能靠票数与玩家本机的核实挡住。
+  `shape_prior` 只决定客户端下载与核实的先后：客户端的启用门槛比较的是玩家本机自己在上一版本核实过的档案，而不是这个字段，
+  它也从不作为拒绝的依据。
+- 已撤销的条目不参与比较，也不带任何标记；码文件读不出来的条目同样不带标记，并在 stderr 记名。
+- `index.refresh_marks` 在重算本版本之后，再重算同一区服所有更晚日期的版本，因为它们的 `shape_prior` 可能以本版本为准。
+  `update-index`（已发布、已计入）与 `revoke` 都通过它写文件；`index.update_conflicts` 保留为 `update_marks` 的别名。
+- 标记会让索引变大。重算后的索引超过客户端字节上限时分级退让，并在 stderr 说明：先去掉重算版本的 `shape_prior`、保留新的
+  `conflicting`；仍然放不下时保留索引原有的标记，不写这次重算的结果。放得下的 `conflicting` 从不为腾出空间而删去，
+  因为已发布的 1.7.2 客户端仍按它决定启用门槛；而被拒绝的索引会让所有版本的码一起失效。
+
+`index.disputes` 给出逐字段的分歧（只供回复使用，不写进索引）。`update-index` 据此在结果中列出 `conflicts`：
+每份对方码的编号前 12 位、对方的 Issue 编号（取自 `submissions.json`，排除本 Issue，升序，每份码最多 8 个）与分歧字段的中文名
+（换区报文、区域报文、职业报文、匹配报文）。对方码按提交人数从多到少、再按发布先后排列，一次发布合计最多列出 8 个 Issue，
+排在后面的码分不到名额时只以校准码编号出现。随后：
+
+- 本 Issue 的回复在摘要之后增加一段提示，逐份说明与哪个 Issue 的码在哪些字段上不一致；对方没有可用的 Issue 编号时改写校准码编号。
+  提示同时说明玩家的软件怎样处理：提交人数相同时优先使用匹配报文结构与它自己在上一版本核实过的档案一致的那一份，
+  仓库的 `shape_prior` 只决定下载与核实的先后，没有这样的依据时两份都要先完整核实。计入（同一份码多一个账号）的回复把对方
+  Issue 写成 `＃N`（全角），GitHub 不会因此在对方 Issue 的时间线上逐次添加引用；发布新码的回复仍写 `#N`。
+- 只在发布新码时，`--out` 下为每个对方 Issue 写一份 `conflict-<编号>.md`，内容只由固定文字、两个 Issue 编号与字段名拼成，
+  不含任何提交者写的内容；计入时不写，`conflict_issues` 为空，已关闭的对方 Issue 不会因每多一个账号而再收到评论。
+- `publish_issue.sh` 在主回复、关闭与结果标签之后读取 `conflict_label` 与 `conflict_issues` 两个经白名单校验的字段：
+  建 `conflicting` 标签，打在本 Issue 上，再对每个对方 Issue 评论一次并打同一标签。这一步尽力而为，失败只输出 `::warning::`，
+  既不让任务失败，也不会让补处理再次回复同一个提交。维护者按 `conflicting` 标签即可找到所有成对的不一致。
+
+**维护者命令 `remark`。** 发布与撤销只重算它们涉及的版本，§20.3 之前写出的条目在该版本有新提交之前没有 `shape_prior`，
+`conflicting` 也仍是旧规则的结果。部署本轮改动后执行一次：
+
+```bash
+python tools/publish.py remark --repo .                                         # 索引中的全部区服与版本
+python tools/publish.py remark --repo . --region CN --build 2026.10.06.0000.0000  # 只重算点名的版本，可重复
+```
+
+它按 `update_marks` 重算后写回 `index.json` 与 `submissions.json`，打印一行 JSON：重算了哪些区服与版本（`recomputed`）、
+多少条目发生变化（`changed`）、哪些版本因字节上限没能写入全部标记（`dropped`，每项的 `kept` 为 `conflicting` 表示只写了
+`conflicting`、为 `previous` 表示保留了原有标记，同时在 stderr 说明）。点名的版本索引中不存在、
+或 `--region` 与 `--build` 没有成对给出时退出码为 2，不写任何文件。重复执行不会再改变什么。
 
 ### 同账号再次提交时的判定
 
@@ -144,6 +212,8 @@
 - 登录名只用于 `gh api "users/$login"`，事先校验为 `[A-Za-z0-9-]{1,39}`；账号编号再与事件中的作者编号比对。
 - 回复先写入文件，再以 `--body-file` 发送。回显的内容（例如校准码中未知的键名）经 `issue.escape_inline` 处理：去掉换行、控制与零宽字符，
   转义 Markdown/HTML，`@ # : / .` 替换为全角，杜绝提及、链接与自动链接。标题从不回显。
+  给对方 Issue 的通知（`conflict-<编号>.md`）不回显任何内容；对方 Issue 编号由 `publish.py` 校验为 1–10 位、不以 0 开头的数字，
+  以单个空格分隔交给 shell，标签只能是 `conflicting`。
 - `publish.py` 每次只打印一行 ASCII JSON，Issue 内容不可能出现在日志的行首，因此无法伪装成工作流命令。
 - 只用默认 `GITHUB_TOKEN`。`publish-calibration.yml` 的权限为 `contents: write`、`issues: write`；
   `report-calibration.yml` 不写仓库，权限仅 `contents: read`（检出）与 `issues: write`（回复与打标签）。
@@ -209,6 +279,12 @@ pwsh -NoProfile -File scripts/run-python-tool-tests.ps1   # verify.ps1 的工具
 > **2026-10-03 审计修复需要补做的同步**，同样须先向用户确认：`tools/index.py`、`tools/publish.py`、`tools/publish_issue.sh`、
 > `tools/rebuild.py`、`.github/ISSUE_TEMPLATE/share-calibration.yml` 与 `README.md`。不需要新标签，也不需要改写既有的索引与台账：
 > 两者的格式都没有变化。此前被维护者撤销的码，如果它的提交账号之后没有再提交，台账行仍指向它，同步后这些账号即按新规则暂停受理。
+>
+> **校准码置信度（§20）需要补做的步骤**，同样须先向用户确认：把 `sync_public_repo.py` 生成的 `tools/index.py`、`tools/issue.py`、
+> `tools/publish.py`、`tools/publish_issue.sh`、`.github/ISSUE_TEMPLATE/share-calibration.yml` 与 `README.md` 同步到公开仓库并推送；
+> 补建标签 `conflicting`（第 6 步）；推送后在公开仓库执行一次 `python tools/publish.py remark --repo .`，
+> 核对输出后提交并推送 `index.json`，为既有条目补上 `shape_prior` 并按字段级规则重算 `conflicting`。
+> 索引与台账的格式向后兼容：旧客户端忽略 `shape_prior`，旧台账没有 `basis` 也照常读写。
 
 以下每一步都会对外产生效果，**执行前逐项向用户确认**：
 
@@ -238,7 +314,7 @@ pwsh -NoProfile -File scripts/run-python-tool-tests.ps1   # verify.ps1 的工具
    git push -u origin main
    ```
 
-6. 建五个标签：
+6. 建六个标签：
 
    ```powershell
    gh label create share-calibration --repo Harendotes-Tang/MentorRecorder-Calibrations --color 1D76DB --description "共享校准码提交"
@@ -246,9 +322,10 @@ pwsh -NoProfile -File scripts/run-python-tool-tests.ps1   # verify.ps1 的工具
    gh label create published --repo Harendotes-Tang/MentorRecorder-Calibrations --color 0E8A16 --description "已发布"
    gh label create rejected --repo Harendotes-Tang/MentorRecorder-Calibrations --color B60205 --description "未受理"
    gh label create needs-maintainer --repo Harendotes-Tang/MentorRecorder-Calibrations --color FBCA04 --description "需要维护者处理"
+   gh label create conflicting --repo Harendotes-Tang/MentorRecorder-Calibrations --color C5DEF5 --description "与同版本的另一份校准码不一致"
    ```
 
-   > **仓库已存在时只需补建 `calibration-report`**（`needs-maintainer` 已于 2026-09-16 建好）。
+   > **仓库已存在时只需补建 `conflicting`**（`calibration-report` 已于 2026-10-06 同步时建好，`needs-maintainer` 已于 2026-09-16 建好）。
    > 脚本在打标签前会先 `gh label create`，标签缺失不会让 Issue 无人回复，但预先建好才有颜色与说明。
 
 7. 设置：确认 Issues 已开启（`gh repo edit Harendotes-Tang/MentorRecorder-Calibrations --enable-issues`），Actions 已允许运行。

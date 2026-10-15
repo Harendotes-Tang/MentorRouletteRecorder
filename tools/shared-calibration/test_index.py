@@ -22,7 +22,7 @@ def sha(value) -> str:
 
 
 def entry(code_sha, submitters=1, published="2026-09-15T08:00:00Z", region="CN", build=BUILD, revoked=False,
-          match_source="ANNOUNCEMENT", commit=None, conflicting=None) -> dict:
+          match_source="ANNOUNCEMENT", commit=None, conflicting=None, shape_prior=None) -> dict:
     item = {
         "region": region, "game_build": build, "code_sha256": code_sha, "match_source": match_source,
         "submitters": submitters, "first_published_at": published,
@@ -31,6 +31,8 @@ def entry(code_sha, submitters=1, published="2026-09-15T08:00:00Z", region="CN",
     }
     if conflicting is not None:
         item["conflicting"] = conflicting
+    if shape_prior is not None:
+        item["shape_prior"] = shape_prior
     return item
 
 
@@ -94,6 +96,9 @@ class ReaderTests(unittest.TestCase):
         ("conflicting", "INVALID:conflicting", '"true"'),
         ("conflicting", "INVALID:conflicting", "1"),
         ("conflicting", "INVALID:conflicting", "null"),
+        ("shape_prior", "INVALID:shape_prior", '"true"'),
+        ("shape_prior", "INVALID:shape_prior", "0"),
+        ("shape_prior", "INVALID:shape_prior", "null"),
     )
 
     def test_a_malformed_entry_is_skipped_with_a_reason_and_the_rest_is_still_read(self):
@@ -216,6 +221,39 @@ class ReaderTests(unittest.TestCase):
         self.assertEqual([sha("d"), sha("b"), sha("a"), sha("c")],
                          [item["code_sha256"] for item in repo_index.select(read.entries, "CN", BUILD)])
 
+    def test_the_shape_prior_mark_is_optional_and_read_as_written(self):
+        read = repo_index.read_index(index_bytes(
+            entry(sha("a")), entry(sha("b"), shape_prior=True), entry(sha("c"), conflicting=True, shape_prior=False)))
+        self.assertEqual((), read.skipped)
+        self.assertEqual([None, True, False], [item.get("shape_prior") for item in read.entries])
+        self.assertEqual([None, None, True], [item.get("conflicting") for item in read.entries])
+
+    def test_the_marks_follow_the_nine_fields_in_one_order_and_only_when_an_entry_carries_them(self):
+        # Inserted shape_prior first on purpose: the written order is the module's, not the dict's.
+        both = dict(entry(sha("b")), shape_prior=False, conflicting=True)
+        written = repo_index.serialize_index([entry(sha("a")), both, entry(sha("c"), shape_prior=True)])
+        lines = written.decode("utf-8").splitlines()[1:-1]
+        self.assertTrue(lines[0].endswith('"revoked":false},'), lines[0])
+        self.assertTrue(lines[1].endswith('"revoked":false,"conflicting":true,"shape_prior":false},'), lines[1])
+        self.assertTrue(lines[2].endswith('"revoked":false,"shape_prior":true}'), lines[2])
+        read = repo_index.read_index(written)
+        self.assertEqual((), read.skipped)
+        self.assertEqual(written, repo_index.serialize_index(read.entries))
+
+    def test_the_shape_prior_breaks_a_tie_after_the_conflict_mark_and_before_first_publication(self):
+        """Plan section 20.3: submitters, then unmarked, then shape_prior == true, then publication, then hash."""
+        read = repo_index.read_index(index_bytes(
+            entry(sha("a"), submitters=2, published="2026-09-01T00:00:00Z", conflicting=True, shape_prior=False),
+            entry(sha("b"), submitters=2, published="2026-09-05T00:00:00Z", conflicting=True, shape_prior=True),
+            entry(sha("c"), submitters=2, published="2026-09-09T00:00:00Z"),
+            entry(sha("d"), submitters=2, published="2026-09-02T00:00:00Z", shape_prior=False),
+            entry(sha("e"), submitters=2, published="2026-09-08T00:00:00Z", shape_prior=True),
+            entry(sha("f"), submitters=3, published="2026-09-09T00:00:00Z", conflicting=True, shape_prior=False),
+            entry(sha("9"), submitters=1, published="2026-08-01T00:00:00Z", shape_prior=True)))
+        # false and absent are the same "no prior": d before c only because it was published first.
+        self.assertEqual([sha(name) for name in "fedcba9"],
+                         [item["code_sha256"] for item in repo_index.select(read.entries, "CN", BUILD)])
+
     def test_stamps_are_what_the_client_parses(self):
         self.assertIsNotNone(repo_index.parse_stamp("2026-09-15T08:00:00.1234567Z"))
         self.assertIsNotNone(repo_index.parse_stamp("0001-01-01T00:00:00Z"))
@@ -224,14 +262,15 @@ class ReaderTests(unittest.TestCase):
                 self.assertIsNone(repo_index.parse_stamp(text))
 
 
-def _code(number=0, source="ANNOUNCEMENT", region="CN", build=BUILD) -> str:
-    return sharecode.encode(testsupport.payload(source, number, region=region, build=build))
+def _code(number=0, source="ANNOUNCEMENT", region="CN", build=BUILD, **overrides) -> str:
+    return sharecode.encode(testsupport.payload(source, number, region=region, build=build, **overrides))
 
 
 def _submit(state, number=0, account=4242, when=NOW, commit=COMMIT, created=OLD_ACCOUNT, region="CN", build=BUILD,
-            login=None, source="ANNOUNCEMENT"):
-    return repo_index.add_submission(state, region, build, _code(number, source, region, build), login, created, when,
-                                     commit, account_id=account, issue=7)
+            login=None, source="ANNOUNCEMENT", basis=None, **overrides):
+    """One submission of ``_code(number, ...)``; ``overrides`` replace payload keys (None removes one)."""
+    return repo_index.add_submission(state, region, build, _code(number, source, region, build, **overrides), login,
+                                     created, when, commit, account_id=account, issue=7, basis=basis)
 
 
 class SubmissionTests(unittest.TestCase):
@@ -876,22 +915,46 @@ class PruneTests(unittest.TestCase):
                 repo_index.prune(self.state, region, builds)
 
 
-class ConflictTests(unittest.TestCase):
-    """update_conflicts (plan section 18.6): two codes that disagree about the same thing are both flagged."""
+# The opcodes every code of the mark tests shares unless a test says otherwise, so that only the field under
+# test differs between two codes. testsupport.payload alone gives every number its own zone, territory and job.
+SHARED = dict(zone_opcode=1100, territory_opcode=3100, job_opcode=4100)
+
+
+def _pop(number, length, roulette_offset=None, selector_values=None) -> dict:
+    pop = {"opcode": 2000 + number}
+    if length is not None:
+        pop["length"] = length
+    if roulette_offset is not None:
+        pop["roulette_offset"] = roulette_offset
+    if selector_values is not None:
+        pop["selector_values"] = selector_values
+    return pop
+
+
+class MarkTestCase(unittest.TestCase):
+    """A repository checkout with code files, for update_marks, refresh_marks and disputes."""
 
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(prefix="mr-conflicts-")
+        self.temp = tempfile.TemporaryDirectory(prefix="mr-marks-")
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.state = repo_index.empty_index()
+        self.accounts = 0
 
-    def publish(self, number, source="ANNOUNCEMENT", region="CN", build=BUILD) -> str:
-        """Publishes code ``number`` and writes its file where the index says it lives."""
-        outcome = _submit(self.state, number=number, account=1000 + number, source=source, region=region, build=build,
-                          when=NOW + dt.timedelta(minutes=number))
-        self.assertEqual(repo_index.PUBLISHED, outcome.status)
+    def publish(self, number, source="ANNOUNCEMENT", region="CN", build=BUILD, account=None, **fields) -> str:
+        """Publishes code ``number`` and writes its file where the index says it lives.
+
+        From a fresh account unless ``account`` names one. The code carries SHARED unless ``fields`` overrides
+        a key (None removes it); ``pop`` replaces the pop.
+        """
+        payload = dict(SHARED, **fields)
+        self.accounts += 1
+        outcome = _submit(self.state, number=number, account=1000 + self.accounts if account is None else account,
+                          source=source, region=region, build=build, when=NOW + dt.timedelta(minutes=self.accounts),
+                          **payload)
+        self.assertEqual(repo_index.PUBLISHED, outcome.status, outcome.reason)
         self.state = outcome.index
-        self.write(outcome.new_code_path, _code(number, source, region, build))
+        self.write(outcome.new_code_path, _code(number, source, region, build, **payload))
         return outcome.code_sha256
 
     def write(self, relative, text) -> None:
@@ -899,39 +962,93 @@ class ConflictTests(unittest.TestCase):
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(text, encoding="ascii")
 
+    def recompute(self, region="CN", build=BUILD, log=None) -> None:
+        self.state = repo_index.update_marks(self.state, self.root, region, build, log=log)
+
     def flags(self, region="CN", build=BUILD, log=None) -> dict:
-        self.state = repo_index.update_conflicts(self.state, self.root, region, build, log=log)
+        """``conflicting`` of every entry after recomputing (region, build)."""
+        self.recompute(region, build, log)
         return {item["code_sha256"]: item.get("conflicting") for item in self.state.entries}
 
-    def test_two_different_codes_of_one_template_and_match_source_flag_each_other(self):
+    def priors(self, region="CN", build=BUILD) -> dict:
+        """``shape_prior`` of the entries of (region, build) after recomputing it."""
+        self.recompute(region, build)
+        return {item["code_sha256"]: item.get("shape_prior") for item in self.state.entries
+                if (item["region"], item["game_build"]) == (region, build)}
+
+    def disputes(self, region="CN", build=BUILD) -> dict:
+        return repo_index.disputes(self.state, self.root, region, build)
+
+    def entry_for(self, code_sha, state=None) -> dict:
+        return next(item for item in (state or self.state).entries if item["code_sha256"] == code_sha)
+
+
+class ConflictMarkTests(MarkTestCase):
+    """update_marks' ``conflicting`` (plan section 20.3): codes are compared field by field, not as a whole."""
+
+    def test_two_codes_that_differ_only_in_the_match_flag_each_other(self):
         first, second = self.publish(1), self.publish(2)
         self.assertEqual({first: True, second: True}, self.flags())
+        self.assertEqual({first: {"match": [second]}, second: {"match": [first]}}, self.disputes())
         files = repo_index.dump(self.state)
-        self.assertIn(b'"revoked":false,"conflicting":true', files[repo_index.INDEX_FILE])
+        self.assertIn(b'"revoked":false,"conflicting":true}', files[repo_index.INDEX_FILE])
         self.assertEqual(self.state, repo_index.parse(files[repo_index.INDEX_FILE], files[repo_index.LEDGER_FILE]))
         self.assertEqual((), repo_index.read_index(files[repo_index.INDEX_FILE]).skipped)
 
-    def test_a_code_alone_and_a_code_of_another_match_source_are_not_flagged(self):
-        alone = self.publish(1)
-        self.assertEqual({alone: None}, self.flags())
-        other = self.publish(2, source="MARKER_OFFSET")
-        self.assertEqual({alone: None, other: None}, self.flags())
-        third = self.publish(3)
-        self.assertEqual({alone: True, other: None, third: True}, self.flags())
+    def test_a_zone_dispute_flags_codes_of_different_match_sources(self):
+        """The section-18.6 rule grouped codes by match source and would have flagged neither of these."""
+        announced = self.publish(1, zone_opcode=1101)
+        marker = self.publish(2, source="MARKER_OFFSET", zone_opcode=1102)
+        self.assertEqual({announced: True, marker: True}, self.flags())
+        self.assertEqual({announced: {"zone": [marker]}, marker: {"zone": [announced]}}, self.disputes())
+
+    def test_different_match_sources_that_agree_on_every_shared_field_are_not_flagged(self):
+        """The match is only compared within one match source: another source answers another question."""
+        codes = [self.publish(1), self.publish(2, source="MARKER_OFFSET"), self.publish(3, source="REPLY_STATE"),
+                 self.publish(4, source="QUEUE_REQUEST")]
+        self.assertEqual(dict.fromkeys(codes), self.flags())
+        self.assertEqual({}, self.disputes())
+
+    def test_a_field_a_code_leaves_out_never_votes_and_never_disputes(self):
+        # Same match and zone; one code leaves the job out, the other the territory. Different codes, which the
+        # section-18.6 rule flagged as a pair, yet they agree on everything both of them state.
+        no_job = self.publish(1, job_opcode=None)
+        no_territory = self.publish(1, territory_opcode=None)
+        self.assertNotEqual(no_job, no_territory)
+        self.assertEqual({no_job: None, no_territory: None}, self.flags())
+        other_job = self.publish(2, source="MARKER_OFFSET", job_opcode=4199)
+        self.assertEqual({no_job: None, no_territory: True, other_job: True}, self.flags())
+        self.assertEqual({no_territory: {"job": [other_job]}, other_job: {"job": [no_territory]}}, self.disputes())
+
+    def test_every_rival_is_listed_under_each_field_it_disputes_in_a_fixed_order(self):
+        first, second = self.publish(1), self.publish(2)
+        third = self.publish(3, source="MARKER_OFFSET", zone_opcode=1199, territory_opcode=3199)
+        found = self.disputes()
+        self.assertEqual({"zone": [third], "territory": [third], "match": [second]}, found[first])
+        self.assertEqual(["zone", "territory", "match"], list(found[first]))
+        self.assertEqual({"zone": sorted([first, second]), "territory": sorted([first, second])}, found[third])
+        self.assertEqual(set(found), {sha for sha, flag in self.flags().items() if flag})
+
+    def test_codes_of_another_template_are_never_compared(self):
+        mine = self.publish(1)
+        other = self.publish(2, zone_opcode=1199, template_sha256="e" * 64)
+        self.assertEqual({mine: None, other: None}, self.flags())
+        self.assertEqual({}, self.disputes())
 
     def test_another_submitter_of_the_same_code_is_no_conflict(self):
         only = self.publish(1)
-        added = _submit(self.state, number=1, account=77, when=NOW + dt.timedelta(hours=1))
+        added = _submit(self.state, number=1, account=77, when=NOW + dt.timedelta(hours=1), **SHARED)
         self.assertEqual(repo_index.ADDED, added.status)
         self.state = added.index
         self.assertEqual({only: None}, self.flags())
 
-    def test_a_revoked_code_neither_counts_nor_keeps_a_flag(self):
+    def test_a_revoked_code_neither_counts_nor_keeps_a_mark(self):
         first, second = self.publish(1), self.publish(2)
         self.assertEqual({first: True, second: True}, self.flags())
         self.state = repo_index.revoke(self.state, first)
         self.assertEqual({first: None, second: None}, self.flags())
-        self.assertTrue(self.state.entries[0]["revoked"])
+        self.assertEqual({}, self.disputes())
+        self.assertTrue(self.entry_for(first)["revoked"])
 
     def test_recomputing_twice_changes_nothing(self):
         self.publish(1), self.publish(2), self.publish(3, source="REPLY_STATE")
@@ -957,6 +1074,198 @@ class ConflictTests(unittest.TestCase):
         self.assertEqual({first: True, second: True, third: None, fourth: None}, self.flags())
         self.assertEqual({first: True, second: True, third: True, fourth: True}, self.flags(region="GLOBAL"))
         self.assertEqual([third, fourth], [item["code_sha256"] for item in repo_index.select(self.state.entries, "GLOBAL", BUILD)])
+
+    def test_the_section_18_6_name_still_recomputes_both_marks(self):
+        self.assertIs(repo_index.update_marks, repo_index.update_conflicts)
+
+
+def _marker(number, length=24, roulette_offset=2) -> dict:
+    return {"source": "MARKER_OFFSET", "pop": _pop(number, length, roulette_offset)}
+
+
+class ShapePriorTests(MarkTestCase):
+    """update_marks' ``shape_prior`` (plan section 20.3): the shape of the latest earlier build, a prior only."""
+
+    def test_true_for_the_shape_of_the_earlier_build_and_false_for_another_as_on_2026_10_13(self):
+        """The first real conflict: two MARKER_OFFSET codes, length 24 as the build before and length 40."""
+        earlier = self.publish(1, **_marker(1, 24))
+        other = self.publish(3, build=BUILD_B, **_marker(3, 40))
+        same = self.publish(2, build=BUILD_B, **_marker(2, 24))
+        self.assertEqual({same: True, other: False}, self.priors(build=BUILD_B))
+        self.assertEqual({earlier: None}, self.priors(), "the first build has nothing to compare with")
+        self.assertEqual({same: True, other: True}, {sha: flag for sha, flag in self.flags(build=BUILD_B).items()
+                                                     if sha != earlier})
+        # One submitter each and both conflicting: the prior decides, though the other was published first.
+        self.assertEqual([same, other], [item["code_sha256"] for item in repo_index.select(self.state.entries, "CN", BUILD_B)])
+        files = repo_index.dump(self.state)
+        self.assertIn(b'"revoked":false,"conflicting":true,"shape_prior":true}', files[repo_index.INDEX_FILE])
+        self.assertEqual(self.state, repo_index.parse(files[repo_index.INDEX_FILE], files[repo_index.LEDGER_FILE]))
+
+    def test_only_the_latest_earlier_build_counts(self):
+        self.publish(1, **_marker(1, 40))
+        self.publish(2, build=BUILD_B, **_marker(2, 24))
+        older_shape = self.publish(3, build=BUILD_C, **_marker(3, 40))
+        latest_shape = self.publish(4, build=BUILD_C, **_marker(4, 24))
+        self.assertEqual({older_shape: False, latest_shape: True}, self.priors(build=BUILD_C))
+
+    def test_announcement_and_reply_state_shapes(self):
+        self.publish(1, pop=_pop(1, 40))
+        self.publish(2, source="REPLY_STATE", pop=_pop(2, None, selector_values=[3]))
+        announced = self.publish(3, build=BUILD_B, pop=_pop(3, 40))
+        longer = self.publish(4, build=BUILD_B, pop=_pop(4, 48))
+        replied = self.publish(5, source="REPLY_STATE", build=BUILD_B, pop=_pop(5, None, selector_values=[3]))
+        other_state = self.publish(6, source="REPLY_STATE", build=BUILD_B, pop=_pop(6, None, selector_values=[3, 7]))
+        self.assertEqual({announced: True, longer: False, replied: True, other_state: False}, self.priors(build=BUILD_B))
+
+    def test_absent_without_a_comparable_earlier_build_or_without_a_shape(self):
+        # Earlier codes of another match source, another template and another region compare with nothing;
+        # a QUEUE_REQUEST code has no shape even with an earlier QUEUE_REQUEST code.
+        self.publish(1)
+        self.publish(2, template_sha256="e" * 64, **_marker(2))
+        self.publish(3, region="GLOBAL", **_marker(3))
+        self.publish(4, source="QUEUE_REQUEST")
+        marker = self.publish(5, build=BUILD_B, **_marker(5))
+        queue = self.publish(6, source="QUEUE_REQUEST", build=BUILD_B)
+        self.assertEqual({marker: None, queue: None}, self.priors(build=BUILD_B))
+        self.assertNotIn(b"shape_prior", repo_index.dump(self.state)[repo_index.INDEX_FILE])
+
+    def test_builds_without_a_date_or_of_the_same_date_are_not_earlier(self):
+        # add_submission only takes dated builds, but an older index may list another kind, which the client reads.
+        undated = "beta-1"
+        code = _code(1, "MARKER_OFFSET", "CN", undated, pop=_pop(1, 24, 2), **SHARED)
+        decoded = sharecode.decode(code)
+        placed = entry(decoded.code_sha256, build=undated, match_source="MARKER_OFFSET", published="2026-08-01T00:00:00Z")
+        self.state = repo_index.Index((placed,), ())
+        self.write(placed["path"], code)
+        first = self.publish(2, **_marker(2, 24))
+        same_day_build = "2026.09.01.0001.0000"
+        same_day = self.publish(3, build=same_day_build, **_marker(3, 40))
+        self.assertEqual({first: None}, self.priors())
+        self.assertEqual({same_day: None}, self.priors(build=same_day_build))
+        self.assertEqual({decoded.code_sha256: None}, self.priors(build=undated))
+        # Of two builds of one date, the later build number is the latest earlier build.
+        later_shape = self.publish(4, build=BUILD_B, **_marker(4, 40))
+        earlier_shape = self.publish(5, build=BUILD_B, **_marker(5, 24))
+        self.assertEqual({later_shape: True, earlier_shape: False}, self.priors(build=BUILD_B))
+
+    def test_a_revoked_earlier_code_is_no_prior_and_refresh_marks_recomputes_the_later_builds(self):
+        old = self.publish(1, **_marker(1))
+        new = self.publish(2, build=BUILD_B, **_marker(2))
+        self.assertEqual({new: True}, self.priors(build=BUILD_B))
+        self.state = repo_index.revoke(self.state, old)
+        only_its_build = repo_index.update_marks(self.state, self.root, "CN", BUILD)
+        self.assertIs(True, self.entry_for(new, only_its_build).get("shape_prior"), "update_marks leaves other builds alone")
+        refreshed = repo_index.refresh_marks(self.state, self.root, "CN", BUILD)
+        self.assertNotIn("shape_prior", self.entry_for(new, refreshed))
+        self.assertNotIn("shape_prior", self.entry_for(old, refreshed))
+        self.assertEqual(refreshed, repo_index.refresh_marks(refreshed, self.root, "CN", BUILD))
+
+    def test_an_invented_earlier_build_cannot_give_its_accounts_rival_the_prior(self):
+        """Security review 2026-10-15: one account publishes its own shape for an invented build dated between the
+        real previous build and this one, then a rival here. Without the account rule the invented build is the
+        latest earlier build: the rival alone would get shape_prior true and the honest code false."""
+        self.publish(1, **_marker(1, 24))
+        legit = self.publish(2, build=BUILD_C, **_marker(2, 24))
+        self.assertEqual({legit: True}, self.priors(build=BUILD_C))
+        self.publish(3, build=BUILD_B, account=666, **_marker(3, 40))
+        rival = self.publish(4, build=BUILD_C, account=666, **_marker(4, 40))
+        # The rival still compares with the honest codes of the real previous build: false, never true.
+        self.assertEqual({legit: True, rival: False}, self.priors(build=BUILD_C))
+        self.assertEqual([legit, rival], [item["code_sha256"] for item in repo_index.select(self.state.entries, "CN", BUILD_C)])
+        # A maintainer revoking the rival does not hand the invented build back to the honest code.
+        self.state = repo_index.revoke(self.state, rival)
+        self.assertEqual({legit: True, rival: None}, self.priors(build=BUILD_C))
+
+    def test_a_late_code_for_the_real_earlier_build_from_a_rivals_account_does_not_count(self):
+        self.publish(1, **_marker(1, 24))
+        legit = self.publish(2, build=BUILD_C, **_marker(2, 24))
+        rival = self.publish(3, build=BUILD_C, account=666, **_marker(3, 40))
+        self.publish(4, account=666, **_marker(4, 40))
+        self.assertEqual({legit: True, rival: False}, self.priors(build=BUILD_C))
+
+    def test_honest_accounts_give_the_prior_as_before_but_an_account_never_confirms_itself(self):
+        self.publish(1, account=7, **_marker(1, 24))
+        other = self.publish(2, build=BUILD_B, account=8, **_marker(2, 24))
+        self.assertEqual({other: True}, self.priors(build=BUILD_B))
+        mine = self.publish(3, build=BUILD_C, account=7, **_marker(3, 24))
+        later = self.publish(4, build=BUILD_C, account=9, **_marker(4, 24))
+        # Account 7 has a stake in BUILD_C, so its BUILD code counts for no code there; BUILD_B is the latest left.
+        self.assertEqual({mine: True, later: True}, self.priors(build=BUILD_C))
+        self.state = repo_index.revoke(self.state, other)
+        self.assertEqual({mine: None, later: None}, self.priors(build=BUILD_C))
+
+    def test_an_earlier_code_file_that_holds_another_code_is_no_prior(self):
+        earlier = self.publish(1, **_marker(1, 24))
+        later = self.publish(2, build=BUILD_B, **_marker(2, 24))
+        self.assertEqual({later: True}, self.priors(build=BUILD_B))
+        self.write(repo_index.code_path("CN", BUILD, earlier), _code(9, "MARKER_OFFSET", pop=_pop(9, 24, 2), **SHARED))
+        notes = []
+        self.state = repo_index.update_marks(self.state, self.root, "CN", BUILD_B, log=notes.append)
+        self.assertNotIn("shape_prior", self.entry_for(later))
+        self.assertEqual(1, len(notes))
+        self.assertIn(earlier[:12], notes[0])
+
+    def test_refresh_marks_never_touches_an_earlier_build_or_another_region(self):
+        first, second = self.publish(1), self.publish(2)
+        global_one, global_two = self.publish(3, region="GLOBAL"), self.publish(4, region="GLOBAL")
+        later = self.publish(5, build=BUILD_B)
+        refreshed = repo_index.refresh_marks(self.state, self.root, "CN", BUILD_B)
+        for sha in (first, second, global_one, global_two):
+            self.assertNotIn("conflicting", self.entry_for(sha, refreshed))
+        self.assertIs(True, self.entry_for(later, refreshed).get("shape_prior"))
+        refreshed = repo_index.refresh_marks(self.state, self.root, "CN", BUILD)
+        self.assertEqual((True, True, True), (self.entry_for(first, refreshed).get("conflicting"),
+                                              self.entry_for(second, refreshed).get("conflicting"),
+                                              self.entry_for(later, refreshed).get("shape_prior")))
+        self.assertNotIn("conflicting", self.entry_for(global_one, refreshed))
+
+
+class LedgerBasisTests(unittest.TestCase):
+    """Plan section 20.3: a verifier's ledger row says so; nothing else about the ledger changes."""
+
+    def test_a_verified_submission_counts_like_any_other_and_says_so_in_the_ledger(self):
+        first = _submit(repo_index.empty_index(), number=1, account=1).index
+        added = _submit(first, number=1, account=2, when=NOW + dt.timedelta(hours=1), basis=repo_index.BASIS_VERIFIED)
+        self.assertEqual((repo_index.ADDED, 2), (added.status, added.entry["submitters"]))
+        self.assertEqual({"id:1": None, "id:2": "verified"},
+                         {row["account"]: row.get("basis") for row in added.index.submissions})
+        files = repo_index.dump(added.index)
+        self.assertIn(b'"issue":7,"basis":"verified"}', files[repo_index.LEDGER_FILE])
+        self.assertNotIn(b"basis", files[repo_index.INDEX_FILE], "the client never learns who verified what")
+        self.assertEqual(added.index, repo_index.parse(files[repo_index.INDEX_FILE], files[repo_index.LEDGER_FILE]))
+
+    def test_a_calibrated_submission_writes_no_field_and_any_other_basis_is_refused(self):
+        for basis in (None, repo_index.BASIS_CALIBRATED):
+            with self.subTest(basis=basis):
+                state = _submit(repo_index.empty_index(), number=1, account=1, basis=basis).index
+                self.assertNotIn(b"basis", repo_index.dump(state)[repo_index.LEDGER_FILE])
+        for basis in ("VERIFIED", "", True, "confirmed"):
+            with self.subTest(basis=basis), self.assertRaises(ValueError):
+                _submit(repo_index.empty_index(), number=1, account=1, basis=basis)
+
+    def test_a_replacement_row_carries_what_the_new_submission_said(self):
+        first = sharecode.code_sha256(testsupport.payload("ANNOUNCEMENT", 1))
+        second = sharecode.code_sha256(testsupport.payload("ANNOUNCEMENT", 2))
+        state = _submit(repo_index.empty_index(), number=1, account=1, basis=repo_index.BASIS_VERIFIED).index
+        state = _submit(state, number=2, account=1, when=NOW + dt.timedelta(hours=1)).index
+        self.assertEqual([(None, [first])], [(row.get("basis"), row["replaced"]) for row in state.submissions])
+        state = _submit(state, number=3, account=1, when=NOW + dt.timedelta(hours=2), basis=repo_index.BASIS_VERIFIED).index
+        self.assertEqual([("verified", [first, second])], [(row.get("basis"), row["replaced"]) for row in state.submissions])
+        files = repo_index.dump(state)
+        self.assertIn(b'"replaced":["%s","%s"],"basis":"verified"}' % (first.encode(), second.encode()),
+                      files[repo_index.LEDGER_FILE])
+        self.assertEqual(state, repo_index.parse(files[repo_index.INDEX_FILE], files[repo_index.LEDGER_FILE]))
+
+    def test_a_ledger_with_any_other_basis_is_corrupt_and_is_never_written(self):
+        state = _submit(repo_index.empty_index(), number=1, account=1, basis=repo_index.BASIS_VERIFIED).index
+        files = repo_index.dump(state)
+        ledger = files[repo_index.LEDGER_FILE].decode("utf-8")
+        for value in ('"calibrated"', "true", '"VERIFIED"', "null", '["verified"]'):
+            with self.subTest(value), self.assertRaises(repo_index.IndexCorrupt):
+                repo_index.parse(files[repo_index.INDEX_FILE], ledger.replace('"verified"', value).encode("utf-8"))
+        tampered = repo_index.Index(state.entries, (dict(state.submissions[0], basis=repo_index.BASIS_CALIBRATED),))
+        with self.assertRaises(repo_index.IndexCorrupt):
+            repo_index.dump(tampered)
 
 
 class RepositoryFileTests(unittest.TestCase):

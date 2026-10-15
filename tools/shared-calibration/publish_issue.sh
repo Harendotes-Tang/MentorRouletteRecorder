@@ -11,7 +11,8 @@
 # This script never reads issue text. The title, body and submitter's login stay in JSON files and
 # only tools/publish.py reads them; every value used below comes back from publish.py already
 # validated (an issue number, a login of [A-Za-z0-9-], a fixed status, label or close reason, a code
-# path of the repository's own layout, a commit message built from validated values).
+# path of the repository's own layout, a commit message built from validated values, a list of issue
+# numbers). The notices for other issues (conflict-<number>.md) are written by publish.py from constants.
 #
 # Why everything is inside functions and the last line ends with `exit`: `git reset --hard` below can
 # replace this very file with a newer version, and bash reads a script while it runs. A function is
@@ -91,6 +92,38 @@ publish_loop() {
   py push-failed --out "$out"
 }
 
+# Tell the issues of the published codes this one disagrees with (plan section 20.4), and label both
+# sides `conflicting` so a maintainer can find every such pair. Best effort: the submission itself is
+# already published and answered, and a failed notice must neither fail the job nor make the sweep
+# answer the submission again, so every failure is only a warning. The numbers come from
+# submissions.json through publish.py, validated as positive integers, and each one names a file
+# publish.py wrote next to comment.md.
+notify_conflicts() {
+  local number="$1" out="$2"
+  local conflict_label conflict_issues rival
+  if ! conflict_label="$(py field --out "$out" --name conflict_label)" ||
+     ! conflict_issues="$(py field --out "$out" --name conflict_issues)"; then
+    echo "::warning::issue #$number: the conflict notices could not be read; nobody was told"
+    return 0
+  fi
+  if [ -z "$conflict_label" ]; then
+    return 0
+  fi
+  gh label create "$conflict_label" > /dev/null 2>&1 || true
+  if ! gh issue edit "$number" --add-label "$conflict_label"; then
+    echo "::warning::issue #$number: could not add the $conflict_label label"
+  fi
+  # Word splitting is what turns the list into numbers; publish.py allows only digits and single spaces.
+  for rival in $conflict_issues; do
+    if ! gh issue comment "$rival" --body-file "$out/conflict-$rival.md"; then
+      echo "::warning::issue #$rival: could not leave the notice about issue #$number"
+    fi
+    if ! gh issue edit "$rival" --add-label "$conflict_label"; then
+      echo "::warning::issue #$rival: could not add the $conflict_label label"
+    fi
+  done
+}
+
 # Comment, label and close. An `error` result is answered too, then fails the job so a maintainer sees it.
 report() {
   local number="$1" out="$2" work="$3" live="$4"
@@ -124,6 +157,7 @@ report() {
     gh label create "$label" > /dev/null 2>&1 || true
     gh issue edit "$number" --add-label "$label"
   fi
+  notify_conflicts "$number" "$out"
   if [ "$status" = error ]; then
     echo "::error::issue #$number needs a maintainer; the reason is in the comment on the issue"
     return 1

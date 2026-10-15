@@ -28,6 +28,9 @@ import sync_public_repo
 
 GH_STUB = """#!/usr/bin/env bash
 printf '%s\\n' "$*" >> "$STUB_DIR/gh.log"
+if [ -e "$STUB_DIR/fail-$1-$2-$3" ]; then
+  exit 1
+fi
 if [ "$1" = issue ] && [ "$2" = view ]; then
   case "$*" in
     *labels*)
@@ -398,6 +401,111 @@ class WorkflowScriptTests(unittest.TestCase):
         self.assertFalse(any(" 10 " in call for call in calls))
         self.assertIn("已发布", self.comment(8))
         self.assertIn("已计入", self.comment(9))
+
+    def publish_code(self, number, user_id, login, payload) -> subprocess.CompletedProcess:
+        _, event = self.submission(number, user_id, login, sharecode.encode(payload))
+        completed = self.run_bash("tools/publish_issue.sh", event.as_posix())
+        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+        return completed
+
+    def test_a_disputing_code_tells_the_rival_issue_and_labels_both_and_an_agreeing_one_does_neither(self):
+        """Plan section 20.4: the second code disagrees with the first on the match; the MARKER_OFFSET one on nothing."""
+        shared = dict(zone_opcode=1001, territory_opcode=3001, job_opcode=4001)
+        first, agreeing = testsupport.payload("ANNOUNCEMENT", 1), testsupport.payload("MARKER_OFFSET", 2, **shared)
+        disputing = testsupport.payload("ANNOUNCEMENT", 3, **shared)
+        self.publish_code(41, 4101, "first-player", first)
+        self.publish_code(42, 4102, "second-player", agreeing)
+        self.assertEqual([], [call for call in self.gh_calls() if "conflict" in call])
+
+        self.publish_code(43, 4103, "third-player", disputing)
+
+        calls = self.gh_calls()
+        for expected in ("label create conflicting", "issue edit 43 --add-label conflicting",
+                         "issue edit 41 --add-label conflicting", "issue edit 43 --add-label published"):
+            self.assertIn(expected, calls)
+        self.assertEqual(["issue comment 41 --body-file %s/publish-43/out/conflict-41.md" % self.runner.as_posix()],
+                         [call for call in calls if "conflict-" in call])
+        self.assertFalse(any(" 42 " in call and "conflict" in call for call in calls), "the agreeing code is left alone")
+        self.assertIn("**提示：后来提交的校准码（Issue #43）与你这份在「匹配报文」上不一致。**", self.comment(41))
+        self.assertIn("在「匹配报文」上不一致**（Issue #41）。", self.comment(43))
+        self.assertNotIn("**提示", self.comment(42))
+        marks = {entry["code_sha256"]: entry.get("conflicting")
+                 for entry in repo_index.read_index(self.origin_show("main:index.json")).entries}
+        self.assertEqual({sharecode.code_sha256(first): True, sharecode.code_sha256(agreeing): None,
+                          sharecode.code_sha256(disputing): True}, marks)
+
+        # One more account for the disputing code: its own issue is told and labelled, the closed rival is not
+        # commented on or labelled again.
+        before = len(calls)
+        self.publish_code(46, 4106, "fourth-player", disputing)
+
+        later = self.gh_calls()[before:]
+        self.assertIn("issue edit 46 --add-label conflicting", later)
+        self.assertIn("issue close 46 --reason completed", later)
+        self.assertEqual([], [call for call in later if "conflict-" in call or call.startswith(("issue comment 41", "issue edit 41"))])
+        # Written ＃41, not #41: a link would add one more cross-reference on issue 41's timeline per account.
+        self.assertIn("在「匹配报文」上不一致**（Issue ＃41）。", self.comment(46))
+        self.assertNotIn("#41", self.comment(46))
+        self.assertEqual(1, self.comment(41).count("**提示：后来提交的校准码"))
+
+    def test_a_notice_that_cannot_be_posted_is_only_a_warning(self):
+        shared = dict(zone_opcode=1001, territory_opcode=3001, job_opcode=4001)
+        self.publish_code(44, 4401, "first-player", testsupport.payload("ANNOUNCEMENT", 1))
+        (self.stub / "fail-issue-comment-44").touch()
+        (self.stub / "fail-issue-edit-44").touch()
+
+        completed = self.publish_code(45, 4402, "second-player", testsupport.payload("ANNOUNCEMENT", 3, **shared))
+
+        self.assertIn("::warning::issue #44: could not leave the notice about issue #45", completed.stdout)
+        self.assertIn("::warning::issue #44: could not add the conflicting label", completed.stdout)
+        calls = self.gh_calls()
+        self.assertIn("issue close 45 --reason completed", calls)
+        self.assertIn("issue edit 45 --add-label conflicting", calls)
+
+    def run_notify_conflicts(self, number, out) -> subprocess.CompletedProcess:
+        """The shipped `py` and `notify_conflicts` functions of publish_issue.sh, run alone against ``out``."""
+        lines = (self.work / "tools" / "publish_issue.sh").read_text(encoding="utf-8").splitlines()
+        functions = []
+        for name in ("py() {", "notify_conflicts() {"):
+            start = lines.index(name)
+            end = lines.index("}", start)
+            functions += lines[start:end + 1]
+        script = self.root / "notify-conflicts.sh"
+        _write_script(script, "#!/usr/bin/env bash\nset -euo pipefail\n" + "\n".join(functions) +
+                      '\nnotify_conflicts "$1" "$2"; exit "$?"\n')
+        return self.run_bash(script.as_posix(), str(number), out.as_posix())
+
+    def test_conflict_notices_that_cannot_be_read_are_only_a_warning(self):
+        out = self.root / "tampered"
+        out.mkdir()
+        (out / "conflict-41.md").write_text("never posted\n", encoding="utf-8")
+        for result in ({"conflict_label": "conflicting", "conflict_issues": "41; rm -rf /"},
+                       {"conflict_label": "needs-maintainer", "conflict_issues": "41"}, None):
+            with self.subTest(result=result):
+                target = out / "result.json"
+                if result is None:
+                    target.unlink()
+                else:
+                    target.write_text(json.dumps(result), encoding="utf-8")
+                completed = self.run_notify_conflicts(50, out)
+                self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+                self.assertIn("::warning::issue #50: the conflict notices could not be read; nobody was told", completed.stdout)
+        self.assertEqual([], self.gh_calls())
+
+    def test_a_submission_changed_before_the_reply_tells_no_rival(self):
+        shared = dict(zone_opcode=1001, territory_opcode=3001, job_opcode=4001)
+        self.publish_code(47, 4701, "first-player", testsupport.payload("ANNOUNCEMENT", 1))
+        before = len(self.gh_calls())
+        issue, event = self.submission(48, 4702, "second-player",
+                                       sharecode.encode(testsupport.payload("ANNOUNCEMENT", 3, **shared)))
+        self.edited_submission(issue, sharecode.encode(testsupport.payload("MARKER_OFFSET", 2, **shared)), at_read=3)
+
+        completed = self.run_bash("tools/publish_issue.sh", event.as_posix())
+
+        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+        self.assertIn("changed before reply", completed.stdout)
+        later = self.gh_calls()[before:]
+        self.assertEqual([], [call for call in later if "conflict" in call or call.startswith(("issue comment", "issue edit"))])
 
     def test_a_refused_submission_is_answered_and_closed_without_touching_main(self):
         young = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=5)).strftime("%Y-%m-%dT%H:%M:%SZ")
