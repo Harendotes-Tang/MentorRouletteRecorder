@@ -610,8 +610,9 @@ pwsh -File scripts/package.ps1 -Force -Verify   # 再解包运行一次，证明
 `Assert-DesktopExecutable` 直接从 PE 资源目录读出桌面端可执行文件内嵌的应用程序清单
 （`RT_MANIFEST` 1；源文件为 `src/Desktop/resources/app/MentorRecorder.Desktop.manifest`，由 `app.rc.in`
 编入），要求 `requestedExecutionLevel` 为 `asInvoker`、声明 `longPathAware = true`，并声明支持
-Windows 10/11；没有内嵌清单或任一项不符即打包失败。可执行文件中出现 `MR_COLLECTOR_PATH` 字样时
-（即以 `MR_DEV_COLLECTOR_DISCOVERY` 编译的开发构建）同样失败。该断言在暂存之前与 `-Verify`
+Windows 10/11；没有内嵌清单或任一项不符即打包失败。可执行文件中出现以 NUL 结尾的窄字符串
+`MR_COLLECTOR_PATH` 时（开发构建传给环境变量读取函数的完整名称）同样失败；内嵌更新记录和翻译
+资源中的普通文字引用不作为开发代码。该断言在暂存之前与 `-Verify`
 解包后各执行一次。清单不再以可执行文件旁的单独文件分发，构建目录中残留的旧外部清单
 `MentorRecorder.Desktop.exe.manifest` 不进入发布包。
 

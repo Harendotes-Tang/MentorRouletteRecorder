@@ -343,6 +343,13 @@ try {{ Assert-DesktopExecutable $path 6>$null }} catch {{ $refusal = $_.Exceptio
         self.assertTrue(outcome["refused"])
         self.assertIn("MR_DEV_COLLECTOR_DISCOVERY", outcome["message"])
 
+    def test_embedded_changelog_and_translation_mentions_are_not_developer_code(self):
+        # Release notes and QM source messages carry the name as data, not as getenv's C string.
+        for resource in ((REPO / "CHANGELOG.md").read_bytes(), b"MR_COLLECTOR_PATH\x07"):
+            with self.subTest(resource=resource[:40]):
+                outcome = self.desktop_check(portable_executable(self.project_manifest(), resource))
+                self.assertFalse(outcome["refused"], outcome["message"])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -709,10 +709,11 @@ function Assert-DesktopExecutable([string]$ExePath) {
 
     # MR_DEV_COLLECTOR_DISCOVERY (src/Desktop/CMakeLists.txt) compiles in the MR_COLLECTOR_PATH
     # override and the walk up into a source checkout, for developer builds only (reviews OH-8,
-    # DT2-X3). That code is the only place the variable is named, so the name in the
-    # executable means the build was configured for development.
+    # DT2-X3). qEnvironmentVariable receives a NUL-terminated narrow string. The bundled
+    # changelog and QM source messages also mention the name, followed by Markdown or
+    # message delimiters; those resource bytes do not mean the override was compiled in.
     $latin1 = [System.Text.Encoding]::Latin1.GetString([System.IO.File]::ReadAllBytes($ExePath))
-    if ($latin1.IndexOf('MR_COLLECTOR_PATH', [StringComparison]::Ordinal) -ge 0) {
+    if ($latin1.IndexOf('MR_COLLECTOR_PATH' + [char]0, [StringComparison]::Ordinal) -ge 0) {
         $problems += '以 MR_DEV_COLLECTOR_DISCOVERY 构建（开发用的 Collector 查找），不得发布'
     }
 
