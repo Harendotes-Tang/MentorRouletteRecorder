@@ -175,7 +175,13 @@ public sealed class SharedCalibrationShareBackTests : IDisposable
         pipeline.Refresh(Bed.Game());
         await Bed.Idle(pipeline);
         var session = _bed.Start(pipeline);
-        Bed.Feed(pipeline, session, Bed.Evening());
+        var evening = Bed.Evening().ToArray();
+        // The revocation scenario needs a settled profile. Finish the login bind before replaying the duty;
+        // stopping while its background write is pending deliberately discards that session's staging.
+        Bed.Feed(pipeline, session, Bed.Before(evening, 30_000));
+        await Bed.Idle(pipeline);
+        Assert.Equal(ProfileOrigin.Shared, pipeline.Current.Origin);
+        Bed.Feed(pipeline, session, Bed.From(evening, 30_000));
         pipeline.OnCaptureStopped(session, CaptureEndReason.UserStop);
         await Bed.Idle(pipeline);
         Assert.Equal(SharedCandidateStatus.Proven, Assert.Single(pipeline.CalibrationStatus().Shared.Candidates).Status);
