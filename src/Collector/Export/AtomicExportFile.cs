@@ -1,4 +1,5 @@
 using MentorRecorder.Collector.Contracts.Errors;
+using MentorRecorder.Collector.Contracts.Texts;
 
 namespace MentorRecorder.Collector.Export;
 
@@ -45,7 +46,7 @@ internal sealed class AtomicExportFile : IDisposable
         if (verify is not null && !verify(TemporaryPath))
         {
             throw new CollectorException(ErrorCodes.ExportFailed,
-                "导出文件完整性校验未通过，已保留原文件。",
+                CollectorTexts.ExportIntegrityFailed(),
                 new Dictionary<string, object?> { ["target_path"] = _targetPath });
         }
 

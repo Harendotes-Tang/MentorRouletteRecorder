@@ -442,7 +442,7 @@ private Q_SLOTS:
         scene.controller()->openReleasePage();
         QCOMPARE(scene.opened, QStringList{QLatin1String(kReleaseUrl)});
         QTRY_VERIFY(!scene.app->toastMessage().isEmpty());
-        QVERIFY(scene.app->toastMessage().contains(QString::fromUtf8("已在系统浏览器中打开")));
+        QVERIFY(scene.app->toastMessage().contains(QString::fromUtf8("已打开更新说明")));
     }
 
     void refusesAnAddressWithUserInfoAPortOrAnotherHost_data()
@@ -517,8 +517,8 @@ private Q_SLOTS:
         // (No longer "本软件自身不下载": since 下载并安装 the software can download
         // in place, so the sentence speaks of this download only.)
         QCOMPARE(scene.app->toastMessage(),
-                 QString::fromUtf8("已请系统浏览器下载 9.9.9 版的安装程序（由你手动触发）。"
-                                   "这次由浏览器下载，安装需要你自己运行它。"));
+                 QString::fromUtf8("已向浏览器发送 9.9.9 版的安装包下载请求。"
+                                   "请在浏览器中确认下载结果，下载后自行运行安装包。"));
 
         // 查看更新说明 still opens the release page.
         update->openReleasePage();
@@ -598,8 +598,7 @@ private Q_SLOTS:
         QCOMPARE(scene.opened, QStringList{QLatin1String(kReleaseUrl)});
         QTRY_VERIFY(!scene.app->toastMessage().isEmpty());
         QCOMPARE(scene.app->toastMessage(),
-                 QString::fromUtf8("没有可用的安装程序地址，已改为在系统浏览器中打开发布页"
-                                   "（由你手动触发），请在页面中下载新版本。"));
+                 QString::fromUtf8("没有可用的安装包地址，已打开发布页。请在页面中下载新版本。"));
     }
 
     void withoutAnInstallerAddressTheDownloadButtonOpensTheReleasePage()
@@ -736,7 +735,7 @@ private Q_SLOTS:
         QTRY_VERIFY(!scene.app->toastMessage().isEmpty());
         const QString toast = scene.app->toastMessage();
         QCOMPARE(toast,
-                 QString::fromUtf8("没有检查成功（网络不通或发布页暂时不可用），稍后再试。"));
+                 QString::fromUtf8("检查更新失败，网络或发布页暂时不可用，请稍后再试。"));
         // Never the wire token, and never a Latin word of any kind.
         QVERIFY(!toast.contains(lastOutcome));
         static const QRegularExpression latin(QStringLiteral("[A-Za-z]"));
@@ -771,7 +770,7 @@ private Q_SLOTS:
         scene.controller()->checkNow();
         QTRY_VERIFY(!scene.app->toastMessage().isEmpty());
         QCOMPARE(scene.app->toastMessage(),
-                 QString::fromUtf8("本机已通过环境变量禁用更新检查。"));
+                 QString::fromUtf8("此电脑已停用更新检查。"));
     }
 
     void aFailedCheckRequestSaysSoAndChangesNothing()
@@ -1023,26 +1022,26 @@ ApplicationWindow {
         QStringList texts;
         collectText(dialog->property("contentItem").value<QQuickItem *>(), texts);
         const QString all = texts.join(QLatin1Char('\n'));
-        QVERIFY(all.contains(QString::fromUtf8("只有三种联网")));
+        QVERIFY(all.contains(QString::fromUtf8("后台服务仅为以下三类用途联网")));
         QVERIFY(all.contains(QString::fromUtf8("联网一：")));
         QVERIFY(all.contains(QString::fromUtf8("联网二：")));
-        QVERIFY(all.contains(QString::fromUtf8("联网三：检查新版本")));
+        QVERIFY(all.contains(QString::fromUtf8("联网三：检查更新")));
         QVERIFY(all.contains(QString::fromUtf8("设置 → 通用 → 更新")));
         QVERIFY(!all.contains(QString::fromUtf8("只有两种联网")));
         QVERIFY(!all.contains(QString::fromUtf8("没有更新检查")));
         // The recheck of a shared or queue-inferred profile is a network request
         // the version 4 text ruled out ("已经有可用档案时不会联网").
-        QVERIFY(all.contains(QString::fromUtf8("还会再读一次同一份公开列表")));
+        QVERIFY(all.contains(QString::fromUtf8("软件还会检查同一份公开列表")));
         QVERIFY(!all.contains(QString::fromUtf8("通过才用来记录；已经有可用档案时不会联网")));
         // 下载并安装 (docs/privacy-boundary.md §8.6): the third kind also covers the
         // installer the user asks for - from this project's release page, checked
         // against the published checksum, started only by a second click. The old
         // "never downloads, never installs" would now be false.
-        QVERIFY(all.contains(QString::fromUtf8("只有在你点「下载并安装」之后")));
+        QVERIFY(all.contains(QString::fromUtf8("点「下载并安装」只下载安装包")));
         QVERIFY(all.contains(QString::fromUtf8("发布时公布的校验值")));
-        QVERIFY(all.contains(QString::fromUtf8("再点「立即安装」")));
+        QVERIFY(all.contains(QString::fromUtf8("通过后还需点「立即安装」")));
         // About new versions only: 联网一 downloads shared calibrations by itself.
-        QVERIFY(all.contains(QString::fromUtf8("本软件从不自行下载或安装新版本")));
+        QVERIFY(all.contains(QString::fromUtf8("软件不会自行下载或安装")));
         QVERIFY(!all.contains(QString::fromUtf8("本软件从不自动下载、也从不安装新版本")));
     }
 };

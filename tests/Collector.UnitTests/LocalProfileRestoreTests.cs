@@ -199,8 +199,8 @@ public sealed class LocalProfileRestoreTests : IDisposable
             () => pipeline.DiscardCalibration(restoreLocalProfile: true));
 
         Assert.Equal(ErrorCodes.CalibrationNotReady, answer.Code);
-        Assert.Contains("已经放回", answer.Message, StringComparison.Ordinal);
-        Assert.Contains("匹配通知", answer.Message, StringComparison.Ordinal);
+        Assert.Contains("已恢复并留作备用", answer.Message, StringComparison.Ordinal);
+        Assert.Contains("匹配成功的时间", answer.Message, StringComparison.Ordinal);
         Assert.DoesNotContain("无法使用", answer.Message, StringComparison.Ordinal);
         Assert.DoesNotContain("重新校准", answer.Message, StringComparison.Ordinal);
 

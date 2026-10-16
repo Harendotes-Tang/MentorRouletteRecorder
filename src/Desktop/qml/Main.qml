@@ -90,6 +90,27 @@ ApplicationWindow {
     }
 
     readonly property bool suppressOnboarding: typeof SuppressOnboarding !== "undefined" ? SuppressOnboarding : false
+    // 每次启动只调度一次；首次引导及业务弹窗优先，普通截图保持原画面。
+    property bool releaseNotesWaiting: false
+    readonly property var releaseNotesController: typeof ReleaseNotes !== "undefined" ? ReleaseNotes : null
+    function presentReleaseNotes() {
+        if (!releaseNotesWaiting || !window.visible || window.visibility === Window.Minimized)
+            return
+        if (baselineDialog.visible || recordingAlert.visible)
+            return
+        const children = Overlay.overlay.children
+        for (let i = 0; i < children.length; ++i) {
+            if (children[i].visible) return
+        }
+        releaseNotesWaiting = false
+        releaseNotesDialog.open()
+    }
+    Timer {
+        interval: 250
+        repeat: true
+        running: window.releaseNotesWaiting
+        onTriggered: window.presentReleaseNotes()
+    }
     readonly property bool forceBaselineDialog: typeof ForceBaselineDialog !== "undefined" ? ForceBaselineDialog : false
     readonly property bool forceDisclosure: typeof ForceDisclosure !== "undefined" ? ForceDisclosure : false
     readonly property bool forceOpenDetail: typeof ForceOpenDetail !== "undefined" ? ForceOpenDetail : false
@@ -126,7 +147,7 @@ ApplicationWindow {
     function captureBadgeText() {
         if (App.maintainerToolsVisible) return App.captureModeCompactText
         return App.recording.state === "listening" ? qsTr("自动监听中")
-             : App.recording.silent ? qsTr("监听中·收不到数据")
+             : App.recording.silent ? qsTr("读不到游戏数据")
              : App.recording.state === "waiting" ? qsTr("等待游戏")
              : App.recording.state === "choosing_game" ? qsTr("等待选择游戏")
              : App.recording.state === "calibrating" ? qsTr("校准中")
@@ -187,23 +208,23 @@ ApplicationWindow {
         case "restore": return qsTr("恢复记录")
         case "undo": return qsTr("撤销上一次修正")
         case "review": return qsTr("确认待复核记录")
-        default: return qsTr("软删除记录")
+        default: return qsTr("删除记录")
         }
     }
 
     function reasonDialogHint(actionName) {
         switch (actionName) {
         case "restore":
-            return qsTr("恢复会重新回到统计与历史列表中。")
+            return qsTr("恢复后，这条记录会重新显示在历史记录中，并按原有规则参与统计。")
         case "undo":
-            return qsTr("撤销会把上一次修正的字段回放为原值，并作为一条新的修订追加；"
+            return qsTr("撤销后，上次修正的内容会恢复为修改前的值。此次撤销也会留在修改记录中，"
                         + "既有的修正记录不会被删除。")
         case "review":
             return qsTr("确认表示你已核对这条记录。结果不会被改写，"
-                        + "只是取消“待复核”标记，并作为一条新的修订记入审计。"
+                        + "只会取消“待复核”标记，并记入修改记录。"
                         + "要改成“通关”或“离开”，请用“修正”填写结果。")
         default:
-            return qsTr("软删除不会物理移除记录，但会从默认统计中排除。")
+            return qsTr("删除后，这条记录会移到“已删除”，不再计入默认统计。永久删除前仍可恢复；自动清理期限可在设置中查看。")
         }
     }
 
@@ -212,7 +233,7 @@ ApplicationWindow {
         case "restore": return qsTr("确认恢复")
         case "undo": return qsTr("确认撤销")
         case "review": return qsTr("确认已复核")
-        default: return qsTr("确认软删除")
+        default: return qsTr("确认删除")
         }
     }
 
@@ -320,8 +341,12 @@ ApplicationWindow {
 
             readonly property color topWash: Theme.washTop
             readonly property color bottomWash: Theme.washBottom
+            readonly property real bottomRadiusX: Theme.washBottomRadiusX
+            readonly property real bottomRadiusY: Theme.washBottomRadiusY
             onTopWashChanged: requestPaint()
             onBottomWashChanged: requestPaint()
+            onBottomRadiusXChanged: requestPaint()
+            onBottomRadiusYChanged: requestPaint()
             onWidthChanged: requestPaint()
             onHeightChanged: requestPaint()
 
@@ -348,7 +373,7 @@ ApplicationWindow {
                 ctx.reset()
                 ctx.clearRect(0, 0, width, height)
                 wash(ctx, width * 0.5, -height * 0.2, 1000, 600, topWash)
-                wash(ctx, width, height, 600, 400, bottomWash)
+                wash(ctx, width, height, bottomRadiusX, bottomRadiusY, bottomWash)
             }
         }
 
@@ -360,12 +385,18 @@ ApplicationWindow {
             objectName: "automaticRecordingBanner"
 
             readonly property string message: App.recording.message
-            // Dismissal lasts until the software has something else to say.
+            // Dismissal lasts until the software has something else to say. The
+            // serial does not move on a language switch, which re-renders the
+            // same message in other words; the text still matches a message that
+            // comes back unchanged later.
             property string dismissed: ""
+            property int dismissedSerial: -1
+            readonly property bool dismissedNow: recordingNotice.dismissedSerial === App.recording.messageSerial
+                                                 || recordingNotice.dismissed === recordingNotice.message
 
             visible: !App.maintainerToolsVisible
                      && (App.recording.attention || App.recording.retryAvailable)
-                     && recordingNotice.dismissed !== recordingNotice.message
+                     && !recordingNotice.dismissedNow
             // Bottom right, clear of the page title and of the sidebar: the notice
             // must not cover the heading of the page it is talking about.
             anchors.right: parent.right
@@ -411,7 +442,10 @@ ApplicationWindow {
                 AppButton {
                     objectName: "automaticRecordingNoticeDismiss"
                     text: qsTr("收起")
-                    onClicked: recordingNotice.dismissed = recordingNotice.message
+                    onClicked: {
+                        recordingNotice.dismissed = recordingNotice.message
+                        recordingNotice.dismissedSerial = App.recording.messageSerial
+                    }
                 }
             }
         }
@@ -782,12 +816,17 @@ ApplicationWindow {
                                         elide: Text.ElideRight
                                     }
 
+                                    // A long state in a wordier language (English
+                                    // "Can't record automatically") takes a second
+                                    // line rather than an ellipsis.
                                     Text {
                                         Layout.fillWidth: true
                                         text: modelData.value
                                         color: Theme.textPrimary
                                         font.pixelSize: Theme.fs(11)
                                         font.bold: true
+                                        wrapMode: Text.WordWrap
+                                        maximumLineCount: 2
                                         elide: Text.ElideRight
                                     }
                                 }
@@ -1028,6 +1067,15 @@ ApplicationWindow {
         anchors.centerIn: Overlay.overlay
     }
 
+    ReleaseNotesDialog {
+        id: releaseNotesDialog
+        notesController: window.releaseNotesController
+    }
+
+    CalibrationEvidenceDialog {
+        evidenceController: typeof CalibrationEvidence !== "undefined" ? CalibrationEvidence : null
+    }
+
     BaselineDialog {
         id: baselineDialog
         objectName: "baselineDialog"
@@ -1092,7 +1140,7 @@ ApplicationWindow {
                 objectName: "reasonField"
                 Layout.fillWidth: true
                 Layout.preferredHeight: 100
-                placeholderText: qsTr("说明这次操作的原因（必填）。")
+                placeholderText: qsTr("请填写原因，方便以后查看这次修改。")
             }
 
             Text {
@@ -1132,7 +1180,7 @@ ApplicationWindow {
                           : window.reasonDialogConfirm(window.reasonAction)
                     onClicked: {
                         if (!reasonField.text.trim()) {
-                            window.reasonDialogError = qsTr("必须填写操作原因。")
+                            window.reasonDialogError = qsTr("请先填写这次操作的原因。")
                             return
                         }
                         // The request goes to the selected record; without one
@@ -1205,6 +1253,11 @@ ApplicationWindow {
     }
 
     Component.onCompleted: {
+        const previewNotes = typeof ForceReleaseNotes !== "undefined" && ForceReleaseNotes
+        const suppressNotes = typeof SuppressReleaseNotes !== "undefined" && SuppressReleaseNotes
+        releaseNotesWaiting = releaseNotesController !== null
+            && releaseNotesController.text.length > 0
+            && (previewNotes || (!suppressNotes && releaseNotesController.pending))
         if (typeof Reflections !== "undefined")
             Reflections.setActive(App.currentPage === 7)
         if (typeof ForceOpenImport !== "undefined" && ForceOpenImport) {

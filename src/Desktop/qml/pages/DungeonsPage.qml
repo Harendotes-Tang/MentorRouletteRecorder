@@ -11,6 +11,32 @@ Item {
     property var categoriesCache: []
     property var specialDutiesCache: []
     readonly property bool wideStatistics: contentColumn.width >= 1000
+    // The table's 类型 column: 55 px fits every Chinese category; the names in
+    // another language (Alliance Raids, 討伐・討滅戦) widen it up to 110 px and
+    // the duty column gives way.
+    readonly property int typeColumnWidth: Math.min(110, Math.max(55, Math.ceil(typeMeasure.implicitWidth)))
+
+    function typeLabel(row) {
+        return Theme.categoryName(row.duty_category) || qsTr("未识别")
+    }
+
+    // Never shown: lays the rows' category names out in the cell's font so its
+    // implicit width is the widest of them.
+    Column {
+        id: typeMeasure
+        visible: false
+
+        Repeater {
+            model: page.rowsCache
+
+            Text {
+                required property var modelData
+                text: page.typeLabel(modelData)
+                textFormat: Text.PlainText
+                font.pixelSize: Theme.fs(11)
+            }
+        }
+    }
 
     function reloadRows() {
         rowsCache = App.dungeons.topRows(topLimit === 0 ? 0 : topLimit)
@@ -166,7 +192,7 @@ Item {
                             Text {
                                 Layout.preferredWidth: Math.max(110, Math.min(160, dungeonAttemptsCard.width * 0.38))
                                 Layout.minimumWidth: 0
-                                text: modelData.duty_name || qsTr("未知副本")
+                                text: Theme.dutyName(modelData) || qsTr("未知副本")
                                 textFormat: Text.PlainText
                                 color: Theme.textPrimary
                                 font.pixelSize: Theme.fs(12)
@@ -221,7 +247,7 @@ Item {
                         Repeater {
                             model: [
                                 { label: qsTr("副本"), width: 120, align: Text.AlignLeft },
-                                { label: qsTr("类型"), width: 55, align: Text.AlignLeft },
+                                { label: qsTr("类型"), width: page.typeColumnWidth, align: Text.AlignLeft },
                                 { label: qsTr("次数"), width: 36, align: Text.AlignRight },
                                 { label: qsTr("完成率"), width: 52, align: Text.AlignRight },
                                 { label: qsTr("平均耗时"), width: 58, align: Text.AlignRight },
@@ -286,7 +312,7 @@ Item {
 
                                         Text {
                                             Layout.fillWidth: true
-                                            text: modelData.duty_name || qsTr("未知副本")
+                                            text: Theme.dutyName(modelData) || qsTr("未知副本")
                                             textFormat: Text.PlainText
                                             color: Theme.textPrimary
                                             font.pixelSize: Theme.fs(12)
@@ -309,8 +335,8 @@ Item {
                                 }
 
                                 Text {
-                                    Layout.preferredWidth: 55
-                                    text: modelData.duty_category || qsTr("未识别")
+                                    Layout.preferredWidth: page.typeColumnWidth
+                                    text: page.typeLabel(modelData)
                                     textFormat: Text.PlainText
                                     color: Theme.textSecondary
                                     font.pixelSize: Theme.fs(11)

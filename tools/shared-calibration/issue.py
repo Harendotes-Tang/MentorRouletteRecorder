@@ -2,10 +2,10 @@
 """Reads a share-calibration or report-calibration issue, and makes anything echoed back harmless.
 
 GitHub renders an issue form into the issue body as markdown: every field becomes a ``### <label>``
-heading followed by its value, an empty optional field becomes ``_No response_``, and a checkbox
-becomes ``- [X] <option>`` or ``- [ ] <option>``. The labels this module looks for are the ones in
-``.github/ISSUE_TEMPLATE/share-calibration.yml`` and ``report-calibration.yml``
-(test_public_repo_files.py keeps them in step).
+heading followed by its value, an empty optional field becomes ``_No response_``, a dropdown becomes
+the text of the option chosen, and a checkbox becomes ``- [X] <option>`` or ``- [ ] <option>``. The
+labels and options this module looks for are the ones in ``.github/ISSUE_TEMPLATE/share-calibration.yml``
+and ``report-calibration.yml`` (test_public_repo_files.py keeps them in step).
 
 The title and the body are untrusted: anyone can open an issue from the form and then edit the body
 into anything. So nothing is guessed. A missing or repeated section is a refusal, not a best effort;
@@ -23,8 +23,22 @@ from dataclasses import dataclass
 from typing import Any
 
 CODE_LABEL = "校准码"
+# Where the code comes from (plan section 20.2). An optional text input with id "basis", because GitHub
+# prefills only inputs and textareas from the query string, never a dropdown: the client sends one of the
+# two texts below. A client that predates the field sends none, so an empty field means calibrated.
+BASIS_LABEL = "这份校准码的来源"
+BASIS_OPTION_CALIBRATED = "本机校准得到，并逐条核对过校准时间线"
+BASIS_OPTION_VERIFIED = "其他玩家分享，已在我的软件里核实通过并正常记录"
+BASIS_CALIBRATED = "calibrated"
+BASIS_VERIFIED = "verified"
+# The only texts the field may hold, and what each one is recorded as.
+BASIS_OPTIONS = {BASIS_OPTION_CALIBRATED: BASIS_CALIBRATED, BASIS_OPTION_VERIFIED: BASIS_VERIFIED}
+# The required confirmation. Bodies of the form before plan section 20.2 carry the older option, which
+# still counts: the issues opened from it say the same thing about the code.
 CONFIRM_LABEL = "确认"
-CONFIRM_OPTION = "我在软件里逐条核对过校准时间线"
+CONFIRM_OPTION = "上面的来源属实，我已在软件里核对过"
+CONFIRM_OPTION_OLD = "我在软件里逐条核对过校准时间线"
+CONFIRM_OPTIONS = (CONFIRM_OPTION, CONFIRM_OPTION_OLD)
 TITLE_PREFIX = "[共享校准] "
 NO_RESPONSE = "_No response_"
 MAX_BODY_CHARS = 65536
@@ -34,6 +48,8 @@ BODY_MISSING = "BODY_MISSING"
 BODY_TOO_LARGE = "BODY_TOO_LARGE"
 CODE_MISSING = "CODE_MISSING"
 CODE_AMBIGUOUS = "CODE_AMBIGUOUS"
+BASIS_AMBIGUOUS = "BASIS_AMBIGUOUS"
+BASIS_INVALID = "BASIS_INVALID"
 CONFIRM_MISSING = "CONFIRM_MISSING"
 CONFIRM_AMBIGUOUS = "CONFIRM_AMBIGUOUS"
 
@@ -72,9 +88,14 @@ _LOOK_ALIKES = {"@": "＠", "#": "＃", ":": "：", "/": "／", ".": "．"}
 
 @dataclass(frozen=True)
 class IssueForm:
-    """The two form values, or the reason the body could not be read as the form."""
+    """The form values, or the reason the body could not be read as the form.
+
+    ``basis`` is ``BASIS_CALIBRATED`` or ``BASIS_VERIFIED`` for a readable form and None otherwise;
+    ``confirmed`` says whether the confirmation box is ticked (always False for an unreadable form).
+    """
 
     code: str | None
+    basis: str | None
     confirmed: bool
     problem: str | None
 
@@ -96,31 +117,45 @@ def _sections(body: str) -> list:
 
 
 def parse_body(body: Any) -> IssueForm:
-    """The code and whether the confirmation box is ticked, from an issue-form body."""
+    """The code, its basis and whether the confirmation box is ticked, from an issue-form body.
+
+    Nothing is guessed, with one rule for the optional 这份校准码的来源: a missing section (a body of the
+    form before plan section 20.2), an empty one or ``_No response_`` (a client that sends no basis) is
+    ``BASIS_CALIBRATED``, what every submission meant until then. Any text but the two the client sends is
+    ``BASIS_INVALID``, and two such sections are ``BASIS_AMBIGUOUS``.
+    """
     if not isinstance(body, str) or not body.strip():
-        return IssueForm(None, False, BODY_MISSING)
+        return IssueForm(None, None, False, BODY_MISSING)
     if len(body) > MAX_BODY_CHARS:
-        return IssueForm(None, False, BODY_TOO_LARGE)
+        return IssueForm(None, None, False, BODY_TOO_LARGE)
     sections = _sections(body.replace("\r\n", "\n").replace("\r", "\n"))
     code_sections = [lines for label, lines in sections if label == CODE_LABEL]
+    basis_sections = [lines for label, lines in sections if label == BASIS_LABEL]
     confirm_sections = [lines for label, lines in sections if label == CONFIRM_LABEL]
     if len(code_sections) > 1:
-        return IssueForm(None, False, CODE_AMBIGUOUS)
+        return IssueForm(None, None, False, CODE_AMBIGUOUS)
+    if len(basis_sections) > 1:
+        return IssueForm(None, None, False, BASIS_AMBIGUOUS)
     if len(confirm_sections) > 1:
-        return IssueForm(None, False, CONFIRM_AMBIGUOUS)
+        return IssueForm(None, None, False, CONFIRM_AMBIGUOUS)
     if not code_sections:
-        return IssueForm(None, False, CODE_MISSING)
+        return IssueForm(None, None, False, CODE_MISSING)
     if not confirm_sections:
-        return IssueForm(None, False, CONFIRM_MISSING)
+        return IssueForm(None, None, False, CONFIRM_MISSING)
 
     code = _unfence(code_sections[0])
     if not code or code == NO_RESPONSE:
-        return IssueForm(None, False, CODE_MISSING)
+        return IssueForm(None, None, False, CODE_MISSING)
+    stated = _unfence(basis_sections[0]) if basis_sections else ""
+    if stated in ("", NO_RESPONSE):
+        stated = BASIS_OPTION_CALIBRATED
+    if stated not in BASIS_OPTIONS:
+        return IssueForm(None, None, False, BASIS_INVALID)
     confirmed = any(
-        match is not None and match.group(1) == CONFIRM_OPTION
+        match is not None and match.group(1) in CONFIRM_OPTIONS
         for match in (_CHECKED.fullmatch(line) for line in confirm_sections[0])
     )
-    return IssueForm(code, confirmed, None)
+    return IssueForm(code, BASIS_OPTIONS[stated], confirmed, None)
 
 
 def _unfence(lines: list) -> str:

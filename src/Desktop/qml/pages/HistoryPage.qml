@@ -32,8 +32,9 @@ Item {
     function requestBatch(action) {
         batchDialog.action = action
         batchDialog.submitted = false
-        batchReason.text = action === "purge" ? qsTr("永久删除回收站记录")
-                         : action === "restore" ? qsTr("恢复回收站记录") : qsTr("批量移入回收站")
+        batchReason.text = action === "purge" ? qsTranslate("SystemReason", "永久删除已删除的记录")
+                         : action === "restore" ? qsTranslate("SystemReason", "恢复已删除的记录")
+                         : qsTranslate("SystemReason", "批量删除记录")
         batchDialog.open()
     }
     function dateLabel(run) {
@@ -67,7 +68,7 @@ Item {
         const rows = App.dutyOptions
         for (let index = 0; index < rows.length; ++index) {
             if (rows[index].content_id === contentId)
-                return rows[index].duty_name || qsTr("未知副本")
+                return Theme.dutyName(rows[index]) || qsTr("未知副本")
         }
         return qsTr("指定副本")
     }
@@ -174,8 +175,16 @@ Item {
 
     function buildFilter(withoutDates) {
         const filter = { date_field: "history_date" }
-        if (searchField.text.trim().length > 0)
-            filter.text = searchField.text.trim()
+        // Keep the original words for notes; translated names add matches
+        // within the same query, so totals, paging and the calendar agree.
+        const text = searchField.text.trim()
+        if (text.length > 0) {
+            filter.text = text
+            const nameText = typeof Names !== "undefined" && Names
+                             ? Names.recordedSearchText(text) : text
+            if (nameText !== text)
+                filter.name_text = nameText
+        }
         const from = toUtcRange(fromField.text.trim(), false)
         const to = toUtcRange(toField.text.trim(), true)
         if (!withoutDates && from)
@@ -187,7 +196,7 @@ Item {
         if (page.contentFilter !== null && page.contentFilter !== undefined)
             filter.content_id = [page.contentFilter]
         if (categoryBox.currentIndex > 0)
-            filter.duty_category = [categoryBox.model[categoryBox.currentIndex]]
+            filter.duty_category = [categoryBox.model[categoryBox.currentIndex].value]
         if (jobBox.currentIndex > 0)
             filter.job_id = [jobBox.model[jobBox.currentIndex].job_id]
         else if (page.hasRetainedJobFilter)
@@ -275,7 +284,7 @@ Item {
         searchField.text = filter.text || ""
         fromField.text = filter.from_utc ? Fmt.localDate(filter.from_utc) : ""
         toField.text = filter.to_utc ? Fmt.localDate(filter.to_utc) : ""
-        categoryBox.currentIndex = filterIndex(categoryBox.model, "", filter.duty_category)
+        categoryBox.currentIndex = filterIndex(categoryBox.model, "value", filter.duty_category)
         jobBox.currentIndex = filterIndex(jobBox.model, "job_id", filter.job_id)
         page.retainedJobFilter = jobBox.currentIndex === 0 ? firstFilterValue(filter.job_id) : null
         resultBox.currentIndex = filterIndex(resultBox.model, "value", filter.result)
@@ -434,7 +443,7 @@ Item {
                     availableDays: App.runs.calendarAvailableDays
                     knownMonths: App.runs.calendarKnownMonths
                     availabilityLoading: App.runs.calendarLoading
-                    availabilityError: App.runs.calendarError || App.runs.calendarDayError(startText.trim()) || App.runs.calendarDayError(endText.trim())
+                    availabilityError: Theme.live(App.runs.calendarError || App.runs.calendarDayError(startText.trim()) || App.runs.calendarDayError(endText.trim()))
                     onCalendarRequested: function(month) {
                         // Retry failed typed endpoints as well as the visible month.
                         for (const date of [startText.trim(), endText.trim()]) {
@@ -466,10 +475,22 @@ Item {
                     }
                 }
 
+                // The closed filters show a short label (类型 / 职业 / 结果 / 来源). In
+                // Chinese it fits the fixed widths below; a translation may be
+                // longer, so each box grows to its own label: the text's padding
+                // (10 + 24) plus the box's own, and a pixel against rounding.
+                TextMetrics { id: typeLabelMetrics; font.pixelSize: Theme.fs(13); text: qsTr("类型") }
+                TextMetrics { id: jobLabelMetrics; font.pixelSize: Theme.fs(13); text: qsTr("职业") }
+                TextMetrics { id: resultLabelMetrics; font.pixelSize: Theme.fs(13); text: qsTr("结果") }
+                TextMetrics { id: sourceLabelMetrics; font.pixelSize: Theme.fs(13); text: qsTr("来源") }
+
                 StyledComboBox {
                     id: categoryBox
-                    width: 78
-                    model: [qsTr("全部类型")].concat(App.categoryOptions)
+                    width: Math.max(78, Math.ceil(typeLabelMetrics.advanceWidth) + 36
+                                     + leftPadding + rightPadding)
+                    // value: the Chinese category RunFilter.duty_category carries; label: as shown.
+                    model: [{ value: null, label: qsTr("全部类型") }].concat(Theme.labelledCategories(App.categoryOptions))
+                    textRole: "label"
                     displayText: currentIndex === 0 ? qsTr("类型") : currentText
                     Accessible.name: qsTr("类型筛选")
                     onActivated: page.scheduleFilter()
@@ -478,10 +499,13 @@ Item {
                 StyledComboBox {
                     id: jobBox
                     objectName: "historyJobFilter"
-                    width: 78
+                    width: Math.max(78, Math.ceil(jobLabelMetrics.advanceWidth) + 36
+                                     + leftPadding + rightPadding)
                     // The first row clears this filter; the closed field keeps its short label.
-                    model: [{ job_id: null, job_name: qsTr("全部职业") }].concat(App.battleJobOptions)
-                    textRole: "job_name"
+                    // The label is the job in the interface language; the filter sends job_id.
+                    model: [{ job_id: null, job_name: qsTr("全部职业"), label: qsTr("全部职业") }]
+                           .concat(Theme.labelledJobs(App.battleJobOptions))
+                    textRole: "label"
                     displayText: currentIndex === 0 ? qsTr("职业") : currentText
                     Accessible.name: qsTr("职业筛选")
                     onActivated: {
@@ -492,7 +516,8 @@ Item {
 
                 StyledComboBox {
                     id: resultBox
-                    width: 80
+                    width: Math.max(80, Math.ceil(resultLabelMetrics.advanceWidth) + 36
+                                     + leftPadding + rightPadding)
                     model: [
                         { value: null, label: qsTr("全部结果") },
                         { value: "COMPLETED", label: qsTr("通关") },
@@ -511,7 +536,8 @@ Item {
                 StyledComboBox {
                     id: sourceBox
                     visible: !page.narrowFilters
-                    width: 78
+                    width: Math.max(78, Math.ceil(sourceLabelMetrics.advanceWidth) + 36
+                                     + leftPadding + rightPadding)
                     model: [
                         { value: null, label: qsTr("全部来源") },
                         { value: "AUTO_NETWORK", label: qsTr("自动识别") },
@@ -595,7 +621,8 @@ Item {
                 }
                 AppButton {
                     variant: "ghost"
-                    width: 40
+                    // Its label's own width when a translation is longer than 清除.
+                    width: Math.max(40, Math.ceil(contentItem.implicitWidth) + 4)
                     height: filterRow.controlHeight
                     text: qsTr("清除")
                     onClicked: page.resetFilter()
@@ -609,7 +636,7 @@ Item {
                          || (page.narrowFilters && (sourceBox.currentIndex > 0))
                 spacing: 6
                 Chip { visible: page.contentFilter !== null && page.contentFilter !== undefined; text: page.dutyLabel(page.contentFilter); checked: true; removable: true; onRemoved: { page.contentFilter = null; page.scheduleFilter() } }
-                Chip { objectName: "retainedJobFilterChip"; visible: page.hasRetainedJobFilter; text: qsTr("职业：%1").arg(Jobs.jobName(page.retainedJobFilter)); checked: true; removable: true; Accessible.name: text; onRemoved: { page.retainedJobFilter = null; page.scheduleFilter() } }
+                Chip { objectName: "retainedJobFilterChip"; visible: page.hasRetainedJobFilter; text: qsTr("职业：%1").arg(Theme.catalogJobName(page.retainedJobFilter)); checked: true; removable: true; Accessible.name: text; onRemoved: { page.retainedJobFilter = null; page.scheduleFilter() } }
                 Chip { visible: page.narrowFilters && sourceBox.currentIndex > 0; text: sourceBox.currentText; checked: true; removable: true; onRemoved: { sourceBox.currentIndex = 0; page.scheduleFilter() } }
             }
 
@@ -621,7 +648,7 @@ Item {
                 spacing: 8
                 enabled: !App.historyBatchRunning
                 AppButton { text: qsTr("取消勾选"); visible: page.checkedCount > 0; variant: "ghost"; onClicked: App.clearCheckedHistoryRuns() }
-                AppButton { objectName: "batchSoftDeleteButton"; text: qsTr("移入回收站"); visible: page.checkedCount > 0; enabled: App.checkedHistoryDeletedCount === 0; onClicked: page.requestBatch("soft_delete") }
+                AppButton { objectName: "batchSoftDeleteButton"; text: qsTr("删除记录"); visible: page.checkedCount > 0; enabled: App.checkedHistoryDeletedCount === 0; onClicked: page.requestBatch("soft_delete") }
                 AppButton { objectName: "batchRestoreButton"; text: qsTr("恢复选中"); visible: page.checkedCount > 0 && App.checkedHistoryDeletedCount > 0; enabled: App.checkedHistoryDeletedCount === page.checkedCount; onClicked: page.requestBatch("restore") }
                 AppButton { objectName: "batchPurgeButton"; text: qsTr("永久删除"); visible: page.checkedCount > 0 && App.checkedHistoryDeletedCount > 0; enabled: App.checkedHistoryDeletedCount === page.checkedCount; onClicked: page.requestBatch("purge") }
             }
@@ -797,7 +824,7 @@ Item {
                                 Layout.preferredWidth: 32
                                 checked: page.isChecked(run.run_id)
                                 enabled: !App.historyBatchRunning
-                                Accessible.name: qsTr("勾选记录 %1 %2").arg(run.duty_name || qsTr("未知副本")).arg(page.dateLabel(run))
+                                Accessible.name: qsTr("勾选记录 %1 %2").arg(Theme.dutyName(run) || qsTr("未知副本")).arg(page.dateLabel(run))
                                 onClicked: App.setHistoryRunChecked(run, checked)
                             }
 
@@ -847,7 +874,7 @@ Item {
                                     spacing: 0
                                     Text {
                                         Layout.fillWidth: true
-                                        text: run.duty_name || qsTr("未知副本")
+                                        text: Theme.dutyName(run) || qsTr("未知副本")
                                         textFormat: Text.PlainText
                                         color: Theme.textPrimary
                                         font.pixelSize: Theme.fs(12)
@@ -857,7 +884,7 @@ Item {
                                     Text {
                                         Layout.fillWidth: true
                                         text: run.duty_expansion
-                                              ? qsTr("%1 · %2级").arg(run.duty_expansion)
+                                              ? qsTr("%1 · %2级").arg(Theme.expansionName(run.duty_expansion))
                                                                   .arg(run.duty_level || 0)
                                               : Fmt.dash()
                                         textFormat: Text.PlainText
@@ -873,7 +900,7 @@ Item {
 
                             Text {
                                 Layout.preferredWidth: 84
-                                text: run.duty_category || qsTr("未识别")
+                                text: Theme.categoryName(run.duty_category) || qsTr("未识别")
                                 textFormat: Text.PlainText
                                 horizontalAlignment: Text.AlignHCenter
                                 color: Theme.textSecondary
@@ -895,7 +922,8 @@ Item {
                                     id: jobTip
                                     visible: jobHover.hovered
                                     delay: 400
-                                    text: (run.job_name || qsTr("未知")) + " · " + Jobs.roleGroup(run.job_id)
+                                    text: (Theme.jobName(run) || qsTr("未知")) + " · "
+                                          + Theme.roleGroupName(Jobs.roleGroup(run.job_id))
                                     contentItem: Text {
                                         text: jobTip.text
                                         textFormat: Text.PlainText
@@ -913,7 +941,7 @@ Item {
                                     JobIcon { jobId: run.job_id; size: 22 }
                                     Text {
                                         Layout.maximumWidth: 112 - 22 - 7
-                                        text: run.job_name || qsTr("未知")
+                                        text: Theme.jobName(run) || qsTr("未知")
                                         textFormat: Text.PlainText
                                         color: Theme.textPrimary
                                         font.pixelSize: Theme.fs(12)
@@ -927,7 +955,7 @@ Item {
                                 Layout.preferredHeight: 28
                                 Tag {
                                     anchors.centerIn: parent
-                                    text: Fmt.runResultLabel(run)
+                                    text: Theme.live(Fmt.runResultLabel(run))
                                     variant: Fmt.runInProgress(run)
                                              ? "outline" : Fmt.resultTagVariant(run.result || "UNKNOWN")
                                 }
@@ -945,7 +973,7 @@ Item {
                             }
                             Text {
                                 Layout.preferredWidth: 60
-                                text: Fmt.sourceLabel(run.source || "AUTO_NETWORK")
+                                text: Theme.live(Fmt.sourceLabel(run.source || "AUTO_NETWORK"))
                                 horizontalAlignment: Text.AlignHCenter
                                 color: Theme.textSecondary
                                 font.pixelSize: Theme.fs(12)
@@ -1063,6 +1091,8 @@ Item {
                 objectName: "historyMoreSource"
                 Layout.fillWidth: true
                 model: sourceBox.model
+                // Mirrors sourceBox through its binding, which a language switch must not replace.
+                keepsRowAcrossLanguages: false
                 textRole: "label"
                 currentIndex: sourceBox.currentIndex
                 Accessible.name: qsTr("来源筛选")
@@ -1120,15 +1150,15 @@ Item {
         onOpened: batchCancelButton.forceActiveFocus()
         contentItem: ColumnLayout {
             spacing: 14
-            HeadingLabel { Layout.fillWidth: true; text: batchDialog.purge ? qsTr("永久删除 %1 条记录？").arg(page.checkedCount) : batchDialog.action === "restore" ? qsTr("恢复 %1 条记录？").arg(page.checkedCount) : qsTr("将 %1 条记录移入回收站？").arg(page.checkedCount); wrapMode: Text.Wrap }
+            HeadingLabel { Layout.fillWidth: true; text: batchDialog.purge ? qsTr("永久删除 %1 条记录？").arg(page.checkedCount) : batchDialog.action === "restore" ? qsTr("恢复 %1 条记录？").arg(page.checkedCount) : qsTr("删除 %1 条记录？").arg(page.checkedCount); wrapMode: Text.Wrap }
             Text {
                 Layout.fillWidth: true
                 text: batchDialog.purge
-                    ? qsTr("当前记录、心得、事件与修订正文会被永久移除，关联备注图片会清理；该操作不能撤销。已有备份、导出文件和分享图片保留。图片清理失败会保留任务并重试。")
-                    : batchDialog.action === "restore" ? qsTr("选中的回收站记录将恢复到历史，自动清理计时取消，统计会重新计算。")
-                    : App.historyRetentionDays === 0 ? qsTr("记录会从统计中移除，可以在回收站恢复。当前设为永不自动清理。")
-                    : App.historyRetentionDays < 0 ? qsTr("记录会从统计中移除，可在保留期内恢复。保留期尚未读回，可到设置·数据确认采集器的生效值。")
-                    : qsTr("记录会从统计中移除，可在保留期内恢复。软删除后按设置的 %1 天保留期自动永久清理；关闭软件时顺延到下次启动。").arg(App.historyRetentionDays)
+                    ? qsTr("记录、心得、事件和修改内容会被永久删除，关联图片也会清理，无法恢复。已有备份、导出文件和分享图片会保留。图片清理失败时会保留清理任务，之后重试。")
+                    : batchDialog.action === "restore" ? qsTr("选中的记录将恢复到历史记录中，取消自动永久删除，统计会重新计算。")
+                    : App.historyRetentionDays === 0 ? qsTr("记录会移到“已删除”，不再计入统计，可以恢复。当前设置为不自动永久删除。")
+                    : App.historyRetentionDays < 0 ? qsTr("记录会移到“已删除”，不再计入统计，永久删除前可以恢复。尚未读到保留期，请到“设置”的“数据”页确认后台服务当前使用的天数。")
+                    : qsTr("记录会移到“已删除”，不再计入统计，%1 天内可以恢复；到期后会自动永久删除。软件关闭期间到期的记录，会在下次启动时清理。").arg(App.historyRetentionDays)
                 textFormat: Text.PlainText
                 wrapMode: Text.Wrap
                 color: batchDialog.purge ? Theme.orangeText : Theme.textPrimary
@@ -1142,10 +1172,10 @@ Item {
                 AppButton { id: batchCancelButton; text: qsTr("取消"); enabled: !App.historyBatchRunning; onClicked: batchDialog.close() }
                 AppButton {
                     objectName: "historyConfirmBatch"
-                    text: App.historyBatchRunning ? qsTr("正在处理…") : batchDialog.purge ? qsTr("确认永久删除") : batchDialog.action === "restore" ? qsTr("确认恢复") : qsTr("确认移入回收站")
+                    text: App.historyBatchRunning ? qsTr("正在处理…") : batchDialog.purge ? qsTr("确认永久删除") : batchDialog.action === "restore" ? qsTr("确认恢复") : qsTr("确认删除")
                     variant: "primary"
                     enabled: !App.historyBatchRunning && page.checkedCount > 0 && batchReason.text.trim().length > 0
-                    onClicked: { batchDialog.submitted = true; App.mutateCheckedHistoryRuns(batchDialog.action, batchReason.text) }
+                    onClicked: { batchDialog.submitted = true; App.mutateCheckedHistoryRuns(batchDialog.action, Theme.storedReason(batchReason.text)) }
                 }
             }
         }

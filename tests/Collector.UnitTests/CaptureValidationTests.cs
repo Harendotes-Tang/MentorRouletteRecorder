@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using MentorRecorder.Collector.Capture;
+using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Ipc;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Protocol.Decoded;
@@ -9,7 +10,7 @@ namespace MentorRecorder.Collector.UnitTests;
 public sealed class CaptureValidationTests
 {
     private static GameProcessDetection Game(int pid = 42) => new(true, pid, "ffxiv_dx11", DateTimeOffset.UnixEpoch,
-        Region.Cn, "2026.01", 1, @"D:\SdoA\game\ffxiv_dx11.exe", Array.Empty<string>());
+        Region.Cn, "2026.01", 1, @"D:\SdoA\game\ffxiv_dx11.exe", Array.Empty<UserText>());
 
     private static CaptureValidationServices Services(Func<GameProcessDetection> game, ICaptureSource? source = null,
         Func<int, System.Net.IPAddress?, int?>? tcp = null, FakeAdapterProvider? adapters = null,
@@ -478,19 +479,19 @@ public sealed class CaptureValidationTests
         using var db = new TestDatabase();
         var ownership = new CaptureOwnership();
         using var formal = new CaptureController(FormalServices(new FakeCaptureSource(), ownership));
-        Assert.DoesNotContain(formal.Snapshot().Warnings, warning => warning.Contains("验证", StringComparison.Ordinal));
+        Assert.DoesNotContain(formal.Snapshot().Warnings, warning => warning.Chinese.Contains("验证", StringComparison.Ordinal));
 
         using var validation = new CaptureValidationController(db.Path, ownership, Services(() => GameProcessDetection.NotRunning));
         validation.Start();
-        Assert.Contains(formal.Snapshot().Warnings, warning => warning.Contains("验证", StringComparison.Ordinal));
+        Assert.Contains(formal.Snapshot().Warnings, warning => warning.Chinese.Contains("验证", StringComparison.Ordinal));
 
         validation.Stop();
         Until(validation, "state", "COMPLETED");
-        Assert.DoesNotContain(formal.Snapshot().Warnings, warning => warning.Contains("验证", StringComparison.Ordinal));
+        Assert.DoesNotContain(formal.Snapshot().Warnings, warning => warning.Chinese.Contains("验证", StringComparison.Ordinal));
 
         // The formal capture's own lease is not somebody else's.
         formal.Start("wifi");
-        Assert.DoesNotContain(formal.Snapshot().Warnings, warning => warning.Contains("验证", StringComparison.Ordinal));
+        Assert.DoesNotContain(formal.Snapshot().Warnings, warning => warning.Chinese.Contains("验证", StringComparison.Ordinal));
     }
 
     [Fact]

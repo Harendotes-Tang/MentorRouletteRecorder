@@ -5,16 +5,20 @@ Run by tools/publish_issue.sh and tools/sweep_issues.sh, which .github/workflows
 
   check          decide one submission against the repository; for a new code, write its code file
   update-index   decide the same submission again and write index.json and submissions.json, pinning a
-                 new code to the commit that added its file (--commit), and recomputing the conflict
-                 flags of that region and build (plan section 18.6)
+                 new code to the commit that added its file (--commit), recomputing the marks
+                 (``conflicting``, ``shape_prior``) of that region and build and of its later builds, and
+                 naming the codes this one disagrees with for the reply (plan section 20.4)
   push-failed    turn the last result into a maintainer error once the workflow gave up pushing
   field          print one validated field of the last result, for the shell
   event-field    print the issue number or the submitter's login from an event file, validated
   unchanged      guard a push or reply against a freshly fetched REST Issue snapshot
   pending        list open submissions nobody has answered yet, from `gh api --paginate` output
   wrap-event     wrap a REST issue object as an event file
-  revoke         maintainer: mark a code revoked in index.json, recomputing the conflict flags; every
+  revoke         maintainer: mark a code revoked in index.json, recomputing the marks; every
                  account on it is then held for that region and build until `lift`
+  remark         maintainer: recompute the marks of every region and build in index.json, or of the ones
+                 named with --region and --build, and write the files (a one-off backfill after the marks
+                 changed meaning; publication and revocation recompute them on their own)
   lift           maintainer: after review, let one held account submit for that region and build again
   prune          maintainer: take the builds named with --region and --build out, with their entries,
                  ledger rows and code files; prints the plan and changes nothing unless --apply is given
@@ -37,7 +41,9 @@ the event, so a redelivered event cannot answer the same report twice.
 Untrusted input - the issue title, the body, the submitter's login - is read only from JSON files
 named on the command line, never from arguments or the environment. Every decision writes result.json
 and comment.md into --out and prints the result as one line of ASCII JSON, so no issue text can start
-a line of the Actions log (and be read as a workflow command).
+a line of the Actions log (and be read as a workflow command). When a newly published code disagrees
+with codes already published (``conflicts``), --out also gets one ``conflict-<issue>.md`` per issue that
+submitted one of those codes: built from constants, validated issue numbers and fixed field names only.
 
 Exit codes: 0 a result was written, whatever it decided; 2 bad invocation or unreadable helper input;
 3 an invariant broke (update-index disagreeing with check, the new code's file missing).
@@ -64,17 +70,28 @@ REPOSITORY = "MentorRecorder-Calibrations"
 ISSUE_FORM = "share-calibration.yml"
 REPORT_FORM = "report-calibration.yml"
 CODE_FIELD_ID = "code"
+BASIS_FIELD_ID = "basis"
 
 SUBMISSION_LABEL = "share-calibration"
 REPORT_LABEL = "calibration-report"
 LABEL_PUBLISHED = "published"
 LABEL_REJECTED = "rejected"
 LABEL_MAINTAINER = "needs-maintainer"
-ANSWER_LABELS = frozenset({LABEL_PUBLISHED, LABEL_REJECTED, LABEL_MAINTAINER})
-REPORT_LABELS = "%s %s" % (REPORT_LABEL, LABEL_MAINTAINER)
+# Added to a submission and to every issue of the codes it disagrees with (plan section 20.4). Not an
+# answer label: a submission is answered by the label above, and a rival issue was answered long ago.
+LABEL_CONFLICTING = "conflicting"
+ANSWER_LABELS = frozenset({LABEL_PUBLISHED, LABEL_REJECTED, LABEL_MAINTAINER, "evidence-waiting"})
+REPORT_LABELS = "%s evidence-waiting" % REPORT_LABEL
 TEMPLATES_DIRECTORY = "templates"
 MAX_PENDING = 50
 MAX_INPUT_BYTES = 16 * 1024 * 1024
+# Issues named per rival code in a reply, and commented on: the earliest ones, so a popular code that
+# disagrees does not turn one submission into dozens of comments. A publication also names at most
+# MAX_RIVAL_ISSUES_TOTAL issues over all its rivals together, the most submitted rivals first.
+MAX_RIVAL_ISSUES = 8
+MAX_RIVAL_ISSUES_TOTAL = 8
+# How a reply names the fields two codes disagree on (index.DISPUTE_FIELDS), in that order.
+DISPUTE_FIELD_NAMES = {"zone": "换区报文", "territory": "区域报文", "job": "职业报文", "match": "匹配报文"}
 
 SKIPPED = "skipped"
 PUBLISHED = repo_index.PUBLISHED
@@ -107,6 +124,7 @@ CODE_FILE_MISSING = "CODE_FILE_MISSING"
 _LOGIN = re.compile(r"[A-Za-z0-9-]{1,39}")
 _CODE_PATH = re.compile(r"(?:cn|global)/[A-Za-z0-9][A-Za-z0-9._-]{0,127}/[0-9a-f]{12}\.mrc")
 _COMMIT_MESSAGE = re.compile(r"[A-Za-z0-9 ._:#()/-]{1,200}")
+_ISSUE_NUMBER = re.compile(r"[1-9][0-9]{0,9}")
 _ECHOED_DETAILS = frozenset({sharecode.E_UNKNOWN_KEY, sharecode.E_DUPLICATE_KEY})
 
 MATCH_SOURCE_NAMES = {
@@ -121,10 +139,14 @@ _FORM_PROBLEMS = {
     issue_form.BODY_TOO_LARGE: "Issue 正文太长，不是软件预填的表单。",
     issue_form.CODE_MISSING: "没有在「校准码」一栏读到校准码。",
     issue_form.CODE_AMBIGUOUS: "正文里有不止一个「校准码」栏目，无法确定要提交的是哪一个。",
+    issue_form.BASIS_AMBIGUOUS: "正文里有不止一个「这份校准码的来源」栏目，无法确定填的是哪一项。",
+    issue_form.BASIS_INVALID: "「这份校准码的来源」一栏被改动过，请在软件里重新打开分享页面，不要改动该栏。",
     issue_form.CONFIRM_MISSING: "正文里没有「确认」栏目。",
     issue_form.CONFIRM_AMBIGUOUS: "正文里有不止一个「确认」栏目。",
 }
 _FORM_ADVICE = "请在软件里点「分享给其他玩家」重新打开预填好的页面提交，不要改动表单的栏目。"
+# Problems whose text already says what to do, so the advice above is not repeated after them.
+_FORM_PROBLEMS_WITH_ADVICE = frozenset({issue_form.BASIS_INVALID})
 
 _REFUSALS = {
     repo_index.ACCOUNT_TOO_NEW: "提交校准码的 GitHub 账号需要注册满 30 天，这个账号还不满 30 天。满 30 天后可以重新提交，"
@@ -142,7 +164,7 @@ _REFUSALS = {
                                     "日期按 UTC 计算，即北京时间每天 8:00 起算新的一天。" % repo_index.MAX_BUILDS_PER_ACCOUNT_DAY,
     ACCOUNT_MISMATCH: "无法确认提交这个 Issue 的 GitHub 账号（账号可能刚改过名或已被删除），因此没有受理。",
     ACCOUNT_NOT_PERSONAL: "只受理个人 GitHub 账号的提交，机器人与组织账号不受理。",
-    NOT_CONFIRMED: "没有勾选「我在软件里逐条核对过校准时间线」。请先在软件里核对校准时间线，确认无误后再提交。",
+    NOT_CONFIRMED: "没有勾选「上面的来源属实，我已在软件里核对过」。请先在软件里核对，确认无误后再提交。",
     TEMPLATE_UNKNOWN: "这份校准码依据的随包模板本仓库还不认识：生成它的软件版本比仓库支持的新，或者已经过旧。"
                       "请先把软件更新到最新版本再分享；如果已经是最新版本，请等待维护者更新本仓库。",
     STRUCTURE_INVALID: "校准码与它依据的随包模板对不上（例如字段超出了报文长度，或两条报文用了同一个编号），"
@@ -176,6 +198,12 @@ class Result:
     echo: str | None = None
     replaced: tuple = ()
     replaced_revoked: tuple = ()
+    # issue.BASIS_CALIBRATED or issue.BASIS_VERIFIED, as the form said; None before the form was read.
+    basis: str | None = None
+    # The published codes this one disagrees with (plan section 20.4), most submitters first, then oldest, each
+    # {"code": <12 hex>, "issues": [ascending issue numbers, at most MAX_RIVAL_ISSUES], "fields": [names]};
+    # at most MAX_RIVAL_ISSUES_TOTAL issues over all items.
+    conflicts: tuple = ()
 
     @property
     def label(self) -> str:
@@ -196,6 +224,17 @@ class Result:
         code_message = "calibration: add " + what if self.status == PUBLISHED else ""
         return code_message, "index: %s %s (issue #%s)" % (self.status, what, self.issue)
 
+    def conflict_issues(self) -> tuple:
+        """The issues the shell comments on and labels: every issue of every rival code, each once, ascending.
+
+        Only when a new, differing code was published. One more account joining an existing code changes
+        nothing the rival issues were not already told, so those closed issues are not commented on again:
+        the reply to the submitter still names them, and the submitter's own issue is still labelled.
+        """
+        if self.status != PUBLISHED:
+            return ()
+        return tuple(sorted({number for item in self.conflicts for number in item["issues"]}))
+
     def to_json(self) -> dict:
         code_message, index_message = self.commit_messages()
         return {
@@ -215,6 +254,11 @@ class Result:
             "close_reason": self.close_reason,
             "code_commit_message": code_message,
             "index_commit_message": index_message,
+            "basis": self.basis,
+            "conflicts": [{"code": item["code"], "issues": list(item["issues"]), "fields": list(item["fields"])}
+                          for item in self.conflicts],
+            "conflict_issues": " ".join(str(number) for number in self.conflict_issues()),
+            "conflict_label": LABEL_CONFLICTING if self.conflicts else "",
             "comment": compose_comment(self),
         }
 
@@ -245,9 +289,59 @@ def _replacement(result: Result) -> str:
     return _REPLACED_REVOKED if result.replaced_revoked else _REPLACED_KEPT
 
 
+_VERIFIED_ADDED = ("**已计入。** 你的软件在本机核实通过了这份校准码，现在共有 %d 个账号提交或核实过它，"
+                   "账号越多，其他玩家的软件越优先核实它。")
+_VERIFIED_PUBLISHED = "这份校准码此前没有发布过，现在以你的核实通过为准发布。"
+# What a player's client does with two codes of one build that disagree (plan section 20.5): it prefers, among
+# codes with as many submitters, the one whose match message has the shape of the profile that machine itself
+# verified on the previous build. The repository's shape_prior only orders download and verification.
+_CONFLICT_RULE = ("提交人数相同时，玩家的软件优先使用匹配报文结构与它自己在上一版本核实过的档案一致的那一份；"
+                  "仓库记录的结构先验（`shape_prior`）只决定下载与核实的先后。没有这样的依据时，两份都要先在玩家本机完整核实才会启用，"
+                  "直到其中一份被更多玩家提交或核实通过。")
+_CONFLICT_ADVICE = _CONFLICT_RULE + "如果你确定自己这份是对的，不需要做什么；如果后来发现是自己这份有误，在软件里重新分享一次即可替换。"
+_CONFLICT_NOTICE = ("**提示：后来提交的校准码（Issue #%d）与你这份在「%s」上不一致。** " + _CONFLICT_RULE
+                    + "如果后来发现是自己这份有误，在软件里重新分享一次即可替换。")
+_SIGNATURE = "<sub>MentorRecorder 共享校准 · 自动回复</sub>"
+
+
+def _issue_reference(result: Result, number: int) -> str:
+    """``#N`` in a publication; in any other reply ``＃N``, which GitHub does not link.
+
+    A link puts a cross-reference on the rival issue's timeline. A publication tells the rival issues anyway,
+    but one more account joining a code would add another reference to every rival issue each time.
+    """
+    text = "#%d" % number
+    return text if result.status == PUBLISHED else issue_form.escape_inline(text)
+
+
+def _conflict_paragraph(result: Result) -> list:
+    """The reply's note on the codes this one disagrees with: one sentence per rival, then the advice once."""
+    if not result.conflicts:
+        return []
+    sentences = []
+    for item in result.conflicts:
+        if item["issues"]:
+            where = "（Issue %s）" % "、".join(_issue_reference(result, number) for number in item["issues"])
+        else:
+            where = "（校准码编号 `%s`）" % item["code"]
+        sentences.append("**提示：仓库里已有另一份同版本的校准码与这份在「%s」上不一致**%s。" % ("、".join(item["fields"]), where))
+    return ["".join(sentences) + _CONFLICT_ADVICE, ""]
+
+
+def compose_conflict_notice(result: Result, rival_issue: int) -> str:
+    """The comment left on ``rival_issue``, an issue of a code the new submission disagrees with (plan section 20.4).
+
+    Only constants, the two issue numbers and fixed field names: nothing anybody wrote reaches it.
+    """
+    named = {name for item in result.conflicts if rival_issue in item["issues"] for name in item["fields"]}
+    fields = "、".join(name for name in DISPUTE_FIELD_NAMES.values() if name in named)
+    return "\n".join([_CONFLICT_NOTICE % (result.issue, fields), "", _SIGNATURE]) + "\n"
+
+
 def _refusal_text(result: Result) -> str:
     if result.reason in _FORM_PROBLEMS:
-        return _FORM_PROBLEMS[result.reason] + _FORM_ADVICE
+        advice = "" if result.reason in _FORM_PROBLEMS_WITH_ADVICE else _FORM_ADVICE
+        return _FORM_PROBLEMS[result.reason] + advice
     if result.reason == repo_index.CODE_INVALID:
         token = result.detail or ""
         tail = "：" + result.echo if result.echo else ""
@@ -260,16 +354,20 @@ def compose_comment(result: Result) -> str:
     """The reply posted on the issue (Chinese). Empty for a skipped issue."""
     if result.status == SKIPPED:
         return ""
+    verified = result.basis == issue_form.BASIS_VERIFIED
     if result.status == PUBLISHED:
         opening = ("**已发布，并%s**" % _replacement(result)) if result.replaced else "**已发布。** 谢谢分享！"
-        lines = [opening, "", *_summary(result), "",
-                 "其他玩家的软件在游戏更新后会自动下载它，先在自己的本机流量里按结构核实：至少要等登录时的换区报文核实通过，"
-                 "才会用它记录；开始记录后，排本与进本报文仍会继续核实。之后若被判出与本机流量矛盾，软件会停用它，"
-                 "并把它生成的记录标记为待复核。",
-                 "下载源有缓存：raw.githubusercontent.com 几分钟内可见，jsDelivr 最多约 12 小时。", "", "本 Issue 自动关闭。"]
+        lines = [opening, ""] + ([_VERIFIED_PUBLISHED, ""] if verified else [])
+        lines += [*_summary(result), "", *_conflict_paragraph(result),
+                  "其他玩家的软件在游戏更新后会自动下载它，先在自己的本机流量里按结构核实：至少要等登录时的换区报文核实通过，"
+                  "才会用它记录；开始记录后，排本与进本报文仍会继续核实。之后若被判出与本机流量矛盾，软件会停用它，"
+                  "并把它生成的记录标记为待复核。",
+                  "下载源有缓存：raw.githubusercontent.com 几分钟内可见，jsDelivr 最多约 12 小时。", "", "本 Issue 自动关闭。"]
     elif result.status == ADDED:
-        lines = ["**已计入。** 完全相同的校准码之前已经有人发布过，你的提交已计入：现在共有 %d 个 GitHub 账号提交了它，"
-                 "提交的账号越多，其他玩家的软件越优先核实它。" % result.submitters, "", *_summary(result), ""]
+        opening = _VERIFIED_ADDED if verified else (
+            "**已计入。** 完全相同的校准码之前已经有人发布过，你的提交已计入：现在共有 %d 个 GitHub 账号提交了它，"
+            "提交的账号越多，其他玩家的软件越优先核实它。")
+        lines = [opening % result.submitters, "", *_summary(result), "", *_conflict_paragraph(result)]
         if result.replaced:
             lines += [_replacement(result), ""]
         lines += ["本 Issue 自动关闭。"]
@@ -282,14 +380,14 @@ def compose_comment(result: Result) -> str:
                  "本 Issue 保持打开，维护者会处理；请不要重复提交。"]
     if result.title_mismatch:
         lines += ["", "提示：标题里写的区服或客户端版本与校准码不一致，已按校准码本身处理。"]
-    lines += ["", "<sub>MentorRecorder 共享校准 · 自动回复</sub>"]
+    lines += ["", _SIGNATURE]
     return "\n".join(lines) + "\n"
 
 
 # --------------------------------------------------------------------------- a report of a wrong calibration
 
-_REPORT_RECEIVED = "**已收到。维护者核实后会撤回有问题的校准码，或在此说明原因。**"
-_REPORT_OPEN = "本 Issue 保持打开。请不要重复提交；如果还有别的线索，直接在本 Issue 下补充即可。"
+_REPORT_RECEIVED = "**已自动归类为待补结构化证据，普通文字不计票。**"
+_REPORT_OPEN = "本 Issue 保持打开。请在软件中预览并复制最小摘要，使用「共享校准证据」表单提交；系统按固定规则自动处理，不会因文字举报撤回码或冻结账号。"
 _REPORT_ADVICE = "请用「报告校准有误」表单重新提交，不要改动栏目标题；也可以直接在本 Issue 下补齐。本 Issue 保持打开。"
 _REPORT_PROBLEMS = {
     issue_form.BODY_MISSING: "Issue 正文是空的。",
@@ -477,18 +575,18 @@ def _describe(result: Result, payload: Any, code_sha256: str | None) -> Result:
 
 
 def _check_code(repo: Path, submitted: _Issue) -> tuple:
-    """``(payload, code text, None)`` for a code that may be applied, else ``(None, None, refusal)``."""
+    """``(payload, code text, basis, None)`` for a code that may be applied, else ``(None, None, None, refusal)``."""
     number = submitted.number
     form = issue_form.parse_body(submitted.body)
     if not form.readable:
-        return None, None, Result(REFUSED, form.problem, issue=number)
+        return None, None, None, Result(REFUSED, form.problem, issue=number)
     if not form.confirmed:
-        return None, None, Result(REFUSED, NOT_CONFIRMED, issue=number)
+        return None, None, None, Result(REFUSED, NOT_CONFIRMED, issue=number)
     decoded = sharecode.decode(form.code)
     if not decoded.valid:
         rejection = decoded.rejection
         echo = issue_form.escape_inline(rejection.detail, 60) if rejection.code in _ECHOED_DETAILS else None
-        return None, None, Result(REFUSED, repo_index.CODE_INVALID, rejection.code, issue=number, echo=echo)
+        return None, None, None, Result(REFUSED, repo_index.CODE_INVALID, rejection.code, issue=number, echo=echo)
     payload = decoded.payload
     described = _describe(Result(REFUSED, issue=number), payload, decoded.code_sha256)
     try:
@@ -496,13 +594,13 @@ def _check_code(repo: Path, submitted: _Issue) -> tuple:
     except (rebuild.TemplateError, OSError):
         templates = ()
     if not templates:
-        return None, None, replace(described, status=ERROR, reason=TEMPLATES_BROKEN)
+        return None, None, None, replace(described, status=ERROR, reason=TEMPLATES_BROKEN)
     template = rebuild.find_template(templates, payload)
     if template is None:
-        return None, None, replace(described, reason=TEMPLATE_UNKNOWN)
+        return None, None, None, replace(described, reason=TEMPLATE_UNKNOWN)
     if not rebuild.rebuild(payload, template).built:
-        return None, None, replace(described, reason=STRUCTURE_INVALID)
-    return payload, sharecode.dotnet_trim(form.code), None
+        return None, None, None, replace(described, reason=STRUCTURE_INVALID)
+    return payload, sharecode.dotnet_trim(form.code), form.basis, None
 
 
 def _with_title(result: Result, submitted: _Issue) -> Result:
@@ -534,7 +632,7 @@ def evaluate(repo: Path, event: Any, account: Any, now: dt.datetime, commit: str
     created, stop = _check_account(submitted, account)
     if stop is not None:
         return stop, None, None
-    payload, code, stop = _check_code(Path(repo), submitted)
+    payload, code, basis, stop = _check_code(Path(repo), submitted)
     if stop is not None:
         return _with_title(stop, submitted), None, None
     try:
@@ -543,8 +641,9 @@ def evaluate(repo: Path, event: Any, account: Any, now: dt.datetime, commit: str
         return Result(ERROR, INDEX_CORRUPT, issue=submitted.number), None, None
     outcome = repo_index.add_submission(
         state, payload["region"], payload["game_build"], code, submitted.login, created, now, commit,
-        account_id=submitted.user_id, issue=submitted.number)
-    return _with_title(_from_outcome(submitted.number, outcome), submitted), outcome, code
+        account_id=submitted.user_id, issue=submitted.number, basis=basis)
+    result = replace(_from_outcome(submitted.number, outcome), basis=basis)
+    return _with_title(result, submitted), outcome, code
 
 
 # --------------------------------------------------------------------------- commands
@@ -578,28 +677,96 @@ def _note(text: str) -> None:
     print("publish.py: " + text, file=sys.stderr)
 
 
-def _with_conflicts(repo: Path, state: repo_index.Index, region: str, build: str) -> repo_index.Index:
-    """``state`` with the section-18.6 conflict flags recomputed from the code files in the checkout.
-
-    The flags cost bytes the submission was not measured against, so an index that would pass the
-    client's byte cap with them is written without them: the flags only reorder candidates, while a
-    refused index would take every published code of every build down with it.
-    """
-    marked = repo_index.update_conflicts(state, repo, region, build, log=_note)
+def _fits(state: repo_index.Index) -> str | None:
+    """None when the client would read this index whole, else the cap it would pass."""
     try:
-        repo_index.check_caps(marked)
+        repo_index.check_caps(state)
     except repo_index.IndexFull as full:
-        _note("the conflict flags would not fit the index (%s); writing it without them" % full)
-        return state
-    return marked
+        return str(full)
+    return None
+
+
+ALL_MARKS = "all"
+CONFLICTING_ONLY = "conflicting"
+PREVIOUS_MARKS = "previous"
+
+
+def _fit_marks(before: repo_index.Index, marked: repo_index.Index, region: str, builds: Any) -> tuple:
+    """``(index, kept)``: the most of the recomputed marks of ``builds`` that the client's caps leave room for.
+
+    All of them when they fit (``ALL_MARKS``); else the recomputed ``conflicting`` with no ``shape_prior`` on those
+    builds (``CONFLICTING_ONLY``); else ``before``, every mark as it was (``PREVIOUS_MARKS``). A refused index
+    would take every published code of every build down with it, and released clients still gate on
+    ``conflicting``, so a ``conflicting`` that fits is never dropped to make room: ``shape_prior`` goes first.
+    """
+    if _fits(marked) is None:
+        return marked, ALL_MARKS
+    recomputed = {(region, build) for build in builds}
+    conflicting_only = replace(marked, entries=tuple(
+        {name: value for name, value in entry.items() if name != repo_index.SHAPE_PRIOR}
+        if (entry["region"], entry["game_build"]) in recomputed else entry
+        for entry in marked.entries
+    ))
+    if _fits(conflicting_only) is None:
+        return conflicting_only, CONFLICTING_ONLY
+    return before, PREVIOUS_MARKS
+
+
+def _with_marks(repo: Path, state: repo_index.Index, region: str, build: str) -> repo_index.Index:
+    """``state`` with the section-20.3 marks recomputed from the code files in the checkout.
+
+    ``conflicting`` and ``shape_prior`` of this (region, build) and of the region's later builds, whose
+    ``shape_prior`` may read this one (``index.refresh_marks``). The marks cost bytes the submission was not
+    measured against, so when they do not fit, ``_fit_marks`` gives up ``shape_prior`` first and then keeps
+    the marks the index already had, and says so on stderr.
+    """
+    marked = repo_index.refresh_marks(state, repo, region, build, log=_note)
+    written, kept = _fit_marks(state, marked, region, repo_index.marked_builds(state, region, build))
+    if kept == CONFLICTING_ONLY:
+        _note("the shape_prior marks would not fit the index; writing the conflicting marks without them")
+    elif kept == PREVIOUS_MARKS:
+        _note("the recomputed marks would not fit the index; writing it with the marks it had")
+    return written
+
+
+def _rival_conflicts(repo: Path, state: repo_index.Index, result: Result) -> tuple:
+    """``Result.conflicts`` for the code ``result`` names, from the index just written (plan section 20.4).
+
+    One item per published code it disagrees with, the most submitted first, then the oldest, then by hash:
+    the code's first 12 digits, the issues of the ledger rows on that code (positive, not this issue,
+    ascending, the first MAX_RIVAL_ISSUES, and no more than MAX_RIVAL_ISSUES_TOTAL over all items), and the
+    fields in dispute by their Chinese names.
+    """
+    found = repo_index.disputes(state, repo, result.region, result.game_build).get(result.code_sha256, {})
+    fields: dict = {}
+    for name in repo_index.DISPUTE_FIELDS:
+        for rival in found.get(name, ()):
+            fields.setdefault(rival, []).append(DISPUTE_FIELD_NAMES[name])
+    published = {entry["code_sha256"]: entry for entry in state.entries}
+    conflicts, room = [], MAX_RIVAL_ISSUES_TOTAL
+    for rival in sorted(fields, key=lambda sha: (-published[sha]["submitters"],
+                                                 repo_index.parse_stamp(published[sha]["first_published_at"]), sha)):
+        issues = sorted({row["issue"] for row in state.submissions
+                         if row["code_sha256"] == rival and _positive_int(row["issue"]) and row["issue"] != result.issue})
+        issues = issues[:min(MAX_RIVAL_ISSUES, room)]
+        room -= len(issues)
+        conflicts.append({"code": rival[:12], "issues": issues, "fields": fields[rival]})
+    return tuple(conflicts)
 
 
 def _emit(out: str, result: Any) -> None:
     directory = Path(out)
     directory.mkdir(parents=True, exist_ok=True)
     data = result.to_json()
+    # A notice left from an earlier decision in the same directory must never be posted for this one.
+    for stale in directory.glob("conflict-*.md"):
+        stale.unlink()
     (directory / "result.json").write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
     (directory / "comment.md").write_text(data["comment"], encoding="utf-8", newline="\n")
+    if isinstance(result, Result) and result.issue is not None:
+        for number in result.conflict_issues():
+            (directory / ("conflict-%d.md" % number)).write_text(
+                compose_conflict_notice(result, number), encoding="utf-8", newline="\n")
     print(json.dumps(data, ensure_ascii=True, separators=(",", ":")))
 
 
@@ -654,8 +821,9 @@ def command_update_index(args: argparse.Namespace) -> int:
     if result.status == PUBLISHED and _code_file_holds(repo, outcome.new_code_path, outcome.code_sha256) is not True:
         _emit(args.out, replace(result, status=ERROR, reason=CODE_FILE_MISSING))
         return 3
-    repo_index.write_files(repo, _with_conflicts(repo, outcome.index, result.region, result.game_build))
-    _emit(args.out, result)
+    written = _with_marks(repo, outcome.index, result.region, result.game_build)
+    repo_index.write_files(repo, written)
+    _emit(args.out, replace(result, conflicts=_rival_conflicts(repo, written, result)))
     return 0
 
 
@@ -674,6 +842,8 @@ _FIELD_CHECKS = {
     "file": lambda value: value == "" or _CODE_PATH.fullmatch(value) is not None,
     "code_commit_message": lambda value: value == "" or _COMMIT_MESSAGE.fullmatch(value) is not None,
     "index_commit_message": lambda value: value == "" or _COMMIT_MESSAGE.fullmatch(value) is not None,
+    "conflict_issues": lambda value: value == "" or all(_ISSUE_NUMBER.fullmatch(token) for token in value.split(" ")),
+    "conflict_label": lambda value: value in ("", LABEL_CONFLICTING),
 }
 
 
@@ -822,9 +992,66 @@ def command_revoke(args: argparse.Namespace) -> int:
     except KeyError as error:
         raise UsageError("index.json does not list that code") from error
     revoked = next(entry for entry in updated.entries if entry["code_sha256"] == args.code_sha256)
-    repo_index.write_files(repo, _with_conflicts(repo, updated, revoked["region"], revoked["game_build"]))
+    repo_index.write_files(repo, _with_marks(repo, updated, revoked["region"], revoked["game_build"]))
     print(json.dumps({"revoked": args.code_sha256}))
     return 0
+
+
+def command_remark(args: argparse.Namespace) -> int:
+    """Recomputes the marks of every (region, build) in index.json, or of the ones named, and writes the files.
+
+    A one-off backfill: publication and revocation recompute the marks of their own build, so an entry
+    nothing has touched since the marks changed meaning keeps what it had. A build whose new marks would
+    take the index past the client's byte cap gets what ``_fit_marks`` leaves room for (its ``conflicting``
+    without ``shape_prior``, or else the marks it had) and is listed under ``dropped`` with what it ``kept``;
+    the index is never refused. A named build index.json does not list is a usage error, and nothing is written.
+    """
+    regions, builds = args.region or [], args.build or []
+    if len(regions) != len(builds):
+        raise UsageError("name every build with its region: --region <CN|GLOBAL> --build <build>, repeated")
+    repo = Path(args.repo)
+    state = repo_index.load(repo)
+    listed = sorted({(entry["region"], entry["game_build"]) for entry in state.entries})
+    named = list(dict.fromkeys(zip(regions, builds)))
+    for region, build in named:
+        if (region, build) not in listed:
+            raise UsageError("index.json lists no build %s for %s; nothing was written" % (build, region))
+    marked, dropped = state, []
+    for region, build in named or listed:
+        candidate = repo_index.update_marks(marked, repo, region, build, log=_note)
+        marked, kept = _fit_marks(marked, candidate, region, (build,))
+        if kept != ALL_MARKS:
+            _note("the marks of %s %s would not fit the index; kept %s" % (region, build, kept))
+            dropped.append({"region": region, "game_build": build, "kept": kept})
+    repo_index.write_files(repo, marked)
+    print(json.dumps({
+        "recomputed": [{"region": region, "game_build": build} for region, build in named or listed],
+        "changed": sum(1 for before, after in zip(state.entries, marked.entries) if before != after),
+        "dropped": dropped,
+    }))
+    return 0
+
+
+def _remark_after_prune(repo: Path, pruned: repo_index.Index, region: str, removed: Any) -> repo_index.Index:
+    """``pruned`` with the marks of the region's remaining builds dated after a removed one recomputed.
+
+    Their ``shape_prior`` may have rested on a removed build, which no longer exists for anybody to check.
+    """
+    dates = [repo_index.build_date(build) for _, build in removed if repo_index.build_date(build) is not None]
+    if not dates:
+        return pruned
+    first = min(dates)
+
+    def later(entry: Any) -> bool:
+        date = repo_index.build_date(entry["game_build"])
+        return entry["region"] == region and date is not None and date > first
+
+    for build in sorted({entry["game_build"] for entry in pruned.entries if later(entry)}):
+        candidate = repo_index.update_marks(pruned, repo, region, build, log=_note)
+        pruned, kept = _fit_marks(pruned, candidate, region, (build,))
+        if kept != ALL_MARKS:
+            _note("the marks of %s %s would not fit the index; kept %s" % (region, build, kept))
+    return pruned
 
 
 def command_lift(args: argparse.Namespace) -> int:
@@ -834,7 +1061,7 @@ def command_lift(args: argparse.Namespace) -> int:
         updated = repo_index.lift_hold(state, args.region, args.build, args.account)
     except KeyError as error:
         raise UsageError("submissions.json holds no revoked code for that account, region and build") from error
-    repo_index.write_files(repo, updated)
+    repo_index.write_files(repo, _with_marks(repo, updated, args.region, args.build))
     print(json.dumps({"lifted": args.account, "region": args.region, "game_build": args.build}))
     return 0
 
@@ -860,7 +1087,7 @@ def command_prune(args: argparse.Namespace) -> int:
     }))
     if not args.apply:
         return 0
-    repo_index.write_files(repo, pruned)
+    repo_index.write_files(repo, _remark_after_prune(repo, pruned, args.region, removed))
     # The paths come from entries read_index accepted, so each is <cn|global>/<build>/<12 hex>.mrc and
     # stays inside the checkout. Git history keeps every file, and clients download codes by commit.
     for relative in gone:
@@ -931,6 +1158,14 @@ def _parser() -> argparse.ArgumentParser:
     revoke.add_argument("--repo", required=True)
     revoke.add_argument("--code-sha256", required=True)
     revoke.set_defaults(run=command_revoke)
+
+    remark = commands.add_parser("remark")
+    remark.add_argument("--repo", required=True)
+    remark.add_argument("--region", action="append", choices=("CN", "GLOBAL"),
+                        help="the region of a build to recompute; repeatable, each with its --build")
+    remark.add_argument("--build", action="append",
+                        help="a client build to recompute; repeatable; default: every build index.json lists")
+    remark.set_defaults(run=command_remark)
 
     lift = commands.add_parser("lift")
     lift.add_argument("--repo", required=True)

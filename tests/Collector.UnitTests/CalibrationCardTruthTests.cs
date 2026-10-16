@@ -59,10 +59,10 @@ public sealed class CalibrationCardTruthTests
         var status = coordinator.Snapshot();
 
         Assert.Equal(CalibrationState.Observing, status.State);
-        Assert.Contains(status.Blockers, text => text.Contains("已经可以正常记录导随了", StringComparison.Ordinal));
-        Assert.Contains(status.Blockers, text => text.Contains("重新观察", StringComparison.Ordinal));
-        Assert.DoesNotContain(status.Blockers, text => text.Contains("打两把不同的随机任务就够了", StringComparison.Ordinal));
-        Assert.DoesNotContain(status.Blockers, text => text.Contains("记不到", StringComparison.Ordinal));
+        Assert.Contains(status.Blockers, text => text.Chinese.Contains("导随记录照常进行", StringComparison.Ordinal));
+        Assert.Contains(status.Blockers, text => text.Chinese.Contains("清空校准进度", StringComparison.Ordinal));
+        Assert.DoesNotContain(status.Blockers, text => text.Chinese.Contains("就够了", StringComparison.Ordinal));
+        Assert.DoesNotContain(status.Blockers, text => text.Chinese.Contains("记不到", StringComparison.Ordinal));
     }
 
     /// <summary>
@@ -82,9 +82,9 @@ public sealed class CalibrationCardTruthTests
 
         var status = coordinator.Snapshot();
 
-        Assert.Contains(status.Blockers, text => text.Contains("打两把不同的随机任务就够了", StringComparison.Ordinal));
-        Assert.Contains(status.Blockers, text => text.Contains("帮不上校准", StringComparison.Ordinal));
-        Assert.DoesNotContain(status.Blockers, text => text.Contains("记不到", StringComparison.Ordinal));
+        Assert.Contains(status.Blockers, text => text.Chinese.Contains("尝试不同的随机任务", StringComparison.Ordinal));
+        Assert.Contains(status.Blockers, text => text.Chinese.Contains("组队时请由你来申请", StringComparison.Ordinal));
+        Assert.DoesNotContain(status.Blockers, text => text.Chinese.Contains("记不到", StringComparison.Ordinal));
     }
 
     /// <summary>
@@ -96,7 +96,7 @@ public sealed class CalibrationCardTruthTests
     [Theory]
     [InlineData(CalibrationTrafficCases.QueueRequestAnnounced, "MATCH_ANNOUNCED", "匹配弹窗")]
     [InlineData(CalibrationTrafficCases.QueueRequest, "PLAYER_JOB", "职业")]
-    [InlineData(CalibrationTrafficCases.MarkerOffset, "PLAYER_JOB", "真正的「匹配成功」报文")]
+    [InlineData(CalibrationTrafficCases.MarkerOffset, "PLAYER_JOB", "匹配弹窗")]
     public void AnUpgradeReadyToCheckSaysWhatConfirmingItBrings(string traffic, string lacking, string brings)
     {
         var coordinator = new CalibrationCoordinator();
@@ -113,18 +113,18 @@ public sealed class CalibrationCardTruthTests
         var status = coordinator.Snapshot();
 
         Assert.Equal(CalibrationState.Ready, status.State);
-        Assert.DoesNotContain(status.Blockers, text => text.Contains("找到后会请你再核对", StringComparison.Ordinal));
-        Assert.DoesNotContain(status.Blockers, text => text.Contains("打两把不同的随机任务", StringComparison.Ordinal));
-        Assert.Contains(status.Blockers, text => text.Contains("核对下面的时间线", StringComparison.Ordinal) &&
-                                                 text.Contains(brings, StringComparison.Ordinal));
-        Assert.Contains(status.Blockers, text => text.Contains("记录照常", StringComparison.Ordinal));
-        Assert.All(status.Blockers, text => Assert.DoesNotContain("0x", text, StringComparison.Ordinal));
+        Assert.DoesNotContain(status.Blockers, text => text.Chinese.Contains("找到后会请你再核对", StringComparison.Ordinal));
+        Assert.DoesNotContain(status.Blockers, text => text.Chinese.Contains("打两把不同的随机任务", StringComparison.Ordinal));
+        Assert.Contains(status.Blockers, text => text.Chinese.Contains("核对下面的时间线", StringComparison.Ordinal) &&
+                                                 text.Chinese.Contains(brings, StringComparison.Ordinal));
+        Assert.Contains(status.Blockers, text => text.Chinese.Contains("记录照常", StringComparison.Ordinal));
+        Assert.All(status.Blockers, text => Assert.DoesNotContain("0x", text.Chinese, StringComparison.Ordinal));
     }
 
     /// <summary>
     /// The desktop tells "a profile is recording while the search goes on" from the profile id on
     /// the status. That id used to be set only by the confirmation itself, so after a restart, or
-    /// after 清空进度并重新观察, the card fell back to "正在重新校准…期间不会生成记录" above a
+    /// after 清空进度并清空校准进度, the card fell back to "正在重新校准…期间不会生成记录" above a
     /// line saying recording works. The profile in force is a fact about the selection, not about
     /// this process's memory of having written it.
     /// </summary>
@@ -230,7 +230,7 @@ public sealed class CalibrationCardTruthTests
         Assert.Equal(CalibrationMatchSource.MarkerOffset, draft.MatchSource);
         var pops = draft.Events.Where(item => item.Kind == "pop").ToArray();
         Assert.Equal(2, pops.Length);
-        Assert.Contains("3", pops[0].Label, StringComparison.Ordinal);
+        Assert.Contains("3", pops[0].Label.Chinese, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -245,7 +245,7 @@ public sealed class CalibrationCardTruthTests
 
         var named = draft.Events.Where(item => item.Kind == "zone" && item.DutyName is not null).ToArray();
         Assert.Single(named);
-        Assert.Contains(named[0].DutyName!, named[0].Label, StringComparison.Ordinal);
+        Assert.Contains(named[0].DutyName!, named[0].Label.Chinese, StringComparison.Ordinal);
         Assert.False(named[0].RequiresConfirmation);
     }
 }

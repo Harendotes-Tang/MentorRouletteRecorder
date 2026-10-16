@@ -1,4 +1,5 @@
 using MentorRecorder.Collector.Contracts.Errors;
+using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Domain.Mutations;
 using MentorRecorder.Collector.Domain.Queries;
@@ -28,7 +29,7 @@ public static class RequestParsers
                 System.Globalization.CultureInfo.InvariantCulture,
                 System.Globalization.DateTimeStyles.None, out var date) ||
             date.ToString("yyyy-MM", System.Globalization.CultureInfo.InvariantCulture) != month)
-            throw CollectorException.BadRequest("month 必须是有效的 YYYY-MM 月份。", "payload.month");
+            throw CollectorException.BadRequest(CollectorTexts.IpcRequestMonthInvalid(), "payload.month");
         return month;
     }
 
@@ -44,7 +45,7 @@ public static class RequestParsers
         reader.RejectUnknown(
             "from_utc", "to_utc", "date_field", "content_id", "duty_category", "job_id",
             "result", "source", "corrected_only", "include_deleted", "deleted_only", "with_reflection",
-            "pending_review", "text", "run_id", "history_from_day", "history_to_day");
+            "pending_review", "text", "name_text", "run_id", "history_from_day", "history_to_day");
 
         var filter = new RunFilter
         {
@@ -65,18 +66,19 @@ public static class RequestParsers
             WithReflection = reader.Bool("with_reflection") ?? false,
             PendingReview = reader.Bool("pending_review"),
             Text = reader.String("text", 200),
+            NameText = reader.String("name_text", 200),
         };
 
         if (filter.FromUtc is { } from && filter.ToUtc is { } to && from > to)
         {
-            throw CollectorException.BadRequest("from_utc 不能晚于 to_utc。", "filter.from_utc");
+            throw CollectorException.BadRequest(CollectorTexts.IpcFilterFromAfterTo(), "filter.from_utc");
         }
 
         if ((filter.HistoryFromDay is not null && (filter.DateField != RunDateField.HistoryDate || filter.FromUtc is null)) ||
             (filter.HistoryToDay is not null && (filter.DateField != RunDateField.HistoryDate || filter.ToUtc is null)))
-            throw CollectorException.BadRequest("历史日历日期仅用于 history_date，并须同时提供对应的 UTC 起止边界。", "filter.history_from_day");
+            throw CollectorException.BadRequest(CollectorTexts.IpcFilterHistoryDayNeedsBounds(), "filter.history_from_day");
         if (filter.HistoryFromDay is { } fromDay && filter.HistoryToDay is { } toDay && string.CompareOrdinal(fromDay, toDay) > 0)
-            throw CollectorException.BadRequest("history_from_day 不能晚于 history_to_day。", "filter.history_from_day");
+            throw CollectorException.BadRequest(CollectorTexts.IpcFilterHistoryFromAfterTo(), "filter.history_from_day");
 
         return filter;
     }
@@ -149,7 +151,7 @@ public static class RequestParsers
         var expectedRevision = reader.RequiredInt("expected_revision", 1);
         var reason = RequireReason(reader);
         var changes = reader.Object("changes")
-            ?? throw CollectorException.BadRequest("缺少必填字段 changes。", "payload.changes");
+            ?? throw CollectorException.BadRequest(CollectorTexts.IpcFieldMissing("changes"), "payload.changes");
 
         return new CorrectRunCommand(requestId, runId, expectedRevision, reason, Changes(changes));
     }
@@ -167,7 +169,7 @@ public static class RequestParsers
         if (duration is < 0)
         {
             throw new CollectorException(
-                ErrorCodes.NegativeDuration, "时长不能为负数。", field: "changes.duration_ms");
+                ErrorCodes.NegativeDuration, CollectorTexts.MutationDurationNegative(), field: "changes.duration_ms");
         }
 
         // A correction may confirm a 待复核 record (false) but never send one back into review:
@@ -176,7 +178,7 @@ public static class RequestParsers
         if (pendingReview is true)
         {
             throw new CollectorException(
-                ErrorCodes.BadRequest, "pending_review 只能改为 false（确认复核）。",
+                ErrorCodes.BadRequest, CollectorTexts.MutationPendingReviewOnlyFalse(),
                 field: "changes.pending_review");
         }
 
@@ -242,13 +244,13 @@ public static class RequestParsers
 
         if (!ReflectionText.TryParse(reader.RequiredString("mood", 16), out var mood))
         {
-            throw CollectorException.BadRequest("mood 只能取 good / ok / bad。", "payload.mood");
+            throw CollectorException.BadRequest(CollectorTexts.IpcFieldOnlyValues("mood", "good / ok / bad"), "payload.mood");
         }
 
         // Present but empty is legal and clears the reflection, so required-ness is checked
         // here rather than through RequiredString, which refuses the empty string.
         var text = reader.String("text", ReflectionText.MaxLength)
-            ?? throw CollectorException.BadRequest("缺少必填字段 text。", "payload.text");
+            ?? throw CollectorException.BadRequest(CollectorTexts.IpcFieldMissing("text"), "payload.text");
 
         return new SetRunReflectionCommand(requestId, runId, mood, text);
     }
@@ -277,7 +279,7 @@ public static class RequestParsers
             "week" => Domain.Statistics.TrendGranularity.Week,
             "month" => Domain.Statistics.TrendGranularity.Month,
             _ => throw CollectorException.BadRequest(
-                "trend_granularity 只能取 day / week / month。", "trend_granularity"),
+                CollectorTexts.IpcFieldOnlyValues("trend_granularity", "day / week / month"), "trend_granularity"),
         };
     }
 
@@ -313,17 +315,17 @@ public static class RequestParsers
         // both, null is a request to clear the value, not a request to leave it alone.
         var adapterSpecified = reader.Has("adapter_id");
         if (reader.IsNull("research_payload_opcodes"))
-            throw CollectorException.BadRequest("research_payload_opcodes 必须是数组，清空请传 []。", "payload.research_payload_opcodes");
+            throw CollectorException.BadRequest(CollectorTexts.IpcFieldArrayOrEmpty("research_payload_opcodes"), "payload.research_payload_opcodes");
         if (reader.Has("candidate_validation_enabled") && reader.Bool("candidate_validation_enabled") is null)
-            throw CollectorException.BadRequest("candidate_validation_enabled 必须是布尔值。", "payload.candidate_validation_enabled");
+            throw CollectorException.BadRequest(CollectorTexts.IpcFieldNotBoolean("candidate_validation_enabled"), "payload.candidate_validation_enabled");
         if (reader.Has("update_check_enabled") && reader.Bool("update_check_enabled") is null)
-            throw CollectorException.BadRequest("update_check_enabled 必须是布尔值。", "payload.update_check_enabled");
+            throw CollectorException.BadRequest(CollectorTexts.IpcFieldNotBoolean("update_check_enabled"), "payload.update_check_enabled");
         var regionSpecified = reader.Has("region_override");
         var regionText = reader.String("region_override", 16);
         if (regionSpecified && regionText is not (null or "CN" or "GLOBAL"))
         {
             throw CollectorException.BadRequest(
-                "region_override 只能取 CN / GLOBAL 或 null。", "payload.region_override");
+                CollectorTexts.IpcFieldEither("region_override", "CN / GLOBAL", "null"), "payload.region_override");
         }
 
         return new Capture.CaptureSettingsUpdate
@@ -360,7 +362,7 @@ public static class RequestParsers
             ? reason!.Trim()
             : throw new CollectorException(
                 ErrorCodes.ReasonRequired,
-                "该操作必须填写 1 到 500 字的修改理由。",
+                CollectorTexts.MutationReasonRequired(),
                 field: "reason");
     }
 
@@ -371,7 +373,7 @@ public static class RequestParsers
         "matched_at_utc" => RunDateField.MatchedAtUtc,
         "ended_at_utc" => RunDateField.EndedAtUtc,
         _ => throw CollectorException.BadRequest(
-            "date_field 只能取 history_date / matched_at_utc / entered_at_utc / ended_at_utc。", "filter.date_field"),
+            CollectorTexts.IpcFieldOnlyValues("date_field", "history_date / matched_at_utc / entered_at_utc / ended_at_utc"), "filter.date_field"),
     };
 
     private static RunSortField SortField(string? text) => text switch
@@ -382,14 +384,14 @@ public static class RequestParsers
         "ended_at_utc" => RunSortField.EndedAtUtc,
         "duration_ms" => RunSortField.DurationMs,
         "duty_name" => RunSortField.DutyName,
-        _ => throw CollectorException.BadRequest("sort.field 不是契约声明的取值。", "sort.field"),
+        _ => throw CollectorException.BadRequest(CollectorTexts.IpcFieldUndeclaredValue("sort.field"), "sort.field"),
     };
 
     private static SortDirection Direction(string? text) => text switch
     {
         null or "desc" => SortDirection.Desc,
         "asc" => SortDirection.Asc,
-        _ => throw CollectorException.BadRequest("sort.direction 只能取 asc 或 desc。", "sort.direction"),
+        _ => throw CollectorException.BadRequest(CollectorTexts.IpcFieldEither("sort.direction", "asc", "desc"), "sort.direction"),
     };
 
     public static BatchMutateRunsCommand BatchMutateRuns(string requestId, PayloadReader reader)
@@ -406,7 +408,7 @@ public static class RequestParsers
 
     public static IReadOnlyList<string> RunIds(PayloadReader reader, string field = "run_ids", bool allowEmpty = true)
     {
-        if (reader.IsNull(field)) throw CollectorException.BadRequest($"{field} 必须是数组。", field);
+        if (reader.IsNull(field)) throw CollectorException.BadRequest(CollectorTexts.IpcFieldNotArray(field), field);
         var ids = reader.StringArray(field, Storage.Mutations.HistoryRetentionService.MaxBatchSize, 36);
         Storage.Mutations.HistoryRetentionService.ValidateIds(ids, allowEmpty);
         return ids.Select(id => Guid.Parse(id).ToString("D")).ToArray();
@@ -418,7 +420,7 @@ public static class RequestParsers
         var text = reader.String(field, 10);
         if (text is null || !DateOnly.TryParseExact(text, "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture,
             System.Globalization.DateTimeStyles.None, out _))
-            throw CollectorException.BadRequest($"{field} 必须是有效的 yyyy-MM-dd 日历日期。", "filter." + field);
+            throw CollectorException.BadRequest(CollectorTexts.IpcFieldNotCalendarDay(field), "filter." + field);
         return text;
     }
 }

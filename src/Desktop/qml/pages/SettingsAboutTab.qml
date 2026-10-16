@@ -81,7 +81,7 @@ ColumnLayout {
 
         FieldLabel {
             Layout.fillWidth: true
-            text: qsTr("隐私与边界")
+            text: qsTr("隐私说明")
         }
 
         GridLayout {
@@ -93,13 +93,13 @@ ColumnLayout {
             // In words: the mode is a C# enum name and DEC-OODLE-01 a design
             // record's number, neither of them for players (review OK-8).
             FactTile {
-                label: qsTr("Oodle 解压")
-                value: Fmt.oodleModeLabel(App.oodleMode || "")
+                label: qsTr("游戏流量解压")
+                value: Theme.live(Fmt.oodleModeLabel(App.oodleMode || ""))
             }
             FactTile {
                 objectName: "readsGameExecutableTile"
-                label: qsTr("读取游戏可执行文件")
-                value: App.readsGameExecutable ? qsTr("是（读取磁盘上的一份副本）") : qsTr("否")
+                label: qsTr("读取游戏程序文件")
+                value: App.readsGameExecutable ? qsTr("是（读取磁盘副本）") : qsTr("否")
                 valueColor: App.readsGameExecutable ? Theme.orangeText : Theme.textPrimary
             }
         }
@@ -134,7 +134,7 @@ ColumnLayout {
             model: [
                 qsTr("FINAL FANTASY XIV 是 SQUARE ENIX CO., LTD. 的商标。本软件与 SQUARE ENIX 无任何关联，未获其授权、认可或赞助。"),
                 qsTr("界面里的职业、职能、副本类型图标，以及副本与职业名称，是 SQUARE ENIX 的游戏素材，依据 FINAL FANTASY XIV Materials Usage License 作非商业用途使用并在此注明来源。© SQUARE ENIX CO., LTD. All rights reserved."),
-                qsTr("图标来源：XIVAPI v2 与 Gamer Escape（社区服务，仅作获取途径，不拥有版权）。名称数据来源：XIVAPI v2、thewakingsands/ffxiv-datamining-cn（社区整理的国服文本导出）。"),
+                qsTr("图标来源：XIVAPI v2 与 Gamer Escape（社区服务，仅作获取途径，不拥有版权）。名称数据来源：XIVAPI v2、thewakingsands/ffxiv-datamining-cn（社区整理的国服文本导出）、thewakingsands/ffxiv-datamining-tc（社区整理的繁体中文版文本导出）。"),
                 qsTr("本软件按 GPL-3.0-or-later 开源，使用 Machina.FFXIV（GPL-3.0）与 Qt 6（LGPL-3.0；Qt Graphs 为 GPL-3.0）。Npcap 不随本软件分发，由用户自行安装并遵守其许可条款。完整清单见安装目录下的 THIRD_PARTY_NOTICES.md。")
             ]
             delegate: Text {

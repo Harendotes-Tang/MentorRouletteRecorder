@@ -1,6 +1,7 @@
 using System.Data;
 using Microsoft.Data.Sqlite;
 using MentorRecorder.Collector.Contracts.Errors;
+using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Domain.Time;
 using MentorRecorder.Collector.Export;
 
@@ -122,25 +123,23 @@ public sealed class SqliteDatabase : IDisposable
         {
             return new CollectorException(
                 ErrorCodes.DbBusy,
-                "数据库文件正被其他程序占用，本软件无法启动。请关闭占用它的程序后重试。" +
-                $"数据库文件：{path}",
+                CollectorTexts.StartupDbLocked(path),
                 details,
                 retryable: true,
                 inner: ex);
         }
 
-        var cause = ex.SqliteErrorCode switch
+        // One sentence per cause, so each one can be translated whole.
+        var refusal = ex.SqliteErrorCode switch
         {
-            11 or 26 => "该文件已损坏，或不是本软件的数据库。",
-            8 or 14 or 23 => "无法以读写方式打开该文件，可能是没有权限或路径不可用。",
-            13 => "磁盘空间不足。",
-            _ => "读写该文件时出错。",
+            11 or 26 => CollectorTexts.StartupDbOpenDamaged(path),
+            8 or 14 or 23 => CollectorTexts.StartupDbOpenAccess(path),
+            13 => CollectorTexts.StartupDbOpenDiskFull(path),
+            _ => CollectorTexts.StartupDbOpenIo(path),
         };
         return new CollectorException(
             ErrorCodes.DbIntegrity,
-            "无法打开数据库，本软件无法启动。" + cause +
-            "请先把数据库文件复制一份保存到别处，再排查问题。" +
-            $"数据库文件：{path}",
+            refusal,
             details,
             inner: ex);
     }
@@ -172,9 +171,7 @@ public sealed class SqliteDatabase : IDisposable
             // software will not start, and the file is theirs to copy somewhere safe first.
             throw new CollectorException(
                 ErrorCodes.DbIntegrity,
-                "数据库完整性校验失败，本软件无法启动。" +
-                "请先把数据库文件复制一份保存到别处，再排查问题。" +
-                $"数据库文件：{path}",
+                CollectorTexts.StartupDbIntegrityFailed(path),
                 new Dictionary<string, object?> { ["integrity_check"] = result });
         }
     }
@@ -220,7 +217,7 @@ public sealed class SqliteDatabase : IDisposable
             {
                 throw new CollectorException(
                     ErrorCodes.DbBusy,
-                    "数据库正忙，请稍后用相同的请求编号重试。",
+                    CollectorTexts.DatabaseBusyRetry(),
                     retryable: true,
                     inner: ex);
             }
@@ -416,7 +413,7 @@ public sealed class SqliteDatabase : IDisposable
         catch (SqliteException ex) when (ex.SqliteErrorCode is 5 or 6)
         {
             throw new CollectorException(
-                ErrorCodes.DbBusy, "数据库正忙，请稍后再校验。", retryable: true, inner: ex);
+                ErrorCodes.DbBusy, CollectorTexts.DatabaseBusyIntegrityCheck(), retryable: true, inner: ex);
         }
         catch (SqliteException ex)
         {
@@ -546,7 +543,7 @@ public sealed class SqliteDatabase : IDisposable
         {
             throw new CollectorException(
                 ErrorCodes.ExportFailed,
-                "备份失败：目标路径不可写或磁盘空间不足。",
+                CollectorTexts.ExportBackupFailed(),
                 new Dictionary<string, object?> { ["target_path"] = fullPath },
                 inner: ex);
         }

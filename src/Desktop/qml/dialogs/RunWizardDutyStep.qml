@@ -62,7 +62,8 @@ ColumnLayout {
 
             Text {
                 visible: step.wizard.dutyIndex === 0
-                text: qsTr("未选择 · 可留作")
+                //: Followed by a button that reads 未知副本 ("Unknown duty"): "Nothing chosen; it will be recorded as <Unknown duty>".
+                text: qsTr("未选择，将记为")
                 color: Theme.textSecondary
                 font.pixelSize: Theme.fs(12)
             }
@@ -171,7 +172,7 @@ ColumnLayout {
                     required property var modelData
 
                     objectName: "recentDuty_" + modelData.content_id
-                    text: modelData.duty_name || ""
+                    text: Theme.dutyName(modelData)
                     checked: step.wizard.dutyIndex === modelData.option_index
                     onPicked: step.wizard.pickDuty(modelData.option_index)
                 }
@@ -220,7 +221,7 @@ ColumnLayout {
                                   : (rowHover.hovered ? Theme.fill : Theme.clear(Theme.fill))
 
                     Accessible.role: Accessible.RadioButton
-                    Accessible.name: modelData.duty_name || ""
+                    Accessible.name: Theme.dutyName(modelData)
                     Accessible.checkable: true
                     Accessible.checked: chosen
                     Accessible.onPressAction: step.wizard.pickDuty(modelData.option_index)
@@ -266,7 +267,7 @@ ColumnLayout {
 
                         Text {
                             Layout.fillWidth: true
-                            text: dutyRow.modelData.duty_name || ""
+                            text: Theme.dutyName(dutyRow.modelData)
                             textFormat: Text.PlainText
                             color: dutyRow.chosen
                                    ? (Theme.eorzea ? Theme.gold2 : Theme.accent)
@@ -280,7 +281,7 @@ ColumnLayout {
                             visible: !!dutyRow.modelData.difficulty
                                      && dutyRow.modelData.difficulty !== "普通"
                             variant: "accent"
-                            text: dutyRow.modelData.difficulty || ""
+                            text: step.wizard.difficultyLabel(dutyRow.modelData.difficulty)
                         }
 
                         Text {
@@ -317,7 +318,7 @@ ColumnLayout {
                 objectName: "dutyListEmpty"
                 anchors.centerIn: parent
                 visible: dutyList.count === 0
-                text: qsTr("没有匹配的副本，试试放宽等级或类型")
+                text: qsTr("没有找到副本，试试放宽等级或类型筛选")
                 color: Theme.textSecondary
                 font.pixelSize: Theme.fs(12)
             }
@@ -376,9 +377,12 @@ ColumnLayout {
 
                 Text {
                     Layout.preferredWidth: 56
+                    Layout.maximumWidth: 56
                     Layout.alignment: Qt.AlignTop
                     Layout.topMargin: 7
-                    text: jobGroupRow.modelData.role
+                    text: jobGroupRow.modelData.label || jobGroupRow.modelData.role
+                    // A group named in another language can be longer than 远程物理.
+                    wrapMode: Text.Wrap
                     color: jobGroupRow.roleColor
                     font.pixelSize: Theme.fs(11)
                     font.weight: Font.DemiBold
@@ -402,7 +406,7 @@ ColumnLayout {
                             width: jobChipRow.implicitWidth + 14
                             height: 30
                             selected: step.wizard.jobIndex === modelData.option_index
-                            accessibleName: modelData.job_name
+                            accessibleName: modelData.label || modelData.job_name
                             onPicked: step.wizard.pickJob(modelData.option_index)
 
                             Row {
@@ -440,7 +444,7 @@ ColumnLayout {
 
                                 Text {
                                     anchors.verticalCenter: parent.verticalCenter
-                                    text: jobChip.modelData.job_name
+                                    text: jobChip.modelData.label || jobChip.modelData.job_name
                                     textFormat: Text.PlainText
                                     color: jobChip.selected
                                            ? (Theme.eorzea ? Theme.gold2 : Theme.accent)

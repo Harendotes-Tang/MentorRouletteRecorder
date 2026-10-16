@@ -52,7 +52,10 @@ public:
     /// entered_date / ended_date ("yyyy-MM-dd", legacy callers omit these
     /// to use date), matched / entered / ended ("HH:mm:ss" or
     /// "HH:mm:ss.zzz", empty when unset), result,
-    /// duty_name, job_name, contributes (bool), note, edit_mode (bool).
+    /// duty_name, job_name, contributes (bool), note, edit_mode (bool), and
+    /// optionally duty_label / job_label: the same names as shown (the
+    /// interface language), which diff() displays while duty_name / job_name,
+    /// the record's own, decide whether anything changed.
     /// incomplete_import_context (bool) is a trusted Desktop editing context:
     /// only an existing IMPORT with import_metadata whose unknown/pending facts
     /// are retained may set it. It is false for creation and result confirmation.

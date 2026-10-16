@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Machina.Infrastructure;
+using MentorRecorder.Collector.Contracts.Texts;
 
 namespace MentorRecorder.Collector.Capture;
 
@@ -59,7 +60,7 @@ internal sealed class FirstPacketBuffer
     private long _damagedGameDirections;
     private readonly HashSet<FirstPacketTuple> _gameSeen = new();
     private bool _stopped, _decoding;
-    internal string? Failure { get; private set; }
+    internal UserText? Failure { get; private set; }
     internal (int Bytes, int Packets, int Tuples) Usage { get { lock (_gate) return (_bytes, _packets, _streams.Count); } }
 
     /// <summary>
@@ -175,7 +176,7 @@ internal sealed class FirstPacketBuffer
                 // connection is dropped for want of a stream, and counted as such.
                 if (refused) { Interlocked.Increment(ref _droppedNoStream); return; }
                 if (_streams.Count == _limits.Tuples && !EvictOldestUnowned(null))
-                { Fail("首包连接状态容量已满。"); return; }
+                { Fail(CollectorTexts.CaptureFaultConnectionTableFull()); return; }
                 stream = new(frame.Inbound, frame.Sequence, _clock());
                 _streams.Add(frame.Tuple, stream);
                 // Every stream here began with an observed handshake, whoever it belongs to.
@@ -225,7 +226,7 @@ internal sealed class FirstPacketBuffer
                         Remove(frame.Tuple);
                         return;
                     }
-                    Fail("首包原始缓冲容量已满，无法保证流前缀完整。");
+                    Fail(CollectorTexts.CaptureFaultRawBufferFull());
                     return;
                 }
             }
@@ -455,8 +456,8 @@ internal sealed class FirstPacketBuffer
     internal void Tick() { lock (_gate) { if (!_stopped && Failure is null) Expire(); } }
     private static bool AmbiguousDistance(uint left, uint right) => Math.Abs((long)left - right) >= 0x80000000L;
     internal void Stop() { lock (_gate) { _stopped = true; Clear(); } }
-    internal void Fault(string reason) { lock (_gate) Fail(reason); }
-    private void Fail(string reason) { Failure ??= reason; Clear(); }
+    internal void Fault(UserText reason) { lock (_gate) Fail(reason); }
+    private void Fail(UserText reason) { Failure ??= reason; Clear(); }
     private void Clear() { foreach (var tuple in _streams.Keys.ToArray()) Remove(tuple); }
 
     /// <summary>

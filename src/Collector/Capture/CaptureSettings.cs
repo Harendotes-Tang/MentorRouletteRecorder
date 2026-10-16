@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.Data.Sqlite;
 using MentorRecorder.Collector.Contracts.Errors;
+using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Diagnostics;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Storage.Repositories;
@@ -127,7 +128,7 @@ public static class CaptureSettingsStore
             if (normalized.Length > 0)
             {
                 if (!(update.CandidateValidationEnabled ?? Read(settings).CandidateValidationEnabled))
-                    throw CollectorException.BadRequest("请先开启候选档案验证，再设置研究白名单。", "payload.research_payload_opcodes");
+                    throw CollectorException.BadRequest(CollectorTexts.CaptureSettingsResearchNeedsValidation(), "payload.research_payload_opcodes");
                 normalized = ResearchPayloadPolicy.ValidateRequested(normalized,
                     ProfileCatalog.LoadDefault(allowCandidate: true).Entries
                         .Where(entry => entry.Profile is not null).Select(entry => entry.Profile!));

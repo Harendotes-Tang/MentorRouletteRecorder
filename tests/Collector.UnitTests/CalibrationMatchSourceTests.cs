@@ -318,8 +318,8 @@ public sealed class CalibrationMatchSourceTests
         // Not BLOCKED: blocking says "wait for a new version of the software", and the shape is
         // sitting right there inside the bursts.
         Assert.Equal(CalibrationDraftStatus.Observing, draft.Status);
-        Assert.Contains(draft.Blockers, text => text.Contains("换区报文对不上", StringComparison.Ordinal));
-        Assert.DoesNotContain(draft.Blockers, text => text.Contains("需要新版本的软件", StringComparison.Ordinal));
+        Assert.Contains(draft.Blockers, text => text.Chinese.Contains("进出副本的时间还在检查中", StringComparison.Ordinal));
+        Assert.DoesNotContain(draft.Blockers, text => text.Chinese.Contains("需要新版本的软件", StringComparison.Ordinal));
 
         var evidence = CalibrationEvidenceSummary.From(Snapshot(traffic), CalibrationObserverTests.Template());
         Assert.Equal(1, evidence.ZoneOutside);
@@ -384,7 +384,7 @@ public sealed class CalibrationMatchSourceTests
         Assert.Empty(draft.Messages);
         Assert.True(draft.Progress.FinderRequestSeen);
         Assert.True(draft.Progress.DutyZoneSeen);
-        Assert.Contains(draft.Blockers, text => text.Contains("申请一个和刚才不一样的随机任务", StringComparison.Ordinal));
+        Assert.Contains(draft.Blockers, text => text.Chinese.Contains("申请一个与刚才不同的随机任务", StringComparison.Ordinal));
     }
 
     /// <summary>
@@ -456,7 +456,7 @@ public sealed class CalibrationMatchSourceTests
         var draft = Derive(traffic);
 
         Assert.NotEqual(CalibrationDraftStatus.Ready, draft.Status);
-        Assert.Contains(draft.Blockers, text => text.Contains("哪个副本", StringComparison.Ordinal));
+        Assert.Contains(draft.Blockers, text => text.Chinese.Contains("还没识别到你进入的副本", StringComparison.Ordinal));
         Assert.Empty(draft.Messages);
     }
 
@@ -472,7 +472,7 @@ public sealed class CalibrationMatchSourceTests
 
         Assert.DoesNotContain(draft.Events, item => item.Kind == "pop");
         var entered = Assert.Single(draft.Events, item => item.Kind == "duty_enter");
-        Assert.Contains("排本", entered.Label, StringComparison.Ordinal);
+        Assert.Contains("排队", entered.Label.Chinese, StringComparison.Ordinal);
     }
 
     /// <summary>

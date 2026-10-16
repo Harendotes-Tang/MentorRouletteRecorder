@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Runtime.Versioning;
 using System.Security.Principal;
 using Microsoft.Win32;
+using MentorRecorder.Collector.Contracts.Texts;
 
 namespace MentorRecorder.Collector.Capture;
 
@@ -34,14 +35,14 @@ public enum NpcapStatus
 /// <param name="WinPcapCompatible">True when the WinPcap API-compatible mode is installed.</param>
 /// <param name="AdminOnly">True when the driver is restricted to administrators.</param>
 /// <param name="Elevated">True when this process runs elevated.</param>
-/// <param name="Guidance">User-facing explanation in Simplified Chinese.</param>
+/// <param name="Guidance">User-facing explanation, a catalogue text.</param>
 public sealed record NpcapDetection(
     NpcapStatus Status,
     string? Version,
     bool WinPcapCompatible,
     bool AdminOnly,
     bool Elevated,
-    string Guidance)
+    UserText Guidance)
 {
     /// <summary>True when something recognisable as Npcap is present, usable or not.</summary>
     public bool Installed => Status != NpcapStatus.NotInstalled;
@@ -118,11 +119,7 @@ public sealed class NpcapDetector
     public const string AdminOnlyValue = "AdminOnly";
 
     /// <summary>Guidance shown when nothing was found.</summary>
-    public const string NotInstalledGuidance =
-        "未检测到 Npcap。本软件需要 Npcap 才能被动读取本机网卡流量，" +
-        "请从 Npcap 官方站点自行下载安装（安装时请勾选 “WinPcap API-compatible Mode”），" +
-        "安装完成后重新启动本软件。本软件运行时不会替您下载或安装任何驱动；" +
-        "只有安装程序在安装时发现缺少 Npcap，才会下载 Npcap 官方安装程序，由您在它自己的向导中完成安装。";
+    public static UserText NotInstalledGuidance => CollectorTexts.CaptureNpcapNotInstalled();
 
     private readonly INpcapEnvironment _environment;
 
@@ -169,9 +166,7 @@ public sealed class NpcapDetector
                 false,
                 adminOnly,
                 elevated,
-                "检测到 Npcap 的安装记录，但 wpcap.dll 或 Packet.dll 不在 " +
-                @"%SystemRoot%\System32\Npcap\ 下，安装可能不完整或已被部分卸载。" +
-                "请重新安装 Npcap（安装时勾选 “WinPcap API-compatible Mode”）。");
+                CollectorTexts.CaptureNpcapLoadFailed());
         }
 
         var compatible = DetectWinPcapCompatible();
@@ -183,9 +178,7 @@ public sealed class NpcapDetector
                 false,
                 adminOnly,
                 elevated,
-                "检测到 Npcap，但未安装 WinPcap 兼容模式。本软件通过 WinPcap 兼容接口抓包，" +
-                "请重新运行 Npcap 安装程序并勾选 “WinPcap API-compatible Mode”。" +
-                "（不需要勾选 “Support raw 802.11 traffic”。）");
+                CollectorTexts.CaptureNpcapNotWinpcapCompatible());
         }
 
         if (adminOnly && !elevated)
@@ -196,9 +189,7 @@ public sealed class NpcapDetector
                 true,
                 true,
                 false,
-                "Npcap 安装时启用了 “Restrict Npcap driver's access to Administrators only”，" +
-                "当前进程没有管理员权限，无法打开网卡。请以管理员身份运行本软件，" +
-                "或重新安装 Npcap 并取消该限制选项。");
+                CollectorTexts.CaptureNpcapAdminOnly());
         }
 
         return new NpcapDetection(
@@ -207,7 +198,7 @@ public sealed class NpcapDetector
             true,
             adminOnly,
             elevated,
-            "Npcap 可用。抓包全程只读，从不发送任何数据包。");
+            CollectorTexts.CaptureNpcapReady());
     }
 
     /// <summary>

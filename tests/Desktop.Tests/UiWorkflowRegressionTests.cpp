@@ -1937,21 +1937,21 @@ void UiWorkflowRegressionTests::integrityButtonShowsTheCollectorsAnswer_data()
         << QJsonObject{{QStringLiteral("passed"), true}, {QStringLiteral("detail"), QStringLiteral("ok")},
                        {QStringLiteral("checked_at_utc"), stamp}}
         << QString()
-        << QString::fromUtf8("完整性校验通过 · ") + mr::Formatters::localTime(stamp)
+        << QString::fromUtf8("数据完整性检查通过 · ") + mr::Formatters::localTime(stamp)
         << QStringLiteral("passed");
     QTest::newRow("failed")
         << QJsonObject{{QStringLiteral("passed"), false},
                        {QStringLiteral("detail"), QStringLiteral("row 3 missing from index idx_runs")},
                        {QStringLiteral("checked_at_utc"), stamp}}
         << QString()
-        << QString::fromUtf8("完整性校验未通过：row 3 missing from index idx_runs")
+        << QString::fromUtf8("数据完整性检查未通过：row 3 missing from index idx_runs")
         << QStringLiteral("failed");
     QTest::newRow("older-collector")
         << QJsonObject() << QStringLiteral("ERR_UNKNOWN_MESSAGE")
-        << QString::fromUtf8("当前采集器不支持完整性校验") << QStringLiteral("unsupported");
+        << QString::fromUtf8("当前后台服务不支持数据完整性检查，请更新软件后重试。") << QStringLiteral("unsupported");
     QTest::newRow("busy")
         << QJsonObject() << QStringLiteral("ERR_DB_BUSY")
-        << QString::fromUtf8("完整性校验没有完成：fixture refusal") << QStringLiteral("error");
+        << QString::fromUtf8("数据完整性检查未完成：fixture refusal") << QStringLiteral("error");
 }
 
 void UiWorkflowRegressionTests::integrityButtonShowsTheCollectorsAnswer()
@@ -2048,7 +2048,7 @@ void UiWorkflowRegressionTests::onlinePanelAppearsOnlyForOnlineVoices()
     QVERIFY(header);
     QVERIFY(!slot->isVisible());
     QVERIFY(!fixture.item(QStringLiteral("onlineSpeechCard")));
-    QCOMPARE(header->property("description").toString(), QString::fromUtf8("使用系统语音引擎，不联网"));
+    QCOMPARE(header->property("description").toString(), QString::fromUtf8("使用本机语音，无需联网"));
     QCOMPARE(header->property("label").toString(), QString::fromUtf8("本地语音播报"));
 
     fixture.tts.setVoices(speechVoiceRows(), QStringLiteral("azure:zh-CN-XiaoxiaoNeural"));
@@ -2065,7 +2065,7 @@ void UiWorkflowRegressionTests::onlinePanelAppearsOnlyForOnlineVoices()
     QCOMPARE(fixture.item(QStringLiteral("onlineSpeechRegionField"))->property("text").toString(),
              QStringLiteral("eastasia"));
     QCOMPARE(fixture.item(QStringLiteral("onlineSpeechNote"))->property("text").toString(),
-             QString::fromUtf8("开启后播报文字会发送到 eastasia.azure-speech.invalid；密钥只保存在本机，并由 Windows 加密。"));
+             QString::fromUtf8("在线播报需要时会发送文字到 eastasia.azure-speech.invalid。对方能看到你的 IP，并按自己的隐私政策处理文字。密钥由 Windows 加密保存在本机。更改服务、区域或地址时，请重新填写密钥。要停用，在「语音引擎」选回本机语音；密钥会保留。"));
     QVERIFY(fixture.item(QStringLiteral("onlineSpeechTestButton"))->isEnabled());
 
     // 测试 goes through TtsService, which answers for the button.
@@ -2087,7 +2087,7 @@ void UiWorkflowRegressionTests::onlinePanelAppearsOnlyForOnlineVoices()
     // Back to a local voice: the panel goes away again.
     fixture.tts.setVoices(speechVoiceRows(), QStringLiteral("local:Microsoft Huihui Desktop"));
     QTRY_VERIFY(!slot->isVisible());
-    QCOMPARE(header->property("description").toString(), QString::fromUtf8("使用系统语音引擎，不联网"));
+    QCOMPARE(header->property("description").toString(), QString::fromUtf8("使用本机语音，无需联网"));
 
     // An older Collector: no online panel even for an online id.
     SettingsFixture older;
@@ -2260,8 +2260,7 @@ void UiWorkflowRegressionTests::theConfirmationTemplateSaysWhenItIsSpoken()
     QQuickItem *finished = findWithProperty(scene, "label", QString::fromUtf8("结束待确认"));
     QVERIFY(finished);
     QCOMPARE(finished->property("note").toString(),
-             QString::fromUtf8("副本内收到通关结算时，记录直接记为通关，播报上面的“通关”；"
-                               "离开副本前没有收到结算时，记录停在“待确认”，播报这一条。"));
+             QString::fromUtf8("收到通关结算时，记录记为「通关」，播报上面的「通关」；未收到结算就离开副本时，记录为「待确认」，播报这一条。"));
 
     QQuickItem *completed = findWithProperty(scene, "label", QString::fromUtf8("通关"));
     QVERIFY(completed);
@@ -2279,13 +2278,12 @@ void UiWorkflowRegressionTests::theRecordSwitchesSayWhenTheyAct()
     QQuickItem *ask = findWithProperty(scene, "label", QString::fromUtf8("结束后询问本次结果"));
     QVERIFY(ask);
     QCOMPARE(ask->property("description").toString(),
-             QString::fromUtf8("离开副本前没有收到通关结算时，程序不替你判定，结束后询问本次结果；"
-                               "关掉后可以在总览的待复核里补确认"));
+             QString::fromUtf8("未收到通关结算就离开副本时，软件会询问本次结果。关闭后可在总览的「待复核」中确认。"));
 
     QQuickItem *note = findWithProperty(scene, "label", QString::fromUtf8("通关后弹出笔记窗口"));
     QVERIFY(note);
     QCOMPARE(note->property("description").toString(),
-             QString::fromUtf8("通关后接着记一句；也可稍后在历史记录补录"));
+             QString::fromUtf8("通关后弹出窗口记笔记；也可稍后到历史记录补写。"));
 }
 
 // The 待复核 banner on 总览 speaks of whatever runs are pending, which the
@@ -2300,11 +2298,8 @@ void UiWorkflowRegressionTests::thePendingBannerSaysWhyARunIsPending()
     QVERIFY(scene.item(QStringLiteral("pendingReviewBannerTitle")));
 
     QCOMPARE(textStartingWith(scene.window()->contentItem(),
-                              QString::fromUtf8("这些导随的结果还没有确认")),
-             QString::fromUtf8("这些导随的结果还没有确认，常见的原因是程序异常退出后由崩溃恢复关闭、"
-                               "离开副本前没有收到通关结算而无法判定是否通关，或者生成记录的校准事后被撤下。"
-                               "尚未记为通关的记录，确认“通关”后才计入导随次数；"
-                               "每次确认都会作为一条新的修订记入审计。"));
+                              QString::fromUtf8("这些记录需要你复核")),
+             QString::fromUtf8("这些记录需要你复核，可能是程序异常退出、未收到通关结算，或生成记录时使用的校准后来被停用。尚未记为通关的记录，确认“通关”后才计入导随次数；每次确认都会记入“修改记录”。"));
 }
 
 // 软件说明 · 运行顺序, step 3: only a result that was not recorded by itself is
@@ -2337,10 +2332,8 @@ ApplicationWindow {
 
     QCOMPARE(textStartingWith(content, QString::fromUtf8("· 3. ")),
              QString::fromUtf8("· 3. 正常排指导者任务，未能自动判定的结果到“待复核”里填写"));
-    QCOMPARE(textStartingWith(content, QString::fromUtf8("匹配、进入副本、离开副本会自动记录")),
-             QString::fromUtf8("匹配、进入副本、离开副本会自动记录，副本内收到通关结算时自动记为通关。"
-                               "没有收到结算就离开副本时，记录会标为“待复核”，"
-                               "打开记录用“修正”填上通关或离开即可。"));
+    QCOMPARE(textStartingWith(content, QString::fromUtf8("匹配、进入副本和离开副本会自动记录")),
+             QString::fromUtf8("匹配、进入副本和离开副本会自动记录。收到通关结算时自动记为通关；未收到结算就离开副本时，记录标为「待复核」。打开记录，点「修正」填写通关或离开。"));
 }
 
 // The CN clear is recognised (docs/protocol-profile-format.md §12), so no text a
@@ -2419,9 +2412,7 @@ void UiWorkflowRegressionTests::theCurrentRunCardKeepsItsValuesInsideWhileANotic
                                  {QStringLiteral("midstream_suspected"), true},
                                  {QStringLiteral("silent_reason"), QStringLiteral("MIDSTREAM")},
                                  {QStringLiteral("hint"),
-                                  QStringLiteral("已发现游戏连接，但持续未解码出有效 IPC，可能缺少连接起始数据。"
-                                                 "可在方便时登出到标题画面再重新登录（不用关闭游戏），"
-                                                 "让软件尝试捕获新连接。若仍无记录，请导出诊断报告。")}}}});
+                                  QStringLiteral("已连接游戏，但一直读不到有效数据，可能漏掉了连接开始时的信息。可在方便时登出到标题画面再重新登录（不用关闭游戏），让软件尝试捕获新连接。若仍无记录，请导出诊断报告。")}}}});
     scene.controller.recording()->refresh();
 
     auto *status = scene.item(QStringLiteral("currentRunCaptureStatus"));

@@ -27,11 +27,11 @@ Item {
     property string currentTab: (typeof ForceSettingsTab !== "undefined" && ForceSettingsTab)
                                 ? ForceSettingsTab : "general"
     readonly property var tabs: [
-        { id: "general", label: qsTr("通用"), sub: qsTr("启动 · 记录 · 外观") },
+        { id: "general", label: qsTr("通用"), sub: qsTr("语言 · 启动 · 记录 · 外观") },
         { id: "tts", label: qsTr("播报"), sub: qsTr("语音与模板") },
-        { id: "goal", label: qsTr("成就"), sub: qsTr("目标与基数") },
-        { id: "data", label: qsTr("数据"), sub: qsTr("数据库与备份") },
-        { id: "about", label: qsTr("关于"), sub: qsTr("版权 · 隐私边界") }
+        { id: "goal", label: qsTr("成就"), sub: qsTr("目标与起始次数") },
+        { id: "data", label: qsTr("数据"), sub: qsTr("记录与备份") },
+        { id: "about", label: qsTr("关于"), sub: qsTr("版权 · 隐私说明") }
     ]
     readonly property int navWidth: 168
     readonly property int contentMaxWidth: 760
@@ -55,7 +55,7 @@ Item {
 
         PageHeader {
             title: qsTr("设置")
-            subtitle: qsTr("所有数据仅保存在本机 · 无遥测 · 无云同步")
+            subtitle: qsTr("记录保存在本机 · 无遥测 · 无云同步")
         }
 
         RowLayout {
@@ -114,6 +114,7 @@ Item {
                     SettingsSpeechTab {
                         objectName: "settingsSpeechTab"
                         visible: page.currentTab === "tts"
+                        onOpenGeneralRequested: page.selectTab("general")
                     }
                     SettingsGoalTab {
                         id: goalTab

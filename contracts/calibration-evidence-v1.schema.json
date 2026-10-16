@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Harendotes-Tang/MentorRecorder-Calibrations/schemas/calibration-evidence-v1.schema.json",
+  "title": "MentorRecorder minimal public calibration evidence v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "schema_version", "kind", "evidence_id", "producer", "target", "sessions", "observations"],
+  "properties": {
+    "format": {"const": "MentorRecorder.CalibrationEvidence"},
+    "schema_version": {"const": 1},
+    "kind": {"enum": ["CODE_VERIFICATION", "TEMPLATE_OBSERVATION"]},
+    "evidence_id": {"$ref": "#/$defs/uuid"},
+    "producer": {
+      "type": "object", "additionalProperties": false,
+      "required": ["app_version", "rules_version"],
+      "properties": {
+        "app_version": {"type": "string", "maxLength": 64, "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][0-9A-Za-z.+-]+)?$"},
+        "rules_version": {"const": "calibration-evidence-v1"}
+      }
+    },
+    "target": {
+      "type": "object", "additionalProperties": false,
+      "required": ["region", "game_build", "template_profile_id", "template_sha256", "code_sha256", "quarantine_epoch"],
+      "properties": {
+        "region": {"enum": ["CN", "GLOBAL"]},
+        "game_build": {"type": "string", "maxLength": 24, "pattern": "^[0-9]{4}\\.[0-9]{2}\\.[0-9]{2}\\.[0-9]{4}\\.[0-9]{4}$"},
+        "template_profile_id": {"type": ["string", "null"], "maxLength": 128, "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"},
+        "template_sha256": {"$ref": "#/$defs/nullableHash"},
+        "code_sha256": {"$ref": "#/$defs/nullableHash"},
+        "quarantine_epoch": {"type": "integer", "minimum": 0, "maximum": 2147483647}
+      }
+    },
+    "sessions": {"type": "array", "maxItems": 8, "items": {"$ref": "#/$defs/session"}},
+    "observations": {"type": "array", "maxItems": 128, "items": {"$ref": "#/$defs/observation"}}
+  },
+  "allOf": [{
+    "if": {"properties": {"kind": {"const": "CODE_VERIFICATION"}}},
+    "then": {
+      "properties": {
+        "target": {"properties": {"template_profile_id": {"type": "string"}, "template_sha256": {"type": "string"}, "code_sha256": {"type": "string"}}},
+        "sessions": {"minItems": 1}, "observations": {"maxItems": 0}
+      }
+    }
+  }],
+  "$defs": {
+    "uuid": {"type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"},
+    "nullableHash": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+    "count": {"type": "integer", "minimum": 0, "maximum": 1000000000},
+    "health": {
+      "type": "object", "additionalProperties": false,
+      "required": ["silent_reason", "preexisting_connections", "adapter_dropped", "decoded_messages_dropped", "damaged_directions", "observation_overflow"],
+      "properties": {
+        "silent_reason": {"type": "string", "maxLength": 64, "pattern": "^[A-Z][A-Z0-9_]*$"},
+        "preexisting_connections": {"type": ["integer", "null"], "minimum": 0, "maximum": 1000000000},
+        "adapter_dropped": {"$ref": "#/$defs/count"},
+        "decoded_messages_dropped": {"$ref": "#/$defs/count"},
+        "damaged_directions": {"$ref": "#/$defs/count"},
+        "observation_overflow": {"type": "boolean"}
+      }
+    },
+    "check": {
+      "type": "object", "additionalProperties": false, "required": ["field", "verdict"],
+      "properties": {
+        "field": {"enum": ["zone", "territory", "job", "match"]},
+        "verdict": {"enum": ["PASS", "CONTRADICT", "WAIT"]}
+      }
+    },
+    "session": {
+      "type": "object", "additionalProperties": false,
+      "required": ["session_alias", "complete", "health", "checks"],
+      "properties": {
+        "session_alias": {"$ref": "#/$defs/uuid"},
+        "complete": {"type": "boolean"},
+        "health": {"$ref": "#/$defs/health"},
+        "checks": {"type": "array", "maxItems": 4, "items": {"$ref": "#/$defs/check"}}
+      }
+    },
+    "observation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["event", "direction", "segment_type", "opcode", "length", "inside_count", "outside_count", "event_count"],
+      "properties": {
+        "event": {"enum": ["LOGIN", "QUEUE_START", "MATCH_SHOWN", "DUTY_ENTER", "DUTY_EXIT", "DUTY_CLEAR", "CANCEL"]},
+        "direction": {"enum": ["C2S", "S2C"]},
+        "segment_type": {"type": "integer", "minimum": 0, "maximum": 65535},
+        "opcode": {"type": "integer", "minimum": 0, "maximum": 65535},
+        "length": {"type": "integer", "minimum": 0, "maximum": 65535},
+        "inside_count": {"$ref": "#/$defs/count"},
+        "outside_count": {"$ref": "#/$defs/count"},
+        "event_count": {"$ref": "#/$defs/count"}
+      }
+    }
+  }
+}

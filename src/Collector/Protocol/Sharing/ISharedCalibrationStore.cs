@@ -123,6 +123,27 @@ public interface ISharedCalibrationStore
     /// <param name="gameBuild">Build of the running client.</param>
     /// <param name="profileSha256">Canonical hash of the profile document in use.</param>
     DateTimeOffset? BoundSince(Region region, string gameBuild, string profileSha256);
+
+    /// <summary>
+    /// The code <see cref="RecordBound"/> kept for exactly this profile document, or null when nothing was. What the code
+    /// behind a profile in use is, as it was bound: preferred to reading it back through the template, which gives another
+    /// identity once a software update brings another template (review 2026-10-15).
+    /// </summary>
+    /// <param name="region">Region of the running client.</param>
+    /// <param name="gameBuild">Build of the running client.</param>
+    /// <param name="profileSha256">Canonical hash of the profile document in use.</param>
+    string? BoundCode(Region region, string gameBuild, string profileSha256);
+
+    /// <summary>
+    /// The text of the stored code with exactly this identity, as it was downloaded (plan §20.5): what a player whose
+    /// machine proved another player's calibration hands back to the repository. Null when no file holds that code - a
+    /// code pasted and never downloaded included - when the file no longer decodes to it, or when the last readable index
+    /// revoked it. Reads the files only; nothing is sent to answer it.
+    /// </summary>
+    /// <param name="region">Region of the running client.</param>
+    /// <param name="gameBuild">Build of the running client.</param>
+    /// <param name="codeSha256">The code.</param>
+    string? CodeText(Region region, string gameBuild, string codeSha256);
 }
 
 /// <summary>What the index last read says about a code.</summary>
@@ -155,10 +176,14 @@ public sealed record SharedStoreWriteResult(bool Recorded, int CodesWritten, IRe
 /// <param name="FirstPublishedAtUtc">First publication according to that index, when known.</param>
 /// <param name="Conflicting">
 /// That index marked it as one of several differing codes for the same thing: offered after an equally attested code
-/// without the mark, and never bound on the login burst alone.
+/// without the mark. Whether it may bind on the login burst is the local consensus's call (<see cref="SharedCandidateConsensus"/>).
 /// </param>
+/// <param name="ShapePrior">That index's shape prior (plan §20.3); null when it gave none or nothing was recorded.</param>
+/// <param name="Quarantined">Last downloaded restriction on the login shortcut; full observation remains available.</param>
+/// <param name="QuarantineEpoch">Last downloaded quarantine generation, including after recovery.</param>
 public sealed record SharedStoredCandidate(
-    string CodeSha256, string Code, ShareCodePayload Payload, int Submitters, DateTimeOffset? FirstPublishedAtUtc, bool Conflicting = false);
+    string CodeSha256, string Code, ShareCodePayload Payload, int Submitters, DateTimeOffset? FirstPublishedAtUtc, bool Conflicting = false,
+    bool? ShapePrior = null, bool Quarantined = false, int QuarantineEpoch = 0);
 
 /// <summary>The last fetch attempt for one region, build and template.</summary>
 /// <param name="TemplateSha256">Template in force.</param>
@@ -234,4 +259,10 @@ internal sealed class InertSharedCalibrationStore : ISharedCalibrationStore
 
     /// <inheritdoc />
     public DateTimeOffset? BoundSince(Region region, string gameBuild, string profileSha256) => null;
+
+    /// <inheritdoc />
+    public string? CodeText(Region region, string gameBuild, string codeSha256) => null;
+
+    /// <inheritdoc />
+    public string? BoundCode(Region region, string gameBuild, string profileSha256) => null;
 }

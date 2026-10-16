@@ -1,3 +1,5 @@
+using MentorRecorder.Collector.Contracts.Texts;
+
 namespace MentorRecorder.Collector.Update;
 
 /// <summary>
@@ -113,7 +115,7 @@ public sealed record UpdateDownloadSnapshot(
     string? FilePath = null,
     string? Sha256 = null,
     UpdateDownloadFailure? Failure = null,
-    string? Message = null)
+    UserText? Message = null)
 {
     /// <summary>Nothing asked.</summary>
     public static UpdateDownloadSnapshot Idle { get; } = new(UpdateDownloadState.Idle);
@@ -137,7 +139,7 @@ public sealed record UpdateDownloadSnapshot(
     /// <param name="version">The version that was being downloaded; null when nothing was.</param>
     /// <param name="failure">Why.</param>
     /// <param name="message">The sentence for the user; <see cref="UpdateDownloadMessages.For"/> when null.</param>
-    public static UpdateDownloadSnapshot Failed(string? version, UpdateDownloadFailure failure, string? message = null) =>
+    public static UpdateDownloadSnapshot Failed(string? version, UpdateDownloadFailure failure, UserText? message = null) =>
         new(UpdateDownloadState.Failed, version, Failure: failure, Message: message ?? UpdateDownloadMessages.For(failure));
 }
 
@@ -148,47 +150,45 @@ public sealed record UpdateDownloadSnapshot(
 public static class UpdateDownloadMessages
 {
     /// <summary>DISABLED because the user switched the update check off in the settings.</summary>
-    public const string SettingOff =
-        "更新检查已在设置中关闭，因此没有下载任何内容；如需下载，请先在「设置 · 通用」中开启更新检查。";
+    public static UserText SettingOff => CollectorTexts.UpdateDownloadSettingOff();
 
     /// <summary>DISABLED because the user switched the update check off while a download ran or was ready.</summary>
-    public const string Withdrawn =
-        "更新检查已在设置中关闭，因此下载已停止，已下载的安装程序也不再提供；如需更新，请先在「设置 · 通用」中重新开启更新检查，再点「重试」。";
+    public static UserText Withdrawn => CollectorTexts.UpdateDownloadWithdrawn();
 
     /// <summary>The sentence for a failure. DISABLED here is the kill switch; the setting has <see cref="SettingOff"/>.</summary>
     /// <param name="failure">Why the download ended.</param>
-    public static string For(UpdateDownloadFailure failure) => failure switch
+    public static UserText For(UpdateDownloadFailure failure) => failure switch
     {
         UpdateDownloadFailure.NoUpdate =>
-            "目前没有比正在使用的版本更新的正式版可供下载；如需确认，请先点击「检查更新」。",
+            CollectorTexts.UpdateDownloadNoUpdate(),
         UpdateDownloadFailure.Disabled =>
-            "本机已禁止本软件检查和下载更新，因此没有下载任何内容；如需更新，请点击「在浏览器中下载」。",
+            CollectorTexts.UpdateDownloadDisabled(),
         UpdateDownloadFailure.HostRefused =>
-            "下载地址指向了本软件不信任的服务器，下载已停止；请稍后重试，或点击「在浏览器中下载」。",
+            CollectorTexts.UpdateDownloadHostRefused(),
         UpdateDownloadFailure.RedirectRefused =>
-            "下载服务器的转向无效或次数过多，下载已停止；请稍后重试，或点击「在浏览器中下载」。",
+            CollectorTexts.UpdateDownloadRedirectRefused(),
         UpdateDownloadFailure.NotFound =>
-            "发布页面上暂时找不到该版本的安装程序，可能仍在上传；请稍后重试，或点击「在浏览器中下载」。",
+            CollectorTexts.UpdateDownloadNotFound(),
         UpdateDownloadFailure.RateLimited =>
-            "下载服务器暂时拒绝了请求，可能是短时间内访问过多；请过一段时间后重试，或点击「在浏览器中下载」。",
+            CollectorTexts.UpdateDownloadRateLimited(),
         UpdateDownloadFailure.HttpStatus =>
-            "下载服务器返回了错误，未能下载安装程序；请稍后重试，或点击「在浏览器中下载」。",
+            CollectorTexts.UpdateDownloadHttpStatus(),
         UpdateDownloadFailure.TooLarge =>
-            "安装程序的大小超出了合理范围，为安全起见已停止下载；请点击「在浏览器中下载」。",
+            CollectorTexts.UpdateDownloadTooLarge(),
         UpdateDownloadFailure.Timeout =>
-            "下载长时间没有进展或耗时过长，已经停止；请检查网络连接后重试，或点击「在浏览器中下载」。",
+            CollectorTexts.UpdateDownloadTimeout(),
         UpdateDownloadFailure.DnsOrConnect =>
-            "无法连接到下载服务器；请检查网络连接后重试，或点击「在浏览器中下载」。",
+            CollectorTexts.UpdateDownloadDnsOrConnect(),
         UpdateDownloadFailure.TlsFailed =>
-            "无法与下载服务器建立安全连接；请检查系统时间和网络环境后重试，或点击「在浏览器中下载」。",
+            CollectorTexts.UpdateDownloadTlsFailed(),
         UpdateDownloadFailure.TransportFailed =>
-            "下载过程中网络连接中断，安装程序不完整，已将其删除；请重试，或点击「在浏览器中下载」。",
+            CollectorTexts.UpdateDownloadTransportFailed(),
         UpdateDownloadFailure.ChecksumUnavailable =>
-            "无法读取官方发布的安装程序校验值，因此没有下载安装程序；请稍后重试，或点击「在浏览器中下载」。",
+            CollectorTexts.UpdateDownloadChecksumUnavailable(),
         UpdateDownloadFailure.ChecksumMismatch =>
-            "下载的安装程序与官方发布的校验值不一致，已将其删除；请重试，或点击「在浏览器中下载」。",
+            CollectorTexts.UpdateDownloadChecksumMismatch(),
         UpdateDownloadFailure.DiskFailed =>
-            "无法在本机保存安装程序；请确认磁盘空间充足、数据文件夹可以写入后重试，或点击「在浏览器中下载」。",
+            CollectorTexts.UpdateDownloadDiskFailed(),
         _ => throw new ArgumentOutOfRangeException(nameof(failure), failure, "not a declared failure"),
     };
 }

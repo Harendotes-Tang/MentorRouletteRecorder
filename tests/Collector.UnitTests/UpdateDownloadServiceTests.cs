@@ -486,7 +486,7 @@ public sealed class UpdateDownloadServiceTests : UpdateDownloadTestBase
         var answer = service.Start(reinstall: true);
 
         AssertFailed(answer, Failure.Disabled);
-        Assert.Contains("设置", answer.Message, StringComparison.Ordinal);
+        Assert.Contains("设置", answer.Message?.Chinese, StringComparison.Ordinal);
         Assert.Empty(transport.Requests);
     }
 
@@ -500,7 +500,7 @@ public sealed class UpdateDownloadServiceTests : UpdateDownloadTestBase
         var answer = service.Start(reinstall: true);
 
         AssertFailed(answer, Failure.Disabled);
-        Assert.DoesNotContain("设置 · 通用", answer.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("设置 · 通用", answer.Message?.Chinese, StringComparison.Ordinal);
         Assert.Empty(transport.Requests);
     }
 
@@ -621,9 +621,9 @@ public sealed class UpdateDownloadServiceTests : UpdateDownloadTestBase
     [Fact]
     public void EveryFailureHasASentenceWithoutInternalNames()
     {
-        var sentences = Enum.GetValues<Failure>().Select(UpdateDownloadMessages.For)
-            .Append(UpdateDownloadMessages.SettingOff)
-            .Append(UpdateDownloadMessages.Withdrawn)
+        var sentences = Enum.GetValues<Failure>().Select(failure => UpdateDownloadMessages.For(failure).Chinese)
+            .Append(UpdateDownloadMessages.SettingOff.Chinese)
+            .Append(UpdateDownloadMessages.Withdrawn.Chinese)
             .ToArray();
 
         Assert.Equal(sentences.Length, sentences.Distinct(StringComparer.Ordinal).Count());

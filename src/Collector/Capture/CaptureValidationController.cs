@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json.Nodes;
 using System.Threading.Channels;
 using MentorRecorder.Collector.Contracts.Errors;
+using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Diagnostics;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Domain.Time;
@@ -67,7 +68,8 @@ public sealed partial class CaptureValidationController : IDisposable
     private readonly string _oodleTempManifest;
     private Session? _session;
     private bool _disposed;
-    private string _state = "IDLE", _reason = "IDLE", _message = "尚未开始验证。";
+    private string _state = "IDLE", _reason = "IDLE";
+    private UserText _message = CollectorTexts.CaptureValidationIdle();
 
     public CaptureValidationController(string databasePath, CaptureOwnership ownership, CaptureValidationServices? services = null)
     {
@@ -143,7 +145,8 @@ public sealed partial class CaptureValidationController : IDisposable
             var measured = s is not null && (s.RecordingStarted || s.ErrorCode is not null);
             return new JsonObject
             {
-                ["state"] = _state, ["active"] = Active, ["reason"] = _reason, ["message"] = _message,
+                ["state"] = _state, ["active"] = Active, ["reason"] = _reason,
+                ["message"] = _message.Chinese, ["message_ref"] = _message.ToJson(),
                 ["session_id"] = s?.Id,
                 ["started_at_utc"] = measured && s?.Started is { } start ? UtcTimestamp.ToText(start) : null,
                 ["ended_at_utc"] = s?.Ended is { } end ? UtcTimestamp.ToText(end) : null,
@@ -161,19 +164,19 @@ public sealed partial class CaptureValidationController : IDisposable
     public JsonObject Start(string? adapterId = null)
     {
         if (adapterId is not null && (string.IsNullOrWhiteSpace(adapterId) || adapterId.Length > 400))
-            throw CollectorException.BadRequest("网卡标识必须为非空字符串，且不超过 400 字符。", "payload.adapter_id");
+            throw CollectorException.BadRequest(CollectorTexts.CaptureValidationAdapterIdInvalid(), "payload.adapter_id");
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
-            if (Active) throw CollectorException.BadRequest("验证会话仍在进行，请先停止。 ");
+            if (Active) throw CollectorException.BadRequest(CollectorTexts.CaptureValidationStillRunning());
             var lease = _ownership.Acquire();
             try
             {
                 var npcap = _services.Trace.Npcap.Detect();
-                if (!npcap.Usable) throw new CollectorException(ErrorCodes.NpcapMissing, "Npcap 不可用，请安装官方 Npcap 并启用兼容模式后重试。");
+                if (!npcap.Usable) throw new CollectorException(ErrorCodes.NpcapMissing, CollectorTexts.CaptureValidationNpcapUnavailable());
                 var session = new Session(adapterId ?? _services.RememberedAdapterId, lease, npcap);
                 _session = session;
-                SetState("WAITING", "WAITING_GAME", "仅验证，不自动记录。正在等待游戏启动。");
+                SetState("WAITING", "WAITING_GAME", CollectorTexts.CaptureValidationWaitingGame());
                 var snapshot = Snapshot();
                 session.Work = Task.Run(() => RunAsync(session));
                 return snapshot;
@@ -188,7 +191,7 @@ public sealed partial class CaptureValidationController : IDisposable
         {
             if (Active)
             {
-                SetState("STOPPING", "STOPPING", "正在停止验证并保存本地文件……");
+                SetState("STOPPING", "STOPPING", CollectorTexts.CaptureValidationStopping());
                 _session!.Stop.Cancel();
             }
             return Snapshot();
@@ -200,15 +203,15 @@ public sealed partial class CaptureValidationController : IDisposable
         // The allowlist is the sink's, not a fourth copy of it (review finding M-18).
         if (CaptureTraceMarkerText.Sanitize(marker) != marker)
             throw CollectorException.BadRequest(
-                "标记只能为 " + string.Join(" / ", CaptureTraceMarkerText.Allowed) + "。",
+                CollectorTexts.CaptureValidationMarkerInvalid(string.Join(" / ", CaptureTraceMarkerText.Allowed)),
                 "payload.marker");
         lock (_gate)
         {
-            if (_state != "RECORDING") throw CollectorException.BadRequest("仅在验证录制期间可以添加标记。");
+            if (_state != "RECORDING") throw CollectorException.BadRequest(CollectorTexts.CaptureValidationMarkerNotRecording());
             var s = _session!;
             if (s.AcceptedMarkers >= CaptureTraceSink.MaxMarkers ||
                 !s.Markers.Writer.TryWrite(new Marker(marker, _services.Trace.Clock.UtcNow, s.Elapsed!())))
-                throw CollectorException.BadRequest("标记队列或会话标记总数已满，请等待已接收标记写入。");
+                throw CollectorException.BadRequest(CollectorTexts.CaptureValidationMarkerQueueFull());
             s.AcceptedMarkers++;
             return Snapshot();
         }
@@ -262,7 +265,7 @@ public sealed partial class CaptureValidationController : IDisposable
                     lock (_gate)
                     {
                         s.TimedOut = true;
-                        if (Active) SetState("STOPPING", "STOPPING", "已达到单次验证的时长上限，正在停止等待……");
+                        if (Active) SetState("STOPPING", "STOPPING", CollectorTexts.CaptureValidationStoppingWaitTimeLimit());
                     }
                     break;
                 }
@@ -315,7 +318,7 @@ public sealed partial class CaptureValidationController : IDisposable
                     if (!s.Stop.IsCancellationRequested)
                     {
                         s.RecordingStarted = true;
-                        SetState("RECORDING", "RECORDING", "仅验证，不自动记录。正在保存脱敏取证，可添加事件标记。");
+                        SetState("RECORDING", "RECORDING", CollectorTexts.CaptureValidationRecording());
                     }
                 }
                 while (!s.Stop.IsCancellationRequested)
@@ -326,7 +329,7 @@ public sealed partial class CaptureValidationController : IDisposable
                         // The documented hard duration cap. Reaching it is a normal end, not a
                         // failure: the file written so far stays and stays citable.
                         lock (_gate) if (Active) SetState(
-                            "STOPPING", "STOPPING", "已达到单次验证的时长上限，正在停止并保存本地文件……");
+                            "STOPPING", "STOPPING", CollectorTexts.CaptureValidationStoppingTimeLimit());
                         break;
                     }
 
@@ -339,7 +342,7 @@ public sealed partial class CaptureValidationController : IDisposable
         catch (Exception ex) { Fault(s, ex, writeFailed: true); }
         finally
         {
-            lock (_gate) SetState("STOPPING", "STOPPING", "正在停止验证并保存本地文件……");
+            lock (_gate) SetState("STOPPING", "STOPPING", CollectorTexts.CaptureValidationStopping());
             // Each cleanup is attempted even if the previous operation failed. Hashing can only
             // run after source disposal, full queue drain and successful writer close.
             Cleanup(() => source?.Stop(), s);
@@ -381,11 +384,11 @@ public sealed partial class CaptureValidationController : IDisposable
                 if (released) s.Lease.Dispose();
                 else s.RetainedSource = source;
                 s.Stop.Dispose();
-                if (s.ErrorCode is not null) SetState("FAILED", "FAILED", "验证失败，文件可能不完整。详情见本机诊断日志。");
+                if (s.ErrorCode is not null) SetState("FAILED", "FAILED", CollectorTexts.CaptureValidationFailed());
                 else if (s.Path is null) SetState("COMPLETED", "CANCELLED", s.TimedOut
-                    ? "已达到单次验证的时长上限，已停止等待，未创建取证文件。"
-                    : "已取消等待，未创建取证文件。");
-                else SetState("COMPLETED", "COMPLETED", "取证文件已保存到本机。真实 FF14 / Oodle 仍未验证。");
+                    ? CollectorTexts.CaptureValidationCancelledTimeLimit()
+                    : CollectorTexts.CaptureValidationCancelled());
+                else SetState("COMPLETED", "COMPLETED", CollectorTexts.CaptureValidationCompleted());
             }
 
             // Retention runs after the session is finalized, so this session's own directory
@@ -399,39 +402,38 @@ public sealed partial class CaptureValidationController : IDisposable
         // Whether or not another client is listed to choose from: with none listed no choice is
         // asked for, and the wait is still for the restart this validation requested.
         if (!game.Running && game.SelectionReason == "EXITED" && s.RestartFrom is not null)
-            return Wait("WAITING_RESTART", "正在等待所选游戏重新启动。若游戏已启动仍未继续，请停止验证，重新检测并选择窗口。");
-        if (game.SelectionRequired) return Wait("WAITING_GAME", "请先停止验证，在总览或捕获诊断页选择游戏窗口后再开始。");
-        if (!game.Running || game.ProcessId is not > 0) return Wait("WAITING_GAME", "正在等待游戏启动。");
+            return Wait("WAITING_RESTART", CollectorTexts.CaptureValidationWaitingRestartSelected());
+        if (game.SelectionRequired) return Wait("WAITING_GAME", CollectorTexts.CaptureValidationWaitingSelection());
+        if (!game.Running || game.ProcessId is not > 0) return Wait("WAITING_GAME", CollectorTexts.CaptureValidationWaitingGame());
         if (string.IsNullOrWhiteSpace(game.ExecutablePath) || string.IsNullOrWhiteSpace(game.GameBuild))
-            return Wait("WAITING_IDENTITY", "正在等待可读取的游戏路径与客户端版本。");
+            return Wait("WAITING_IDENTITY", CollectorTexts.CaptureValidationWaitingIdentity());
         if (game.Region == Region.Unknown)
             // Not the same thing as "still initialising": the path was read and simply does
             // not say which service region it is. Waiting will never fix that, so the message
             // must not suggest it will (review finding H-9).
-            return Wait("WAITING_REGION",
-                "无法从安装路径判断区服。请在设置里手动指定区服（国服 / 国际服）后重试。");
+            return Wait("WAITING_REGION", CollectorTexts.CaptureValidationWaitingRegion());
         var adapters = _services.Trace.Adapters.List(game.ProcessId, s.AdapterId);
         if (s.AdapterId is null && adapters.Count(a => a.CarriesGameTraffic && a.IsUp && !a.IsLoopback &&
                 GameTcpConnectionProbe.IsUsableLocalAddress(a.BindAddress)) > 1)
-            return Wait("WAITING_ADAPTER", "多张网卡承载游戏连接，请取消并明确选择网卡。");
+            return Wait("WAITING_ADAPTER", CollectorTexts.CaptureValidationWaitingAdapterAmbiguous());
         var selected = s.AdapterId is not null ? AdapterEnumerator.Find(adapters, s.AdapterId) :
             adapters.Where(a => a.Recommended).Take(2).ToArray() is { Length: 1 } recommended ? recommended[0] : null;
         if (selected is null || !selected.IsUp || selected.IsLoopback || !GameTcpConnectionProbe.IsUsableLocalAddress(selected.BindAddress))
-            return Wait("WAITING_ADAPTER", "等待可用 IPv4 网卡；无法自动确定时，请取消并明确选择网卡。");
+            return Wait("WAITING_ADAPTER", CollectorTexts.CaptureValidationWaitingAdapter());
         s.AdapterId ??= selected.Id;
         var identity = (game.ProcessId.Value, game.StartedAtUtc);
         if (s.BlockedClients.Contains(identity))
         {
             s.RestartFrom = game;
-            return Wait("WAITING_RESTART", "游戏已有连接，请退出并重新启动游戏，验证将自动继续。");
+            return Wait("WAITING_RESTART", CollectorTexts.CaptureValidationWaitingRestartConnected());
         }
         var count = _services.Trace.TcpConnectionCounter(game.ProcessId.Value, selected.BindAddress);
-        if (count is null or < 0) return Wait("WAITING_CONNECTION_CHECK", "无法确认游戏连接状态，正在等待系统查询恢复。");
+        if (count is null or < 0) return Wait("WAITING_CONNECTION_CHECK", CollectorTexts.CaptureValidationWaitingConnectionCheck());
         if (count > 0)
         {
             s.BlockedClients.Add(identity);
             s.RestartFrom = game;
-            return Wait("WAITING_RESTART", "游戏已有连接，请退出并重新启动游戏，验证将自动继续。");
+            return Wait("WAITING_RESTART", CollectorTexts.CaptureValidationWaitingRestartConnected());
         }
         return selected;
     }
@@ -451,9 +453,11 @@ public sealed partial class CaptureValidationController : IDisposable
         }
     }
 
-    private CaptureAdapterView? Wait(string reason, string message)
+    /// <param name="reason">The WAITING_* reason token.</param>
+    /// <param name="message">The whole sentence, its "仅验证，不自动记录。" opening included.</param>
+    private CaptureAdapterView? Wait(string reason, UserText message)
     {
-        lock (_gate) if (_state == "WAITING") SetState("WAITING", reason, "仅验证，不自动记录。" + message);
+        lock (_gate) if (_state == "WAITING") SetState("WAITING", reason, message);
         return null;
     }
 
@@ -464,7 +468,7 @@ public sealed partial class CaptureValidationController : IDisposable
             if (!ReferenceEquals(_session, s) || s.Finalized) return;
             s.ErrorCode = ErrorCodes.Internal;
             s.WriteFailed |= writeFailed;
-            SetState("STOPPING", "STOPPING", "验证遇到错误，正在停止并保存可用证据……");
+            SetState("STOPPING", "STOPPING", CollectorTexts.CaptureValidationStoppingAfterError());
             s.Stop.Cancel();
         }
         _services.Trace.Logger.WriteError("capture", "validation_failed", error);
@@ -476,7 +480,7 @@ public sealed partial class CaptureValidationController : IDisposable
         catch (Exception ex) { Fault(s, ex, writeFailed: true); return false; }
     }
 
-    private void SetState(string state, string reason, string message) { _state = state; _reason = reason; _message = message; }
+    private void SetState(string state, string reason, UserText message) { _state = state; _reason = reason; _message = message; }
 
     public void Dispose()
     {

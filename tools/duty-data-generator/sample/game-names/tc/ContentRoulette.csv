@@ -1,0 +1,6 @@
+key,0,1,2
+#,Name,Category,Description
+int32,str,str,str
+0,,,
+1,隨機任務：樣例練級,樣例練級,
+9,隨機任務：樣例指導者,樣例指導者,

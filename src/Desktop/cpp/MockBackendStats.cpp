@@ -182,6 +182,7 @@ QList<QJsonObject> MockBackend::selectRuns(const QJsonObject &filter,
     const bool correctedOnly = filter.value(QStringLiteral("corrected_only")).toBool(false);
     const bool withReflection = filter.value(QStringLiteral("with_reflection")).toBool(false);
     const QString text = filter.value(QStringLiteral("text")).toString().trimmed();
+    const QString nameText = filter.value(QStringLiteral("name_text")).toString().trimmed();
 
     const QString dateField = filter.value(QStringLiteral("date_field"))
                                   .toString(QStringLiteral("entered_at_utc"));
@@ -255,12 +256,16 @@ QList<QJsonObject> MockBackend::selectRuns(const QJsonObject &filter,
                                 run.value(QStringLiteral("source"))))
             continue;
 
-        if (!text.isEmpty()) {
+        if (!text.isEmpty() || !nameText.isEmpty()) {
             const QString haystack =
                 run.value(QStringLiteral("duty_name")).toString()
                 + run.value(QStringLiteral("job_name")).toString()
                 + run.value(QStringLiteral("note")).toString();
-            if (!haystack.contains(text, Qt::CaseInsensitive))
+            const bool originalMatch = !text.isEmpty() && haystack.contains(text, Qt::CaseInsensitive);
+            const bool nameMatch = !nameText.isEmpty()
+                && (run.value(QStringLiteral("duty_name")).toString().contains(nameText, Qt::CaseInsensitive)
+                    || run.value(QStringLiteral("job_name")).toString().contains(nameText, Qt::CaseInsensitive));
+            if (!originalMatch && !nameMatch)
                 continue;
         }
 
@@ -531,7 +536,6 @@ struct Aggregate {
     double durationSum = 0.0;
     int durationCount = 0;
     QString label;
-    QString extra;
     QString lastSeen;
 };
 
@@ -584,13 +588,6 @@ QJsonArray MockBackend::dungeonStats(const QJsonObject &filter) const
         const QString matched = run.value(QStringLiteral("matched_at_utc")).toString();
         if (matched > aggregate.lastSeen)
             aggregate.lastSeen = matched;
-        const QJsonValue expansion = run.value(QStringLiteral("duty_expansion"));
-        const QJsonValue level = run.value(QStringLiteral("duty_level"));
-        if (!expansion.isNull() && !level.isNull()) {
-            aggregate.extra = QStringLiteral("%1 · %2级")
-                                  .arg(expansion.toString())
-                                  .arg(level.toInt());
-        }
     }
 
     QList<QJsonObject> out;
@@ -604,7 +601,8 @@ QJsonArray MockBackend::dungeonStats(const QJsonObject &filter) const
         row.insert(QStringLiteral("duty_category"),
                    categories.contains(it.key()) ? QJsonValue(categories.value(it.key()))
                                                  : QJsonValue(QJsonValue::Null));
-        row.insert(QStringLiteral("duty_meta"), it.value().extra);
+        // No duty_meta: $defs/DungeonStatsRow cannot carry it. DungeonStatsModel
+        // derives it from the duty catalogue, in the interface language.
         row.insert(QStringLiteral("last_seen_utc"),
                    it.value().lastSeen.isEmpty() ? QJsonValue(QJsonValue::Null)
                                                  : QJsonValue(it.value().lastSeen));

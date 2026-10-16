@@ -38,6 +38,17 @@ public sealed partial class LiveProtocolPipeline
     /// <param name="code">Pasted text.</param>
     public SharedImportResult ImportCalibrationCode(string code) => _shared.Import(code);
 
+    /// <summary>读取当前区服/版本的已完成健康会话摘要；不发网络请求或制造额外会话。</summary>
+    public CalibrationEvidenceResult GetCalibrationEvidence(string? codeSha256 = null)
+    {
+        lock (_gate)
+        {
+            return _game.GameBuild is { } build
+                ? _shared.PublicEvidence(_game.Region, build, codeSha256)
+                : CalibrationEvidenceResult.Unavailable("NO_CURRENT_GAME_BUILD");
+        }
+    }
+
     /// <summary>
     /// The player accepts that a queue-inferred shared calibration records by inference. Remembered on this
     /// machine per region and build; the waiting code then binds.
@@ -67,16 +78,22 @@ public sealed partial class LiveProtocolPipeline
     /// <summary>
     /// 分享给其他玩家: the share code of the local calibration in force, taken from the profile file this machine
     /// wrote - read back off the gate - never from a draft in memory, with the issue form address that files it.
+    /// 这份校准好用，告诉其他玩家 (plan §20.5): for another player's calibration this machine has proven, the code text
+    /// the store downloaded, with the form preset to say it was verified here. The selection and what the shared
+    /// session vouches for are read together under the gate; the files and the store are read off it.
     /// </summary>
     public SharedShareCodeResult GetCalibrationShareCode()
     {
         ProfileSelection selection;
+        SharedShareProof? proof;
         lock (_gate)
         {
             selection = _selection;
+            proof = _shared.ShareProof(selection);
         }
 
-        return SharedShareCodeExport.From(selection, _calibrationServices.SelectTemplate);
+        return SharedShareCodeExport.From(
+            selection, _calibrationServices.SelectTemplate, proof, _calibrationServices.SharedCalibrations);
     }
 
     /// <summary>Applies <c>capture.shared_calibration_enabled</c>; off cancels a download and keeps a verified profile.</summary>
@@ -120,6 +137,17 @@ public sealed partial class LiveProtocolPipeline
             // 2026-10-03, ODp-2, CS3a-X1). The adapter's own drop counter covers every program's traffic on the
             // address and ends nothing either.
             _calibration.RecordSessionHealth(health);
+            _shared.PublicEvidenceHealth(health);
+        }
+    }
+
+    /// <inheritdoc />
+    public void OnCaptureTailAbandoned(string captureSessionId, long abandonedCount)
+    {
+        lock (_gate)
+        {
+            if (_active && SessionMatches(captureSessionId) && abandonedCount > 0)
+                _shared.PublicEvidenceLoss(decoded: abandonedCount);
         }
     }
 
@@ -448,7 +476,7 @@ public sealed partial class LiveProtocolPipeline
     /// across a restart; only a document written before that was kept marks everything under the id.
     /// </summary>
     int ISharedCalibrationHost.FlagSharedRecords(string profileId, DateTimeOffset? sinceUtc, string reason) =>
-        FlagRecords(profileId, sinceUtc, SharedWithdrawalReason(reason), "其他玩家分享的校准已撤下，");
+        FlagRecords(profileId, sinceUtc, SharedWithdrawalReason(reason), "已停用这份共享校准。");
 
     /// <summary>
     /// Marks every run a withdrawn profile recorded as pending review. Shared by the two
@@ -535,7 +563,7 @@ public sealed partial class LiveProtocolPipeline
 
         if (flagged.Count > 0)
         {
-            _liveEvents.PublishStatsInvalidated(noticePrefix + $"它生成的 {flagged.Count} 条记录已标记待复核。");
+            _liveEvents.PublishStatsInvalidated(noticePrefix + $"其中 {flagged.Count} 条记录已标记待复核，请检查记录是否正确。");
         }
 
         return flagged.Count;
@@ -544,8 +572,8 @@ public sealed partial class LiveProtocolPipeline
     /// <summary>The reason on the system revision, in the player's words; the token stays in diagnostics.</summary>
     private static string SharedWithdrawalReason(string reason) => CalibrationWire.RefusalToken(reason) switch
     {
-        "REVOKED" => "这条记录由其他玩家分享的校准生成，该校准已在公开仓库里被撤回，记录标记待复核。",
-        _ => "这条记录由其他玩家分享的校准生成，该校准随后在本机流量里对不上而被撤下，记录标记待复核。",
+        "REVOKED" => "这条记录使用的共享校准已被撤回，已标记待复核，请检查记录是否正确。",
+        _ => "这条记录使用的共享校准未通过后续检查，已停用；记录已标记待复核，请检查是否正确。",
     };
 
     /// <inheritdoc />

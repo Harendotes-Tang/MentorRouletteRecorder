@@ -17,21 +17,42 @@ public static class SharedCalibrationIssueLink
     /// <summary>Longest address handed out; comfortably under what the issue form accepts.</summary>
     public const int MaxUrlLength = 7500;
 
+    /// <summary>
+    /// The text the address prefills into the form's <c>basis</c> field (plan §20.4). It is a text input, not a dropdown -
+    /// GitHub prefills inputs from the query string but not dropdowns - and the repository's Action accepts exactly two
+    /// texts, <c>BASIS_OPTION_CALIBRATED</c> and <c>BASIS_OPTION_VERIFIED</c> in <c>tools/shared-calibration/issue.py</c>;
+    /// any other non-empty text is refused there as <c>BASIS_INVALID</c>. So these must stay byte for byte the same as
+    /// those two constants.
+    /// </summary>
+    /// <param name="basis">What the code rests on.</param>
+    public static string BasisOption(SharedShareBasis basis) => basis switch
+    {
+        SharedShareBasis.Calibrated => "本机校准得到，并逐条核对过校准时间线",
+        SharedShareBasis.Verified => "其他玩家分享，已在我的软件里核实通过并正常记录",
+        _ => throw new ArgumentOutOfRangeException(nameof(basis), basis, "not a share basis"),
+    };
+
     /// <summary>The prefilled form address, and whether the code is part of it.</summary>
     /// <param name="region">Region the code is for.</param>
     /// <param name="gameBuild">Build the code is for.</param>
     /// <param name="code">The share code.</param>
-    public static (string Url, bool CodeInUrl) For(Region region, string gameBuild, string code) =>
-        For(region, gameBuild, code, MaxUrlLength);
+    /// <param name="basis">What the code rests on; its text is prefilled into the form's <c>basis</c> field.</param>
+    public static (string Url, bool CodeInUrl) For(Region region, string gameBuild, string code, SharedShareBasis basis) =>
+        For(region, gameBuild, code, basis, MaxUrlLength);
 
-    /// <summary>As <see cref="For(Region, string, string)"/>, with the length limit given.</summary>
-    internal static (string Url, bool CodeInUrl) For(Region region, string gameBuild, string code, int maxLength)
+    /// <summary>
+    /// As <see cref="For(Region, string, string, SharedShareBasis)"/>, with the length limit given. The code goes last
+    /// and is the only part ever dropped: the title and the basis are short and fixed, so the form without the code
+    /// always fits.
+    /// </summary>
+    internal static (string Url, bool CodeInUrl) For(Region region, string gameBuild, string code, SharedShareBasis basis, int maxLength)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(gameBuild);
         ArgumentException.ThrowIfNullOrWhiteSpace(code);
         var title = "[共享校准] " + EnumWire<Region>.Format(region) + " " + gameBuild;
         var form = "https://github.com/" + SharedCalibrationClient.Owner + "/" + SharedCalibrationClient.Repository +
-                   "/issues/new?template=" + Uri.EscapeDataString(FormTemplate) + "&title=" + Uri.EscapeDataString(title);
+                   "/issues/new?template=" + Uri.EscapeDataString(FormTemplate) + "&title=" + Uri.EscapeDataString(title) +
+                   "&basis=" + Uri.EscapeDataString(BasisOption(basis));
         var prefilled = form + "&code=" + Uri.EscapeDataString(code);
         return prefilled.Length <= maxLength ? (prefilled, true) : (form, false);
     }

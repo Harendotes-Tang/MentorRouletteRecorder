@@ -1,3 +1,4 @@
+using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Protocol.Profiles;
 using System.Collections.Concurrent;
 using MentorRecorder.Collector.Domain;
@@ -32,6 +33,17 @@ public interface ICaptureLifecycleListener
     /// <param name="captureSessionId">Session whose queue overflowed.</param>
     /// <param name="droppedCount">Number of observations discarded by the queue.</param>
     void OnEventsDropped(string captureSessionId, long droppedCount)
+    {
+    }
+
+    /// <summary>
+    /// 停止排空超时后，队列线程已退出，但部分已接收消息未交付。此通知只使该会话的公共校准证据
+    /// 失效，不制造业务事件缺口，也不降低已完成记录；在最终健康报告之后、停止通知之前调用。
+    /// 默认实现兼容不生成公共证据的监听器。
+    /// </summary>
+    /// <param name="captureSessionId">已经停止交付消息的采集会话。</param>
+    /// <param name="abandonedCount">排空期间放弃的消息数，大于零。</param>
+    void OnCaptureTailAbandoned(string captureSessionId, long abandonedCount)
     {
     }
 
@@ -218,7 +230,7 @@ public sealed record ProfileStatusSnapshot(
     string? GameBuild,
     DateTimeOffset? VerifiedAtUtc,
     string? EvidenceNote,
-    string? Message,
+    UserText? Message,
     ProfileOrigin? Origin = null,
     bool CalibrationActive = false);
 
@@ -251,9 +263,7 @@ public interface IGameAwareProfileStatusProvider : IProfileStatusProvider
 public sealed class NoProfileStatusProvider : IProfileStatusProvider
 {
     /// <summary>Explanation shown while no profile exists.</summary>
-    public const string Message =
-        "仓库中没有任何协议档案（PROTOCOL_PROFILE_STATUS = NONE）。" +
-        "按 fail-closed 规则，本版本不会解析任何报文，也不会自动写入任何记录，只能手工补录。";
+    public static UserText Message => CollectorTexts.CaptureProfileNone();
 
     /// <summary>Shared instance.</summary>
     public static NoProfileStatusProvider Instance { get; } = new();

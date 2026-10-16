@@ -19,11 +19,19 @@ it is refused, and so is a default temporary directory - TMP/TEMP - inside it) a
 SHA-256 digests are recorded, so the repository never carries a
 redistributed copy of the upstream data. A dry run keeps no raw download at all.
 
+--game-names builds data/i18n/game-names.<version>.json instead: zh-TW / en / ja names for
+the ids of the bundled zh-Hans duty, job and roulette files. This script fetches the sources
+(XIVAPI v2 with language=en / ja, and the CSVs of thewakingsands/ffxiv-datamining-tc and
+-cn at one resolved commit each); game_names.py, which never touches the network, parses,
+merges and writes them. This is the only Python script the static boundary check lets fetch.
+
 Usage:
     python tools/duty-data-generator/generate.py [--version 2026-09-04] [--out-dir data/duties]
     python tools/duty-data-generator/generate.py --dry-run     # fetch and report, write nothing anywhere
     python tools/duty-data-generator/generate.py --add-party-size data/duties/cn.2026-09-04.json
         # add party_size to an existing file, pinned to the game version it was built from
+    python tools/duty-data-generator/generate.py --game-names [--version 2026-10-15] [--dry-run]
+        # zh-TW / en / ja names into data/i18n, pinned to the duty file's game version
 """
 
 from __future__ import annotations
@@ -32,18 +40,25 @@ import argparse
 import csv
 import datetime
 import hashlib
+import http.client
 import io
 import json
 import os
+import re
 import ssl
 import sys
 import tempfile
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
+if HERE not in sys.path:
+    sys.path.insert(0, HERE)
+
+import game_names  # noqa: E402  (offline parse / merge / write half of --game-names)
 
 XIVAPI_SHEET = "https://v2.xivapi.com/api/sheet/ContentFinderCondition"
 # ContentMemberType is the game's own party composition row: MembersPerParty x PartyCount is
@@ -61,7 +76,14 @@ DATAMINING_CN_CSV = (
     "ContentFinderCondition.csv"
 )
 
-USER_AGENT = "MentorRecorder-duty-data-generator/1.0 (+local, no telemetry)"
+# --game-names: the three hosts it reads, all read-only. Every URL is built from these.
+XIVAPI_SITE = "https://v2.xivapi.com"
+XIVAPI_ROOT = XIVAPI_SITE + "/api"
+GITHUB_API_ROOT = "https://api.github.com"
+DATAMINING_RAW_ROOT = "https://raw.githubusercontent.com"
+FETCH_ATTEMPTS = 3
+
+USER_AGENT ="MentorRecorder-duty-data-generator/1.0 (+local, no telemetry)"
 
 # ContentType.Name (English, from the game's own ContentType sheet) to the category the UI
 # groups by. Anything not listed becomes 其他 rather than being forced into a bucket.
@@ -448,14 +470,233 @@ def write_document(path, document):
         handle.write("\n")
 
 
+# --------------------------------------------------------------------------- game names: fetching
+
+
+def utc_timestamp():
+    return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+
+
+def http_get_retrying(url):
+    """http_get with a short retry for dropped connections; a 4xx answer is not retried."""
+    for attempt in range(1, FETCH_ATTEMPTS + 1):
+        try:
+            return http_get(url)
+        except urllib.error.HTTPError as error:
+            if error.code < 500 or attempt == FETCH_ATTEMPTS:
+                raise
+        except (urllib.error.URLError, OSError, http.client.HTTPException):
+            if attempt == FETCH_ATTEMPTS:
+                raise
+        time.sleep(2 * attempt)
+    raise AssertionError("unreachable")
+
+
+def fetch_recorded(url, requests, raw_dir, raw_name):
+    """Fetch url, record {url, sha256}, keep the raw body under raw_dir (None keeps nothing)."""
+    body = http_get_retrying(url)
+    requests.append({"url": url, "sha256": hashlib.sha256(body).hexdigest()})
+    keep_raw(raw_dir, raw_name, body)
+    return body
+
+
+def fetch_name_sheet(sheet, fields, language, game_version, requests, raw_dir):
+    """Every row of one sheet in one language, {row_id: fields}, all pages at one version."""
+    rows = {}
+    after = None
+    for page in range(1, XIVAPI_MAX_PAGES + 1):
+        params = {"fields": fields, "language": language, "limit": XIVAPI_PAGE_SIZE}
+        if after is not None:
+            params["after"] = after
+        if game_version:
+            params["version"] = game_version
+        url = "%s/sheet/%s?%s" % (XIVAPI_ROOT, sheet, urllib.parse.urlencode(params))
+        body = fetch_recorded(url, requests, raw_dir,
+                              "xivapi.%s.%s.%d.json" % (sheet, language, page))
+        document = json.loads(body.decode("utf-8"))
+        if game_version and document.get("version") != game_version:
+            raise ValueError("asked XIVAPI for game version %s, %s/%s answered %s"
+                             % (game_version, sheet, language, document.get("version")))
+        page_rows = document.get("rows") or []
+        for row in page_rows:
+            rows[int(row["row_id"])] = row.get("fields") or {}
+        if len(page_rows) < XIVAPI_PAGE_SIZE:
+            return rows
+        after = int(page_rows[-1]["row_id"])
+    raise ValueError("%s/%s still returned a full page after %d pages; raise XIVAPI_MAX_PAGES"
+                     % (sheet, language, XIVAPI_MAX_PAGES))
+
+
+def resolve_xivapi_version(game_version, requests, raw_dir):
+    """(version key, patch names such as ["7.55x2"]) from XIVAPI's version list.
+
+    None asks for the key XIVAPI currently names "latest", so every later request is pinned
+    to one version even when the caller did not choose one.
+    """
+    body = fetch_recorded(XIVAPI_ROOT + "/version", requests, raw_dir, "xivapi.version.json")
+    for entry in json.loads(body.decode("utf-8")).get("versions") or []:
+        names = list(entry.get("names") or [])
+        if entry.get("key") == game_version or (game_version is None and "latest" in names):
+            return entry.get("key"), names
+    if game_version is None:
+        raise ValueError("XIVAPI's version list names no latest version")
+    return game_version, []
+
+
+def fetch_xivapi_names(game_version, raw_dir):
+    """({sheet: {language: rows}} for game_names.XIVAPI_FIELDS, provenance block)."""
+    requests = []
+    game_version, names = resolve_xivapi_version(game_version, requests, raw_dir)
+    sheets = {sheet: {language: fetch_name_sheet(sheet, fields, language, game_version,
+                                                 requests, raw_dir)
+                      for language in game_names.XIVAPI_LANGUAGES}
+              for sheet, fields in game_names.XIVAPI_FIELDS.items()}
+    provenance = {
+        "url": XIVAPI_SITE,
+        "languages": list(game_names.XIVAPI_LANGUAGES),
+        "game_version": game_version,
+        "game_version_names": names,
+        "fields": dict(game_names.XIVAPI_FIELDS),
+        "requests": requests,
+    }
+    return sheets, provenance
+
+
+def resolve_commit(repository, ref, requests, raw_dir):
+    """(commit sha, commit message) of ref, so every CSV comes from one recorded commit.
+
+    The list endpoint is used because the single-commit one also returns every changed file's
+    patch, which for a datamining commit runs to megabytes.
+    """
+    url = "%s/repos/%s/commits?%s" % (GITHUB_API_ROOT, repository,
+                                      urllib.parse.urlencode({"sha": ref, "per_page": 1}))
+    body = fetch_recorded(url, requests, raw_dir, "%s.commit.json" % repository.split("/")[1])
+    listing = json.loads(body.decode("utf-8"))
+    document = listing[0] if isinstance(listing, list) and listing else {}
+    sha = document.get("sha") or ""
+    if not re.fullmatch(r"[0-9a-f]{40}", sha):
+        raise ValueError("GitHub returned no commit for %s@%s" % (repository, ref))
+    return sha, ((document.get("commit") or {}).get("message") or "").strip()
+
+
+def fetch_datamining_sheets(repository, ref, sheets, raw_dir):
+    """({sheet: CSV text}, fetch record) for each sheet, all from one resolved commit."""
+    requests = []
+    sha, message = resolve_commit(repository, ref, requests, raw_dir)
+    short = repository.split("/")[1]
+    texts = {}
+    for sheet in sheets:
+        url = "%s/%s/%s/%s.csv" % (DATAMINING_RAW_ROOT, repository, sha, sheet)
+        body = fetch_recorded(url, requests, raw_dir, "%s.%s.csv" % (short, sheet))
+        texts[sheet] = body.decode("utf-8-sig")
+    return texts, {"repository": "https://github.com/" + repository, "ref": ref,
+                   "commit": sha, "commit_message": message, "requests": requests}
+
+
+# --------------------------------------------------------------------------- game names: run
+
+
+def choose_game_version(requested, pinned):
+    """--game-version, else the duty file's version; 'latest' resolves later (None)."""
+    if requested == "latest":
+        return None
+    if requested:
+        return requested
+    if not pinned:
+        raise game_names.SourceError("the duty file records no xivapi_game_version; pass "
+                                     "--game-version <key> or --game-version latest")
+    return pinned
+
+
+def gather_game_names(args, raw_dir, converter):
+    """(maps, provenance, base paths): every fetch, then the offline merge. Raises on failure."""
+    base, data_version, pinned = game_names.load_base(args.duties, args.jobs, args.roulettes)
+    game_version = choose_game_version(args.game_version, pinned)
+    xivapi, xivapi_provenance = fetch_xivapi_names(game_version, raw_dir)
+    tc_texts, tc_fetched = fetch_datamining_sheets(
+        game_names.TC_REPOSITORY, args.tc_ref, game_names.TC_COLUMNS, raw_dir)
+    cn_texts, cn_fetched = fetch_datamining_sheets(
+        game_names.CN_REPOSITORY, args.cn_ref, game_names.CN_COLUMNS, raw_dir)
+    maps = game_names.build_maps(
+        base, xivapi, game_names.parse_sheets(tc_texts, game_names.TC_COLUMNS),
+        game_names.parse_sheets(cn_texts, game_names.CN_COLUMNS), converter,
+        CATEGORY_BY_CONTENT_TYPE)
+    provenance = game_names.make_provenance(utc_timestamp(), xivapi_provenance, tc_fetched,
+                                            cn_fetched, converter.info)
+    base_paths = {
+        "duties": game_names.repository_path(args.duties),
+        "duties_data_version": data_version,
+        "jobs": game_names.repository_path(args.jobs),
+        "roulettes": game_names.repository_path(args.roulettes),
+    }
+    return maps, provenance, base_paths
+
+
+def run_game_names(args, raw_dir, version):
+    """--game-names: returns a process exit code; writes nothing unless every step succeeded."""
+    converter = game_names.Converter()
+    try:
+        maps, provenance, base_paths = gather_game_names(args, raw_dir, converter)
+    except (urllib.error.URLError, ValueError, OSError, http.client.HTTPException, KeyError,
+            TypeError, AttributeError, csv.Error) as error:
+        # Wrong JSON shapes (KeyError / TypeError / AttributeError) end here too: one line
+        # instead of a traceback, and nothing has been written yet.
+        print("FAILED: %s: %s" % (type(error).__name__, error), file=sys.stderr)
+        print("no file was written; the existing data/i18n files are unchanged", file=sys.stderr)
+        return 1
+    game_names.report(maps, provenance, raw_dir)
+    if args.dry_run:
+        print("dry run: nothing written")
+        return 0
+    out_dir = args.out_dir or os.path.join(REPO, "data", "i18n")
+    os.makedirs(out_dir, exist_ok=True)
+    path = os.path.join(out_dir, "game-names.%s.json" % version)
+    try:
+        game_names.write_document(path, game_names.build_document(version, base_paths, maps,
+                                                                  provenance))
+    except (OSError, ValueError) as error:
+        print("FAILED to write %s: %s" % (path, error), file=sys.stderr)
+        return 1
+    print("wrote %s" % path)
+    return 0
+
+
 # --------------------------------------------------------------------------- entry point
+
+
+def add_game_names_arguments(parser):
+    parser.add_argument("--game-names", action="store_true",
+                        help="write data/i18n/game-names.<version>.json (zh-TW / en / ja names) "
+                             "instead of duty files; --game-version defaults to the one the "
+                             "duty file records, 'latest' asks for XIVAPI's newest")
+    parser.add_argument("--duties", default=game_names.latest_duty_file(),
+                        help="--game-names: zh-Hans duty file whose ids to cover; newest by default")
+    parser.add_argument("--jobs", default=os.path.join(REPO, "data", "jobs", "jobs.json"),
+                        help="--game-names: zh-Hans job file")
+    parser.add_argument("--roulettes", default=os.path.join(REPO, "data", "roulettes", "cn.json"),
+                        help="--game-names: zh-Hans roulette file")
+    parser.add_argument("--tc-ref", default="main",
+                        help="--game-names: ffxiv-datamining-tc branch or commit")
+    parser.add_argument("--cn-ref", default="master",
+                        help="--game-names: ffxiv-datamining-cn branch or commit")
+
+
+def check_game_names_arguments(parser, args):
+    if args.add_party_size:
+        parser.error("--game-names and --add-party-size are separate runs")
+    if args.version is not None and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", args.version):
+        parser.error("--version must be a UTC date such as 2026-10-15")
+    if not args.duties:
+        parser.error("no data/duties/cn.<date>.json found; pass --duties")
 
 
 def main(argv):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--version", default=None,
                         help="data version label used in the file name; defaults to today (UTC)")
-    parser.add_argument("--out-dir", default=os.path.join(REPO, "data", "duties"))
+    parser.add_argument("--out-dir", default=None,
+                        help="output directory; data/duties by default, data/i18n with "
+                             "--game-names")
     parser.add_argument("--raw-dir", default=None,
                         help="where to keep the raw downloads, outside the repository; a temp "
                              "directory by default; a dry run keeps none")
@@ -466,7 +707,10 @@ def main(argv):
     parser.add_argument("--add-party-size", nargs="+", metavar="FILE", default=None,
                         help="add party_size to existing data files in place, fetched at the "
                              "game version each file records; nothing else in them changes")
+    add_game_names_arguments(parser)
     args = parser.parse_args(argv)
+    if args.game_names:
+        check_game_names_arguments(parser, args)
     if args.raw_dir and is_inside_repository(args.raw_dir):
         parser.error("--raw-dir %s is inside the repository; raw downloads are upstream data "
                      "and must stay outside it" % args.raw_dir)
@@ -491,6 +735,9 @@ def main(argv):
     if args.add_party_size:
         return add_party_size_to_files(args.add_party_size, raw_dir, args.game_version,
                                        dry_run=args.dry_run)
+
+    if args.game_names:
+        return run_game_names(args, raw_dir, version)
 
     try:
         english_rows, urls, xivapi_digest, api_version = fetch_english_rows(
@@ -531,9 +778,10 @@ def main(argv):
         print("dry run: nothing written")
         return 0
 
-    os.makedirs(args.out_dir, exist_ok=True)
-    global_path = os.path.join(args.out_dir, "global.%s.json" % version)
-    cn_path = os.path.join(args.out_dir, "cn.%s.json" % version)
+    out_dir = args.out_dir or os.path.join(REPO, "data", "duties")
+    os.makedirs(out_dir, exist_ok=True)
+    global_path = os.path.join(out_dir, "global.%s.json" % version)
+    cn_path = os.path.join(out_dir, "cn.%s.json" % version)
     write_document(global_path, build_document("GLOBAL", "en", version, global_duties, provenance))
     write_document(cn_path, build_document("CN", "zh-Hans", version, cn_duties, provenance))
     print("wrote %s" % global_path)

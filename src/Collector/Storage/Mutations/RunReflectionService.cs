@@ -1,6 +1,7 @@
 using System.Text.Json.Serialization;
 using Microsoft.Data.Sqlite;
 using MentorRecorder.Collector.Contracts.Errors;
+using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Domain.Mutations;
 using MentorRecorder.Collector.Domain.Time;
@@ -68,7 +69,7 @@ public sealed class RunReflectionService
 
         if (!Guid.TryParseExact(command.RequestId, "D", out _))
         {
-            throw CollectorException.BadRequest("request_id 必须是标准 UUID。", "request_id");
+            throw CollectorException.BadRequest(CollectorTexts.IpcFieldNotUuid("request_id"), "request_id");
         }
 
         var text = ReflectionText.Normalize(command.Text);
@@ -110,7 +111,7 @@ public sealed class RunReflectionService
             ?? throw CollectorException.NotFound(command.RunId);
         if (command.Mood == ReflectionMood.Unknown && !run.IsImportedHistory)
         {
-            throw CollectorException.BadRequest("未记录心情仅适用于导入的心得。", "mood");
+            throw CollectorException.BadRequest(CollectorTexts.ReflectionUnrecordedMoodImportOnly(), "mood");
         }
 
         RunReflection? reflection = null;
@@ -138,13 +139,13 @@ public sealed class RunReflectionService
     {
         var snapshot = MutationSnapshotCodec.DeserializeOther<ReflectionSnapshot>(stored)
             ?? throw new CollectorException(
-                ErrorCodes.Internal, "幂等记录已损坏，无法安全重放该请求。");
+                ErrorCodes.Internal, CollectorTexts.IdempotencyRecordDamaged());
 
         if (!string.Equals(snapshot.Fingerprint, fingerprint, StringComparison.Ordinal))
         {
             throw new CollectorException(
                 ErrorCodes.IdempotencyConflict,
-                "同一个 request_id 被用于内容不同的请求，已拒绝以免产生歧义的结果。",
+                CollectorTexts.IdempotencyRequestReused(),
                 new Dictionary<string, object?> { ["conflict"] = "idempotency" },
                 field: "request_id");
         }

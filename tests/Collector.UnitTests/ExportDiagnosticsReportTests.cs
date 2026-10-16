@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using MentorRecorder.Collector.Capture;
+using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Export;
 using MentorRecorder.Collector.Ipc;
@@ -214,7 +215,7 @@ public sealed class ExportDiagnosticsReportTests : IDisposable
             "2024.06.18.0000.0000",
             1,
             @"D:\SdoA\FFXIV\game\ffxiv_dx11.exe",
-            Array.Empty<string>()),
+            Array.Empty<UserText>()),
         Profile = NoProfileStatusProvider.Instance.Current,
         AdapterId = "{7C4A8D09-1111-2222-3333-444455556666}",
         AdapterName = "Wi-Fi",
@@ -246,9 +247,9 @@ public sealed class ExportDiagnosticsReportTests : IDisposable
         },
         Warnings = new[]
         {
-            @"游戏安装路径为 D:\SdoA\FFXIV",
-            "本机地址 192.168.31.77 / fe80::1，登录用户 S-1-5-21-1111-2222-3333-1001",
-            "最近一次解码失败的前八字节 DEADBEEFDEADBEEF",
+            new UserText("test.warning", @"游戏安装路径为 D:\SdoA\FFXIV"),
+            new UserText("test.warning", "本机地址 192.168.31.77 / fe80::1，登录用户 S-1-5-21-1111-2222-3333-1001"),
+            new UserText("test.warning", "最近一次解码失败的前八字节 DEADBEEFDEADBEEF"),
         },
     };
 }

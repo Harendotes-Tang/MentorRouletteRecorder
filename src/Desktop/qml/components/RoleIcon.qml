@@ -6,14 +6,15 @@ import MentorRecorder
 //
 // `role` uses the fine-grained Chinese group of the legend
 // (坦克 / 治疗 / 近战 / 远程物理 / 魔法 / 未知); unmapped values fall back to the
-// All-Rounder plate, so the box is never empty.
+// All-Rounder plate, so the box is never empty. The label shows the group in the
+// interface language (Theme.roleGroupName); `role` stays the Chinese key.
 RowLayout {
     id: root
 
     property string role: ""
     property real size: 20
     property bool showLabel: false
-    property string labelText: root.role.length > 0 ? root.role : qsTr("未知")
+    property string labelText: Theme.roleGroupName(root.role)
     property color labelColor: Theme.textPrimary
     property real labelPixelSize: 11
     property alias iconItem: glyph

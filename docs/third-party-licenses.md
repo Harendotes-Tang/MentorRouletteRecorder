@@ -21,7 +21,7 @@
 [`licenses/xls/dependency-manifest.json`](licenses/xls/dependency-manifest.json)。
 它以 NPOI 2.7.6 的实际 NuGet 包及新 Release 发布资产为准；登记包括 NSax 的
 LGPL-3.0-only、保留的 SixLabors.Fonts 1.0.1、修复版 System.Security.Cryptography.Xml
-8.0.4 和 ImageSharp 的编译资产排除，不将主库 Apache-2.0 误当全部传递依赖的许可。
+8.0.5 和 ImageSharp 的编译资产排除，不将主库 Apache-2.0 误当全部传递依赖的许可。
 
 ## 1. 结论摘要
 
@@ -355,7 +355,7 @@ IPC 契约不存在这一层顾虑，因此测试侧直接使用成熟的库，�
 3. **`THIRD_PARTY_NOTICES.md` 校对完毕**，并随二进制一同分发。
 4. **确认发布包中不含**：Npcap、`oo2net_9_win64.dll`、`deucalion-*.dll`、
    任何游戏文件或游戏数据表。打包脚本需对此做硬断言。
-5. **`data/duties/`、`data/jobs/` 的来源合规**：其中的 id ↔ 名称映射必须是
+5. **`data/duties/`、`data/jobs/`、`data/i18n/` 的来源合规**：其中的 id ↔ 名称映射必须是
    自行整理、来源可说明的公开信息，并在文件中注明来源；不得复制游戏数据文件，
    也不得从 AGPL 项目移植。
 6. **确认未从 AGPL 项目复制任何代码**，并在 `THIRD_PARTY_NOTICES.md` 中
@@ -373,6 +373,8 @@ IPC 契约不存在这一层顾虑，因此测试侧直接使用成熟的库，�
 11. **`ffxiv-datamining-cn` 的许可空白**：**已落实**（维护者决定，2026-09-07）。
     `data/duties/cn.<version>.json` 随包分发；文件 `source` 字段、`THIRD_PARTY_NOTICES.md`
     与“设置 → 版权与来源”注明该社区导出为来源、名称为 SQUARE ENIX 游戏文本，仅限非商业展示。
+    界面多语言（2026-10-15）新增的 `data/i18n/game-names.<date>.json` 以同样方式随包分发，
+    其繁體中文名称来自同样没有 LICENSE 文件的 `thewakingsands/ffxiv-datamining-tc`（见 §10）。
 
 上述 11 项已全部落实。其中第 10、11 项以随包分发并附来源与版权声明的方式落实，
 相应风险由维护者承担。
@@ -451,3 +453,20 @@ Qt 安装目录中的 `LICENSE` 与 `COPYING.txt`、MinGW 的 `licenses/gcc/COPY
 > [`../THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md)。
 
 > 对应 §7 第 11 项：2026-09-07 起按“随包分发 + 来源声明”落实，数据可随时改为安装时本地生成。
+
+### 10.1 界面显示用的多语言名称
+
+`data/i18n/game-names.<date>.json` 由 `tools/duty-data-generator/generate.py --game-names` 生成，
+保存副本、职业、随机任务、副本分类与资料片在繁體中文、English、日本語中的**显示名称**，
+供桌面端按界面语言显示（`GameNames`）。记录、统计与导出始终使用简体中文名称，
+该文件不参与识别，也不写回任何数据。来源、抓取时间与原始下载的 SHA-256 记录在文件的
+`provenance` 字段中，原始下载不进入仓库。
+
+| 上游 | 用途 | 许可证状况 |
+|---|---|---|
+| **XIVAPI v2**（<https://v2.xivapi.com>） | English 与日本語名称（`language=en` / `language=ja`），与 `data/duties/` 使用同一游戏版本 | 公开的只读 API；社区服务，本身不拥有游戏数据的版权 |
+| **thewakingsands/ffxiv-datamining-tc**（<https://github.com/thewakingsands/ffxiv-datamining-tc>） | 繁體中文名称（台湾繁体中文版客户端的社区导出） | ⚠️ **没有 LICENSE 文件**，与 `ffxiv-datamining-cn` 情况相同 |
+
+繁体中文版客户端尚未收录的内容，由简体中文名称经 OpenCC `s2twp` 机械转换得到，
+并逐项列在文件的 `zh-TW_converted` 中，不冒充官方译名。
+详见 [`../data/i18n/README.md`](../data/i18n/README.md)。

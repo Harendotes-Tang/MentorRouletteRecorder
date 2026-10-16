@@ -77,7 +77,11 @@ public static class CaptureCli
         }
         else
         {
-            WriteHuman(writer, snapshot, adapters, temporary);
+            // The command's own sentence, which is not one the service ever sends (ProfileNotLoadedMessage).
+            var profileMessage = effective.Profile is NotLoadedProfileStatus
+                ? ProfileNotLoadedMessage
+                : snapshot.Profile.Message?.Chinese;
+            WriteHuman(writer, snapshot, adapters, temporary, profileMessage);
         }
 
         return snapshot.Npcap.Usable && snapshot.Game.Running ? 0 : 1;
@@ -110,7 +114,8 @@ public static class CaptureCli
         TextWriter writer,
         CaptureDiagnosticsSnapshot snapshot,
         IReadOnlyList<CaptureAdapterView> adapters,
-        OodleTempManifestReading temporary)
+        OodleTempManifestReading temporary,
+        string? profileMessage)
     {
         writer.WriteLine("抓包自检 / capture doctor");
         writer.WriteLine("  LIVE_CAPTURE_STATUS: " + CaptureDiagnosticsSnapshot.LiveCaptureStatus);
@@ -128,7 +133,7 @@ public static class CaptureCli
         writer.WriteLine("  已提权:              " + snapshot.Npcap.Elevated);
         if (!snapshot.Npcap.Usable)
         {
-            writer.WriteLine("  → " + snapshot.Npcap.Guidance);
+            writer.WriteLine("  → " + snapshot.Npcap.Guidance.Chinese);
         }
 
         writer.WriteLine();
@@ -140,7 +145,7 @@ public static class CaptureCli
         writer.WriteLine("  实例数:              " + snapshot.Game.InstanceCount);
         foreach (var warning in snapshot.Game.Warnings)
         {
-            writer.WriteLine("  → " + warning);
+            writer.WriteLine("  → " + warning.Chinese);
         }
 
         writer.WriteLine();
@@ -159,7 +164,7 @@ public static class CaptureCli
         writer.WriteLine();
         writer.WriteLine("协议档案");
         writer.WriteLine("  status:              " + EnumWire<ProfileStatus>.Format(snapshot.Profile.Status));
-        if (snapshot.Profile.Message is { } message)
+        if (profileMessage is { } message)
         {
             writer.WriteLine("  → " + message);
         }
@@ -184,6 +189,6 @@ public static class CaptureCli
         public static NotLoadedProfileStatus Instance { get; } = new();
 
         public ProfileStatusSnapshot Current { get; } = new(
-            ProfileStatus.None, null, Region.Unknown, null, null, null, ProfileNotLoadedMessage);
+            ProfileStatus.None, null, Region.Unknown, null, null, null, null);
     }
 }

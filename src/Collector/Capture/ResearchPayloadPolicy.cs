@@ -1,5 +1,6 @@
 using System.Globalization;
 using MentorRecorder.Collector.Contracts.Errors;
+using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Protocol.Profiles;
 
 namespace MentorRecorder.Collector.Capture;
@@ -33,14 +34,14 @@ public static class ResearchPayloadPolicy
     public static string[] Normalize(IReadOnlyList<string> values)
     {
         if (values.Count > MaxOpcodes)
-            throw CollectorException.BadRequest("研究白名单最多 32 项。", "payload.research_payload_opcodes");
+            throw CollectorException.BadRequest(CollectorTexts.CaptureSettingsResearchTooMany(), "payload.research_payload_opcodes");
         var result = new SortedSet<ushort>();
         foreach (var value in values)
         {
             if (!TryParse(value, out var opcode))
-                throw CollectorException.BadRequest("白名单条目必须是 0x 加四位十六进制数。", "payload.research_payload_opcodes");
+                throw CollectorException.BadRequest(CollectorTexts.CaptureSettingsResearchFormat(), "payload.research_payload_opcodes");
             if (!result.Add(opcode))
-                throw CollectorException.BadRequest("研究白名单不能重复。", "payload.research_payload_opcodes");
+                throw CollectorException.BadRequest(CollectorTexts.CaptureSettingsResearchDuplicate(), "payload.research_payload_opcodes");
         }
         return result.Select(opcode => "0x" + opcode.ToString("x4", CultureInfo.InvariantCulture)).ToArray();
     }
@@ -61,7 +62,7 @@ public static class ResearchPayloadPolicy
             TryParse(token, out var opcode);
             var matches = declared.Where(pair => pair.Hypothesis.Opcode == opcode).ToArray();
             if (matches.Length == 0 || matches.Any(pair => !IsEligible(pair.Profile, pair.Hypothesis)))
-                throw CollectorException.BadRequest("该 opcode 未被声明为不超过 512 字节的非混淆候选。", "payload.research_payload_opcodes");
+                throw CollectorException.BadRequest(CollectorTexts.CaptureSettingsResearchNotEligible(), "payload.research_payload_opcodes");
         }
         return normalized;
     }

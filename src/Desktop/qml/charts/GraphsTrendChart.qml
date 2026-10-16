@@ -149,8 +149,8 @@ Item {
 
         ToolTip.visible: hoverArea.index >= 0
         ToolTip.text: hoverArea.index >= 0
-                      ? (root.buckets[hoverArea.index].label || "") + " · "
-                        + String(root.buckets[hoverArea.index].count || 0) + qsTr(" 次")
+                      ? qsTr("%1 · %2 次").arg(root.buckets[hoverArea.index].label || "")
+                                          .arg(root.buckets[hoverArea.index].count || 0)
                       : ""
     }
 

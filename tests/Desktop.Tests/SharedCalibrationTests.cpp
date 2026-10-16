@@ -9,6 +9,9 @@
 //   * 分享给其他玩家: the clipboard always gets the code, the browser gets the
 //     issue address only when the code is in it and it is a github.com address,
 //     and each ERR_SHARE_CODE_UNAVAILABLE reason has its own sentence;
+//   * which share is offered: this machine's own calibration ("local"), or
+//     another player's that proved itself here ("verified", §20.6), and the
+//     toast that follows the basis the Collector names;
 //   * 导入校准码 shows the Collector's own message and never sends empty text;
 //   * 立即检查 / consent / 不用共享的 send empty requests and re-read the status;
 //   * shared_calibration_enabled passes the AppController's settings whitelist;
@@ -20,6 +23,8 @@
 #include "AppController.h"
 #include "AutomaticRecordingController.h"
 #include "CalibrationController.h"
+#include "CollectorText.h"
+#include "CollectorTextTestSupport.h"
 #include "IBackend.h"
 #include "MockBackend.h"
 #include "SharedCalibrationController.h"
@@ -57,7 +62,7 @@ QJsonObject candidate(const QString &source, const QString &status = QStringLite
         criteria = QJsonArray{zone, QJsonObject{
             {QStringLiteral("message"), QStringLiteral("CONTENT_FINDER_POP")},
             {QStringLiteral("verdict"), QStringLiteral("WAIT")},
-            {QStringLiteral("reason"), QString::fromUtf8("还没见到这条匹配报文跟在排本之后出现；排一次随机任务就能核实。")},
+            {QStringLiteral("reason"), QString::fromUtf8("等待识别这条匹配成功跟在排本之后出现；排一次随机任务就能核实。")},
             {QStringLiteral("contradicting_sessions"), 0},
             {QStringLiteral("gate"), popGate}}};
     }
@@ -131,11 +136,52 @@ void verifyPlayerCopy(const QString &text, bool mayBeEmpty = false)
         QStringLiteral("VERIFYING"), QStringLiteral("AWAITING_CONSENT"), QStringLiteral("VERIFIED"),
         QStringLiteral("REJECTED"), QStringLiteral("UNAVAILABLE"), QStringLiteral("NONE_FOR_BUILD"),
         QStringLiteral("ERR_"), QStringLiteral("MRC1"), QStringLiteral("PUBLISHED"),
-        QStringLiteral("IMPORTED"), QStringLiteral("audit_pending")};
+        QStringLiteral("IMPORTED"), QStringLiteral("audit_pending"),
+        // The share-code basis and the candidate marks (plans/shared-calibration.md §20).
+        QStringLiteral("PROVEN"), QStringLiteral("CALIBRATED"), QStringLiteral("basis"),
+        QStringLiteral("shape_prior"), QStringLiteral("disputed"), QStringLiteral("preferred"),
+        QStringLiteral("CONTENT_FINDER_POP"), QStringLiteral("ZONE_INITIALIZATION"),
+        QStringLiteral("ZONE_TERRITORY"), QStringLiteral("PLAYER_JOB"), QStringLiteral("IN_USE"),
+        QStringLiteral("SHARED_CALIBRATION"), QStringLiteral("LOCAL_CALIBRATION"),
+        QStringLiteral("GetCalibrationShareCode"), QStringLiteral("SHARED_NOT_PROVEN")};
     for (const QString &word : words) {
         QVERIFY2(!text.contains(word, Qt::CaseInsensitive),
                  qPrintable(QStringLiteral("player copy leaks \"%1\": %2").arg(word, text)));
     }
+}
+
+/// The profile in use as a Collector reports it once it recorded one complete duty and
+/// nothing is left to audit (plans/shared-calibration.md §20.6), with the §20.5 marks the
+/// desktop never shows.  marks false leaves those out, as every Collector before §20 does
+/// - one that already reports PROVEN but still refuses to hand the code out.
+QJsonObject provenCandidate(bool auditPending = false,
+                            const QString &provenance = QStringLiteral("PUBLISHED"), bool marks = true)
+{
+    QJsonObject row = candidate(QStringLiteral("DOWNLOADED"), QStringLiteral("PROVEN"), provenance,
+                                auditPending, QStringLiteral("AUDIT"));
+    if (marks) {
+        row.insert(QStringLiteral("disputed"), QJsonArray{QStringLiteral("CONTENT_FINDER_POP")});
+        row.insert(QStringLiteral("preferred"), true);
+        row.insert(QStringLiteral("shape_prior"), true);
+    }
+    return row;
+}
+
+/// GetCalibrationShareCode as the Collector answers it, with the basis it names.
+QJsonObject shareAnswer(const QString &basis, bool codeInUrl = true,
+                        const QString &host = QStringLiteral("https://github.com/"))
+{
+    QString url = host + QStringLiteral("Harendotes-Tang/MentorRecorder-Calibrations/issues/new"
+                                        "?template=share-calibration.yml");
+    if (codeInUrl)
+        url += QStringLiteral("&basis=") + basis + QStringLiteral("&code=") + QLatin1String(kVectorCode);
+    QJsonObject answer{{QStringLiteral("code"), QLatin1String(kVectorCode)},
+                       {QStringLiteral("code_sha256"), QString(64, QLatin1Char('a'))},
+                       {QStringLiteral("issue_url"), url},
+                       {QStringLiteral("code_in_url"), codeInUrl}};
+    if (!basis.isEmpty())
+        answer.insert(QStringLiteral("basis"), basis);
+    return answer;
 }
 
 /// Answers every message synchronously and records what was sent.
@@ -245,28 +291,28 @@ private Q_SLOTS:
         QTest::addColumn<QString>("needle");
 
         QTest::newRow("fetching") << "FETCHING" << "" << false << "fetching"
-                                  << QString::fromUtf8("正在获取其他玩家的共享校准");
+                                  << QString::fromUtf8("正在查找其他玩家分享的校准");
         QTest::newRow("verifying") << "VERIFYING" << "OK" << false << "verifying"
-                                   << QString::fromUtf8("找到共享校准，登录或排本时自动核实");
+                                   << QString::fromUtf8("找到了共享校准，登录或排本时会自动检查是否可用");
         QTest::newRow("consent") << "AWAITING_CONSENT" << "OK" << false << "consent"
-                                 << QString::fromUtf8("同意一次");
+                                 << QString::fromUtf8("确认是否使用");
         QTest::newRow("verified") << "VERIFIED" << "OK" << false << "verified"
-                                  << QString::fromUtf8("已使用其他玩家分享的校准（本机已核实）");
+                                  << QString::fromUtf8("正在使用共享校准，已通过本机检查");
         QTest::newRow("rejected") << "REJECTED" << "OK" << false << "rejected"
-                                  << QString::fromUtf8("共享校准与本机流量对不上，已改为本机校准");
+                                  << QString::fromUtf8("这份共享校准不适用于你的游戏，已改为本机校准");
         QTest::newRow("index-unavailable") << "UNAVAILABLE" << "INDEX_UNAVAILABLE" << false << "unavailable"
-                                           << QString::fromUtf8("没取到共享校准（网络不通），继续本机校准");
+                                           << QString::fromUtf8("暂时没能下载共享校准，将继续本机校准");
         QTest::newRow("codes-unavailable") << "UNAVAILABLE" << "CODES_UNAVAILABLE" << false << "unavailable"
-                                           << QString::fromUtf8("没取到共享校准（网络不通），继续本机校准");
+                                           << QString::fromUtf8("暂时没能下载共享校准，将继续本机校准");
         QTest::newRow("none-for-build") << "NONE" << "NONE_FOR_BUILD" << false << "none_for_build"
-                                        << QString::fromUtf8("还没有人分享这个版本的校准，继续本机校准");
+                                        << QString::fromUtf8("暂时没有当前游戏版本的共享校准，将继续本机校准");
         QTest::newRow("disabled") << "NONE" << "DISABLED" << false << "disabled"
                                   << QString::fromUtf8("已关闭");
         // A refusal also reads REJECTED; user_rejected has to be read first.
         QTest::newRow("user-rejected") << "REJECTED" << "OK" << true << "user_rejected"
-                                       << QString::fromUtf8("已按你的选择改为本机校准");
+                                       << QString::fromUtf8("已改为本机校准");
         QTest::newRow("user-rejected-first") << "VERIFYING" << "OK" << true << "user_rejected"
-                                             << QString::fromUtf8("已按你的选择改为本机校准");
+                                             << QString::fromUtf8("已改为本机校准");
     }
 
     void projectsEachPhaseInPlayerWords()
@@ -295,7 +341,7 @@ private Q_SLOTS:
         controller.refreshFromCaptureStatus(captureWith(
             QStringLiteral("OBSERVING"), sharedStatus(QStringLiteral("REJECTED"), true)));
         QVERIFY(controller.userRejected());
-        QVERIFY(controller.detail().contains(QString::fromUtf8("清空进度并重新观察")));
+        QVERIFY(controller.detail().contains(QString::fromUtf8("清空校准进度")));
     }
 
     void anOlderCollectorWithoutSharedOffersNothing()
@@ -317,13 +363,13 @@ private Q_SLOTS:
             QStringLiteral("OBSERVING"),
             sharedStatus(QStringLiteral("VERIFYING"), false, QString(),
                          {candidate(QStringLiteral("MANUAL"))})));
-        QVERIFY(controller.headline().contains(QString::fromUtf8("已导入校准码")));
+        QVERIFY(controller.headline().contains(QString::fromUtf8("校准码已导入")));
 
         controller.refreshFromCaptureStatus(captureWith(
             QStringLiteral("OBSERVING"),
             sharedStatus(QStringLiteral("VERIFYING"), false, QStringLiteral("OK"),
                          {candidate(QStringLiteral("MANUAL")), candidate(QStringLiteral("DOWNLOADED"))})));
-        QVERIFY(controller.headline().contains(QString::fromUtf8("找到共享校准")));
+        QVERIFY(controller.headline().contains(QString::fromUtf8("找到了共享校准")));
     }
 
     // -- 18.3 / 18.4: gates graded by where the code came from ---------------
@@ -334,9 +380,9 @@ private Q_SLOTS:
         QTest::addColumn<QString>("provenance");
         QTest::addColumn<QString>("headline");
 
-        const QString published = QString::fromUtf8("找到共享校准，登录时自动核实，通过就开始记录。");
-        const QString queue = QString::fromUtf8("找到共享校准，还要在本机排一次本、核实通过后才会启用。");
-        const QString imported = QString::fromUtf8("已导入校准码，登录并排一次本、核实通过后启用。");
+        const QString published = QString::fromUtf8("找到了共享校准，登录时会自动检查，通过后就能开始记录。");
+        const QString queue = QString::fromUtf8("找到了共享校准。申请随机任务并进入副本，通过检查后才能开始记录。");
+        const QString imported = QString::fromUtf8("校准码已导入。登录后申请随机任务并进入副本，通过检查后才能开始记录。");
         const QString audit = QStringLiteral("AUDIT");
         const QString required = QStringLiteral("REQUIRED");
         // A pasted code the last index read lists is judged like a downloaded one (18.5),
@@ -388,7 +434,7 @@ private Q_SLOTS:
         QTest::newRow("published-not-judged-yet")
             << QJsonArray{candidate(QStringLiteral("DOWNLOADED"), QStringLiteral("VERIFYING"),
                                     QStringLiteral("PUBLISHED"))}
-            << "published" << QString::fromUtf8("找到共享校准，登录或排本时自动核实。");
+            << "published" << QString::fromUtf8("找到了共享校准，登录或排本时会自动检查是否可用。");
         // A rejected candidate decides nothing any more, so the one still in the running does.
         QTest::newRow("rejected-published-is-ignored")
             << QJsonArray{candidate(QStringLiteral("DOWNLOADED"), QStringLiteral("REJECTED"),
@@ -400,17 +446,17 @@ private Q_SLOTS:
         // wording from before the split stands unchanged.
         QTest::newRow("not-reported-downloaded")
             << QJsonArray{candidate(QStringLiteral("DOWNLOADED"))} << QString()
-            << QString::fromUtf8("找到共享校准，登录或排本时自动核实。");
+            << QString::fromUtf8("找到了共享校准，登录或排本时会自动检查是否可用。");
         QTest::newRow("not-reported-manual")
             << QJsonArray{candidate(QStringLiteral("MANUAL"))} << QString()
-            << QString::fromUtf8("已导入校准码，登录或排本时自动核实。");
+            << QString::fromUtf8("校准码已导入。登录或排本时会自动检查是否可用。");
         // One candidate without a provenance is not "all imported" either.
         QTest::newRow("half-reported")
             << QJsonArray{candidate(QStringLiteral("MANUAL"), QStringLiteral("VERIFYING"),
                                     QStringLiteral("IMPORTED")),
                           candidate(QStringLiteral("MANUAL"))}
             << QString()
-            << QString::fromUtf8("已导入校准码，登录或排本时自动核实。");
+            << QString::fromUtf8("校准码已导入。登录或排本时会自动检查是否可用。");
     }
 
     void theVerifyingSentenceFollowsTheProvenance()
@@ -439,8 +485,8 @@ private Q_SLOTS:
         QTest::addColumn<QString>("provenance");
         QTest::addColumn<QString>("headline");
 
-        const QString better = QString::fromUtf8("找到更准的共享校准，正在本机核实；当前记录照常生成。");
-        const QString pasted = QString::fromUtf8("已导入校准码，正在本机核实；当前记录照常生成。");
+        const QString better = QString::fromUtf8("找到了更完整的共享校准，正在检查是否可用。自动记录照常进行。");
+        const QString pasted = QString::fromUtf8("校准码已导入，正在检查是否可用。自动记录照常进行。");
         // The machine's own queue-inferred calibration records; a code that reads the server's own
         // match is being checked underneath it.
         QTest::newRow("under a local queue-inferred profile")
@@ -465,10 +511,10 @@ private Q_SLOTS:
         QCOMPARE(c.view(), QStringLiteral("verifying"));
         QCOMPARE(c.headline(), headline);
         QCOMPARE(c.detail(),
-                 QString::fromUtf8("现在的记录不受影响；核实通过后会自动换用更准的那一份，之前生成的记录不会改动。"));
+                 QString::fromUtf8("自动记录照常进行。检查通过后会自动换用新的共享校准，已保存的记录不会改动。"));
         // The sentences from before 1.3.2 promised that nothing records yet; both would be false here.
         QVERIFY(!c.headline().contains(QString::fromUtf8("通过就开始记录")));
-        QVERIFY(!c.detail().contains(QString::fromUtf8("核实通过才会开始记录")));
+        QVERIFY(!c.detail().contains(QString::fromUtf8("检查通过后才能开始自动记录")));
         verifyPlayerCopy(c.headline());
         verifyPlayerCopy(c.detail());
     }
@@ -485,9 +531,9 @@ private Q_SLOTS:
             sharedStatus(QStringLiteral("VERIFYING"), false, QStringLiteral("OK"), checking), QString(),
             QStringLiteral("UNSUPPORTED_BUILD")));
 
-        QCOMPARE(c.headline(), QString::fromUtf8("找到共享校准，登录时自动核实，通过就开始记录。"));
+        QCOMPARE(c.headline(), QString::fromUtf8("找到了共享校准，登录时会自动检查，通过后就能开始记录。"));
         QCOMPARE(c.detail(),
-                 QString::fromUtf8("核实通过才会开始记录，期间照常游戏即可；对不上就继续本机校准，已经攒下的进度不受影响。"));
+                 QString::fromUtf8("检查通过后才能开始自动记录。照常游戏即可；如果不能使用，会继续本机校准，已有进度会保留。"));
     }
 
     void aRecordingProfileUnderAuditSaysSoInGrey()
@@ -505,9 +551,9 @@ private Q_SLOTS:
         QVERIFY(c.auditPending());
         // It records because the login burst matched; it must not claim more than that.
         QCOMPARE(c.headline(),
-                 QString::fromUtf8("已使用其他玩家分享的校准（登录时已在本机核实）。"));
+                 QString::fromUtf8("正在使用共享校准，登录检查已通过。"));
         QCOMPARE(c.detail(),
-                 QString::fromUtf8("排本和进本还在核对中，照常游戏即可；万一对不上，会自动改回本机校准，这期间生成的记录会标记待复核。"));
+                 QString::fromUtf8("排本和进本还在核对中，记录照常进行。如果之后发现不匹配，会停止使用这份校准并继续本机校准，期间生成的记录会标为“待复核”，请检查并补正。"));
         verifyPlayerCopy(c.headline());
         verifyPlayerCopy(c.detail());
         // The audit changes nothing a player can do about it.
@@ -523,8 +569,8 @@ private Q_SLOTS:
             QStringLiteral("SHARED_CALIBRATION")));
         QVERIFY(!c.auditPending());
         QCOMPARE(c.headline(),
-                 QString::fromUtf8("已使用其他玩家分享的校准（本机已核实）。"));
-        QVERIFY(c.detail().contains(QString::fromUtf8("这台电脑的流量里核实过")));
+                 QString::fromUtf8("正在使用共享校准，已通过本机检查。"));
+        QVERIFY(c.detail().contains(QString::fromUtf8("能在你的游戏中使用")));
     }
 
     void actionsFollowTheCalibrationState()
@@ -568,7 +614,8 @@ private Q_SLOTS:
         };
         QVERIFY(restarted(QStringLiteral("LOCAL_CALIBRATION"), sharedStatus(QStringLiteral("NONE"))));
         QVERIFY(!c.canCheck() && !c.canImport() && !c.canReject());
-        // Never someone else's, never the shipped one, never without a profile, never on an old Collector.
+        // Never someone else's that has not proven itself here (no candidate says PROVEN), never
+        // the shipped one, never without a profile, never on an old Collector.
         QVERIFY(!restarted(QStringLiteral("SHARED_CALIBRATION"), sharedStatus(QStringLiteral("VERIFIED"))) && c.inUse());
         QVERIFY(!restarted(QStringLiteral("SHIPPED"), sharedStatus(QStringLiteral("NONE"))));
         QVERIFY(!restarted(QString(), sharedStatus(QStringLiteral("NONE"))));
@@ -585,14 +632,129 @@ private Q_SLOTS:
         QCOMPARE(changed.count(), 1);
     }
 
+    // -- which share is offered (plans/shared-calibration.md §20.6) ----------
+
+    void shareKindFollowsTheProfileInForce_data()
+    {
+        QTest::addColumn<QString>("calibrationState");
+        QTest::addColumn<QString>("origin");
+        QTest::addColumn<QJsonObject>("shared");
+        QTest::addColumn<QString>("kind");
+
+        const QJsonObject none = sharedStatus(QStringLiteral("NONE"));
+        const auto verified = [](const QJsonArray &candidates, bool auditPending = false) {
+            return sharedStatus(QStringLiteral("VERIFIED"), false, QStringLiteral("OK"), candidates, auditPending);
+        };
+        const QJsonObject inUse = candidate(QStringLiteral("DOWNLOADED"), QStringLiteral("IN_USE"),
+                                            QStringLiteral("PUBLISHED"), false, QStringLiteral("AUDIT"));
+
+        // This machine's own calibration: today's 分享给其他玩家, whatever calibration is doing.
+        QTest::newRow("local-done") << "DONE" << "LOCAL_CALIBRATION" << none << "local";
+        QTest::newRow("local-restarted") << "IDLE" << "LOCAL_CALIBRATION" << none << "local";
+        // Another player's calibration that recorded one complete duty here and has nothing
+        // left to audit: the player can say it works.
+        QTest::newRow("shared-proven") << "DONE" << "SHARED_CALIBRATION" << verified({provenCandidate()})
+                                       << "verified";
+        QTest::newRow("shared-proven-restarted") << "IDLE" << "SHARED_CALIBRATION"
+                                                 << verified({provenCandidate()}) << "verified";
+        // Still being watched, or still audited: nothing has been proven yet.
+        QTest::newRow("shared-in-use") << "OBSERVING" << "SHARED_CALIBRATION" << verified({inUse}) << "";
+        QTest::newRow("shared-candidate-audited") << "OBSERVING" << "SHARED_CALIBRATION"
+                                                  << verified({provenCandidate(true)}) << "";
+        QTest::newRow("shared-snapshot-audited") << "OBSERVING" << "SHARED_CALIBRATION"
+                                                 << verified({provenCandidate()}, true) << "";
+        // A pasted code no index lists can prove itself too, but the Collector keeps no text for
+        // it and refuses every click (SHARED): only a published code is offered.
+        QTest::newRow("proven-imported") << "DONE" << "SHARED_CALIBRATION"
+                                         << verified({provenCandidate(false, QStringLiteral("IMPORTED"))}) << "";
+        // Collectors 1.1.0-1.7.2 already report PROVEN for a bound shared profile but refuse
+        // GetCalibrationShareCode for it; only a §20 Collector sends the candidate marks.
+        QTest::newRow("proven-old-collector") << "DONE" << "SHARED_CALIBRATION"
+            << verified({provenCandidate(false, QStringLiteral("PUBLISHED"), false)}) << "";
+        // Only the profile in use - the first candidate - counts, never one behind it.
+        QTest::newRow("proven-not-first") << "OBSERVING" << "SHARED_CALIBRATION"
+                                          << verified({inUse, provenCandidate()}) << "";
+        // A profile restored from disk whose code was not recovered lists no candidate.
+        QTest::newRow("shared-no-candidate") << "IDLE" << "SHARED_CALIBRATION" << verified({}) << "";
+        // A proven candidate never turns the shipped profile, or no profile, into a share.
+        QTest::newRow("shipped") << "IDLE" << "SHIPPED" << verified({provenCandidate()}) << "";
+        QTest::newRow("no-profile") << "OBSERVING" << "" << none << "";
+        // An older Collector that sends no calibration.shared offers nothing to send the request with.
+        QTest::newRow("old-collector-local") << "DONE" << "LOCAL_CALIBRATION" << QJsonObject() << "";
+    }
+
+    void shareKindFollowsTheProfileInForce()
+    {
+        QFETCH(QString, calibrationState);
+        QFETCH(QString, origin);
+        QFETCH(QJsonObject, shared);
+        QFETCH(QString, kind);
+
+        mr::SharedCalibrationController c;
+        c.refreshFromCaptureStatus(captureWith(calibrationState, shared, origin, QStringLiteral("VERIFIED")));
+        QCOMPARE(c.shareKind(), kind);
+        QCOMPARE(c.canShare(), !kind.isEmpty());
+
+        if (kind == QLatin1String("local")) {
+            QCOMPARE(c.shareButtonText(), QString::fromUtf8("分享给其他玩家"));
+            QCOMPARE(c.shareHintText(), mr::SharedCalibrationController::shareHint());
+        } else if (kind == QLatin1String("verified")) {
+            QCOMPARE(c.shareButtonText(), QString::fromUtf8("这份校准好用，告诉其他玩家"));
+            QCOMPARE(c.shareHintText(), mr::SharedCalibrationController::verifiedShareHint());
+            // Proven is not a different view: the card still says the shared profile is in use.
+            QCOMPARE(c.view(), QStringLiteral("verified"));
+            QVERIFY(c.inUse() && c.canReject());
+        } else {
+            QVERIFY(c.shareHintText().isEmpty());
+        }
+        verifyPlayerCopy(c.shareButtonText(), kind.isEmpty());
+        verifyPlayerCopy(c.shareHintText(), kind.isEmpty());
+        verifyPlayerCopy(c.headline(), true);
+        verifyPlayerCopy(c.detail(), true);
+    }
+
+    void theVerifiedHintSaysWhatTheClickDoes()
+    {
+        QCOMPARE(mr::SharedCalibrationController::verifiedShareHint(),
+                 QString::fromUtf8("会打开 GitHub 页面，把这份校准记为你也核实过，让其他玩家的软件更优先使用它。"));
+        verifyPlayerCopy(mr::SharedCalibrationController::verifiedShareHint());
+        // The local sentence is unchanged, and the two never read alike.
+        QVERIFY(mr::SharedCalibrationController::shareHint().contains(QString::fromUtf8("本机校准")));
+        QVERIFY(mr::SharedCalibrationController::shareHint()
+                != mr::SharedCalibrationController::verifiedShareHint());
+    }
+
+    void theShareTextsChangeWithTheProfile()
+    {
+        // One controller across a restart of the evidence: the button and its hint must
+        // follow, and changed() must say so, or a bound QML text would keep the old words.
+        mr::SharedCalibrationController c;
+        QSignalSpy changed(&c, &mr::SharedCalibrationController::changed);
+        c.refreshFromCaptureStatus(captureWith(
+            QStringLiteral("OBSERVING"),
+            sharedStatus(QStringLiteral("VERIFIED"), false, QStringLiteral("OK"),
+                         {candidate(QStringLiteral("DOWNLOADED"), QStringLiteral("IN_USE"),
+                                    QStringLiteral("PUBLISHED"), false, QStringLiteral("AUDIT"))}),
+            QStringLiteral("SHARED_CALIBRATION"), QStringLiteral("VERIFIED")));
+        QCOMPARE(c.shareKind(), QString());
+        const int before = changed.count();
+
+        c.refreshFromCaptureStatus(captureWith(
+            QStringLiteral("DONE"),
+            sharedStatus(QStringLiteral("VERIFIED"), false, QStringLiteral("OK"), {provenCandidate()}),
+            QStringLiteral("SHARED_CALIBRATION"), QStringLiteral("VERIFIED")));
+        QCOMPARE(c.shareKind(), QStringLiteral("verified"));
+        QVERIFY(changed.count() > before);
+    }
+
     // -- requests -----------------------------------------------------------
 
     void checkNowToastsEveryOutcome_data()
     {
         QTest::addColumn<QString>("outcome");
         QTest::addColumn<QString>("needle");
-        QTest::newRow("started") << "STARTED" << QString::fromUtf8("正在获取");
-        QTest::newRow("already") << "ALREADY_FETCHING" << QString::fromUtf8("已经在获取");
+        QTest::newRow("started") << "STARTED" << QString::fromUtf8("正在查找");
+        QTest::newRow("already") << "ALREADY_FETCHING" << QString::fromUtf8("正在查找，请稍等");
         QTest::newRow("disabled") << "DISABLED" << QString::fromUtf8("设置");
         QTest::newRow("not-needed") << "NOT_NEEDED" << QString::fromUtf8("不需要");
     }
@@ -647,7 +809,7 @@ private Q_SLOTS:
         seams.openResult = false;
         c.share();
         QCOMPARE(seams.copied.size(), 2);
-        QVERIFY(lastNotice(notices).contains(QString::fromUtf8("无法调用系统浏览器")));
+        QVERIFY(lastNotice(notices).contains(QString::fromUtf8("没能打开浏览器")));
     }
 
     void shareOnlyCopiesWhenTheCodeDidNotFitTheUrl()
@@ -668,7 +830,7 @@ private Q_SLOTS:
         QVERIFY(seams.opened.isEmpty());
         QCOMPARE(seams.copied, QStringList{QLatin1String(kVectorCode)});
         QVERIFY(lastNotice(notices).contains(QString::fromUtf8("剪贴板")));
-        QVERIFY(lastNotice(notices).contains(QString::fromUtf8("没有打开浏览器")));
+        QVERIFY(lastNotice(notices).contains(QString::fromUtf8("无法自动打开 GitHub 分享页面")));
         verifyPlayerCopy(lastNotice(notices));
     }
 
@@ -692,16 +854,95 @@ private Q_SLOTS:
         c.share();
         QVERIFY(seams.opened.isEmpty());
         QCOMPARE(seams.copied.size(), 1);
-        QVERIFY(lastNotice(notices).contains(QString::fromUtf8("没有打开浏览器")));
+        QVERIFY(lastNotice(notices).contains(QString::fromUtf8("分享页面地址有误")));
+    }
+
+    void theNoticeFollowsTheBasisOfTheCode_data()
+    {
+        QTest::addColumn<QString>("basis");
+        QTest::addColumn<QString>("notice");
+        // VERIFIED: another player's calibration this machine proved; the submission adds an account
+        // that checked it rather than a new code.
+        QTest::newRow("verified") << "VERIFIED"
+            << QString::fromUtf8("已打开 GitHub 页面，校准码也已复制到剪贴板。"
+                                 "提交后这份共享校准会多一个核实通过的账号，软件不会自动上传。");
+        // CALIBRATED, and a Collector before §20 that names no basis at all: today's sentence.
+        QTest::newRow("calibrated") << "CALIBRATED"
+            << QString::fromUtf8("已打开 GitHub 分享页面，校准码也已复制到剪贴板。"
+                                 "请在浏览器中确认是否提交，软件不会自动上传。");
+        QTest::newRow("not-reported") << ""
+            << QString::fromUtf8("已打开 GitHub 分享页面，校准码也已复制到剪贴板。"
+                                 "请在浏览器中确认是否提交，软件不会自动上传。");
+    }
+
+    void theNoticeFollowsTheBasisOfTheCode()
+    {
+        QFETCH(QString, basis);
+        QFETCH(QString, notice);
+        SharedBackend backend;
+        backend.shareResult = shareAnswer(basis);
+        mr::SharedCalibrationController c;
+        c.setBackend(&backend);
+        Seams seams;
+        seams.attach(c);
+        QSignalSpy notices(&c, &mr::SharedCalibrationController::notice);
+
+        c.share();
+        QCOMPARE(seams.copied, QStringList{QLatin1String(kVectorCode)});
+        QCOMPARE(seams.opened.size(), 1);
+        QCOMPARE(lastNotice(notices), notice);
+        verifyPlayerCopy(lastNotice(notices));
+    }
+
+    void aVerifiedCodeThatCannotOpenThePageStillReadsRight()
+    {
+        // The code is the same length whoever shares it, so the long-code and wrong-address
+        // fallbacks can meet a verified answer too. They keep their substance but talk about
+        // "这份校准" and a GitHub page, not a sharing page the player did not ask for.
+        SharedBackend backend;
+        mr::SharedCalibrationController c;
+        c.setBackend(&backend);
+        Seams seams;
+        seams.attach(c);
+        QSignalSpy notices(&c, &mr::SharedCalibrationController::notice);
+
+        backend.shareResult = shareAnswer(QStringLiteral("VERIFIED"), false);
+        c.share();
+        QVERIFY(seams.opened.isEmpty());
+        QCOMPARE(lastNotice(notices),
+                 QString::fromUtf8("校准码已复制到剪贴板。由于内容较长，无法自动打开 GitHub 页面。"
+                                   "你可以把这份校准直接发给其他玩家，让对方点「导入校准码」并粘贴。"));
+        verifyPlayerCopy(lastNotice(notices));
+
+        backend.shareResult = shareAnswer(QStringLiteral("VERIFIED"), true, QStringLiteral("https://example.com/"));
+        c.share();
+        QVERIFY(seams.opened.isEmpty());
+        QCOMPARE(lastNotice(notices),
+                 QString::fromUtf8("校准码已复制到剪贴板。GitHub 页面地址有误，未打开浏览器；"
+                                   "可以把这份校准直接发给其他玩家。"));
+        verifyPlayerCopy(lastNotice(notices));
+
+        // No browser at all reads the same either way.
+        backend.shareResult = shareAnswer(QStringLiteral("VERIFIED"));
+        seams.openResult = false;
+        c.share();
+        QCOMPARE(seams.opened.size(), 1);
+        QCOMPARE(lastNotice(notices), QString::fromUtf8("没能打开浏览器。校准码已复制，可以直接发给其他玩家。"));
+        QCOMPARE(seams.copied.size(), 3);
     }
 
     void shareRefusalIsExplainedByReason_data()
     {
         QTest::addColumn<QString>("reason");
         QTest::addColumn<QString>("needle");
-        QTest::newRow("no-profile") << "NO_PROFILE" << QString::fromUtf8("校准完成之后");
-        QTest::newRow("not-local") << "NOT_LOCAL" << QString::fromUtf8("随软件附带");
-        QTest::newRow("shared") << "SHARED" << QString::fromUtf8("不能再转手");
+        QTest::newRow("no-profile") << "NO_PROFILE" << QString::fromUtf8("请先完成校准");
+        QTest::newRow("not-local") << "NOT_LOCAL" << QString::fromUtf8("软件自带");
+        // §20.5: a shared profile in use is shared once it is proven; SHARED now only means the
+        // code text is not on this machine.
+        QTest::newRow("shared-not-proven") << "SHARED_NOT_PROVEN"
+            << QString::fromUtf8("这份共享校准还在核对中，等它记录过一次完整的随机任务后再试。");
+        QTest::newRow("shared") << "SHARED"
+            << QString::fromUtf8("这份共享校准在本机找不到对应的校准码，暂时无法分享。");
         QTest::newRow("not-shareable") << "NOT_SHAREABLE" << QString::fromUtf8("暂时不能分享");
         QTest::newRow("missing") << "" << QString::fromUtf8("暂时不能分享");
     }
@@ -738,7 +979,7 @@ private Q_SLOTS:
         QTest::addColumn<QString>("reason");
         QTest::addColumn<QString>("provenance");
         QTest::newRow("applied") << "APPLIED"
-            << QString::fromUtf8("校准码已导入，登录或排本时会在本机流量里自动核实。") << true << "" << "";
+            << QString::fromUtf8("校准码已导入。登录或排本时会自动检查是否可用。") << true << "" << "";
         QTest::newRow("not-applicable") << "NOT_APPLICABLE"
             << QString::fromUtf8("这份校准码适用于客户端版本 2026.09.02.0000.0000，当前客户端版本是 2026.09.01.0000.0000，不能通用。")
             << false << "OTHER_BUILD" << "";
@@ -790,6 +1031,39 @@ private Q_SLOTS:
         QCOMPARE(rereads.count(), applied ? 1 : 0);
         if (applied)
             QCOMPARE(lastNotice(notices), message);
+    }
+
+    // ImportCalibrationCode.message_ref (contracts/collector-texts.md): the answer is
+    // shown in the interface language; a key this build does not know shows the
+    // Collector's Chinese, as before the catalogue.
+    void importShowsTheMessageByItsKey()
+    {
+        const QVariantMap why = mrtest::textRef("sharing.code.not_a_code");
+        const QVariantMap ref = mrtest::textRef("sharing.import.not_imported", {{QStringLiteral("reason"), why}});
+        const QString chinese = mr::collector_text::chinese(ref);
+        QCOMPARE(chinese, QString::fromUtf8("校准码未导入：") + mr::collector_text::chinese(why));
+        for (const bool known : {true, false}) {
+            SharedBackend backend;
+            backend.importResult = {{QStringLiteral("outcome"), QStringLiteral("MALFORMED")},
+                                    {QStringLiteral("reason"), QStringLiteral("E_SHARE_CODE_NOT_A_CODE")},
+                                    {QStringLiteral("message"), chinese},
+                                    {QStringLiteral("message_ref"),
+                                     known ? QJsonObject::fromVariantMap(ref)
+                                           : QJsonObject{{QStringLiteral("key"), QStringLiteral("sharing.import.brand_new")}}},
+                                    {QStringLiteral("code_sha256"), QJsonValue::Null}};
+            mr::SharedCalibrationController c;
+            c.setBackend(&backend);
+            QSignalSpy finished(&c, &mr::SharedCalibrationController::importFinished);
+            const mrtest::MarkedLanguage language;
+            c.importCode(QLatin1String(kVectorCode));
+            QCOMPARE(finished.count(), 1);
+            // Nested sentences are rendered too: the reason reads in the same language.
+            QCOMPARE(finished.first().at(1).toString(),
+                     known ? QStringLiteral("[sharing.import.not_imported] ")
+                                 + QString::fromUtf8("校准码未导入：")
+                                 + mrtest::marked("sharing.code.not_a_code", mr::collector_text::chinese(why))
+                           : chinese);
+        }
     }
 
     void onlyAnEmptyImportMessageFallsBackToOurOwnSentence()
@@ -861,9 +1135,9 @@ private Q_SLOTS:
         QTest::addColumn<QString>("withdrawn");
         QTest::addColumn<int>("dropped");
         QTest::addColumn<QString>("needle");
-        QTest::newRow("withdrawn") << "cn.2026.09.01.0000.0000.shared" << 0 << QString::fromUtf8("已停用");
-        QTest::newRow("dropped") << "" << 2 << QString::fromUtf8("已丢弃");
-        QTest::newRow("nothing") << "" << 0 << QString::fromUtf8("已记下你的选择");
+        QTest::newRow("withdrawn") << "cn.2026.09.01.0000.0000.shared" << 0 << QString::fromUtf8("已停止使用共享校准");
+        QTest::newRow("dropped") << "" << 2 << QString::fromUtf8("已取消共享校准的检查");
+        QTest::newRow("nothing") << "" << 0 << QString::fromUtf8("已改为本机校准");
     }
 
     void rejectSendsAnEmptyRequestAndRereadsStatus()
@@ -942,7 +1216,7 @@ private Q_SLOTS:
         backend.calls.clear();
         app.calibration()->shared()->reject();
         QTRY_COMPARE(backend.count("GetCaptureStatus"), 1);
-        QVERIFY(app.toastMessage().contains(QString::fromUtf8("已丢弃")));
+        QVERIFY(app.toastMessage().contains(QString::fromUtf8("已取消共享校准的检查")));
         QCOMPARE(backend.count("QueryRuns"), 0);
     }
 
@@ -959,7 +1233,7 @@ private Q_SLOTS:
         recording.refresh();
         QTRY_COMPARE(recording.state(), QStringLiteral("listening"));
         QVERIFY(!recording.attention());
-        QVERIFY(recording.message().contains(QString::fromUtf8("其他玩家分享")));
+        QVERIFY(recording.message().contains(QString::fromUtf8("共享校准已启用")));
         verifyPlayerCopy(recording.message());
     }
 
@@ -988,7 +1262,7 @@ private Q_SLOTS:
         for (const auto &[fixture, view] : std::initializer_list<std::pair<const char *, const char *>>{
                  {"fetching", "fetching"}, {"verifying", "verifying"}, {"consent", "consent"},
                  {"verified", "verified"}, {"verified-auditing", "verified"},
-                 {"imported-published", "verifying"}, {"imported-unpublished", "verifying"},
+                 {"verified-proven", "verified"}, {"imported-published", "verifying"},{"imported-unpublished", "verifying"},
                  {"rejected", "rejected"}, {"unavailable", "unavailable"},
                  {"user-rejected", "user_rejected"}, {"none-for-build", "none_for_build"}, {"share", "none"}}) {
             QTest::newRow(fixture) << QString::fromLatin1(fixture) << QString::fromLatin1(view);
@@ -1004,7 +1278,12 @@ private Q_SLOTS:
         mr::AppController app(&backend, nullptr);
         QTRY_VERIFY(app.calibration()->shared()->available());
         QCOMPARE(app.calibration()->shared()->view(), view);
-        QCOMPARE(app.calibration()->shared()->canShare(), fixture == QLatin1String("share"));
+        QCOMPARE(app.calibration()->shared()->canShare(),
+                 fixture == QLatin1String("share") || fixture == QLatin1String("verified-proven"));
+        QCOMPARE(app.calibration()->shared()->shareKind(),
+                 fixture == QLatin1String("share") ? QStringLiteral("local")
+                 : fixture == QLatin1String("verified-proven") ? QStringLiteral("verified")
+                                                               : QString());
         QCOMPARE(app.calibration()->shared()->inUse(),
                  fixture.startsWith(QStringLiteral("verified")));
         verifyPlayerCopy(app.calibration()->shared()->headline(), fixture == QLatin1String("share"));
@@ -1021,16 +1300,16 @@ private Q_SLOTS:
 
         QTest::newRow("verified-auditing")
             << "verified-auditing" << "published" << true
-            << QString::fromUtf8("已使用其他玩家分享的校准（登录时已在本机核实）。")
+            << QString::fromUtf8("正在使用共享校准，登录检查已通过。")
             << QString::fromUtf8("排本和进本还在核对中");
         QTest::newRow("imported-published")
             << "imported-published" << "published" << false
-            << QString::fromUtf8("找到共享校准，登录时自动核实，通过就开始记录。")
-            << QString::fromUtf8("核实通过才会开始记录");
+            << QString::fromUtf8("找到了共享校准，登录时会自动检查，通过后就能开始记录。")
+            << QString::fromUtf8("检查通过后才能开始自动记录");
         QTest::newRow("imported-unpublished")
             << "imported-unpublished" << "imported" << false
-            << QString::fromUtf8("已导入校准码，登录并排一次本、核实通过后启用。")
-            << QString::fromUtf8("核实通过才会开始记录");
+            << QString::fromUtf8("校准码已导入。登录后申请随机任务并进入副本，通过检查后才能开始记录。")
+            << QString::fromUtf8("检查通过后才能开始自动记录");
     }
 
     void theThreeGradedMockStatesProjectTheirOwnSentences()
@@ -1068,15 +1347,138 @@ private Q_SLOTS:
         QCOMPARE(seams.opened.size(), 1);
         QVERIFY(mr::SharedCalibrationController::isShareIssueUrl(seams.opened.first()));
 
-        mr::MockBackend shared;
-        shared.setSharedCalibrationFixture(QStringLiteral("verified"));
-        mr::AppController other(&shared, nullptr);
-        QTRY_VERIFY(other.calibration()->shared()->inUse());
-        Seams otherSeams;
-        otherSeams.attach(*other.calibration()->shared());
-        other.calibration()->shared()->share();
-        QTRY_COMPARE(other.toastMessage(), mr::SharedCalibrationController::shareRefusalMessage(QStringLiteral("SHARED")));
-        QVERIFY(otherSeams.copied.isEmpty());
+        // §20.5: a shared profile still watched is refused as not proven yet - whether or not
+        // its match is still audited - never as "not ours".
+        for (const QString &fixture : {QStringLiteral("verified"), QStringLiteral("verified-auditing")}) {
+            mr::MockBackend shared;
+            shared.setSharedCalibrationFixture(fixture);
+            mr::AppController other(&shared, nullptr);
+            QTRY_VERIFY(other.calibration()->shared()->inUse());
+            QVERIFY(!other.calibration()->shared()->canShare());
+            Seams otherSeams;
+            otherSeams.attach(*other.calibration()->shared());
+            other.calibration()->shared()->share();
+            QTRY_COMPARE(other.toastMessage(),
+                         mr::SharedCalibrationController::shareRefusalMessage(QStringLiteral("SHARED_NOT_PROVEN")));
+            QVERIFY(otherSeams.copied.isEmpty());
+            QVERIFY(otherSeams.opened.isEmpty());
+        }
+    }
+
+    void theMockSharesAProvenSharedCalibrationAsVerified()
+    {
+        mr::MockBackend backend;
+        backend.setSharedCalibrationFixture(QStringLiteral("verified-proven"));
+        mr::AppController app(&backend, nullptr);
+        auto *shared = app.calibration()->shared();
+        QTRY_VERIFY(shared->inUse());
+        QTRY_COMPARE(shared->shareKind(), QStringLiteral("verified"));
+        QVERIFY(shared->canShare() && shared->canReject());
+        QVERIFY(!shared->auditPending());
+        // The §20.5 marks ride along on the candidate and reach no sentence.
+        verifyPlayerCopy(shared->headline());
+        verifyPlayerCopy(shared->detail(), true);
+        verifyPlayerCopy(shared->shareHintText());
+        verifyPlayerCopy(shared->shareButtonText());
+
+        Seams seams;
+        seams.attach(*shared);
+        shared->share();
+        QTRY_COMPARE(seams.copied.size(), 1);
+        QCOMPARE(seams.copied.first(), QLatin1String(kVectorCode));
+        QCOMPARE(seams.opened.size(), 1);
+        const QUrl opened = seams.opened.first();
+        QVERIFY(mr::SharedCalibrationController::isShareIssueUrl(opened));
+        QVERIFY2(opened.toString(QUrl::FullyEncoded).contains(QStringLiteral("basis=")),
+                 qPrintable(opened.toString(QUrl::FullyEncoded)));
+        QTRY_COMPARE(app.toastMessage(),
+                     QString::fromUtf8("已打开 GitHub 页面，校准码也已复制到剪贴板。"
+                                       "提交后这份共享校准会多一个核实通过的账号，软件不会自动上传。"));
+    }
+
+    void theMockRefusesAnUnprovenSharedProfileInTheCollectorsWords()
+    {
+        // The desktop explains the refusal by its reason alone; the mock's own message is the
+        // Collector's sentence all the same, as this file's fixtures promise.
+        mr::MockBackend backend;
+        backend.setSharedCalibrationFixture(QStringLiteral("verified"));
+        bool answered = false;
+        bool succeeded = true;
+        QString code;
+        QString message;
+        backend.request(QStringLiteral("GetCalibrationShareCode"))->whenDone(&backend,
+            [&](bool ok, const QVariantMap &, const QString &errorCode, const QString &errorMessage) {
+                answered = true;
+                succeeded = ok;
+                code = errorCode;
+                message = errorMessage;
+            });
+        QTRY_VERIFY(answered);
+        QVERIFY(!succeeded);
+        QCOMPARE(code, QStringLiteral("ERR_SHARE_CODE_UNAVAILABLE"));
+        QCOMPARE(message, QString::fromUtf8("这份共享校准还在核对中，等它完整记录过一次随机任务后再告诉其他玩家。"));
+    }
+
+    void withdrawingAProvenSharedProfileReArmsCalibration_data()
+    {
+        QTest::addColumn<QString>("calibration");
+        // The fixture's own DONE, and the restart where calibration reads IDLE.
+        QTest::newRow("done") << QString();
+        QTest::newRow("restarted") << QStringLiteral("idle");
+    }
+
+    void withdrawingAProvenSharedProfileReArmsCalibration()
+    {
+        // 改为本机校准 on the profile that records: with no calibration of this machine's own
+        // behind it, the Collector re-arms calibration. The mock must not turn the withdrawn
+        // shared profile into a local one that never existed and offer 分享给其他玩家 for it.
+        QFETCH(QString, calibration);
+        mr::MockBackend backend;
+        if (!calibration.isEmpty())
+            backend.setCalibrationFixture(calibration);
+        backend.setSharedCalibrationFixture(QStringLiteral("verified-proven"));
+        mr::AppController app(&backend, nullptr);
+        auto *shared = app.calibration()->shared();
+        QTRY_COMPARE(shared->shareKind(), QStringLiteral("verified"));
+
+        shared->reject();
+        QTRY_COMPARE(shared->view(), QStringLiteral("user_rejected"));
+        QTRY_COMPARE(app.calibration()->state(), QStringLiteral("OBSERVING"));
+        QCOMPARE(backend.calibrationFixture(), QStringLiteral("observing"));
+        QVERIFY(!shared->canShare());
+        QCOMPARE(shared->shareKind(), QString());
+        QVERIFY(app.captureStatus().value(QStringLiteral("profile_origin")).toString()
+                != QLatin1String("LOCAL_CALIBRATION"));
+    }
+
+    void theMockNamesTheBasisOfEveryCodeItHandsOut_data()
+    {
+        QTest::addColumn<QString>("fixture");
+        QTest::addColumn<QString>("basis");
+        QTest::newRow("local") << "share" << "CALIBRATED";
+        QTest::newRow("verified") << "verified-proven" << "VERIFIED";
+    }
+
+    void theMockNamesTheBasisOfEveryCodeItHandsOut()
+    {
+        QFETCH(QString, fixture);
+        QFETCH(QString, basis);
+        mr::MockBackend backend;
+        backend.setSharedCalibrationFixture(fixture);
+        bool answered = false;
+        QVariantMap payload;
+        backend.request(QStringLiteral("GetCalibrationShareCode"))->whenDone(&backend,
+            [&](bool ok, const QVariantMap &answer, const QString &, const QString &) {
+                answered = ok;
+                payload = answer;
+            });
+        QTRY_VERIFY(answered);
+        QCOMPARE(payload.value(QStringLiteral("basis")).toString(), basis);
+        QCOMPARE(payload.value(QStringLiteral("code")).toString(), QLatin1String(kVectorCode));
+        QVERIFY(payload.value(QStringLiteral("code_in_url")).toBool());
+        const QUrl url(payload.value(QStringLiteral("issue_url")).toString(), QUrl::StrictMode);
+        QVERIFY(mr::SharedCalibrationController::isShareIssueUrl(url));
+        QVERIFY(url.toString(QUrl::FullyEncoded).contains(QStringLiteral("basis=")));
     }
 
     void theMockImportsRejectsAndForgetsTheRefusal()
@@ -1091,13 +1493,17 @@ private Q_SLOTS:
         shared->importCode(QStringLiteral("not a code"));
         QTRY_COMPARE(finished.count(), 1);
         QVERIFY(!finished.first().at(0).toBool());
-        verifyPlayerCopy(finished.first().at(1).toString());
+        // The mock answers with the Collector's sentence (sharing.code.not_a_code), which
+        // names the prefix a code starts with: the one place "MRC1." belongs in player copy.
+        QString refusal = finished.first().at(1).toString();
+        QVERIFY2(refusal.contains(QStringLiteral("MRC1.")), qPrintable(refusal));
+        verifyPlayerCopy(refusal.remove(QStringLiteral("MRC1.")));
 
         shared->importCode(QLatin1String(kVectorCode));
         QTRY_COMPARE(finished.count(), 2);
         QVERIFY(finished.last().at(0).toBool());
         QTRY_COMPARE(shared->view(), QStringLiteral("verifying"));
-        QVERIFY(shared->headline().contains(QString::fromUtf8("已导入校准码")));
+        QVERIFY(shared->headline().contains(QString::fromUtf8("校准码已导入")));
 
         shared->reject();
         QTRY_COMPARE(shared->view(), QStringLiteral("user_rejected"));

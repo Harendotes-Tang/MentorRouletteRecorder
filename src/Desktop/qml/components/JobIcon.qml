@@ -34,7 +34,7 @@ Item {
 
     Text {
         anchors.centerIn: parent
-        text: Jobs.abbreviation(root.jobId)
+        text: Theme.live(Jobs.abbreviation(root.jobId))
         color: Theme.eorzea ? Theme.gold2 : Theme.textPrimary
         font.pixelSize: 10
         font.bold: true

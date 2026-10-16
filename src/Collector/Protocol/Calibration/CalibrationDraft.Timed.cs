@@ -1,3 +1,4 @@
+using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Domain.Events;
 using MentorRecorder.Collector.Reference;
@@ -238,13 +239,14 @@ public sealed partial record CalibrationDraft
             // "A popup happened around then" is true of any candidate. How long before the
             // loading screen it came is the one number the player can hold against what they
             // remember, and the first thing a maintainer reads off a screenshot.
-            var lead = timed.Leads is { } leads && index < leads.Count
-                ? $"，读条前约 {Math.Max(0, (int)Math.Round(leads[index].TotalSeconds))} 秒"
-                : string.Empty;
+            var roulette = roulettes.DisplayName((int)Math.Min(sample.RouletteId, int.MaxValue), region);
+            var label = timed.Leads is { } leads && index < leads.Count
+                ? CollectorTexts.CalibrationEventPopTimedLead(
+                    roulette, Math.Max(0, (int)Math.Round(leads[index].TotalSeconds)))
+                : CollectorTexts.CalibrationEventPopTimed(roulette);
             yield return new CalibrationEvent(
                 Id("pop", sample.AtUtc), "pop", sample.TMs, sample.AtUtc,
-                "匹配弹窗：" + roulettes.DisplayName((int)Math.Min(sample.RouletteId, int.MaxValue), region) +
-                "（按出现时机认出" + lead + "）",
+                label,
                 sample.RouletteId, null, null, true);
         }
     }

@@ -1,8 +1,10 @@
-# 共享校准码的提交表单。MentorRecorder 的「分享给其他玩家」按钮打开
-# issues/new?template=share-calibration.yml&title=...&code=...，查询参数 code 预填下面 id 为 code 的文本框。
-# 栏目标题（校准码、确认）与勾选项文字是 tools/issue.py 解析正文时找的字样，改动时两边一起改。
+# 共享校准码的提交表单。MentorRecorder 的「分享给其他玩家」与「这份校准好用，告诉其他玩家」按钮打开
+# issues/new?template=share-calibration.yml&title=...&code=...&basis=...，查询参数 code 与 basis 分别预填
+# 下面 id 为 code 的文本框与 id 为 basis 的单行输入框。GitHub 只能用查询参数预填文本框和输入框，不能预选下拉框，
+# 所以来源是输入框；旧版软件不带 basis，该栏为空，按本机校准处理。
+# 栏目标题（校准码、这份校准码的来源、确认）、来源的两种文字与勾选项文字是 tools/issue.py 解析正文时找的字样，改动时两边一起改。
 name: 分享共享校准码
-description: 由 MentorRecorder 的「分享给其他玩家」打开并预填。提交后由 GitHub Action 自动校验、发布并回复结果。
+description: 由 MentorRecorder 的「分享给其他玩家」或「这份校准好用，告诉其他玩家」打开并预填。提交后由 GitHub Action 自动校验、发布并回复结果。
 title: "[共享校准] "
 labels:
   - share-calibration
@@ -15,6 +17,7 @@ body:
         - 校准码里只有这个客户端版本学到的几个报文编号和它依据的随包模板，不含角色、服务器、账号、时间、排过的任务或任何报文内容。
         - 提交需要 GitHub 账号注册满 30 天；每个账号在每个区服与客户端版本下同时只保留一份校准码，再次提交另一份会替换先前那一份。
         - 其他玩家的软件下载后会先在自己的本机流量里按结构核实：至少要等登录时的换区报文核实通过才会用它记录，排本与进本报文在记录过程中继续核实。之后若被判出与本机流量矛盾，软件会停用它，并把它生成的记录标记为待复核。
+        - 其他玩家分享的校准在你的软件里核实通过并正常记录后，软件也会给出这个页面：提交同一份校准码会计入提交人数，让其他玩家的软件更优先使用它。
         - 提交即表示同意这份校准码按 [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/legalcode) 公开（放弃权利，任何人可以任意使用）。
   - type: textarea
     id: code
@@ -24,10 +27,16 @@ body:
       placeholder: MRC1.
     validations:
       required: true
+  - type: input
+    id: basis
+    attributes:
+      label: 这份校准码的来源
+      description: 软件会自动填好，请不要改动。代人提交或留空时按本机校准处理。
+      placeholder: 本机校准得到，并逐条核对过校准时间线
   - type: checkboxes
     id: confirm
     attributes:
       label: 确认
       options:
-        - label: 我在软件里逐条核对过校准时间线
+        - label: 上面的来源属实，我已在软件里核对过
           required: true

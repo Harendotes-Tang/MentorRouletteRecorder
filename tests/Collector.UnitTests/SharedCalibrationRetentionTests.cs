@@ -10,7 +10,7 @@ namespace MentorRecorder.Collector.UnitTests;
 
 /// <summary>
 /// The life of a shared calibration after it arrives: contradictions count only from healthy sessions and
-/// reject only from the second one, 重新观察 forgets them, a profile in use stays watched and is withdrawn -
+/// reject only from the second one, 清空校准进度 forgets them, a profile in use stays watched and is withdrawn -
 /// with calibration re-armed - once it stops explaining the traffic or is revoked, and a restart keeps
 /// looking for the real announcement beside a queue-inferred profile.
 /// </summary>
@@ -295,7 +295,7 @@ public sealed class SharedCalibrationRetentionTests : IDisposable
         Assert.Equal(ProfileStatus.Verified, current.Status);
         Assert.Equal(ProfileOrigin.Local, current.Origin);
         Assert.True(pipeline.CalibrationArmed);
-        Assert.Contains(pipeline.CalibrationStatus().Blockers, text => text.Contains("已经可以正常记录导随", StringComparison.Ordinal));
+        Assert.Contains(pipeline.CalibrationStatus().Blockers, text => text.Chinese.Contains("导随记录照常进行", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -312,7 +312,7 @@ public sealed class SharedCalibrationRetentionTests : IDisposable
         Assert.Equal(ProfileStatus.Verified, current.Status);
         Assert.Equal(ProfileOrigin.Shared, current.Origin);
         Assert.True(pipeline.CalibrationArmed);
-        Assert.Contains(pipeline.CalibrationStatus().Blockers, text => text.Contains("已经可以正常记录导随", StringComparison.Ordinal));
+        Assert.Contains(pipeline.CalibrationStatus().Blockers, text => text.Chinese.Contains("导随记录照常进行", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -328,7 +328,7 @@ public sealed class SharedCalibrationRetentionTests : IDisposable
 
         Assert.True(pipeline.CalibrationArmed);
         var status = pipeline.CalibrationStatus();
-        Assert.Contains(status.Blockers, text => text.Contains("其他玩家分享的校准", StringComparison.Ordinal));
+        Assert.Contains(status.Blockers, text => text.Chinese.Contains("正在使用共享校准", StringComparison.Ordinal));
         Assert.Equal(SharedCalibrationPhase.Verified, status.Shared.Phase);
         var inUse = Assert.Single(status.Shared.Candidates);
         Assert.Equal(code.Sha[..12], inUse.Sha12);

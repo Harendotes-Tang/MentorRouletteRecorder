@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using Microsoft.Data.Sqlite;
 using MentorRecorder.Collector.Contracts.Errors;
 using MentorRecorder.Collector.Capture;
+using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Domain.Queries;
 using MentorRecorder.Collector.Domain.Time;
 using MentorRecorder.Collector.Protocol.Parsing;
@@ -84,11 +85,11 @@ public sealed class CandidateObservationRepository
         int page = 1, int pageSize = 50)
     {
         if (sessionId is not null) RequireUuid(sessionId, "session_id");
-        if (page < 1) throw CollectorException.BadRequest("page 必须大于等于 1。", "payload.page");
+        if (page < 1) throw CollectorException.BadRequest(CollectorTexts.IpcFieldAtLeast("page", 1), "payload.page");
         if (pageSize is < 1 or > Paging.MaxPageSize)
-            throw CollectorException.BadRequest("page_size 必须在 1–200 之间。", "payload.page_size");
+            throw CollectorException.BadRequest(CollectorTexts.CandidatePageSizeRange(), "payload.page_size");
         if (fromUtc is { } from && toUtc is { } to && from > to)
-            throw CollectorException.BadRequest("from_utc 不得晚于 to_utc。", "payload.from_utc");
+            throw CollectorException.BadRequest(CollectorTexts.CandidateFromAfterTo(), "payload.from_utc");
         return _database.RunInTransaction(tx =>
         {
             Prune(tx);
@@ -133,9 +134,9 @@ public sealed class CandidateObservationRepository
         RequireUuid(requestId, "request_id");
         RequireUuid(id, "observation_id");
         if (verdict is not ("CORRECT" or "WRONG" or "UNSURE"))
-            throw CollectorException.BadRequest("verdict 只能为 CORRECT / WRONG / UNSURE。", "payload.verdict");
+            throw CollectorException.BadRequest(CollectorTexts.CandidateVerdictInvalid(), "payload.verdict");
         if (note?.Length > MaxReviewNoteLength)
-            throw CollectorException.BadRequest("核对备注最多 2000 字符。", "payload.note");
+            throw CollectorException.BadRequest(CollectorTexts.CandidateNoteTooLong(), "payload.note");
         note = string.IsNullOrWhiteSpace(note) ? null : note.Trim();
         var fingerprint = MutationSnapshotCodec.Fingerprint(ReviewMessage, id, verdict, note);
         return _database.RunInTransaction(tx =>
@@ -147,7 +148,7 @@ public sealed class CandidateObservationRepository
             // 迟到的重放不再撞约束变成 ERR_INTERNAL，而是按契约码回答（评审 M-7）。
             if (_idempotency.WasAppliedBeforePrune(requestId, tx))
                 throw new CollectorException(ErrorCodes.IdempotencyConflict,
-                    "该请求编号已经执行过，但可重放的结果已超出保留期，请用新的请求编号重试。",
+                    CollectorTexts.IdempotencyResponseExpired(),
                     new Dictionary<string, object?>
                     {
                         ["conflict"] = "idempotency",
@@ -157,7 +158,7 @@ public sealed class CandidateObservationRepository
                     field: "request_id");
             if (GetInternal(id, tx) is null)
                 throw new CollectorException(ErrorCodes.CandidateObservationNotFound,
-                    "该候选观测不存在或已超出保留期，请刷新后重试。",
+                    CollectorTexts.CandidateNotFound(),
                     new Dictionary<string, object?> { ["observation_id"] = id });
 
             var now = UtcTimestamp.Truncate(_clock.UtcNow);
@@ -244,7 +245,7 @@ public sealed class CandidateObservationRepository
         }
         catch (SqliteException ex) when (ex.SqliteErrorCode is 5 or 6)
         {
-            throw new CollectorException(ErrorCodes.DbBusy, "数据库正忙，请稍后重试。", retryable: true, inner: ex);
+            throw new CollectorException(ErrorCodes.DbBusy, CollectorTexts.DatabaseBusy(), retryable: true, inner: ex);
         }
     }
 
@@ -345,12 +346,12 @@ public sealed class CandidateObservationRepository
     private static CandidateReviewResult Replay(string stored, string fingerprint)
     {
         var snapshot = MutationSnapshotCodec.DeserializeOther<ReviewSnapshot>(stored)
-            ?? throw new CollectorException(ErrorCodes.Internal, "幂等记录已损坏，无法安全重放核对请求。");
+            ?? throw new CollectorException(ErrorCodes.Internal, CollectorTexts.CandidateIdempotencyDamaged());
         if (snapshot.Fingerprint != fingerprint)
             throw new CollectorException(ErrorCodes.IdempotencyConflict,
-                "同一个 request_id 被用于内容不同的请求，核对未修改。",
+                CollectorTexts.CandidateRequestReused(),
                 new Dictionary<string, object?> { ["conflict"] = "idempotency" }, field: "request_id");
-        return snapshot.Result ?? throw new CollectorException(ErrorCodes.Internal, "核对幂等结果缺失。");
+        return snapshot.Result ?? throw new CollectorException(ErrorCodes.Internal, CollectorTexts.CandidateIdempotencyMissing());
     }
 
     private static IReadOnlyList<CandidateObservationEntry> ReadItems(SqliteCommand command)
@@ -423,7 +424,7 @@ public sealed class CandidateObservationRepository
     private static void RequireUuid(string id, string field)
     {
         if (!Guid.TryParseExact(id, "D", out _))
-            throw CollectorException.BadRequest(field + " 必须是标准 UUID。", field == "request_id" ? field : "payload." + field);
+            throw CollectorException.BadRequest(CollectorTexts.IpcFieldNotUuid(field), field == "request_id" ? field : "payload." + field);
     }
 
     private sealed record ReviewSnapshot(

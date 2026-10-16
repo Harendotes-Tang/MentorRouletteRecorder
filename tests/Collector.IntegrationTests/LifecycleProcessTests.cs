@@ -397,6 +397,7 @@ public sealed class LifecycleProcessTests : IDisposable
         Assert.Contains(ErrorCodes.AlreadyRunning, refused.StandardError, StringComparison.Ordinal);
         Assert.Contains(ServingCollector.LeaseRefusalMarker, refused.StandardError, StringComparison.Ordinal);
         Assert.Contains("请复用现有实例", refused.StandardError, StringComparison.Ordinal);
+        AssertStartupTextRef(refused.StandardError, "startup.already_running");
 
         // The refusal must not have created the second database: a Collector that cannot run
         // must not leave a half-initialised file behind.
@@ -533,6 +534,8 @@ public sealed class LifecycleProcessTests : IDisposable
         // harness Collector never writes (review finding R-10).
         Assert.Contains(
             Program.ServePidFileNameFor(pipeName), refused.StandardError, StringComparison.Ordinal);
+        var reference = AssertStartupTextRef(refused.StandardError, "startup.collector_unresponsive");
+        Assert.Equal(Program.ServePidFileNameFor(pipeName), reference["args"]!["file"]!.GetValue<string>());
         Assert.False(File.Exists(databasePath), "a refused instance must not create its database");
     }
 
@@ -564,6 +567,7 @@ public sealed class LifecycleProcessTests : IDisposable
         Assert.Equal(3, refused.ExitCode);
         Assert.Contains("另一个 Windows 账户", refused.StandardError, StringComparison.Ordinal);
         Assert.DoesNotContain("没有响应", refused.StandardError, StringComparison.Ordinal);
+        AssertStartupTextRef(refused.StandardError, "startup.pipe_other_account");
         Assert.False(File.Exists(databasePath), "a refused instance must not create its database");
         var log = ReadLogs();
         Assert.Contains("\"event\":\"already_running\"", log, StringComparison.Ordinal);
@@ -590,6 +594,8 @@ public sealed class LifecycleProcessTests : IDisposable
         Assert.StartsWith(ErrorCodes.DbIntegrity + ":", lastLine, StringComparison.Ordinal);
         Assert.Contains("无法启动", lastLine, StringComparison.Ordinal);
         Assert.Contains(databasePath, lastLine, StringComparison.Ordinal);
+        var reference = AssertStartupTextRef(refused.StandardError, "startup.db_open_damaged");
+        Assert.Equal(databasePath, reference["args"]!["path"]!.GetValue<string>());
         var log = ReadLogs();
         Assert.Contains("\"event\":\"open_failed\"", log, StringComparison.Ordinal);
         Assert.Contains(ErrorCodes.DbIntegrity, log, StringComparison.Ordinal);
@@ -616,6 +622,7 @@ public sealed class LifecycleProcessTests : IDisposable
 
         Assert.Equal(3, refused.ExitCode);
         Assert.Contains(databasePath, LastLine(refused.StandardError), StringComparison.Ordinal);
+        AssertStartupTextRef(refused.StandardError, "startup.schema_too_new");
         var log = ReadLogs();
         Assert.Contains("\"event\":\"open_failed\"", log, StringComparison.Ordinal);
         Assert.Contains("\"code\":\"" + ErrorCodes.DbIntegrity + "\"", log, StringComparison.Ordinal);
@@ -653,11 +660,32 @@ public sealed class LifecycleProcessTests : IDisposable
         Assert.StartsWith(ErrorCodes.DbBusy + ":", lastLine, StringComparison.Ordinal);
         Assert.Contains("无法启动", lastLine, StringComparison.Ordinal);
         Assert.Contains(databasePath, lastLine, StringComparison.Ordinal);
+        AssertStartupTextRef(refused.StandardError, "startup.db_locked");
         Assert.Contains("\"code\":\"" + ErrorCodes.DbBusy + "\"", ReadLogs(), StringComparison.Ordinal);
     }
 
     private static string LastLine(string text) =>
         text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)[^1];
+
+    /// <summary>
+    /// The refusal's catalogue reference (contracts/collector-texts.md §2.2): the <c>MR-TEXT</c> line
+    /// right before the last line of stderr, one compact JSON object, which renders to exactly the
+    /// Chinese that last line carries after its <c>ERR_XXX: </c> prefix.
+    /// </summary>
+    /// <param name="stderr">Everything the refused process wrote to standard error.</param>
+    /// <param name="key">The catalogue key the refusal must name.</param>
+    private static JsonObject AssertStartupTextRef(string stderr, string key)
+    {
+        var lines = stderr.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        Assert.True(lines.Length >= 2, "stderr: " + stderr);
+        var textLine = lines[^2];
+        Assert.StartsWith(Program.StartupTextPrefix, textLine, StringComparison.Ordinal);
+        var reference = JsonNode.Parse(textLine[Program.StartupTextPrefix.Length..])!.AsObject();
+        Assert.Equal(key, reference["key"]!.GetValue<string>());
+        var last = lines[^1];
+        Assert.Equal(last[(last.IndexOf(": ", StringComparison.Ordinal) + 2)..], Tests.CollectorTextCatalogue.Render(reference));
+        return reference;
+    }
 
     /// <summary>Everything the Collector logged beside the databases of this test.</summary>
     private string ReadLogs()

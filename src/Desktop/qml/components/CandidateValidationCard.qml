@@ -208,8 +208,8 @@ Card {
                         text: (selected ? "✓ " : "") + label + (card.advanced ? "  " + opcode : "")
                         variant: selected ? "primary" : "secondary"
                         enabled: card.editable
-                        Accessible.name: label + " " + opcode
-                                         + (selected ? qsTr("，已选择，点击移除") : qsTr("，未选择，点击加入"))
+                        Accessible.name: (selected ? qsTr("%1，已选择，点击移除") : qsTr("%1，未选择，点击加入"))
+                                         .arg(label + " " + opcode)
                         onClicked: card.toggleOpcode(opcode)
                     }
                 }
@@ -239,7 +239,7 @@ Card {
                     text: "✓ " + modelData
                     variant: "primary"
                     enabled: card.editable
-                    Accessible.name: modelData + qsTr("，已选择，点击移除")
+                    Accessible.name: qsTr("%1，已选择，点击移除").arg(modelData)
                     onClicked: card.toggleOpcode(modelData)
                 }
             }

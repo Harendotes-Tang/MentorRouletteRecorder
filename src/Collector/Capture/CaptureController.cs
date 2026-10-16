@@ -1,3 +1,4 @@
+using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Protocol.Calibration;
 using System.Diagnostics;
 using System.Net;
@@ -226,46 +227,36 @@ public sealed class CaptureController : IDisposable
     /// Explains the observed decoding gap without claiming the user's startup order is known.
     /// A fresh login may supply a new connection prefix, but recovery is not guaranteed.
     /// </summary>
-    public const string MidstreamHint =
-        "已发现游戏连接，但持续未解码出有效 IPC，可能缺少连接起始数据。" +
-        "可在方便时登出到标题画面再重新登录（不用关闭游戏），让软件尝试捕获新连接。" +
-        "若仍无记录，请导出诊断报告。";
+    public static UserText MidstreamHint => CollectorTexts.CaptureHintMidstream();
 
     /// <summary>
     /// The same silence, after the player has already done the one thing that was asked. The
     /// operating system listed a connection the client opened while this capture was running,
     /// so the login is not what is missing and repeating it will not help.
     /// </summary>
-    public const string MidstreamReconnectedHint =
-        "游戏在本软件运行期间新建过连接，但连接的起始报文没有被捕获到，" +
-        "再登录一次也解决不了。请先关闭加速器、VPN 和正在占用网络的下载，" +
-        "重启本软件后再试；若仍如此，请导出诊断报告。";
+    public static UserText MidstreamReconnectedHint => CollectorTexts.CaptureHintMidstreamReconnected();
 
     /// <summary>
     /// The game's traffic is not on the card we are listening to. Named without jargon: the
     /// user has to recognise their own situation (a 加速器 or a VPN) from this sentence.
     /// </summary>
-    public const string NoPacketsHint =
-        "所选网卡上没有看到游戏流量，可能使用了加速器或 VPN。" +
-        "请在捕获诊断页重新选择网卡，或关闭加速器后重新登录游戏。";
+    public static UserText NoPacketsHint => CollectorTexts.CaptureHintNoPackets();
 
     /// <summary>
     /// Packets are arriving but the system never confirms those connections are the game's:
     /// another process's traffic, or a privilege level that cannot read the connection table.
     /// </summary>
-    public const string NoOwnershipHint =
-        "看到了网络流量，但无法确认这些连接属于游戏。" +
-        "请确认没有使用加速器或代理；若仍然如此，请尝试以管理员身份运行本软件后重新开始。";
+    public static UserText NoOwnershipHint => CollectorTexts.CaptureHintNoOwnership();
 
     /// <summary>The user-facing sentence for one silent-capture verdict, or null when healthy.</summary>
     /// <param name="reason">Verdict to explain.</param>
-    public static string? HintFor(CaptureSilentReason reason) => HintFor(reason, CaptureIngressCounters.Empty, null);
+    public static UserText? HintFor(CaptureSilentReason reason) => HintFor(reason, CaptureIngressCounters.Empty, null);
 
     /// <summary>The user-facing sentence for one silent-capture verdict, or null when healthy.</summary>
     /// <param name="reason">Verdict to explain.</param>
     /// <param name="ingress">What ingress has seen, which decides between the two midstream sentences.</param>
     /// <param name="preexisting">Connections the game already held when capture started.</param>
-    public static string? HintFor(
+    public static UserText? HintFor(
         CaptureSilentReason reason, CaptureIngressCounters ingress, int? preexisting) => reason switch
     {
         CaptureSilentReason.Midstream => ingress.ReconnectedUnreadable(preexisting)
@@ -296,6 +287,7 @@ public sealed class CaptureController : IDisposable
     private string? _lastErrorCode;
     private string? _lastErrorMessage;
     private string? _pendingStartFaultReason;
+    private UserText? _pendingStartFaultText;
     private Exception? _pendingStartFaultError;
     private bool _disposed;
     private volatile CaptureSilentReason _silentReason;
@@ -384,7 +376,7 @@ public sealed class CaptureController : IDisposable
             var uptime = run?.Elapsed ?? TimeSpan.Zero;
             var rate = run is null ? 0 : _rate.Observe(observed, uptime);
 
-            var warnings = new List<string>(game.Warnings);
+            var warnings = new List<UserText>(game.Warnings);
             if (npcap.Status != NpcapStatus.Ready)
             {
                 warnings.Add(npcap.Guidance);
@@ -395,17 +387,15 @@ public sealed class CaptureController : IDisposable
             // this sentence nothing says why nothing is recorded (audit 2026-10-03, OA-8).
             if (_ownershipLease is null && _services.Ownership.IsHeld)
             {
-                warnings.Add("正在进行采集验证，验证期间不会自动记录。如需恢复记录，请在捕获诊断页停止验证。");
+                warnings.Add(CollectorTexts.CaptureWarningValidationHolds());
             }
 
             if (state == CaptureControllerState.Running
                 && profile.Status != ProfileStatus.Verified)
             {
                 warnings.Add(profile.CalibrationActive
-                    ? "游戏更新到了新版本，正在重新校准：正常打一把随机任务（进本、打完出本）即可，" +
-                      "期间不解析任何字段，也不会自动写入任何记录。"
-                    : "抓包正在运行，但协议档案未验证：本次只统计报文数量，" +
-                      "不解析任何字段，也不会自动写入任何记录（fail-closed）。");
+                    ? CollectorTexts.CaptureWarningRecalibrating()
+                    : CollectorTexts.CaptureWarningProfileUnverified());
             }
 
             // The game was already logged in when capture started, so the connections it
@@ -417,11 +407,8 @@ public sealed class CaptureController : IDisposable
                 // telling a player to go back to the title screen when they just did reads as
                 // the software not listening to them, and is the wrong instruction besides.
                 warnings.Add(ingress.ReconnectedUnreadable(_preexistingConnections)
-                    ? "游戏在本软件运行期间已经重新连过线，但连接的起始报文没有捕获到，" +
-                      "再登录一次也没用。请先关闭加速器、VPN 和占用网络的下载，重启本软件后再试。"
-                    : "本软件是在游戏已经登录之后才开始抓包的，游戏那时已经建立的连接读不到，" +
-                      "这部分游戏过程不会被记录，校准也会显得一直没进展。" +
-                      "让本软件开着，回到游戏标题界面重新登录一次即可。");
+                    ? CollectorTexts.CaptureWarningPreexistingReconnected()
+                    : CollectorTexts.CaptureWarningPreexisting());
             }
 
             return new CaptureDiagnosticsSnapshot
@@ -525,11 +512,11 @@ public sealed class CaptureController : IDisposable
                 return Snapshot();
             if (_services.Ownership.IsHeld && _ownershipLease is null)
                 throw new CollectorException(ErrorCodes.CaptureAlreadyRunning,
-                    "采集验证正在使用游戏窗口，请先停止验证再切换。");
+                    CollectorTexts.CaptureSelectValidationRunning());
             if (State is CaptureControllerState.Running or CaptureControllerState.Starting || _releaseFailed)
                 StopCore();
             if (_releaseFailed || _source is not null || _queue is not null)
-                throw new CollectorException(ErrorCodes.Internal, "旧的采集尚未结束，请稍后再选择游戏窗口。");
+                throw new CollectorException(ErrorCodes.Internal, CollectorTexts.CaptureSelectPreviousNotFinished());
             _gameSelection.Commit(chosen);
             lock (_gate)
             {
@@ -547,7 +534,7 @@ public sealed class CaptureController : IDisposable
                 : "所选游戏已退出，记录已暂停。请重新选择游戏窗口。");
             return stillRunning
                 ? snapshot
-                : throw new CollectorException(ErrorCodes.FfxivNotRunning, "所选游戏已退出或重新启动，请重新选择游戏窗口。");
+                : throw new CollectorException(ErrorCodes.FfxivNotRunning, CollectorTexts.CaptureSelectGameExited());
         }
     }
 
@@ -572,13 +559,35 @@ public sealed class CaptureController : IDisposable
         lock (_lifecycleGate) return StartOwned(adapterId, processId);
     }
 
+    /// <summary>
+    /// 用户明确切换到元数据采证时，在同一生命周期锁内停止不支持版本的监听并交接采集租约。
+    /// 自动跟随启动不能插入停止和采证启动之间；已验证档案拒绝切换，不停止正式记录。
+    /// 采证启动失败时保持原错误，后续自动跟随可恢复监听，不改持久化设置。
+    /// </summary>
+    /// <param name="validation">与本控制器共用采集租约的主机采证控制器。</param>
+    /// <param name="adapterId">采证网卡；null 使用既有推荐选择。</param>
+    /// <returns>采证启动的 WAITING 状态；前置条件、停止或启动失败时抛出既有契约错误。</returns>
+    public JsonObject SwitchToMetadataObservation(CaptureValidationController validation, string? adapterId = null)
+    {
+        ArgumentNullException.ThrowIfNull(validation);
+        lock (_lifecycleGate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (ResolveProfile(DetectGame(force: false)).Status == ProfileStatus.Verified)
+                throw CollectorException.BadRequest(CollectorTexts.CaptureValidationSwitchRefusedVerified());
+            if (State is CaptureControllerState.Running or CaptureControllerState.Starting || _releaseFailed)
+                StopCore();
+            return validation.Start(adapterId);
+        }
+    }
+
     private CaptureDiagnosticsSnapshot StartOwned(string? adapterId, int? processId)
     {
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
             if (_ownershipLease is not null)
-                throw new CollectorException(ErrorCodes.CaptureAlreadyRunning, "抓包已在运行，无需重复启动。");
+                throw new CollectorException(ErrorCodes.CaptureAlreadyRunning, CollectorTexts.CaptureStartAlreadyRunning());
             _ownershipLease = _services.Ownership.Acquire();
             _generation++;
         }
@@ -606,7 +615,7 @@ public sealed class CaptureController : IDisposable
             {
                 throw new CollectorException(
                     ErrorCodes.CaptureAlreadyRunning,
-                    "抓包已在运行，无需重复启动。",
+                    CollectorTexts.CaptureStartAlreadyRunning(),
                     new Dictionary<string, object?> { ["capture"] = _state.ToString().ToUpperInvariant() });
             }
 
@@ -634,26 +643,26 @@ public sealed class CaptureController : IDisposable
         // refusal below applies. Retryable like it: the same request succeeds once the user
         // has chosen. Not recorded as the last error, which would read "no game is running".
         if (game.SelectionRequired)
-            throw new CollectorException(ErrorCodes.FfxivNotRunning, "请先在总览或捕获诊断页选择要记录的游戏窗口。",
+            throw new CollectorException(ErrorCodes.FfxivNotRunning, CollectorTexts.CaptureStartSelectGame(),
                 new Dictionary<string, object?> { ["capture"] = "IDLE" }, retryable: true);
         if (!game.Running || game.ProcessId is null)
         {
             throw Refuse(
                 ErrorCodes.FfxivNotRunning,
-                "未找到正在运行的 FINAL FANTASY XIV 客户端，抓包未启动。请先启动并登录游戏后重试。",
+                CollectorTexts.CaptureStartGameNotRunning(),
                 new Dictionary<string, object?> { ["capture"] = "IDLE" },
                 retryable: true);
         }
 
         if (processId is > 0 && processId != game.ProcessId)
-            throw CollectorException.BadRequest("请先选择该游戏窗口，再开始监听。", "process_id");
+            throw CollectorException.BadRequest(CollectorTexts.CaptureStartProcessNotSelected(), "process_id");
         var targetPid = game.ProcessId.Value;
         var adapters = _services.Adapters.List(targetPid, ReadSettingString(AdapterSetting));
         if (adapters.Count == 0)
         {
             throw Refuse(
                 ErrorCodes.NpcapMissing,
-                "没有枚举到任何可用网卡。请确认 Npcap 服务已启动，必要时以管理员身份运行一次本软件。",
+                CollectorTexts.CaptureStartNoAdapters(),
                 new Dictionary<string, object?> { ["capture"] = "UNAVAILABLE", ["adapters"] = 0 });
         }
 
@@ -676,7 +685,7 @@ public sealed class CaptureController : IDisposable
         {
             throw Refuse(
                 ErrorCodes.BadRequest,
-                "所选网卡没有可绑定的 IPv4 地址，抓包未启动。请刷新网卡列表并选择实际承载游戏流量的 IPv4 网卡。",
+                CollectorTexts.CaptureStartAdapterNoIpv4(),
                 new Dictionary<string, object?> { ["adapter_id"] = adapter.Id },
                 field: "adapter_id");
         }
@@ -695,8 +704,7 @@ public sealed class CaptureController : IDisposable
             // can be written in the first place.
             throw Refuse(
                 ErrorCodes.ProfileUnsupported,
-                "协议档案不可用（fail-closed），未启动抓包：本版本不会解析任何报文，也不会自动写入任何记录。" +
-                "若只是想验证抓包链路本身，请先把设置 capture.allow_without_profile 打开（仅统计，不记录）。",
+                CollectorTexts.CaptureStartProfileUnavailable(),
                 new Dictionary<string, object?>
                 {
                     ["capture"] = "IDLE",
@@ -721,7 +729,7 @@ public sealed class CaptureController : IDisposable
             {
                 throw new CollectorException(
                     ErrorCodes.CaptureNotRunning,
-                    "抓包未在运行，无需停止。",
+                    CollectorTexts.CaptureStopNotRunning(),
                     new Dictionary<string, object?> { ["capture"] = _state.ToString().ToUpperInvariant() });
             }
 
@@ -731,7 +739,7 @@ public sealed class CaptureController : IDisposable
         Teardown(CaptureEndReason.UserStop);
         if (_queue is not null)
             throw new CollectorException(ErrorCodes.Internal,
-                "协议处理尚未退出，已保留会话资源。请稍后重试停止，或退出采集服务。");
+                CollectorTexts.CaptureStopPipelineBusy());
         var snapshot = Snapshot();
         Publish(snapshot, "抓包已停止。");
         return snapshot;
@@ -924,6 +932,7 @@ public sealed class CaptureController : IDisposable
             _lastErrorCode = null;
             _lastErrorMessage = null;
             _pendingStartFaultReason = null;
+            _pendingStartFaultText = null;
             _pendingStartFaultError = null;
         }
 
@@ -940,7 +949,7 @@ public sealed class CaptureController : IDisposable
             new HealthReportingSink(_sink,
                 () => DeliveryHealth(sessionId, source, queue?.DroppedCount ?? 0), ReportHealth),
             ReadQueueCapacity(),
-            error => OnFault("协议处理或写库失败，抓包已停止以避免漏记。", error, generation),
+            error => OnFault(CollectorTexts.CaptureFaultPipeline(), error, generation),
             dropped => NoteDropped(dropped, generation),
             onConnectionLost: () => DeliverConnectionLost(sessionId, generation),
             onDirectionDamaged: (key, direction) => DeliverDirectionDamaged(sessionId, generation, key, direction));
@@ -967,7 +976,7 @@ public sealed class CaptureController : IDisposable
             {
                 throw new CollectorException(
                     ErrorCodes.Internal,
-                    "无法建立抓包会话日志，未启动抓包。详情见本机诊断日志。",
+                    CollectorTexts.CaptureStartSessionLogFailed(),
                     inner: sessionError);
             }
 
@@ -995,10 +1004,13 @@ public sealed class CaptureController : IDisposable
                 if (_pendingStartFaultReason is { } pendingReason)
                 {
                     var pendingError = _pendingStartFaultError;
+                    var pendingText = _pendingStartFaultText;
                     _pendingStartFaultReason = null;
+                    _pendingStartFaultText = null;
                     _pendingStartFaultError = null;
-                    throw new CollectorException(
-                        ErrorCodes.Internal, pendingReason, inner: pendingError);
+                    throw pendingText is not null
+                        ? new CollectorException(ErrorCodes.Internal, pendingText, inner: pendingError)
+                        : new CollectorException(ErrorCodes.Internal, pendingReason, inner: pendingError);
                 }
 
                 _source = source;
@@ -1035,11 +1047,12 @@ public sealed class CaptureController : IDisposable
                 _run = queueStopped ? null : run;
                 _state = released && queueStopped ? CaptureControllerState.Idle : CaptureControllerState.Faulted;
                 _pendingStartFaultReason = null;
+                _pendingStartFaultText = null;
                 _pendingStartFaultError = null;
             }
 
             var refusal = ex as CollectorException ?? new CollectorException(
-                ErrorCodes.Internal, "启动抓包失败，详情见本机诊断日志。", inner: ex);
+                ErrorCodes.Internal, CollectorTexts.CaptureStartFailed(), inner: ex);
             RecordError(refusal);
             _services.Logger.WriteError("capture", "start_failed", ex);
             if (queueStopped) Publish(Snapshot(), "抓包启动失败。");
@@ -1076,7 +1089,7 @@ public sealed class CaptureController : IDisposable
             return AdapterEnumerator.Find(adapters, adapterId)
                 ?? throw Refuse(
                     ErrorCodes.BadRequest,
-                    "指定的网卡不存在，请刷新网卡列表后重新选择。",
+                    CollectorTexts.CaptureStartAdapterNotFound(),
                     new Dictionary<string, object?> { ["adapter_id"] = adapterId },
                     field: "adapter_id");
         }
@@ -1084,7 +1097,7 @@ public sealed class CaptureController : IDisposable
         return adapters.FirstOrDefault(candidate => candidate.Recommended)
             ?? throw Refuse(
                 ErrorCodes.BadRequest,
-                "无法确定游戏流量所在的网卡（不做猜测）。请在诊断页手动选择一张网卡后重试。",
+                CollectorTexts.CaptureStartAdapterUndetermined(),
                 new Dictionary<string, object?> { ["adapters"] = adapters.Count },
                 field: "adapter_id");
     }
@@ -1156,6 +1169,11 @@ public sealed class CaptureController : IDisposable
 
             try
             {
+                var abandoned = queue?.AbandonedCount ?? 0;
+                if (abandoned > 0)
+                {
+                    _services.Lifecycle.OnCaptureTailAbandoned(run.CaptureSessionId, abandoned);
+                }
                 _services.Lifecycle.OnCaptureStopped(run.CaptureSessionId, ended);
             }
             catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
@@ -1249,7 +1267,7 @@ public sealed class CaptureController : IDisposable
             {
                 ["silent_reason"] = EnumWire<CaptureSilentReason>.Format(reason),
             });
-            PublishOffThread(hint, generation);
+            PublishOffThread(hint.Chinese, generation);
         }
     }
 
@@ -1633,7 +1651,7 @@ public sealed class CaptureController : IDisposable
         {
             _services.Logger.WriteError("capture", "lifecycle_dropped_failed", ex);
             if (faultOnError)
-                OnFault("协议处理或写库失败，抓包已停止以避免漏记。", ex, generation);
+                OnFault(CollectorTexts.CaptureFaultPipeline(), ex, generation);
         }
     }
 
@@ -1709,7 +1727,7 @@ public sealed class CaptureController : IDisposable
         catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
         {
             _services.Logger.WriteError("capture", "lifecycle_connection_lost_failed", ex);
-            OnFault("协议处理或写库失败，抓包已停止以避免漏记。", ex, generation);
+            OnFault(CollectorTexts.CaptureFaultPipeline(), ex, generation);
         }
     }
 
@@ -1766,7 +1784,7 @@ public sealed class CaptureController : IDisposable
         catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
         {
             _services.Logger.WriteError("capture", "lifecycle_direction_damaged_failed", ex);
-            OnFault("协议处理或写库失败，抓包已停止以避免漏记。", ex, generation);
+            OnFault(CollectorTexts.CaptureFaultPipeline(), ex, generation);
         }
     }
 
@@ -1782,7 +1800,17 @@ public sealed class CaptureController : IDisposable
         Publish(Snapshot(), message);
     });
 
-    private void OnFault(string reason, Exception? error, long generation)
+    private void OnFault(UserText reason, Exception? error, long generation) =>
+        OnFault(reason.Chinese, reason, error, generation);
+
+    private void OnFault(string reason, Exception? error, long generation) =>
+        OnFault(reason, null, error, generation);
+
+    /// <param name="reason">The Chinese reason, for the live event, the log and the last error.</param>
+    /// <param name="text">The same reason as a catalogue text, when it is one; a start it ends is refused with it.</param>
+    /// <param name="error">Underlying exception, for the local log only.</param>
+    /// <param name="generation">Session the fault belongs to.</param>
+    private void OnFault(string reason, UserText? text, Exception? error, long generation)
     {
         var deferredUntilStartReturns = false;
         lock (_gate)
@@ -1790,7 +1818,12 @@ public sealed class CaptureController : IDisposable
             if (generation != _generation) return;
             if (_state == CaptureControllerState.Starting)
             {
-                _pendingStartFaultReason ??= reason;
+                if (_pendingStartFaultReason is null)
+                {
+                    _pendingStartFaultReason = reason;
+                    _pendingStartFaultText = text;
+                }
+
                 _pendingStartFaultError ??= error;
                 _lastErrorCode = ErrorCodes.Internal;
                 _lastErrorMessage = reason;
@@ -2103,7 +2136,7 @@ public sealed class CaptureController : IDisposable
 
     private CollectorException Refuse(
         string code,
-        string message,
+        UserText message,
         IReadOnlyDictionary<string, object?>? details = null,
         string? field = null,
         bool retryable = false)
@@ -2320,6 +2353,8 @@ public sealed class CaptureController : IDisposable
         }
 
         public void OnFault(string reason, Exception? error) => _controller.OnFault(reason, error, _generation);
+
+        public void OnFault(UserText reason, Exception? error) => _controller.OnFault(reason, error, _generation);
 
         public void OnConnectionClosed() => _controller.OnConnectionLost(_queue, _generation);
 

@@ -3,6 +3,10 @@
 // ---------------------------------------------------------------------------
 // Display formatting helpers, exposed to QML as the `Fmt` singleton.
 //
+// Every label is tr() text, translated when it is asked for. A QML binding
+// that shows one and calls no qsTr() itself wraps it in Theme.live() so a
+// language switch re-evaluates it (qml/Theme.qml).
+//
 // Two rules from the specs are enforced here and nowhere else:
 //   * an undefined statistic (null) always renders as an em dash, never 0
 //     (docs/statistics-definitions.md 14);
@@ -36,7 +40,7 @@ public:
     Q_INVOKABLE static QString localDate(const QVariant &utcIso);
     /// "yyyy-MM-dd HH:mm:ss" in local time, or an em dash.
     Q_INVOKABLE static QString localDateTime(const QVariant &utcIso);
-    /// "yyyy-MM-dd" plus the Chinese weekday, for page headers.
+    /// "yyyy-MM-dd" plus the weekday in the interface language, for page headers.
     Q_INVOKABLE static QString dateWithWeekday(const QVariant &utcIso);
 
     // -- numbers ------------------------------------------------------------
@@ -134,6 +138,12 @@ public:
     Q_INVOKABLE static QString runEventLabel(const QString &code);
     /// Chinese description of GetStatus.oodle_mode.
     Q_INVOKABLE static QString oodleModeLabel(const QString &code);
+
+    // -- Collector sentences (contracts/collector-texts.md) -----------------
+    /// A sentence the Collector wrote, in the interface language: \a ref is
+    /// the `*_ref` TextRef, \a chinese the field it accompanies, shown when
+    /// \a ref cannot be rendered. Wrap the binding in Theme.live().
+    Q_INVOKABLE static QString collectorText(const QVariant &ref, const QString &chinese);
 
 private:
     static QDateTime parse(const QVariant &utcIso);

@@ -1,0 +1,5 @@
+{"schema_version":1,"entries":[
+{"region":"CN","game_build":"2026.09.01.0000.0000","code_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","match_source":"ANNOUNCEMENT","submitters":1,"first_published_at":"2026-09-01T00:00:00Z","path":"cn/2026.09.01.0000.0000/aaaaaaaaaaaa.mrc","commit":"cccccccccccccccccccccccccccccccccccccccc","revoked":false,"quarantined":false,"quarantine_epoch":0},
+{"region":"CN","game_build":"2026.09.01.0000.0000","code_sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","match_source":"ANNOUNCEMENT","submitters":1,"first_published_at":"2026-09-01T00:00:00Z","path":"cn/2026.09.01.0000.0000/bbbbbbbbbbbb.mrc","commit":"cccccccccccccccccccccccccccccccccccccccc","revoked":false,"quarantined":true,"quarantine_epoch":1},
+{"region":"CN","game_build":"2026.09.01.0000.0000","code_sha256":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd","match_source":"ANNOUNCEMENT","submitters":1,"first_published_at":"2026-09-01T00:00:00Z","path":"cn/2026.09.01.0000.0000/dddddddddddd.mrc","commit":"cccccccccccccccccccccccccccccccccccccccc","revoked":false,"quarantined":false,"quarantine_epoch":1}
+]}

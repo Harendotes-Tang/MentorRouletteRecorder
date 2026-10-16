@@ -102,15 +102,15 @@ ColumnLayout {
         const goal = Number(tab.goalText)
         const baseline = tab.typedBaseline
         if (!Number.isFinite(goal) || goal < 1) {
-            baselineErrorText = qsTr("目标值必须是大于 0 的整数。")
+            baselineErrorText = qsTr("「目标值」请填写大于 0 的整数。")
             return
         }
         if (baseline < 0) {
-            baselineErrorText = qsTr("基数必须是大于等于 0 的整数。")
+            baselineErrorText = qsTr("「起始次数」请填写 0 或正整数。")
             return
         }
         if (!baselineReasonText.trim()) {
-            baselineErrorText = App.errorText(qsTr("修改成就进度前必须填写原因。"), "ERR_REASON_REQUIRED")
+            baselineErrorText = App.errorText(qsTr("请填写「修改原因」后再点「保存」。"), "ERR_REASON_REQUIRED")
             return
         }
         baselineErrorText = ""
@@ -118,7 +118,7 @@ ColumnLayout {
         // Counted before the request: a refusal can arrive inside the call.
         ownSavesOut += 1
         App.updateAchievementBaseline(Math.floor(goal), baseline,
-                                      baselineReasonText.trim())
+                                      Theme.storedReason(baselineReasonText))
     }
 
     SettingsPanel {
@@ -140,7 +140,7 @@ ColumnLayout {
             FieldLabel {
                 Layout.fillWidth: true
                 Layout.preferredWidth: 1
-                text: qsTr("安装前已完成次数（基数）")
+                text: qsTr("起始次数")
             }
 
             StyledTextField {
@@ -180,7 +180,7 @@ ColumnLayout {
             objectName: "achievementSettingsWaiting"
             Layout.fillWidth: true
             visible: !tab.settingsLoaded
-            text: qsTr("还没有从采集服务读到已保存的目标与基数，读到之后才能修改和保存。")
+            text: qsTr("正在读取已保存的目标和起始次数，读取完成后才能修改和保存。")
             color: Theme.textSecondary
             font.pixelSize: Theme.fs(12)
             wrapMode: Text.WordWrap
@@ -195,8 +195,9 @@ ColumnLayout {
             StyledTextField {
                 objectName: "baselineReasonField"
                 Layout.fillWidth: true
-                exampleText: qsTr("补录安装前的历史完成数")
-                placeholderText: qsTr("例如：补录安装前的历史完成数") + exampleHint
+                // Stored in its source text when left as it was (Theme.storedReason).
+                exampleText: qsTranslate("SystemReason", "调整开始记录前已完成的导随次数")
+                placeholderText: qsTr("例如：调整开始记录前已完成的导随次数") + exampleHint
                 text: tab.baselineReasonText
                 onTextChanged: tab.baselineReasonText = text
             }
@@ -219,7 +220,7 @@ ColumnLayout {
                 spacing: 16
 
                 Text {
-                    text: qsTr("进度 = 基数 + 软件记录")
+                    text: qsTr("进度 = 起始次数 + 软件记录")
                     color: Theme.textSecondary
                     opacity: Theme.dimOpacity(0.6)
                     font.pixelSize: Theme.fs(12)
@@ -237,7 +238,7 @@ ColumnLayout {
                 }
                 Text {
                     Layout.fillWidth: true
-                    text: qsTr("修改后立即重算 · 导入已包含在基数中的历史记录时可从基数扣除")
+                    text: qsTr("起始次数：开始用本软件记录前，已经完成的导随次数。可保留或调整，点「保存」后生效；导入时可扣除重复计数。")
                     color: Theme.textSecondary
                     opacity: Theme.dimOpacity(0.5)
                     font.pixelSize: Theme.fs(12)

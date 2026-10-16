@@ -33,6 +33,8 @@
 约定：
 
 - `message` 默认使用简体中文，面向最终用户；`code` 面向程序。
+- `message` 出自采集服务的文字目录时，错误对象另带 `message_ref`：同一句话的目录键与参数（`$defs/TextRef`，见 [collector-texts.md](collector-texts.md)），桌面端据此以界面语言显示。`message` 与此前逐字相同，供不认识目录的旧版桌面端显示；没有 `message_ref` 的错误照常显示 `message`。
+- 拒绝启动时写入标准错误的说明同理：最后一行仍为 `ERR_XXX: <中文说明>`，说明出自目录时前一行为 `MR-TEXT <TextRef JSON>`（collector-texts.md §2.2）。
 - `details` 只包含结构化、非敏感的上下文，**永远不包含原始报文负载**。
 - `retryable = true` 表示同一 `request_id` 原样重发是安全且可能成功的。
 - 所有可变更消息（`CreateManualRun` / `CorrectRun` / `SoftDeleteRun` /
@@ -69,7 +71,7 @@
 | `ERR_PROFILE_UNSUPPORTED` | 协议档案状态为 `NONE` 或 `UNSUPPORTED_BUILD`：客户端版本未知或无对应档案 | `StartCapture` `GetProtocolProfileStatus` | false | **fail-closed**：不解析任何报文、不写入任何记录；提示用户仅能手动补录。自 0.3.0 起，"无对应档案但有随包模板"的情况不再触发它，而是进入本机校准（`CaptureStatus.calibration.state = OBSERVING`） |
 | `ERR_CALIBRATION_NOT_READY` | 本机校准还没有可核对的草稿：没有在校准、还在观察、或已阻塞 | `ConfirmCalibration` | false | 按 `CaptureStatus.calibration.blockers` 提示用户继续游玩或导出证据 |
 | `ERR_CALIBRATION_REJECTED` | 用户把校准时间线里的某一项标为"错"，草稿作废，被否决的候选在本次会话内不再提出 | `ConfirmCalibration` | false | 提示"再打一把随机任务"，界面回到校准中 |
-| `ERR_SHARE_CODE_UNAVAILABLE` | 当前生效的档案给不出校准码：没有可用档案（`details.reason = NO_PROFILE`）、是随包档案（`NOT_LOCAL`）、是其他玩家分享的档案（`SHARED`，共享来的不再转手）、或本机档案文件读不出 / 已被改动 / 不符合校准生成的结构（`NOT_SHAREABLE`） | `GetCalibrationShareCode` | false | 不显示「分享给其他玩家」；按 `details.reason` 说明原因，不重试 |
+| `ERR_SHARE_CODE_UNAVAILABLE` | 当前生效的档案给不出校准码：没有可用档案（`details.reason = NO_PROFILE`）、是随包档案（`NOT_LOCAL`）、是其他玩家分享的档案且本机尚未核实完毕——还没完整记录过一次随机任务或仍有审计判据在等待（`SHARED_NOT_PROVEN`）、是已在本机核实通过的共享档案但本机没有保存对应的校准码（`SHARED`，例如粘贴导入、从未下载的码；2026-10-15 之前表示「共享来的不再转手」）、或本机档案文件读不出 / 已被改动 / 不符合校准生成的结构（`NOT_SHAREABLE`） | `GetCalibrationShareCode` | false | 不显示「分享给其他玩家」或「这份校准好用，告诉其他玩家」；按 `details.reason` 说明原因，不重试 |
 | `ERR_SPEECH_DISABLED` | 环境变量 `MR_DISABLE_ONLINE_SPEECH` 已设置（除空、`0`、`false` 以外的值）。最先检查，连缓存也不读 | `SynthesizeSpeech` | false | 本次用本机语音播报；这是验证、测试、打包时的正常状态 |
 | `ERR_SPEECH_NOT_CONFIGURED` | 服务为 `none`，或所选服务缺区域 / 地址 / 模型 / 音色，或没有为当前目标保存密钥（换服务、换区域、换地址会删除旧密钥） | `SynthesizeSpeech` | false | 用本机语音播报；设置页提示去填写 |
 | `ERR_SPEECH_AUTH` | 语音服务返回 401 / 403 | `SynthesizeSpeech` | false | 用本机语音播报，并提示一次"密钥无效或与区域不匹配"；`details.http_status` |

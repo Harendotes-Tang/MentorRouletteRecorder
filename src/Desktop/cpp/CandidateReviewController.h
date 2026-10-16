@@ -9,6 +9,8 @@
 #include <QVariantList>
 #include <QVariantMap>
 
+#include "LiveText.h"
+
 namespace mr {
 class IBackend;
 
@@ -64,16 +66,16 @@ public:
     bool indexLoading() const { return m_indexLoading; }
     bool indexComplete() const { return m_indexComplete; }
     int indexLoadedCount() const { return m_indexIds.size(); }
-    QString indexMessage() const { return m_indexMessage; }
-    QString error() const { return m_error; }
+    QString indexMessage() const { return m_indexMessage.text(); }
+    QString error() const { return m_error.text(); }
     bool hasNewObservations() const { return m_hasNewObservations; }
     QString reviewBusyId() const { return m_reviewBusyId; }
-    QString reviewError() const { return m_reviewError; }
+    QString reviewError() const { return m_reviewError.text(); }
     bool exporting() const { return m_exporting; }
     QVariantMap exportResult() const { return m_exportResult; }
-    QString exportError() const { return m_exportError; }
+    QString exportError() const { return m_exportError.text(); }
     bool candidateSettingsBusy() const { return m_settingsBusy; }
-    QString candidateSettingsError() const { return m_settingsError; }
+    QString candidateSettingsError() const { return m_settingsError.text(); }
 
 public Q_SLOTS:
     void refresh();
@@ -93,8 +95,10 @@ Q_SIGNALS:
 private:
     void startIndex(bool retry = false);
     void readIndexPage(int page, int generation);
-    void indexFailed(const QString &message, bool retryable);
+    void indexFailed(const LiveText &message, bool retryable);
     void finishIndex();
+    /// "MM-dd HH:mm · <session> · N 条" for one session summary, in the language on screen.
+    static QString sessionLabel(const QVariantMap &summary);
     void buildTimeline();
     void writeSettings(const QJsonObject &changes);
     void disconnected();
@@ -112,13 +116,14 @@ private:
     QTimer m_liveRefresh;
     QString m_sessionId;
     QString m_indexUpperUtc;
-    QString m_indexMessage;
-    QString m_error;
+    // Recipes, so a language switch re-renders them (LiveText.h).
+    LiveText m_indexMessage;
+    LiveText m_error;
     QString m_reviewBusyId;
-    QString m_reviewError;
+    LiveText m_reviewError;
     QString m_targetOverride;
-    QString m_exportError;
-    QString m_settingsError;
+    LiveText m_exportError;
+    LiveText m_settingsError;
     QVariantMap m_exportResult;
     int m_page = 1;
     int m_total = 0;

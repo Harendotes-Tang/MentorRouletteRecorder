@@ -72,11 +72,11 @@ QVariant RunFormValidator::toDateTime(const QString &date, const QString &time)
 QVariantMap RunFormValidator::validate(const QVariantMap &form, const QVariantMap &before)
 {
     const QString reasonLabel = form.value(QStringLiteral("reason_label"),
-                                           QString::fromUtf8("修正原因")).toString();
+                                           tr("修正原因")).toString();
 
     if (text(form, "reason").isEmpty()) {
         return failure(QStringLiteral("ERR_REASON_REQUIRED"),
-                       QString::fromUtf8("必须填写%1，请求已拒绝。")
+                       tr("请先填写%1，再保存。")
                            .arg(reasonLabel));
     }
     // The Collector's own limits, counted the way it counts them (UTF-16 code
@@ -86,13 +86,13 @@ QVariantMap RunFormValidator::validate(const QVariantMap &form, const QVariantMa
     const qsizetype reasonLength = text(form, "reason").size();
     if (reasonLength > kMaxReasonLength) {
         return failure(QStringLiteral("ERR_BAD_REQUEST"),
-                       QString::fromUtf8("%1最多 %2 个字，当前 %3 个字。")
+                       tr("%1最多 %2 个字，当前 %3 个字。")
                            .arg(reasonLabel).arg(kMaxReasonLength).arg(reasonLength));
     }
     const qsizetype noteLength = form.value(QStringLiteral("note")).toString().size();
     if (noteLength > kMaxNoteLength) {
         return failure(QStringLiteral("ERR_BAD_REQUEST"),
-                       QString::fromUtf8("备注最多 %1 个字，当前 %2 个字。")
+                       tr("备注最多 %1 个字，当前 %2 个字。")
                            .arg(kMaxNoteLength).arg(noteLength));
     }
 
@@ -106,18 +106,18 @@ QVariantMap RunFormValidator::validate(const QVariantMap &form, const QVariantMa
     // a display placeholder as a date or manufacture a time for a note edit.
     if ((!incompleteImport || !matchedText.isEmpty()) && !isValidDate(date)) {
         return failure(QStringLiteral("ERR_BAD_REQUEST"),
-                       QString::fromUtf8("日期格式必须是 yyyy-MM-dd。"));
+                       tr("请按“年-月-日”填写日期，例如 2026-10-15。"));
     }
 
     if (!incompleteImport && matchedText.isEmpty()) {
         return failure(QStringLiteral("ERR_BAD_REQUEST"),
-                       QString::fromUtf8("匹配时间不能为空。"));
+                       tr("匹配时间不能为空。"));
     }
 
     const QVariant matchedVar = toDateTime(date, matchedText);
     if (!matchedText.isEmpty() && !matchedVar.isValid()) {
         return failure(QStringLiteral("ERR_BAD_REQUEST"),
-                       QString::fromUtf8("匹配时间格式必须是 HH:mm:ss。"));
+                       tr("请按“时:分:秒”填写匹配时间，例如 21:30:00。"));
     }
     const QDateTime matched = matchedVar.toDateTime();
 
@@ -127,22 +127,22 @@ QVariantMap RunFormValidator::validate(const QVariantMap &form, const QVariantMa
     const QString endedDate = eventDate(form, "ended_date");
     if (!enteredText.isEmpty() && !isValidDate(enteredDate)) {
         return failure(QStringLiteral("ERR_BAD_REQUEST"),
-                       QString::fromUtf8("进本日期格式必须是 yyyy-MM-dd。"));
+                       tr("请按“年-月-日”填写进本日期，例如 2026-10-15。"));
     }
     if (!endedText.isEmpty() && !isValidDate(endedDate)) {
         return failure(QStringLiteral("ERR_BAD_REQUEST"),
-                       QString::fromUtf8("结束日期格式必须是 yyyy-MM-dd。"));
+                       tr("请按“年-月-日”填写结束日期，例如 2026-10-15。"));
     }
     const QVariant enteredVar = toDateTime(enteredDate, enteredText);
     const QVariant endedVar = toDateTime(endedDate, endedText);
 
     if (!enteredText.isEmpty() && !enteredVar.isValid()) {
         return failure(QStringLiteral("ERR_BAD_REQUEST"),
-                       QString::fromUtf8("进本时间格式必须是 HH:mm:ss。"));
+                       tr("请按“时:分:秒”填写进本时间，例如 21:30:00。"));
     }
     if (!endedText.isEmpty() && !endedVar.isValid()) {
         return failure(QStringLiteral("ERR_BAD_REQUEST"),
-                       QString::fromUtf8("结束时间格式必须是 HH:mm:ss。"));
+                       tr("请按“时:分:秒”填写结束时间，例如 22:00:00。"));
     }
 
     const QDateTime entered = enteredVar.toDateTime();
@@ -150,30 +150,30 @@ QVariantMap RunFormValidator::validate(const QVariantMap &form, const QVariantMa
 
     if (entered.isValid() && matched.isValid() && entered < matched) {
         return failure(QStringLiteral("ERR_TIME_ORDER"),
-                       QString::fromUtf8("时间顺序错误：进本时间早于匹配时间。"));
+                       tr("时间顺序错误：进本时间早于匹配时间。"));
     }
     if (ended.isValid() && entered.isValid() && ended < entered) {
         return failure(QStringLiteral("ERR_NEGATIVE_DURATION"),
-                       QString::fromUtf8("时间顺序错误：结束时间早于进本时间，耗时为负。"));
+                       tr("结束时间不能早于进本时间。如果跨了零点，请把结束日期改为第二天。"));
     }
     if (ended.isValid() && !entered.isValid() && matched.isValid() && ended < matched) {
         return failure(QStringLiteral("ERR_TIME_ORDER"),
-                       QString::fromUtf8("时间顺序错误：结束时间早于匹配时间。"));
+                       tr("时间顺序错误：结束时间早于匹配时间。"));
     }
 
     const QString result = form.value(QStringLiteral("result")).toString();
     if (!incompleteImport && result != QLatin1String("CANCELLED_BEFORE_ENTRY") && !entered.isValid()) {
         return failure(QStringLiteral("ERR_BAD_REQUEST"),
-                       QString::fromUtf8("非“进本前取消”的结果必须有进本时间。"));
+                       tr("除“进本前取消”外，其他结果都需要填写进本时间。"));
     }
     if (!incompleteImport && result == QLatin1String("COMPLETED") && !ended.isValid()) {
         return failure(QStringLiteral("ERR_BAD_REQUEST"),
-                       QString::fromUtf8("通关记录必须有结束时间。"));
+                       tr("通关记录必须有结束时间。"));
     }
 
     if (form.value(QStringLiteral("edit_mode")).toBool() && diff(before, form).isEmpty()) {
         return failure(QStringLiteral("ERR_NO_CHANGES"),
-                       QString::fromUtf8("没有任何字段被修改。"));
+                       tr("内容还没有变化，无需保存。"));
     }
 
     return success();
@@ -192,27 +192,45 @@ QVariantList RunFormValidator::diff(const QVariantMap &before, const QVariantMap
         rows.append(row);
     };
 
-    add(QString::fromUtf8("副本"), text(before, "duty_name"), text(form, "duty_name"));
-    add(QString::fromUtf8("职业"), text(before, "job_name"), text(form, "job_name"));
-    add(QString::fromUtf8("匹配日期"), text(before, "date"), text(form, "date"));
-    add(QString::fromUtf8("匹配时间"), text(before, "matched"), text(form, "matched"));
+    // Game names: the record's (Chinese) names decide whether the field changed,
+    // and the table shows them as the form labels them (duty_label / job_label,
+    // the interface language) when it does.
+    const auto addName = [&rows](const QString &label, const QVariantMap &before,
+                                 const QVariantMap &form, const char *key, const char *shownKey) {
+        if (text(before, key) == text(form, key))
+            return;
+        const auto shown = [key, shownKey](const QVariantMap &map) {
+            const QString labelled = text(map, shownKey);
+            return labelled.isEmpty() ? text(map, key) : labelled;
+        };
+        QVariantMap row;
+        row.insert(QStringLiteral("k"), label);
+        row.insert(QStringLiteral("a"), display(shown(before)));
+        row.insert(QStringLiteral("b"), display(shown(form)));
+        rows.append(row);
+    };
+
+    addName(tr("副本"), before, form, "duty_name", "duty_label");
+    addName(tr("职业"), before, form, "job_name", "job_label");
+    add(tr("匹配日期"), text(before, "date"), text(form, "date"));
+    add(tr("匹配时间"), text(before, "matched"), text(form, "matched"));
     if (!text(before, "entered").isEmpty() || !text(form, "entered").isEmpty())
-        add(QString::fromUtf8("进本日期"), eventDate(before, "entered_date"),
+        add(tr("进本日期"), eventDate(before, "entered_date"),
             eventDate(form, "entered_date"));
-    add(QString::fromUtf8("进本时间"), text(before, "entered"), text(form, "entered"));
+    add(tr("进本时间"), text(before, "entered"), text(form, "entered"));
     if (!text(before, "ended").isEmpty() || !text(form, "ended").isEmpty())
-        add(QString::fromUtf8("结束日期"), eventDate(before, "ended_date"),
+        add(tr("结束日期"), eventDate(before, "ended_date"),
             eventDate(form, "ended_date"));
-    add(QString::fromUtf8("结束时间"), text(before, "ended"), text(form, "ended"));
-    add(QString::fromUtf8("结果"),
+    add(tr("结束时间"), text(before, "ended"), text(form, "ended"));
+    add(tr("结果"),
         Formatters::resultLabel(before.value(QStringLiteral("result")).toString()),
         Formatters::resultLabel(form.value(QStringLiteral("result")).toString()));
-    add(QString::fromUtf8("计入进度"),
-        before.value(QStringLiteral("contributes")).toBool() ? QString::fromUtf8("是")
-                                                             : QString::fromUtf8("否"),
-        form.value(QStringLiteral("contributes")).toBool() ? QString::fromUtf8("是")
-                                                           : QString::fromUtf8("否"));
-    add(QString::fromUtf8("备注"), text(before, "note"), text(form, "note"));
+    add(tr("计入进度"),
+        before.value(QStringLiteral("contributes")).toBool() ? tr("是")
+                                                             : tr("否"),
+        form.value(QStringLiteral("contributes")).toBool() ? tr("是")
+                                                           : tr("否"));
+    add(tr("备注"), text(before, "note"), text(form, "note"));
     return rows;
 }
 

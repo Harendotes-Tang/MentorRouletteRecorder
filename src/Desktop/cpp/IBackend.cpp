@@ -1,5 +1,6 @@
 #include "IBackend.h"
 
+#include "CollectorText.h"
 #include "IpcFraming.h"
 
 #include <QDateTime>
@@ -26,14 +27,18 @@ void BackendReply::succeed(const QJsonObject &payload)
     finish();
 }
 
-void BackendReply::fail(const QString &code, const QString &message, const QJsonObject &details)
+void BackendReply::fail(const QString &code, const QString &message, const QJsonObject &details,
+                        const QJsonObject &messageRef)
 {
     if (m_finished)
         return;
     m_ok = false;
     m_payload = {};
     m_errorCode = code;
-    m_errorMessage = message;
+    m_errorRef = messageRef;
+    m_errorMessage = messageRef.isEmpty()
+                         ? message
+                         : collector_text::render(messageRef.toVariantMap(), message);
     m_errorDetails = details;
     finish();
 }

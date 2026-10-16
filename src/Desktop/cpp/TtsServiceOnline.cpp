@@ -122,7 +122,7 @@ int TtsService::pendingOnlineCount() const
 
 QString TtsService::fallbackToast(const QString &code)
 {
-    return QString::fromUtf8("在线语音暂不可用（%1），本次改用本机语音")
+    return tr("在线语音暂不可用（%1），将尝试用本机语音播报")
         .arg(SpeechController::errorReason(code));
 }
 

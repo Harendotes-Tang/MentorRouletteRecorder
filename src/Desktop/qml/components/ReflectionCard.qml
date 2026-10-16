@@ -40,7 +40,7 @@ InsetBox {
 
             Text {
                 Layout.fillWidth: true
-                text: root.runData.duty_name || qsTr("未知副本")
+                text: Theme.dutyName(root.runData) || qsTr("未知副本")
                 textFormat: Text.PlainText
                 color: Theme.textPrimary
                 font.pixelSize: Theme.fs(12)

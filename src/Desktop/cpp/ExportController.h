@@ -14,6 +14,8 @@
 #include <QVariantMap>
 #include <QStringList>
 
+#include <functional>
+
 namespace mr {
 
 class IBackend;
@@ -81,6 +83,9 @@ private:
     QString m_targetOverride;
     bool m_integrityRunning = false;
     QVariantMap m_integrityResult;
+    /// The answer m_integrityResult was described from, so a language switch can
+    /// describe it again; empty until a check has answered.
+    std::function<QVariantMap()> m_describeIntegrity;
 };
 
 } // namespace mr

@@ -34,10 +34,11 @@ REPO = HERE.parent.parent
 PUBLIC_DIRECTORY = HERE / "public-repo"
 RUNTIME_FILES = (
     "sharecode.py", "rebuild.py", "index.py", "issue.py", "publish.py", "publish_issue.sh", "sweep_issues.sh",
-    "report_issue.sh",
+    "report_issue.sh", "evidence.py", "evidence_workflow.py",
 )
 RENAMED = {"dot-gitattributes": ".gitattributes", "dot-gitignore": ".gitignore"}
-EXTERNAL_RUNTIME_FILES = {"tools/sync_refs.py": "tools/release-mirror/sync_refs.py"}
+EXTERNAL_RUNTIME_FILES = {"tools/sync_refs.py": "tools/release-mirror/sync_refs.py",
+                          "schemas/calibration-evidence-v1.schema.json": "contracts/calibration-evidence-v1.schema.json"}
 PROFILE_REGIONS = ("cn", "global")
 LICENSE_TARGET = "LICENSES/GPL-3.0-or-later.txt"
 
@@ -86,7 +87,8 @@ def file_set(repo: Path = REPO) -> dict:
     for target, source in EXTERNAL_RUNTIME_FILES.items():
         if target in files:
             raise SyncError("mapped runtime file has a second source: " + target)
-        files[target] = _lf((Path(repo) / source).read_bytes())
+        raw = (Path(repo) / source).read_bytes()
+        files[target] = raw if target.startswith("schemas/") else _lf(raw)
     files[LICENSE_TARGET] = _lf((Path(repo) / "LICENSE").read_bytes())
     files.update(shipped_templates(repo))
     files.update(repo_index.dump(repo_index.empty_index()))

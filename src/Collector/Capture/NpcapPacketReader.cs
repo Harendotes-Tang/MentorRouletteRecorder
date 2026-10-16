@@ -2,6 +2,7 @@ using System.Net;
 using MentorRecorder.Collector.Contracts.Errors;
 using SharpPcap;
 using SharpPcap.LibPcap;
+using MentorRecorder.Collector.Contracts.Texts;
 
 namespace MentorRecorder.Collector.Capture;
 
@@ -79,7 +80,7 @@ internal sealed class NpcapPacketReader : INpcapPacketReader
     /// <param name="adapterId">Adapter that could not be resolved.</param>
     public static CollectorException AdapterListChanged(string? adapterId) => new(
         ErrorCodes.BadRequest,
-        AdapterListChangedMessage,
+        CollectorTexts.CaptureStartAdapterListChanged(),
         new Dictionary<string, object?> { ["adapter_id"] = adapterId },
         field: "adapter_id",
         retryable: true);

@@ -4,6 +4,7 @@
 #include "JobCatalog.h"
 #include "JobIconClassifier.h"
 
+#include <QCoreApplication>
 #include <QDate>
 #include <QFile>
 #include <QImageReader>
@@ -392,6 +393,8 @@ IconMatch matchIcon(const QImage &image, const QRect &card, int textLeft,
     return best;
 }
 
+/// \a warning is source text marked with QT_TRANSLATE_NOOP("mr::ScreenshotImportParser", …):
+/// the evidence keeps it untranslated and the import dialog translates it for display.
 void addWarning(QStringList &warnings, const QString &warning)
 {
     if (!warnings.contains(warning))
@@ -402,29 +405,29 @@ void addEvidenceWarnings(QStringList &warnings, const Evidence &evidence, const 
                          bool dutyPending)
 {
     if (dutyPending)
-        addWarning(warnings, QStringLiteral("副本名称已按同等级目录预填候选，请与原图核对；原识别文字已保留。"));
+        addWarning(warnings, QStringLiteral(QT_TRANSLATE_NOOP("mr::ScreenshotImportParser", "已按同等级副本预填可能的名称，请对照原图确认；原识别文字已保留。")));
     if (icon.id == 0)
-        addWarning(warnings, QStringLiteral("职业图标未可靠匹配，请核对候选职业或保留未知。"));
+        addWarning(warnings, QStringLiteral(QT_TRANSLATE_NOOP("mr::ScreenshotImportParser", "未能确认职业图标，请核对预填的职业；不确定可保留未知。")));
     if (evidence.recordedAt.isEmpty())
-        addWarning(warnings, QStringLiteral("来源记录时间缺失，卡片可能被裁切或遮挡。"));
+        addWarning(warnings, QStringLiteral(QT_TRANSLATE_NOOP("mr::ScreenshotImportParser", "未识别到原记录时间，卡片可能被裁切或遮挡，请检查原图。")));
     else if (!evidence.timeValid)
-        addWarning(warnings, QStringLiteral("来源记录时间无效，请对照原图修正。"));
+        addWarning(warnings, QStringLiteral(QT_TRANSLATE_NOOP("mr::ScreenshotImportParser", "原记录时间无法识别，请对照原图修正。")));
     else
-        addWarning(warnings, QStringLiteral("来源记录时间的时区需在预览中确认，不代表实际游戏时间。"));
+        addWarning(warnings, QStringLiteral(QT_TRANSLATE_NOOP("mr::ScreenshotImportParser", "原记录时间不代表实际游戏时间，请在预览中确认它所在的地区或时区。")));
     if (evidence.duty.isEmpty())
-        addWarning(warnings, QStringLiteral("副本名称未识别完整，请对照原图补充。"));
+        addWarning(warnings, QStringLiteral(QT_TRANSLATE_NOOP("mr::ScreenshotImportParser", "副本名称未识别完整，请对照原图补充。")));
     if (evidence.level == 0)
-        addWarning(warnings, QStringLiteral("卡片标题识别失败，已按来源时间和边框单独保留，请修正副本信息。"));
+        addWarning(warnings, QStringLiteral(QT_TRANSLATE_NOOP("mr::ScreenshotImportParser", "未能识别副本标题，已保留这张记录卡片，请对照原图补充副本信息。")));
     if (evidence.body.isEmpty())
-        addWarning(warnings, QStringLiteral("未识别到心得正文，请检查原图是否被裁切或遮挡。"));
+        addWarning(warnings, QStringLiteral(QT_TRANSLATE_NOOP("mr::ScreenshotImportParser", "未识别到心得正文，请检查原图是否被裁切或遮挡。")));
     if (evidence.confidence < 0.75)
-        addWarning(warnings, QStringLiteral("文字识别把握较低，请逐项对照原图。"));
+        addWarning(warnings, QStringLiteral(QT_TRANSLATE_NOOP("mr::ScreenshotImportParser", "文字识别可能不准，请逐项对照原图核对。")));
     if (evidence.deletionOverlaps)
-        addWarning(warnings, QStringLiteral("删除按钮可能遮挡正文，请对照原图。"));
+        addWarning(warnings, QStringLiteral(QT_TRANSLATE_NOOP("mr::ScreenshotImportParser", "删除按钮可能遮挡正文，请对照原图。")));
     if (evidence.pagingOverlaps)
-        addWarning(warnings, QStringLiteral("分页或浏览器控件覆盖卡片区域，请对照原图确认未识别内容。"));
+        addWarning(warnings, QStringLiteral(QT_TRANSLATE_NOOP("mr::ScreenshotImportParser", "分页按钮或浏览器工具栏遮住了记录，请对照原图补充未识别的内容。")));
     if (evidence.nearEdge)
-        addWarning(warnings, QStringLiteral("卡片接近截图边缘，可能存在未拍到的内容。"));
+        addWarning(warnings, QStringLiteral(QT_TRANSLATE_NOOP("mr::ScreenshotImportParser", "卡片接近截图边缘，可能存在未拍到的内容。")));
 }
 
 QVariantMap candidateMap(const QImage &image, const Evidence &evidence, QStringList warnings,
@@ -472,11 +475,11 @@ QVariantMap rowCandidate(const QImage &image, const RowRecord &row, const QList<
 {
     QStringList warnings;
     if (row.recoveredLevelPrefix)
-        addWarning(warnings, QStringLiteral("等级前缀识别不完整，已依据所在行和日期保留，请核对副本标题。"));
+        addWarning(warnings, QStringLiteral(QT_TRANSLATE_NOOP("mr::ScreenshotImportParser", "副本等级标记未识别完整，已保留这条记录，请对照原图核对副本标题。")));
     if (row.misreadLevelDigits)
-        addWarning(warnings, QStringLiteral("等级数字识别不清，已按字形相近的数字读取，请核对等级。"));
+        addWarning(warnings, QStringLiteral(QT_TRANSLATE_NOOP("mr::ScreenshotImportParser", "等级数字识别不清，已按字形相近的数字读取，请核对等级。")));
     if (row.noteWrapJoined)
-        addWarning(warnings, QStringLiteral("心得中的自动折行已合并，请对照原图核对分段。"));
+        addWarning(warnings, QStringLiteral(QT_TRANSLATE_NOOP("mr::ScreenshotImportParser", "心得中的自动折行已合并，请对照原图核对分段。")));
     Evidence evidence;
     evidence.rect = row.rect;
     evidence.iconArea = row.iconArea;
@@ -503,16 +506,16 @@ QVariantMap rowCandidate(const QImage &image, const RowRecord &row, const QList<
 QString readInput(const QImage &image, const QByteArray &tsv, QList<Line> &lines, QList<RowRecord> &rows)
 {
     if (image.isNull() || static_cast<qint64>(image.width()) * image.height() > mr::ScreenshotImportParser::MaxImagePixels)
-        return QStringLiteral("截图为空或超过 5000 万像素上限。");
+        return QCoreApplication::translate("mr::ScreenshotImportParser", "截图为空或超过 5000 万像素上限。");
     if (tsv.isEmpty() || tsv.size() > mr::ScreenshotImportParser::MaxTsvBytes)
-        return QStringLiteral("识别输出为空或超过 8 MiB 上限。");
+        return QCoreApplication::translate("mr::ScreenshotImportParser", "识别输出为空或超过 8 MiB 上限。");
     QList<Line> allLines;
     QString error;
     if (!readLines(tsv, image.size(), lines, error, &allLines))
         return error;
     rows = rowRecords(image, allLines, catalogueMaxLevel());
     if (rows.size() > mr::ScreenshotImportParser::MaxCandidates)
-        return QStringLiteral("截图中的记录候选超过 1000 条，请分批导入。");
+        return QCoreApplication::translate("mr::ScreenshotImportParser", "截图中识别到的记录超过 1000 条，请分批导入。");
     return {};
 }
 
@@ -601,7 +604,7 @@ QVariantList ScreenshotImportParser::parse(const QImage &image, const QByteArray
                         words.isEmpty() ? line.rect.left() : words.front().rect.left(), detectedCard,
                         recoveredLevelPrefix, anchoredDutyTitle});
         if (rows.size() + headers.size() > MaxCandidates)
-            return fail(QStringLiteral("截图中的记录候选超过 1000 条，请分批导入。"));
+            return fail(QCoreApplication::translate("mr::ScreenshotImportParser", "截图中识别到的记录超过 1000 条，请分批导入。"));
     }
     // Sparse OCR may miss a visible Lv. header entirely. A full source timestamp
     // inside a separately bounded card keeps that record separate for correction.
@@ -611,7 +614,7 @@ QVariantList ScreenshotImportParser::parse(const QImage &image, const QByteArray
         if (!sourceTime(lines[i].text).isEmpty())
             timeAnchors.append(static_cast<int>(i));
         if (timeAnchors.size() > MaxCandidates)
-            return fail(QStringLiteral("截图中的来源时间超过 1000 个，请分批导入。"));
+            return fail(QCoreApplication::translate("mr::ScreenshotImportParser", "截图中识别到的记录时间超过 1000 个，请裁切图片后分批导入。"));
     }
     for (qsizetype anchor = 0; anchor < timeAnchors.size(); ++anchor) {
         const int i = timeAnchors[anchor];
@@ -651,13 +654,13 @@ QVariantList ScreenshotImportParser::parse(const QImage &image, const QByteArray
         }
         headers.append({first, 0, {}, left, surface});
         if (rows.size() + headers.size() > MaxCandidates)
-            return fail(QStringLiteral("截图中的记录候选超过 1000 条，请分批导入。"));
+            return fail(QCoreApplication::translate("mr::ScreenshotImportParser", "截图中识别到的记录超过 1000 条，请分批导入。"));
     }
     std::sort(headers.begin(), headers.end(), [](const Header &a, const Header &b) {
         return a.line < b.line;
     });
     if (headers.isEmpty() && rows.isEmpty())
-        return fail(QStringLiteral("未找到带 Lv. 副本标题或完整来源时间的记录卡片，请检查截图或改用文件导入。"));
+        return fail(QCoreApplication::translate("mr::ScreenshotImportParser", "没有识别到带副本等级和名称，或完整记录时间的卡片。请检查截图是否清晰完整，也可改用表格或文件导入。"));
 
     const QList<JobTemplate> templates = loadJobTemplates();
     const QList<DutyNameTemplate> dutyTemplates = loadDutyNameTemplates();
@@ -672,13 +675,13 @@ QVariantList ScreenshotImportParser::parse(const QImage &image, const QByteArray
         bool timeValid = false;
         QStringList warnings;
         if (header.recoveredLevelPrefix)
-            addWarning(warnings, QStringLiteral("等级前缀识别不完整，已依据卡片和类型图标保留，请核对副本标题。"));
+            addWarning(warnings, QStringLiteral(QT_TRANSLATE_NOOP("mr::ScreenshotImportParser", "副本等级标记未识别完整，已保留这张记录卡片，请对照原图核对副本标题。")));
         for (int i = header.line; i < endLine; ++i) {
             bool valid = false;
             const QString time = sourceTime(lines[i].text, &valid);
             if (!time.isEmpty()) {
                 if (timeLine >= 0)
-                    addWarning(warnings, QStringLiteral("卡片内识别到多个时间，请对照原图确认来源记录时间。"));
+                    addWarning(warnings, QStringLiteral(QT_TRANSLATE_NOOP("mr::ScreenshotImportParser", "卡片内识别到多个时间，请对照原图确认哪个是原记录时间。")));
                 timeLine = i;
                 recordedAt = time;
                 timeValid = valid;

@@ -1,6 +1,7 @@
 using System.Text.Json.Nodes;
 using MentorRecorder.Collector.Capture;
 using MentorRecorder.Collector.Contracts.Errors;
+using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Protocol.Calibration;
 
 namespace MentorRecorder.Collector.Ipc;
@@ -28,14 +29,14 @@ public static class CalibrationHandlers
             if (verdict is not ("CORRECT" or "WRONG" or "RELABEL"))
             {
                 throw CollectorException.BadRequest(
-                    "verdict 只能是 CORRECT、WRONG 或 RELABEL。", "payload.verdicts");
+                    CollectorTexts.CalibrationVerdictInvalid(), "payload.verdicts");
             }
 
             var name = item.String("roulette_name", 64);
             if (verdict == "RELABEL" && string.IsNullOrWhiteSpace(name))
             {
                 throw CollectorException.BadRequest(
-                    "RELABEL 必须带上 roulette_name。", "payload.verdicts");
+                    CollectorTexts.CalibrationRelabelNeedsName(), "payload.verdicts");
             }
 
             verdicts[eventId] = new CalibrationVerdict(verdict, verdict == "RELABEL" ? name : null);
@@ -43,16 +44,16 @@ public static class CalibrationHandlers
 
         if (verdicts.Count == 0)
         {
-            throw CollectorException.BadRequest("verdicts 不能为空。", "payload.verdicts");
+            throw CollectorException.BadRequest(CollectorTexts.CalibrationVerdictsEmpty(), "payload.verdicts");
         }
 
         var pipeline = host.LiveProtocol ?? throw new CollectorException(
-            ErrorCodes.CalibrationNotReady, "本进程没有运行协议管线，无法校准。");
+            ErrorCodes.CalibrationNotReady, CollectorTexts.CalibrationPipelineNotReady());
         var result = pipeline.ConfirmCalibration(verdicts);
         if (result.BoundInSession)
         {
             host.LiveEvents.PublishCollectorStatus(
-                CaptureWire.CaptureStatus(host.Capture.Snapshot()), "已按本机校准的档案开始自动记录。");
+                CaptureWire.CaptureStatus(host.Capture.Snapshot()), "校准已启用，已经可以自动记录。");
         }
 
         return new JsonObject
@@ -83,11 +84,11 @@ public static class CalibrationHandlers
             // back. There is no order in which honouring both means anything, and guessing which
             // the caller meant is how a rollback quietly becomes a retirement.
             throw CollectorException.BadRequest(
-                "retire_local_profile 与 restore_local_profile 不能同时为真。", "payload");
+                CollectorTexts.CalibrationDiscardConflict(), "payload");
         }
 
         var pipeline = host.LiveProtocol ?? throw new CollectorException(
-            ErrorCodes.CalibrationNotReady, "本进程没有运行协议管线，无法校准。");
+            ErrorCodes.CalibrationNotReady, CollectorTexts.CalibrationPipelineNotReady());
         var snapshot = pipeline.DiscardCalibration(retire, restore);
         return new JsonObject
         {

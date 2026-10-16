@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using MentorRecorder.Collector.Contracts.Errors;
+using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Domain.Time;
 
@@ -52,7 +53,7 @@ public sealed class PayloadReader
             if (!allowed.Contains(key, StringComparer.Ordinal))
             {
                 throw CollectorException.BadRequest(
-                    $"请求包含契约未声明的字段 {key}。", Field(key));
+                    CollectorTexts.IpcFieldUnknown(key), Field(key));
             }
         }
 
@@ -64,7 +65,7 @@ public sealed class PayloadReader
     {
         if (_payload.Count != 0)
         {
-            throw CollectorException.BadRequest("该消息不接受任何参数。", _path);
+            throw CollectorException.BadRequest(CollectorTexts.IpcFieldNoParameters(), _path);
         }
     }
 
@@ -79,7 +80,7 @@ public sealed class PayloadReader
 
         return node is JsonObject nested
             ? new PayloadReader(nested, Field(name))
-            : throw CollectorException.BadRequest($"{name} 必须是一个对象。", Field(name));
+            : throw CollectorException.BadRequest(CollectorTexts.IpcFieldNotObject(name), Field(name));
     }
 
     /// <summary>Reads a string, or null when absent or JSON null.</summary>
@@ -94,13 +95,13 @@ public sealed class PayloadReader
 
         if (node is not JsonValue value || !value.TryGetValue<string>(out var text))
         {
-            throw CollectorException.BadRequest($"{name} 必须是字符串。", Field(name));
+            throw CollectorException.BadRequest(CollectorTexts.IpcFieldNotString(name), Field(name));
         }
 
         if (text.Length > maxLength)
         {
             throw CollectorException.BadRequest(
-                $"{name} 超过 {maxLength} 个字符的上限。", Field(name));
+                CollectorTexts.IpcFieldTooLong(name, maxLength), Field(name));
         }
 
         return text;
@@ -112,7 +113,7 @@ public sealed class PayloadReader
     public string RequiredString(string name, int maxLength = 4000) =>
         String(name, maxLength) is { Length: > 0 } text
             ? text
-            : throw CollectorException.BadRequest($"缺少必填字段 {name}。", Field(name));
+            : throw CollectorException.BadRequest(CollectorTexts.IpcFieldMissing(name), Field(name));
 
     /// <summary>Reads a required UUID.</summary>
     /// <param name="name">Property name.</param>
@@ -121,7 +122,7 @@ public sealed class PayloadReader
         var text = RequiredString(name, 64);
         return Guid.TryParseExact(text, "D", out _)
             ? text
-            : throw CollectorException.BadRequest($"{name} 必须是标准 UUID。", Field(name));
+            : throw CollectorException.BadRequest(CollectorTexts.IpcFieldNotUuid(name), Field(name));
     }
 
     /// <summary>Reads an integer, or null when absent or JSON null.</summary>
@@ -147,13 +148,13 @@ public sealed class PayloadReader
 
         if (node is not JsonValue value || !value.TryGetValue<long>(out var number))
         {
-            throw CollectorException.BadRequest($"{name} 必须是整数。", Field(name));
+            throw CollectorException.BadRequest(CollectorTexts.IpcFieldNotInteger(name), Field(name));
         }
 
         if (number < minimum || number > maximum)
         {
             throw CollectorException.BadRequest(
-                $"{name} 必须在 {minimum} 到 {maximum} 之间。", Field(name));
+                CollectorTexts.IpcFieldOutOfRange(name, minimum, maximum), Field(name));
         }
 
         return number;
@@ -165,7 +166,7 @@ public sealed class PayloadReader
     /// <param name="maximum">Largest accepted value.</param>
     public int RequiredInt(string name, int minimum = int.MinValue, int maximum = int.MaxValue) =>
         Int(name, minimum, maximum)
-            ?? throw CollectorException.BadRequest($"缺少必填字段 {name}。", Field(name));
+            ?? throw CollectorException.BadRequest(CollectorTexts.IpcFieldMissing(name), Field(name));
 
     /// <summary>Reads a boolean, or null when absent or JSON null.</summary>
     /// <param name="name">Property name.</param>
@@ -178,7 +179,7 @@ public sealed class PayloadReader
 
         return node is JsonValue value && value.TryGetValue<bool>(out var flag)
             ? flag
-            : throw CollectorException.BadRequest($"{name} 必须是布尔值。", Field(name));
+            : throw CollectorException.BadRequest(CollectorTexts.IpcFieldNotBoolean(name), Field(name));
     }
 
     /// <summary>Reads a UTC timestamp, or null when absent or JSON null.</summary>
@@ -194,13 +195,13 @@ public sealed class PayloadReader
         return UtcTimestamp.TryParse(text, out var value)
             ? value
             : throw CollectorException.BadRequest(
-                $"{name} 必须是带毫秒的 UTC ISO-8601 时间（形如 2026-09-04T11:22:33.456Z）。", Field(name));
+                CollectorTexts.IpcFieldNotTimestamp(name), Field(name));
     }
 
     /// <summary>Reads a required UTC timestamp.</summary>
     /// <param name="name">Property name.</param>
     public DateTimeOffset RequiredTimestamp(string name) =>
-        Timestamp(name) ?? throw CollectorException.BadRequest($"缺少必填字段 {name}。", Field(name));
+        Timestamp(name) ?? throw CollectorException.BadRequest(CollectorTexts.IpcFieldMissing(name), Field(name));
 
     /// <summary>Reads an enum token, or null when absent or JSON null.</summary>
     /// <typeparam name="TEnum">Enum type declared in the domain.</typeparam>
@@ -217,7 +218,7 @@ public sealed class PayloadReader
         return EnumWire<TEnum>.TryParse(text, out var value)
             ? value
             : throw CollectorException.BadRequest(
-                $"{name} 只能取 {string.Join(" / ", EnumWire<TEnum>.AllTokens)} 之一。", Field(name));
+                CollectorTexts.IpcFieldNotOneOf(name, string.Join(" / ", EnumWire<TEnum>.AllTokens)), Field(name));
     }
 
     /// <summary>Reads a required enum token.</summary>
@@ -225,7 +226,7 @@ public sealed class PayloadReader
     /// <param name="name">Property name.</param>
     public TEnum RequiredEnum<TEnum>(string name)
         where TEnum : struct, Enum =>
-        Enum<TEnum>(name) ?? throw CollectorException.BadRequest($"缺少必填字段 {name}。", Field(name));
+        Enum<TEnum>(name) ?? throw CollectorException.BadRequest(CollectorTexts.IpcFieldMissing(name), Field(name));
 
     /// <summary>Reads an array of integers; an absent property yields an empty list.</summary>
     /// <param name="name">Property name.</param>
@@ -244,7 +245,7 @@ public sealed class PayloadReader
         {
             if (node is not JsonValue value || !value.TryGetValue<int>(out var number) || number < minimum)
             {
-                throw CollectorException.BadRequest($"{name} 只能包含整数。", Field(name));
+                throw CollectorException.BadRequest(CollectorTexts.IpcFieldIntegersOnly(name), Field(name));
             }
 
             values.Add(number);
@@ -279,13 +280,13 @@ public sealed class PayloadReader
         {
             if (node is not JsonValue value || !value.TryGetValue<string>(out var text))
             {
-                throw CollectorException.BadRequest($"{name} 只能包含字符串。", Field(name));
+                throw CollectorException.BadRequest(CollectorTexts.IpcFieldStringsOnly(name), Field(name));
             }
 
             if (text.Length > maxLength)
             {
                 throw CollectorException.BadRequest(
-                    $"{name} 的每个元素最多 {maxLength} 个字符。", Field(name));
+                    CollectorTexts.IpcFieldItemTooLong(name, maxLength), Field(name));
             }
 
             values.Add(text);
@@ -310,7 +311,7 @@ public sealed class PayloadReader
         {
             if (array[index] is not JsonObject item)
             {
-                throw CollectorException.BadRequest($"{name} 只能包含对象。", Field(name));
+                throw CollectorException.BadRequest(CollectorTexts.IpcFieldObjectsOnly(name), Field(name));
             }
 
             readers.Add(new PayloadReader(item, $"{Field(name)}[{index}]"));
@@ -332,7 +333,7 @@ public sealed class PayloadReader
             if (!EnumWire<TEnum>.TryParse(text, out var value))
             {
                 throw CollectorException.BadRequest(
-                    $"{name} 只能取 {string.Join(" / ", EnumWire<TEnum>.AllTokens)} 之一。", Field(name));
+                    CollectorTexts.IpcFieldNotOneOf(name, string.Join(" / ", EnumWire<TEnum>.AllTokens)), Field(name));
             }
 
             values.Add(value);
@@ -350,13 +351,13 @@ public sealed class PayloadReader
 
         if (node is not JsonArray array)
         {
-            throw CollectorException.BadRequest($"{name} 必须是数组。", Field(name));
+            throw CollectorException.BadRequest(CollectorTexts.IpcFieldNotArray(name), Field(name));
         }
 
         if (array.Count > maxItems)
         {
             throw CollectorException.BadRequest(
-                $"{name} 最多只能有 {maxItems} 个元素。", Field(name));
+                CollectorTexts.IpcFieldTooManyItems(name, maxItems), Field(name));
         }
 
         return array;

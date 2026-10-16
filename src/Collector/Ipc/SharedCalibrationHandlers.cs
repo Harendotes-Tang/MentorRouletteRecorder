@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using MentorRecorder.Collector.Contracts.Errors;
+using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Protocol.Pipeline;
 using MentorRecorder.Collector.Protocol.Sharing;
@@ -7,7 +8,8 @@ using MentorRecorder.Collector.Protocol.Sharing;
 namespace MentorRecorder.Collector.Ipc;
 
 /// <summary>
-/// The five shared-calibration requests: the share code of the local calibration in force,
+/// The five shared-calibration requests: the share code of the local calibration in force (or of another player's
+/// calibration this machine proved),
 /// 立即检查, 导入校准码, accepting queue inference once, and 不用共享的，我自己校准. Normal answers are
 /// outcome tokens; only a share code that cannot be given fails the request. The renderers are
 /// public so the contract tests can hold every success shape against the schema.
@@ -30,7 +32,7 @@ public static class SharedCalibrationHandlers
 
         throw new CollectorException(
             ErrorCodes.ShareCodeUnavailable,
-            result.Message ?? "当前档案无法生成校准码。",
+            result.Text ?? CollectorTexts.SharingShareCodeUnavailable(),
             new Dictionary<string, object?>
             {
                 ["reason"] = EnumWire<SharedShareCodeRefusal>.Format(result.Refusal ?? SharedShareCodeRefusal.NotShareable),
@@ -52,13 +54,13 @@ public static class SharedCalibrationHandlers
         ArgumentNullException.ThrowIfNull(reader);
         reader.RejectUnknown("code");
         var code = reader.String("code", MaxCodeRequestLength)
-            ?? throw CollectorException.BadRequest("缺少必填字段 code。", "payload.code");
+            ?? throw CollectorException.BadRequest(CollectorTexts.IpcFieldMissing("code"), "payload.code");
         var pipeline = RequirePipeline(host);
         var result = code.AsSpan().Trim().Length > ShareCode.MaxCodeLength
             ? new SharedImportResult(
                 SharedImportOutcome.Malformed,
                 ShareCodeRejection.TooLong,
-                $"这不是一份能识别的校准码：内容太长，校准码最多 {ShareCode.MaxCodeLength} 个字符。")
+                CollectorTexts.SharingImportCodeTooLong(ShareCode.MaxCodeLength))
             : pipeline.ImportCalibrationCode(code);
         return ImportResponse(result);
     }
@@ -86,6 +88,7 @@ public static class SharedCalibrationHandlers
             ["code_sha256"] = code.CodeSha256,
             ["issue_url"] = code.IssueUrl,
             ["code_in_url"] = code.CodeInUrl,
+            ["basis"] = EnumWire<SharedShareBasis>.Format(code.Basis),
         };
     }
 
@@ -99,6 +102,7 @@ public static class SharedCalibrationHandlers
             ["outcome"] = EnumWire<SharedImportOutcome>.Format(result.Outcome),
             ["reason"] = result.Reason,
             ["message"] = result.Message,
+            ["message_ref"] = result.Text.ToJson(),
             ["code_sha256"] = result.CodeSha256,
             ["provenance"] = result.Provenance is { } provenance ? EnumWire<SharedCandidateProvenance>.Format(provenance) : null,
         };
@@ -129,5 +133,5 @@ public static class SharedCalibrationHandlers
     }
 
     private static LiveProtocolPipeline RequirePipeline(CollectorHost host) =>
-        host.LiveProtocol ?? throw new CollectorException(ErrorCodes.CalibrationNotReady, "本进程没有运行协议管线，无法校准。");
+        host.LiveProtocol ?? throw new CollectorException(ErrorCodes.CalibrationNotReady, CollectorTexts.CalibrationPipelineNotReady());
 }

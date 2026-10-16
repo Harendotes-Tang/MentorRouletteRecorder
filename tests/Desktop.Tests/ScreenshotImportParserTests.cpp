@@ -279,7 +279,7 @@ void ScreenshotImportParserTests::timestampAndCardBorderKeepAMissedTitleSeparate
     QVERIFY(missed.value(QStringLiteral("duty_level")).isNull());
     QCOMPARE(missed.value(QStringLiteral("reflection_text")).toString(), QStringLiteral("合成第二卡正文"));
     QCOMPARE(missed.value(QStringLiteral("source_recorded_at")).toString(), QStringLiteral("2026-10-01 12:30:00"));
-    QVERIFY(hasWarning(missed, QStringLiteral("标题识别失败")));
+    QVERIFY(hasWarning(missed, QStringLiteral("未能识别副本标题")));
 }
 
 void ScreenshotImportParserTests::blueDutyIconIsNotTitleText()
@@ -326,8 +326,8 @@ void ScreenshotImportParserTests::invalidDateAndLowConfidenceRequireCorrection()
     QCOMPARE(rows.size(), 1);
     const QVariantMap row = rows[0].toMap();
     QCOMPARE(row.value(QStringLiteral("source_recorded_at")).toString(), QStringLiteral("2026-02-30 25:61:00"));
-    QVERIFY(hasWarning(row, QStringLiteral("时间无效")));
-    QVERIFY(hasWarning(row, QStringLiteral("把握较低")));
+    QVERIFY(hasWarning(row, QStringLiteral("原记录时间无法识别")));
+    QVERIFY(hasWarning(row, QStringLiteral("文字识别可能不准")));
     QVERIFY(row.value(QStringLiteral("ocr_confidence")).toDouble() < 0.3);
 }
 
@@ -348,12 +348,12 @@ void ScreenshotImportParserTests::boundedInputsRejectWholeBatch()
     QVERIFY(!error.isEmpty());
     QVERIFY(mr::ScreenshotImportParser::parse(image, kTsvHeader + card(100)
                                                + word(10, 590, 600, 40, 20, QStringLiteral("越界")), {}, &error).isEmpty());
-    QVERIFY(error.contains(QStringLiteral("坐标")));
+    QVERIFY(error.contains(QStringLiteral("文字位置超出原图范围")));
     QVERIFY(mr::ScreenshotImportParser::parse(image, kTsvHeader + card(100)
                                                + word(10, 150, 600, 40, 20, QStringLiteral("非法分值"), 101), {}, &error).isEmpty());
-    QVERIFY(error.contains(QStringLiteral("置信度")));
+    QVERIFY(error.contains(QStringLiteral("文字评分异常")));
     QVERIFY(mr::ScreenshotImportParser::parse(image, kTsvHeader + word(1, 150, 100, 200, 20, QStringLiteral("无卡片正文")), {}, &error).isEmpty());
-    QVERIFY(error.contains(QStringLiteral("未找到")));
+    QVERIFY(error.contains(QStringLiteral("没有识别到带副本等级和名称，或完整记录时间的卡片")));
 }
 
 void ScreenshotImportParserTests::candidateLimitRejectsWholeBatch()
@@ -510,7 +510,7 @@ void ScreenshotImportParserTests::missingLevelPrefixRequiresCardAndBlueIconAtThe
     QCOMPARE(rows[0].toMap().value(QStringLiteral("duty_level")).toInt(), 55);
     QCOMPARE(rows[0].toMap().value(QStringLiteral("duty_name")).toString(), QStringLiteral("合成副本"));
     QVERIFY(rows[0].toMap().value(QStringLiteral("needs_review")).toBool());
-    QVERIFY(hasWarning(rows[0].toMap(), QStringLiteral("等级前缀")));
+    QVERIFY(hasWarning(rows[0].toMap(), QStringLiteral("副本等级标记未识别完整")));
     QVERIFY(rows[0].toMap().value(QStringLiteral("source_recorded_at")).toString().isEmpty());
 
     QImage noCard = screenshot();
@@ -574,7 +574,7 @@ void ScreenshotImportParserTests::dutyCandidatesRequireUniqueSameLevelChineseMat
     QVERIFY(unique.value(QStringLiteral("needs_review")).toBool());
     QVERIFY(!unique.contains(QStringLiteral("content_id")));
     QVERIFY(!unique.contains(QStringLiteral("duty_category")));
-    QVERIFY(hasWarning(unique, QStringLiteral("目录预填候选")));
+    QVERIFY(hasWarning(unique, QStringLiteral("已按同等级副本预填可能的名称")));
     QCOMPARE(parseTitle(QStringLiteral("天然 要寒沙斯塔夏·溶同"), 15)
                  .value(QStringLiteral("duty_candidate_name")).toString(), canonical);
 
@@ -641,7 +641,7 @@ void ScreenshotImportParserTests::webRowsSplitLevelDutyTimeAndNoteIntoColumns()
     for (int i = 0; i < rows.size(); ++i) {
         const QVariantMap row = rows[i].toMap();
         QVERIFY(row.value(QStringLiteral("needs_review")).toBool());
-        QVERIFY(!hasWarning(row, QStringLiteral("标题识别失败")));
+        QVERIFY(!hasWarning(row, QStringLiteral("未能识别副本标题")));
         QVERIFY(!hasWarning(row, QStringLiteral("副本名称未识别完整")));
         QCOMPARE(row.value(QStringLiteral("source_image")).toString(), QStringLiteral("C:/web.png"));
         const QVariantMap rect = row.value(QStringLiteral("source_rect")).toMap();
@@ -670,7 +670,7 @@ void ScreenshotImportParserTests::webRowsSplitLevelDutyTimeAndNoteIntoColumns()
 
     const QVariantMap third = rows[2].toMap();
     QCOMPARE(third.value(QStringLiteral("duty_level")).toInt(), 24);
-    QVERIFY(hasWarning(third, QStringLiteral("等级前缀")));
+    QVERIFY(hasWarning(third, QStringLiteral("副本等级标记未识别完整")));
     QCOMPARE(third.value(QStringLiteral("duty_name")).toString(), QStringLiteral("监狱废墟托托·拉克千狱"));
     QVERIFY(third.value(QStringLiteral("duty_candidate_pending")).toBool());
     QCOMPARE(third.value(QStringLiteral("source_recorded_at")).toString(), QStringLiteral("2024-09-20 12:20:55"));
@@ -723,7 +723,7 @@ void ScreenshotImportParserTests::webRowColumnsSpanWrappedLines()
     QCOMPARE(noteWraps.value(QStringLiteral("reflection_text")).toString(), QStringLiteral("又是这本\n第二行"));
     for (const QVariant &value : rows) {
         QVERIFY(!hasWarning(value.toMap(), QStringLiteral("未识别到心得正文")));
-        QVERIFY(!hasWarning(value.toMap(), QStringLiteral("标题识别失败")));
+        QVERIFY(!hasWarning(value.toMap(), QStringLiteral("未能识别副本标题")));
         QVERIFY(!hasWarning(value.toMap(), QStringLiteral("多个时间")));
     }
 }
@@ -1038,7 +1038,7 @@ void ScreenshotImportParserTests::webRowWithMisreadDateOrLevelIsKept()
     QVERIFY(hasWarning(misreadDate, QStringLiteral("等级数字")));
     QCOMPARE(misreadDate.value(QStringLiteral("duty_name")).toString(), QStringLiteral("间歇灵泉哈姆岛"));
     QVERIFY(misreadDate.value(QStringLiteral("source_recorded_at")).toString().isEmpty());
-    QVERIFY(hasWarning(misreadDate, QStringLiteral("来源记录时间缺失")));
+    QVERIFY(hasWarning(misreadDate, QStringLiteral("未识别到原记录时间")));
     // 时间仍属时间列，不会流入心得。
     QCOMPARE(misreadDate.value(QStringLiteral("reflection_text")).toString(), QStringLiteral("无事发生"));
     const QVariantMap misreadLevel = rows[1].toMap();

@@ -1,163 +1,186 @@
 import QtQuick
 import MentorRecorder
 
-// 单条、逐条 PNG 与合成长图共用此卡片；所有文字在基准画布完整排版后统一缩放。
+// 按 1140 逻辑像素排完整张卷轴，再统一缩放至预览/抓图宽度。
 Item {
     id: card
     objectName: "reflectionShareCard"
     property var runData: ({})
+    property var runsData: []
     property bool showAttribution: true
-    readonly property var reflection: runData.reflection || ({})
-    readonly property real templateScale: Math.max(1, width) / 1536
-    readonly property string assetRoot: "qrc:/resources/reflection-share/eorzea-guild-v5/"
+    property string exportDate: Qt.formatDate(new Date(), "yyyy.MM.dd")
+    readonly property bool opaquePaper: true
+    readonly property var entries: runsData.length > 0 ? runsData : [runData]
+    readonly property bool single: entries.length === 1
+    readonly property bool spansYears: {
+        const years = ({})
+        for (let i = 0; i < entries.length; ++i) {
+            const date = Fmt.localDate(entries[i].matched_at_utc)
+            if (date !== Fmt.dash()) years[date.slice(0, 4)] = true
+        }
+        return Object.keys(years).length > 1
+    }
+    readonly property real templateScale: Math.max(1, width) / 1140
+    readonly property string assetRoot: "qrc:/resources/reflection-share/duty-notes-scroll-v1.4.1/"
     height: Math.ceil(paper.height * templateScale)
 
-    function dateLabel() {
-        if (runData.matched_at_utc)
-            return qsTr("游玩时间：%1").arg(Fmt.localDateTime(runData.matched_at_utc))
-        const source = runData.import_metadata || ({})
-        if (source.source_recorded_at_utc)
-            return qsTr("原站记录时间：%1 · 游玩时间未知").arg(Fmt.localDateTime(source.source_recorded_at_utc))
-        if (source.source_recorded_at)
-            return qsTr("原站记录时间：%1 · 游玩时间未知").arg(source.source_recorded_at)
-        return qsTr("游玩时间未知")
+    function collectionLabel() {
+        const dates = []
+        for (let i = 0; i < entries.length; ++i) {
+            if (!entries[i].matched_at_utc) continue
+            const value = Fmt.localDate(entries[i].matched_at_utc)
+            if (value !== Fmt.dash()) dates.push(value.replace(/-/g, "."))
+        }
+        dates.sort()
+        let label = qsTr("共 %1 条").arg(entries.length)
+        if (dates.length > 0)
+            label += " · " + dates[0] + (dates[0] === dates[dates.length - 1] ? "" : " – " + dates[dates.length - 1])
+        if (dates.length < entries.length)
+            label += " · " + qsTr("%1 条游玩时间未知").arg(entries.length - dates.length)
+        return label
     }
 
     Item {
         id: paper
-        width: 1536
-        height: Math.ceil(Math.max(700, body.y + body.height + 156) / 4) * 4
+        width: 1140
+        height: Math.ceil(Math.max(480, (card.single ? singleEntry.height : timeline.y + timeline.height) + 190))
         scale: card.templateScale
         transformOrigin: Item.TopLeft
-        readonly property color ink: "#392618"
-        readonly property color secondaryInk: "#6F5740"
+        readonly property real dividerY: card.single ? singleEntry.dividerY : Math.max(238, collectionMeta.y + collectionMeta.height + 38)
+        readonly property bool fixedHeader: dividerY === 238
 
         Item {
-            id: bodyPaper
             objectName: "reflectionSharePaperBody"
-            y: 254
-            width: 1536
-            // 顶底各多铺 2 个基准像素至固定片下，覆盖高 DPI 软件渲染对裁剪边界的取整空隙。
-            height: paper.height - 254 - 134 + 2
+            anchors.fill: parent
             clip: true
             Repeater {
-                model: Math.ceil(bodyPaper.height / 256)
+                model: Math.ceil(paper.height / 570) * 2
                 Image {
                     required property int index
-                    y: index * 256
-                    width: 1536
-                    height: 256
-                    source: card.assetRoot + "background/body-tile.png"
+                    x: (index % 2) * 570; y: Math.floor(index / 2) * 570
+                    width: 570; height: 570
+                    source: card.assetRoot + "paper_tile.png"
                 }
             }
         }
-        Image { objectName: "reflectionShareHeader"; width: 1536; height: 256; source: card.assetRoot + "background/header.png" }
+        // 2x 九宫格先在双倍坐标绘制，角饰保持 192 逻辑像素，不随长文拉伸。
+        BorderImage {
+            objectName: "reflectionShareFrame"
+            width: 2280; height: paper.height * 2
+            scale: 0.5; transformOrigin: Item.TopLeft
+            border { left: 384; right: 384; top: 384; bottom: 384 }
+            source: card.assetRoot + "frame_9slice.png"
+            visible: !paper.fixedHeader
+        }
         Image {
-            y: paper.height - 134 - 32
-            width: 1536; height: 32
-            source: card.assetRoot + "background/body-end-transition.png"
+            x: 0; y: 280; width: 1140; height: Math.max(0, paper.height - 480)
+            source: card.assetRoot + "scroll_mid.png"
+            visible: paper.fixedHeader
+        }
+        Image {
+            objectName: "reflectionShareHeader"
+            width: 1140; height: 280
+            source: card.assetRoot + "scroll_top.png"
+            visible: paper.fixedHeader
+        }
+        Image {
+            x: 706; y: 20; width: 378; height: 215
+            source: card.assetRoot + "header_art.png"
+            visible: !paper.fixedHeader
+        }
+        Image {
+            objectName: "reflectionShareDivider"
+            x: 84; y: paper.dividerY - 12; width: 972; height: 24
+            source: card.assetRoot + "header_rule.png"
+            visible: !paper.fixedHeader
+        }
+        Repeater {
+            model: 2
+            Image {
+                required property int index
+                x: index === 0 ? 0 : 1106; y: paper.dividerY - 42
+                width: 34; height: 84
+                source: card.assetRoot + "side_gem.png"
+                visible: !paper.fixedHeader
+            }
+        }
+        Image {
+            y: paper.height - 200; width: 1140; height: 200
+            source: card.assetRoot + "scroll_bottom.png"
+            visible: paper.fixedHeader
         }
         Image {
             objectName: "reflectionShareFooter"
-            y: paper.height - 134
-            width: 1536; height: 134
-            source: card.assetRoot + "background/footer.png"
-        }
-
-        Text {
-            x: 112; y: 57
-            text: qsTr("导随心得")
-            color: paper.ink
-            font.family: "Noto Serif SC"
-            font.pixelSize: 32
-            font.weight: Font.DemiBold
-            font.letterSpacing: 8
-        }
-        Image { x: 362; y: 65; width: 448; height: 32; source: card.assetRoot + "decor/title-rule.png" }
-        Image { x: 67; y: 132; width: 32; height: 88; source: card.assetRoot + "decor/side-flourish.png" }
-        JobIcon { objectName: "reflectionShareJobIcon"; x: 128; y: 132; jobId: card.runData.job_id; size: 96 }
-        Text {
-            id: dutyTitle
-            objectName: "reflectionShareDutyTitle"
-            x: 244; y: 129; width: 1180
-            text: card.runData.duty_name || qsTr("未知副本")
-            textFormat: Text.PlainText
-            color: paper.ink
-            font.family: "Noto Serif SC"
-            font.pixelSize: 64
-            font.weight: Font.DemiBold
-            wrapMode: Text.Wrap
+            x: 390; y: paper.height - 164; width: 360; height: 48
+            source: card.assetRoot + "end_ornament.png"
+            visible: !paper.fixedHeader
         }
         Text {
-            id: resultText
-            objectName: "reflectionShareResultText"
-            x: 244; y: Math.max(216, dutyTitle.y + dutyTitle.height); width: 1180
-            text: (card.runData.job_name || qsTr("未知职业")) + " · " + Fmt.resultLabel(card.runData.result || "UNKNOWN")
-            textFormat: Text.PlainText
-            color: paper.ink
-            font.family: "Noto Serif SC"
-            font.pixelSize: 32
-            font.weight: Font.Medium
-            wrapMode: Text.Wrap
+            objectName: "reflectionShareCollectionTitle"
+            visible: !card.single
+            x: 84; y: 132 - baselineOffset; width: 610
+            text: qsTr("导随记录"); textFormat: Text.PlainText
+            color: "#2E2118"
+            font { family: "Noto Serif SC"; pixelSize: 56; bold: true; letterSpacing: 8 }
         }
         Text {
-            id: timeText
-            objectName: "reflectionShareTimeText"
-            x: 244; y: Math.max(268, resultText.y + resultText.height + 8); width: 1180
-            text: card.dateLabel()
-            textFormat: Text.PlainText
-            color: paper.secondaryInk
-            font.family: Theme.bodyFamily
-            font.pixelSize: 29
-            wrapMode: Text.Wrap
+            id: collectionMeta
+            objectName: "reflectionShareCollectionMeta"
+            visible: !card.single
+            x: 86; y: 186 - baselineOffset; width: 610
+            text: card.collectionLabel(); textFormat: Text.PlainText
+            wrapMode: Text.Wrap; color: "#6E5A44"
+            font { family: "Noto Serif SC"; pixelSize: 24; letterSpacing: 1.5 }
         }
-        Text {
-            id: moodText
-            objectName: "reflectionShareMoodText"
-            x: 244; y: Math.max(317, timeText.y + timeText.height + 10); width: 1180
-            text: Theme.moodLabel(card.reflection.mood)
-            textFormat: Text.PlainText
-            color: card.reflection.mood === "bad" ? "#943D23" : paper.secondaryInk
-            font.family: "Noto Serif SC"
-            font.pixelSize: 30
-            font.weight: Font.DemiBold
-            wrapMode: Text.Wrap
+        ReflectionShareEntry {
+            id: singleEntry
+            visible: card.single
+            runData: card.entries[0] || ({})
+            single: true
         }
         Image {
-            id: divider
-            objectName: "reflectionShareDivider"
-            x: 112; y: Math.max(367, moodText.y + moodText.height + 24)
-            width: 1312; height: 40
-            source: card.assetRoot + "decor/divider-full.png"
+            x: 220; y: timeline.y + 32; width: 8
+            height: {
+                const last = entriesRepeater.count > 0 ? entriesRepeater.itemAt(entriesRepeater.count - 1) : null
+                return Math.max(0, timeline.height - (last ? last.height : 0))
+            }
+            visible: !card.single && card.entries.length > 1
+            source: card.assetRoot + "rail_line.png"
+        }
+        Column {
+            id: timeline
+            x: 0; y: paper.dividerY + 54; width: 1140
+            visible: !card.single; spacing: 76
+            Repeater {
+                id: entriesRepeater
+                model: card.single ? [] : card.entries
+                ReflectionShareEntry {
+                    required property var modelData
+                    required property int index
+                    runData: modelData; entryIndex: index; single: false
+                    showYear: card.spansYears
+                    Image {
+                        x: 262; y: parent.height + 34; width: 794; height: 8
+                        visible: index < card.entries.length - 1
+                        source: card.assetRoot + "entry_rule.png"
+                    }
+                }
+            }
         }
         Text {
-            id: body
-            objectName: "reflectionShareFullText"
-            x: 112; y: divider.y + 61; width: 1312
-            text: card.reflection.text || ""
-            textFormat: Text.PlainText
-            color: paper.ink
-            font.family: "Noto Serif SC"
-            font.pixelSize: 40
-            wrapMode: Text.Wrap
-            lineHeightMode: Text.FixedHeight
-            lineHeight: 66
+            objectName: "reflectionShareExportDate"
+            x: 84; y: paper.height - 88 - baselineOffset; width: 972
+            text: qsTr("导出于 %1").arg(card.exportDate); textFormat: Text.PlainText
+            horizontalAlignment: Text.AlignHCenter; color: "#6E5A44"
+            font { family: "Noto Serif SC"; pixelSize: 20; letterSpacing: 3 }
         }
-        Image {
+        Text {
             objectName: "reflectionShareBrand"
-            x: (paper.width - width) / 2; y: paper.height - 48
-            width: 320; height: 32
-            source: card.assetRoot + "decor/footer-brand.png"
+            x: 84; y: paper.height - 49 - baselineOffset; width: 972
+            text: qsTr("Powered by 导随记录器"); textFormat: Text.PlainText
+            horizontalAlignment: Text.AlignHCenter; color: "#6E5A44"
+            font { family: Theme.bodyFamily; pixelSize: 16 }
             visible: card.showAttribution
-            Accessible.name: "Powered by 导随记录器"
-            Accessible.role: Accessible.StaticText
-        }
-        // 交叠信息区是已确认设计。此 PNG 自带倾斜与 43% 浓度，不能再次旋转或降低透明度。
-        Image {
-            objectName: "reflectionShareResultStamp"
-            x: 44; y: 30; width: 426; height: 320
-            source: card.runData.result === "COMPLETED" ? card.assetRoot + "decor/mission-complete-stamp-diagonal.png" : ""
-            visible: source.toString().length > 0
         }
     }
 }

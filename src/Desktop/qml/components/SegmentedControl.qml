@@ -27,6 +27,11 @@ Rectangle {
         return false
     }
 
+    // Every option at its natural width plus the track's 2 px inset. A caller
+    // with a fixed width takes the larger of the two, so a longer translation
+    // ("Week" / "Month") is not squeezed into the Chinese option's room.
+    readonly property real naturalWidth: optionRow.implicitWidth + 4
+
     implicitHeight: Theme.eorzea ? 30 : 28
     radius: Theme.eorzea ? Theme.radiusM : Theme.radiusS
     color: Theme.eorzea
@@ -36,6 +41,8 @@ Rectangle {
     border.color: Theme.border
 
     RowLayout {
+        id: optionRow
+
         anchors.fill: parent
         anchors.margins: 2
         spacing: 2
@@ -111,6 +118,9 @@ Rectangle {
                     }
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
+                    // An option may name its own face (the language card draws
+                    // 繁體中文 / 日本語 in their own shapes); the rest keep the body font.
+                    font.family: option.modelData.family || Theme.bodyFamily
                     font.pixelSize: Theme.eorzea ? 12 : 13
                     font.weight: option.current
                                  ? (Theme.eorzea ? Font.Bold : Font.DemiBold)

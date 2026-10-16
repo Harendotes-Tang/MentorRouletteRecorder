@@ -10,12 +10,13 @@ using Bed = MentorRecorder.Collector.UnitTests.SharedCalibrationTestBed;
 namespace MentorRecorder.Collector.UnitTests;
 
 /// <summary>
-/// Which published code may bind on the login burst alone (plan §18.3; audit 2026-10-03, ON1-1). The patch-day
-/// path stays: with nothing usable on this machine, the best-attested published code binds at login and its match
-/// and duty entry are audited while it records. Everything else must have its match and its duty entry seen to
-/// behave first: a code that would displace a calibration already usable here, a code the repository marked as
-/// conflicting, and a code another candidate outranks by submitters - so neither the conflict mark nor a code's
-/// kind lets one or two accounts put their code ahead of one many players submitted.
+/// Which published code may bind on the login burst alone (plan §18.3; audit 2026-10-03, ON1-1; plan §20.5). The
+/// patch-day path stays: with nothing usable on this machine, the best-attested published code binds at login and its
+/// match and duty entry are audited while it records. Everything else must have its match and its duty entry seen to
+/// behave first: a code that would displace a calibration already usable here, a code another candidate outranks by
+/// submitters, and a code the other candidates outvote on a field in dispute - so a code's kind does not let one or two
+/// accounts put their code ahead of one many players submitted. Since §20 the repository's conflict mark alone no longer
+/// holds a code back: this machine compares the same codes field by field (SharedCalibrationConsensusGateTests).
 /// </summary>
 public sealed class SharedCalibrationTrustTests : IDisposable
 {
@@ -85,32 +86,45 @@ public sealed class SharedCalibrationTrustTests : IDisposable
 
         Assert.Equal(SharedImportOutcome.Applied, pasted.Outcome);
         Assert.Equal(SharedCandidateProvenance.Published, pasted.Provenance);
-        Assert.Contains("排一次本", pasted.Message, StringComparison.Ordinal);
+        Assert.Contains("申请随机任务并进出副本", pasted.Message, StringComparison.Ordinal);
         Assert.DoesNotContain("登录时", pasted.Message, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// Plan §20.5: the gate no longer reads the repository's conflict mark on its own. The mark says some code of the build
+    /// disagrees with this one; here no such code reaches this machine (revoked, rejected, or never downloaded), so nothing
+    /// is in dispute and the mark holds nothing back. Until §20 it sent the code to verifying its match first, and this
+    /// test pinned that.
+    /// </summary>
     [Fact]
-    public async Task ACodeTheRepositoryMarkedConflictingBindsOnlyOnceItsMatchAndDutyEntryBehaved()
+    public async Task TheConflictMarkAloneNoLongerHoldsAPublishedCodeBackFromTheLoginBurst()
     {
         _bed.PublishListed(new Bed.Listing(_bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState), Conflicting: true));
         var pipeline = _bed.Pipeline(_bed.Services());
         pipeline.Refresh(Bed.Game());
         await Bed.Idle(pipeline);
+        var marked = Assert.Single(pipeline.CalibrationStatus().Shared.Candidates);
+        Assert.Empty(marked.Disputed);
+        Assert.True(marked.Preferred);
 
+        // Judged once the session has an observer: the match is audited, not required.
         var session = _bed.Start(pipeline);
+        Assert.Equal(SharedCheckOutcome.Started, pipeline.CheckSharedCalibrationNow());
+        await Bed.Idle(pipeline);
+        marked = Assert.Single(pipeline.CalibrationStatus().Shared.Candidates);
+        Assert.Equal(SharedGate.Audit, Assert.Single(marked.Criteria, item => item.Message == CalibratedShape.PopName).Gate);
         var evening = Bed.Evening().ToArray();
         Bed.Feed(pipeline, session, Login(evening));
         await Bed.Idle(pipeline);
 
-        // Nothing records here, and still the login burst alone is not enough: another code of the build disagrees with it.
-        Assert.Equal(ProfileStatus.UnsupportedBuild, pipeline.Current.Status);
-        Assert.False(File.Exists(_bed.SharedProfilePath));
+        // Bound on the login burst; the match is audited while it records.
+        Assert.Equal(ProfileOrigin.Shared, pipeline.Current.Origin);
+        Assert.Equal(RunState.Idle, pipeline.RunState);
+        Assert.True(pipeline.CalibrationStatus().Shared.AuditPending);
 
         Bed.Feed(pipeline, session, Bed.From(Bed.Before(evening, 200_000), 30_000));
         await Bed.Idle(pipeline);
 
-        // Its match and duty entry behaved: bound, and the staged duty drained into a run.
-        Assert.Equal(ProfileOrigin.Shared, pipeline.Current.Origin);
         Assert.Equal(RunState.EnteredDuty, pipeline.RunState);
         Assert.Equal(9, Assert.Single(RunsOf(session)).MentorRouletteId);
     }
@@ -162,11 +176,17 @@ public sealed class SharedCalibrationTrustTests : IDisposable
         await Bed.Idle(pipeline);
         Assert.Equal(2, pipeline.CalibrationStatus().Shared.Candidates.Count);
 
+        // The two name the match in different ways and agree on everything else, so nothing is in dispute; the code three
+        // accounts submitted binds at login despite the mark (§20), and the lesser one never gets the chance.
+        var candidates = pipeline.CalibrationStatus().Shared.Candidates;
+        Assert.All(candidates, candidate => Assert.Empty(candidate.Disputed));
+
         var session = _bed.Start(pipeline);
         var evening = Bed.Evening().ToArray();
         Bed.Feed(pipeline, session, Login(evening));
         await Bed.Idle(pipeline);
-        Assert.Equal(ProfileStatus.UnsupportedBuild, pipeline.Current.Status);
+        Assert.Equal(ProfileOrigin.Shared, pipeline.Current.Origin);
+        Assert.Equal(honest.Sha[..12], pipeline.CalibrationStatus().Shared.Candidates[0].Sha12);
 
         Bed.Feed(pipeline, session, Bed.From(Bed.Before(evening, 200_000), 30_000));
         await Bed.Idle(pipeline);

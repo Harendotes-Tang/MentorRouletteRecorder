@@ -64,7 +64,7 @@ public sealed class ContractSchemaTests
                      {
                          "GetVersion", "GetStatus", "GetCaptureStatus", "ListCaptureAdapters",
                          "GetProtocolProfileStatus", "GetCurrentRun",
-                         "GetCaptureValidationStatus", "StopCaptureValidation",
+                         "GetCaptureValidationStatus", "StopCaptureValidation", "GetCalibrationEvidence", "GetTemplateObservation",
                      })
             {
                 Assert.True((await client.SendAsync(messageType)).Ok, messageType);

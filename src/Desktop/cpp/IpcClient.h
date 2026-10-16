@@ -30,6 +30,8 @@
 
 #include <functional>
 
+#include "LiveText.h"
+
 namespace mr {
 
 class BackendReply;
@@ -47,7 +49,7 @@ public:
     void setServerName(const QString &serverName);
 
     bool isConnected() const;
-    QString lastError() const { return m_lastError; }
+    QString lastError() const { return m_lastError.text(); }
 
     /// Per-request timeout in milliseconds, for everything that is not a
     /// long-running export or backup.
@@ -113,7 +115,7 @@ private:
     void scheduleReconnect();
     void dispatch(const QJsonObject &envelope);
     void failAllPending(const QString &code, const QString &message);
-    void abortStream(const QString &reason);
+    void abortStream(const LiveText &reason);
 
     struct Pending {
         QPointer<BackendReply> reply;
@@ -126,7 +128,8 @@ private:
     QByteArray m_buffer;
     QHash<QString, Pending> m_pending;
     QString m_serverName;
-    QString m_lastError;
+    /// A recipe, so connectionDetail follows a language switch (LiveText.h).
+    LiveText m_lastError;
     /// Empty in the shipping build: \ref pipeOwnedByCurrentUser decides.
     ServerOwnerCheck m_ownerCheck;
     int m_backoffMs = 500;

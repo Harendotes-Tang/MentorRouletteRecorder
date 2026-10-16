@@ -24,6 +24,31 @@ QString settingsDirectory()
     return QDir(base).absoluteFilePath(QStringLiteral("MentorRecorder"));
 }
 
+// The five announcement lines as shipped, in Simplified Chinese; the other
+// interface languages read their own default through the translation, so a
+// player who never edits a template hears it in the interface language.
+struct TemplateDefault
+{
+    const char *leaf;
+    const char *text;
+};
+const TemplateDefault kTemplateDefaults[] = {
+    {"tpl_matched", QT_TRANSLATE_NOOP("mr::AppSettings", "指导者任务匹配成功")},
+    {"tpl_entered", QT_TRANSLATE_NOOP("mr::AppSettings", "进入 {duty}")},
+    {"tpl_completed", QT_TRANSLATE_NOOP("mr::AppSettings", "导随完成，当前 {progress} 次，剩余 {remaining}")},
+    {"tpl_finished", QT_TRANSLATE_NOOP("mr::AppSettings", "导随结束，请确认是否通关，已确认 {progress} 次")},
+    {"tpl_aborted", QT_TRANSLATE_NOOP("mr::AppSettings", "导随异常结束")},
+};
+
+QString templateDefault(const char *leaf)
+{
+    for (const TemplateDefault &entry : kTemplateDefaults) {
+        if (qstrcmp(entry.leaf, leaf) == 0)
+            return QCoreApplication::translate("mr::AppSettings", entry.text);
+    }
+    return {};
+}
+
 int clampScale(int percent)
 {
     for (int allowed : {100, 125, 150, 175}) {
@@ -81,6 +106,17 @@ void AppSettings::setUiScale(int percent)
 bool AppSettings::firstRunCompleted() const
 {
     return m_settings.value(QStringLiteral("ui/first_run_completed"), false).toBool();
+}
+
+QString AppSettings::releaseNotesSeenVersion() const
+{
+    return m_settings.value(QStringLiteral("ui/release_notes_seen_version")).toString();
+}
+
+void AppSettings::setReleaseNotesSeenVersion(const QString &version)
+{
+    m_settings.setValue(QStringLiteral("ui/release_notes_seen_version"), version);
+    m_settings.sync();
 }
 
 void AppSettings::setFirstRunCompleted(bool completed)
@@ -271,9 +307,23 @@ void AppSettings::setTtsVolume(int percent)
     Q_EMIT ttsChanged();
 }
 
+void AppSettings::setSpeechLanguage(const QString &code)
+{
+    m_speechLanguage = code.isEmpty() ? QStringLiteral("zh-CN") : code;
+}
+
+QString AppSettings::ttsKey(const char *leaf) const
+{
+    // 简体中文 keeps the keys every earlier build wrote (tts/voice, tts/tpl_*), so
+    // an existing desktop.ini reads as before; another language gets its own set.
+    if (m_speechLanguage == QLatin1String("zh-CN"))
+        return QStringLiteral("tts/") + QLatin1String(leaf);
+    return QStringLiteral("tts/%1/%2").arg(m_speechLanguage, QLatin1String(leaf));
+}
+
 QString AppSettings::ttsVoice() const
 {
-    return m_settings.value(QStringLiteral("tts/voice"), QString()).toString().trimmed();
+    return m_settings.value(ttsKey("voice"), QString()).toString().trimmed();
 }
 
 void AppSettings::setTtsVoice(const QString &id)
@@ -282,9 +332,45 @@ void AppSettings::setTtsVoice(const QString &id)
     if (ttsVoice() == trimmed)
         return;
     if (trimmed.isEmpty())
-        m_settings.remove(QStringLiteral("tts/voice"));
+        m_settings.remove(ttsKey("voice"));
     else
-        m_settings.setValue(QStringLiteral("tts/voice"), trimmed);
+        m_settings.setValue(ttsKey("voice"), trimmed);
+    Q_EMIT ttsChanged();
+}
+
+QString AppSettings::templateValue(const char *leaf) const
+{
+    return m_settings.value(ttsKey(leaf), templateDefault(leaf)).toString();
+}
+
+void AppSettings::setTemplateValue(const char *leaf, const QString &value)
+{
+    if (templateValue(leaf) == value)
+        return;
+    // A line put back to the default is stored as "not edited", so it keeps
+    // following the default's wording (and 恢复默认模板 has nothing to undo).
+    if (value == templateDefault(leaf))
+        m_settings.remove(ttsKey(leaf));
+    else
+        m_settings.setValue(ttsKey(leaf), value);
+    Q_EMIT ttsChanged();
+}
+
+bool AppSettings::templatesCustomised() const
+{
+    for (const TemplateDefault &entry : kTemplateDefaults) {
+        if (m_settings.contains(ttsKey(entry.leaf)))
+            return true;
+    }
+    return false;
+}
+
+void AppSettings::resetTemplates()
+{
+    if (!templatesCustomised())
+        return;
+    for (const TemplateDefault &entry : kTemplateDefaults)
+        m_settings.remove(ttsKey(entry.leaf));
     Q_EMIT ttsChanged();
 }
 
@@ -306,79 +392,52 @@ void AppSettings::setTtsOnlineConfirmed(bool confirmed)
 
 QString AppSettings::templateMatched() const
 {
-    return m_settings
-        .value(QStringLiteral("tts/tpl_matched"), QString::fromUtf8("指导者任务匹配成功"))
-        .toString();
+    return templateValue("tpl_matched");
 }
 
 void AppSettings::setTemplateMatched(const QString &value)
 {
-    if (templateMatched() == value)
-        return;
-    m_settings.setValue(QStringLiteral("tts/tpl_matched"), value);
-    Q_EMIT ttsChanged();
+    setTemplateValue("tpl_matched", value);
 }
 
 QString AppSettings::templateEntered() const
 {
-    return m_settings
-        .value(QStringLiteral("tts/tpl_entered"), QString::fromUtf8("进入 {duty}"))
-        .toString();
+    return templateValue("tpl_entered");
 }
 
 void AppSettings::setTemplateEntered(const QString &value)
 {
-    if (templateEntered() == value)
-        return;
-    m_settings.setValue(QStringLiteral("tts/tpl_entered"), value);
-    Q_EMIT ttsChanged();
+    setTemplateValue("tpl_entered", value);
 }
 
 QString AppSettings::templateCompleted() const
 {
-    return m_settings
-        .value(QStringLiteral("tts/tpl_completed"),
-               QString::fromUtf8("导随完成，当前 {progress} 次，剩余 {remaining}"))
-        .toString();
+    return templateValue("tpl_completed");
 }
 
 void AppSettings::setTemplateCompleted(const QString &value)
 {
-    if (templateCompleted() == value)
-        return;
-    m_settings.setValue(QStringLiteral("tts/tpl_completed"), value);
-    Q_EMIT ttsChanged();
+    setTemplateValue("tpl_completed", value);
 }
 
 QString AppSettings::templateFinished() const
 {
-    return m_settings
-        .value(QStringLiteral("tts/tpl_finished"),
-               QString::fromUtf8("导随结束，请确认是否通关，已确认 {progress} 次"))
-        .toString();
+    return templateValue("tpl_finished");
 }
 
 void AppSettings::setTemplateFinished(const QString &value)
 {
-    if (templateFinished() == value)
-        return;
-    m_settings.setValue(QStringLiteral("tts/tpl_finished"), value);
-    Q_EMIT ttsChanged();
+    setTemplateValue("tpl_finished", value);
 }
 
 QString AppSettings::templateAborted() const
 {
-    return m_settings
-        .value(QStringLiteral("tts/tpl_aborted"), QString::fromUtf8("导随异常结束"))
-        .toString();
+    return templateValue("tpl_aborted");
 }
 
 void AppSettings::setTemplateAborted(const QString &value)
 {
-    if (templateAborted() == value)
-        return;
-    m_settings.setValue(QStringLiteral("tts/tpl_aborted"), value);
-    Q_EMIT ttsChanged();
+    setTemplateValue("tpl_aborted", value);
 }
 
 // ---------------------------------------------------------------------------

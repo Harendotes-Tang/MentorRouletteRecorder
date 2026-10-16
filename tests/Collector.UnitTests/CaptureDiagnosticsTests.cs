@@ -1,4 +1,5 @@
 using MentorRecorder.Collector.Capture;
+using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Protocol.Decoded;
 using MentorRecorder.Collector.Protocol.Calibration;
@@ -451,7 +452,7 @@ public sealed class CaptureDiagnosticsTests
             "2024.06.18.0000.0000",
             1,
             @"D:\SdoA\FFXIV\game\ffxiv_dx11.exe",
-            Array.Empty<string>()),
+            Array.Empty<UserText>()),
         Profile = NoProfileStatusProvider.Instance.Current,
         AdapterId = "{7C4A8D09-1111-2222-3333-444455556666}",
         AdapterName = "Wi-Fi",
@@ -469,7 +470,7 @@ public sealed class CaptureDiagnosticsTests
         Oodle = OodleMode.FfxivTcp,
         ReadsGameExecutable = true,
         GameExecutableKnown = true,
-        Warnings = new[] { "游戏安装路径为 D:\\SdoA\\FFXIV" },
+        Warnings = new[] { new UserText("test.warning", "游戏安装路径为 D:\\SdoA\\FFXIV") },
     };
 
     [Fact]

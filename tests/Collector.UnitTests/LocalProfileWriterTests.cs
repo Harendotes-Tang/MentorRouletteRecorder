@@ -1,4 +1,5 @@
 using System.Text.Json;
+using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Domain.Events;
 using MentorRecorder.Collector.Protocol.Calibration;
@@ -27,6 +28,8 @@ public sealed class LocalProfileWriterTests : IDisposable
         }
     }
 
+    private static UserText Label(string chinese) => new("test.calibration_label", chinese);
+
     private static CalibrationDraft ReadyDraft(CalibrationTemplate template)
     {
         var messages = new[]
@@ -38,10 +41,10 @@ public sealed class LocalProfileWriterTests : IDisposable
         };
         var events = new[]
         {
-            new CalibrationEvent("finder_request-60000", "finder_request", 60_000, Confirmed.AddMinutes(-30), "排本：练级迷宫", 1, null, null, true),
-            new CalibrationEvent("pop-120000", "pop", 120_000, Confirmed.AddMinutes(-29), "匹配弹窗：练级迷宫", 1, null, null, true),
-            new CalibrationEvent("duty_enter-125000", "duty_enter", 125_000, Confirmed.AddMinutes(-28), "进入副本：沙斯塔夏溶洞", null, 1039, "沙斯塔夏溶洞", true),
-            new CalibrationEvent("duty_exit-215000", "duty_exit", 215_000, Confirmed.AddMinutes(-5), "离开副本", null, null, null, true),
+            new CalibrationEvent("finder_request-60000", "finder_request", 60_000, Confirmed.AddMinutes(-30), Label("排本：练级迷宫"), 1, null, null, true),
+            new CalibrationEvent("pop-120000", "pop", 120_000, Confirmed.AddMinutes(-29), Label("匹配弹窗：练级迷宫"), 1, null, null, true),
+            new CalibrationEvent("duty_enter-125000", "duty_enter", 125_000, Confirmed.AddMinutes(-28), Label("进入副本：沙斯塔夏溶洞"), null, 1039, "沙斯塔夏溶洞", true),
+            new CalibrationEvent("duty_exit-215000", "duty_exit", 215_000, Confirmed.AddMinutes(-5), Label("离开副本"), null, null, null, true),
         };
         var samples = new Dictionary<string, int>
         {
@@ -52,7 +55,7 @@ public sealed class LocalProfileWriterTests : IDisposable
             [ProfileLoader.CalibrationEvidenceKey] = 2,
         };
         return new CalibrationDraft(
-            CalibrationDraftStatus.Ready, Array.Empty<string>(), new CalibrationProgress(true, true, 3, true, true),
+            CalibrationDraftStatus.Ready, Array.Empty<UserText>(), new CalibrationProgress(true, true, 3, true, true),
             events, messages, 0xC001, samples, new long[] { 1 }, template.Source.ProfileId);
     }
 

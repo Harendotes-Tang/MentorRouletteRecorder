@@ -7,8 +7,10 @@ without PyYAML (the CI runner) still enforces every security rule.
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import re
+import sys
 import unittest
 
 import testsupport
@@ -33,6 +35,19 @@ CONFIG = PUBLIC / ".github" / "ISSUE_TEMPLATE" / "config.yml"
 CI = testsupport.REPO / ".github" / "workflows" / "ci.yml"
 SHARING = testsupport.REPO / "src" / "Collector" / "Protocol" / "Sharing"
 SCRIPTS = ("publish_issue.sh", "sweep_issues.sh", "report_issue.sh")
+
+
+def _load_collector_texts():
+    """tools/collector-texts/generate.py, which reads contracts/collector-texts.json and names each key's factory."""
+    path = testsupport.REPO / "tools" / "collector-texts" / "generate.py"
+    spec = importlib.util.spec_from_file_location("collector_texts_generate", path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+collector_texts = _load_collector_texts()
 
 
 def run_scripts(text: str) -> list:
@@ -169,11 +184,23 @@ class WorkflowSecurityTests(unittest.TestCase):
     def test_every_label_the_scripts_use_is_documented_for_the_manual_setup(self):
         readme = (testsupport.HERE / "README.md").read_text(encoding="utf-8")
         for label in (publish.SUBMISSION_LABEL, publish.REPORT_LABEL, publish.LABEL_PUBLISHED, publish.LABEL_REJECTED,
-                      publish.LABEL_MAINTAINER):
+                      publish.LABEL_MAINTAINER, publish.LABEL_CONFLICTING):
             self.assertIn("`%s`" % label, readme)
-        for label in (publish.REPORT_LABEL, publish.LABEL_MAINTAINER):
+        for label in (publish.REPORT_LABEL, publish.LABEL_MAINTAINER, publish.LABEL_CONFLICTING):
             with self.subTest(label):
                 self.assertIn("gh label create %s" % label, readme, "a new label needs a manual step")
+        self.assertIn("`%s`" % publish.LABEL_CONFLICTING, (PUBLIC / "README.md").read_text(encoding="utf-8"))
+
+    def test_the_conflict_notices_are_best_effort_and_only_use_validated_fields(self):
+        text = (testsupport.HERE / "publish_issue.sh").read_text(encoding="utf-8")
+        for fragment in ("--name conflict_label", "--name conflict_issues", '--body-file "$out/conflict-$rival.md"',
+                         '--add-label "$conflict_label"', "::warning::"):
+            with self.subTest(fragment):
+                self.assertTrue(fragment in text, fragment)
+        # Every value the shell takes from a result is one `field` validates; event-field gives number and login.
+        read = set(re.findall(r"--name ([a-z_]+)", text))
+        self.assertLessEqual(read, set(publish._FIELD_CHECKS) | {"number", "login"})
+        self.assertNotIn("conflicts", read, "the shell reads the two validated fields, never the list itself")
 
 
 class MirrorWorkflowSecurityTests(unittest.TestCase):
@@ -248,14 +275,15 @@ class ReportWorkflowSecurityTests(unittest.TestCase):
         expressions = set(re.findall(r"\$\{\{\s*(.*?)\s*\}\}", self.text))
         self.assertLessEqual(expressions, {"github.token", "github.repository", "github.event.issue.number"})
 
-    def test_it_cannot_write_to_the_repository_and_never_queues_behind_publishing(self):
-        self.assertNotIn("contents: write", self.text)
-        self.assertNotIn("group: publish-calibration", self.text, "a report must never block a submission")
+    def test_reports_share_the_atomic_evidence_ledger_and_publication_lock(self):
+        self.assertIn("contents: write", self.text)
+        self.assertIn("group: publish-calibration", self.text)
+        self.assertIn('python -B tools/evidence_workflow.py --event "$GITHUB_EVENT_PATH"', self.text)
         if yaml is None:
-            self.assertIn("permissions:\n  contents: read\n  issues: write\n", self.text)
+            self.assertIn("permissions:\n  contents: write\n  issues: write\n", self.text)
             return
         data = yaml.safe_load(self.text)
-        self.assertEqual({"contents": "read", "issues": "write"}, data["permissions"])
+        self.assertEqual({"contents": "write", "issues": "write"}, data["permissions"])
         self.assertEqual({"issues"}, set(data.get("on", data.get(True))))
         for job in data["jobs"].values():
             self.assertEqual(False, job["concurrency"]["cancel-in-progress"])
@@ -321,24 +349,53 @@ class IssueFormTests(unittest.TestCase):
         self.assertEqual(publish.ISSUE_FORM, FORM.name)
         self.assertIn('"&code="', link)
         self.assertIn('"%s"' % issue_form.TITLE_PREFIX, link)
+        # The client prefills the basis input with one of these texts; any other text is refused as BASIS_INVALID,
+        # so a drift between the two sides must fail here rather than refuse every share.
+        self.assertIn('"&basis="', link)
+        for option in (issue_form.BASIS_OPTION_CALIBRATED, issue_form.BASIS_OPTION_VERIFIED):
+            with self.subTest(option):
+                self.assertIn('"%s"' % option, link)
         text = FORM.read_text(encoding="utf-8")
         for fragment in ("id: %s" % publish.CODE_FIELD_ID, "label: " + issue_form.CODE_LABEL,
+                         "id: %s" % publish.BASIS_FIELD_ID, "label: " + issue_form.BASIS_LABEL,
+                         "placeholder: " + issue_form.BASIS_OPTION_CALIBRATED,
                          "label: " + issue_form.CONFIRM_LABEL, "- label: " + issue_form.CONFIRM_OPTION,
-                         'title: "%s"' % issue_form.TITLE_PREFIX, "- " + publish.SUBMISSION_LABEL):
+                         'title: "%s"' % issue_form.TITLE_PREFIX, "- " + publish.SUBMISSION_LABEL,
+                         "提交同一份校准码会计入提交人数"):
             self.assertIn(fragment, text)
-        self.assertEqual(2, text.count("required: true"))
+        self.assertEqual(2, text.count("required: true"), "the code and the confirmation; the basis stays optional")
         if yaml is None:
             return
         data = yaml.safe_load(text)
         self.assertEqual(issue_form.TITLE_PREFIX, data["title"])
         self.assertEqual([publish.SUBMISSION_LABEL], data["labels"])
         fields = [field for field in data["body"] if field["type"] != "markdown"]
-        self.assertEqual(["textarea", "checkboxes"], [field["type"] for field in fields])
-        code, confirm = fields
+        # GitHub prefills only inputs and textareas from the query string, so the basis is an input (plan section 20.2).
+        self.assertEqual(["textarea", "input", "checkboxes"], [field["type"] for field in fields])
+        code, basis, confirm = fields
         self.assertEqual((publish.CODE_FIELD_ID, issue_form.CODE_LABEL, True),
                          (code["id"], code["attributes"]["label"], code["validations"]["required"]))
-        self.assertEqual(issue_form.CONFIRM_LABEL, confirm["attributes"]["label"])
+        self.assertEqual((publish.BASIS_FIELD_ID, issue_form.BASIS_LABEL, "软件会自动填好，请不要改动。代人提交或留空时按本机校准处理。",
+                          issue_form.BASIS_OPTION_CALIBRATED),
+                         (basis["id"], basis["attributes"]["label"], basis["attributes"]["description"],
+                          basis["attributes"]["placeholder"]))
+        self.assertFalse(basis.get("validations", {}).get("required", False),
+                         "a client that predates the field sends no basis, and its submissions must still be read")
+        self.assertEqual(("confirm", issue_form.CONFIRM_LABEL), (confirm["id"], confirm["attributes"]["label"]))
         self.assertEqual([{"label": issue_form.CONFIRM_OPTION, "required": True}], confirm["attributes"]["options"])
+
+    def test_a_body_the_share_form_renders_reads_back_as_the_basis_the_client_sent(self):
+        if yaml is None:
+            self.skipTest("PyYAML is not installed")
+        data = yaml.safe_load(FORM.read_text(encoding="utf-8"))
+        confirm = next(field for field in data["body"] if field.get("id") == "confirm")
+        self.assertEqual(issue_form.CONFIRM_OPTION, confirm["attributes"]["options"][0]["label"])
+        for stated, basis in ((issue_form.BASIS_OPTION_CALIBRATED, issue_form.BASIS_CALIBRATED),
+                              (issue_form.BASIS_OPTION_VERIFIED, issue_form.BASIS_VERIFIED),
+                              (None, issue_form.BASIS_CALIBRATED)):
+            with self.subTest(stated):
+                form = issue_form.parse_body(testsupport.issue_body("MRC1.x", basis=stated))
+                self.assertEqual((basis, True, None), (form.basis, form.confirmed, form.problem))
 
     def test_blank_issues_are_disabled(self):
         text = CONFIG.read_text(encoding="utf-8")
@@ -377,6 +434,11 @@ def published_texts() -> dict:
                      match_source="ANNOUNCEMENT", submitters=2, file="cn/%s/aaaaaaaaaaaa.mrc" % testsupport.BUILD)
     for status in (publish.PUBLISHED, publish.ADDED, publish.DUPLICATE):
         texts["reply:" + status] = publish.compose_comment(publish.Result(status, **described))
+        texts["reply:verified:" + status] = publish.compose_comment(publish.Result(status, basis="verified", **described))
+    conflicts = ({"code": "b" * 12, "issues": [3, 4], "fields": ["换区报文", "匹配报文"]},)
+    disputed = publish.Result(publish.PUBLISHED, conflicts=conflicts, **described)
+    texts["reply:conflict"] = publish.compose_comment(disputed)
+    texts["notice:conflict"] = publish.compose_conflict_notice(disputed, 3)
     for reason in publish._REFUSALS:
         texts["reply:refused:" + reason] = publish.compose_comment(publish.Result(publish.REFUSED, reason, **described))
     return texts
@@ -426,13 +488,34 @@ class ClientContractTests(unittest.TestCase):
                 self.assertEqual(csharp_constant(path, name), value)
 
     def test_rejection_tokens_and_messages_are_the_clients_word_for_word(self):
+        # The client words a rejection by the catalogue (contracts/collector-texts.md): each arm of
+        # ShareCodeRejection.TextFor maps tokens to a CollectorTexts factory, and contracts/collector-texts.json
+        # holds that factory's Chinese. The player reads the same sentence from either side, token by token.
         text = (SHARING / "ShareCodeRejection.cs").read_text(encoding="utf-8")
-        for name, token in vars(sharecode).items():
-            if name.startswith("E_"):
-                with self.subTest(token):
-                    self.assertIn('"%s"' % token, text)
-                    self.assertIn('"%s"' % sharecode.MESSAGES[token], text)
-        self.assertIn('"校准码无法使用。"', text)
+        constants = dict(re.findall(r'\bconst\s+string\s+(\w+)\s*=\s*"(E_SHARE_CODE_[A-Z0-9_]+)";', text))
+        switch = re.search(r"\bUserText\s+TextFor\(string code\)\s*=>\s*code\s+switch\s*\{(.*?)\};", text, re.S)
+        self.assertIsNotNone(switch, "ShareCodeRejection.TextFor is the token -> catalogue text switch")
+        arms = re.findall(r"([\w\s]+?)\s*=>\s*CollectorTexts\.([A-Z]\w*)\(\)", switch.group(1))
+        self.assertTrue(arms)
+        chinese = {entry.method: entry.zh for entry in collector_texts.load_catalogue()}
+        by_token, fallback = {}, None
+        for names, method in arms:
+            self.assertIn(method, chinese, "CollectorTexts.%s is not a catalogue key" % method)
+            names = re.split(r"\s+or\s+", names.strip())
+            if names == ["_"]:
+                fallback = chinese[method]
+                continue
+            for name in names:
+                self.assertIn(name, constants, "the arm names a token constant")
+                self.assertNotIn(constants[name], by_token, "one arm per token")
+                by_token[constants[name]] = chinese[method]
+        tokens = {token for name, token in vars(sharecode).items() if name.startswith("E_")}
+        self.assertEqual(tokens, set(constants.values()))
+        self.assertEqual(tokens, set(by_token), "every token has its own wording")
+        for token in sorted(tokens):
+            with self.subTest(token):
+                self.assertEqual(sharecode.MESSAGES[token], by_token[token])
+        self.assertEqual(sharecode.Rejection("E_SHARE_CODE_UNKNOWN", "").message, fallback)
 
 
 if __name__ == "__main__":

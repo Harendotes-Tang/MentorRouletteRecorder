@@ -1,5 +1,6 @@
 #include "RunListModel.h"
 
+#include "CollectorText.h"
 #include "DutyCatalog.h"
 #include "IBackend.h"
 
@@ -8,10 +9,18 @@
 #include <QRegularExpression>
 #include <QJsonObject>
 #include <QJsonValue>
+#include <QPointer>
 
 namespace mr {
 
-RunListModel::RunListModel(QObject *parent) : QAbstractListModel(parent) {}
+RunListModel::RunListModel(QObject *parent) : QAbstractListModel(parent)
+{
+    // loadError is a recipe: the Collector's sentence follows the language.
+    onLanguageChanged(this, [this] {
+        if (!m_loadError.isEmpty())
+            Q_EMIT loadErrorChanged();
+    });
+}
 
 void RunListModel::setBackend(IBackend *backend)
 {
@@ -122,9 +131,9 @@ void RunListModel::setLoading(bool loading)
     Q_EMIT loadingChanged();
 }
 
-void RunListModel::setLoadError(const QString &error)
+void RunListModel::setLoadError(const LiveText &error)
 {
-    if (m_loadError == error)
+    if (m_loadError.isEmpty() == error.isEmpty() && m_loadError.text() == error.text())
         return;
     m_loadError = error;
     Q_EMIT loadErrorChanged();
@@ -149,8 +158,9 @@ void RunListModel::loadRows()
 
     setLoading(true);
     BackendReply *reply = m_backend->queryRuns(m_filter, m_page, m_pageSize, sort);
+    const QPointer<BackendReply> guard(reply);
     reply->whenDone(this,
-            [this, generation](bool ok, const QVariantMap &payload,
+            [this, generation, guard](bool ok, const QVariantMap &payload,
                    const QString &code, const QString &message) {
                 if (generation != m_loadGeneration)
                     return;
@@ -161,7 +171,8 @@ void RunListModel::loadRows()
                     endResetModel();
                     // The emptied list is not an answer; the page says so
                     // instead of "没有符合筛选条件的记录" (review OD-3).
-                    setLoadError(message.isEmpty() ? code : message);
+                    setLoadError(message.isEmpty() ? LiveText::verbatim(code)
+                                                   : collector_text::replyErrorText(guard, message));
                     setLoading(false);
                     Q_EMIT pagingChanged();
                     Q_EMIT loadFailed(code, message);
@@ -196,7 +207,7 @@ void RunListModel::loadRows()
                 m_anchorRow = qBound(0, m_anchorRow, qMax(0, m_total - 1));
                 m_page = qMax(1, pageInfo.value(QStringLiteral("page")).toInt(m_page));
                 endResetModel();
-                setLoadError({});
+                setLoadError(LiveText());
                 setLoading(false);
                 Q_EMIT pagingChanged();
             });
@@ -246,7 +257,7 @@ bool RunListModel::calendarMonthKnown(const QString &month) const
 
 QString RunListModel::calendarDayError(const QString &day) const
 {
-    return m_calendarErrors.value(day.left(7));
+    return m_calendarErrors.value(day.left(7)).text();
 }
 
 void RunListModel::invalidateCalendar()
@@ -291,8 +302,8 @@ void RunListModel::loadCalendarMonth(const QString &month, bool retryError)
             || (!retryError && m_calendarErrors.contains(month)))
         return;
     if (!validCalendarMonth(month) || !m_backend) {
-        m_calendarErrors.insert(month, !m_backend ? QStringLiteral("日历服务尚未连接")
-                                                 : QStringLiteral("无效的日历月份"));
+        m_calendarErrors.insert(month, !m_backend ? LiveText([] { return tr("日历服务尚未连接"); })
+                                                 : LiveText([] { return tr("无效的日历月份"); }));
         Q_EMIT calendarChanged();
         return;
     }
@@ -301,8 +312,9 @@ void RunListModel::loadCalendarMonth(const QString &month, bool retryError)
     m_calendarPending.insert(month);
     Q_EMIT calendarChanged();
     BackendReply *reply = m_backend->queryRunCalendarDays(month, calendarFilter());
-    reply->whenDone(this, [this, generation, month](bool ok, const QVariantMap &payload,
-                                                   const QString &code, const QString &message) {
+    const QPointer<BackendReply> guard(reply);
+    reply->whenDone(this, [this, generation, month, guard](bool ok, const QVariantMap &payload,
+                                                          const QString &code, const QString &message) {
         if (generation != m_calendarGeneration)
             return;
         m_calendarPending.remove(month);
@@ -326,8 +338,10 @@ void RunListModel::loadCalendarMonth(const QString &month, bool retryError)
             m_calendarDays.insert(month, days);
             m_calendarErrors.remove(month);
         } else {
-            m_calendarErrors.insert(month, ok ? QStringLiteral("日历日期响应格式无效")
-                : (!message.isEmpty() ? message : (!code.isEmpty() ? code : QStringLiteral("日历日期加载失败"))));
+            m_calendarErrors.insert(month, [ok, code, refusal = collector_text::replyErrorText(guard, message)] {
+                return ok ? tr("暂时无法读取有记录的日期，请重新加载。")
+                    : (!refusal.isEmpty() ? refusal.text() : (!code.isEmpty() ? code : tr("日历日期加载失败")));
+            });
         }
         Q_EMIT calendarChanged();
     });

@@ -161,7 +161,7 @@ public abstract class UpdateDownloadTestBase : IDisposable
     {
         Assert.Equal(State.Failed, snapshot.State);
         Assert.Equal(failure, snapshot.Failure);
-        Assert.False(string.IsNullOrWhiteSpace(snapshot.Message));
+        Assert.False(string.IsNullOrWhiteSpace(snapshot.Message?.Chinese));
         Assert.Null(snapshot.FilePath);
         Assert.Null(snapshot.Sha256);
     }

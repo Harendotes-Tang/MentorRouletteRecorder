@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using Microsoft.Data.Sqlite;
 using MentorRecorder.Collector.Contracts.Errors;
+using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Domain.Time;
 
@@ -33,7 +34,7 @@ public sealed class HistoryRetentionService : IDisposable
     public int UpdateRetentionDays(int days)
     {
         if (days is < 0 or > MaxRetentionDays)
-            throw CollectorException.BadRequest($"retention_days 必须在 0 到 {MaxRetentionDays} 之间，0 表示永不自动清理。", "retention_days");
+            throw CollectorException.BadRequest(CollectorTexts.HistoryRetentionDaysRange(MaxRetentionDays), "retention_days");
         _database.RunInTransaction(tx =>
         {
             using var command = _database.CreateCommand(); command.Transaction = tx;
@@ -82,7 +83,7 @@ public sealed class HistoryRetentionService : IDisposable
     {
         if ((!allowEmpty && ids.Count == 0) || ids.Count > MaxBatchSize ||
             ids.Any(id => !Guid.TryParseExact(id, "D", out _)) || ids.Distinct(StringComparer.OrdinalIgnoreCase).Count() != ids.Count)
-            throw CollectorException.BadRequest($"请选择不重复的标准记录编号，一次最多 {MaxBatchSize} 条。", "run_ids");
+            throw CollectorException.BadRequest(CollectorTexts.HistoryBatchIdsInvalid(MaxBatchSize), "run_ids");
     }
 
     /// <summary>All callers validate soft-delete/revision prerequisites before entering this routine.</summary>

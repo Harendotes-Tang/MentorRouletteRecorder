@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls
 import QtQuick.Layouts
 import MentorRecorder
 
@@ -11,12 +12,19 @@ Card {
     implicitHeight: 116
     spacing: 8
 
+    // A translated title that does not fit a narrow window's card keeps its
+    // ellipsis and shows in full on hover.
     Text {
+        id: titleText
         Layout.fillWidth: true
         text: root.title
         color: Theme.textSecondary
         font.pixelSize: Theme.fs(12)
         elide: Text.ElideRight
+
+        HoverHandler { id: titleHover }
+        ToolTip.visible: titleHover.hovered && titleText.truncated
+        ToolTip.text: root.title
     }
 
     Text {

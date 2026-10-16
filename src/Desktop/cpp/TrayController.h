@@ -57,6 +57,8 @@ protected:
 
 private:
     void refreshCaptureAction();
+    /// The menu's and the icon's own words, set again after a language switch.
+    void retranslate();
 
     AppController *m_controller = nullptr;
     AppSettings *m_settings = nullptr;
@@ -65,7 +67,9 @@ private:
     /// Owned outright: a QMenu is a QWidget and cannot be parented to a plain
     /// QObject, so nothing else would ever delete it.
     std::unique_ptr<QMenu> m_menu;
+    QAction *m_showAction = nullptr;
     QAction *m_captureAction = nullptr;
+    QAction *m_quitAction = nullptr;
 };
 
 } // namespace mr

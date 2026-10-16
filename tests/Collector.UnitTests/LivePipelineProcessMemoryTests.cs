@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using MentorRecorder.Collector.Capture;
+using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Ipc;
 using MentorRecorder.Collector.Protocol.Decoded;
@@ -57,7 +58,7 @@ public sealed class LivePipelineProcessMemoryTests
 
     private static GameProcessDetection Game(TestDatabase db, int pid, int? startOffset) => new(
         true, pid, "ffxiv_dx11", startOffset is { } offset ? db.Clock.UtcNow.AddSeconds(offset) : null,
-        Region.Cn, "synthetic", 2, null, Array.Empty<string>());
+        Region.Cn, "synthetic", 2, null, Array.Empty<UserText>());
 
     private static string OpenSession(TestDatabase db)
     {

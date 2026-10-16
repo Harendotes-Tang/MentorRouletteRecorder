@@ -110,6 +110,7 @@ EnvelopeView readEnvelope(const QJsonObject &envelope)
         view.errorCode = QStringLiteral("ERR_INTERNAL");
     view.errorMessage = source.value(QStringLiteral("message")).toString();
     view.errorDetails = source.value(QStringLiteral("details")).toObject();
+    view.errorRef = source.value(QStringLiteral("message_ref")).toObject();
     view.payload = {};
     return view;
 }

@@ -1,4 +1,5 @@
 using MentorRecorder.Collector.Contracts.Errors;
+using MentorRecorder.Collector.Contracts.Texts;
 
 namespace MentorRecorder.Collector.Capture;
 
@@ -13,7 +14,7 @@ public sealed class CaptureOwnership
     public IDisposable Acquire()
     {
         if (Interlocked.CompareExchange(ref _owned, 1, 0) != 0)
-            throw CollectorException.BadRequest("正式采集或验证会话尚未结束，请先停止并等待资源释放。");
+            throw CollectorException.BadRequest(CollectorTexts.CaptureOwnershipBusy());
         return new Lease(this);
     }
 

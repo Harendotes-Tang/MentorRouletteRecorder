@@ -2,7 +2,9 @@
 """Offline tests for the duty data generator.
 
 They run against the tiny saved sample in sample/ and make no network request, so they can
-run in CI on a machine with no outbound access at all.
+run in CI on a machine with no outbound access at all. The --game-names fetching tests use
+the synthetic sources in sample/game-names/ through a fake transport routed by the URL roots
+generate.py declares; the offline merge is covered by test_game_names.py.
 
     python tools/duty-data-generator/test_generate.py
 """
@@ -17,12 +19,16 @@ import os
 import sys
 import tempfile
 import unittest
+import urllib.error
+import urllib.parse
 from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SAMPLE = os.path.join(HERE, "sample")
+GAME_NAMES_SAMPLE = os.path.join(SAMPLE, "game-names")
 sys.path.insert(0, HERE)
 
+import game_names  # noqa: E402
 import generate  # noqa: E402
 
 
@@ -399,6 +405,305 @@ class DryRunTests(unittest.TestCase):
         self.assertTrue(generate.is_inside_repository(os.path.join(generate.REPO, "x")))
         self.assertFalse(generate.is_inside_repository(sibling))
         self.assertFalse(generate.is_inside_repository(self.scratch))
+
+
+SAMPLE_VERSION = "sample-version"
+TC_SHA = "a" * 40
+CN_SHA = "b" * 40
+
+
+def mark(text):
+    """Stand-in for OpenCC: makes a converted name recognisable in assertions."""
+    return "[tw]" + text
+
+
+def game_names_sample(*parts):
+    return os.path.join(GAME_NAMES_SAMPLE, *parts)
+
+
+class FakeNameSources:
+    """Serves the --game-names sources from sample/game-names/.
+
+    Requests are routed by the URL roots generate.py declares, so a URL built from anything
+    else fails the test instead of reaching a host.
+    """
+
+    def __init__(self, version=SAMPLE_VERSION, page_size=None):
+        self.version = version
+        self.page_size = page_size
+        self.requests = []
+        with io.open(game_names_sample("xivapi.json"), "r", encoding="utf-8") as handle:
+            self.xivapi = json.load(handle)
+
+    def __call__(self, url, timeout=60):
+        self.requests.append(url)
+        if url == generate.XIVAPI_ROOT + "/version":
+            return self.encode({"versions": [
+                {"key": SAMPLE_VERSION, "names": ["7.55x2"]},
+                {"key": "sample-latest", "names": ["7.57", "latest"]}]})
+        if url.startswith(generate.XIVAPI_ROOT + "/sheet/"):
+            return self.sheet(url)
+        if url.startswith(generate.GITHUB_API_ROOT + "/repos/"):
+            sha = TC_SHA if game_names.TC_REPOSITORY in url else CN_SHA
+            return self.encode([{"sha": sha, "commit": {"message": "ver 2026.09.14.0000.0000"}}])
+        if url.startswith(generate.DATAMINING_RAW_ROOT + "/"):
+            folder = "tc" if game_names.TC_REPOSITORY in url else "cn"
+            with io.open(game_names_sample(folder, url.rsplit("/", 1)[1]), "rb") as handle:
+                return handle.read()
+        raise AssertionError("unexpected request %s" % url)
+
+    def sheet(self, url):
+        parsed = urllib.parse.urlparse(url)
+        query = dict(urllib.parse.parse_qsl(parsed.query))
+        rows = self.xivapi[parsed.path.rsplit("/", 1)[1]][query["language"]]
+        rows = [row for row in rows if row["row_id"] > int(query.get("after", -1))]
+        limit = self.page_size or int(query["limit"])
+        return self.encode({"version": self.version, "rows": rows[:limit]})
+
+    @staticmethod
+    def encode(document):
+        return json.dumps(document, ensure_ascii=False).encode("utf-8")
+
+
+class GameNamesFetchTests(unittest.TestCase):
+    """The fetching half of --game-names, against a fake transport."""
+
+    def test_paging_starts_without_after_and_continues_from_the_last_row(self):
+        sources = FakeNameSources(page_size=2)
+        requests = []
+        with mock.patch.object(generate, "http_get", side_effect=sources), \
+                mock.patch.object(generate, "XIVAPI_PAGE_SIZE", 2):
+            rows = generate.fetch_name_sheet("ContentFinderCondition", "Name", "en",
+                                             SAMPLE_VERSION, requests, None)
+
+        self.assertEqual([0, 1, 2, 3, 5, 6], sorted(rows))
+        self.assertNotIn("after=", sources.requests[0])
+        self.assertIn("after=1", sources.requests[1])
+        self.assertIn("version=sample-version", sources.requests[0])
+        self.assertIn("language=en", sources.requests[0])
+        self.assertEqual(sources.requests, [entry["url"] for entry in requests])
+        self.assertTrue(all(len(entry["sha256"]) == 64 for entry in requests))
+
+    def test_an_answer_from_another_game_version_stops_the_run(self):
+        with mock.patch.object(generate, "http_get", side_effect=FakeNameSources("other")):
+            with self.assertRaises(ValueError):
+                generate.fetch_name_sheet("ExVersion", "Name", "ja", SAMPLE_VERSION, [], None)
+
+    def test_a_sheet_longer_than_the_page_limit_fails_instead_of_truncating(self):
+        def endless(url, timeout=60):
+            query = dict(urllib.parse.parse_qsl(urllib.parse.urlparse(url).query))
+            start = int(query.get("after", 0)) + 1
+            return FakeNameSources.encode({"version": SAMPLE_VERSION, "rows": [
+                {"row_id": start, "fields": {}}, {"row_id": start + 1, "fields": {}}]})
+
+        with mock.patch.object(generate, "http_get", side_effect=endless), \
+                mock.patch.object(generate, "XIVAPI_PAGE_SIZE", 2):
+            with self.assertRaises(ValueError) as caught:
+                generate.fetch_name_sheet("ExVersion", "Name", "en", None, [], None)
+
+        self.assertIn("XIVAPI_MAX_PAGES", str(caught.exception))
+
+    def test_a_dropped_connection_is_retried_and_a_404_is_not(self):
+        for failure in (urllib.error.URLError("reset"),
+                        generate.http.client.IncompleteRead(b"partial")):
+            calls = []
+
+            def flaky(url, timeout=60, failure=failure):
+                calls.append(url)
+                if len(calls) == 1:
+                    raise failure
+                return b"ok"
+
+            with self.subTest(failure=type(failure).__name__), \
+                    mock.patch.object(generate, "http_get", side_effect=flaky), \
+                    mock.patch.object(generate.time, "sleep"):
+                self.assertEqual(b"ok", generate.http_get_retrying("https://example.invalid/a"))
+                self.assertEqual(2, len(calls))
+
+        missing = urllib.error.HTTPError("https://example.invalid/b", 404, "nf", {}, None)
+        with mock.patch.object(generate, "http_get", side_effect=missing) as get, \
+                mock.patch.object(generate.time, "sleep"):
+            with self.assertRaises(urllib.error.HTTPError):
+                generate.http_get_retrying("https://example.invalid/b")
+        self.assertEqual(1, get.call_count)
+
+    def test_csvs_come_from_the_resolved_commit(self):
+        sources = FakeNameSources()
+        with mock.patch.object(generate, "http_get", side_effect=sources):
+            texts, fetched = generate.fetch_datamining_sheets(
+                game_names.TC_REPOSITORY, "main", game_names.TC_COLUMNS, None)
+
+        self.assertEqual(TC_SHA, fetched["commit"])
+        self.assertEqual("ver 2026.09.14.0000.0000", fetched["commit_message"])
+        self.assertIn("per_page=1", sources.requests[0])
+        self.assertTrue(all(TC_SHA in url for url in sources.requests[1:]))
+        self.assertEqual(sorted(game_names.TC_COLUMNS), sorted(texts))
+        self.assertIn("樣例迷宮一", texts["ContentFinderCondition"])
+
+    def test_a_listing_without_a_commit_stops_the_run(self):
+        with mock.patch.object(generate, "http_get", return_value=b"[]"):
+            with self.assertRaises(ValueError):
+                generate.resolve_commit(game_names.TC_REPOSITORY, "main", [], None)
+
+    def test_latest_resolves_to_the_key_xivapi_names_latest(self):
+        with mock.patch.object(generate, "http_get", side_effect=FakeNameSources()):
+            self.assertEqual(("sample-latest", ["7.57", "latest"]),
+                             generate.resolve_xivapi_version(None, [], None))
+            self.assertEqual((SAMPLE_VERSION, ["7.55x2"]),
+                             generate.resolve_xivapi_version(SAMPLE_VERSION, [], None))
+
+    def test_the_real_category_table_merges_with_the_sample(self):
+        sheets = {}
+        with mock.patch.object(generate, "http_get", side_effect=FakeNameSources()):
+            xivapi, _ = generate.fetch_xivapi_names(SAMPLE_VERSION, None)
+            for repository, columns in ((game_names.TC_REPOSITORY, game_names.TC_COLUMNS),
+                                        (game_names.CN_REPOSITORY, game_names.CN_COLUMNS)):
+                texts, _ = generate.fetch_datamining_sheets(repository, "main", columns, None)
+                sheets[repository] = game_names.parse_sheets(texts, columns)
+        base, _, _ = game_names.load_base(game_names_sample("base-duties.json"),
+                                          game_names_sample("base-jobs.json"),
+                                          game_names_sample("base-roulettes.json"))
+
+        maps = game_names.build_maps(base, xivapi, sheets[game_names.TC_REPOSITORY],
+                                     sheets[game_names.CN_REPOSITORY], mark,
+                                     generate.CATEGORY_BY_CONTENT_TYPE)
+
+        self.assertEqual("Dungeons", maps["duty_categories"]["四人迷宫"]["en"])
+        self.assertIn(generate.UNKNOWN_CATEGORY, game_names.PROJECT_LABELS)
+        self.assertEqual(["其他"], maps["project_maintained"]["duty_categories"])
+
+
+class GameNamesMainTests(unittest.TestCase):
+    """generate.py --game-names end to end, against the fake transport."""
+
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory(prefix="game-names-test-")
+        self.addCleanup(directory.cleanup)
+        self.scratch = directory.name
+        self.out_dir = os.path.join(self.scratch, "out")
+        self.sources = FakeNameSources()
+        self.opencc = mock.Mock(return_value=(mark, {"method": "OpenCC", "config": "s2twp",
+                                                     "package": "fake", "package_version": "0"}))
+
+    def args(self, *extra):
+        return ["--game-names",
+                "--duties", game_names_sample("base-duties.json"),
+                "--jobs", game_names_sample("base-jobs.json"),
+                "--roulettes", game_names_sample("base-roulettes.json"),
+                "--out-dir", self.out_dir] + list(extra)
+
+    def run_main(self, args):
+        output, errors = io.StringIO(), io.StringIO()
+        with mock.patch.object(generate, "http_get", side_effect=self.sources), \
+                mock.patch.object(game_names, "load_opencc", self.opencc), \
+                mock.patch.object(generate.tempfile, "mkdtemp",
+                                  side_effect=AssertionError("made a temp directory")), \
+                contextlib.redirect_stdout(output), contextlib.redirect_stderr(errors):
+            code = generate.main(args)
+        return code, output.getvalue(), errors.getvalue()
+
+    def read_output(self):
+        with io.open(os.path.join(self.out_dir, "game-names.2026-10-15.json"), "r",
+                     encoding="utf-8") as handle:
+            return json.load(handle)
+
+    def test_a_run_writes_one_file_with_every_map_and_its_provenance(self):
+        raw_dir = os.path.join(self.scratch, "raw")
+
+        code, output, _ = self.run_main(self.args("--version", "2026-10-15", "--raw-dir", raw_dir))
+
+        self.assertEqual(0, code, output)
+        document = self.read_output()
+        self.assertEqual(["1", "2", "3", "5"], list(document["duties"]))
+        self.assertEqual({"duties": [3], "jobs": [43], "roulettes": [],
+                          "duty_categories": ["讨伐歼灭战"], "expansions": []},
+                         document["zh-TW_converted"])
+        provenance = document["provenance"]
+        self.assertEqual(SAMPLE_VERSION, provenance["xivapi"]["game_version"])
+        self.assertEqual(["7.55x2"], provenance["xivapi"]["game_version_names"])
+        self.assertEqual(TC_SHA, provenance["datamining_tc"]["commit"])
+        self.assertEqual("fake", provenance["zh_tw_fallback"]["package"])
+        recorded = [entry["url"] for key in ("xivapi", "datamining_tc", "datamining_cn")
+                    for entry in provenance[key]["requests"]]
+        self.assertEqual(sorted(self.sources.requests), sorted(recorded))
+        roots = (generate.XIVAPI_ROOT, generate.GITHUB_API_ROOT, generate.DATAMINING_RAW_ROOT)
+        self.assertTrue(all(url.startswith(roots) for url in recorded))
+        self.assertEqual(len(self.sources.requests), len(os.listdir(raw_dir)))
+
+    def test_latest_is_resolved_to_one_key_that_pins_every_sheet(self):
+        self.sources = FakeNameSources(version="sample-latest")
+
+        code, output, _ = self.run_main(self.args("--version", "2026-10-15", "--game-version",
+                                                  "latest", "--raw-dir",
+                                                  os.path.join(self.scratch, "raw")))
+
+        self.assertEqual(0, code, output)
+        sheet_requests = [url for url in self.sources.requests if "/sheet/" in url]
+        self.assertTrue(sheet_requests)
+        self.assertTrue(all("version=sample-latest" in url for url in sheet_requests))
+        self.assertEqual(["7.57", "latest"],
+                         self.read_output()["provenance"]["xivapi"]["game_version_names"])
+
+    def test_a_dry_run_fetches_and_writes_nothing(self):
+        code, output, _ = self.run_main(self.args("--dry-run"))
+
+        self.assertEqual(0, code)
+        self.assertIn("dry run: nothing written", output)
+        self.assertFalse(os.path.exists(self.out_dir))
+        self.assertEqual([], os.listdir(self.scratch))
+
+    def assert_failed_without_writing(self, code, errors):
+        self.assertEqual(1, code)
+        self.assertIn("no file was written", errors)
+        self.assertFalse(os.path.exists(self.out_dir))
+
+    def test_a_source_failure_writes_nothing(self):
+        self.sources = mock.Mock(side_effect=urllib.error.HTTPError("x", 404, "nf", {}, None))
+
+        code, _, errors = self.run_main(self.args("--raw-dir", os.path.join(self.scratch, "raw")))
+
+        self.assert_failed_without_writing(code, errors)
+
+    def test_a_missing_opencc_stops_the_run_when_a_name_needs_converting(self):
+        self.opencc = mock.Mock(side_effect=game_names.SourceError("OpenCC is not installed"))
+
+        code, _, errors = self.run_main(self.args("--raw-dir", os.path.join(self.scratch, "raw")))
+
+        self.assert_failed_without_writing(code, errors)
+        self.assertIn("OpenCC", errors)
+
+    def test_a_duty_file_without_a_game_version_needs_an_explicit_one(self):
+        with io.open(game_names_sample("base-duties.json"), "r", encoding="utf-8") as handle:
+            duties = json.load(handle)
+        duties["provenance"] = {}
+        path = os.path.join(self.scratch, "duties.json")
+        with io.open(path, "w", encoding="utf-8") as handle:
+            json.dump(duties, handle, ensure_ascii=False)
+
+        code, _, errors = self.run_main(self.args("--duties", path, "--raw-dir",
+                                                  os.path.join(self.scratch, "raw")))
+
+        self.assert_failed_without_writing(code, errors)
+        self.assertIn("--game-version", errors)
+        self.assertEqual([], self.sources.requests)
+
+    def test_a_malformed_source_ends_in_one_line_not_a_traceback(self):
+        with mock.patch.object(game_names, "build_maps", side_effect=KeyError("content_id")):
+            code, _, errors = self.run_main(self.args("--raw-dir",
+                                                      os.path.join(self.scratch, "raw")))
+
+        self.assert_failed_without_writing(code, errors)
+        self.assertIn("KeyError", errors)
+
+    def test_bad_arguments_are_refused_before_any_fetch(self):
+        for extra in (["--version", "../x"], ["--add-party-size", "unused.json"],
+                      ["--raw-dir", os.path.join(generate.REPO, "tools")]):
+            with self.subTest(extra=extra):
+                with self.assertRaises(SystemExit) as caught:
+                    self.run_main(self.args("--dry-run", *extra))
+
+                self.assertEqual(2, caught.exception.code)
+        self.assertEqual([], self.sources.requests)
 
 
 class BundledDataTests(unittest.TestCase):

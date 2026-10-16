@@ -132,13 +132,28 @@ public sealed class SharedCalibrationStore : ISharedCalibrationStore
                 }
 
                 hints.Add(new SharedCodeHints(
-                    candidate.CodeSha256, candidate.Submitters, candidate.FirstPublishedAtUtc, candidate.Commit, candidate.Conflicting));
+                    candidate.CodeSha256, candidate.Submitters, candidate.FirstPublishedAtUtc, candidate.Commit, candidate.Conflicting,
+                    candidate.ShapePrior, candidate.Quarantined, candidate.QuarantineEpoch));
             }
 
             var (state, writable) = ReadState(directory);
             if (!writable)
             {
                 return new SharedStoreWriteResult(false, written, refused);
+            }
+
+            if (result.IndexWasRead)
+            {
+                var indexedHints = result.IndexEntries
+                    .Where(entry => entry.Region == region && entry.GameBuild == gameBuild && !entry.Revoked)
+                    .DistinctBy(entry => entry.CodeSha256, StringComparer.Ordinal)
+                    .ToDictionary(entry => entry.CodeSha256, entry => new SharedCodeHints(
+                        entry.CodeSha256, entry.Submitters, entry.FirstPublishedAtUtc, entry.Commit, entry.Conflicting,
+                        entry.ShapePrior, entry.Quarantined, entry.QuarantineEpoch), StringComparer.Ordinal);
+                // Refresh existing bookkeeping first, so the bounded hint list keeps cached codes
+                // even when the index lists more codes than can be downloaded or retained.
+                hints.AddRange(state.Codes.Select(previous => indexedHints.GetValueOrDefault(previous.CodeSha256, previous)));
+                hints.AddRange(indexedHints.Values);
             }
 
             var complete = result.Status is SharedFetchStatus.Ok or SharedFetchStatus.NoneForBuild;
@@ -180,13 +195,16 @@ public sealed class SharedCalibrationStore : ISharedCalibrationStore
 
                 var hints = state.HintsFor(code.Sha);
                 found.Add(new SharedStoredCandidate(
-                    code.Sha, code.Text, code.Payload, hints?.Submitters ?? 0, hints?.FirstPublishedAtUtc, hints?.Conflicting == true));
+                    code.Sha, code.Text, code.Payload, hints?.Submitters ?? 0, hints?.FirstPublishedAtUtc, hints?.Conflicting == true,
+                    hints?.ShapePrior, hints?.Quarantined == true, hints?.QuarantineEpoch ?? 0));
             }
 
-            // The order the index is downloaded in (SharedCalibrationIndex.Select): the conflict mark only breaks a tie.
+            // The order the index is downloaded in (SharedCalibrationIndex.Select): the conflict mark and the shape prior
+            // only break a tie in submitters.
             return found
                 .OrderByDescending(candidate => candidate.Submitters)
                 .ThenBy(candidate => candidate.Conflicting)
+                .ThenBy(candidate => candidate.ShapePrior != true)
                 .ThenBy(candidate => candidate.FirstPublishedAtUtc ?? DateTimeOffset.MaxValue)
                 .ThenBy(candidate => candidate.CodeSha256, StringComparer.Ordinal)
                 .Take(SharedCalibrationIndex.MaxCandidates)
@@ -348,6 +366,20 @@ public sealed class SharedCalibrationStore : ISharedCalibrationStore
     }
 
     /// <inheritdoc />
+    public string? BoundCode(Region region, string gameBuild, string profileSha256)
+    {
+        var directory = DirectoryFor(Root, region, gameBuild);
+        RequireSha256(profileSha256, nameof(profileSha256));
+        lock (Gate)
+        {
+            return ReadState(directory).State.Binding is { } binding &&
+                   string.Equals(binding.ProfileSha256, profileSha256, StringComparison.Ordinal)
+                ? binding.CodeSha256
+                : null;
+        }
+    }
+
+    /// <inheritdoc />
     public SharedPublication Publication(Region region, string gameBuild, string codeSha256)
     {
         var directory = DirectoryFor(Root, region, gameBuild);
@@ -366,6 +398,30 @@ public sealed class SharedCalibrationStore : ISharedCalibrationStore
                          state.Fetches.Any(fetch => fetch.Discards.Any(discard =>
                              string.Equals(discard.CodeSha256, codeSha256, StringComparison.Ordinal)));
             return listed ? SharedPublication.Published : SharedPublication.Unknown;
+        }
+    }
+
+    /// <inheritdoc />
+    public string? CodeText(Region region, string gameBuild, string codeSha256)
+    {
+        var directory = DirectoryFor(Root, region, gameBuild);
+        RequireSha256(codeSha256, nameof(codeSha256));
+        lock (Gate)
+        {
+            if (ReadState(directory).State.Revoked.Contains(codeSha256, StringComparer.Ordinal))
+            {
+                return null;
+            }
+
+            // The file is named by the first twelve digits only, so what it holds must be this very code - and still for this
+            // region and build, as every code file is written.
+            var path = Path.Combine(directory, codeSha256[..12] + SharedCalibrationIndex.CodeExtension);
+            return ReadCode(path, out var code) == FileState.Valid &&
+                   string.Equals(code!.Sha, codeSha256, StringComparison.Ordinal) &&
+                   code.Payload.Region == region &&
+                   string.Equals(code.Payload.GameBuild, gameBuild, StringComparison.Ordinal)
+                ? code.Text
+                : null;
         }
     }
 

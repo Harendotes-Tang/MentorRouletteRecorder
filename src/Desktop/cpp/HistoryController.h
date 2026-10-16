@@ -8,6 +8,7 @@
 #include <QVariantMap>
 #include <QMap>
 #include <QStringList>
+#include "LiveText.h"
 #include "RunListModel.h"
 
 namespace mr {
@@ -29,7 +30,7 @@ public:
     QVariantList selectedRunRevisions() const { return m_selectedRunRevisions; }
     QVariantList selectedRunEvents() const { return m_selectedRunEvents; }
     QString runEventsState() const { return m_runEventsState; }
-    QString runEventsMessage() const { return m_runEventsMessage; }
+    QString runEventsMessage() const { return m_runEventsMessage.text(); }
     void openRun(const QVariantMap &run);
     void adoptReflection(const QString &runId, const QJsonValue &reflection);
     void updatePendingReviewCount(int count);
@@ -61,7 +62,7 @@ public:
     int checkedDeletedCount() const;
     bool allCurrentPageChecked() const;
     bool batchRunning() const { return m_batchRunning; }
-    QString batchFeedback() const { return m_batchFeedback; }
+    QString batchFeedback() const { return m_batchFeedback.text(); }
     void setRunChecked(const QVariantMap &run, bool checked);
     void setCurrentPageChecked(bool checked);
     void clearCheckedRuns();
@@ -71,7 +72,7 @@ public:
     int retentionDays() const { return m_retentionDays; }
     bool retentionLoaded() const { return m_retentionLoaded; }
     bool retentionSaving() const { return m_retentionSaving; }
-    QString retentionFeedback() const { return m_retentionFeedback; }
+    QString retentionFeedback() const { return m_retentionFeedback.text(); }
     void refreshRetentionSettings();
     void updateRetentionSettings(int days);
 
@@ -141,12 +142,13 @@ private:
     QJsonObject m_proposedFilter;
     bool m_filterConfirmationPending = false;
     bool m_batchRunning = false;
-    QString m_batchFeedback;
+    // The three feedback lines are recipes, so a language switch re-renders them (LiveText.h).
+    LiveText m_batchFeedback;
     int m_retentionDays = -1;
     bool m_retentionLoaded = false;
     bool m_retentionSaving = false;
     quint64 m_retentionGeneration = 0;
-    QString m_retentionFeedback;
+    LiveText m_retentionFeedback;
     /// Contract cap for GetRunRevisions page_size (contracts/ipc-protocol: 200).
     static constexpr int kRevisionPageSize = 200;
     /// Upper bound on pages read for one chain (10 000 revisions); a guard
@@ -162,7 +164,7 @@ private:
     QVariantList m_selectedRunRevisions;
     QVariantList m_selectedRunEvents;
     QString m_runEventsState = QStringLiteral("idle");
-    QString m_runEventsMessage;
+    LiveText m_runEventsMessage;
     QString m_runEventsRunId;
 };
 

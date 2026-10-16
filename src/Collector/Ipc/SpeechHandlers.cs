@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using MentorRecorder.Collector.Contracts.Errors;
+using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Domain.Time;
 using MentorRecorder.Collector.Speech;
 using MentorRecorder.Collector.Storage;
@@ -51,7 +52,7 @@ public static class SpeechHandlers
             if (!SpeechProviderWire.TryParse(token, out var parsed))
             {
                 throw CollectorException.BadRequest(
-                    "provider 只能取 " + string.Join(" / ", SpeechProviderWire.AllTokens) + " 之一。", "payload.provider");
+                    CollectorTexts.IpcFieldNotOneOf("provider", string.Join(" / ", SpeechProviderWire.AllTokens)), "payload.provider");
             }
 
             provider = parsed;
@@ -59,7 +60,7 @@ public static class SpeechHandlers
 
         if (reader.IsNull("api_key"))
         {
-            throw CollectorException.BadRequest("api_key 必须是字符串：省略表示不变，空字符串表示清除。", "payload.api_key");
+            throw CollectorException.BadRequest(CollectorTexts.SpeechApiKeyNotString(), "payload.api_key");
         }
 
         return new SpeechSettingsUpdate
@@ -84,11 +85,11 @@ public static class SpeechHandlers
         ArgumentNullException.ThrowIfNull(reader);
         reader.RejectUnknown("text", "rate_percent", "test");
         var raw = reader.String("text", MaxRawTextLength)
-            ?? throw CollectorException.BadRequest("缺少必填字段 text。", "payload.text");
+            ?? throw CollectorException.BadRequest(CollectorTexts.IpcFieldMissing("text"), "payload.text");
         if (!SpeechValidation.TryNormalizeText(raw, out var text))
         {
             throw CollectorException.BadRequest(
-                $"text 必须是 1 到 {SpeechValidation.MaxTextLength} 个字符的一句话，不能含控制字符。", "payload.text");
+                CollectorTexts.SpeechTextInvalid(SpeechValidation.MaxTextLength), "payload.text");
         }
 
         var rate = reader.Int("rate_percent", SpeechValidation.MinRatePercent, SpeechValidation.MaxRatePercent)
@@ -175,6 +176,15 @@ public static class SpeechHandlers
     }
 
     private static JsonArray Voices(IEnumerable<SpeechVoiceOption> voices) => new(voices
-        .Select(voice => (JsonNode?)new JsonObject { ["name"] = voice.Name, ["label"] = voice.Label })
+        .Select(voice =>
+        {
+            var node = new JsonObject { ["name"] = voice.Name, ["label"] = voice.Label };
+            if (voice.LabelText is { } label)
+            {
+                node["label_ref"] = label.ToJson();
+            }
+
+            return (JsonNode?)node;
+        })
         .ToArray());
 }

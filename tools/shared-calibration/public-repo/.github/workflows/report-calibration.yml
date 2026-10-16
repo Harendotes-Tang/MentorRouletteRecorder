@@ -4,29 +4,26 @@
 # here by tools/shared-calibration/sync_public_repo.py.
 #
 # Security:
-# * The issue title and body are untrusted, and are read only by tools/publish.py, from the event
-#   file. No `run:` script contains an expression; `env:` carries only the token and the repository
-#   name. publish.py prints one line of ASCII JSON, so issue text can never begin a line of the log.
-# * This workflow publishes nothing and changes no file, so its token cannot write the repository:
-#   contents: read for the checkout, issues: write to comment and label, nothing else.
-# * A report never takes a calibration down by itself. There is no threshold and nothing automatic
-#   beyond one reply and two labels; the issue is left OPEN and a maintainer decides.
-# * Its own concurrency group. index.json is untouched here, so reports must neither queue behind
-#   publishing nor hold it up.
+# * Only the event's numeric issue number is used; contents and immutable author identity come from
+#   fresh REST snapshots. Issue text remains data. run contains no untrusted interpolation.
+# * Reports persist bounded no-vote receipts and reconcile one bot reply, so contents:write is needed
+#   and this workflow shares publication's lock. Ordinary text never revokes or quarantines a code.
+# * Insufficient text reports wait automatically and link to structured evidence, without requiring
+#   the maintainer to own that region's game. The scheduled evidence sweep catches missed events.
 # * Every `uses:` is pinned to a commit id, with the release in the trailing comment. A tag can be
 #   moved to another commit, so a mutable reference lets a third-party action change under a job
 #   that holds this repository's token - and everything published here is downloaded by every
 #   installed client. Dependabot still proposes upgrades, now as a reviewable commit bump.
-# * publish.py answers an issue that already carries an answer label with `skipped`, so a relabel
-#   never produces a second reply.
+# * Replies are reconciled by a bot-owned marker, including recovery after a successful POST whose
+#   process ended before labelling. Labels do not grant vote eligibility.
 name: report-calibration
 
 on:
   issues:
-    types: [opened, labeled]
+    types: [opened, edited, labeled, reopened]
 
 permissions:
-  contents: read
+  contents: write
   issues: write
 
 defaults:
@@ -43,13 +40,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     concurrency:
-      group: report-calibration
+      group: publish-calibration
       cancel-in-progress: false
     steps:
       - name: Check out main
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           ref: main
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
@@ -60,4 +58,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-        run: bash tools/report_issue.sh "$GITHUB_EVENT_PATH"
+        run: python -B tools/evidence_workflow.py --event "$GITHUB_EVENT_PATH"

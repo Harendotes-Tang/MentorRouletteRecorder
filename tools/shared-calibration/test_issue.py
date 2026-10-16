@@ -16,22 +16,61 @@ BUILD = testsupport.BUILD
 class BodyTests(unittest.TestCase):
     def test_the_body_github_renders_from_the_form_is_read(self):
         form = issue_form.parse_body(testsupport.issue_body(CODE))
-        self.assertEqual((CODE, True, None), (form.code, form.confirmed, form.problem))
+        self.assertEqual((CODE, issue_form.BASIS_CALIBRATED, True, None), (form.code, form.basis, form.confirmed, form.problem))
+        form = issue_form.parse_body(testsupport.issue_body(CODE, basis="verified"))
+        self.assertEqual((CODE, issue_form.BASIS_VERIFIED, True, None), (form.code, form.basis, form.confirmed, form.problem))
+
+    def test_both_texts_the_client_sends_are_read_as_their_basis(self):
+        self.assertEqual({issue_form.BASIS_OPTION_CALIBRATED: "calibrated", issue_form.BASIS_OPTION_VERIFIED: "verified"},
+                         issue_form.BASIS_OPTIONS)
+        for option, basis in issue_form.BASIS_OPTIONS.items():
+            with self.subTest(basis):
+                self.assertEqual(basis, issue_form.parse_body(testsupport.issue_body(CODE, basis=option)).basis)
+
+    def test_no_basis_at_all_is_calibrated_as_every_submission_was_before(self):
+        """An old client sends no basis (_No response_), and a body of the old form has no such section."""
+        for body in (testsupport.issue_body(CODE, basis=None), testsupport.issue_body(CODE, basis=""),
+                     testsupport.issue_body(CODE, basis="   "), testsupport.checkbox_issue_body(CODE)):
+            with self.subTest(body[-60:]):
+                form = issue_form.parse_body(body)
+                self.assertEqual((CODE, issue_form.BASIS_CALIBRATED, True, None),
+                                 (form.code, form.basis, form.confirmed, form.problem))
 
     def test_crlf_and_cr_line_endings_read_the_same(self):
-        body = testsupport.issue_body(CODE)
+        body = testsupport.issue_body(CODE, basis="verified")
         for variant in (body.replace("\n", "\r\n"), body.replace("\n", "\r")):
             form = issue_form.parse_body(variant)
-            self.assertEqual((CODE, True), (form.code, form.confirmed))
+            self.assertEqual((CODE, issue_form.BASIS_VERIFIED, True), (form.code, form.basis, form.confirmed))
 
-    def test_only_the_exact_ticked_option_is_a_confirmation(self):
+    def test_any_other_basis_text_is_refused(self):
+        option = issue_form.BASIS_OPTION_CALIBRATED
+        for stated in (
+            option + "（其实没有）",
+            option.replace("核对过", "核对​过"),
+            "- " + option,
+            "- [X] 我在软件里逐条核对过校准时间线",
+            option + "\n" + issue_form.BASIS_OPTION_VERIFIED,
+            "calibrated ",
+            " verified",
+            "@octocat $(whoami)",
+        ):
+            with self.subTest(stated[:40]):
+                form = issue_form.parse_body(testsupport.issue_body(CODE, basis=stated))
+                self.assertEqual((None, None, False, issue_form.BASIS_INVALID),
+                                 (form.code, form.basis, form.confirmed, form.problem))
+        padded = testsupport.issue_body(CODE, basis="\n  " + option + "  \n")
+        self.assertEqual(issue_form.BASIS_CALIBRATED, issue_form.parse_body(padded).basis)
+
+    def test_only_a_ticked_option_of_the_form_is_a_confirmation(self):
         body = testsupport.issue_body(CODE)
         self.assertTrue(issue_form.parse_body(body.replace("[X]", "[x]")).confirmed)
+        self.assertTrue(issue_form.parse_body(testsupport.checkbox_issue_body(CODE)).confirmed, "the older option counts")
         for variant in (
             testsupport.issue_body(CODE, checked=False),
-            body.replace("时间线\n", "时间线（其实没有）\n"),
-            body.replace("核对过", "核对​过"),
-            body.replace("- [X] 我在软件里逐条核对过校准时间线", "我在软件里逐条核对过校准时间线 - [X]"),
+            testsupport.checkbox_issue_body(CODE, checked=False),
+            body.replace("核对过\n", "核对过（其实没有）\n"),
+            body.replace("已在软件里核对过", "已在软件里核对​过"),
+            body.replace("- [X] 上面的来源属实，我已在软件里核对过", "上面的来源属实，我已在软件里核对过 - [X]"),
             body.replace("- [X] ", "- [X]"),
         ):
             with self.subTest(variant[-40:]):
@@ -41,23 +80,29 @@ class BodyTests(unittest.TestCase):
 
     def test_a_missing_code_or_confirmation_section_is_refused(self):
         cases = (
-            ("### 确认\n\n- [X] 我在软件里逐条核对过校准时间线\n", issue_form.CODE_MISSING),
+            ("### 确认\n\n- [X] 上面的来源属实，我已在软件里核对过\n", issue_form.CODE_MISSING),
             (testsupport.issue_body(issue_form.NO_RESPONSE), issue_form.CODE_MISSING),
             (testsupport.issue_body(""), issue_form.CODE_MISSING),
             ("没有用表单 " + CODE, issue_form.CODE_MISSING),
             ("### 校准码\n\n" + CODE + "\n", issue_form.CONFIRM_MISSING),
+            ("### 校准码\n\n%s\n\n### 这份校准码的来源\n\n%s\n" % (CODE, issue_form.BASIS_OPTION_VERIFIED),
+             issue_form.CONFIRM_MISSING),
         )
         for body, problem in cases:
-            with self.subTest(problem):
+            with self.subTest(problem=problem, body=body[-30:]):
                 form = issue_form.parse_body(body)
-                self.assertEqual((None, False, problem), (form.code, form.confirmed, form.problem))
+                self.assertEqual((None, None, False, problem), (form.code, form.basis, form.confirmed, form.problem))
 
     def test_a_repeated_section_is_refused_rather_than_guessed(self):
         base = testsupport.issue_body(CODE)
+        option = issue_form.BASIS_OPTION_VERIFIED
         cases = (
             (base + "\n### 校准码\n\nMRC1.other\n", issue_form.CODE_AMBIGUOUS),
-            (base + "\n###  确认 \n\n- [X] 我在软件里逐条核对过校准时间线\n", issue_form.CONFIRM_AMBIGUOUS),
-            ("### 校准码\n\n```\n" + CODE + "\n### 校准码\n```\n\n### 确认\n\n- [X] 我在软件里逐条核对过校准时间线", issue_form.CODE_AMBIGUOUS),
+            (base + "\n###  这份校准码的来源 \n\n" + option + "\n", issue_form.BASIS_AMBIGUOUS),
+            (base + "\n### 这份校准码的来源\n\n_No response_\n", issue_form.BASIS_AMBIGUOUS),
+            (base + "\n###  确认 \n\n- [X] 上面的来源属实，我已在软件里核对过\n", issue_form.CONFIRM_AMBIGUOUS),
+            ("### 校准码\n\n```\n" + CODE + "\n### 校准码\n```\n\n### 确认\n\n- [X] 上面的来源属实，我已在软件里核对过",
+             issue_form.CODE_AMBIGUOUS),
         )
         for body, problem in cases:
             with self.subTest(problem):

@@ -2,6 +2,7 @@
 
 #include "AppController.h"
 #include "AppSettings.h"
+#include "LiveText.h"
 
 #include <QAction>
 #include <QCloseEvent>
@@ -66,23 +67,25 @@ TrayController::TrayController(AppController *controller, AppSettings *settings,
         return;
 
     m_menu = std::make_unique<QMenu>();
-    QAction *showAction = m_menu->addAction(QString::fromUtf8("显示"));
-    connect(showAction, &QAction::triggered, this, &TrayController::showWindow);
+    m_showAction = m_menu->addAction(QString());
+    connect(m_showAction, &QAction::triggered, this, &TrayController::showWindow);
 
-    m_captureAction = m_menu->addAction(QString::fromUtf8("开始捕获"));
+    // With a controller its text is the capture action's label (refreshCaptureAction).
+    m_captureAction = m_menu->addAction(tr("开始捕获"));
     connect(m_captureAction, &QAction::triggered, this, [this] {
         if (m_controller)
             m_controller->toggleCapture();
     });
 
     m_menu->addSeparator();
-    QAction *quitAction = m_menu->addAction(QString::fromUtf8("退出"));
-    connect(quitAction, &QAction::triggered, this, [] { quitApplication(); });
+    m_quitAction = m_menu->addAction(QString());
+    connect(m_quitAction, &QAction::triggered, this, [] { quitApplication(); });
 
     m_tray = new QSystemTrayIcon(this);
     m_tray->setIcon(fallbackIcon());
-    m_tray->setToolTip(QString::fromUtf8("FF14 导随记录器"));
     m_tray->setContextMenu(m_menu.get());
+    retranslate();
+    onLanguageChanged(this, &TrayController::retranslate);
     connect(m_tray, &QSystemTrayIcon::activated, this,
             [this](QSystemTrayIcon::ActivationReason reason) {
                 if (reason == QSystemTrayIcon::Trigger
@@ -138,6 +141,16 @@ void TrayController::refreshCaptureAction()
     m_captureAction->setText(m_controller->captureActionLabel());
     m_captureAction->setVisible(m_controller->maintainerToolsVisible());
     m_captureAction->setEnabled(m_controller->captureActionEnabled());
+}
+
+void TrayController::retranslate()
+{
+    if (!m_tray)
+        return;
+    m_showAction->setText(tr("显示主窗口"));
+    m_quitAction->setText(tr("退出"));
+    m_tray->setToolTip(tr("FF14 导随记录器"));
+    refreshCaptureAction();
 }
 
 void TrayController::showWindow()

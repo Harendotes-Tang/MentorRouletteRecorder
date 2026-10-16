@@ -84,7 +84,7 @@ Dialog {
     property string activeFilter: "all"
     property string navigationHint: ""
     property bool showRecognitionHints: false
-    readonly property var recognitionHints: uniqueHints()
+    readonly property var recognitionHints: Theme.live(uniqueHints())
     readonly property var resultOptions: [
         {text: qsTr("未知 / 待补充"), value: "UNKNOWN"},
         {text: qsTr("通关"), value: "COMPLETED"},
@@ -157,10 +157,26 @@ Dialog {
                 || row.status === "error"
     }
     function uniqueHints() {
-        const messages = (rowData.warnings || []).concat(evidence.warnings || [])
+        // The screenshot reader keeps its warnings in their source text
+        // (ScreenshotImportParser.cpp); they are translated here, for the language
+        // on screen. The Collector's own row warnings arrive in the interface
+        // language as warning_texts (ImportRecordsController, from warning_refs),
+        // with its Chinese still in warnings. A warning both of them give is shown
+        // once: the two are compared by their Simplified Chinese, which is the same
+        // in every interface language even where the two translations differ.
+        const collector = rowData.warnings || []
+        const shown = rowData.warning_texts || collector
+        let sources = []
         let hints = []
-        for (let message of messages)
-            if (hints.indexOf(message) < 0) hints.push(message)
+        function add(source, text) {
+            if (sources.indexOf(source) >= 0) return
+            sources.push(source)
+            hints.push(text)
+        }
+        for (let i = 0; i < collector.length; ++i)
+            add(String(collector[i]), shown[i])
+        for (let message of (evidence.warnings || []))
+            add(String(message), qsTranslate("mr::ScreenshotImportParser", message))
         return hints
     }
     function projectRows(filter) {
@@ -333,6 +349,92 @@ Dialog {
         controller.updateCandidate(controller.currentRow, changes)
     }
     function value(key) { return candidate && candidate[key] !== null && candidate[key] !== undefined ? String(candidate[key]) : "" }
+
+    // ---------------------------------------------------------- 游戏名称 --
+    // A candidate stores the Chinese client's names; the dialog shows them in
+    // the interface language (Theme.dutyLabel / jobLabel). The 副本 and 副本类别
+    // fields show the shown name, and what they write back is always a Chinese
+    // name: left as shown they keep the stored one, and a name typed in the
+    // interface language is mapped back to the catalogue's.
+    /// The duty of candidate \a c as shown; "" without one.
+    function dutyNameOf(c) {
+        const name = c && c.duty_name !== null && c.duty_name !== undefined ? String(c.duty_name) : ""
+        return name.length > 0 ? (Theme.dutyLabel(c.content_id, name) || name) : ""
+    }
+    /// The job of candidate \a c as shown; "" without one.
+    function jobNameOf(c) {
+        const name = c && c.job_name !== null && c.job_name !== undefined ? String(c.job_name) : ""
+        return name.length > 0 ? (Theme.jobLabel(c.job_id, name) || name) : ""
+    }
+    readonly property string candidateDutyLabel: dutyNameOf(candidate)
+    readonly property string candidateCategoryLabel: Theme.categoryName(value("duty_category"))
+    /// The catalogue duty whose name in the interface language is \a typed when
+    /// that is not a recorded name itself; null otherwise.
+    function catalogueDutyShownAs(typed) {
+        const query = String(typed || "").trim().toLowerCase()
+        if (!query || !controller)
+            return null
+        const choices = controller.dutyChoices || []
+        for (let i = 0; i < choices.length; ++i) {
+            if (String(choices[i].duty_name || "").toLowerCase() === query)
+                return null
+        }
+        for (let j = 0; j < choices.length; ++j) {
+            if (Theme.dutyName(choices[j]).toLowerCase() === query)
+                return choices[j]
+        }
+        return null
+    }
+    /// Selecting a catalogue duty writes name and identity together.
+    function acceptDuty(duty) {
+        if (!controller || controller.currentRow < 0)
+            return
+        flushReflection()
+        controller.updateCandidate(controller.currentRow, {
+            duty_name: duty.duty_name, content_id: duty.content_id,
+            territory_id: duty.territory_id, duty_category: duty.duty_category,
+            duty_source: "manual"
+        })
+    }
+    /// 副本 left: unchanged it re-sends the stored name (which still marks a
+    /// pending candidate as looked at), a translated catalogue name stores the
+    /// catalogue duty, anything else is free text as before.
+    function finishDutyName(typed) {
+        if (typed === candidateDutyLabel) {
+            edit("duty_name", value("duty_name"))
+            return
+        }
+        const duty = catalogueDutyShownAs(typed)
+        if (duty)
+            acceptDuty(duty)
+        else
+            edit("duty_name", typed)
+    }
+    /// The catalogue's (Chinese) category a typed one stands for; else as typed.
+    function canonicalCategory(typed) {
+        const text = String(typed || "").trim()
+        if (!text || !controller)
+            return text
+        const lower = text.toLowerCase()
+        const choices = controller.dutyChoices || []
+        const seen = {}
+        for (let i = 0; i < choices.length; ++i) {
+            const category = String(choices[i].duty_category || "")
+            if (!category || seen[category])
+                continue
+            seen[category] = true
+            if (category === text || Theme.categoryName(category).toLowerCase() === lower)
+                return category
+        }
+        return text
+    }
+    function finishCategory(typed) {
+        if (typed === candidateCategoryLabel)
+            return
+        const category = canonicalCategory(typed)
+        if (category !== value("duty_category"))
+            edit("duty_category", category || null)
+    }
     function optionIndex(options, field, current) {
         for (let i = 0; i < options.length; ++i)
             if (options[i][field] === current)
@@ -361,7 +463,7 @@ Dialog {
         if (!controller.previewValid)
             return qsTr("需重新校验")
         switch (row.status) {
-        case "new": return row.incomplete ? qsTr("待补充事实") : qsTr("可导入")
+        case "new": return row.incomplete ? qsTr("待补充信息") : qsTr("可导入")
         case "duplicate": return qsTr("重复，跳过")
         case "conflict": return qsTr("冲突，保留本地")
         case "possible_duplicate": return qsTr("可能重复，请核对")
@@ -399,7 +501,7 @@ Dialog {
                 AppButton { objectName: "importTemplatesOpen"; text: qsTr("模板与填写说明"); iconName: "book-open-text"; variant: "ghost"; compact: true; enabled: !dialog.inputLocked; onClicked: templatesDialog.open() }
                 AppButton { text: ""; iconName: "x"; variant: "ghost"; compact: true; Layout.preferredWidth: 26; focusPolicy: Qt.NoFocus; enabled: !dialog.controller || (!dialog.controller.committing && !dialog.controller.pendingCommitConfirmation); Accessible.name: qsTr("关闭导入记录"); onClicked: { dialog.controller.cancel(); dialog.close() } }
             }
-            Text { textFormat: Text.PlainText; Layout.fillWidth: true; text: dialog.hasRows ? qsTr("对照原图逐条核对后再导入。缺失结果按通关预填；没有实际游戏时间的记录会保留为待补充历史。") : qsTr("把以前记在别处的导随记录搬进来。导入前可以逐条核对，确认后才写入历史记录。"); color: Theme.textSecondary; font.pixelSize: Theme.fs(12); wrapMode: Text.WordWrap }
+            Text { textFormat: Text.PlainText; Layout.fillWidth: true; text: dialog.hasRows ? qsTr("对照原图或原文件核对后再导入。未提供结果的记录会预填为通关，请确认；不知道的游戏时间可以留空，以后再补。") : qsTr("把以前记在别处的导随记录搬进来。导入前可以逐条核对，确认后才写入历史记录。"); color: Theme.textSecondary; font.pixelSize: Theme.fs(12); wrapMode: Text.WordWrap }
         }
         Rectangle {
             Layout.fillWidth: true; Layout.preferredHeight: timeZonePreset.currentIndex === dialog.timeZoneOptions.length - 1 ? 78 : 48
@@ -423,7 +525,7 @@ Dialog {
             textFormat: Text.PlainText
             id: importErrorLabel
             objectName: "importError"; Layout.fillWidth: true; visible: text.length > 0
-            text: dialog.controller ? dialog.controller.errorText : qsTr("导入控制器不可用")
+            text: dialog.controller ? dialog.controller.errorText : qsTr("暂时无法导入记录，请重新打开软件后重试。")
             color: Theme.red; font.pixelSize: Theme.fs(12); wrapMode: Text.WordWrap; maximumLineCount: 2; elide: Text.ElideRight
             PlainToolTip { objectName: "importErrorToolTip"; visible: importErrorHover.hovered; text: importErrorLabel.text }
             HoverHandler { id: importErrorHover }
@@ -452,14 +554,14 @@ Dialog {
                 RowLayout {
                     Layout.fillWidth: true; spacing: 24
                     ColumnLayout {
-                        Layout.fillWidth: true; Layout.preferredWidth: 1; spacing: 4
+                        Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.alignment: Qt.AlignTop; spacing: 4
                         SectionHeading { text: qsTr("截图") }
-                        Text { textFormat: Text.PlainText; Layout.fillWidth: true; text: qsTr("同批最多 20 张。只在本机识别，原图和候选会一起保留供你核对。"); color: Theme.textSecondary; font.pixelSize: Theme.fs(12); wrapMode: Text.WordWrap }
+                        Text { textFormat: Text.PlainText; Layout.fillWidth: true; text: qsTr("每批最多 20 张，只在本机识别。预览时可对照原图核对识别结果。"); color: Theme.textSecondary; font.pixelSize: Theme.fs(12); wrapMode: Text.WordWrap }
                     }
                     ColumnLayout {
-                        Layout.fillWidth: true; Layout.preferredWidth: 1; spacing: 4
+                        Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.alignment: Qt.AlignTop; spacing: 4
                         SectionHeading { text: qsTr("表格与备份") }
-                        Text { textFormat: Text.PlainText; Layout.fillWidth: true; text: qsTr("支持 CSV、Excel（.xls / .xlsx）、JSON 和数据库备份。可先保存模板填写；表头不一致时可以指定列映射。"); color: Theme.textSecondary; font.pixelSize: Theme.fs(12); wrapMode: Text.WordWrap }
+                        Text { textFormat: Text.PlainText; Layout.fillWidth: true; text: qsTr("支持 CSV、Excel（.xls / .xlsx）、JSON 和数据库备份。可先保存模板填写；表头不一致时，点「列映射」指定各列的名称。"); color: Theme.textSecondary; font.pixelSize: Theme.fs(12); wrapMode: Text.WordWrap }
                     }
                 }
                 AppButton { objectName: "importManualPasteOpen"; text: qsTr("手动粘贴表格文字"); variant: "ghost"; compact: true; Layout.alignment: Qt.AlignLeft; enabled: !dialog.inputLocked; onClicked: pasteDialog.open() }
@@ -515,7 +617,7 @@ Dialog {
                             Text {
                                 textFormat: Text.PlainText
                                 anchors.fill: parent; anchors.leftMargin: 2; anchors.rightMargin: 3; visible: parent.groupHeader
-                                text: (modelData.label || "") + qsTr("  %1 条").arg(modelData.count || 0)
+                                text: qsTr("%1  %2 条").arg(modelData.label || "").arg(modelData.count || 0)
                                 color: Theme.textSecondary; font.pixelSize: Theme.fs(11); verticalAlignment: Text.AlignVCenter; elide: Text.ElideMiddle
                                 PlainToolTip { visible: groupHover.hovered; text: modelData.label || "" }
                                 HoverHandler { id: groupHover }
@@ -532,12 +634,12 @@ Dialog {
                                     ImportCheckBox { objectName: "importRowCheck" + modelData.originalIndex; checked: importRow.selected === true; enabled: !dialog.inputLocked && dialog.controller && dialog.controller.previewValid && importRow.can_import === true; onClicked: { dialog.flushEditors(); dialog.controller.setRowSelected(modelData.originalIndex, checked) } Accessible.name: qsTr("选择导入第 %1 行").arg(modelData.originalIndex + 1) }
                                     ColumnLayout {
                                         Layout.fillWidth: true; spacing: 3
-                                        Text { textFormat: Text.PlainText; Layout.fillWidth: true; text: qsTr("%1. %2").arg(modelData.originalIndex + 1).arg(importCandidate.duty_name || qsTr("副本待识别")); color: importRow.can_import === false ? Theme.orangeText : Theme.textPrimary; font.pixelSize: Theme.fs(12); elide: Text.ElideRight }
-                                        Text { textFormat: Text.PlainText; Layout.fillWidth: true; text: (importCandidate.job_name || qsTr("职业未知")) + " · " + (importCandidate.reflection_text || dialog.statusLabel(importRow)).replace(/\s+/g, " "); color: Theme.textSecondary; font.pixelSize: Theme.fs(11); elide: Text.ElideRight }
+                                        Text { textFormat: Text.PlainText; Layout.fillWidth: true; text: qsTr("%1. %2").arg(modelData.originalIndex + 1).arg(dialog.dutyNameOf(importCandidate) || qsTr("副本待识别")); color: importRow.can_import === false ? Theme.orangeText : Theme.textPrimary; font.pixelSize: Theme.fs(12); elide: Text.ElideRight }
+                                        Text { textFormat: Text.PlainText; Layout.fillWidth: true; text: (dialog.jobNameOf(importCandidate) || qsTr("职业未知")) + " · " + (importCandidate.reflection_text || dialog.statusLabel(importRow)).replace(/\s+/g, " "); color: Theme.textSecondary; font.pixelSize: Theme.fs(11); elide: Text.ElideRight }
                                         Text { textFormat: Text.PlainText; Layout.fillWidth: true; text: importCandidate.source_recorded_at || dialog.statusLabel(importRow); color: Theme.textMuted; font.pixelSize: Theme.fs(10); elide: Text.ElideRight }
                                     }
                                 }
-                                PlainToolTip { visible: rowHover.hovered; delay: 700; text: (importCandidate.duty_name || qsTr("副本待识别")) + "\n" + dialog.statusLabel(importRow) }
+                                PlainToolTip { visible: rowHover.hovered; delay: 700; text: (dialog.dutyNameOf(importCandidate) || qsTr("副本待识别")) + "\n" + dialog.statusLabel(importRow) }
                             }
                         }
                         Text { textFormat: Text.PlainText; anchors.centerIn: parent; width: parent.width - 12; visible: dialog.visibleRows.length === 0; text: qsTr("没有符合此筛选的记录"); color: Theme.textSecondary; font.pixelSize: Theme.fs(12); wrapMode: Text.WordWrap; horizontalAlignment: Text.AlignHCenter }
@@ -573,7 +675,7 @@ Dialog {
                                     Item { Layout.fillWidth: true }
                                     AppButton { objectName: "importViewWholeImage"; text: qsTr("查看整张"); compact: true; visible: !!dialog.evidence.source_url; enabled: !dialog.inputLocked; onClicked: { dialog.flushEditors(); imageDialog.zoom = 1; imageDialog.open() } }
                                 }
-                                Text { textFormat: Text.PlainText; Layout.fillWidth: true; visible: !!dialog.evidence.source_url; text: qsTr("文字参考分 %1 · %2").arg(Math.round(Number(dialog.evidence.ocr_confidence || 0) * 100)).arg(dialog.iconEvidenceText); color: Theme.textSecondary; font.pixelSize: Theme.fs(11); wrapMode: Text.WordWrap }
+                                Text { textFormat: Text.PlainText; Layout.fillWidth: true; visible: !!dialog.evidence.source_url; text: qsTr("文字识别参考分 %1 · %2").arg(Math.round(Number(dialog.evidence.ocr_confidence || 0) * 100)).arg(dialog.iconEvidenceText); color: Theme.textSecondary; font.pixelSize: Theme.fs(11); wrapMode: Text.WordWrap }
                                 Rectangle {
                                     Layout.fillWidth: true
                                     Layout.preferredHeight: Math.max(100, Math.min(220,
@@ -625,7 +727,7 @@ Dialog {
                                         }
                                     }
                                 }
-                                Text { textFormat: Text.PlainText; Layout.fillWidth: true; visible: !dialog.evidence.source_url; text: qsTr("表格记录没有原图，可对照原文件核对右侧字段和心得。"); color: Theme.textSecondary; font.pixelSize: Theme.fs(12); wrapMode: Text.WordWrap }
+                                Text { textFormat: Text.PlainText; Layout.fillWidth: true; visible: !dialog.evidence.source_url; text: qsTr("表格记录没有原图，请对照原文件核对右侧内容和心得。"); color: Theme.textSecondary; font.pixelSize: Theme.fs(12); wrapMode: Text.WordWrap }
                                 SectionHeading { text: qsTr("心得全文") }
                                 Text { textFormat: Text.PlainText; Layout.fillWidth: true; text: qsTr("识别出的文字和原图不一致，直接在这里修改。"); color: Theme.textSecondary; font.pixelSize: Theme.fs(11); wrapMode: Text.WordWrap }
                                 ScrollView {
@@ -663,7 +765,7 @@ Dialog {
                             ColumnLayout {
                                 width: fieldsPane.availableWidth; spacing: 10; enabled: !dialog.inputLocked
                                 SectionHeading { text: qsTr("识别结果") }
-                                Text { textFormat: Text.PlainText; Layout.fillWidth: true; text: (dialog.rowData.errors || []).join("\n"); visible: text.length > 0; color: Theme.red; font.pixelSize: Theme.fs(11); wrapMode: Text.WordWrap }
+                                Text { textFormat: Text.PlainText; Layout.fillWidth: true; text: (dialog.rowData.error_texts || dialog.rowData.errors || []).join("\n"); visible: text.length > 0; color: Theme.red; font.pixelSize: Theme.fs(11); wrapMode: Text.WordWrap }
                                 AppButton {
                                     Layout.alignment: Qt.AlignLeft
                                     text: dialog.showRecognitionHints ? qsTr("收起识别提示") : qsTr("查看 %1 条识别提示").arg(dialog.recognitionHints.length)
@@ -675,13 +777,14 @@ Dialog {
                                 Text { textFormat: Text.PlainText; Layout.fillWidth: true; text: dialog.recognitionHints.join("\n"); visible: dialog.showRecognitionHints && text.length > 0; color: Theme.orangeText; font.pixelSize: Theme.fs(11); wrapMode: Text.WordWrap }
                                 GridLayout {
                                     Layout.fillWidth: true; columns: 2; columnSpacing: 8; rowSpacing: 9
-                                    Text { textFormat: Text.PlainText; objectName: "importDutyCandidateWarning"; Layout.columnSpan: 2; Layout.fillWidth: true; visible: dialog.evidence.duty_candidate_pending === true; text: qsTr("副本候选待复核：%1\n原始识别：%2，请对照原图确认。").arg(dialog.evidence.duty_candidate_name || "").arg(dialog.evidence.ocr_duty_name || ""); color: Theme.orangeText; font.pixelSize: Theme.fs(12); wrapMode: Text.WordWrap }
+                                    Text { textFormat: Text.PlainText; objectName: "importDutyCandidateWarning"; Layout.columnSpan: 2; Layout.fillWidth: true; visible: dialog.evidence.duty_candidate_pending === true; text: qsTr("副本待复核：可能是「%1」。\n图片文字识别为「%2」，请对照原图确认。").arg(Theme.dutyLabel(null, dialog.evidence.duty_candidate_name)).arg(dialog.evidence.ocr_duty_name || ""); color: Theme.orangeText; font.pixelSize: Theme.fs(12); wrapMode: Text.WordWrap }
                                     FieldLabel { text: qsTr("副本") }
                                     StyledTextField {
                                         id: dutyNameField
                                         objectName: "importDutyName"
                                         Layout.fillWidth: true
-                                        text: dialog.value("duty_name")
+                                        // Shown in the interface language; finishDutyName stores a Chinese name.
+                                        text: dialog.candidateDutyLabel
                                         Accessible.description: qsTr("输入副本名称联想，方向键选择，Tab 填入候选。")
                                         property string suggestionQuery: ""
                                         property int suggestionIndex: 0
@@ -690,23 +793,18 @@ Dialog {
                                             if (!query || !dialog.controller) return []
                                             const choices = dialog.controller.dutyChoices || []
                                             const found = []
+                                            // The recorded (Chinese) name or the one shown both find a duty.
                                             for (let i = 0; i < choices.length && found.length < 8; ++i) {
-                                                if (String(choices[i].duty_name || "").toLowerCase().indexOf(query) >= 0)
+                                                if (Theme.nameMatches([choices[i].duty_name, Theme.dutyName(choices[i])], query))
                                                     found.push(choices[i])
                                             }
                                             return found
                                         }
                                         function acceptSuggestion(index) {
                                             if (index < 0 || index >= suggestions.length || preeditText.length > 0) return
-                                            const duty = suggestions[index]
-                                            dialog.flushReflection()
                                             // Selecting a catalog candidate writes name and identity together.
                                             // Free-text edits instead clear stale identity in the controller.
-                                            dialog.controller.updateCandidate(dialog.controller.currentRow, {
-                                                duty_name: duty.duty_name, content_id: duty.content_id,
-                                                territory_id: duty.territory_id, duty_category: duty.duty_category,
-                                                duty_source: "manual"
-                                            })
+                                            dialog.acceptDuty(suggestions[index])
                                             dutySuggestions.close()
                                             suggestionQuery = ""
                                             cursorPosition = length
@@ -719,7 +817,7 @@ Dialog {
                                         }
                                         onPreeditTextChanged: if (preeditText.length > 0) dutySuggestions.close()
                                         onActiveFocusChanged: if (!activeFocus) dutySuggestions.close()
-                                        onEditingFinished: dialog.edit("duty_name", text.trim())
+                                        onEditingFinished: dialog.finishDutyName(text.trim())
                                         Keys.onPressed: function(event) {
                                             if (preeditText.length > 0 || event.modifiers !== Qt.NoModifier) return
                                             if ((event.key === Qt.Key_Down || event.key === Qt.Key_Up) && suggestions.length > 0) {
@@ -759,10 +857,10 @@ Dialog {
                                                     required property int index
                                                     width: suggestionsList.width
                                                     height: 30
-                                                    text: modelData.duty_name
+                                                    text: Theme.dutyName(modelData)
                                                     focusPolicy: Qt.NoFocus
                                                     highlighted: index === dutyNameField.suggestionIndex
-                                                    contentItem: Text { text: modelData.duty_name; textFormat: Text.PlainText; color: Theme.textPrimary; font.pixelSize: Theme.fs(12); verticalAlignment: Text.AlignVCenter; elide: Text.ElideRight }
+                                                    contentItem: Text { text: Theme.dutyName(modelData); textFormat: Text.PlainText; color: Theme.textPrimary; font.pixelSize: Theme.fs(12); verticalAlignment: Text.AlignVCenter; elide: Text.ElideRight }
                                                     background: Rectangle { color: parent.highlighted || parent.hovered ? Theme.accentMuted : "transparent"; radius: Theme.radiusS }
                                                     onClicked: dutyNameField.acceptSuggestion(index)
                                                 }
@@ -770,17 +868,18 @@ Dialog {
                                         }
                                     }
                                     FieldLabel { text: qsTr("副本类别") }
-                                    StyledTextField { objectName: "importDutyCategory"; Layout.fillWidth: true; text: dialog.value("duty_category"); placeholderText: qsTr("根据副本自动填写"); Accessible.description: qsTr("根据匹配的副本资料自动填写类别"); onEditingFinished: { const category = text.trim(); if (category !== dialog.value("duty_category")) dialog.edit("duty_category", category || null) } }
-                                    Text { textFormat: Text.PlainText; objectName: "importJobCandidateWarning"; Layout.columnSpan: 2; Layout.fillWidth: true; visible: dialog.evidence.job_candidate_pending === true || dialog.unsupportedSourceJob; text: dialog.unsupportedSourceJob ? qsTr("来源职业不适用于导随，请核对并选择职业。") : qsTr("候选待复核：%1（%2），请对照原图确认职业。").arg(dialog.evidence.job_candidate_name || "").arg(dialog.iconEvidenceText); color: Theme.orangeText; font.pixelSize: Theme.fs(12); wrapMode: Text.WordWrap }
+                                    StyledTextField { objectName: "importDutyCategory"; Layout.fillWidth: true; text: dialog.candidateCategoryLabel; placeholderText: qsTr("根据副本自动填写"); Accessible.description: qsTr("根据匹配的副本资料自动填写类别"); onEditingFinished: dialog.finishCategory(text.trim()) }
+                                    Text { textFormat: Text.PlainText; objectName: "importJobCandidateWarning"; Layout.columnSpan: 2; Layout.fillWidth: true; visible: dialog.evidence.job_candidate_pending === true || dialog.unsupportedSourceJob; text: dialog.unsupportedSourceJob ? qsTr("原记录中的职业不适用于指导者任务，请核对并重新选择。") : qsTr("职业待复核：可能是「%1」（%2），请对照原图确认。").arg(Theme.jobLabel(dialog.evidence.job_candidate_id, dialog.evidence.job_candidate_name)).arg(dialog.iconEvidenceText); color: Theme.orangeText; font.pixelSize: Theme.fs(12); wrapMode: Text.WordWrap }
                                     FieldLabel { text: qsTr("职业") }
                                     StyledComboBox {
-                                        objectName: "importJob"; Layout.fillWidth: true; model: dialog.controller ? dialog.controller.jobChoices : []; textRole: "job_name"; currentIndex: dialog.jobChoiceIndex
-                                        displayText: dialog.unsupportedSourceJob ? qsTr("%1（来源职业）").arg(dialog.value("job_name") || qsTr("职业 %1").arg(dialog.value("job_id"))) : (model[currentIndex] ? model[currentIndex].job_name : "")
+                                        // label: the job as shown; onActivated stores job_id and the Chinese job_name.
+                                        objectName: "importJob"; Layout.fillWidth: true; model: Theme.labelledJobs(dialog.controller ? dialog.controller.jobChoices : []); textRole: "label"; currentIndex: Theme.live(dialog.jobChoiceIndex)
+                                        displayText: dialog.unsupportedSourceJob ? qsTr("%1（来源职业）").arg(dialog.jobNameOf(dialog.candidate) || qsTr("职业 %1").arg(dialog.value("job_id"))) : (model[currentIndex] ? model[currentIndex].label : "")
                                         onActivated: function(index) { dialog.flushReflection(); dialog.controller.updateCandidate(dialog.controller.currentRow, {job_id: model[index].job_id, job_name: index ? model[index].job_name : null}) }
                                     }
-                                    FieldLabel { text: qsTr("原站记录时间") }
+                                    FieldLabel { text: qsTr("原记录时间") }
                                     StyledTextField { objectName: "importSourceRecordedAt"; Layout.fillWidth: true; text: dialog.value("source_recorded_at"); placeholderText: "yyyy-MM-dd HH:mm:ss"; onEditingFinished: dialog.edit("source_recorded_at", text.trim() || null) }
-                                    Text { textFormat: Text.PlainText; Layout.columnSpan: 2; Layout.fillWidth: true; text: qsTr("按所选地区解释原站时间，不代表实际游戏时间。"); color: Theme.textMuted; font.pixelSize: Theme.fs(11); wrapMode: Text.WordWrap }
+                                    Text { textFormat: Text.PlainText; Layout.columnSpan: 2; Layout.fillWidth: true; text: qsTr("此时间按所选地区的时区读取，不代表实际匹配、进本或结束时间。"); color: Theme.textMuted; font.pixelSize: Theme.fs(11); wrapMode: Text.WordWrap }
                                     FieldLabel { text: qsTr("结果") }
                                     StyledComboBox { objectName: "importResult"; Layout.fillWidth: true; model: dialog.resultOptions; textRole: "text"; currentIndex: dialog.optionIndex(model, "value", dialog.candidate.result || "COMPLETED"); onActivated: function(index) { dialog.edit("result", model[index].value) } }
                                     Text { textFormat: Text.PlainText; Layout.columnSpan: 2; Layout.fillWidth: true; text: qsTr("来源未提供结果时按通关预填，可以修改。"); color: Theme.textMuted; font.pixelSize: Theme.fs(11); wrapMode: Text.WordWrap }
@@ -792,7 +891,7 @@ Dialog {
                                     Layout.fillWidth: true; visible: dialog.showGameFacts; columns: 2; columnSpacing: 8; rowSpacing: 8
                                     FieldLabel { text: qsTr("匹配时间 UTC") }
                                     StyledTextField { Layout.fillWidth: true; text: dialog.value("matched_at_utc"); placeholderText: "2026-10-08T10:00:00.000Z"; onEditingFinished: dialog.edit("matched_at_utc", text.trim() || null) }
-                                    FieldLabel { text: qsTr("进入时间 UTC") }
+                                    FieldLabel { text: qsTr("进本时间 UTC") }
                                     StyledTextField { Layout.fillWidth: true; text: dialog.value("entered_at_utc"); placeholderText: qsTr("未知可留空"); onEditingFinished: dialog.edit("entered_at_utc", text.trim() || null) }
                                     FieldLabel { text: qsTr("结束时间 UTC") }
                                     StyledTextField { Layout.fillWidth: true; text: dialog.value("ended_at_utc"); placeholderText: qsTr("未知可留空"); onEditingFinished: dialog.edit("ended_at_utc", text.trim() || null) }
@@ -800,7 +899,7 @@ Dialog {
                                     StyledTextField { Layout.fillWidth: true; text: dialog.value("duration_ms"); placeholderText: qsTr("未知可留空"); onEditingFinished: dialog.edit("duration_ms", text.trim().length ? Number(text) : null) }
                                 }
                                 Rectangle { Layout.fillWidth: true; Layout.preferredHeight: incompleteHint.implicitHeight + 18; color: Theme.insetBackground; radius: Theme.radiusS
-                                    Text { textFormat: Text.PlainText; id: incompleteHint; anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top; anchors.margins: 9; text: qsTr("核对本人导随及通关结果后即可计数。未知游戏时间和耗时可留空，保留待补充提示，不影响已确认通关与成就。"); color: Theme.textSecondary; font.pixelSize: Theme.fs(12); wrapMode: Text.WordWrap }
+                                    Text { textFormat: Text.PlainText; id: incompleteHint; anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top; anchors.margins: 9; text: qsTr("确认是自己的指导者任务并核对结果后，通关才会计入成就。游戏时间和耗时不知道可以留空，以后再补，不影响已确认的通关计数。"); color: Theme.textSecondary; font.pixelSize: Theme.fs(12); wrapMode: Text.WordWrap }
                                 }
                             }
                         }
@@ -821,7 +920,7 @@ Dialog {
                 anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top; anchors.margins: 9; spacing: 6
                 Text {
                     textFormat: Text.PlainText; Layout.fillWidth: true; wrapMode: Text.WordWrap
-                    text: qsTr("勾选的记录中有 %1 条计入进度的通关。它们是否已经包含在成就基数 %2 中？").arg(dialog.controller ? dialog.controller.contributingSelectedCount : 0).arg(dialog.controller ? dialog.controller.baselineCount : 0)
+                    text: qsTr("勾选记录中有 %1 条通关会计入进度。它们已包含在起始次数 %2（开始用本软件记录前，已经完成的导随次数）中吗？").arg(dialog.controller ? dialog.controller.contributingSelectedCount : 0).arg(dialog.controller ? dialog.controller.baselineCount : 0)
                     color: Theme.textPrimary; font.pixelSize: Theme.fs(12)
                 }
                 Flow {
@@ -830,21 +929,21 @@ Dialog {
                         objectName: "importBaselineDeduct"
                         checked: dialog.controller ? dialog.controller.deductFromBaseline : false
                         enabled: !dialog.inputLocked
-                        text: qsTr("已包含：保存时从基数中扣除 %1 次，基数改为 %2").arg(dialog.controller ? dialog.controller.baselineDeductionPreview : 0).arg(dialog.controller ? dialog.controller.baselineCount - dialog.controller.baselineDeductionPreview : 0)
+                        text: qsTr("已包含：保存时扣除 %1 次，起始次数改为 %2").arg(dialog.controller ? dialog.controller.baselineDeductionPreview : 0).arg(dialog.controller ? dialog.controller.baselineCount - dialog.controller.baselineDeductionPreview : 0)
                         onPicked: if (dialog.controller) dialog.controller.deductFromBaseline = true
                     }
                     PickChip {
                         objectName: "importBaselineKeep"
                         checked: dialog.controller ? !dialog.controller.deductFromBaseline : false
                         enabled: !dialog.inputLocked
-                        text: qsTr("未包含：照常加在基数之上")
+                        text: qsTr("未包含：照常加在起始次数之上")
                         onPicked: if (dialog.controller) dialog.controller.deductFromBaseline = false
                     }
                 }
                 Text {
                     textFormat: Text.PlainText; Layout.fillWidth: true; wrapMode: Text.WordWrap
                     visible: dialog.controller && dialog.controller.deductFromBaseline && dialog.controller.contributingSelectedCount > dialog.controller.baselineCount
-                    text: qsTr("基数只有 %1，只能扣到 0；其余 %2 次照常加在基数之上。").arg(dialog.controller ? dialog.controller.baselineCount : 0).arg(dialog.controller ? dialog.controller.contributingSelectedCount - dialog.controller.baselineCount : 0)
+                    text: qsTr("起始次数只有 %1，只能扣到 0；其余 %2 次照常加在起始次数之上。").arg(dialog.controller ? dialog.controller.baselineCount : 0).arg(dialog.controller ? dialog.controller.contributingSelectedCount - dialog.controller.baselineCount : 0)
                     color: Theme.textSecondary; font.pixelSize: Theme.fs(11)
                 }
             }
@@ -879,11 +978,17 @@ Dialog {
         parent: dialog.hasRows ? reviewZone : startZone
         anchors.fill: parent; spacing: 5
         RowLayout {
-            Text { textFormat: Text.PlainText; text: qsTr("时间按"); color: Theme.textSecondary; font.pixelSize: Theme.fs(12) }
+            Text {
+                textFormat: Text.PlainText
+                //: Label in front of the time-zone box: "times are read as <Beijing time / …>".
+                text: qsTr("时间按")
+                color: Theme.textSecondary
+                font.pixelSize: Theme.fs(12)
+            }
             StyledComboBox {
                 id: timeZonePreset
                 objectName: "importTimeZonePreset"; Layout.preferredWidth: dialog.hasRows ? 174 : 200; enabled: !dialog.inputLocked
-                model: dialog.timeZoneOptions; textRole: "text"; currentIndex: dialog.timeZoneChoiceIndex()
+                model: dialog.timeZoneOptions; textRole: "text"; currentIndex: Theme.live(dialog.timeZoneChoiceIndex())
                 onActivated: function(index) { const zone = model[index].value; dialog.customTimeZoneSelected = zone === ""; if (zone !== "" && dialog.controller) dialog.controller.timeZone = zone }
                 Accessible.name: qsTr("截图或表格上的时间所在地区")
                 ToolTip.visible: hovered; ToolTip.delay: 600; ToolTip.text: qsTr("中国大陆来源通常使用北京时间，不会填补游戏进出时间。")
@@ -964,7 +1069,7 @@ Dialog {
             Text {
                 textFormat: Text.PlainText
                 Layout.fillWidth: true
-                text: qsTr("填写原表头名称。即使暂时没有识别到记录，也可以在这里调整列映射后重试。")
+                text: qsTr("填写原表格中对应的列名。没有识别到记录时，也可以在这里指定列名后重新读取。")
                 color: Theme.textSecondary
                 font.pixelSize: Theme.fs(12)
                 wrapMode: Text.WordWrap
@@ -975,15 +1080,15 @@ Dialog {
                 columnSpacing: 12
                 rowSpacing: 10
                 FieldLabel { text: qsTr("副本列名") }
-                StyledTextField { id: mapDuty; objectName: "importMapDuty"; Layout.fillWidth: true; placeholderText: qsTr("如 副本"); Accessible.name: qsTr("原表副本列名") }
+                StyledTextField { id: mapDuty; objectName: "importMapDuty"; Layout.fillWidth: true; placeholderText: qsTr("如 %1").arg("副本"); Accessible.name: qsTr("原表副本列名") }
                 FieldLabel { text: qsTr("职业列名") }
-                StyledTextField { id: mapJob; objectName: "importMapJob"; Layout.fillWidth: true; placeholderText: qsTr("如 职业"); Accessible.name: qsTr("原表职业列名") }
+                StyledTextField { id: mapJob; objectName: "importMapJob"; Layout.fillWidth: true; placeholderText: qsTr("如 %1").arg("职业"); Accessible.name: qsTr("原表职业列名") }
                 FieldLabel { text: qsTr("记录日期列名") }
                 StyledTextField { id: mapDate; objectName: "importMapDate"; Layout.fillWidth: true; placeholderText: qsTr("原站记录时间"); Accessible.name: qsTr("原表记录日期列名") }
                 FieldLabel { text: qsTr("心得列名") }
-                StyledTextField { id: mapReflection; objectName: "importMapReflection"; Layout.fillWidth: true; placeholderText: qsTr("如 评论"); Accessible.name: qsTr("原表心得列名") }
+                StyledTextField { id: mapReflection; objectName: "importMapReflection"; Layout.fillWidth: true; placeholderText: qsTr("如 %1").arg("评论"); Accessible.name: qsTr("原表心得列名") }
             }
-            Text { textFormat: Text.PlainText; Layout.fillWidth: true; text: qsTr("记录日期保留来源语义，不会填补实际游戏时间。"); color: Theme.textMuted; font.pixelSize: Theme.fs(11); wrapMode: Text.WordWrap }
+            Text { textFormat: Text.PlainText; Layout.fillWidth: true; text: qsTr("记录日期只表示原记录的时间，不会用来补填匹配、进本或结束时间。"); color: Theme.textMuted; font.pixelSize: Theme.fs(11); wrapMode: Text.WordWrap }
             RowLayout {
                 Layout.fillWidth: true
                 Item { Layout.fillWidth: true }
@@ -1031,7 +1136,7 @@ Dialog {
             GridLayout {
                 columns: 2; Layout.fillWidth: true; columnSpacing: 10; rowSpacing: 10
                 FieldLabel { text: qsTr("职业") }
-                StyledComboBox { id: batchJob; objectName: "importBatchJob"; Layout.fillWidth: true; model: [{job_name: qsTr("不修改"), noChange: true}].concat(dialog.controller ? dialog.controller.jobChoices : []); textRole: "job_name" }
+                StyledComboBox { id: batchJob; objectName: "importBatchJob"; Layout.fillWidth: true; model: [{job_name: qsTr("不修改"), label: qsTr("不修改"), noChange: true}].concat(Theme.labelledJobs(dialog.controller ? dialog.controller.jobChoices : [])); textRole: "label" }
                 FieldLabel { text: qsTr("结果") }
                 StyledComboBox { id: batchResult; objectName: "importBatchResult"; Layout.fillWidth: true; model: [{text: qsTr("不修改"), noChange: true}].concat(dialog.resultOptions); textRole: "text" }
                 FieldLabel { text: qsTr("打本心情") }

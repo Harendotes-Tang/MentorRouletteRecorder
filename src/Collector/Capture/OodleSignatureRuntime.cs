@@ -4,6 +4,7 @@ using System.Runtime.InteropServices;
 using Machina.FFXIV.Memory;
 using Machina.FFXIV.Oodle;
 using MentorRecorder.Collector.Contracts.Errors;
+using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Diagnostics;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Protocol.Profiles;
@@ -377,7 +378,7 @@ public sealed class OodleSignatureRuntime : IDisposable
     /// </summary>
     public void Install()
     {
-        if (_pendingCleanup.Count > 0) throw Refused("上次 Oodle 资源尚未释放，抓包未开始。");
+        if (_pendingCleanup.Count > 0) throw Refused(CollectorTexts.CaptureOodlePreviousNotReleased());
         if (_installed)
         {
             return;
@@ -390,7 +391,7 @@ public sealed class OodleSignatureRuntime : IDisposable
                 "capture",
                 "oodle_signature_runtime_incompatible",
                 new Dictionary<string, object?> { ["reason"] = refusal });
-            throw Refused("当前 Machina 版本与 Oodle 签名档案接线不兼容，抓包未开始。");
+            throw Refused(CollectorTexts.CaptureOodleMachinaIncompatible());
         }
 
         var scan = new OodleSignatureScan(_profile);
@@ -451,7 +452,7 @@ public sealed class OodleSignatureRuntime : IDisposable
 
             LogScanResults(scan);
             _logger.WriteError("capture", "oodle_signature_override_failed", ex);
-            throw Refused("匹配的 Oodle 签名档案无法加载，抓包未开始。", ex);
+            throw Refused(CollectorTexts.CaptureOodleProfileLoadFailed(), ex);
         }
 
         LogScanResults(scan);
@@ -591,11 +592,10 @@ public sealed class OodleSignatureRuntime : IDisposable
         return true;
     }
 
-    private static CollectorException Refused(string message, Exception? inner = null) =>
-        new(
-            ErrorCodes.Internal,
-            message + " 请运行 tools/oodle-signature-finder 重新生成并核验签名档案。",
-            inner: inner);
+    /// <param name="message">The whole refusal, its advice to regenerate the signature profile included.</param>
+    /// <param name="inner">Underlying exception, if any.</param>
+    private static CollectorException Refused(UserText message, Exception? inner = null) =>
+        new(ErrorCodes.Internal, message, inner: inner);
 
     private sealed record RuntimeContract(object SyncRoot, FieldInfo NativeField);
 }

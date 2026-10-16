@@ -9,6 +9,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import testsupport
 from testsupport import BUILD
@@ -63,8 +64,9 @@ class PublishTestCase(unittest.TestCase):
         comment = (self.out / "comment.md").read_text(encoding="utf-8")
         return exit_code, result, comment, stdout
 
-    def publish_as(self, user_id, login, number=7, code=None) -> dict:
-        event = self.issue(body=testsupport.issue_body(code or self.code), number=number, user_id=user_id, login=login)
+    def publish_as(self, user_id, login, number=7, code=None, basis="calibrated") -> dict:
+        event = self.issue(body=testsupport.issue_body(code or self.code, basis=basis), number=number, user_id=user_id,
+                           login=login)
         account = self.account(user_id, login=login)
         _, checked, _, _ = self.decide("check", event, account)
         status = checked["status"]
@@ -239,7 +241,33 @@ class RefusalTests(PublishTestCase):
         self.assertRefused("ACCOUNT_MISMATCH", account=self.account(user_id=999))
 
     def test_an_unticked_confirmation(self):
-        self.assertRefused("NOT_CONFIRMED", event=self.issue(body=testsupport.issue_body(self.code, checked=False)))
+        for body in (testsupport.issue_body(self.code, checked=False), testsupport.checkbox_issue_body(self.code, checked=False)):
+            with self.subTest(body[-30:]):
+                _, comment = self.assertRefused("NOT_CONFIRMED", event=self.issue(body=body))
+                self.assertIn("没有勾选「上面的来源属实，我已在软件里核对过」", comment)
+
+    def test_a_body_without_a_basis_is_a_calibrated_submission(self):
+        """A client that predates the field sends none, and an issue of the older form has no such section."""
+        for number, body in enumerate((testsupport.checkbox_issue_body(self.code), testsupport.issue_body(self.code, basis=None)), 7):
+            with self.subTest(body[-30:]):
+                _, result, comment, _ = self.decide("check", self.issue(body=body, number=number), self.account())
+                self.assertEqual(("published", "calibrated"), (result["status"], result["basis"]))
+                self.assertIn("**已发布。** 谢谢分享！", comment)
+
+    def test_a_basis_that_was_edited_or_repeated(self):
+        cases = (
+            ("BASIS_INVALID", testsupport.issue_body(self.code, basis="我自己校准的 @octocat"),
+             "「这份校准码的来源」一栏被改动过，请在软件里重新打开分享页面，不要改动该栏。"),
+            ("BASIS_AMBIGUOUS", testsupport.issue_body(self.code) + "\n### 这份校准码的来源\n\n" +
+             testsupport.BASIS_OPTIONS["verified"] + "\n", "正文里有不止一个「这份校准码的来源」栏目"),
+        )
+        for reason, body, text in cases:
+            with self.subTest(reason):
+                result, comment = self.assertRefused(reason, event=self.issue(body=body))
+                self.assertIn(text, comment)
+                self.assertIsNone(result["basis"])
+                self.assertNotIn("octocat", comment)
+                self.assertEqual(1, comment.count("不要改动"), "the advice is given once")
 
     def test_bodies_that_are_not_the_form(self):
         other = sharecode.encode(testsupport.payload("MARKER_OFFSET", 2))
@@ -476,10 +504,10 @@ class ReportTests(PublishTestCase):
         before = (self.repo / "index.json").read_bytes()
         exit_code, result, comment, stdout = self.report(self.event())
         self.assertEqual((0, "received", None, 12), (exit_code, result["status"], result["reason"], result["issue"]))
-        self.assertEqual("calibration-report needs-maintainer", result["labels"])
+        self.assertEqual("calibration-report evidence-waiting", result["labels"])
         self.assertEqual(("CN", BUILD, "弹窗时误报匹配", False),
                          (result["region"], result["game_build"], result["symptom"], result["note"]))
-        self.assertIn("已收到。维护者核实后会撤回有问题的校准码，或在此说明原因。", comment)
+        self.assertIn("已自动归类为待补结构化证据，普通文字不计票", comment)
         self.assertIn("本 Issue 保持打开", comment)
         self.assertEqual("", result.get("close_reason", ""), "a report is never closed automatically")
         self.assertEqual(before, (self.repo / "index.json").read_bytes(), "a report revokes nothing")
@@ -497,7 +525,7 @@ class ReportTests(PublishTestCase):
             with self.subTest(reason):
                 _, result, comment, _ = self.report(self.event(body=body))
                 self.assertEqual(("refused", reason), (result["status"], result["reason"]))
-                self.assertEqual("calibration-report needs-maintainer", result["labels"])
+                self.assertEqual("calibration-report evidence-waiting", result["labels"])
                 self.assertEqual((None, None, None), (result["region"], result["game_build"], result["symptom"]))
                 self.assertIn("本 Issue 保持打开", comment)
                 self.assertIn("报告校准有误", comment)
@@ -553,7 +581,7 @@ class ReportTests(PublishTestCase):
 
     def test_the_shell_only_ever_sees_the_two_labels_the_maintainer_created(self):
         self.report(self.event())
-        self.assertEqual((0, "calibration-report needs-maintainer\n"), self.call("field", "--out", self.out, "--name", "labels"))
+        self.assertEqual((0, "calibration-report evidence-waiting\n"), self.call("field", "--out", self.out, "--name", "labels"))
         data = json.loads((self.out / "result.json").read_text(encoding="utf-8"))
         for value in ("calibration-report; rm -rf /", "admin", "calibration-report\nneeds-maintainer"):
             with self.subTest(value):
@@ -571,12 +599,20 @@ class ReportTests(PublishTestCase):
 class HelperCommandTests(PublishTestCase):
     def test_field_prints_only_values_the_shell_may_use(self):
         self.decide("check", self.issue(), self.account())
-        for name, expected in (("status", "published"), ("label", "published"), ("close_reason", "completed"), ("file", self.path)):
+        for name, expected in (("status", "published"), ("label", "published"), ("close_reason", "completed"),
+                               ("file", self.path), ("conflict_issues", ""), ("conflict_label", "")):
             with self.subTest(name):
                 self.assertEqual((0, expected + "\n"), self.call("field", "--out", self.out, "--name", name))
         data = json.loads((self.out / "result.json").read_text(encoding="utf-8"))
+        for name, value in (("conflict_issues", "7 12 1234567890"), ("conflict_label", "conflicting")):
+            with self.subTest(name + " allowed"):
+                (self.out / "result.json").write_text(json.dumps(dict(data, **{name: value})), encoding="utf-8")
+                self.assertEqual((0, value + "\n"), self.call("field", "--out", self.out, "--name", name))
         for name, value in (("label", "published; rm -rf /"), ("file", "../../etc/passwd"), ("status", "ok"),
-                            ("code_commit_message", "x\n::add-mask::y")):
+                            ("code_commit_message", "x\n::add-mask::y"), ("conflict_issues", "7; rm -rf /"),
+                            ("conflict_issues", "07"), ("conflict_issues", "7  12"), ("conflict_issues", "7\n12"),
+                            ("conflict_issues", "-1"), ("conflict_issues", " 7"), ("conflict_issues", "12345678901"),
+                            ("conflict_label", "needs-maintainer"), ("conflict_label", "conflicting\n")):
             with self.subTest(name + " tampered"):
                 (self.out / "result.json").write_text(json.dumps(dict(data, **{name: value})), encoding="utf-8")
                 with contextlib.redirect_stderr(io.StringIO()):
@@ -688,7 +724,7 @@ class HelperCommandTests(PublishTestCase):
             self.assertEqual(2, self.call("revoke", "--repo", self.repo, "--code-sha256", "e" * 64)[0])
 
     def test_two_published_codes_that_disagree_are_both_flagged_and_a_revoke_clears_the_flags(self):
-        """plan section 18.6: same build, same template, same match source, different opcodes."""
+        """plan section 20.3: same build and template; the same match source with another pop is a dispute."""
         self.assertEqual("published", self.publish_as(4242, "Octo-Cat")["status"])
         self.assertEqual({self.sha: None}, self.flags())
 
@@ -697,13 +733,18 @@ class HelperCommandTests(PublishTestCase):
         self.assertEqual({self.sha: True, other_sha: True}, self.flags())
         self.assertEqual((), repo_index.read_index((self.repo / "index.json").read_bytes()).skipped)
 
-        # Another match source answers another question, so it is no conflict with either.
+        # Another match source answers another question, so with the same zone, territory and job it is
+        # no conflict with either; a zone that differs is one with both, whatever the match source.
         third, third_sha = self.another_code("MARKER_OFFSET", 4)
         self.assertEqual("published", self.publish_as(6161, "Third-One", number=9, code=third)["status"])
         self.assertEqual({self.sha: True, other_sha: True, third_sha: None}, self.flags())
+        fourth, fourth_sha = self.another_code("REPLY_STATE", 5, zone_opcode=1099)
+        self.assertEqual("published", self.publish_as(7171, "Fourth-One", number=10, code=fourth)["status"])
+        self.assertEqual({self.sha: True, other_sha: True, third_sha: True, fourth_sha: True}, self.flags())
 
         self.assertEqual(0, self.call("revoke", "--repo", self.repo, "--code-sha256", self.sha)[0])
-        self.assertEqual({self.sha: None, other_sha: None, third_sha: None}, self.flags())
+        self.assertEqual(0, self.call("revoke", "--repo", self.repo, "--code-sha256", fourth_sha)[0])
+        self.assertEqual({self.sha: None, other_sha: None, third_sha: None, fourth_sha: None}, self.flags())
 
     def test_another_account_submitting_the_same_code_is_no_conflict(self):
         self.publish_as(4242, "Octo-Cat")
@@ -714,8 +755,85 @@ class HelperCommandTests(PublishTestCase):
         return {item["code_sha256"]: item.get("conflicting") for item in repo_index.load(self.repo).entries}
 
     @staticmethod
-    def another_code(source, number) -> tuple:
-        payload = testsupport.payload(source, number)
+    def another_code(source, number, **overrides) -> tuple:
+        """A code with the zone, territory and job of ``self.payload`` unless ``overrides`` says otherwise."""
+        payload = testsupport.payload(source, number, **dict(SHARED_WITH_FIRST, **overrides))
+        return sharecode.encode(payload), sharecode.code_sha256(payload)
+
+    def test_a_revoke_recomputes_the_shape_prior_of_the_later_builds(self):
+        old_build = "2026.08.01.0000.0000"
+        old, old_sha = self.marker(2, 24, build=old_build)
+        self.assertEqual("published", self.publish_as(5151, "Other-One", number=8, code=old)["status"])
+        later, later_sha = self.marker(3, 24)
+        self.assertEqual("published", self.publish_as(4242, "Octo-Cat", number=9, code=later)["status"])
+        self.assertEqual({old_sha: None, later_sha: True}, self.priors())
+        self.assertEqual(0, self.call("revoke", "--repo", self.repo, "--code-sha256", old_sha)[0])
+        self.assertEqual({old_sha: None, later_sha: None}, self.priors())
+
+    def test_prune_recomputes_the_later_builds_so_no_prior_rests_on_a_removed_build(self):
+        old_build = "2026.08.01.0000.0000"
+        old, old_sha = self.marker(2, 24, build=old_build)
+        self.assertEqual("published", self.publish_as(5151, "Other-One", number=8, code=old)["status"])
+        later, later_sha = self.marker(3, 24)
+        self.assertEqual("published", self.publish_as(4242, "Octo-Cat", number=9, code=later)["status"])
+        self.assertEqual({old_sha: None, later_sha: True}, self.priors())
+        exit_code, _ = self.call("prune", "--repo", self.repo, "--region", "CN", "--build", old_build, "--apply")
+        self.assertEqual((0, {later_sha: None}), (exit_code, self.priors()))
+        self.assertEqual((), repo_index.read_index((self.repo / "index.json").read_bytes()).skipped)
+
+    def test_lift_recomputes_the_builds_shape_priors_and_download_order(self):
+        old, old_sha = self.marker(2, 24, build="2026.08.01.0000.0000")
+        held, held_sha = self.marker(3, 48)
+        other, other_sha = self.marker(4, 40)
+        matching, matching_sha = self.marker(5, 24)
+        for account, login, number, code in (
+                (5151, "Other-One", 8, old), (5151, "Other-One", 9, held),
+                (6161, "Third-One", 10, other), (7171, "Fourth-One", 11, matching)):
+            self.assertEqual("published", self.publish_as(account, login, number=number, code=code)["status"])
+        self.assertEqual(0, self.call("revoke", "--repo", self.repo, "--code-sha256", held_sha)[0])
+        self.assertEqual({old_sha: None, held_sha: None, other_sha: None, matching_sha: None}, self.priors())
+
+        exit_code, _ = self.call("lift", "--repo", self.repo, "--account", "id:5151", "--region", "CN", "--build", BUILD)
+
+        self.assertEqual(0, exit_code)
+        self.assertEqual({old_sha: None, held_sha: None, other_sha: False, matching_sha: True}, self.priors())
+        state = repo_index.load(self.repo)
+        self.assertEqual([matching_sha, other_sha],
+                         [entry["code_sha256"] for entry in repo_index.select(state.entries, "CN", BUILD)])
+        self.assertTrue(next(entry["revoked"] for entry in state.entries if entry["code_sha256"] == held_sha))
+        self.assertFalse(any(row["account"] == "id:5151" and row["game_build"] == BUILD for row in state.submissions))
+
+    def test_lift_recomputes_later_builds_when_replacement_history_no_longer_excludes_a_prior(self):
+        later_build = "2026.09.10.0000.0000"
+        old, old_sha = self.marker(2, 24)
+        held, held_sha = self.marker(3, 48)
+        other, other_sha = self.marker(4, 40, build=later_build)
+        matching, matching_sha = self.marker(5, 24, build=later_build)
+        self.assertEqual("published", self.publish_as(5151, "Other-One", number=8, code=old)["status"])
+        self.assertEqual("added", self.publish_as(7171, "Fourth-One", number=9, code=old)["status"])
+        self.assertEqual("published", self.publish_as(5151, "Other-One", number=10, code=held)["status"])
+        self.assertEqual(0, self.call("revoke", "--repo", self.repo, "--code-sha256", held_sha)[0])
+        self.assertEqual("published", self.publish_as(5151, "Other-One", number=11, code=other)["status"])
+        self.assertEqual("published", self.publish_as(6161, "Third-One", number=12, code=matching)["status"])
+        self.assertEqual({old_sha: None, held_sha: None, other_sha: None, matching_sha: None}, self.priors())
+
+        exit_code, _ = self.call("lift", "--repo", self.repo, "--account", "id:5151", "--region", "CN", "--build", BUILD)
+
+        self.assertEqual(0, exit_code)
+        self.assertEqual({old_sha: None, held_sha: None, other_sha: False, matching_sha: True}, self.priors())
+        state = repo_index.load(self.repo)
+        self.assertEqual([matching_sha, other_sha],
+                         [entry["code_sha256"] for entry in repo_index.select(state.entries, "CN", later_build)])
+        self.assertTrue(any(row["account"] == "id:5151" and row["game_build"] == later_build for row in state.submissions))
+
+    def priors(self) -> dict:
+        return {item["code_sha256"]: item.get("shape_prior") for item in repo_index.load(self.repo).entries}
+
+    @staticmethod
+    def marker(number, length, build=BUILD) -> tuple:
+        payload = testsupport.payload("MARKER_OFFSET", number, build=build,
+                                      pop={"opcode": 2000 + number, "length": length, "roulette_offset": 8},
+                                      **SHARED_WITH_FIRST)
         return sharecode.encode(payload), sharecode.code_sha256(payload)
 
     def test_issue_text_can_only_arrive_through_the_event_file(self):
@@ -725,6 +843,290 @@ class HelperCommandTests(PublishTestCase):
         for action in publish._parser()._subparsers._group_actions[0].choices["check"]._actions:
             options.update(action.option_strings)
         self.assertEqual({"-h", "--help", "--repo", "--event", "--account", "--live", "--out", "--now"}, options)
+
+
+# The zone, territory and job of PublishTestCase.payload (testsupport.payload("ANNOUNCEMENT", 1)), so that a
+# code built with them disagrees with it only where a test says so.
+SHARED_WITH_FIRST = dict(zone_opcode=1001, territory_opcode=3001, job_opcode=4001)
+
+
+class BasisReplyTests(PublishTestCase):
+    """Plan section 20.2: a player whose client verified another player's code submits it from the same form."""
+
+    def test_a_verifier_of_a_published_code_is_counted_and_told_so(self):
+        self.assertEqual("published", self.publish_as(4242, "Octo-Cat")["status"])
+        added = self.publish_as(5151, "Other-One", number=8, basis="verified")
+        self.assertEqual(("added", 2, "verified"), (added["status"], added["submitters"], added["basis"]))
+        self.assertIn("**已计入。** 你的软件在本机核实通过了这份校准码，现在共有 2 个账号提交或核实过它，"
+                      "账号越多，其他玩家的软件越优先核实它。", added["comment"])
+        self.assertNotIn("之前已经有人发布过", added["comment"])
+        rows = {row["account"]: row.get("basis") for row in repo_index.load(self.repo).submissions}
+        self.assertEqual({"id:4242": None, "id:5151": "verified"}, rows)
+
+    def test_a_calibrated_submission_reads_as_before(self):
+        published = self.publish_as(4242, "Octo-Cat")
+        self.assertEqual("calibrated", published["basis"])
+        self.assertNotIn("核实通过为准", published["comment"])
+        added = self.publish_as(5151, "Other-One", number=8)
+        self.assertIn("完全相同的校准码之前已经有人发布过，你的提交已计入：现在共有 2 个 GitHub 账号提交了它", added["comment"])
+
+    def test_a_verified_code_nobody_published_yet_is_published_on_the_verifiers_word(self):
+        result = self.publish_as(4242, "Octo-Cat", basis="verified")
+        self.assertEqual(("published", "verified"), (result["status"], result["basis"]))
+        self.assertIn("**已发布。** 谢谢分享！\n\n这份校准码此前没有发布过，现在以你的核实通过为准发布。\n\n- 区服",
+                      result["comment"])
+        self.assertEqual(["verified"], [row.get("basis") for row in repo_index.load(self.repo).submissions])
+
+
+class ConflictReplyTests(PublishTestCase):
+    """Plan section 20.4: a code that disagrees with a published one says so, and the rival issues are told."""
+
+    def rival(self, source="ANNOUNCEMENT", number=3, **overrides) -> tuple:
+        payload = testsupport.payload(source, number, **dict(SHARED_WITH_FIRST, **overrides))
+        return sharecode.encode(payload), sharecode.code_sha256(payload)
+
+    def conflict_files(self) -> dict:
+        return {path.name: path.read_text(encoding="utf-8") for path in sorted(self.out.glob("conflict-*.md"))}
+
+    def test_a_code_that_disagrees_names_the_rival_and_leaves_a_notice_for_its_issue(self):
+        first = self.publish_as(4242, "Octo-Cat")
+        self.assertEqual(([], "", ""), (first["conflicts"], first["conflict_issues"], first["conflict_label"]))
+        self.assertEqual({}, self.conflict_files())
+
+        code, _ = self.rival()
+        result = self.publish_as(5151, "Other-One", number=8, code=code)
+
+        self.assertEqual(("published", "conflicting", "7"), (result["status"], result["conflict_label"], result["conflict_issues"]))
+        self.assertEqual([{"code": self.sha[:12], "issues": [7], "fields": ["匹配报文"]}], result["conflicts"])
+        self.assertIn("**提示：仓库里已有另一份同版本的校准码与这份在「匹配报文」上不一致**（Issue #7）。" + publish._CONFLICT_ADVICE,
+                      result["comment"])
+        self.assertLess(result["comment"].index("- 匹配方式"), result["comment"].index("**提示"), "after the summary")
+        self.assertEqual({"conflict-7.md": "**提示：后来提交的校准码（Issue #8）与你这份在「匹配报文」上不一致。** " +
+                                           publish._CONFLICT_RULE + "如果后来发现是自己这份有误，在软件里重新分享一次即可替换。\n\n"
+                                           "<sub>MentorRecorder 共享校准 · 自动回复</sub>\n"}, self.conflict_files())
+        # What the client does (plan section 20.5): the repository's prior only orders, the machine's own profile decides.
+        for text in (result["comment"], self.conflict_files()["conflict-7.md"]):
+            for phrase in ("它自己在上一版本核实过的档案", "只决定下载与核实的先后", "两份都要先在玩家本机完整核实"):
+                self.assertIn(phrase, text)
+        self.assertEqual((0, "7\n"), self.call("field", "--out", self.out, "--name", "conflict_issues"))
+        self.assertEqual((0, "conflicting\n"), self.call("field", "--out", self.out, "--name", "conflict_label"))
+
+    def test_every_field_and_every_issue_of_each_rival_is_named(self):
+        self.publish_as(4242, "Octo-Cat")
+        self.assertEqual("added", self.publish_as(5151, "Other-One", number=9, basis="verified")["status"])
+        other, _ = self.rival("MARKER_OFFSET", 4, zone_opcode=1099)
+        self.assertEqual("published", self.publish_as(6161, "Third-One", number=12, code=other)["status"])
+        code, _ = self.rival("ANNOUNCEMENT", 5, zone_opcode=1099, job_opcode=4099)
+
+        result = self.publish_as(7171, "Fourth-One", number=15, code=code)
+
+        # The rival two accounts submitted comes first.
+        self.assertEqual([{"code": self.sha[:12], "issues": [7, 9], "fields": ["换区报文", "职业报文", "匹配报文"]},
+                          {"code": sharecode.decode(other).code_sha256[:12], "issues": [12], "fields": ["职业报文"]}],
+                         result["conflicts"])
+        self.assertEqual("7 9 12", result["conflict_issues"])
+        self.assertIn("在「换区报文、职业报文、匹配报文」上不一致**（Issue #7、#9）。", result["comment"])
+        self.assertIn("在「职业报文」上不一致**（Issue #12）。", result["comment"])
+        files = self.conflict_files()
+        self.assertEqual(["conflict-12.md", "conflict-7.md", "conflict-9.md"], sorted(files))
+        self.assertIn("（Issue #15）与你这份在「换区报文、职业报文、匹配报文」上不一致", files["conflict-9.md"])
+        self.assertIn("（Issue #15）与你这份在「职业报文」上不一致", files["conflict-12.md"])
+
+    def test_a_code_that_agrees_on_every_field_it_shares_names_no_rival(self):
+        self.publish_as(4242, "Octo-Cat")
+        code, _ = self.rival("MARKER_OFFSET", 4)
+        result = self.publish_as(5151, "Other-One", number=8, code=code)
+        self.assertEqual(("published", [], "", ""),
+                         (result["status"], result["conflicts"], result["conflict_issues"], result["conflict_label"]))
+        self.assertNotIn("**提示", result["comment"])
+        self.assertEqual({}, self.conflict_files())
+
+    def test_at_most_eight_issues_of_a_rival_are_named_and_told(self):
+        for offset in range(10):
+            self.assertIn(self.publish_as(4300 + offset, "Player-%d" % offset, number=20 + offset)["status"],
+                          ("published", "added"))
+        code, _ = self.rival()
+        published = self.publish_as(5151, "Other-One", number=40, code=code)
+        self.assertEqual("published", published["status"])
+        self.assertEqual([{"code": self.sha[:12], "issues": list(range(20, 28)), "fields": ["匹配报文"]}], published["conflicts"])
+        self.assertEqual(" ".join(str(number) for number in range(20, 28)), published["conflict_issues"])
+        self.assertIn("（Issue #20、#21、#22、#23、#24、#25、#26、#27）", published["comment"])
+        self.assertEqual(["conflict-%d.md" % number for number in range(20, 28)], sorted(self.conflict_files()))
+
+    def test_one_more_submitter_of_a_disputed_code_is_told_but_the_rival_issues_are_not_told_again(self):
+        self.publish_as(4242, "Octo-Cat")
+        code, _ = self.rival()
+        self.assertEqual("7", self.publish_as(5151, "Other-One", number=8, code=code)["conflict_issues"])
+        added = self.publish_as(6161, "Third-One", number=9, code=code, basis="verified")
+        self.assertEqual(("added", "conflicting", ""), (added["status"], added["conflict_label"], added["conflict_issues"]))
+        self.assertEqual([{"code": self.sha[:12], "issues": [7], "fields": ["匹配报文"]}], added["conflicts"])
+        # Not "#7": GitHub would put one more cross-reference on issue 7 for every account that joins the code.
+        self.assertIn("**提示：仓库里已有另一份同版本的校准码与这份在「匹配报文」上不一致**（Issue ＃7）。", added["comment"])
+        self.assertNotIn("#7", added["comment"])
+        self.assertEqual({}, self.conflict_files())
+        self.assertEqual((0, "\n"), self.call("field", "--out", self.out, "--name", "conflict_issues"))
+        self.assertEqual((0, "conflicting\n"), self.call("field", "--out", self.out, "--name", "conflict_label"))
+
+    def test_a_publication_names_at_most_eight_rival_issues_the_most_submitted_rivals_first(self):
+        rivals = (("ANNOUNCEMENT", 1, 20, 3), ("ANNOUNCEMENT", 3, 30, 5), ("ANNOUNCEMENT", 4, 40, 4))
+        codes = {}
+        for source, number, first_issue, submitters in rivals:
+            code, sha = self.rival(source, number)
+            codes[number] = sha
+            for offset in range(submitters):
+                result = self.publish_as(first_issue * 100 + offset, "Player-%d-%d" % (number, offset),
+                                         number=first_issue + offset, code=code)
+                self.assertIn(result["status"], ("published", "added"))
+        code, _ = self.rival("ANNOUNCEMENT", 5)
+
+        result = self.publish_as(9999, "Last-One", number=50, code=code)
+
+        self.assertEqual([{"code": codes[3][:12], "issues": [30, 31, 32, 33, 34], "fields": ["匹配报文"]},
+                          {"code": codes[4][:12], "issues": [40, 41, 42], "fields": ["匹配报文"]},
+                          {"code": codes[1][:12], "issues": [], "fields": ["匹配报文"]}], result["conflicts"])
+        self.assertEqual("30 31 32 33 34 40 41 42", result["conflict_issues"])
+        self.assertEqual(sorted("conflict-%d.md" % number for number in (30, 31, 32, 33, 34, 40, 41, 42)),
+                         sorted(self.conflict_files()))
+        self.assertIn("**（校准码编号 `%s`）。" % codes[1][:12], result["comment"])
+
+    def test_the_conflicting_mark_is_written_even_when_shape_prior_does_not_fit(self):
+        old = sharecode.encode(testsupport.payload("ANNOUNCEMENT", 2, build="2026.08.01.0000.0000", **SHARED_WITH_FIRST))
+        code, rival_sha = self.rival()
+        real = repo_index.check_caps
+
+        def no_room_for_shape_prior(index):
+            if any("shape_prior" in entry for entry in index.entries):
+                raise repo_index.IndexFull(repo_index.INDEX_FULL_BYTES)
+            real(index)
+
+        errors = io.StringIO()
+        with mock.patch.object(repo_index, "check_caps", no_room_for_shape_prior), contextlib.redirect_stderr(errors):
+            self.assertEqual("published", self.publish_as(5151, "Other-One", number=8, code=old)["status"])
+            self.assertEqual("published", self.publish_as(4242, "Octo-Cat")["status"])
+            self.assertEqual("published", self.publish_as(6161, "Third-One", number=9, code=code)["status"])
+        marks = {entry["code_sha256"]: (entry.get("conflicting"), entry.get("shape_prior"))
+                 for entry in repo_index.load(self.repo).entries}
+        self.assertEqual((True, None), marks[self.sha])
+        self.assertEqual((True, None), marks[rival_sha])
+        self.assertIn("writing the conflicting marks without them", errors.getvalue())
+
+    def test_a_rival_whose_ledger_names_no_issue_is_named_by_its_code(self):
+        self.publish_as(4242, "Octo-Cat")
+        state = repo_index.load(self.repo)
+        repo_index.write_files(self.repo, repo_index.Index(state.entries, tuple(dict(row, issue=None) for row in state.submissions)))
+        code, _ = self.rival()
+        result = self.publish_as(5151, "Other-One", number=8, code=code)
+        self.assertEqual(([{"code": self.sha[:12], "issues": [], "fields": ["匹配报文"]}], "", "conflicting"),
+                         (result["conflicts"], result["conflict_issues"], result["conflict_label"]))
+        self.assertIn("**（校准码编号 `%s`）。" % self.sha[:12], result["comment"])
+        self.assertEqual({}, self.conflict_files())
+
+    def test_no_notice_outlives_the_decision_it_was_written_for(self):
+        self.publish_as(4242, "Octo-Cat")
+        code, _ = self.rival()
+        self.publish_as(5151, "Other-One", number=8, code=code)
+        self.assertEqual(["conflict-7.md"], sorted(self.conflict_files()))
+        self.assertEqual(0, self.call("push-failed", "--out", self.out)[0])
+        self.assertEqual({}, self.conflict_files())
+        self.assertEqual((0, "\n"), self.call("field", "--out", self.out, "--name", "conflict_label"))
+
+
+class RemarkTests(PublishTestCase):
+    """``remark``: the maintainer's one-off backfill of both marks over builds nothing has touched since."""
+
+    OLD_BUILD = "2026.08.01.0000.0000"
+
+    def setUp(self):
+        super().setUp()
+        old = sharecode.encode(testsupport.payload("ANNOUNCEMENT", 2, build=self.OLD_BUILD, **SHARED_WITH_FIRST))
+        rival = sharecode.encode(testsupport.payload("ANNOUNCEMENT", 3, **SHARED_WITH_FIRST))
+        self.assertEqual("published", self.publish_as(5151, "Other-One", number=8, code=old)["status"])
+        self.assertEqual("published", self.publish_as(4242, "Octo-Cat")["status"])
+        self.assertEqual("published", self.publish_as(6161, "Third-One", number=9, code=rival)["status"])
+        self.rival_sha = sharecode.decode(rival).code_sha256
+        self.old_sha = sharecode.decode(old).code_sha256
+        self.marked = (self.repo / "index.json").read_bytes()
+        state = repo_index.load(self.repo)
+        # What an index written before section 20.3 looks like: no shape_prior, and the old flag where it was.
+        self.unmarked = repo_index.Index(tuple(
+            {name: value for name, value in entry.items() if name != "shape_prior"} for entry in state.entries), state.submissions)
+        repo_index.write_files(self.repo, self.unmarked)
+
+    def marks(self) -> dict:
+        return {entry["code_sha256"]: (entry.get("conflicting"), entry.get("shape_prior"))
+                for entry in repo_index.load(self.repo).entries}
+
+    def remark(self, *argv) -> tuple:
+        errors = io.StringIO()
+        with contextlib.redirect_stderr(errors):
+            exit_code, stdout = self.call("remark", "--repo", self.repo, *argv)
+        return exit_code, json.loads(stdout) if stdout else None, errors.getvalue()
+
+    def test_every_build_is_recomputed_and_written(self):
+        self.assertEqual({self.old_sha: (None, None), self.sha: (True, None), self.rival_sha: (True, None)}, self.marks())
+        exit_code, printed, _ = self.remark()
+        self.assertEqual((0, {"recomputed": [{"region": "CN", "game_build": self.OLD_BUILD}, {"region": "CN", "game_build": BUILD}],
+                              "changed": 2, "dropped": []}), (exit_code, printed))
+        self.assertEqual({self.old_sha: (None, None), self.sha: (True, True), self.rival_sha: (True, True)}, self.marks())
+        self.assertEqual(self.marked, (self.repo / "index.json").read_bytes(), "the same marks publication writes")
+        self.assertEqual((0, 0), (self.remark()[0], self.remark()[1]["changed"]), "recomputing again changes nothing")
+
+    def test_only_the_builds_named_are_recomputed(self):
+        stale = repo_index.Index(tuple(dict(entry, conflicting=True) if entry["code_sha256"] == self.old_sha else entry
+                                       for entry in self.unmarked.entries), self.unmarked.submissions)
+        repo_index.write_files(self.repo, stale)
+        exit_code, printed, _ = self.remark("--region", "CN", "--build", BUILD)
+        self.assertEqual((0, [{"region": "CN", "game_build": BUILD}], 2), (exit_code, printed["recomputed"], printed["changed"]))
+        self.assertEqual({self.old_sha: (True, None), self.sha: (True, True), self.rival_sha: (True, True)}, self.marks())
+        exit_code, printed, _ = self.remark("--region", "CN", "--build", self.OLD_BUILD, "--region", "CN", "--build", self.OLD_BUILD)
+        self.assertEqual((0, [{"region": "CN", "game_build": self.OLD_BUILD}], 1), (exit_code, printed["recomputed"], printed["changed"]))
+        self.assertEqual((None, None), self.marks()[self.old_sha])
+
+    def test_conflicting_survives_when_only_shape_prior_does_not_fit(self):
+        bare = repo_index.Index(tuple({name: value for name, value in entry.items() if name not in repo_index.OPTIONAL_FIELDS}
+                                      for entry in self.unmarked.entries), self.unmarked.submissions)
+        repo_index.write_files(self.repo, bare)
+        real = repo_index.check_caps
+
+        def no_room_for_shape_prior(index):
+            if any(entry["game_build"] == BUILD and "shape_prior" in entry for entry in index.entries):
+                raise repo_index.IndexFull(repo_index.INDEX_FULL_BYTES)
+            real(index)
+
+        with mock.patch.object(repo_index, "check_caps", no_room_for_shape_prior):
+            exit_code, printed, errors = self.remark()
+        self.assertEqual((0, [{"region": "CN", "game_build": BUILD, "kept": "conflicting"}]), (exit_code, printed["dropped"]))
+        self.assertIn("would not fit", errors)
+        # Released clients still gate on conflicting: it is written although the file had none.
+        self.assertEqual({self.old_sha: (None, None), self.sha: (True, None), self.rival_sha: (True, None)}, self.marks())
+
+    def test_the_marks_a_build_had_are_kept_when_not_even_conflicting_fits(self):
+        stale = repo_index.Index(tuple(dict(entry, shape_prior=False) if entry["game_build"] == BUILD else entry
+                                       for entry in self.unmarked.entries), self.unmarked.submissions)
+        repo_index.write_files(self.repo, stale)
+        before = {entry["code_sha256"]: entry for entry in stale.entries if entry["game_build"] == BUILD}
+        real = repo_index.check_caps
+
+        def no_room_for_any_change_to_the_build(index):
+            if any(entry["game_build"] == BUILD and entry != before[entry["code_sha256"]] for entry in index.entries):
+                raise repo_index.IndexFull(repo_index.INDEX_FULL_BYTES)
+            real(index)
+
+        with mock.patch.object(repo_index, "check_caps", no_room_for_any_change_to_the_build):
+            exit_code, printed, _ = self.remark()
+        self.assertEqual((0, [{"region": "CN", "game_build": BUILD, "kept": "previous"}]), (exit_code, printed["dropped"]))
+        self.assertEqual({self.old_sha: (None, None), self.sha: (True, False), self.rival_sha: (True, False)}, self.marks())
+
+    def test_a_build_the_index_does_not_list_or_a_build_without_its_region_writes_nothing(self):
+        before = [(self.repo / name).read_bytes() for name in ("index.json", "submissions.json")]
+        for argv in (("--region", "CN", "--build", "2026.07.01.0000.0000"), ("--region", "GLOBAL", "--build", BUILD),
+                     ("--region", "CN", "--build", BUILD, "--region", "CN"), ("--build", BUILD)):
+            with self.subTest(argv=argv):
+                exit_code, printed, _ = self.remark(*argv)
+                self.assertEqual((2, None), (exit_code, printed))
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            publish.main(["remark", "--repo", str(self.repo), "--region", "MARS", "--build", BUILD])
+        self.assertEqual(before, [(self.repo / name).read_bytes() for name in ("index.json", "submissions.json")])
 
 
 if __name__ == "__main__":

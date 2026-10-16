@@ -356,7 +356,7 @@ private Q_SLOTS:
         QCOMPARE(backend.acknowledgements.size(), 1);
         QCOMPARE(backend.acknowledgements.first(), QStringList({firstId}));
         QCOMPARE(backend.pending.size(), 2);
-        QVERIFY(app.historyImageCleanupFeedback().contains(QStringLiteral("确认状态未保存")));
+        QVERIFY(app.historyImageCleanupFeedback().contains(QStringLiteral("清理结果还没保存")));
         backend.failAck = false;
         QVERIFY(QDir(store.runDirectory(secondId)).rmdir(QStringLiteral("nested")));
         app.retryHistoryImageCleanup();

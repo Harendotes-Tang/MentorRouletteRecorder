@@ -13,10 +13,13 @@ Card {
     objectName: "captureToolsPanel"
 
     readonly property bool maintainer: App.maintainerToolsVisible
-    readonly property var warnings: App.collectorWarnings || []
+    // Built in the interface language on every read (warning_refs).
+    readonly property var warnings: Theme.live(App.collectorWarnings) || []
+    readonly property var evidence: typeof CalibrationEvidence !== "undefined" ? CalibrationEvidence : null
+    signal toggleObservationGuideRequested()
 
-    horizontalPadding: 24
-    verticalPadding: 18
+    horizontalPadding: 20
+    verticalPadding: 16
     spacing: 0
 
     CardKicker {
@@ -26,8 +29,33 @@ Card {
     }
 
     SettingsRow {
+        objectName: "calibrationEvidenceRow"
+        visible: !!tools.evidence
+        label: qsTr("共享校准证据")
+        description: qsTr("先预览公开摘要，再由你提交到 GitHub")
+        AppButton {
+            objectName: "previewCalibrationEvidenceButton"
+            text: qsTr("预览")
+            enabled: !!tools.evidence && !tools.evidence.busy
+            onClicked: tools.evidence.previewCalibration()
+        }
+    }
+
+    SettingsRow {
+        objectName: "templateObservationGuideRow"
+        visible: !!tools.evidence
+        label: qsTr("帮助适配其他区服")
+        description: qsTr("按步骤采集报文元数据，未适配区服仍不正式记录")
+        AppButton {
+            objectName: "templateObservationGuideButton"
+            text: qsTr("采证步骤")
+            onClicked: tools.toggleObservationGuideRequested()
+        }
+    }
+
+    SettingsRow {
         objectName: "exportDiagnosticsRow"
-        label: qsTr("导出脱敏诊断报告")
+        label: qsTr("导出诊断报告")
         // What a player needs before pressing 导出 is what the file omits.
         description: tools.maintainer
                      ? qsTr("ExportDiagnosticsReport · 由正在运行的采集器写入本地 JSON · 不含报文、IP、路径与账号")
@@ -57,7 +85,7 @@ Card {
         spacing: 3
 
         Text {
-            text: qsTr("采集器告警")
+            text: qsTr("后台服务提示")
             color: Theme.textSecondary
             font.pixelSize: Theme.fs(11)
         }

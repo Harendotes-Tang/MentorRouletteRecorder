@@ -228,18 +228,25 @@ QtObject {
     // The two radial washes over --color-bg (`.app` and `.app[data-theme="light"]`
     // in mentor-recorder-ff14.dc.html), identical in both styles and painted by
     // Main.qml's backdropWash Canvas. Top: 1000x600 at (50%, -20%); bottom:
-    // 600x400 at (100%, 100%). Harendotes: a navy glow above and a faint flame
-    // below in the dark, plain cool white and navy in the light.
+    // 600x400 at (100%, 100%). Harendotes: a navy glow above in the dark, plain
+    // cool white in the light.
     readonly property color washTop: harendotes
         ? (dark ? Qt.rgba(38 / 255, 57 / 255, 97 / 255, 0.45)
                 : Qt.rgba(1, 1, 1, 0.7))
         : (dark ? Qt.rgba(70 / 255, 85 / 255, 120 / 255, 0.35)
                 : Qt.rgba(1, 250 / 255, 235 / 255, 0.7))
+    // Two pages spread their bottom wash wider than the prototype's 600x400
+    // ellipse, over 760x520 and fading out at 70 %: the classic light page in a
+    // pale gold rgba(255,226,160,.30), harendotes in its bright flame #ff7a3d at 16 %.
+    readonly property bool classicLight: !eorzea && !dark
+    readonly property bool wideBottomWash: classicLight || harendotes
     readonly property color washBottom: harendotes
-        ? (dark ? Qt.rgba(232 / 255, 80 / 255, 24 / 255, 0.10)
-                : Qt.rgba(38 / 255, 57 / 255, 97 / 255, 0.10))
+        ? Qt.rgba(1, 122 / 255, 61 / 255, 0.16)
+        : classicLight ? Qt.rgba(1, 226 / 255, 160 / 255, 0.30)
         : (dark ? Qt.rgba(140 / 255, 110 / 255, 50 / 255, 0.15)
                 : Qt.rgba(160 / 255, 130 / 255, 70 / 255, 0.25))
+    readonly property real washBottomRadiusX: wideBottomWash ? 760 : 600
+    readonly property real washBottomRadiusY: wideBottomWash ? 520 : 400
 
     // The title bar's theme switch wears the other theme's --color-bg and text:
     // 深色 is a dark button on the light page, 浅色 a light one on the dark.
@@ -428,6 +435,37 @@ QtObject {
         return eorzea ? Qt.rgba(shadow.r, shadow.g, shadow.b, 127 / 255) : blackScrim
     }
 
+    // ------------------------------------------------------- 状态色 --
+    // The four tones of the capture page (the prototype's --dg-ok / -warn /
+    // -bad / -off): a LED, a node's top rule, the page badge. Harendotes paints
+    // a warning in its yellow, which is what `orange` already is there.
+    function toneColor(tone) {
+        switch (tone) {
+        case "ok":
+            return green
+        case "warn":
+            return orange
+        case "bad":
+            return red
+        default:
+            return neutral400
+        }
+    }
+
+    // The tag variant that carries a tone (StatusTag).
+    function toneVariant(tone) {
+        switch (tone) {
+        case "ok":
+            return "ink"
+        case "warn":
+            return "accent"
+        case "bad":
+            return "danger"
+        default:
+            return "neutral"
+        }
+    }
+
     // ------------------------------------------------------- 圆角 --
     // --radius-xxs / -xs / -sm / -md / -lg
     readonly property int radiusXxs: eorzea ? 1 : 3
@@ -489,6 +527,8 @@ QtObject {
             return orangeBackground
         case "ink":
             return greenBackground
+        case "danger":
+            return redBackground
         default:
             return fill
         }
@@ -505,6 +545,8 @@ QtObject {
                 return green
             case "outline":
                 return yellow
+            case "danger":
+                return red
             default:
                 return neutral600
             }
@@ -517,6 +559,8 @@ QtObject {
             return orangeForeground
         case "ink":
             return green
+        case "danger":
+            return red
         default:
             return textSecondary
         }
@@ -527,6 +571,172 @@ QtObject {
             return variant === "neutral" || variant === undefined || variant === ""
                    ? neutral400 : tagForeground(variant)
         return clear(tagBackground(variant))
+    }
+
+    // ------------------------------------------------------- 界面语言 --
+    // A language switch re-evaluates only the bindings that call qsTr() (directly
+    // or through a function such as moodLabel below). Words produced in C++ -
+    // Fmt.resultLabel(), App.errorText(), Jobs.jobName(), App.runs.calendarDayError()
+    // and the like - reach a binding without one, so such a binding wraps them in
+    // live(), which returns its argument unchanged and ties the binding to the
+    // interface language:
+    //     text: Theme.live(Fmt.resultLabel(run.result))
+    // Not needed where the same binding already calls qsTr(), nor for numbers,
+    // dates (yyyy-MM-dd) and Fmt.dash(), which read the same in every language.
+    // C++ properties re-announce themselves (their NOTIFY) after a switch.
+    readonly property int langRevision: typeof Lang === "undefined" || !Lang ? 0 : Lang.revision
+    // The interface language's locale for Qt's own calendar controls (weekday
+    // and month names, first day of the week).
+    readonly property string localeName: {
+        const code = typeof Lang === "undefined" || !Lang ? "zh-CN" : Lang.code
+        return ({ "zh-TW": "zh_TW", "en": "en_US", "ja": "ja_JP" })[code] || "zh_CN"
+    }
+    function live(value) {
+        void langRevision
+        return value
+    }
+
+    // ------------------------------------------------------- 游戏名称 --
+    // Duties, jobs, roulettes, duty categories, expansions and role groups are
+    // recorded in the Chinese client's names, and every VALUE keeps that name: a
+    // record, what is sent to the Collector, a filter, a picker's value, an
+    // export. What is SHOWN goes through these instead: the official name in the
+    // interface language (GameNames, context property Names; the record's own
+    // name in 简体中文 and for whatever the bundled table does not know). Like
+    // live(), each ties its binding to the language. A scene without Names (a
+    // unit test) shows the recorded name.
+    //     text: Theme.dutyName(run) || qsTr("未知副本")
+    // Pickers keep the Chinese name as their value and show one of these as their
+    // label; a search over names matches both (nameMatches). The Collector's own
+    // placeholders (未知副本, 未知) are this program's words and are translated.
+    readonly property bool namesAvailable: typeof Names !== "undefined" && !!Names
+    function nameText(value) {
+        return value === undefined || value === null ? "" : String(value)
+    }
+    function nameId(value) {
+        return value === undefined || value === "" ? null : value
+    }
+    /// The duty a run, statistics row or catalogue row names, or "".
+    function dutyName(row) {
+        return row ? dutyLabel(row.content_id, row.duty_name) : ""
+    }
+    function dutyLabel(contentId, recorded) {
+        void langRevision
+        const name = nameText(recorded)
+        if (name === "未知副本")
+            return qsTr("未知副本")
+        return namesAvailable ? Names.duty(nameId(contentId), name) : name
+    }
+    /// The job a run, statistics row or job option names, or "".
+    function jobName(row) {
+        return row ? jobLabel(row.job_id, row.job_name) : ""
+    }
+    function jobLabel(jobId, recorded) {
+        void langRevision
+        const name = nameText(recorded)
+        if (name === "未知")
+            return qsTr("未知")
+        return namesAvailable ? Names.job(nameId(jobId), name) : name
+    }
+    /// A bare job id named by the bundled job table; 未知 when it has no name.
+    function catalogJobName(jobId) {
+        void langRevision
+        const known = typeof Jobs !== "undefined" && Jobs ? Jobs.jobName(nameId(jobId)) : ""
+        return !known || known === "未知" ? qsTr("未知") : jobLabel(jobId, known)
+    }
+    /// A roulette known by its Chinese client name.
+    function rouletteName(recorded) {
+        void langRevision
+        const name = nameText(recorded)
+        return namesAvailable && name.length > 0 ? Names.rouletteByName(name) : name
+    }
+    /// A duty category (四人迷宫, 讨伐歼灭战 ...), or "".
+    function categoryName(recorded) {
+        void langRevision
+        const name = nameText(recorded)
+        return namesAvailable && name.length > 0 ? Names.category(name) : name
+    }
+    /// An expansion, given by the catalogue's English key ("A Realm Reborn").
+    function expansionName(key) {
+        void langRevision
+        const name = nameText(key)
+        return namesAvailable && name.length > 0 ? Names.expansion(name) : name
+    }
+    /// A role group of the legend (坦克 / 治疗 / 近战 / 远程物理 / 魔法 / 其他 / 未知).
+    function roleGroupName(group) {
+        void langRevision
+        const name = nameText(group)
+        if (name.length === 0 || name === "未知")
+            return qsTr("未知")
+        return namesAvailable ? Names.roleGroup(name) : name
+    }
+    /// True when \a query (trimmed, lower-cased) is part of any of \a names: a
+    /// search over game names finds the recorded name and the one on screen.
+    function nameMatches(names, query) {
+        if (!query)
+            return true
+        for (let i = 0; i < names.length; ++i) {
+            if (nameText(names[i]).toLowerCase().indexOf(query) >= 0)
+                return true
+        }
+        return false
+    }
+    /// Job options ({ job_id, job_name, ... }) with `label`, the name to show;
+    /// job_name stays the record's.
+    function labelledJobs(options) {
+        void langRevision
+        const out = []
+        const list = options || []
+        for (let i = 0; i < list.length; ++i) {
+            const row = list[i]
+            out.push(Object.assign({}, row, { label: jobName(row) || nameText(row.job_name) }))
+        }
+        return out
+    }
+    /// Duty categories as { value, label }: value the Chinese label a filter sends.
+    function labelledCategories(categories) {
+        void langRevision
+        const out = []
+        const list = categories || []
+        for (let i = 0; i < list.length; ++i)
+            out.push({ value: list[i], label: categoryName(list[i]) })
+        return out
+    }
+
+    // ------------------------------------------------- 程序填写的原因 --
+    // A 原因 the program fills in itself - a button's fixed reason, a pre-filled or
+    // example reason - is stored in its Simplified-Chinese source text whatever the
+    // interface language, so the revision log holds one wording; it is shown in
+    // the language on screen with qsTranslate("SystemReason", reason)
+    // (RunDetailPanel). A reason a person typed is stored and shown as written.
+    // Call sites send QT_TRANSLATE_NOOP("SystemReason", "…") or pre-fill
+    // qsTranslate("SystemReason", "…"); every such source text is listed here.
+    readonly property var systemReasons: [
+        QT_TRANSLATE_NOOP("SystemReason", "用户确认通关"),
+        QT_TRANSLATE_NOOP("SystemReason", "用户确认未通关"),
+        QT_TRANSLATE_NOOP("SystemReason", "补录本次导随职业"),
+        QT_TRANSLATE_NOOP("SystemReason", "实际已通关，修正识别结果"),
+        QT_TRANSLATE_NOOP("SystemReason", "补录遗漏的导随记录"),
+        QT_TRANSLATE_NOOP("SystemReason", "手动核对并修正记录"),
+        QT_TRANSLATE_NOOP("SystemReason", "程序未运行时手动补录"),
+        QT_TRANSLATE_NOOP("SystemReason", "永久删除已删除的记录"),
+        QT_TRANSLATE_NOOP("SystemReason", "恢复已删除的记录"),
+        QT_TRANSLATE_NOOP("SystemReason", "批量删除记录"),
+        QT_TRANSLATE_NOOP("SystemReason", "调整开始记录前已完成的导随次数"),
+        QT_TRANSLATE_NOOP("SystemReason", "在设置中改为从 0 开始"),
+        QT_TRANSLATE_NOOP("SystemReason", "首次启动未填写起始次数"),
+        QT_TRANSLATE_NOOP("SystemReason", "在设置中重新填写起始次数"),
+        QT_TRANSLATE_NOOP("SystemReason", "首次启动填写起始次数")
+    ]
+    // The text to store for a reason field: a pre-filled or example reason left
+    // as it was goes back to its source text; anything else is stored as typed.
+    function storedReason(typed) {
+        const text = String(typed === undefined || typed === null ? "" : typed).trim()
+        for (let index = 0; index < systemReasons.length; ++index) {
+            if (text === qsTranslate("SystemReason", systemReasons[index]))
+                return systemReasons[index]
+        }
+        return text
     }
 
     // 心得 mood: good=顺利 / ok=一般 / bad=糟心 (design's MOOD table).

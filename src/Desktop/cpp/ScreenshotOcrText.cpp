@@ -1,5 +1,6 @@
 #include "ScreenshotOcrText.h"
 
+#include <QCoreApplication>
 #include <QDate>
 #include <QMap>
 #include <QRegularExpression>
@@ -146,7 +147,7 @@ bool readLines(const QByteArray &tsv, const QSize &imageSize, QList<Line> &lines
     QMap<QString, Line> grouped;
     const QList<QByteArray> rows = tsv.split('\n');
     if (rows.isEmpty() || !rows.front().startsWith("level\tpage_num\t")) {
-        error = QStringLiteral("识别输出不是有效的 TSV 表格。");
+        error = QCoreApplication::translate("mr::ScreenshotOcrText", "图片识别结果格式不正确，请重新识别。");
         return false;
     }
 
@@ -159,13 +160,13 @@ bool readLines(const QByteArray &tsv, const QSize &imageSize, QList<Line> &lines
             continue;
         const QList<QByteArray> columns = row.split('\t');
         if (columns.size() != 12) {
-            error = QStringLiteral("识别输出的列数不完整。");
+            error = QCoreApplication::translate("mr::ScreenshotOcrText", "图片识别结果内容不完整，请重新识别。");
             return false;
         }
         bool levelOk = false;
         const int level = columns[0].toInt(&levelOk);
         if (!levelOk || level < 1 || level > 5) {
-            error = QStringLiteral("识别输出含无效的文字层级。");
+            error = QCoreApplication::translate("mr::ScreenshotOcrText", "图片识别结果中的文字分组异常，请重新识别。");
             return false;
         }
         if (level != 5)
@@ -176,7 +177,7 @@ bool readLines(const QByteArray &tsv, const QSize &imageSize, QList<Line> &lines
             bool ok = false;
             geometry[i] = columns[6 + i].toInt(&ok);
             if (!ok || geometry[i] < 0) {
-                error = QStringLiteral("识别输出含无效的文字位置。");
+                error = QCoreApplication::translate("mr::ScreenshotOcrText", "图片识别结果中的文字位置异常，请重新识别。");
                 return false;
             }
         }
@@ -184,14 +185,14 @@ bool readLines(const QByteArray &tsv, const QSize &imageSize, QList<Line> &lines
             continue;
         if (static_cast<qint64>(geometry[0]) + geometry[2] > imageSize.width()
             || static_cast<qint64>(geometry[1]) + geometry[3] > imageSize.height()) {
-            error = QStringLiteral("识别坐标与原图尺寸不一致。");
+            error = QCoreApplication::translate("mr::ScreenshotOcrText", "识别出的文字位置超出原图范围，请重新识别。");
             return false;
         }
         bool confidenceOk = false;
         const double rawConfidence = columns[10].toDouble(&confidenceOk);
         if (!confidenceOk || !std::isfinite(rawConfidence)
             || rawConfidence < -1 || rawConfidence > 100) {
-            error = QStringLiteral("识别输出含无效的文字置信度。");
+            error = QCoreApplication::translate("mr::ScreenshotOcrText", "图片识别结果中的文字评分异常，请重新识别。");
             return false;
         }
         const QString text = QString::fromUtf8(columns[11]).trimmed();
@@ -199,7 +200,7 @@ bool readLines(const QByteArray &tsv, const QSize &imageSize, QList<Line> &lines
             continue;
         // A bounded number of words also bounds sorting and image matching work.
         if (++wordCount > 100'000) {
-            error = QStringLiteral("截图识别的文字量超过上限，请分批导入。");
+            error = QCoreApplication::translate("mr::ScreenshotOcrText", "截图中的文字过多，请裁切图片，只保留记录区域后重试。");
             return false;
         }
         const QString key = QString::fromLatin1(columns[1] + '/' + columns[2] + '/'

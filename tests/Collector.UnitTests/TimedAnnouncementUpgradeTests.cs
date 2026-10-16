@@ -72,7 +72,7 @@ public sealed class TimedAnnouncementUpgradeTests : IDisposable
 
         var offered = pipeline.CalibrationStatus();
         Assert.Equal(CalibrationState.Ready, offered.State);
-        Assert.Contains(offered.Events, item => item.Label.Contains("按出现时机认出", StringComparison.Ordinal));
+        Assert.Contains(offered.Events, item => item.Label.Chinese.Contains("按时间推测", StringComparison.Ordinal));
 
         pipeline.ConfirmCalibration(AllCorrect(offered));
 
@@ -274,7 +274,7 @@ public sealed class TimedAnnouncementUpgradeTests : IDisposable
 
         var offered = pipeline.CalibrationStatus();
         Assert.Equal(CalibrationState.Ready, offered.State);
-        Assert.Contains(offered.Events, item => item.Label.Contains("按出现时机认出", StringComparison.Ordinal));
+        Assert.Contains(offered.Events, item => item.Label.Chinese.Contains("按时间推测", StringComparison.Ordinal));
 
         var confirmation = pipeline.ConfirmCalibration(AllCorrect(offered));
 

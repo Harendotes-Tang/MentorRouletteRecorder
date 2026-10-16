@@ -3,6 +3,7 @@
 
 #include "Formatters.h"
 #include "IBackend.h"
+#include "LiveText.h"
 
 #include <QDateTime>
 #include <QDesktopServices>
@@ -33,7 +34,16 @@ QString stamp(const QString &format)
 
 namespace mr {
 
-ExportController::ExportController(QObject *parent) : QObject(parent) {}
+ExportController::ExportController(QObject *parent) : QObject(parent)
+{
+    // The integrity result's sentence is the only text kept here.
+    onLanguageChanged(this, [this] {
+        if (!m_describeIntegrity)
+            return;
+        m_integrityResult = m_describeIntegrity();
+        Q_EMIT integrityCheckChanged();
+    });
+}
 
 void ExportController::setBackend(IBackend *backend)
 {
@@ -60,7 +70,7 @@ QString ExportController::chooseExportPath(const QString &suggestedName,
     }
 
     const QString suggested = QDir(documents).absoluteFilePath(suggestedName);
-    return QFileDialog::getSaveFileName(nullptr, QString::fromUtf8("选择保存位置"),
+    return QFileDialog::getSaveFileName(nullptr, tr("选择保存位置"),
                                         suggested, filter);
 }
 
@@ -89,12 +99,11 @@ void ExportController::exportCsv()
         ->whenDone(this, [this](bool ok, const QVariantMap &payload, const QString &code,
                                 const QString &message) {
             if (!ok) {
-                Q_EMIT toastRequested(QString::fromUtf8("导出失败：")
-                                      + (message.isEmpty() ? code : message));
+                Q_EMIT toastRequested(tr("导出失败：%1").arg(message.isEmpty() ? code : message));
                 return;
             }
             Q_EMIT toastRequested(
-                QString::fromUtf8("已导出 %1 · %2 行 · %3")
+                tr("已导出 %1 · %2 行 · %3")
                     .arg(QDir::toNativeSeparators(
                              payload.value(QStringLiteral("target_path")).toString()))
                     .arg(payload.value(QStringLiteral("row_count")).toInt())
@@ -117,12 +126,11 @@ void ExportController::exportJson()
         ->whenDone(this, [this](bool ok, const QVariantMap &payload, const QString &code,
                                 const QString &message) {
             if (!ok) {
-                Q_EMIT toastRequested(QString::fromUtf8("导出失败：")
-                                      + (message.isEmpty() ? code : message));
+                Q_EMIT toastRequested(tr("导出失败：%1").arg(message.isEmpty() ? code : message));
                 return;
             }
             Q_EMIT toastRequested(
-                QString::fromUtf8("已导出 %1 · %2 条 · %3")
+                tr("已导出 %1 · %2 条 · %3")
                     .arg(QDir::toNativeSeparators(
                              payload.value(QStringLiteral("target_path")).toString()))
                     .arg(payload.value(QStringLiteral("row_count")).toInt())
@@ -141,23 +149,21 @@ void ExportController::backupDatabase()
         this, [this](bool ok, const QVariantMap &payload, const QString &code,
                      const QString &message) {
             if (!ok) {
-                Q_EMIT toastRequested(QString::fromUtf8("备份失败：")
-                                      + (message.isEmpty() ? code : message));
+                Q_EMIT toastRequested(tr("备份失败：%1").arg(message.isEmpty() ? code : message));
                 return;
             }
             if (!payload.value(QStringLiteral("integrity_check_passed")).toBool()) {
-                Q_EMIT toastRequested(QString::fromUtf8("备份失败：完整性校验未通过。"));
+                Q_EMIT toastRequested(tr("备份的数据检查未通过，不能确认这份备份可用。请重试。"));
                 return;
             }
             Q_EMIT backupSucceeded();
             Q_EMIT toastRequested(
-                QString::fromUtf8("已备份 → %1 · %2 · 完整性校验 %3 · 清理 %4 份")
+                (payload.value(QStringLiteral("integrity_check_passed")).toBool()
+                     ? tr("备份已保存到 %1 · %2 · 数据检查通过 · 已清理 %3 份旧备份")
+                     : tr("备份已保存到 %1 · %2 · 数据检查未通过 · 已清理 %3 份旧备份"))
                     .arg(QDir::toNativeSeparators(
                              payload.value(QStringLiteral("target_path")).toString()),
-                         byteSize(payload.value(QStringLiteral("byte_count")).toDouble()),
-                         payload.value(QStringLiteral("integrity_check_passed")).toBool()
-                             ? QString::fromUtf8("通过")
-                             : QString::fromUtf8("未通过"))
+                         byteSize(payload.value(QStringLiteral("byte_count")).toDouble()))
                     .arg(payload.value(QStringLiteral("pruned_count")).toInt()));
         });
 }
@@ -168,14 +174,14 @@ void ExportController::exportDiagnosticsReport()
     // message, so the counters and the parser errors are those of the process
     // that has been capturing.
     if (!m_backend) {
-        Q_EMIT toastRequested(QString::fromUtf8("未连接 Collector，无法生成诊断报告。"));
+        Q_EMIT toastRequested(tr("后台服务尚未连接，暂时无法导出诊断报告。请稍后重试。"));
         return;
     }
 
     const QString target = chooseExportPath(
         QStringLiteral("mentor_diagnostics_")
             + stamp(QStringLiteral("yyyy-MM-dd_HHmmss")) + QStringLiteral(".json"),
-        QString::fromUtf8("脱敏诊断报告 (*.json)"));
+        tr("诊断报告 (*.json)"));
 
     // Empty means the user closed the dialog. The contract would read an
     // omitted target_path as "the managed folder", which is not what somebody
@@ -187,13 +193,12 @@ void ExportController::exportDiagnosticsReport()
         ->whenDone(this, [this](bool ok, const QVariantMap &payload, const QString &code,
                                 const QString &message) {
             if (!ok) {
-                Q_EMIT toastRequested(message.isEmpty()
-                                          ? QString::fromUtf8("诊断报告导出失败：") + code
-                                          : message);
+                Q_EMIT toastRequested(message.isEmpty() ? tr("诊断报告导出失败：%1").arg(code)
+                                                        : message);
                 return;
             }
             Q_EMIT toastRequested(
-                QString::fromUtf8("已导出脱敏诊断报告 → %1（%2，不含 payload / IP / 路径）")
+                tr("诊断报告已保存到 %1（%2，不含游戏内容、网络地址和个人路径）")
                     .arg(QDir::toNativeSeparators(
                              payload.value(QStringLiteral("target_path")).toString()),
                          byteSize(double(
@@ -218,8 +223,8 @@ QVariantMap ExportController::describeIntegrityResult(bool ok, const QVariantMap
         result.insert(QStringLiteral("error"), true);
         result.insert(QStringLiteral("text"),
                       unsupported
-                          ? QString::fromUtf8("当前采集器不支持完整性校验")
-                          : QString::fromUtf8("完整性校验没有完成：%1")
+                          ? tr("当前后台服务不支持数据完整性检查，请更新软件后重试。")
+                          : tr("数据完整性检查未完成：%1")
                                 .arg(errorMessage.isEmpty() ? errorCode : errorMessage));
         return result;
     }
@@ -234,10 +239,10 @@ QVariantMap ExportController::describeIntegrityResult(bool ok, const QVariantMap
     result.insert(QStringLiteral("checked_at_utc"), checkedAt);
     result.insert(QStringLiteral("error"), !passed);
     result.insert(QStringLiteral("text"),
-                  passed ? QString::fromUtf8("完整性校验通过 · %1")
+                  passed ? tr("数据完整性检查通过 · %1")
                                .arg(Formatters::localTime(checkedAt))
-                         : QString::fromUtf8("完整性校验未通过：%1")
-                               .arg(detail.isEmpty() ? QString::fromUtf8("未说明原因")
+                         : tr("数据完整性检查未通过：%1")
+                               .arg(detail.isEmpty() ? tr("未说明原因")
                                                      : detail));
     return result;
 }
@@ -255,7 +260,10 @@ void ExportController::checkDatabaseIntegrity()
         this, [this](bool ok, const QVariantMap &payload, const QString &code,
                      const QString &message) {
             m_integrityRunning = false;
-            m_integrityResult = describeIntegrityResult(ok, payload, code, message);
+            m_describeIntegrity = [ok, payload, code, message] {
+                return describeIntegrityResult(ok, payload, code, message);
+            };
+            m_integrityResult = m_describeIntegrity();
             Q_EMIT integrityCheckChanged();
         });
 }
@@ -271,8 +279,7 @@ void ExportController::openDatabaseFolder(const QString &databasePath)
     // A shell hand-off to a local folder, never to a URL derived from backend
     // data. AppController::openCaptureValidationFolder() is the other one.
     QDesktopServices::openUrl(QUrl::fromLocalFile(folder));
-    Q_EMIT toastRequested(QString::fromUtf8("已打开 ")
-                          + QDir::toNativeSeparators(folder));
+    Q_EMIT toastRequested(tr("已打开 %1").arg(QDir::toNativeSeparators(folder)));
 }
 
 } // namespace mr

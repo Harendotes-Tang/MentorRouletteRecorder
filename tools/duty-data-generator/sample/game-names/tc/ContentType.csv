@@ -1,0 +1,5 @@
+key,0,1
+#,Name,Icon
+int32,str,Image
+0,,0
+2,樣例迷宮挑戰,0

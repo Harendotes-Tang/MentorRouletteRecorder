@@ -3,20 +3,22 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MentorRecorder
 
-// The notices above 链路. Each one appears only while it has something to say;
-// with none of them visible the block takes no room and leaves no page gap.
-//   calibrationCard ............ 本机 / 共享校准 while calibration is not IDLE
-//   protocolProfileCard ........ 协议档案: calibrated profile, sharing, mismatch
-//   midstream / silent banner .. capture running, nothing decoded
+// The blocks between the hero card and 解析. Each one appears only while it has
+// something to say; with none of them visible the block takes no room.
 //   adapterPreferenceStaleNotice  the remembered card lost the game's traffic
-//   captureReadinessNotice ..... maintainer only: 自动跟随 is off
+//   captureReadinessNotice ...... maintainer only: 自动跟随 is off
+//   calibrationCard ............ 本机校准 beside 共享校准 while calibration is not IDLE
+//   protocolProfileCard ........ 协议档案: calibrated profile, sharing, mismatch
+// A capture that decodes nothing is said by the hero card itself.
 ColumnLayout {
     id: notices
 
     signal openCalibrationRequested()
 
+    // The hero card is saying the calibration sentence, so the row need not.
+    property bool heroSpeaksCalibration: false
+
     readonly property var capture: App.captureStatus
-    readonly property var counters: App.captureCounters
     readonly property var profile: App.protocolProfile
     readonly property string profileStatus: String(notices.capture.profile_status || "")
     readonly property string profileOrigin: String(notices.capture.profile_origin || "")
@@ -24,8 +26,8 @@ ColumnLayout {
     // 本机校准的卡片只在校准还在进行时出现（契约状态不是 IDLE）。
     readonly property var sharedCalibration: App.calibration ? App.calibration.shared : null
     readonly property bool calibrationCardVisible: !!App.calibration && App.calibration.state !== "IDLE"
-    // 校准卡片可见时由其提供「分享给其他玩家」，协议档案卡片让位，避免同屏出现两个相同按钮；
-    // 校准卡片消失后，分享入口由协议档案卡片承担。
+    // 校准卡片可见时由其提供「分享给其他玩家」（或「这份校准好用，告诉其他玩家」，见 shareKind），
+    // 协议档案卡片让位，避免同屏出现两个相同按钮；校准卡片消失后，分享入口由协议档案卡片承担。
     readonly property bool offersShare: !!notices.sharedCalibration && notices.sharedCalibration.canShare
                                         && !notices.calibrationCardVisible
     readonly property bool calibratedProfile: notices.profileStatus === "VERIFIED"
@@ -35,8 +37,6 @@ ColumnLayout {
     // launcher may patch over it before the next login.
     readonly property bool buildUnknown: !notices.capture.game_build || !notices.capture.region
                                          || notices.capture.region === "UNKNOWN"
-    readonly property string buildPhrase: App.ffxivRunning ? qsTr("当前游戏版本")
-                                                           : qsTr("已安装的游戏版本")
     // 本机校准出来的档案生效后，校准卡片连同「清空进度并重新观察」「导入校准码」一起消失，
     // 玩家再无入口可用。「重新校准」只在这种情况下出现：别人分享的校准由「不用共享的，
     // 我自己校准」停用，随包档案不是本机的猜测，没有档案时也无从停用。
@@ -59,8 +59,8 @@ ColumnLayout {
                                         || App.currentRunState === "ENTERED_DUTY"
     // A known, non-verified profile while the game runs is the reason nothing is
     // recorded. While calibration runs its own card explains that instead, and
-    // with the game closed 链路 already says it once - a second card there would
-    // only nag about something the player cannot act on yet.
+    // with the game closed the hero already says it once - a second card there
+    // would only nag about something the player cannot act on yet.
     readonly property bool profileProblem: App.ffxivRunning && notices.profileStatus.length > 0
                                            && notices.profileStatus !== "VERIFIED"
                                            && !notices.calibrationCardVisible
@@ -69,8 +69,6 @@ ColumnLayout {
     readonly property bool profileCardVisible: notices.offersShare || notices.calibratedProfile
                                                || notices.profileProblem || notices.offersRestore
                                                || notices.restoreNoticeVisible
-    readonly property bool silentVisible: App.captureMidstreamSuspected || App.captureSilent
-                                          || App.recording.silent
 
     /// The remembered adapter the Collector now reports as carrying no game
     /// traffic, and the one it recommends instead. The notice appears only when
@@ -82,7 +80,7 @@ ColumnLayout {
     readonly property bool followOn: !App.captureSettingsLoaded || !!App.captureSettings.follow_game
     readonly property bool readinessVisible: App.maintainerToolsVisible && !App.capturing
 
-    visible: notices.calibrationCardVisible || notices.profileCardVisible || notices.silentVisible
+    visible: notices.calibrationCardVisible || notices.profileCardVisible
              || notices.staleVisible || notices.readinessVisible
     spacing: 12
 
@@ -101,11 +99,6 @@ ColumnLayout {
         return row.friendly_name || row.description || row.adapter_id || Fmt.dash()
     }
 
-    function counter(key) {
-        const value = notices.counters[key]
-        return (value === undefined || value === null) ? Fmt.dash() : Fmt.count(value)
-    }
-
     // Players never read a profile id or a status token here
     // (SharedCalibrationCardTests.verifyPlayerCopy).
     function profileHeadline() {
@@ -114,185 +107,289 @@ ColumnLayout {
             return qsTr("已就绪：%1").arg(notices.profile.profile_id || notices.capture.profile_id
                                           || qsTr("已验证档案"))
         if (notices.profileOrigin === "LOCAL_CALIBRATION" && status === "VERIFIED")
-            return qsTr("正在使用本机校准出来的档案")
+            return qsTr("正在使用这台电脑完成的校准")
         if (notices.profileOrigin === "SHARED_CALIBRATION" && status === "VERIFIED")
             return qsTr("正在使用其他玩家分享的校准")
         if (status === "VERIFIED")
-            return App.ffxivRunning ? qsTr("档案与游戏版本匹配")
-                                    : qsTr("档案与已安装的游戏版本匹配")
+            return App.ffxivRunning ? qsTr("已支持当前游戏版本")
+                                    : qsTr("已支持安装在这台电脑上的游戏版本")
         if (notices.buildUnknown)
             return qsTr("尚未识别游戏版本或区服")
         if (status === "UNSUPPORTED_BUILD")
-            return qsTr("%1没有可用档案").arg(notices.buildPhrase)
+            return App.ffxivRunning ? qsTr("当前游戏版本暂不支持自动记录")
+                                    : qsTr("已安装的游戏版本暂不支持自动记录")
         if (status === "AMBIGUOUS")
-            return qsTr("同一版本有两份档案，已全部拒绝")
-        return qsTr("尚未匹配到档案")
+            return qsTr("游戏版本支持文件有冲突，暂时不能自动记录")
+        return qsTr("还没找到适用的游戏版本支持文件")
     }
 
     function profileExplanation() {
         // 本机校准生成的档案与随包档案同等对待，但须向用户说明其来源。
         if (notices.profileOrigin === "LOCAL_CALIBRATION" && notices.profileStatus === "VERIFIED")
-            return qsTr("游戏更新后，本软件在这台电脑上重新认出了记录所需的信息，记录照常生成。"
-                        + "副本内收到通关结算时自动记为通关；没有收到时，离开副本后在记录里补一下结果即可。")
+            return qsTr("这台电脑已完成校准，可以正常自动记录。"
+                        + "如果没有自动识别到通关，请在离开副本后打开记录补上结果。")
         if (notices.profileOrigin === "SHARED_CALIBRATION" && notices.profileStatus === "VERIFIED")
-            return qsTr("它先在这台电脑的流量里核实过，才用来记录，记录照常生成。"
-                        + "副本内收到通关结算时自动记为通关；没有收到时，离开副本后在记录里补一下结果即可。")
+            return qsTr("其他玩家分享的校准已通过检查，可以正常自动记录。"
+                        + "如果没有自动识别到通关，请在离开副本后打开记录补上结果。")
         if (notices.profileStatus === "VERIFIED")
             return qsTr("能自动记录指导者任务的匹配、进入和离开；副本内收到通关结算时自动记为通关。"
                         + "没有收到结算就离开副本时，记录会标为“待复核”，在记录里用“修正”填上结果。")
-        const detail = notices.profile.message ? " " + notices.profile.message : ""
-        const stale = App.protocolProfileStale ? qsTr("（以下档案详情为上次已知信息）") : ""
+        // message_ref renders the Collector's sentence in the interface language.
+        const detail = notices.profile.message
+            ? " " + Fmt.collectorText(notices.profile.message_ref, notices.profile.message) : ""
+        const stale = App.protocolProfileStale ? qsTr("（以下是上次检查的结果）") : ""
         if (notices.buildUnknown)
-            return qsTr("无法确认适用档案，当前不会生成自动记录，可以先手动记录。") + stale + detail
-        return qsTr("当前不会生成自动记录，可以先手动记录。") + stale + detail
+            return qsTr("还没确认当前游戏版本能否自动记录，请先手动记录。") + stale + detail
+        return qsTr("暂时不能自动记录，请先手动记录。") + stale + detail
     }
 
-    // 对玩家可见，不置于维护者工具之后：游戏更新后此卡片即为全部说明。
-    CalibrationCard {
-        Layout.fillWidth: true
-        // Same inset as the panels below, so every kicker starts on one line.
-        horizontalPadding: 24
-        verticalPadding: 18
-        visible: notices.calibrationCardVisible
-        onConfirmRequested: notices.openCalibrationRequested()
-    }
-
+    // $defs/CaptureAdapter.preference_stale - the 加速器 / VPN case. The button
+    // writes the recommended card into CaptureSettings.adapter_id, which is what
+    // the automatic capture reads.
     Card {
-        objectName: "protocolProfileCard"
+        objectName: "adapterPreferenceStaleNotice"
         Layout.fillWidth: true
-        visible: notices.profileCardVisible
-        horizontalPadding: 24
+        visible: notices.staleVisible
+        horizontalPadding: 20
         verticalPadding: 14
-        spacing: 6
+        borderColor: Theme.orange
+
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 16
+
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 4
+
+                Text {
+                    objectName: "adapterPreferenceStaleTitle"
+                    Layout.fillWidth: true
+                    text: qsTr("记住的网卡上已经没有游戏流量了")
+                    color: Theme.orangeText
+                    font.pixelSize: Theme.fs(15)
+                    font.bold: true
+                    wrapMode: Text.WordWrap
+                }
+
+                Text {
+                    Layout.fillWidth: true
+                    text: qsTr("「%1」上收不到游戏数据（常见于开着加速器或 VPN），当前游戏使用的是「%2」。")
+                          .arg(notices.adapterName(notices.staleAdapter))
+                          .arg(notices.adapterName(notices.recommendedAdapter))
+                    textFormat: Text.PlainText
+                    color: Theme.textPrimary
+                    font.pixelSize: Theme.fs(12)
+                    wrapMode: Text.WordWrap
+                }
+
+                Text {
+                    Layout.fillWidth: true
+                    visible: !App.captureSettingsSupported
+                    text: qsTr("当前后台服务版本无法保存网卡选择，请更新软件后重试。")
+                    color: Theme.textSecondary
+                    font.pixelSize: Theme.fs(11)
+                    wrapMode: Text.WordWrap
+                }
+            }
+
+            AppButton {
+                objectName: "useRecommendedAdapterButton"
+                text: qsTr("使用推荐网卡")
+                variant: "primary"
+                enabled: App.captureSettingsSupported && App.captureSettingsLoaded
+                onClicked: {
+                    const recommended = notices.recommendedAdapter
+                    if (!recommended)
+                        return
+                    App.updateCaptureSetting("adapter_id", recommended.adapter_id)
+                    App.captureAdapterId = recommended.adapter_id
+                }
+            }
+        }
+    }
+
+    // Nothing has to be done before login while follow-the-game is on. The Oodle
+    // stream can only be decoded from the start of a connection, so only the
+    // "off" case is a warning.
+    Card {
+        objectName: "captureReadinessNotice"
+        Layout.fillWidth: true
+        visible: notices.readinessVisible
+        horizontalPadding: 20
+        verticalPadding: 10
+        borderColor: notices.followOn ? Theme.border : Theme.orange
 
         RowLayout {
             Layout.fillWidth: true
             spacing: 12
 
-            CardKicker {
-                Layout.alignment: Qt.AlignVCenter
-                Layout.fillWidth: false
-                text: qsTr("协议档案")
-            }
-
             Text {
-                objectName: "protocolProfileHeadline"
+                objectName: "captureReadinessText"
                 Layout.fillWidth: true
-                Layout.alignment: Qt.AlignVCenter
-                text: notices.profileHeadline()
+                text: notices.followOn
+                      ? qsTr("游戏启动后会自动开始监听，登录前不需要任何操作；只要本软件先于游戏运行即可。")
+                      : qsTr("自动跟随已关闭：必须在登录游戏之前手动开始捕获，否则本次登录不会有任何记录。")
                 textFormat: Text.PlainText
-                color: notices.profileStatus === "VERIFIED" ? Theme.green : Theme.orangeText
-                font.pixelSize: Theme.fs(13)
-                font.bold: true
-                wrapMode: Text.WordWrap
-            }
-        }
-
-        Text {
-            objectName: "protocolProfileExplanation"
-            Layout.fillWidth: true
-            text: notices.profileExplanation()
-            textFormat: Text.PlainText
-            color: Theme.textSecondary
-            font.pixelSize: Theme.fs(12)
-            wrapMode: Text.WordWrap
-        }
-
-        // 共享校准：文案与动作均来自 App.calibration.shared，与校准卡片上的按钮
-        // 同一路径；本进程不联网。
-        RowLayout {
-            Layout.fillWidth: true
-            Layout.topMargin: 2
-            visible: notices.offersShare
-            spacing: 16
-
-            Text {
-                objectName: "protocolShareHint"
-                Layout.fillWidth: true
-                visible: notices.offersShare
-                text: notices.sharedCalibration ? notices.sharedCalibration.shareHint : ""
-                textFormat: Text.PlainText
-                color: Theme.textSecondary
+                color: notices.followOn ? Theme.textSecondary : Theme.orangeText
                 font.pixelSize: Theme.fs(12)
+                font.bold: !notices.followOn
                 wrapMode: Text.WordWrap
             }
 
             AppButton {
-                objectName: "protocolShareButton"
-                visible: notices.offersShare
+                objectName: "enableFollowGameButton"
+                visible: !notices.followOn
+                compact: true
                 variant: "primary"
-                text: qsTr("分享给其他玩家")
-                enabled: !!notices.sharedCalibration && !notices.sharedCalibration.busy
-                onClicked: notices.sharedCalibration.share()
+                text: qsTr("开启自动跟随")
+                enabled: App.captureSettingsSupported && App.captureSettingsLoaded
+                onClicked: App.updateCaptureSetting("follow_game", true)
             }
         }
+    }
 
-        // 本机校准的档案认错了报文时，这里是唯一的退路：停用它，软件回到观察状态，
-        // 之后可以重新校准，也可以导入其他玩家的校准码。
-        // 停用之后，同一行改为提供反向的退路：把上次停用的那一份换回来。
+    // 对玩家可见，不置于维护者工具之后：游戏更新后此行即为全部说明。
+    // The headline of the state is the hero card's; the row keeps the progress.
+    CalibrationCard {
+        Layout.fillWidth: true
+        visible: notices.calibrationCardVisible
+        headlineInHero: notices.heroSpeaksCalibration
+        onConfirmRequested: notices.openCalibrationRequested()
+    }
+
+    // 协议档案: one line - the kicker, the sentence with its explanation under
+    // it, the buttons on the right.
+    Card {
+        objectName: "protocolProfileCard"
+        Layout.fillWidth: true
+        visible: notices.profileCardVisible
+        horizontalPadding: 20
+        verticalPadding: 14
+        spacing: 0
+
         RowLayout {
             Layout.fillWidth: true
-            Layout.topMargin: 2
-            visible: notices.offersRecalibrate || notices.offersRestore
             spacing: 16
 
-            Text {
-                objectName: "protocolRecalibrateHint"
+            CardKicker {
+                Layout.alignment: Qt.AlignTop
+                Layout.topMargin: 2
+                Layout.fillWidth: false
+                text: qsTr("版本支持")
+            }
+
+            ColumnLayout {
                 Layout.fillWidth: true
-                visible: notices.runInFlight
-                text: qsTr("副本进行中，结束后再试")
-                textFormat: Text.PlainText
-                color: Theme.textSecondary
-                font.pixelSize: Theme.fs(12)
-                wrapMode: Text.WordWrap
+                spacing: 2
+
+                Text {
+                    objectName: "protocolProfileHeadline"
+                    Layout.fillWidth: true
+                    text: notices.profileHeadline()
+                    textFormat: Text.PlainText
+                    color: notices.profileStatus === "VERIFIED" ? Theme.green : Theme.orangeText
+                    font.pixelSize: Theme.fs(13)
+                    font.bold: true
+                    wrapMode: Text.WordWrap
+                }
+
+                Text {
+                    objectName: "protocolProfileExplanation"
+                    Layout.fillWidth: true
+                    text: Theme.live(notices.profileExplanation())
+                    textFormat: Text.PlainText
+                    color: Theme.textSecondary
+                    font.pixelSize: Theme.fs(12)
+                    wrapMode: Text.WordWrap
+                }
+
+                // 共享校准：文案与动作均来自 App.calibration.shared，与校准卡片上的按钮
+                // 同一路径；本进程不联网。
+                Text {
+                    objectName: "protocolShareHint"
+                    Layout.fillWidth: true
+                    visible: notices.offersShare
+                    text: notices.sharedCalibration ? notices.sharedCalibration.shareHintText : ""
+                    textFormat: Text.PlainText
+                    color: Theme.textSecondary
+                    font.pixelSize: Theme.fs(12)
+                    wrapMode: Text.WordWrap
+                }
+
+                Text {
+                    objectName: "protocolRecalibrateHint"
+                    Layout.fillWidth: true
+                    visible: notices.runInFlight && (notices.offersRecalibrate || notices.offersRestore)
+                    text: qsTr("副本进行中，结束后再试")
+                    textFormat: Text.PlainText
+                    color: Theme.textSecondary
+                    font.pixelSize: Theme.fs(12)
+                    wrapMode: Text.WordWrap
+                }
+
+                // 采集服务拒绝时，它给的句子本身就是写给玩家看的，原样显示。
+                // 校准卡片此时可能并不在场，这一行是唯一能说明原因的地方。
+                Text {
+                    objectName: "protocolCalibrationError"
+                    Layout.fillWidth: true
+                    visible: (notices.offersRecalibrate || notices.offersRestore)
+                             && notices.calibrationError.length > 0
+                    text: notices.calibrationError
+                    textFormat: Text.PlainText
+                    color: Theme.orangeText
+                    font.pixelSize: Theme.fs(12)
+                    wrapMode: Text.WordWrap
+                }
+
+                // 上一份本机校准已经放回，但仍在用排在它前面的档案：采集服务的原话，按说明显示。
+                // 退路此时已经消失，所以不跟按钮绑在一起。
+                Text {
+                    objectName: "protocolCalibrationNotice"
+                    Layout.fillWidth: true
+                    visible: notices.restoreNoticeVisible
+                    text: notices.restoreAnswer
+                    textFormat: Text.PlainText
+                    color: Theme.textSecondary
+                    font.pixelSize: Theme.fs(12)
+                    wrapMode: Text.WordWrap
+                }
             }
 
-            Item { Layout.fillWidth: true; visible: !notices.runInFlight }
+            // 本机校准的档案认错了报文时，「重新校准」是唯一的退路：停用它，软件回到观察状态，
+            // 之后可以重新校准，也可以导入其他玩家的校准码。停用之后，同一处改为提供反向的退路：
+            // 把上次停用的那一份换回来。
+            RowLayout {
+                Layout.alignment: Qt.AlignTop
+                spacing: 8
 
-            AppButton {
-                objectName: "protocolRestoreButton"
-                visible: notices.offersRestore
-                text: qsTr("恢复上一份本机校准")
-                enabled: !notices.runInFlight
-                         && (!App.calibration || !App.calibration.busy)
-                onClicked: restoreDialog.open()
+                AppButton {
+                    objectName: "protocolShareButton"
+                    visible: notices.offersShare
+                    variant: "primary"
+                    text: notices.sharedCalibration ? notices.sharedCalibration.shareButtonText : ""
+                    enabled: !!notices.sharedCalibration && !notices.sharedCalibration.busy
+                    onClicked: notices.sharedCalibration.share()
+                }
+
+                AppButton {
+                    objectName: "protocolRestoreButton"
+                    visible: notices.offersRestore
+                    text: qsTr("恢复上一份本机校准")
+                    enabled: !notices.runInFlight
+                             && (!App.calibration || !App.calibration.busy)
+                    onClicked: restoreDialog.open()
+                }
+
+                AppButton {
+                    objectName: "protocolRecalibrateButton"
+                    visible: notices.offersRecalibrate
+                    text: qsTr("重新校准")
+                    enabled: !notices.runInFlight
+                             && (!App.calibration || !App.calibration.busy)
+                    onClicked: recalibrateDialog.open()
+                }
             }
-
-            AppButton {
-                objectName: "protocolRecalibrateButton"
-                visible: notices.offersRecalibrate
-                text: qsTr("重新校准")
-                enabled: !notices.runInFlight
-                         && (!App.calibration || !App.calibration.busy)
-                onClicked: recalibrateDialog.open()
-            }
-        }
-
-        // 采集服务拒绝时，它给的句子本身就是写给玩家看的，原样显示。
-        // 校准卡片此时可能并不在场，这一行是唯一能说明原因的地方。
-        Text {
-            objectName: "protocolCalibrationError"
-            Layout.fillWidth: true
-            visible: (notices.offersRecalibrate || notices.offersRestore)
-                     && notices.calibrationError.length > 0
-            text: notices.calibrationError
-            textFormat: Text.PlainText
-            color: Theme.orangeText
-            font.pixelSize: Theme.fs(12)
-            wrapMode: Text.WordWrap
-        }
-
-        // 上一份本机校准已经放回，但仍在用排在它前面的档案：采集服务的原话，按说明显示。
-        // 退路此时已经消失，所以不跟按钮绑在一起。
-        Text {
-            objectName: "protocolCalibrationNotice"
-            Layout.fillWidth: true
-            visible: notices.restoreNoticeVisible
-            text: notices.restoreAnswer
-            textFormat: Text.PlainText
-            color: Theme.textSecondary
-            font.pixelSize: Theme.fs(12)
-            wrapMode: Text.WordWrap
         }
     }
 
@@ -321,9 +418,9 @@ ColumnLayout {
 
             Text {
                 Layout.fillWidth: true
-                text: qsTr("现在这份本机校准会停用（文件会保留，不会删除），软件回到观察状态："
-                           + "期间不会生成记录，直到重新校准完成，或导入了其他玩家的校准码。"
-                           + "之前的记录不受影响。")
+                text: qsTr("将停止使用当前的本机校准，并重新开始校准。旧校准会保留，之后可以恢复。"
+                           + "重新校准完成前暂时不能自动记录；也可以导入校准码，通过检查后使用。"
+                           + "已保存的记录不受影响。")
                 textFormat: Text.PlainText
                 color: Theme.textSecondary
                 font.pixelSize: Theme.fs(12)
@@ -382,9 +479,9 @@ ColumnLayout {
             // 留作备用（审查 CS8-D1）。
             Text {
                 Layout.fillWidth: true
-                text: qsTr("软件会把你上次停用的那一份本机校准放回来，并立刻改用它记录，现在这份校准随之停用。"
-                           + "如果现在用的档案比它优先（比如随软件附带的档案），就继续用现在这份记录，"
-                           + "放回的那份留作备用。之前的记录不受影响。")
+                text: qsTr("将恢复你上次停用的本机校准。如果可以使用，软件会用它替换当前的校准来记录。"
+                           + "如果当前使用的校准优先级更高（例如软件自带的版本），则继续使用当前校准，"
+                           + "恢复的这份留作备用。已保存的记录不受影响。")
                 textFormat: Text.PlainText
                 color: Theme.textSecondary
                 font.pixelSize: Theme.fs(12)
@@ -412,160 +509,6 @@ ColumnLayout {
                         restoreDialog.close()
                     }
                 }
-            }
-        }
-    }
-
-    // docs/live-validation-guide.md section 6. Also for the Collector's own
-    // silent_reason: a wrong adapter produces no packets and so no errors.
-    Card {
-        objectName: "captureSilentNotice"
-        Layout.fillWidth: true
-        visible: notices.silentVisible
-        horizontalPadding: 24
-        verticalPadding: 14
-        spacing: 4
-        borderColor: Theme.orange
-
-        Text {
-            objectName: "midstreamBannerTitle"
-            Layout.fillWidth: true
-            text: App.captureMidstreamSuspected
-                  ? qsTr("抓包开始得太晚：这条连接不会解出任何报文")
-                  : App.captureSilent
-                  ? qsTr("捕获在运行，但至今没有解码出任何报文")
-                  : qsTr("正在监听，但还没有收到游戏数据")
-            color: Theme.orangeText
-            font.pixelSize: Theme.fs(15)
-            font.bold: true
-            wrapMode: Text.WordWrap
-        }
-
-        Text {
-            Layout.fillWidth: true
-            // The Collector's hint when it sent one, otherwise the sentence the
-            // recording controller chose for this silent_reason.
-            text: App.captureHealthText || App.recording.message
-            color: Theme.textPrimary
-            font.pixelSize: Theme.fs(12)
-            wrapMode: Text.WordWrap
-        }
-
-        Text {
-            Layout.fillWidth: true
-            text: qsTr("已解码 %1 · 解码失败 %2")
-                  .arg(notices.counter("messages_decoded"))
-                  .arg(notices.counter("decode_errors"))
-            color: Theme.textSecondary
-            font.pixelSize: Theme.fs(11)
-            font.family: Theme.figureFamily
-            font.weight: Theme.figureWeight(false)
-            font.features: ({ "tnum": 1 })
-        }
-    }
-
-    // $defs/CaptureAdapter.preference_stale - the 加速器 / VPN case. The button
-    // writes the recommended card into CaptureSettings.adapter_id, which is what
-    // the automatic capture reads.
-    Card {
-        objectName: "adapterPreferenceStaleNotice"
-        Layout.fillWidth: true
-        visible: notices.staleVisible
-        horizontalPadding: 24
-        verticalPadding: 14
-        borderColor: Theme.orange
-
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: 16
-
-            ColumnLayout {
-                Layout.fillWidth: true
-                spacing: 4
-
-                Text {
-                    objectName: "adapterPreferenceStaleTitle"
-                    Layout.fillWidth: true
-                    text: qsTr("记住的网卡上已经没有游戏流量了")
-                    color: Theme.orangeText
-                    font.pixelSize: Theme.fs(15)
-                    font.bold: true
-                    wrapMode: Text.WordWrap
-                }
-
-                Text {
-                    Layout.fillWidth: true
-                    text: qsTr("「%1」上收不到游戏数据（常见于开着加速器或 VPN），现在承载游戏流量的是「%2」。")
-                          .arg(notices.adapterName(notices.staleAdapter))
-                          .arg(notices.adapterName(notices.recommendedAdapter))
-                    textFormat: Text.PlainText
-                    color: Theme.textPrimary
-                    font.pixelSize: Theme.fs(12)
-                    wrapMode: Text.WordWrap
-                }
-
-                Text {
-                    Layout.fillWidth: true
-                    visible: !App.captureSettingsSupported
-                    text: qsTr("当前的采集服务版本还不能保存这个选择，请更新后再试。")
-                    color: Theme.textSecondary
-                    font.pixelSize: Theme.fs(11)
-                    wrapMode: Text.WordWrap
-                }
-            }
-
-            AppButton {
-                objectName: "useRecommendedAdapterButton"
-                text: qsTr("使用推荐适配器")
-                variant: "primary"
-                enabled: App.captureSettingsSupported && App.captureSettingsLoaded
-                onClicked: {
-                    const recommended = notices.recommendedAdapter
-                    if (!recommended)
-                        return
-                    App.updateCaptureSetting("adapter_id", recommended.adapter_id)
-                    App.captureAdapterId = recommended.adapter_id
-                }
-            }
-        }
-    }
-
-    // Nothing has to be done before login while follow-the-game is on. The Oodle
-    // stream can only be decoded from the start of a connection, so only the
-    // "off" case is a warning.
-    Card {
-        objectName: "captureReadinessNotice"
-        Layout.fillWidth: true
-        visible: notices.readinessVisible
-        horizontalPadding: 24
-        verticalPadding: 10
-        borderColor: notices.followOn ? Theme.border : Theme.orange
-
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: 12
-
-            Text {
-                objectName: "captureReadinessText"
-                Layout.fillWidth: true
-                text: notices.followOn
-                      ? qsTr("游戏启动后会自动开始监听，登录前不需要任何操作；只要本软件先于游戏运行即可。")
-                      : qsTr("自动跟随已关闭：必须在登录游戏之前手动开始捕获，否则本次登录不会有任何记录。")
-                textFormat: Text.PlainText
-                color: notices.followOn ? Theme.textSecondary : Theme.orangeText
-                font.pixelSize: Theme.fs(12)
-                font.bold: !notices.followOn
-                wrapMode: Text.WordWrap
-            }
-
-            AppButton {
-                objectName: "enableFollowGameButton"
-                visible: !notices.followOn
-                compact: true
-                variant: "primary"
-                text: qsTr("开启自动跟随")
-                enabled: App.captureSettingsSupported && App.captureSettingsLoaded
-                onClicked: App.updateCaptureSetting("follow_game", true)
             }
         }
     }

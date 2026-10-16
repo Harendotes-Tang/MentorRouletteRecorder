@@ -21,6 +21,7 @@ internal sealed partial class SharedCalibrationSession
     private void Bind(BindTicket ticket)
     {
         string? profileId = null;
+        string? writtenSha = null;
         string? refusal = null;
         Func<Capture.GameProcessDetection, ProfileSelection>? select = null;
 
@@ -38,6 +39,7 @@ internal sealed partial class SharedCalibrationSession
                 {
                     _services.WriteSharedProfile(built);
                     profileId = id;
+                    writtenSha = built.ProfileSha256;
                     select = _services.ReloadSelect();
                 }
                 else
@@ -54,14 +56,14 @@ internal sealed partial class SharedCalibrationSession
 
             lock (_gate)
             {
-                Commit(ticket, profileId, select, refusal);
+                Commit(ticket, profileId, select, refusal, writtenSha);
             }
         }
     }
 
     /// <summary>Under the gate: the written profile becomes the one in use, unless something changed while it was written.</summary>
     private void Commit(
-        BindTicket ticket, string? profileId, Func<Capture.GameProcessDetection, ProfileSelection>? select, string? refusal)
+        BindTicket ticket, string? profileId, Func<Capture.GameProcessDetection, ProfileSelection>? select, string? refusal, string? writtenSha)
     {
         var candidate = ticket.Candidate;
         if (ReferenceEquals(_binding, candidate))
@@ -74,10 +76,22 @@ internal sealed partial class SharedCalibrationSession
             // Disarmed, rebuilt, dropped or refused by the player meanwhile. The file, if written, is harmless:
             // selection decides, and a refused build withdraws any shared profile it selects (ReconcileBound).
             _lastRefusal = "STALE";
+            if (BindingRestrictionChanged(ticket)) DiscardUnadoptedWrite(ticket, writtenSha);
         }
         else if (refusal is not null || profileId is null || select is null)
         {
+            if (BindingRestrictionChanged(ticket) && !BindingRestrictionStillPasses(ticket))
+                DiscardUnadoptedWrite(ticket, writtenSha);
             Block(candidate, refusal ?? "WRITE_FAILED");
+        }
+        else if (!BindingRestrictionStillPasses(ticket))
+        {
+            // The writer still owns _file. Never publish its stale selector, and only remove the precise
+            // document this ticket wrote: another document at that path must survive cancellation.
+            DiscardUnadoptedWrite(ticket, writtenSha);
+            candidate.Status = SharedCandidateStatus.Verifying;
+            candidate.Blocked = false;
+            _lastRefusal = "RECHECK_REQUIRED";
         }
         else
         {
@@ -87,11 +101,37 @@ internal sealed partial class SharedCalibrationSession
         _host.SharedCalibrationChanged();
     }
 
+    private static bool BindingRestrictionChanged(BindTicket ticket) => ticket.Candidate.Quarantined ||
+        ticket.Candidate.QuarantineEpoch != ticket.QuarantineEpoch || ticket.Candidate.Gate != ticket.Gate;
+
+    private void DiscardUnadoptedWrite(BindTicket ticket, string? writtenSha)
+    {
+        if (writtenSha is not null)
+            Attempt(() => _services.DeleteSharedProfileIfMatches(ticket.Key.Region, ticket.Key.GameBuild, writtenSha));
+    }
+
+    private bool BindingRestrictionStillPasses(BindTicket ticket)
+    {
+        var candidate = ticket.Candidate;
+        // Consensus may keep the original audit contract, but a new quarantine/epoch is a safety
+        // restriction. It may only commit after fresh full verification, including during a slow write.
+        if (!BindingRestrictionChanged(ticket)) return true;
+        candidate.Gate = SharedCandidateProvenance.Imported;
+        if (_host.SharedContext() is not { } context || context.Key != ticket.Key || _host.SharedEvidence() is not { } snapshot)
+            return false;
+        candidate.Verification = SharedCandidateVerifier.Verify(snapshot, context.Template, candidate.Prepared.Declared,
+            SharedCandidateProvenance.Imported);
+        return candidate.Verification.Verdict == SharedVerdict.Pass;
+    }
+
     /// <summary>Hands the written profile to the pipeline; adopts it when selected, blocks the candidate for this session when not.</summary>
     private void CommitWritten(BindTicket ticket, string profileId, Func<Capture.GameProcessDetection, ProfileSelection> select)
     {
         var candidate = ticket.Candidate;
-        var auditPending = candidate.Verification?.AuditPending == true;
+        // Consensus alone retains the chosen audit contract. A tighter quarantine has already been fully verified
+        // by BindingRestrictionStillPasses before this document can reach the host.
+        var verification = candidate.Verification;
+        var auditPending = verification?.AuditPending == true;
         var result = _host.CommitSharedBind(new SharedBindRequest(profileId, select, candidate.Stage, auditPending));
         if (result.Outcome is SharedBindOutcome.NotSelected or SharedBindOutcome.SessionChanged)
         {
@@ -100,6 +140,9 @@ internal sealed partial class SharedCalibrationSession
             return;
         }
 
+        // What the others said about it when it was chosen, kept with the profile in use for the card and the report: the
+        // consensus it was bound under, and once the others are dropped below there is nobody left to ask anyway.
+        var consensus = candidate.ChosenConsensus ?? ConsensusOf(Consensus(), candidate);
         foreach (var other in _candidates.Where(item => !ReferenceEquals(item, candidate)).ToArray())
         {
             Drop(other, rejected: false);
@@ -115,14 +158,17 @@ internal sealed partial class SharedCalibrationSession
             Sha = candidate.Sha,
             Declared = candidate.Prepared.Declared,
             Source = candidate.Source,
-            Provenance = candidate.Provenance,
+            WatchGate = candidate.Provenance,
+            Provenance = DisplayedProvenance(ticket.Key.Region, ticket.Key.GameBuild, candidate.Sha, candidate.Provenance),
             MatchSource = candidate.Prepared.Payload.MatchSource,
             BoundAtUtc = result.Outcome == SharedBindOutcome.Bound ? _clock.UtcNow : null,
             RecordsFromUtc = result.RecordsFromUtc,
             AwaitingSwap = result.SwapOwed,
-            Verification = candidate.Verification,
+            Verification = verification,
             RanComplete = result.RanComplete,
             Proven = result.Proven,
+            Consensus = consensus,
+            LocalShapePrior = candidate.LocalPrior,
         };
         RecordBound(_bound);
 
@@ -136,6 +182,7 @@ internal sealed partial class SharedCalibrationSession
 
         _superseded = false;
         _lastRefusal = null;
+        ObserveSelectedEvidence();
     }
 
     private void Block(Candidate candidate, string reason)
@@ -180,6 +227,8 @@ internal sealed partial class SharedCalibrationSession
         }
 
         _host.UnbindSharedProfile(bound.ProfileId);
+        ObserveSelectedEvidence();
+        if (bound.Sha is { } evidenceCode) ReleaseEvidenceCandidate(evidenceCode);
         if (contradicted && !bound.AwaitingSwap)
         {
             // What it recorded before the traffic caught it out is suspect (plan §18.4) - and only that: the profile id
@@ -224,7 +273,16 @@ internal sealed partial class SharedCalibrationSession
 
                 _host.ReselectAfterSharedChange(select);
                 Sync();
-                if (pending is { Count: > 0 })
+                if (pending is not { Count: > 0 })
+                {
+                    // The other codes the store keeps for the build were dropped when this one bound, and no index read just
+                    // now brings them along: they are offered again off the disk, with nothing sent (plan §20.5: its rival is
+                    // verified afresh; docs/privacy-boundary.md §8.2). The rejection or revocation record keeps this one out.
+                    // An empty list - a revocation found on adoption or held for the end of a run - needs this as much as no
+                    // list at all.
+                    ReofferStored();
+                }
+                else
                 {
                     // The file is gone and the catalogue has been read again, so the next best code of the
                     // index that revoked this one may now be offered - and written to that same path.
@@ -285,20 +343,30 @@ internal sealed partial class SharedCalibrationSession
     {
         if (string.Equals(_bound?.Sha, prepared.Sha, StringComparison.Ordinal))
         {
+            RegisterEvidenceCandidate(prepared.Declared, prepared.QuarantineEpoch);
             return null;
         }
 
         if (_candidates.FirstOrDefault(candidate => candidate.Sha == prepared.Sha) is { } known)
         {
             // One code, one candidate. A download of a code the player had pasted proves it published (plan §18.5), and
-            // what the index now says about it - submitters, the conflict mark - replaces what was known before.
+            // what the index now says about it - submitters and the shape prior - replaces what was known before; the
+            // consensus reads it from there on its next use. The conflict mark has done its work in the download order.
+            // The local prior is this machine's own and was read again with this code; it changes only when the machine
+            // has since verified a calibration for another build.
+            known.LocalPrior = prepared.LocalPrior;
+            if (prepared.Quarantined || known.QuarantineEpoch != prepared.QuarantineEpoch)
+                known.Gate = SharedCandidateProvenance.Imported;
+            known.Quarantined = prepared.Quarantined;
+            known.QuarantineEpoch = prepared.QuarantineEpoch;
+            RegisterEvidenceCandidate(prepared.Declared, prepared.QuarantineEpoch);
             if (provenance == SharedCandidateProvenance.Published)
             {
                 known.Provenance = SharedCandidateProvenance.Published;
                 if (prepared.Submitters > 0)
                 {
                     known.Submitters = prepared.Submitters;
-                    known.Conflicting = prepared.Conflicting;
+                    known.ShapePrior = prepared.ShapePrior;
                 }
             }
 
@@ -321,6 +389,7 @@ internal sealed partial class SharedCalibrationSession
         }
 
         _host.RegisterSharedCandidate(prepared.Declared);
+        RegisterEvidenceCandidate(prepared.Declared, prepared.QuarantineEpoch);
         var candidate = new Candidate(prepared, source, provenance);
         if (_host.SharedContext()?.StagingSessionId is { } session)
         {
@@ -333,9 +402,12 @@ internal sealed partial class SharedCalibrationSession
 
     private void Drop(Candidate candidate, bool rejected)
     {
+        // Judged while it still stands among the others, so a rejected code's summary says what it was disputed on.
+        var consensus = rejected ? ConsensusOf(Consensus(), candidate) : SharedConsensus.Undisputed;
         _candidates.Remove(candidate);
         candidate.Stage = null;
         _host.UnregisterSharedCandidate(candidate.Sha);
+        ReleaseEvidenceCandidate(candidate.Sha);
         if (ReferenceEquals(_binding, candidate))
         {
             _binding = null;
@@ -343,7 +415,7 @@ internal sealed partial class SharedCalibrationSession
 
         if (rejected && _rejected.Add(candidate.Sha) && _rejectedSummaries.Count < CalibrationObserver.MaxCandidates)
         {
-            _rejectedSummaries.Add(Summary(candidate) with { Status = SharedCandidateStatus.Rejected });
+            _rejectedSummaries.Add(Summary(candidate, consensus) with { Status = SharedCandidateStatus.Rejected });
         }
     }
 
@@ -400,9 +472,19 @@ internal sealed partial class SharedCalibrationSession
             SharedProfileBuilder.RecoverPayload(profile, context.Template) is { } payload &&
             SharedCandidateVerifier.Candidate(payload, context.Template) is { } declared)
         {
-            bound.Sha = declared.CandidateId;
+            // The code is the one recorded when the document was bound, when that was kept: read back through a template a
+            // software update replaced, the profile names another identity than the one the repository published. The
+            // observer still counts it under the identity this template gives it.
+            bound.Sha = RecordedCode(bound) ?? declared.CandidateId;
             bound.Declared = declared;
+            var storedEvidence = Attempt(() => _services.SharedCalibrations.LoadCandidates(
+                context.Key.Region, context.Key.GameBuild, context.Key.TemplateSha256))
+                ?.FirstOrDefault(item => item.CodeSha256 == bound.Sha);
+            // A recovered identity different from the recorded code cannot represent that code's evidence.
+            if (declared.CandidateId == bound.Sha)
+                RegisterEvidenceCandidate(declared, storedEvidence?.QuarantineEpoch ?? 0);
             bound.MatchSource = payload.MatchSource;
+            bound.Provenance = DisplayedProvenance(bound.Region, bound.GameBuild, bound.Sha, SharedCandidateProvenance.Published);
 
             // Adopted from disk - after a restart, or after a withdrawal whose delete failed: a code this
             // build's traffic already rejected is withdrawn again, never trusted. Once per profile per
@@ -419,11 +501,21 @@ internal sealed partial class SharedCalibrationSession
             // arrived mid-duty and been held for the run's end, which the process that read it never reached, and the
             // six-hour throttle keeps the index from being read again. Settled or not - a withdrawn code is
             // withdrawn - and held for the end of a run in flight exactly as a revocation read now is.
-            if (!_withdrawn.Contains(bound.ProfileId) &&
-                Attempt(() => _services.SharedCalibrations.Publication(
-                    context.Key.Region, context.Key.GameBuild, declared.CandidateId)) == SharedPublication.Revoked)
+            if (IsRevoked(bound))
             {
                 WithdrawRevoked(Array.Empty<Prepared>());
+                return;
+            }
+
+            if (!bound.Proven && storedEvidence?.Quarantined == true && declared.CandidateId == bound.Sha &&
+                Prepare(bound.Sha, payload, context.Template, _clock.UtcNow) is { } restricted)
+            {
+                bound.WatchGate = SharedCandidateProvenance.Imported;
+                Supersede("QUARANTINED", contradicted: false, pending: new[]
+                {
+                    restricted with { Submitters = storedEvidence.Submitters, ShapePrior = storedEvidence.ShapePrior,
+                        Quarantined = true, QuarantineEpoch = storedEvidence.QuarantineEpoch },
+                });
                 return;
             }
         }
@@ -434,14 +526,92 @@ internal sealed partial class SharedCalibrationSession
         }
     }
 
+    /// <summary>
+    /// What the card shows of a shared profile adopted from disk once it is proven (review 2026-10-15). One settled in an
+    /// earlier process that reads the server's own match records on with calibration disarmed, so there is no context,
+    /// <see cref="AdoptBound"/> never recovers its code, and the snapshot - which lists only a profile whose code is known -
+    /// would show nothing: no 这份校准好用，告诉其他玩家 after a restart, although the share code can be given. Its code is
+    /// recovered once through the shipped template, as the share export does. Whether the repository published it is read
+    /// off this machine's own store - is the code kept there. Its shape prior stays unknown: nothing is left to compare it
+    /// with, and the card does not need it. Nothing is fetched (docs/privacy-boundary.md §8.2), and a profile bound in this
+    /// process, which knows all of this already, is left as it is.
+    /// </summary>
+    private void DescribeSettled(SharedContext? context)
+    {
+        if (_bound is not { Proven: true, Source: null, Described: false } bound)
+        {
+            return;
+        }
+
+        bound.Described = true;
+        if (bound.Sha is null)
+        {
+            // The code recorded when the document was bound, else the one the profile reads as through the template.
+            var template = context?.Template ?? Attempt(() => _services.SelectTemplate(bound.Region));
+            var payload = template is not null && _host.SharedSelection().Profile is { } profile &&
+                          string.Equals(profile.ProfileId, bound.ProfileId, StringComparison.Ordinal)
+                ? Attempt(() => SharedProfileBuilder.RecoverPayload(profile, template))
+                : null;
+            if ((RecordedCode(bound) ?? (payload is null ? null : ShareCode.Sha256(payload))) is not { } recovered)
+            {
+                return;
+            }
+
+            bound.Sha = recovered;
+            bound.MatchSource = payload?.MatchSource;
+        }
+
+        // The revocation check AdoptBound makes, which never ran: no calibration is armed beside a settled profile (review
+        // 2026-10-15, M1). The store's record of the last index read answers it; nothing is fetched.
+        if (IsRevoked(bound))
+        {
+            WithdrawRevoked(Array.Empty<Prepared>());
+            return;
+        }
+
+        bound.Provenance = DisplayedProvenance(bound.Region, bound.GameBuild, bound.Sha, SharedCandidateProvenance.Published);
+    }
+
+    /// <summary>
+    /// True when the last index this machine read revokes the code of the profile in use, and it has not been withdrawn
+    /// in this process already - once per profile per process, so a file that cannot be deleted does not turn every
+    /// selection into a retry.
+    /// </summary>
+    private bool IsRevoked(BoundProfile bound) =>
+        bound.Sha is { } sha && !_withdrawn.Contains(bound.ProfileId) &&
+        Attempt(() => _services.SharedCalibrations.Publication(bound.Region, bound.GameBuild, sha)) == SharedPublication.Revoked;
+
+    /// <summary>The code the store recorded the profile document in use was bound from; null when nothing was kept (review 2026-10-15, L2).</summary>
+    private string? RecordedCode(BoundProfile bound) =>
+        bound.ProfileSha256 is { } document
+            ? Attempt(() => _services.SharedCalibrations.BoundCode(bound.Region, bound.GameBuild, document))
+            : null;
+
+    /// <summary>
+    /// What the card is told about the profile in use (review 2026-10-15, M2): published only while this machine keeps the
+    /// published code text - the one thing 这份校准好用，告诉其他玩家 hands back - and imported otherwise, whatever gate it
+    /// is watched under, so the card never offers a share that can only fail.
+    /// </summary>
+    /// <param name="region">Region of the profile.</param>
+    /// <param name="build">Build of the profile.</param>
+    /// <param name="sha">Its code, when known.</param>
+    /// <param name="claimed">What its candidate was known as; an imported one stays imported.</param>
+    private SharedCandidateProvenance DisplayedProvenance(Region region, string build, string? sha, SharedCandidateProvenance claimed) =>
+        claimed == SharedCandidateProvenance.Published && sha is not null &&
+        Attempt(() => _services.SharedCalibrations.CodeText(region, build, sha)) is not null
+            ? SharedCandidateProvenance.Published
+            : SharedCandidateProvenance.Imported;
+
     private void ForgetBound()
     {
+        var previous = _bound?.Sha;
         if (_bound?.Declared is { } declared)
         {
             _host.UnregisterSharedCandidate(declared.CandidateId);
         }
 
         _bound = null;
+        if (previous is not null) ReleaseEvidenceCandidate(previous);
     }
 
     private void Reset(SharedKey? key)

@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using MentorRecorder.Collector.Contracts.Errors;
+using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Domain.Time;
 using MentorRecorder.Collector.Ipc;
 using MentorRecorder.Collector.Storage;
@@ -101,7 +102,7 @@ public sealed class CandidateEvidenceExporter(
             if (createdSidecar) TryRemove(sidecar);
             if (created) TryRemove(path);
             if (ex is IOException or UnauthorizedAccessException)
-                throw new CollectorException(ErrorCodes.ExportFailed, "候选证据导出失败，请检查本地路径和磁盘空间。", inner: ex);
+                throw new CollectorException(ErrorCodes.ExportFailed, CollectorTexts.ExportCandidateEvidenceFailed(), inner: ex);
             throw;
         }
         return new CandidateExportResult(path, sidecar, hash, observationCount,

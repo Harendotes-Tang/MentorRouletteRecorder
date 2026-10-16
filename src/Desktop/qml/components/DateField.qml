@@ -338,7 +338,7 @@ StyledTextField {
                     objectName: "calendarGrid"
                     width: parent.width
                     height: 204
-                    locale: Qt.locale("zh_CN")
+                    locale: Qt.locale(Theme.localeName)
                     spacing: 2
                     delegate: AppButton {
                         id: day
@@ -357,7 +357,8 @@ StyledTextField {
                         width: 34; height: 32
                         compact: true
                         text: String(model.day)
-                        Accessible.name: dateKey + (!enabled ? qsTr(" 无匹配记录") : selected ? qsTr(" 已选") : "")
+                        Accessible.name: !enabled ? qsTr("%1 无匹配记录").arg(dateKey)
+                                         : selected ? qsTr("%1 已选").arg(dateKey) : dateKey
                         onClicked: field.select(model.date)
                         background: Rectangle {
                             radius: Theme.radiusS

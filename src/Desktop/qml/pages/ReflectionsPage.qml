@@ -17,11 +17,17 @@ ColumnLayout {
 
     function applyFilter() {
         if (!controller) return
-        const filter = { text: search.text }
+        // Keep note words as typed and add a separate recorded-name match.
+        const text = search.text.trim()
+        const filter = { text: text }
+        const nameText = typeof Names !== "undefined" && Names
+                         ? Names.recordedSearchText(text) : text
+        if (nameText !== text)
+            filter.name_text = nameText
         if (job.currentIndex > 0)
             filter.job_id = [job.model[job.currentIndex].job_id]
         if (category.currentIndex > 0)
-            filter.duty_category = [category.model[category.currentIndex]]
+            filter.duty_category = [category.model[category.currentIndex].value]
         controller.setFilter(filter)
     }
     function dateLabel(run) {
@@ -44,7 +50,7 @@ ColumnLayout {
         const categories = controller.filter.duty_category || []
         category.currentIndex = 0
         for (let j = 1; j < category.model.length; ++j)
-            if (categories.indexOf(category.model[j]) >= 0) category.currentIndex = j
+            if (categories.indexOf(category.model[j].value) >= 0) category.currentIndex = j
     }
     Connections {
         target: page.controller
@@ -54,7 +60,7 @@ ColumnLayout {
 
     PageHeader {
         title: qsTr("全部心得")
-        subtitle: !page.runs ? qsTr("心得服务未就绪")
+        subtitle: !page.runs ? qsTr("暂时无法读取心得")
                   : page.runs.loadError.length > 0 ? qsTr("读取失败")
                   : page.runs.loading ? qsTr("正在读取…")
                   : qsTr("%1 条心得 · 第 %2 / %3 页").arg(page.runs.total).arg(page.runs.page).arg(page.runs.pageCount)
@@ -91,14 +97,19 @@ ColumnLayout {
         StyledComboBox {
             id: job
             width: 120
-            model: [{ job_id: null, job_name: qsTr("全部职业") }].concat(typeof App !== "undefined" ? App.battleJobOptions : [])
-            textRole: "job_name"
+            // The label is the job in the interface language; the filter sends job_id.
+            model: [{ job_id: null, job_name: qsTr("全部职业"), label: qsTr("全部职业") }]
+                   .concat(Theme.labelledJobs(typeof App !== "undefined" ? App.battleJobOptions : []))
+            textRole: "label"
             onActivated: page.applyFilter()
         }
         StyledComboBox {
             id: category
             width: 110
-            model: [qsTr("全部类型")].concat(typeof App !== "undefined" ? App.categoryOptions : [])
+            // value: the Chinese category RunFilter.duty_category carries; label: as shown.
+            model: [{ value: null, label: qsTr("全部类型") }]
+                   .concat(Theme.labelledCategories(typeof App !== "undefined" ? App.categoryOptions : []))
+            textRole: "label"
             onActivated: page.applyFilter()
         }
         AppButton {
@@ -117,7 +128,7 @@ ColumnLayout {
         AppButton {
             id: shareSelected
             objectName: "shareSelectedReflections"
-            text: qsTr("生成选中图片")
+            text: qsTr("生成分享图片")
             iconName: "file-down"
             variant: "primary"
             enabled: !!page.controller && page.controller.selectedCount > 0
@@ -197,14 +208,14 @@ ColumnLayout {
                         Layout.fillWidth: true
                         SelectionCheckBox {
                             objectName: "reflectionSelectionCheckBox"
-                            Accessible.name: qsTr("选择心得：%1").arg(entry.run.duty_name || qsTr("未知副本"))
+                            Accessible.name: qsTr("选择心得：%1").arg(Theme.dutyName(entry.run) || qsTr("未知副本"))
                             checked: !!page.controller && page.controller.selectedIds.indexOf(entry.run.run_id) >= 0
                             onToggled: page.controller.toggleSelected(entry.run)
                         }
                         JobIcon { jobId: entry.run.job_id; size: 28 }
                         Text {
                             Layout.fillWidth: true
-                            text: entry.run.duty_name || qsTr("未知副本")
+                            text: Theme.dutyName(entry.run) || qsTr("未知副本")
                             textFormat: Text.PlainText
                             color: Theme.textPrimary
                             font.pixelSize: Theme.fs(15)
@@ -218,7 +229,7 @@ ColumnLayout {
                     }
                     Text {
                         Layout.fillWidth: true
-                        text: (entry.run.job_name || qsTr("未知职业")) + " · " + page.dateLabel(entry.run)
+                        text: (Theme.jobName(entry.run) || qsTr("未知职业")) + " · " + page.dateLabel(entry.run)
                         textFormat: Text.PlainText
                         color: Theme.textSecondary
                         font.pixelSize: Theme.fs(12)
@@ -260,7 +271,7 @@ ColumnLayout {
             Text {
                 Layout.fillWidth: true
                 horizontalAlignment: Text.AlignHCenter
-                text: !page.runs ? qsTr("心得服务未就绪")
+                text: !page.runs ? qsTr("暂时无法读取心得")
                       : page.runs.loading ? qsTr("正在读取心得…")
                       : page.runs.loadError.length > 0 ? qsTr("无法读取心得：%1").arg(page.runs.loadError)
                       : Object.keys(page.controller.filter).length > 1 ? qsTr("没有符合筛选条件的心得，请调整或清除筛选。")

@@ -77,8 +77,8 @@ QString IpcBackend::connectionDetail() const
         return m_client->serverName();
     const QString error = m_client->lastError();
     return error.isEmpty()
-               ? QString::fromUtf8("Collector 未连接 · %1").arg(m_client->serverName())
-               : QString::fromUtf8("Collector 未连接 · %1").arg(error);
+               ? tr("后台服务尚未连接 · %1").arg(m_client->serverName())
+               : tr("后台服务尚未连接 · %1").arg(error);
 }
 
 BackendReply *IpcBackend::request(const QString &messageType, const QJsonObject &payload)
@@ -125,6 +125,10 @@ QJsonObject IpcBackend::buildRequestForTest(const QString &messageType,
         backend.discardCalibration();
     else if (messageType == QLatin1String("GetCalibrationShareCode"))
         backend.getCalibrationShareCode();
+    else if (messageType == QLatin1String("GetCalibrationEvidence")
+             || messageType == QLatin1String("GetTemplateObservation"))
+        // These preview controllers use the generic request entry directly.
+        backend.request(messageType, args);
     else if (messageType == QLatin1String("CheckSharedCalibration"))
         backend.checkSharedCalibration();
     else if (messageType == QLatin1String("ImportCalibrationCode"))

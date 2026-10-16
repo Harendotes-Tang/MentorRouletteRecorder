@@ -72,8 +72,7 @@ Item {
 
                 HoverHandler { id: hover }
                 ToolTip.visible: hover.hovered
-                ToolTip.text: (modelData.label || "") + " · "
-                              + String(modelData.count || 0) + qsTr(" 次")
+                ToolTip.text: qsTr("%1 · %2 次").arg(modelData.label || "").arg(modelData.count || 0)
             }
         }
     }

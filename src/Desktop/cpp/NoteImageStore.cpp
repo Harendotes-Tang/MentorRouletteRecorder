@@ -22,11 +22,6 @@ namespace mr {
 
 namespace {
 
-QString chinese(const char *utf8)
-{
-    return QString::fromUtf8(utf8);
-}
-
 QString nativePath(const QString &path)
 {
     return QDir::toNativeSeparators(path);
@@ -104,7 +99,7 @@ QString NoteImageStore::nameFilter()
     QStringList globs;
     for (const QString &suffix : supportedSuffixes())
         globs.append(QStringLiteral("*.") + suffix);
-    return chinese("图片文件 (") + globs.join(QLatin1Char(' ')) + QLatin1Char(')');
+    return QCoreApplication::translate("mr::NoteImageStore", "图片文件 (%1)").arg(globs.join(QLatin1Char(' ')));
 }
 
 QString NoteImageStore::rootDirectoryNative() const
@@ -167,21 +162,21 @@ NoteImageStore::Inspection NoteImageStore::inspectFile(const QString &sourcePath
     Inspection result;
     const QString trimmed = sourcePath.trimmed();
     if (trimmed.isEmpty()) {
-        result.error = chinese("没有选择图片。");
+        result.error = QCoreApplication::translate("mr::NoteImageStore", "没有选择图片。");
         return result;
     }
 
     const QFileInfo info(trimmed);
     if (!info.exists() || !info.isFile()) {
-        result.error = chinese("找不到这张图片：%1").arg(nativePath(trimmed));
+        result.error = QCoreApplication::translate("mr::NoteImageStore", "找不到这张图片：%1").arg(nativePath(trimmed));
         return result;
     }
     if (info.size() <= 0) {
-        result.error = chinese("这张图片是空文件：%1").arg(info.fileName());
+        result.error = QCoreApplication::translate("mr::NoteImageStore", "这张图片是空文件：%1").arg(info.fileName());
         return result;
     }
     if (info.size() > kMaxImageBytes) {
-        result.error = chinese("图片超过 %1 MB，请先压缩：%2")
+        result.error = QCoreApplication::translate("mr::NoteImageStore", "图片超过 %1 MB，请先压缩：%2")
                            .arg(kMaxImageBytes / (1024 * 1024))
                            .arg(info.fileName());
         return result;
@@ -190,7 +185,7 @@ NoteImageStore::Inspection NoteImageStore::inspectFile(const QString &sourcePath
     QImageReader reader(info.absoluteFilePath());
     const QString suffix = reader.canRead() ? suffixForFormat(reader.format()) : QString();
     if (suffix.isEmpty() || !supportedSuffixes().contains(suffix)) {
-        result.error = chinese("不是支持的图片格式（支持 PNG、JPG、GIF、BMP、WebP）：%1")
+        result.error = QCoreApplication::translate("mr::NoteImageStore", "不是支持的图片格式（支持 PNG、JPG、GIF、BMP、WebP）：%1")
                            .arg(info.fileName());
         return result;
     }
@@ -199,11 +194,11 @@ NoteImageStore::Inspection NoteImageStore::inspectFile(const QString &sourcePath
     // the decoder to allocate an unbounded image.
     const QSize declared = reader.size();
     if (!declared.isValid()) {
-        result.error = chinese("图片已损坏或无法读取：%1").arg(info.fileName());
+        result.error = QCoreApplication::translate("mr::NoteImageStore", "图片已损坏或无法读取：%1").arg(info.fileName());
         return result;
     }
     if (qint64(declared.width()) * qint64(declared.height()) > kMaxImagePixels) {
-        result.error = chinese("图片分辨率过大（%1×%2，超过 %3 万像素），请先缩小：%4")
+        result.error = QCoreApplication::translate("mr::NoteImageStore", "图片分辨率过大（%1×%2，超过 %3 万像素），请先缩小：%4")
                            .arg(declared.width())
                            .arg(declared.height())
                            .arg(kMaxImagePixels / 10000)
@@ -214,7 +209,7 @@ NoteImageStore::Inspection NoteImageStore::inspectFile(const QString &sourcePath
     // canRead() only recognizes a header. A truncated file can pass it while
     // both the thumbnail and viewer fail; reject it before applying any edits.
     if (reader.read().isNull()) {
-        result.error = chinese("图片已损坏或无法读取：%1").arg(info.fileName());
+        result.error = QCoreApplication::translate("mr::NoteImageStore", "图片已损坏或无法读取：%1").arg(info.fileName());
         return result;
     }
 
@@ -245,7 +240,7 @@ QString NoteImageStore::pickImage()
 {
     const QString pictures =
         QStandardPaths::writableLocation(QStandardPaths::PicturesLocation);
-    return QFileDialog::getOpenFileName(nullptr, chinese("选择图片"), pictures, nameFilter());
+    return QFileDialog::getOpenFileName(nullptr, QCoreApplication::translate("mr::NoteImageStore", "选择图片"), pictures, nameFilter());
 }
 
 // ---------------------------------------------------------------- 写入 --
@@ -291,19 +286,19 @@ QVariantMap NoteImageStore::cleanupRun(const QString &runId)
     const QString directory = runDirectory(runId);
     if (directory.isEmpty() || QDir::cleanPath(directory) == QDir::cleanPath(m_root)
         || !isInside(m_root, directory))
-        return refused(tr("记录标识无效，未清理图片。"));
+        return refused(tr("无法确认图片属于哪条记录，尚未清理。"));
     const QFileInfo root(m_root);
     const QFileInfo target(directory);
     if (root.isJunction() || root.isSymbolicLink() || target.isJunction() || target.isSymbolicLink())
-        return refused(tr("图片根或记录目录是链接，未清理链接目标。"));
+        return refused(tr("图片文件夹指向了其他位置，为避免误删，尚未清理。"));
     if (!root.exists())
         return succeeded();
     if (!root.isDir())
-        return refused(tr("图片根不是目录，未清理。"));
+        return refused(tr("图片保存位置不是文件夹，尚未清理。"));
     if (!target.exists())
         return succeeded();
     if (!target.isDir() || !runFolderIsGenuine(directory))
-        return refused(tr("记录图片目录越过存储边界，未清理。"));
+        return refused(tr("这条记录的图片文件夹位置异常，为避免误删，尚未清理。"));
     QDir folder(directory);
     const QFileInfoList entries = folder.entryInfoList(QDir::AllEntries | QDir::Hidden | QDir::System | QDir::NoDotAndDotDot);
     const QString resolved = target.canonicalFilePath();
@@ -312,17 +307,17 @@ QVariantMap NoteImageStore::cleanupRun(const QString &runId)
     for (const QFileInfo &entry : entries) {
         if (entry.isDir() || entry.isJunction() || entry.isSymbolicLink() || !entry.isFile()
             || QFileInfo(entry.canonicalFilePath()).absolutePath().compare(resolved, Qt::CaseInsensitive) != 0)
-            return refused(tr("记录目录包含链接或意外子目录，清理任务仍保留。"));
+            return refused(tr("图片文件夹中发现链接、子文件夹或其他异常文件，尚未清理，清理任务已保留。"));
     }
     for (const QFileInfo &entry : entries) {
         const QFileInfo fresh(entry.absoluteFilePath());
         if (!runFolderIsGenuine(directory) || fresh.isJunction() || fresh.isSymbolicLink()
             || QFileInfo(fresh.canonicalFilePath()).absolutePath().compare(resolved, Qt::CaseInsensitive) != 0
             || !QFile::remove(fresh.absoluteFilePath()))
-            return refused(tr("部分图片未能移除，清理任务仍保留并可重试。"));
+            return refused(tr("部分图片未能删除，清理任务已保留，之后会重试。"));
     }
     if (!runFolderIsGenuine(directory) || !QDir(m_root).rmdir(QFileInfo(directory).fileName()))
-        return refused(tr("图片目录未能移除，清理任务仍保留并可重试。"));
+        return refused(tr("图片文件夹未能删除，清理任务已保留，之后会重试。"));
     Q_EMIT imagesChanged(runId);
     return succeeded();
 }
@@ -343,7 +338,7 @@ QVariantMap NoteImageStore::commit(const QString &runId, const QStringList &adds
 
     const QString directory = runDirectory(runId);
     if (directory.isEmpty())
-        return fail(chinese("这条记录还没有可用的编号，无法保存图片。"));
+        return fail(QCoreApplication::translate("mr::NoteImageStore", "这条记录还没有可用的编号，无法保存图片。"));
 
     // Every source is checked before anything is copied, so a bad file in the
     // middle of the batch does not leave half of it in the folder.
@@ -364,11 +359,11 @@ QVariantMap NoteImageStore::commit(const QString &runId, const QStringList &adds
                 ++remaining;
         }
         if (remaining + inspections.size() > kMaxImagesPerRun) {
-            return fail(chinese("一条记录最多保存 %1 张图片。").arg(kMaxImagesPerRun));
+            return fail(QCoreApplication::translate("mr::NoteImageStore", "一条记录最多保存 %1 张图片。").arg(kMaxImagesPerRun));
         }
 
         if (!QDir().mkpath(directory)) {
-            return fail(chinese("无法在安装目录创建图片文件夹：%1（请检查该目录是否可写）")
+            return fail(QCoreApplication::translate("mr::NoteImageStore", "无法创建图片文件夹：%1（请检查是否有写入权限）")
                             .arg(nativePath(directory)));
         }
     }
@@ -377,7 +372,7 @@ QVariantMap NoteImageStore::commit(const QString &runId, const QStringList &adds
     // once for the whole call: the copies below would land there, and the
     // removals would delete from there.
     if (!runFolderIsGenuine(directory)) {
-        return fail(chinese("图片文件夹被重定向到了别处，已拒绝写入或删除：%1")
+        return fail(QCoreApplication::translate("mr::NoteImageStore", "图片文件夹被重定向到了别处，已拒绝写入或删除：%1")
                         .arg(nativePath(directory)));
     }
 
@@ -407,7 +402,7 @@ QVariantMap NoteImageStore::commit(const QString &runId, const QStringList &adds
                 QFile::remove(partial);
             added.clear();
             pruneEmptyFolder(directory);
-            return fail(chinese("无法把图片复制到安装目录：%1（请检查该目录是否可写）")
+            return fail(QCoreApplication::translate("mr::NoteImageStore", "无法把图片复制到保存位置：%1（请检查是否有写入权限）")
                             .arg(nativePath(directory)));
         }
         // QFile::copy keeps a read-only source's attribute; the copy is ours and
@@ -424,7 +419,7 @@ QVariantMap NoteImageStore::commit(const QString &runId, const QStringList &adds
     for (const QString &path : removes) {
         const QString absolute = QFileInfo(path).absoluteFilePath();
         if (!isInside(directory, absolute) || isInside(absolute, directory)) {
-            failures.append(chinese("不在这条记录的图片文件夹内：%1").arg(nativePath(path)));
+            failures.append(QCoreApplication::translate("mr::NoteImageStore", "不在这条记录的图片文件夹内：%1").arg(nativePath(path)));
             continue;
         }
         if (!QFileInfo::exists(absolute)) {
@@ -438,7 +433,7 @@ QVariantMap NoteImageStore::commit(const QString &runId, const QStringList &adds
         const QString resolvedDirectory = QFileInfo(directory).canonicalFilePath();
         if (resolved.isEmpty() || resolvedDirectory.isEmpty()
             || !isInside(resolvedDirectory, resolved) || isInside(resolved, resolvedDirectory)) {
-            failures.append(chinese("不是这条记录文件夹里的普通文件：%1").arg(nativePath(path)));
+            failures.append(QCoreApplication::translate("mr::NoteImageStore", "无法确认图片在这条记录的文件夹内，尚未删除：%1").arg(nativePath(path)));
             continue;
         }
         // A sync client or the player may have flagged the copy read-only since;
@@ -449,7 +444,7 @@ QVariantMap NoteImageStore::commit(const QString &runId, const QStringList &adds
             removed.append(path);
             continue;
         }
-        failures.append(chinese("无法删除图片：%1").arg(nativePath(absolute)));
+        failures.append(QCoreApplication::translate("mr::NoteImageStore", "无法删除图片：%1").arg(nativePath(absolute)));
     }
     pruneEmptyFolder(directory);
 
@@ -505,13 +500,13 @@ QVariantMap NoteImageStore::addClipboard(const QString &runId)
                 {QStringLiteral("added"), QStringList()}, {QStringLiteral("removed"), QStringList()}};
     };
     if (!isValidRunId(runId))
-        return fail(chinese("这条记录还没有可用的编号，无法保存图片。"));
+        return fail(QCoreApplication::translate("mr::NoteImageStore", "这条记录还没有可用的编号，无法保存图片。"));
     if (imagesFor(runId).size() >= kMaxImagesPerRun)
-        return fail(chinese("一条记录最多保存 %1 张图片。").arg(kMaxImagesPerRun));
+        return fail(QCoreApplication::translate("mr::NoteImageStore", "一条记录最多保存 %1 张图片。").arg(kMaxImagesPerRun));
     const auto *clipboard = QGuiApplication::clipboard();
     const auto *mime = clipboard ? clipboard->mimeData() : nullptr;
     if (!mime || !clipboardHasImage())
-        return fail(chinese("剪贴板里没有图片，请先复制截图或图片。"));
+        return fail(QCoreApplication::translate("mr::NoteImageStore", "剪贴板里没有图片，请先复制截图或图片。"));
 
     QImage image;
     // Prefer an encoded image when available: its byte count and header canvas
@@ -521,19 +516,19 @@ QVariantMap NoteImageStore::addClipboard(const QString &runId)
             continue;
         QByteArray bytes = mime->data(format);
         if (bytes.size() > kMaxImageBytes)
-            return fail(chinese("剪贴板图片超过 %1 MB，请先压缩。").arg(kMaxImageBytes / (1024 * 1024)));
+            return fail(QCoreApplication::translate("mr::NoteImageStore", "剪贴板图片超过 %1 MB，请先压缩。").arg(kMaxImageBytes / (1024 * 1024)));
         QBuffer buffer(&bytes);
         buffer.open(QIODevice::ReadOnly);
         QImageReader reader(&buffer);
         const QSize canvas = reader.size();
         if (!reader.canRead() || !supportedSuffixes().contains(suffixForFormat(reader.format()))
                 || !canvas.isValid())
-            return fail(chinese("剪贴板图片已损坏或无法读取，请重新复制。"));
+            return fail(QCoreApplication::translate("mr::NoteImageStore", "剪贴板图片已损坏或无法读取，请重新复制。"));
         if (qint64(canvas.width()) * canvas.height() > kMaxImagePixels)
-            return fail(chinese("剪贴板图片分辨率过大，超过 %1 万像素，请先缩小。").arg(kMaxImagePixels / 10000));
+            return fail(QCoreApplication::translate("mr::NoteImageStore", "剪贴板图片分辨率过大，超过 %1 万像素，请先缩小。").arg(kMaxImagePixels / 10000));
         image = reader.read();
         if (image.isNull())
-            return fail(chinese("剪贴板图片已损坏或无法读取，请重新复制。"));
+            return fail(QCoreApplication::translate("mr::NoteImageStore", "剪贴板图片已损坏或无法读取，请重新复制。"));
         break;
     }
     // Native Windows screenshot data may already be a decoded QImage. Its
@@ -541,17 +536,17 @@ QVariantMap NoteImageStore::addClipboard(const QString &runId)
     if (image.isNull() && mime->hasImage())
         image = clipboard->image();
     if (image.isNull())
-        return fail(chinese("剪贴板图片已损坏或无法读取，请重新复制。"));
+        return fail(QCoreApplication::translate("mr::NoteImageStore", "剪贴板图片已损坏或无法读取，请重新复制。"));
     if (qint64(image.width()) * image.height() > kMaxImagePixels)
-        return fail(chinese("剪贴板图片分辨率过大，超过 %1 万像素，请先缩小。").arg(kMaxImagePixels / 10000));
+        return fail(QCoreApplication::translate("mr::NoteImageStore", "剪贴板图片分辨率过大，超过 %1 万像素，请先缩小。").arg(kMaxImagePixels / 10000));
 
     QTemporaryDir temporary(QDir::tempPath() + QStringLiteral("/MentorRecorder-clipboard-XXXXXX"));
     if (!temporary.isValid())
-        return fail(chinese("无法创建剪贴板图片临时文件，请检查临时目录是否可写。"));
+        return fail(QCoreApplication::translate("mr::NoteImageStore", "无法创建剪贴板图片临时文件，请检查临时目录是否可写。"));
     const QString source = temporary.filePath(QStringLiteral("clipboard.png"));
     QImageWriter writer(source, "png");
     if (!writer.write(image))
-        return fail(chinese("无法读取或转换剪贴板图片，请重新复制。"));
+        return fail(QCoreApplication::translate("mr::NoteImageStore", "无法读取或转换剪贴板图片，请重新复制。"));
     // addFile rechecks the encoded PNG's byte limit, decode and genuine run
     // folder, then performs the same atomic batch copy as a chosen file.
     return addFile(runId, source);

@@ -303,7 +303,7 @@ public sealed class CalibrationPipelineTests : IDisposable
     }
 
     /// <summary>
-    /// 重新观察 must forget the evidence on disk as well as the evidence in memory; a file that
+    /// 清空校准进度 must forget the evidence on disk as well as the evidence in memory; a file that
     /// hands it all back on the next launch would contradict the button.
     /// </summary>
     [Fact]
@@ -512,7 +512,7 @@ public sealed class CalibrationPipelineTests : IDisposable
         var after = pipeline.CalibrationStatus();
         Assert.Equal(CalibrationState.Observing, after.State);
         Assert.Equal(result.ProfileId, after.LocalProfileId);
-        Assert.Contains(after.Blockers, text => text.Contains("已经可以正常记录导随", StringComparison.Ordinal));
+        Assert.Contains(after.Blockers, text => text.Chinese.Contains("导随记录照常进行", StringComparison.Ordinal));
         Assert.True(pipeline.CalibrationArmed);
 
         // A queue request is held in memory. It creates a run only on entry to a known duty.

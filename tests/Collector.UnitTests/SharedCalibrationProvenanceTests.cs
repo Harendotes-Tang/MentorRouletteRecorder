@@ -91,7 +91,7 @@ public sealed class SharedCalibrationProvenanceTests : IDisposable
         var applied = pipeline.ImportCalibrationCode(code.Code);
         Assert.Equal(SharedImportOutcome.Applied, applied.Outcome);
         Assert.Equal(SharedCandidateProvenance.Imported, applied.Provenance);
-        Assert.Contains("没有在公开仓库发布", applied.Message, StringComparison.Ordinal);
+        Assert.Contains("暂未查到公开发布信息", applied.Message, StringComparison.Ordinal);
         Assert.Equal(SharedCandidateProvenance.Imported, Assert.Single(pipeline.CalibrationStatus().Shared.Candidates).Provenance);
 
         var session = _bed.Start(pipeline);
@@ -128,7 +128,7 @@ public sealed class SharedCalibrationProvenanceTests : IDisposable
 
         Assert.Equal(SharedImportOutcome.Applied, samePasted.Outcome);
         Assert.Equal(SharedCandidateProvenance.Published, samePasted.Provenance);
-        Assert.Contains("其他玩家提交的一致", samePasted.Message, StringComparison.Ordinal);
+        Assert.Contains("通过登录检查后可用", samePasted.Message, StringComparison.Ordinal);
         Assert.Equal(SharedCandidateProvenance.Imported, otherPasted.Provenance);
         // One code, one candidate: the download and the paste of the same code do not double up.
         var candidates = pipeline.CalibrationStatus().Shared.Candidates;
@@ -443,7 +443,7 @@ public sealed class SharedCalibrationProvenanceTests : IDisposable
         Assert.Equal(RunResult.Completed, marked.Result);
         var revision = revisions.ListForRun(recorded.RunId, 1, 10).Items.Single(item => item.Revision == 2);
         Assert.Equal(RevisionActor.System, revision.Actor);
-        Assert.Contains("对不上", revision.Reason, StringComparison.Ordinal);
+        Assert.Contains("未通过后续检查", revision.Reason, StringComparison.Ordinal);
         Assert.Contains(revision.Changes, change => change.Field == "pending_review");
         Assert.False(runs.Get(earlier.RunId)!.PendingReview);
         Assert.False(runs.Get(otherProfile.RunId)!.PendingReview);

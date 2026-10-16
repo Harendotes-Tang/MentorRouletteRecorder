@@ -1,6 +1,7 @@
 #include "ReflectionShareController.h"
 
 #include <QDir>
+#include <QDate>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QImageWriter>
@@ -33,7 +34,8 @@ QQuickItem *findShareVisual(QQuickItem *item, const QString &name)
 // 只在 alpha 已丢失时恢复：从实际顶底素材和已渲染几何取 alpha，不给正常 RGBA 重乘蒙版。
 bool restorePaperAlpha(QImage &image, QQuickItem *capture)
 {
-    if (image.hasAlphaChannel())
+    // 新卷轴以不透明纸纹覆盖整幅；不能对它套用旧卡片的圆角透明蒙版。
+    if (image.hasAlphaChannel() || capture->property("opaquePaper").toBool())
         return true;
     QList<QQuickItem *> cards;
     const auto collect = [&cards](auto &&self, QQuickItem *item) -> void {
@@ -153,7 +155,7 @@ void ReflectionShareController::savePicked(QObject *item)
         QStandardPaths::writableLocation(QStandardPaths::PicturesLocation), tr("PNG 图片 (*.png)"));
     chooser.setAcceptMode(QFileDialog::AcceptSave);
     chooser.setDefaultSuffix(QStringLiteral("png"));
-    chooser.selectFile(QStringLiteral("导随心得.png"));
+    chooser.selectFile(tr("导随心得.%1").arg(QStringLiteral("png")));
     const QString path = chooser.exec() == QDialog::Accepted
         ? chooser.selectedFiles().value(0) : QString();
     saveTo(item, path);
@@ -182,7 +184,7 @@ void ReflectionShareController::finish(const QString &feedback, const QString &s
 bool ReflectionShareController::writePng(const QImage &image, const QString &path, QString *error)
 {
     if (image.isNull() || path.trimmed().isEmpty()) {
-        if (error) *error = tr("图片为空或保存路径为空。");
+        if (error) *error = tr("没有可保存的图片，或尚未选择保存位置。");
         return false;
     }
     QSaveFile file(path);
@@ -192,7 +194,7 @@ bool ReflectionShareController::writePng(const QImage &image, const QString &pat
     }
     QImageWriter writer(&file, "png");
     if (!writer.write(image)) {
-        if (error) *error = tr("无法编码 PNG 图片：%1").arg(writer.errorString());
+        if (error) *error = tr("无法生成 PNG 图片：%1").arg(writer.errorString());
         file.cancelWriting();
         return false;
     }
@@ -246,7 +248,7 @@ void ReflectionShareController::captureTo(QObject *object, const QString &path,
         if (m_busy && generation == m_generation) {
             disconnect(*connection);
             ++m_generation;
-            done({}, tr("预览布局超时，未保存。请重试。"));
+            done({}, tr("图片预览未能及时准备好，尚未保存。请重试。"));
         }
     });
 }
@@ -265,7 +267,7 @@ void ReflectionShareController::capturePrepared(QObject *object, const QString &
     const QSize pixelSize = size * item->window()->effectiveDevicePixelRatio();
     if (pixelSize.width() > 16384 || pixelSize.height() > 16384
         || qint64(pixelSize.width()) * pixelSize.height() > 50 * 1000 * 1000) {
-        done({}, tr("图片尺寸超出完整保存上限（单边 16384 像素、总计 5000 万像素）。合成长图请改用逐条 PNG；内容未裁剪。"));
+        done({}, tr("图片太大，尚未保存（任一边不能超过 16384 像素，总计不能超过 5000 万像素）。如果选择了“合成长图”，请改用“逐条 PNG”。"));
         return;
     }
     QString target = path;
@@ -284,6 +286,9 @@ void ReflectionShareController::capturePrepared(QObject *object, const QString &
         return;
     }
     const quint64 generation = ++m_generation;
+    // 原生保存窗口可能跨过午夜；每次真正抓取前刷新日期，也覆盖逐条重试。
+    if (item->property("opaquePaper").toBool())
+        item->setProperty("exportDate", QDate::currentDate().toString(QStringLiteral("yyyy.MM.dd")));
     m_grab = item->grabToImage(size);
     if (!m_grab) {
         done({}, tr("无法生成图片，请重新打开预览后重试。"));
@@ -314,7 +319,7 @@ void ReflectionShareController::capturePrepared(QObject *object, const QString &
             return;
         }
         if (!restorePaperAlpha(image, capturedItem)) {
-            done({}, tr("无法保留分享纸张的透明边缘，未保存。请重新打开预览后重试。"));
+            done({}, tr("无法正确生成图片的透明边缘，尚未保存。请重新打开预览后重试。"));
             return;
         }
         QString error;
@@ -406,8 +411,9 @@ void ReflectionShareController::startBatch(const QList<int> &indices)
 void ReflectionShareController::processNextBatch()
 {
     if (m_pendingBatch.isEmpty()) {
-        finish(tr("已保存 %1 张，失败 %2 张。%3").arg(successfulCount()).arg(failedCount())
-            .arg(failedCount() ? tr("可仅重试失败项。") : tr("下方列出实际保存路径。")));
+        finish((failedCount() ? tr("已保存 %1 张，失败 %2 张。可仅重试失败项。")
+                              : tr("已保存 %1 张，失败 %2 张。下方列出实际保存路径。"))
+                   .arg(successfulCount()).arg(failedCount()));
         return;
     }
     const int index = m_pendingBatch.takeFirst();

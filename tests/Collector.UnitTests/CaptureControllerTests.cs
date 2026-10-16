@@ -1,7 +1,9 @@
 using MentorRecorder.Collector.Capture;
+using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Ipc;
 using MentorRecorder.Collector.Protocol.Decoded;
+using LiveProtocolPipeline = MentorRecorder.Collector.Protocol.Pipeline.LiveProtocolPipeline;
 using MentorRecorder.Collector.Storage.Repositories;
 
 namespace MentorRecorder.Collector.UnitTests;
@@ -28,6 +30,7 @@ public sealed class CaptureControllerTests : IDisposable
     private IDecodedMessageSink? _sink;
     private CollectorException? _startFailure;
     private string? _faultDuringStart;
+    private UserText? _faultTextDuringStart;
 
     public CaptureControllerTests()
     {
@@ -115,7 +118,7 @@ public sealed class CaptureControllerTests : IDisposable
         // still NONE, so nothing is parsed and nothing is recorded.
         Assert.Equal(CaptureControllerState.Running, snapshot.State);
         Assert.Equal(ProfileStatus.None, snapshot.Profile.Status);
-        Assert.Contains(snapshot.Warnings, warning => warning.Contains("fail-closed", StringComparison.Ordinal));
+        Assert.Contains(snapshot.Warnings, warning => warning.Chinese.Contains("暂时不能自动记录", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -766,6 +769,39 @@ public sealed class CaptureControllerTests : IDisposable
         Assert.Equal(CaptureControllerState.Idle, controller.State);
         Assert.Equal(new[] { "started", "stopped:Error" }, _lifecycle.Events);
         Assert.Empty(new CaptureSessionRepository(_database.Database).ListOpen(transaction: null));
+    }
+
+    /// <summary>
+    /// A fault the catalogue words, raised while Start is still running, refuses that start with its
+    /// own reference beside the Chinese (contracts/collector-texts.md); a reason worded elsewhere
+    /// travels as Chinese alone.
+    /// </summary>
+    [Fact]
+    public void AnImmediateFaultRefusesTheStartWithItsCatalogueText()
+    {
+        WithGame();
+        _faultTextDuringStart = CollectorTexts.CaptureFaultMonitor();
+        using var controller = Build();
+
+        var error = Assert.Throws<CollectorException>(() => controller.Start());
+
+        Assert.Equal(ErrorCodes.Internal, error.Code);
+        Assert.Equal(CollectorTexts.CaptureFaultMonitor(), error.Text);
+        Assert.Equal("抓包监视器报告了致命错误，抓包已停止。详情见本机诊断日志。", error.Message);
+        Assert.Equal(CaptureControllerState.Idle, controller.State);
+    }
+
+    [Fact]
+    public void AnImmediateFaultWordedOutsideTheCatalogueHasNoReference()
+    {
+        WithGame();
+        _faultDuringStart = "模拟的启动回调故障";
+        using var controller = Build();
+
+        var error = Assert.Throws<CollectorException>(() => controller.Start());
+
+        Assert.Null(error.Text);
+        Assert.Equal("模拟的启动回调故障", error.Message);
     }
 
     [Fact]
@@ -1643,12 +1679,55 @@ public sealed class CaptureControllerTests : IDisposable
 
     private CaptureController Build() => new(Services());
 
+    [Fact]
+    public void SwitchingUnsupportedCaptureHandsLeaseToObservationBeforeFollowPollCanRestart()
+    {
+        _profile = new FakeProfileStatusProvider(ProfileStatus.None);
+        _settings.SetSetting(CaptureController.AllowWithoutProfileSetting, "true");
+        _settings.SetSetting(CaptureController.FollowGameSetting, "true");
+        WithGame();
+        var services = Services();
+        using var controller = new CaptureController(services);
+        using var validation = new CaptureValidationController(_database.Path, services.Ownership,
+            new CaptureValidationServices
+            {
+                LocateGame = () => GameProcessDetection.NotRunning,
+                PollInterval = TimeSpan.FromMilliseconds(10),
+                Trace = new CaptureTraceServices { Npcap = services.Npcap },
+            });
+        controller.Start();
+        var observed = controller.SwitchToMetadataObservation(validation);
+        Assert.True(observed["active"]!.GetValue<bool>());
+        Assert.Equal(CaptureControllerState.Idle, controller.State);
+        Assert.True(services.Ownership.IsHeld);
+        for (var i = 0; i < 5; i++) controller.Poll();
+        Assert.Equal(1, StartCount);
+        Assert.True(validation.Snapshot()["active"]!.GetValue<bool>());
+        Assert.True(controller.FollowGameEnabled);
+    }
+
+    [Fact]
+    public void SwitchingVerifiedRecordingIsRefusedWithoutStoppingIt()
+    {
+        WithGame();
+        var services = Services();
+        using var controller = new CaptureController(services);
+        using var validation = new CaptureValidationController(_database.Path, services.Ownership,
+            new CaptureValidationServices { Trace = new CaptureTraceServices { Npcap = services.Npcap } });
+        controller.Start();
+        Assert.Throws<CollectorException>(() => controller.SwitchToMetadataObservation(validation));
+        Assert.Equal(CaptureControllerState.Running, controller.State);
+        Assert.Equal(0, StopCount);
+        Assert.False(validation.Snapshot()["active"]!.GetValue<bool>());
+    }
+
     private ICaptureSource CreateSource()
     {
         var source = new FakeCaptureSource
         {
             StartFailure = _startFailure,
             FaultDuringStart = _faultDuringStart,
+            FaultTextDuringStart = _faultTextDuringStart,
         };
         _sources.Add(source);
         return source;
@@ -1723,6 +1802,63 @@ public sealed class CaptureControllerTests : IDisposable
         Assert.Contains("stopped:UserStop", _lifecycle.Events);
         Assert.NotNull(new CaptureSessionRepository(_database.Database).Get(started.CaptureSessionId!)!.EndedAtUtc);
         using var lease = services.Ownership.Acquire();
+    }
+
+    [Fact]
+    public async Task StopTimeoutCannotFreezePublicEvidenceWhenTheRetryFinishes()
+    {
+        WithGame();
+        using var bed = new SharedCalibrationTestBed();
+        var code = bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
+        bed.Publish(code);
+        var pipeline = new LiveProtocolPipeline(_database.Database, _database.Clock,
+            new LiveEventBus(_database.Clock), bed.DiskSelect(), null, bed.Services());
+        pipeline.Refresh(SharedCalibrationTestBed.Game());
+        await SharedCalibrationTestBed.Idle(pipeline);
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        _sink = new WaitingSink(entered, release);
+        var services = Services() with
+        {
+            Lifecycle = pipeline,
+            Health = pipeline,
+            SourceFactory = () =>
+            {
+                var source = new FakeCaptureSource { PreexistingTcpConnections = 0 };
+                _sources.Add(source);
+                return source;
+            },
+            Game = new GameProcessLocator(_processes, new FakeGameFileReader().With(
+                @"D:\SdoA\FFXIV\game\ffxivgame.ver", SharedCalibrationTestBed.Build)),
+        };
+        using var controller = new CaptureController(services);
+        var started = controller.Start();
+        var session = started.CaptureSessionId!;
+        SharedCalibrationTestBed.Feed(pipeline, session, SharedCalibrationTestBed.Evening());
+        await SharedCalibrationTestBed.Idle(pipeline);
+        var runs = new RunRepository(_database.Database);
+        var recorded = Assert.Single(runs.Query(null, null, 1, 50).Items);
+        Assert.NotNull(recorded.EndedAtUtc);
+        Source.PushOpcode(1);
+        Assert.True(entered.Wait(TimeSpan.FromSeconds(5)));
+        for (var index = 0; index < 10; index++) Source.PushOpcode(2);
+        try
+        {
+            Assert.Throws<CollectorException>(() => controller.Stop());
+            Assert.False(pipeline.GetCalibrationEvidence(code.Sha).Available);
+        }
+        finally { release.Set(); }
+
+        controller.Stop();
+
+        Assert.False(pipeline.GetCalibrationEvidence(code.Sha).Available);
+        var afterStop = runs.Get(recorded.RunId)!;
+        Assert.Equal(recorded.Revision, afterStop.Revision);
+        Assert.Equal(recorded.Result, afterStop.Result);
+        Assert.Equal(recorded.DetectionConfidence, afterStop.DetectionConfidence);
+        Assert.Equal(recorded.PendingReview, afterStop.PendingReview);
+        Assert.Equal(CaptureEndReason.UserStop,
+            new CaptureSessionRepository(_database.Database).Get(session)!.EndReason);
     }
 
     private sealed class WaitingSink(ManualResetEventSlim entered, ManualResetEventSlim release) : IDecodedMessageSink

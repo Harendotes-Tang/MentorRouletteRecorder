@@ -76,10 +76,10 @@ public sealed class CaptureMidstreamTests : IDisposable
         var snapshot = WaitFor(controller, status => status.MidstreamSuspected == true);
 
         Assert.Equal(CaptureController.MidstreamHint, snapshot.Hint);
-        Assert.Contains("重新登录", snapshot.Hint!, StringComparison.Ordinal);
+        Assert.Contains("重新登录", snapshot.Hint!.Chinese, StringComparison.Ordinal);
 
         // The user has to be told without asking: the verdict is pushed as a status change.
-        WaitForStatus(CaptureController.MidstreamHint);
+        WaitForStatus(CaptureController.MidstreamHint.Chinese);
     }
 
     [Fact]
@@ -151,7 +151,7 @@ public sealed class CaptureMidstreamTests : IDisposable
         var snapshot = controller.Snapshot();
         Assert.True(snapshot.MidstreamSuspected);
         Assert.Equal(CaptureController.MidstreamReconnectedHint, snapshot.Hint);
-        Assert.Contains(snapshot.Warnings, warning => warning.Contains("\u518d\u767b\u5f55\u4e00\u6b21\u4e5f\u6ca1\u7528", StringComparison.Ordinal));
+        Assert.Contains(snapshot.Warnings, warning => warning.Chinese.Contains("已经重新连接过游戏", StringComparison.Ordinal));
 
         // The original sentence remains correct when no new connection was ever seen.
         Source.IngressCounters = new CaptureIngressCounters(GameConnections: 2);
@@ -214,7 +214,7 @@ public sealed class CaptureMidstreamTests : IDisposable
         var wire = CaptureWire.CaptureStatus(snapshot);
         Assert.Equal("MIDSTREAM", wire["silent_reason"]!.GetValue<string>());
         Assert.Equal(3, wire["preexisting_connections"]!.GetValue<int>());
-        WaitForStatus(CaptureController.MidstreamHint);
+        WaitForStatus(CaptureController.MidstreamHint.Chinese);
     }
 
     [Fact]
@@ -302,7 +302,7 @@ public sealed class CaptureMidstreamTests : IDisposable
         Assert.Equal(CaptureSilentReason.NoPacketsOnAdapter, snapshot.SilentReason);
         Assert.False(snapshot.MidstreamSuspected);
         Assert.Equal(CaptureController.NoPacketsHint, snapshot.Hint);
-        Assert.Contains("加速器", snapshot.Hint!, StringComparison.Ordinal);
+        Assert.Contains("加速器", snapshot.Hint!.Chinese, StringComparison.Ordinal);
         Assert.Equal("NO_PACKETS_ON_ADAPTER", CaptureWire.CaptureStatus(snapshot)["silent_reason"]!.GetValue<string>());
     }
 

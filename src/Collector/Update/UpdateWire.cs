@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Domain.Time;
 
@@ -93,7 +94,11 @@ public static class UpdateWire
         if (download.Failure is { } failure)
         {
             rendered["failure"] = EnumWire<UpdateDownloadFailure>.Format(failure);
-            rendered["message"] = download.Message;
+            if (download.Message is { } message)
+            {
+                rendered["message"] = message.Chinese;
+                rendered["message_ref"] = message.ToJson();
+            }
         }
 
         return rendered;

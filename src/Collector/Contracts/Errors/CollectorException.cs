@@ -1,3 +1,5 @@
+using MentorRecorder.Collector.Contracts.Texts;
+
 namespace MentorRecorder.Collector.Contracts.Errors;
 
 /// <summary>
@@ -158,8 +160,34 @@ public sealed class CollectorException : Exception
         Retryable = retryable;
     }
 
+    /// <summary>
+    /// Creates an error whose message is a catalogue text: <see cref="Exception.Message"/> is its
+    /// Simplified Chinese and the wire also carries it as <c>message_ref</c>
+    /// (contracts/collector-texts.md).
+    /// </summary>
+    /// <param name="code">One of the constants on <see cref="ErrorCodes"/>.</param>
+    /// <param name="text">The sentence the player reads.</param>
+    /// <param name="details">Structured, non-sensitive context. Never contains payload bytes.</param>
+    /// <param name="field">Offending field path, for a bad request.</param>
+    /// <param name="retryable">True when resending the same request id is safe and may succeed.</param>
+    /// <param name="inner">Underlying exception, if any.</param>
+    public CollectorException(
+        string code,
+        UserText text,
+        IReadOnlyDictionary<string, object?>? details = null,
+        string? field = null,
+        bool retryable = false,
+        Exception? inner = null)
+        : this(code, (text ?? throw new ArgumentNullException(nameof(text))).Chinese, details, field, retryable, inner)
+    {
+        Text = text;
+    }
+
     /// <summary>Contract error code.</summary>
     public string Code { get; }
+
+    /// <summary>The message as a catalogue text, or null when it was worded outside the catalogue.</summary>
+    public UserText? Text { get; }
 
     /// <summary>Structured, non-sensitive context.</summary>
     public IReadOnlyDictionary<string, object?>? Details { get; }
@@ -176,11 +204,17 @@ public sealed class CollectorException : Exception
     public static CollectorException BadRequest(string message, string? field = null) =>
         new(ErrorCodes.BadRequest, message, field: field);
 
+    /// <summary>Convenience factory for a bad request worded by the catalogue.</summary>
+    /// <param name="text">The sentence the player reads.</param>
+    /// <param name="field">Offending field path.</param>
+    public static CollectorException BadRequest(UserText text, string? field = null) =>
+        new(ErrorCodes.BadRequest, text, field: field);
+
     /// <summary>Convenience factory for a missing run.</summary>
     /// <param name="runId">Run that was not found.</param>
     public static CollectorException NotFound(string runId) =>
         new(
             ErrorCodes.NotFound,
-            "找不到该记录，请刷新列表后重试。",
+            CollectorTexts.HistoryRunNotFound(),
             new Dictionary<string, object?> { ["run_id"] = runId });
 }

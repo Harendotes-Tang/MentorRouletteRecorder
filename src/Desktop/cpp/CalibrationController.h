@@ -15,6 +15,7 @@
 // thing it ever sends is a list of verdicts the user actually clicked.
 // ---------------------------------------------------------------------------
 
+#include "LiveText.h"
 #include "SharedCalibrationController.h"
 
 #include <QObject>
@@ -41,12 +42,19 @@ class CalibrationController final : public QObject
     /// the match from the player's own queue request and the search goes on underneath
     /// it. Recording works; the card says so instead of saying nothing is recorded.
     Q_PROPERTY(bool provisional READ provisional NOTIFY changed)
-    /// Raw player-facing sentences written by the Collector. The card clarifies
-    /// known legacy guidance that mistakes retained evidence for current activity.
+    /// Player-facing sentences written by the Collector, in the interface language
+    /// where blocker_refs allows and in its Chinese otherwise (contracts/
+    /// collector-texts.md). The card clarifies known legacy guidance that mistakes
+    /// retained evidence for current activity.
     Q_PROPERTY(QStringList blockers READ blockers NOTIFY changed)
+    /// The catalogue key of each of \ref blockers, in the same order; empty for a
+    /// sentence the Collector sent without one. Lets a view recognise a sentence
+    /// in any interface language.
+    Q_PROPERTY(QStringList blockerKeys READ blockerKeys NOTIFY changed)
     Q_PROPERTY(QVariantMap progress READ progress NOTIFY changed)
     /// The timeline in time order, each entry carrying the contract fields plus
-    /// \c time_text (local HH:mm) so no view has to parse a timestamp.
+    /// \c time_text (local HH:mm) so no view has to parse a timestamp. \c label
+    /// is in the interface language where \c label_ref allows, built on every read.
     Q_PROPERTY(QVariantList events READ events NOTIFY changed)
     /// How many of those events the user has to rule on.
     Q_PROPERTY(int confirmCount READ confirmCount NOTIFY changed)
@@ -71,8 +79,9 @@ class CalibrationController final : public QObject
     /// 共享校准: fed from the same capture status, owned by this controller.
     Q_PROPERTY(mr::SharedCalibrationController *shared READ shared CONSTANT)
     /// How a profile that infers the match records, in the card's words. The
-    /// shared-calibration consent prompt quotes the same phrase.
-    Q_PROPERTY(QString queueInferenceText READ queueInferenceText CONSTANT)
+    /// shared-calibration consent prompt and the card's own sentence spell the
+    /// same phrase out inside their whole sentences, for the translators.
+    Q_PROPERTY(QString queueInferenceText READ queueInferenceText NOTIFY changed)
 
 public:
     explicit CalibrationController(QObject *parent = nullptr);
@@ -82,14 +91,15 @@ public:
     QString state() const { return m_state; }
     QString gameBuild() const { return m_gameBuild; }
     bool provisional() const { return m_provisional; }
-    QStringList blockers() const { return m_blockers; }
+    QStringList blockers() const;
+    QStringList blockerKeys() const;
     QVariantMap progress() const { return m_progress; }
-    QVariantList events() const { return m_events; }
+    QVariantList events() const;
     int confirmCount() const { return m_confirmCount; }
     bool busy() const { return m_busy; }
-    QString error() const { return m_error; }
+    QString error() const { return m_error.text(); }
     bool retiredLocalProfileAvailable() const { return m_retiredLocalProfileAvailable; }
-    QString restoreAnswer() const { return m_restoreAnswer; }
+    QString restoreAnswer() const { return m_restoreAnswer.text(); }
     QVariantMap lastResult() const { return m_lastResult; }
     SharedCalibrationController *shared() const { return m_shared; }
 
@@ -127,8 +137,8 @@ Q_SIGNALS:
 
 private:
     void publish(const QString &state, const QString &gameBuild, const QStringList &blockers,
-                 const QVariantMap &progress, const QVariantList &events, bool provisional,
-                 bool retiredLocalProfileAvailable);
+                 const QVariantList &blockerRefs, const QVariantMap &progress,
+                 const QVariantList &events, bool provisional, bool retiredLocalProfileAvailable);
     void sendDiscard(bool retireLocalProfile, bool restoreLocalProfile);
     /// The profile in force as \a capture describes it: status, origin and build.
     static QString profileInForce(const QVariantMap &capture);
@@ -138,12 +148,14 @@ private:
     QString m_state = QStringLiteral("IDLE");
     QString m_gameBuild;
     bool m_provisional = false;
+    /// As the Collector sent them: the Chinese, and blocker_refs entry for entry.
     QStringList m_blockers;
+    QVariantList m_blockerRefs;
     QVariantMap m_progress;
     QVariantList m_events;
     QVariantMap m_lastResult;
-    QString m_error;
-    QString m_restoreAnswer;
+    LiveText m_error;
+    LiveText m_restoreAnswer;
     /// profileInForce() of the status that was current when m_restoreAnswer came.
     QString m_restoreAnswerProfile;
     /// profileInForce() of the last capture status adopted.

@@ -17,6 +17,39 @@ ComboBox {
     focusPolicy: Qt.TabFocus
     implicitHeight: Theme.eorzea ? 32 : 30
 
+    // 界面语言: a switch rebuilds every model that holds translated text, and a
+    // ComboBox jumps to its first row whenever its model is replaced. The row on
+    // show before the switch is put back once the switch has settled (the rebuilt
+    // model lists the same rows). An instance whose currentIndex is a binding keeps
+    // it right by wrapping it in Theme.live(); the put-back then finds nothing to
+    // do. One whose binding must never be overwritten turns this off.
+    property bool keepsRowAcrossLanguages: true
+    property int settledIndex: -1
+    // With a valueRole the row is found again by its value, so a model that
+    // comes back in another order (the voice list is sorted for the language)
+    // still lands on the same entry; without one, by its position.
+    property var settledValue: undefined
+    function settleIndex() {
+        control.settledIndex = control.currentIndex
+        control.settledValue = control.valueRole.length > 0 ? control.currentValue : undefined
+    }
+    onCurrentIndexChanged: Qt.callLater(control.settleIndex)
+    Component.onCompleted: control.settleIndex()
+    Connections {
+        target: Theme
+        function onLangRevisionChanged() {
+            if (!control.keepsRowAcrossLanguages)
+                return
+            const keptIndex = control.settledIndex
+            const keptValue = control.settledValue
+            Qt.callLater(function() {
+                const kept = keptValue !== undefined ? control.indexOfValue(keptValue) : keptIndex
+                if (kept >= 0 && kept < control.count && control.currentIndex !== kept)
+                    control.currentIndex = kept
+            })
+        }
+    }
+
     delegate: ItemDelegate {
         id: row
 

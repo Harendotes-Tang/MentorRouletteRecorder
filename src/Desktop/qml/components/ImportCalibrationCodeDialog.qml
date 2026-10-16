@@ -80,8 +80,8 @@ Dialog {
 
         Text {
             Layout.fillWidth: true
-            text: qsTr("把其他玩家发给你的校准码整段粘贴到下面。导入不联网：软件先检查它是不是这个游戏版本的，"
-                       + "再和自动获取的一样在本机流量里核实，核实通过才会用来记录。")
+            text: qsTr("把其他玩家发来的校准码完整粘贴到下面。导入时不需要联网。"
+                       + "软件会先检查游戏版本，再根据你登录、排本和进本的情况确认是否可用。通过检查后才会用它记录。")
             color: Theme.textSecondary
             font.pixelSize: Theme.fs(12)
             wrapMode: Text.WordWrap

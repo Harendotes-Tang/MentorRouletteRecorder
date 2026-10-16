@@ -2,6 +2,7 @@ using System.Buffers.Binary;
 using System.Diagnostics;
 using Machina.Infrastructure;
 using MentorRecorder.Collector.Contracts.Errors;
+using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Diagnostics;
 using MentorRecorder.Collector.Protocol.Decoded;
 
@@ -198,7 +199,7 @@ public sealed class MachinaCaptureSource : ICaptureSource
             if (_monitor is not null)
             {
                 throw new CollectorException(
-                    ErrorCodes.CaptureAlreadyRunning, "抓包已在运行，无需重复启动。");
+                    ErrorCodes.CaptureAlreadyRunning, CollectorTexts.CaptureStartAlreadyRunning());
             }
 
             _observer = observer;
@@ -264,7 +265,7 @@ public sealed class MachinaCaptureSource : ICaptureSource
             catch (Exception cleanupError)
             {
                 throw new CollectorException(ErrorCodes.Internal,
-                    "启动失败且原生采集资源未能释放，已保留资源供停止操作重试。", inner: new AggregateException(ex, cleanupError));
+                    CollectorTexts.CaptureStartNativeReleaseFailed(), inner: new AggregateException(ex, cleanupError));
             }
             throw Translate(ex, options.AdapterId);
         }
@@ -577,7 +578,7 @@ public sealed class MachinaCaptureSource : ICaptureSource
         // Machina reports its own thread's failures through Trace rather than by throwing
         // into ours. Without this, a monitor that died on startup would sit at zero packets
         // and look merely idle.
-        observer?.OnFault("抓包监视器报告了致命错误，抓包已停止。详情见本机诊断日志。", null);
+        observer?.OnFault(CollectorTexts.CaptureFaultMonitor(), null);
     }
 
     /// <summary>
@@ -720,9 +721,8 @@ public sealed class MachinaCaptureSource : ICaptureSource
         return new CollectorException(
             pcap ? ErrorCodes.NpcapMissing : ErrorCodes.Internal,
             pcap
-                ? "无法通过 Npcap 打开网卡。请确认 Npcap 已安装并勾选了 WinPcap 兼容模式，" +
-                  "必要时以管理员身份运行本软件。"
-                : "启动抓包监视器失败，抓包未开始。详情见本机诊断日志。",
+                ? CollectorTexts.CaptureStartNpcapOpenFailed()
+                : CollectorTexts.CaptureStartMonitorFailed(),
             new Dictionary<string, object?> { ["monitor"] = "START_FAILED" },
             inner: error);
     }

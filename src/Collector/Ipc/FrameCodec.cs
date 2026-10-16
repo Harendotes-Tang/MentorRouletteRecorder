@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using MentorRecorder.Collector.Contracts.Errors;
+using MentorRecorder.Collector.Contracts.Texts;
 
 namespace MentorRecorder.Collector.Ipc;
 
@@ -40,7 +41,7 @@ public static class FrameCodec
         {
             throw new CollectorException(
                 ErrorCodes.Internal,
-                "待发送的帧超过 4 MiB 上限，已拒绝发送。",
+                CollectorTexts.IpcFrameTooLargeToSend(),
                 new Dictionary<string, object?> { ["byte_count"] = body.Length });
         }
 

@@ -7,14 +7,16 @@
 //   * no visible text on the card carries maintainer vocabulary, a wire token,
 //     a candidate's short id or the code itself;
 //   * a shared profile that records replaces the "正在重新校准" headline, the
-//     progress rows and 清空进度并重新观察 - unless it is provisional, which keeps
+//     progress rows and 清空校准进度 - unless it is provisional, which keeps
 //     the provisional wording;
 //   * 导入校准码 shows the Collector's refusal and closes on success;
-//   * 不用共享的，我自己校准 asks first, and the consent button accepts;
+//   * 改为本机校准 asks first, and the consent button accepts;
 //   * a narrow card wraps the buttons instead of pushing them outside it;
 //   * the always-visible 协议档案 card on the capture page carries 分享给其他玩家
 //     after a restart, when the calibration card is gone, and steps aside while
-//     the calibration card offers the very same button.
+//     the calibration card offers the very same button;
+//   * a shared profile that proved itself here offers 这份校准好用，告诉其他玩家
+//     instead, under the same one-button rule (plans/shared-calibration.md §20.6).
 // ---------------------------------------------------------------------------
 
 #include "TestCollectorGuard.h"
@@ -35,6 +37,7 @@
 #include <QQmlEngine>
 #include <QQuickItem>
 #include <QQuickStyle>
+#include <QRegularExpression>
 #include <QStandardPaths>
 #include <QTest>
 
@@ -82,12 +85,24 @@ void verifyPlayerCopy(const QStringList &texts)
         QStringLiteral("QUEUE_REQUEST"), QStringLiteral("CONTRADICTED"), QStringLiteral("GITHUB_RAW"),
         QStringLiteral("INDEX_UNAVAILABLE"), QStringLiteral("AWAITING_CONSENT"), QStringLiteral("VERIFIED"),
         QStringLiteral("ERR_"), QStringLiteral("MRC1"), QStringLiteral(".shared"),
-        QStringLiteral("PUBLISHED"), QStringLiteral("IMPORTED"), QStringLiteral("audit_pending")};
+        QStringLiteral("PUBLISHED"), QStringLiteral("IMPORTED"), QStringLiteral("audit_pending"),
+        // The share-code basis and the candidate marks (plans/shared-calibration.md §20).
+        QStringLiteral("PROVEN"), QStringLiteral("CALIBRATED"), QStringLiteral("basis"),
+        QStringLiteral("shape_prior"), QStringLiteral("disputed"), QStringLiteral("preferred"),
+        QStringLiteral("CONTENT_FINDER_POP"), QStringLiteral("ZONE_INITIALIZATION"),
+        QStringLiteral("ZONE_TERRITORY"), QStringLiteral("PLAYER_JOB"), QStringLiteral("IN_USE"),
+        QStringLiteral("SHARED_CALIBRATION"), QStringLiteral("LOCAL_CALIBRATION"),
+        QStringLiteral("GetCalibrationShareCode"), QStringLiteral("SHARED_NOT_PROVEN"),
+        QStringLiteral("sha")};
+    // Any code's short id, not only the mock's: twelve hex digits in a row.
+    static const QRegularExpression shortId(QStringLiteral("[0-9A-Fa-f]{12}"));
     for (const QString &text : texts) {
         for (const QString &word : words) {
             QVERIFY2(!text.contains(word, Qt::CaseInsensitive),
                      qPrintable(QStringLiteral("card leaks \"%1\": %2").arg(word, text)));
         }
+        QVERIFY2(!shortId.match(text).hasMatch(),
+                 qPrintable(QStringLiteral("card leaks a short id: %1").arg(text)));
     }
 }
 
@@ -334,42 +349,47 @@ private Q_SLOTS:
 
         const auto u = [](const char *text) { return QString::fromUtf8(text); };
         const QString headline = QStringLiteral("sharedCalibrationHeadline");
-        QTest::newRow("fetching") << "fetching" << "fetching" << headline << u("正在获取其他玩家的共享校准")
+        QTest::newRow("fetching") << "fetching" << "fetching" << headline << u("正在查找其他玩家分享的校准")
                                   << QStringList{QStringLiteral("sharedImportButton")};
-        QTest::newRow("verifying") << "verifying" << "verifying" << headline << u("找到共享校准")
+        QTest::newRow("verifying") << "verifying" << "verifying" << headline << u("找到了共享校准")
             << QStringList{QStringLiteral("sharedImportButton"), QStringLiteral("sharedRejectButton")};
         QTest::newRow("consent") << "consent" << "consent" << QStringLiteral("sharedConsentText")
-            << u("匹配时间是你申请排本的时间")
+            << u("匹配时间使用你申请排队的时间")
             << QStringList{QStringLiteral("sharedRejectButton"), QStringLiteral("sharedAcceptButton")};
         QTest::newRow("verified") << "verified" << "verified" << QStringLiteral("calibrationHeadline")
-            << u("已使用其他玩家分享的校准（本机已核实）") << QStringList{QStringLiteral("sharedRejectButton")};
+            << u("正在用其他玩家分享的校准自动记录") << QStringList{QStringLiteral("sharedRejectButton")};
         // Gates graded by provenance (plans/shared-calibration.md 18.3): a code an index
         // lists is a matter of logging in, a pasted code no index knows waits for one queue
         // and one duty as well. Both are VERIFYING, and the buttons are the same.
         QTest::newRow("imported-published") << "imported-published" << "verifying" << headline
-            << u("找到共享校准，登录时自动核实，通过就开始记录。")
+            << u("找到了共享校准，登录时会自动检查，通过后就能开始记录。")
             << QStringList{QStringLiteral("sharedImportButton"), QStringLiteral("sharedRejectButton")};
         QTest::newRow("imported-unpublished") << "imported-unpublished" << "verifying" << headline
-            << u("已导入校准码，登录并排一次本、核实通过后启用。")
+            << u("校准码已导入。登录后申请随机任务并进入副本，通过检查后才能开始记录。")
             << QStringList{QStringLiteral("sharedImportButton"), QStringLiteral("sharedRejectButton")};
         // Recording after the login burst, with the match and the duty entry still audited
         // (18.4): the card's own headline says which of the two it is, and the grey line
         // below it is the only place the audit is explained.
         QTest::newRow("verified-auditing") << "verified-auditing" << "verified"
             << QStringLiteral("calibrationHeadline")
-            << u("已使用其他玩家分享的校准（登录时已在本机核实），正在自动记录。")
+            << u("正在用其他玩家分享的校准记录，排本和进本还在核对。")
             << QStringList{QStringLiteral("sharedRejectButton")};
-        QTest::newRow("rejected") << "rejected" << "rejected" << headline << u("共享校准与本机流量对不上")
+        QTest::newRow("rejected") << "rejected" << "rejected" << headline << u("这份共享校准不适用于你的游戏")
             << QStringList{QStringLiteral("sharedCheckButton"), QStringLiteral("sharedImportButton")};
-        QTest::newRow("unavailable") << "unavailable" << "unavailable" << headline << u("没取到共享校准（网络不通）")
+        QTest::newRow("unavailable") << "unavailable" << "unavailable" << headline << u("暂时没能下载共享校准")
             << QStringList{QStringLiteral("sharedCheckButton"), QStringLiteral("sharedImportButton")};
         QTest::newRow("user-rejected") << "user-rejected" << "user_rejected" << QStringLiteral("sharedCalibrationDetail")
-            << u("清空进度并重新观察") << QStringList{};
+            << u("清空校准进度") << QStringList{};
         QTest::newRow("none-for-build") << "none-for-build" << "none_for_build" << headline
-            << u("还没有人分享这个版本的校准")
+            << u("暂时没有当前游戏版本的共享校准")
             << QStringList{QStringLiteral("sharedCheckButton"), QStringLiteral("sharedImportButton")};
-        QTest::newRow("share") << "share" << "none" << QStringLiteral("sharedShareHint") << u("本软件自己不上传任何东西")
+        QTest::newRow("share") << "share" << "none" << QStringLiteral("sharedShareHint") << u("软件不会自动上传")
                                << QStringList{QStringLiteral("sharedShareButton")};
+        // §20.6: another player's calibration that recorded one complete duty here. Everything a
+        // shared profile in use offers stays, and the share button tells other players it works.
+        QTest::newRow("verified-proven") << "verified-proven" << "verified" << QStringLiteral("sharedShareHint")
+            << u("会打开 GitHub 页面，把这份校准记为你也核实过，让其他玩家的软件更优先使用它。")
+            << QStringList{QStringLiteral("sharedShareButton"), QStringLiteral("sharedRejectButton")};
     }
 
     void eachStateShowsItsSentenceAndOnlyItsButtons()
@@ -474,16 +494,16 @@ private Q_SLOTS:
 
         auto *headline = scene.item(QStringLiteral("calibrationHeadline"));
         QTRY_VERIFY(headline->property("text").toString().contains(
-            QString::fromUtf8("（登录时已在本机核实）")));
+            QString::fromUtf8("排本和进本还在核对")));
         QVERIFY(!headline->property("text").toString().contains(
-            QString::fromUtf8("（本机已核实）")));
+            QString::fromUtf8("已通过本机检查")));
         QVERIFY(!scene.item(QStringLiteral("sharedCalibrationHeadline"))->isVisible());
 
         auto *detail = scene.item(QStringLiteral("sharedCalibrationDetail"));
         QTRY_VERIFY(detail->isVisible());
         const QString text = detail->property("text").toString();
         QVERIFY2(text.contains(QString::fromUtf8("排本和进本还在核对中")), qPrintable(text));
-        QVERIFY2(text.contains(QString::fromUtf8("标记待复核")), qPrintable(text));
+        QVERIFY2(text.contains(QString::fromUtf8("标为“待复核”")), qPrintable(text));
         // The audit takes nothing away from the recording state the plain VERIFIED shows.
         QVERIFY(!scene.item(QStringLiteral("calibrationProgress_pop_seen"))->isVisible());
         QVERIFY(!scene.item(QStringLiteral("calibrationDiscardButton"))->isVisible());
@@ -503,7 +523,7 @@ private Q_SLOTS:
         QTRY_VERIFY(scene.shared()->inUse());
         QVERIFY(!scene.shared()->auditPending());
         QTRY_VERIFY(scene.item(QStringLiteral("calibrationHeadline"))->property("text").toString()
-                        .contains(QString::fromUtf8("（本机已核实）")));
+                        .contains(QString::fromUtf8("正在用其他玩家分享的校准自动记录")));
         QVERIFY(!scene.item(QStringLiteral("sharedCalibrationDetail"))->isVisible());
     }
 
@@ -542,13 +562,13 @@ private Q_SLOTS:
         QTRY_VERIFY(scene.shared()->inUse());
 
         QTRY_VERIFY(scene.item(QStringLiteral("calibrationHeadline"))->property("text").toString()
-                        .contains(QString::fromUtf8("已经可以正常记录导随了")));
+                        .contains(QString::fromUtf8("已经可以自动记录")));
         auto *explanation = scene.item(QStringLiteral("calibrationExplanation"));
         QVERIFY(explanation->isVisible());
-        QVERIFY(explanation->property("text").toString().contains(QString::fromUtf8("你申请了哪个随机任务")));
+        QVERIFY(explanation->property("text").toString().contains(QString::fromUtf8("你申请的随机任务")));
         auto *sharedHeadline = scene.item(QStringLiteral("sharedCalibrationHeadline"));
         QTRY_VERIFY(sharedHeadline->isVisible());
-        QVERIFY(sharedHeadline->property("text").toString().contains(QString::fromUtf8("已使用其他玩家分享的校准")));
+        QVERIFY(sharedHeadline->property("text").toString().contains(QString::fromUtf8("正在使用共享校准")));
         QVERIFY(scene.item(QStringLiteral("sharedRejectButton"))->isVisible());
         QStringList texts;
         collectVisibleText(scene.card, texts);
@@ -568,7 +588,8 @@ private Q_SLOTS:
         dialog->setProperty("code", QStringLiteral("not a code"));
         QVERIFY(QMetaObject::invokeMethod(dialog, "submit"));
         QTRY_VERIFY(!dialog->property("messageText").toString().isEmpty());
-        QVERIFY(dialog->property("messageText").toString().contains(QString::fromUtf8("这不是一份能识别的校准码")));
+        // The Collector's sentence for a code it cannot read (sharing.import.not_imported).
+        QVERIFY(dialog->property("messageText").toString().contains(QString::fromUtf8("无法识别这份校准码")));
         QVERIFY(dialog->property("visible").toBool());
 
         dialog->setProperty("code", QLatin1String(kVectorCode));
@@ -678,7 +699,93 @@ private Q_SLOTS:
         QVERIFY(restarted.opened.constFirst().startsWith(QStringLiteral("https://github.com/")));
         QTRY_VERIFY(!restarted.app->toastMessage().isEmpty());
         QTRY_COMPARE(restarted.app->toastMessage(), calibrated.app->toastMessage());
-        QVERIFY(restarted.app->toastMessage().contains(QString::fromUtf8("已在系统浏览器中打开")));
+        QVERIFY(restarted.app->toastMessage().contains(QString::fromUtf8("已打开 GitHub 分享页面")));
+    }
+
+    // -- 这份校准好用，告诉其他玩家 (plans/shared-calibration.md §20.6) ----------
+
+    void theShareButtonSaysWhichShareItIs_data()
+    {
+        QTest::addColumn<QString>("fixture");
+        QTest::addColumn<QString>("button");
+        QTest::addColumn<QString>("hint");
+        QTest::newRow("local") << "share" << QString::fromUtf8("分享给其他玩家")
+                               << mr::SharedCalibrationController::shareHint();
+        QTest::newRow("verified") << "verified-proven" << QString::fromUtf8("这份校准好用，告诉其他玩家")
+                                  << mr::SharedCalibrationController::verifiedShareHint();
+    }
+
+    void theShareButtonSaysWhichShareItIs()
+    {
+        QFETCH(QString, fixture);
+        QFETCH(QString, button);
+        QFETCH(QString, hint);
+
+        CardScene scene;
+        QVERIFY(scene.open(fixture, 760));
+        QTRY_VERIFY(scene.item(QStringLiteral("sharedShareButton"))->isVisible());
+        QCOMPARE(scene.item(QStringLiteral("sharedShareButton"))->property("text").toString(), button);
+        QCOMPARE(scene.item(QStringLiteral("sharedShareHint"))->property("text").toString(), hint);
+        QStringList texts;
+        collectVisibleText(scene.card, texts);
+        verifyPlayerCopy(texts);
+    }
+
+    void aProvenSharedProfileStillReadsAsTheProfileInUse()
+    {
+        // Proven changes what the player may do, not what the card says: the shared profile
+        // records, the progress rows and 清空校准进度 stay hidden, and no audit line appears.
+        CardScene scene;
+        QVERIFY(scene.open(QStringLiteral("verified-proven"), 760));
+        QTRY_VERIFY(scene.shared()->inUse());
+        QTRY_COMPARE(scene.shared()->shareKind(), QStringLiteral("verified"));
+        QVERIFY(!scene.shared()->auditPending());
+        QTRY_VERIFY(scene.item(QStringLiteral("calibrationHeadline"))->property("text").toString()
+                        .contains(QString::fromUtf8("正在用其他玩家分享的校准自动记录")));
+        QVERIFY(!scene.item(QStringLiteral("calibrationProgress_pop_seen"))->isVisible());
+        QVERIFY(!scene.item(QStringLiteral("calibrationDiscardButton"))->isVisible());
+        QVERIFY(!scene.item(QStringLiteral("sharedCalibrationDetail"))->isVisible());
+    }
+
+    void theProtocolCardOffersTellingOtherPlayersAfterARestart()
+    {
+        // After a restart calibration is IDLE and its card is gone; the profile in force is the
+        // proven shared one, and the 协议档案 card carries the button with its own words.
+        PageScene scene;
+        QVERIFY(scene.open(QStringLiteral("idle"), QStringLiteral("verified-proven")));
+        QTRY_COMPARE(scene.shared()->shareKind(), QStringLiteral("verified"));
+        QTRY_VERIFY(scene.shows(QStringLiteral("protocolShareButton")));
+        QVERIFY(!scene.shows(QStringLiteral("calibrationCard")));
+        QVERIFY(!scene.shows(QStringLiteral("sharedShareButton")));
+        QCOMPARE(scene.item(QStringLiteral("protocolShareButton"))->property("text").toString(),
+                 QString::fromUtf8("这份校准好用，告诉其他玩家"));
+        QVERIFY(scene.shows(QStringLiteral("protocolShareHint")));
+        QCOMPARE(scene.item(QStringLiteral("protocolShareHint"))->property("text").toString(),
+                 mr::SharedCalibrationController::verifiedShareHint());
+        // A shared profile is stopped through 改为本机校准, never through 重新校准.
+        QVERIFY(!scene.shows(QStringLiteral("protocolRecalibrateButton")));
+        QStringList texts;
+        collectVisibleText(scene.item(QStringLiteral("protocolProfileCard")), texts);
+        verifyPlayerCopy(texts);
+
+        QVERIFY(QMetaObject::invokeMethod(scene.item(QStringLiteral("protocolShareButton")), "clicked"));
+        QTRY_COMPARE(scene.opened.size(), 1);
+        QVERIFY(scene.opened.constFirst().startsWith(QStringLiteral("https://github.com/")));
+        QVERIFY(scene.opened.constFirst().contains(QStringLiteral("basis=")));
+        QCOMPARE(scene.copied, QLatin1String(kVectorCode));
+        QTRY_VERIFY(scene.app->toastMessage().contains(QString::fromUtf8("多一个核实通过的账号")));
+    }
+
+    void onlyOneVerifiedShareButtonIsEverOnScreen()
+    {
+        // The calibration card is up (calibration finished on the shared profile): it carries the
+        // button, and the protocol card steps aside, exactly as for this machine's own calibration.
+        PageScene scene;
+        QVERIFY(scene.open(QString(), QStringLiteral("verified-proven")));
+        QTRY_VERIFY(scene.shows(QStringLiteral("calibrationCard")));
+        QTRY_VERIFY(scene.shows(QStringLiteral("sharedShareButton")));
+        QVERIFY(!scene.shows(QStringLiteral("protocolShareButton")));
+        QVERIFY(!scene.shows(QStringLiteral("protocolShareHint")));
     }
 
     // -- 协议档案 card: 重新校准 ---------------------------------------------
@@ -686,7 +793,7 @@ private Q_SLOTS:
     void theProtocolCardOffersRecalibrationForALocalProfile()
     {
         // The player whose own machine calibrated the wrong message. Once the local profile
-        // binds, the calibration card is gone and with it 清空进度并重新观察 and 导入校准码,
+        // binds, the calibration card is gone and with it 清空校准进度 and 导入校准码,
         // so until now the only way back was renaming a file in Explorer.
         PageScene scene;
         // No duty in flight: the mock's own default is one, and retiring the profile would
@@ -912,8 +1019,10 @@ private Q_SLOTS:
     void onlyALocalCalibrationIsOfferedForSharing_data()
     {
         QTest::addColumn<QString>("origin");
-        // Someone else's calibration is never passed on, the shipped profile needs no
-        // sharing, and with no profile in force there is nothing to share yet.
+        // Someone else's calibration is not offered until it has proven itself here (no
+        // candidate says so in these rows; theProtocolCardOffersTellingOtherPlayersAfterARestart
+        // covers the proven one), the shipped profile needs no sharing, and with no profile in
+        // force there is nothing to share yet.
         QTest::newRow("shared") << "SHARED_CALIBRATION";
         QTest::newRow("shipped") << "SHIPPED";
         QTest::newRow("no-profile") << "";
@@ -946,7 +1055,7 @@ private Q_SLOTS:
         QVERIFY(!scene.shows(QStringLiteral("protocolShareButton")));
         QVERIFY(!scene.shows(QStringLiteral("protocolShareHint")));
         // 重新校准 retracts this machine's own guess. Someone else's calibration is stopped
-        // through 不用共享的，我自己校准, the shipped profile is not ours to retract, and with
+        // through 改为本机校准, the shipped profile is not ours to retract, and with
         // no profile in force there is nothing to stop using.
         QVERIFY(!scene.shows(QStringLiteral("protocolRecalibrateButton")));
     }
@@ -961,11 +1070,9 @@ private Q_SLOTS:
         // records (docs/protocol-profile-format.md §12); only a duty left without the
         // clear still needs its result filled in.
         QTest::newRow("local") << "LOCAL_CALIBRATION"
-            << QString::fromUtf8("游戏更新后，本软件在这台电脑上重新认出了记录所需的信息，记录照常生成。"
-                                 "副本内收到通关结算时自动记为通关；没有收到时，离开副本后在记录里补一下结果即可。");
+            << QString::fromUtf8("这台电脑已完成校准，可以正常自动记录。如果没有自动识别到通关，请在离开副本后打开记录补上结果。");
         QTest::newRow("shared") << "SHARED_CALIBRATION"
-            << QString::fromUtf8("它先在这台电脑的流量里核实过，才用来记录，记录照常生成。"
-                                 "副本内收到通关结算时自动记为通关；没有收到时，离开副本后在记录里补一下结果即可。");
+            << QString::fromUtf8("其他玩家分享的校准已通过检查，可以正常自动记录。如果没有自动识别到通关，请在离开副本后打开记录补上结果。");
         QTest::newRow("shipped") << "SHIPPED"
             << QString::fromUtf8("能自动记录指导者任务的匹配、进入和离开；副本内收到通关结算时自动记为通关。"
                                  "没有收到结算就离开副本时，记录会标为“待复核”，在记录里用“修正”填上结果。");

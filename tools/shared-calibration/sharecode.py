@@ -91,18 +91,18 @@ E_POP_KEY_MISSING = "E_SHARE_CODE_POP_KEY_MISSING"
 E_TERRITORY_REQUIRED = "E_SHARE_CODE_TERRITORY_REQUIRED"
 E_NOT_CANONICAL = "E_SHARE_CODE_NOT_CANONICAL"
 
-_CONTENT_WRONG = "校准码的内容有误，不是本软件生成的有效校准码。"
+_CONTENT_WRONG = "校准码的内容有误，无法导入。请重新完整复制；若仍无法导入，请分享者重新生成校准码。"
 
 # ShareCodeRejection.MessageFor, word for word: what a player reads (Chinese, never an opcode).
 MESSAGES: Mapping[str, str] = {
-    E_EMPTY: "没有粘贴任何内容。",
-    E_TOO_LONG: "内容太长，不是本软件生成的校准码。",
-    E_NOT_A_CODE: "这不是本软件的校准码：校准码以 MRC1. 开头。",
-    E_VERSION: "这份校准码来自更新版本的软件，当前版本读不了；请先更新本软件。",
-    E_CHARACTERS: "校准码里有不该出现的字符，可能复制时多了或少了内容；请重新完整复制一次。",
+    E_EMPTY: "还没有校准码，请粘贴完整的校准码。",
+    E_TOO_LONG: "校准码太长，无法导入。请重新复制完整的校准码，不要带上其他文字。",
+    E_NOT_A_CODE: "无法识别这份校准码。请完整复制以 MRC1. 开头的校准码。",
+    E_VERSION: "当前导随记录器无法读取这份校准码。请先更新软件，再「导入校准码」。",
+    E_CHARACTERS: "校准码中有无法识别的字符。请重新完整复制，不要带上其他文字。",
     E_BASE64: "校准码不完整，可能复制时少了一截；请重新完整复制一次。",
-    E_COMPRESSION: "校准码已经损坏，解不开；请重新完整复制一次。",
-    E_INFLATED_TOO_LONG: "校准码解开后内容过大，不是有效的校准码。",
+    E_COMPRESSION: "校准码已损坏，无法读取。请重新完整复制一次。",
+    E_INFLATED_TOO_LONG: "校准码的内容超出处理范围，无法导入。请向分享者获取新的校准码。",
     E_JSON: _CONTENT_WRONG,
     E_DUPLICATE_KEY: _CONTENT_WRONG,
     E_UNKNOWN_KEY: _CONTENT_WRONG,
@@ -111,10 +111,10 @@ MESSAGES: Mapping[str, str] = {
     E_POP_KEY_FORBIDDEN: _CONTENT_WRONG,
     E_POP_KEY_MISSING: _CONTENT_WRONG,
     E_NOT_CANONICAL: _CONTENT_WRONG,
-    E_PAYLOAD_VERSION: "这份校准码的内容格式来自更新版本的软件，当前版本读不了；请先更新本软件。",
-    E_TERRITORY_REQUIRED: "这份校准码缺少「这次进的是哪个副本」那条报文，按它记录只会记成未知副本，所以不能使用。",
+    E_PAYLOAD_VERSION: "当前导随记录器无法读取这份校准码。请先更新软件，再「导入校准码」。",
+    E_TERRITORY_REQUIRED: "这份校准码无法识别你进入的副本，不能用于记录。请向分享者获取新的校准码，或使用「本机校准」。",
 }
-_FALLBACK_MESSAGE = "校准码无法使用。"
+_FALLBACK_MESSAGE = "这份校准码暂时无法使用。请重新完整复制，或使用「本机校准」。"
 
 _OTHER_VERSION = re.compile(r"MRC[0-9]+\.")
 _BASE64URL = re.compile(r"[A-Za-z0-9_-]*")

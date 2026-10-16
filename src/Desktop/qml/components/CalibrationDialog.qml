@@ -27,10 +27,15 @@ Dialog {
     //
     // 名称写死于此而非取自 Collector 的名称表：需要用到该功能，正是因为那张表可能
     // 有误，用有误的表填充改正用的下拉框将无法得到正确答案。此处为游戏内的任务列表。
+    // The chosen name is saved as the Collector's roulette-name override, so each
+    // value stays the CN game name; only the label in the box is translated.
     readonly property var rouletteChoices: [
-        qsTr("顶级迷宫"), qsTr("满级迷宫"), qsTr("拾级迷宫"), qsTr("练级迷宫"),
-        qsTr("讨伐歼灭战"), qsTr("主线任务"), qsTr("行会令"), qsTr("团队任务"),
-        qsTr("大型任务"), qsTr("指导者任务"), qsTr("纷争前线"), qsTr("高难度任务")
+        QT_TRANSLATE_NOOP("CalibrationDialog", "顶级迷宫"), QT_TRANSLATE_NOOP("CalibrationDialog", "满级迷宫"),
+        QT_TRANSLATE_NOOP("CalibrationDialog", "拾级迷宫"), QT_TRANSLATE_NOOP("CalibrationDialog", "练级迷宫"),
+        QT_TRANSLATE_NOOP("CalibrationDialog", "讨伐歼灭战"), QT_TRANSLATE_NOOP("CalibrationDialog", "主线任务"),
+        QT_TRANSLATE_NOOP("CalibrationDialog", "行会令"), QT_TRANSLATE_NOOP("CalibrationDialog", "团队任务"),
+        QT_TRANSLATE_NOOP("CalibrationDialog", "大型任务"), QT_TRANSLATE_NOOP("CalibrationDialog", "指导者任务"),
+        QT_TRANSLATE_NOOP("CalibrationDialog", "纷争前线"), QT_TRANSLATE_NOOP("CalibrationDialog", "高难度任务")
     ]
 
     readonly property var timeline: dialog.controller ? dialog.controller.events : []
@@ -111,7 +116,7 @@ Dialog {
             // 采集服务没能当场换上新档案（这一把正在进行，或还没开始监听）：它从下一把
             // 起才生效，必须如实告诉玩家，而不是让人以为这一把已按它记录（审查 CS3b-X2）。
             if (!boundInSession && typeof App !== "undefined" && App.showToast)
-                App.showToast(qsTr("本机校准已保存，从下一把起按它记录；正在进行的这一把不受影响。"))
+                App.showToast(qsTr("校准已保存，从下一次副本开始使用。本次副本的记录方式不变。"))
         }
         function onRejected(message) {
             if (!dialog.ownsReply())
@@ -133,10 +138,10 @@ Dialog {
 
         Text {
             Layout.fillWidth: true
-            text: qsTr("下面是本软件从这次游戏里认出来的时间线。和你实际打的那一把对得上就点“对”。"
-                       + "对不上就点“错”，接着会问你这一把实际排的是哪个随机任务——"
-                       + "只是名字写错了的话，选一下就好，校准不会作废；"
-                       + "只有你说“这个时间我根本没排本”，这次校准才会作废重来。")
+            text: qsTr("请检查下面的时间和任务是否与你实际游戏的情况一致。每条需要核对的内容，都要点“对”或“错”。"
+                       + "随机任务名称不对时，点“错”后选出正确名称即可，校准进度会保留。"
+                       + "如果你当时没有排本，选择“这个时间我没有排本”；"
+                       + "其他无法改名的内容如果点“错”，本次校准也会重新开始。")
             color: Theme.textSecondary
             font.pixelSize: Theme.fs(12)
             wrapMode: Text.WordWrap
@@ -237,7 +242,7 @@ Dialog {
                                  && (eventRow.answer === "RELABEL" || eventRow.answer === "WRONG")
 
                         Text {
-                            text: qsTr("那这一把实际排的是")
+                            text: qsTr("你当时排的是")
                             color: Theme.textSecondary
                             font.pixelSize: Theme.fs(12)
                         }
@@ -245,14 +250,18 @@ Dialog {
                         StyledComboBox {
                             objectName: "calibrationRelabelChoice_" + eventRow.modelData.event_id
                             Layout.preferredWidth: 190
-                            model: dialog.rouletteChoices.concat(
-                                [qsTr("这个时间我根本没排本")])
+                            // The game's own name in the interface language (Theme.rouletteName);
+                            // one the bundled table lacks falls back to this dialog's translation.
+                            model: dialog.rouletteChoices.map(function(name) {
+                                const official = Theme.rouletteName(name)
+                                return official !== name ? official : qsTranslate("CalibrationDialog", name)
+                            }).concat([qsTr("这个时间我没有排本")])
                             currentIndex: {
                                 const answer = dialog.verdicts[eventRow.modelData.event_id]
                                 if (!answer || answer.verdict !== "RELABEL")
-                                    return dialog.rouletteChoices.length
+                                    return Theme.live(dialog.rouletteChoices.length)
                                 const at = dialog.rouletteChoices.indexOf(answer.roulette_name)
-                                return at < 0 ? 0 : at
+                                return Theme.live(at < 0 ? 0 : at)
                             }
                             onActivated: (index) => {
                                 if (index >= dialog.rouletteChoices.length)

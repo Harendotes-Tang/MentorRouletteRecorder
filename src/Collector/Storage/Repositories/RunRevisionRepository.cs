@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
+using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Domain.Queries;
 using MentorRecorder.Collector.Domain.Time;
@@ -69,7 +70,7 @@ public sealed class RunRevisionRepository
         if (page < 1 || pageSize < 1 || pageSize > Paging.MaxPageSize)
         {
             throw MentorRecorder.Collector.Contracts.Errors.CollectorException.BadRequest(
-                "page 必须大于等于 1，page_size 必须在 1 到 200 之间。");
+                CollectorTexts.HistoryRevisionsPaging());
         }
 
         return _database.Read(_ =>

@@ -575,8 +575,8 @@ private Q_SLOTS:
 
         auto *content = fixture.dialog()->property("contentItem").value<QQuickItem *>();
         QVERIFY(content);
-        QCOMPARE(textStartingWith(content, QString::fromUtf8("《水晶塔》打完了吗？")),
-                 QString::fromUtf8("《水晶塔》打完了吗？离开副本前没有收到通关结算，"
+        QCOMPARE(textStartingWith(content, QString::fromUtf8("《水晶塔》通关了吗？")),
+                 QString::fromUtf8("《水晶塔》通关了吗？软件尚未确认本次结果，"
                                    "只有你确认“通关”后这一次才会计入导随次数。"));
     }
 };

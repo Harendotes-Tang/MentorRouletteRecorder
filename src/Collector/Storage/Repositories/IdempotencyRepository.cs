@@ -1,4 +1,5 @@
 using Microsoft.Data.Sqlite;
+using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Domain.Time;
 using MentorRecorder.Collector.Contracts.Errors;
 
@@ -156,7 +157,7 @@ public sealed class IdempotencyRepository
         command.Parameters.AddWithValue("$preview", (object?)previewId ?? DBNull.Value);
         if (Convert.ToInt64(command.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture) != 0)
             throw new CollectorException(ErrorCodes.IdempotencyConflict,
-                "该请求涉及已永久删除的记录，不能重放；请刷新历史记录。",
+                CollectorTexts.IdempotencyPurgedRun(),
                 new Dictionary<string, object?> { ["request_id"] = requestId, ["reason"] = "RECORD_PURGED" }, field: "request_id");
     }
 

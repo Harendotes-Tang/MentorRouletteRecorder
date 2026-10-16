@@ -1,5 +1,6 @@
 using System.Globalization;
 using MentorRecorder.Collector.Contracts.Errors;
+using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Domain.Time;
 using MentorRecorder.Collector.Storage;
 
@@ -70,7 +71,7 @@ public sealed class BackupService
         if (!outcome.IntegrityCheckPassed)
         {
             throw new CollectorException(ErrorCodes.ExportFailed,
-                "备份完整性校验未通过，未清理既有备份。");
+                CollectorTexts.ExportBackupIntegrityFailed());
         }
         var pruned = Prune(Path.GetDirectoryName(fullPath), DefaultDirectory);
         PruneAbandonedTemporaries(DefaultDirectory, now);

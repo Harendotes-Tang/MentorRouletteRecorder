@@ -1,4 +1,5 @@
 using MentorRecorder.Collector.Contracts.Errors;
+using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Domain.Mutations;
 
@@ -53,36 +54,36 @@ public static class RunMutationValidation
         {
             RunRuleViolationKind.ReasonRequired => new CollectorException(
                 ErrorCodes.ReasonRequired,
-                "该操作必须填写 1 到 500 字的修改理由。",
+                CollectorTexts.MutationReasonRequired(),
                 field: "reason"),
             RunRuleViolationKind.MatchedAfterEntered => new CollectorException(
                 ErrorCodes.TimeOrder,
-                "匹配时间不能晚于进入副本的时间。",
+                CollectorTexts.MutationMatchedAfterEntered(),
                 details,
                 field: "matched_at_utc"),
             RunRuleViolationKind.EnteredAfterEnded => new CollectorException(
                 ErrorCodes.TimeOrder,
-                "进入副本的时间不能晚于结束时间。",
+                CollectorTexts.MutationEnteredAfterEnded(),
                 details,
                 field: "entered_at_utc"),
             RunRuleViolationKind.EntryRequired => new CollectorException(
                 ErrorCodes.BadRequest,
-                "只有「未进入副本即取消」可以没有进入时间，其余结果都必须填写进入时间。",
+                CollectorTexts.MutationEntryRequired(),
                 details,
                 field: "entered_at_utc"),
             RunRuleViolationKind.EndRequired => new CollectorException(
                 ErrorCodes.BadRequest,
-                "判定为「已完成」的记录必须填写结束时间。",
+                CollectorTexts.MutationEndRequired(),
                 details,
                 field: "ended_at_utc"),
             RunRuleViolationKind.NegativeDuration => new CollectorException(
                 ErrorCodes.NegativeDuration,
-                "时长不能为负数。",
+                CollectorTexts.MutationDurationNegative(),
                 details,
                 field: "duration_ms"),
             RunRuleViolationKind.NoChanges => new CollectorException(
                 ErrorCodes.NoChanges,
-                "未做任何修改，不会写入修订记录。",
+                CollectorTexts.MutationNoChanges(),
                 field: "changes"),
             _ => throw new ArgumentOutOfRangeException(nameof(failure), failure.Kind, null),
         };

@@ -1,7 +1,7 @@
 # 副本数据生成器 / Duty Data Generator
 
 本工具从公开来源生成 `data/duties/<region>.<data_version>.json`。本文面向需要更新副本映射数据的维护者。
-本工具基于 Python 3，**只使用标准库**。
+本工具基于 Python 3，**只使用标准库**；`--game-names` 模式仅在需要繁体转换时额外使用 OpenCC，见下文。
 
 ```bash
 python tools/duty-data-generator/generate.py --version 2026-09-04
@@ -67,6 +67,33 @@ XIVAPI 侧的链接字段允许缺失：取不到时写 `null` / `UNKNOWN` / `�
 - **不在抓取失败时写文件**：任一来源失败 → 打印原因，退出码 1，现有文件保持不变。
 - **不按队伍人数改写分类**：`duty_category` 只由 `ContentType` 决定，人数单独写入
   `party_size`。详见 `data/duties/README.md` 中关于 24 人副本的说明。
+
+## 多语言名称（`--game-names`）
+
+`generate.py --game-names` 生成 `data/i18n/game-names.<data_version>.json`：
+为基准简体中文数据（`data/duties/cn.<date>.json`、`data/jobs/jobs.json`、`data/roulettes/cn.json`）
+中的每个编号补充繁体中文（zh-TW）、英文（en）、日文（ja）名称，并给出副本分类与资料片标签的译名。
+
+```bash
+python tools/duty-data-generator/generate.py --game-names --version 2026-10-15
+python tools/duty-data-generator/generate.py --game-names --dry-run   # 抓取并统计，不写任何文件
+python tools/duty-data-generator/test_game_names.py                   # 离线单元测试（解析、合并、写出）
+python tools/duty-data-generator/test_generate.py                     # 含 --game-names 的抓取与命令行测试
+```
+
+职责按静态硬边界检查（NET-007 / NET-010，见 `docs/privacy-boundary.md`）划分：
+`generate.py` 是允许联网的唯一 Python 脚本，负责全部请求、URL 构造与原始下载的记录；
+`game_names.py` 不联网，只接收已抓取的数据，负责解析 CSV、合并译名、OpenCC 回退与写出文件。
+
+- 英文与日文取自 XIVAPI v2（`language=en` / `language=ja`），固定为基准副本文件记录的 `xivapi_game_version`；
+- 繁体中文取自 `thewakingsands/ffxiv-datamining-tc`（繁體中文版客户端的 SaintCoinach 导出），固定为运行时解析出的提交；
+- 繁中客户端尚未收录的名称以 OpenCC `s2twp` 由简体中文转换，并列入 `zh-TW_converted`。
+  OpenCC 是本工具唯一的第三方依赖，且只在需要转换时才导入（`python -m pip install opencc`）；
+  离线测试以替身函数代替，未安装 OpenCC 时仍可运行。
+
+`--raw-dir`、`--dry-run` 与失败时不写文件的规则与生成副本数据时相同；
+`--out-dir` 在 `--game-names` 模式下默认为 `data/i18n`。
+来源、字段、文本规则与许可说明见 [`../../data/i18n/README.md`](../../data/i18n/README.md)。
 
 ## 输出
 

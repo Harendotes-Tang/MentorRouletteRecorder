@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Domain.Events;
 using MentorRecorder.Collector.Domain.Time;
@@ -75,12 +76,33 @@ internal sealed partial class SharedCalibrationSession
         return SharedCheckOutcome.Started;
     }
 
+    /// <summary>
+    /// Offers the codes the store keeps for the build again, read off the disk and never fetched: the download path with
+    /// its request left out (review 2026-10-15, L4). Nothing happens while a download runs - it reads the store too - nor
+    /// while nothing is being calibrated, the setting is off, the download is not wired, or the player refused shared
+    /// calibration for the build.
+    /// </summary>
+    private void ReofferStored()
+    {
+        if (_stopped || !_enabled || !_services.SharedFetchWired || _fetch is not null ||
+            _host.SharedContext() is not { } context || IsUserRejected(context.Key.Region, context.Key.GameBuild))
+        {
+            return;
+        }
+
+        var ticket = new FetchTicket(context.Key, context.Template, manual: false) { DiskOnly = true };
+        _fetch = ticket;
+        Schedule(() => FetchAsync(ticket));
+    }
+
     /// <summary>Off the gate: send when due and rebuild what came back; then claim it under the gate.</summary>
     private async Task FetchAsync(FetchTicket ticket)
     {
         try
         {
-            var (sent, last, result) = await SendIfDueAsync(ticket).ConfigureAwait(false);
+            var (sent, last, result) = ticket.DiskOnly
+                ? (false, null, null)
+                : await SendIfDueAsync(ticket).ConfigureAwait(false);
             var prepared = PrepareAll(ticket, result);
             lock (_gate)
             {
@@ -179,10 +201,14 @@ internal sealed partial class SharedCalibrationSession
         }
 
         // Six hours from the attempt that counts - this one, or the stored one that made this one unnecessary - kept
-        // on the monotonic clock. Only the age of the stored attempt is read off the wall clock, and only once.
-        var interval = SharedCalibrationStore.AutoFetchInterval;
-        var age = sent || last is null ? TimeSpan.Zero : _clock.UtcNow - last.LastAttemptAtUtc;
-        _nextAutoFetchAt = _clock.Elapsed + interval - TimeSpan.FromTicks(Math.Clamp(age.Ticks, 0, interval.Ticks));
+        // on the monotonic clock. Only the age of the stored attempt is read off the wall clock, and only once. A read of
+        // the disk alone is no attempt at all and leaves the schedule as it was.
+        if (!ticket.DiskOnly)
+        {
+            var interval = SharedCalibrationStore.AutoFetchInterval;
+            var age = sent || last is null ? TimeSpan.Zero : _clock.UtcNow - last.LastAttemptAtUtc;
+            _nextAutoFetchAt = _clock.Elapsed + interval - TimeSpan.FromTicks(Math.Clamp(age.Ticks, 0, interval.Ticks));
+        }
         if (result is not null && ApplyFetchResult(result, prepared))
         {
             // The revocation of the code in use took the rest of that index with it, to be offered again
@@ -219,11 +245,12 @@ internal sealed partial class SharedCalibrationSession
             }
         }
 
-        // The profile in use too, so the card and the report keep saying where it stands. An imported code bound
-        // with every criterion already passed, so this changes nothing about its watch.
+        // The profile in use too, so the card and the report keep saying where it stands - once the store keeps its code,
+        // not merely because the index named it (a discard is named too): the card offers to hand that code back (review
+        // 2026-10-15, M2). An imported code bound with every criterion already passed, so its watch is left as it is.
         if (_bound is { Provenance: SharedCandidateProvenance.Imported, Sha: { } bound } && Published(bound))
         {
-            _bound.Provenance = SharedCandidateProvenance.Published;
+            _bound.Provenance = DisplayedProvenance(_bound.Region, _bound.GameBuild, bound, SharedCandidateProvenance.Published);
         }
     }
 
@@ -240,6 +267,41 @@ internal sealed partial class SharedCalibrationSession
         if (!result.IndexWasRead)
         {
             return false;
+        }
+
+        // The download/cache shortlist is bounded. A live candidate or binding can fall below that
+        // limit after its ranking changes; the readable index still tightens its current gate.
+        foreach (var candidate in _candidates.ToArray())
+        {
+            if (result.IndexEntries.FirstOrDefault(entry => entry.CodeSha256 == candidate.Sha) is not { } entry)
+                continue;
+            Register(candidate.Prepared with
+            {
+                Submitters = entry.Submitters,
+                ShapePrior = entry.ShapePrior,
+                LocalPrior = candidate.LocalPrior,
+                Quarantined = entry.Quarantined,
+                QuarantineEpoch = entry.QuarantineEpoch,
+            }, candidate.Source, candidate.Provenance);
+        }
+
+        if (_bound is { Sha: { } boundCode } bound)
+        {
+            var current = prepared.FirstOrDefault(item => item.Sha == boundCode);
+            var entry = result.IndexEntries.FirstOrDefault(item => item.CodeSha256 == boundCode);
+            // A new template may recover the bound document as another code. Its traffic cannot be
+            // reported under the original published code's quarantine generation.
+            if ((current?.Declared ?? bound.Declared) is { } declared && declared.CandidateId == boundCode &&
+                (entry?.QuarantineEpoch ?? current?.QuarantineEpoch) is { } epoch)
+                RegisterEvidenceCandidate(declared, epoch);
+            if ((entry?.Quarantined ?? current?.Quarantined) == true && !bound.Proven)
+            {
+                // A login-only binding has not earned the exemption reserved for a proven local profile.
+                // Keep its MRC and prior records; temporarily unload only the unproven derived profile.
+                bound.WatchGate = SharedCandidateProvenance.Imported;
+                Supersede("QUARANTINED", contradicted: false, pending: prepared);
+                return true;
+            }
         }
 
         var revoked = result.RevokedCodeSha256s.ToHashSet(StringComparer.Ordinal);
@@ -305,25 +367,89 @@ internal sealed partial class SharedCalibrationSession
         var (region, build, templateSha, _) = ticket.Key;
         var store = _services.SharedCalibrations;
         var codes = (Attempt(() => store.LoadCandidates(region, build, templateSha)) ?? Array.Empty<SharedStoredCandidate>())
-            .Select(code => (code.CodeSha256, code.Payload, code.Submitters, code.Conflicting))
+            .Select(code => (code.CodeSha256, code.Payload, code.Submitters, code.ShapePrior, code.Quarantined, code.QuarantineEpoch))
             .ToList();
         foreach (var fetched in result?.Candidates ?? Array.Empty<SharedCalibrationCandidate>())
         {
-            if (codes.All(code => code.CodeSha256 != fetched.CodeSha256) &&
-                !Attempt(() => store.IsRejected(region, build, templateSha, fetched.CodeSha256)))
+            var existing = codes.FindIndex(code => code.CodeSha256 == fetched.CodeSha256);
+            if (existing >= 0)
             {
-                codes.Add((fetched.CodeSha256, fetched.Payload, fetched.Submitters, fetched.Conflicting));
+                // Fresh safety hints must not depend on whether the disk cache could be updated.
+                codes[existing] = (fetched.CodeSha256, fetched.Payload, fetched.Submitters, fetched.ShapePrior,
+                    fetched.Quarantined, fetched.QuarantineEpoch);
+            }
+            else if (!Attempt(() => store.IsRejected(region, build, templateSha, fetched.CodeSha256)))
+            {
+                codes.Add((fetched.CodeSha256, fetched.Payload, fetched.Submitters, fetched.ShapePrior, fetched.Quarantined, fetched.QuarantineEpoch));
             }
         }
 
-        // What the index says about each code goes with it: it decides which of them may bind on the login burst (GateFor).
+        if (result is { IndexWasRead: true })
+        {
+            foreach (var entry in result.IndexEntries)
+            {
+                var existing = codes.FindIndex(code => code.CodeSha256 == entry.CodeSha256);
+                if (existing >= 0)
+                {
+                    // A readable index restricts the cached payload even if every file download or
+                    // the state-file write failed. Never let a stale login gate commit meanwhile.
+                    var cached = codes[existing];
+                    codes[existing] = (cached.CodeSha256, cached.Payload, entry.Submitters, entry.ShapePrior,
+                        entry.Quarantined, entry.QuarantineEpoch);
+                }
+            }
+        }
+
+        // What the index says about each code goes with it: with the other codes it decides which of them may bind on the
+        // login burst (GateFor, through the consensus) and which binds first (ChooseCandidate). The conflict mark has
+        // already ordered the list - stored codes come back in the index's order - and decides nothing further here. The
+        // prior that may break a tie is this machine's own, read here off the gate from the calibrations it verified.
         var now = _clock.UtcNow;
+        var verified = codes.Count == 0 ? Array.Empty<ShareCodePayload>() : VerifiedPayloads(region, ticket.Template);
         return codes.Take(SharedCalibrationIndex.MaxCandidates)
             .Select(code => Prepare(code.CodeSha256, code.Payload, ticket.Template, now) is { } prepared
-                ? prepared with { Submitters = code.Submitters, Conflicting = code.Conflicting }
+                ? prepared with
+                {
+                    Submitters = code.Submitters,
+                    ShapePrior = code.ShapePrior,
+                    Quarantined = code.Quarantined,
+                    QuarantineEpoch = code.QuarantineEpoch,
+                    LocalPrior = SharedLocalShapePrior.For(prepared.Payload, verified),
+                }
                 : null)
             .OfType<Prepared>()
             .ToArray();
+    }
+
+    /// <summary>
+    /// Off the gate: what the calibrations this machine verified for the region say about the match (plan §20.5, security
+    /// review 2026-10-15) - its own, written only after the player confirmed the timeline, and other players' it recorded
+    /// a whole duty with and settled (plan §18.4). Read from this machine's profile directories and store only; a shared
+    /// profile still being checked, and anything the repository merely lists, does not count. Nothing is fetched.
+    /// </summary>
+    private IReadOnlyList<ShareCodePayload> VerifiedPayloads(Region region, CalibrationTemplate template)
+    {
+        var store = _services.SharedCalibrations;
+        var own = Attempt(() => _services.LoadLocalProfiles(region)) ?? Array.Empty<ProtocolProfile>();
+        var settled = (Attempt(() => _services.LoadSharedProfiles(region)) ?? Array.Empty<ProtocolProfile>())
+            .Where(profile => Attempt(() => store.IsSettled(profile.Region, profile.GameBuild, profile.ProfileSha256)) &&
+                              !WithdrawnByTheRepository(profile, template));
+        return Attempt(() => SharedLocalShapePrior.Verified(own.Concat(settled), template)) ?? Array.Empty<ShareCodePayload>();
+    }
+
+    /// <summary>
+    /// True when the last index this machine read for that build revokes the code a settled shared profile was written
+    /// from (review 2026-10-15, M1). The settled mark survives a revocation, and a profile the repository withdrew vouches
+    /// for nothing - least of all for the shape of the next build's codes. The code is the one recorded at the bind, else
+    /// the one the profile reads as through the template.
+    /// </summary>
+    private bool WithdrawnByTheRepository(ProtocolProfile profile, CalibrationTemplate template)
+    {
+        var store = _services.SharedCalibrations;
+        var code = Attempt(() => store.BoundCode(profile.Region, profile.GameBuild, profile.ProfileSha256)) ??
+                   (Attempt(() => SharedProfileBuilder.RecoverPayload(profile, template)) is { } payload ? ShareCode.Sha256(payload) : null);
+        return code is not null &&
+               Attempt(() => store.Publication(profile.Region, profile.GameBuild, code)) == SharedPublication.Revoked;
     }
 
     private static Prepared? Prepare(string sha, ShareCodePayload payload, CalibrationTemplate template, DateTimeOffset now)
@@ -354,7 +480,7 @@ internal sealed partial class SharedCalibrationSession
         if (decoded is not { Payload: { } payload, CodeSha256: { } sha })
         {
             return new SharedImportResult(SharedImportOutcome.Malformed, decoded.Rejection?.Code,
-                "这不是一份能识别的校准码：" + (decoded.Rejection?.Message ?? "内容为空。"));
+                CollectorTexts.SharingImportNotImported(decoded.Rejection?.Text ?? CollectorTexts.SharingCodePasteWhole()));
         }
 
         SharedContext? context;
@@ -372,7 +498,7 @@ internal sealed partial class SharedCalibrationSession
 
         if (Prepare(sha, payload, context!.Template, _clock.UtcNow) is not { } prepared)
         {
-            return new SharedImportResult(SharedImportOutcome.Malformed, "UNBUILDABLE", "这份校准码无法在本机的随包模板上生成协议档案。", sha);
+            return new SharedImportResult(SharedImportOutcome.Malformed, "UNBUILDABLE", CollectorTexts.SharingImportUnbuildable(), sha);
         }
 
         // Read off the gate: the store has its own lock, and the index it holds was read by an earlier download -
@@ -386,18 +512,25 @@ internal sealed partial class SharedCalibrationSession
         var provenance = publication == SharedPublication.Published ? SharedCandidateProvenance.Published : SharedCandidateProvenance.Imported;
         if (provenance == SharedCandidateProvenance.Published)
         {
-            // What the index said about it - submitters and the conflict mark - as for a downloaded code (GateFor).
+            // What the index said about it - submitters and the shape prior - as for a downloaded code (GateFor, ChooseCandidate).
             var (region, build, templateSha, _) = context.Key;
             var stored = Attempt(() => _services.SharedCalibrations.LoadCandidates(region, build, templateSha))
                 ?.FirstOrDefault(item => string.Equals(item.CodeSha256, sha, StringComparison.Ordinal));
-            prepared = prepared with { Submitters = stored?.Submitters ?? 0, Conflicting = stored?.Conflicting == true };
+            prepared = prepared with
+            {
+                Submitters = stored?.Submitters ?? 0, ShapePrior = stored?.ShapePrior,
+                Quarantined = stored?.Quarantined ?? false, QuarantineEpoch = stored?.QuarantineEpoch ?? 0,
+            };
         }
+
+        // This machine's own prior, as for a downloaded code; read off the gate like everything above.
+        prepared = prepared with { LocalPrior = SharedLocalShapePrior.For(prepared.Payload, VerifiedPayloads(context.Key.Region, context.Template)) };
 
         lock (_gate)
         {
             if (_stopped || _host.SharedContext() is not { } current || current.Key != context.Key)
             {
-                return new SharedImportResult(SharedImportOutcome.NotApplicable, "CHANGED", "导入期间游戏版本或校准状态发生了变化，请重新导入。", sha);
+                return new SharedImportResult(SharedImportOutcome.NotApplicable, "CHANGED", CollectorTexts.SharingImportChanged(), sha);
             }
 
             if (Register(prepared, SharedCandidateSource.Manual, provenance) is { } refusal)
@@ -414,33 +547,32 @@ internal sealed partial class SharedCalibrationSession
         }
     }
 
-    private static string ImportedMessage(SharedCandidateProvenance provenance, bool atLogin) =>
+    private static UserText ImportedMessage(SharedCandidateProvenance provenance, bool atLogin) =>
         provenance != SharedCandidateProvenance.Published
-            ? "校准码已导入。它没有在公开仓库发布过，所以要在本机登录并排一次本、核实通过后才会启用；在那之前不会生成记录。"
+            ? CollectorTexts.SharingImportAppliedUnpublished()
             : atLogin
-                ? "校准码已导入。它与公开仓库里其他玩家提交的一致，登录时在本机流量里核实通过就会启用。"
-                : "校准码已导入。它与公开仓库里其他玩家提交的一致，但还要在本机排一次本、核实通过后才会启用。";
+                ? CollectorTexts.SharingImportAppliedAtLogin()
+                : CollectorTexts.SharingImportApplied();
 
     private SharedImportResult? Inapplicable(ShareCodePayload payload, string sha, SharedContext? context, bool userRejected)
     {
         string? reason = null;
-        string? message = null;
+        UserText? message = null;
         if (context is null)
         {
-            (reason, message) = ("NOT_CALIBRATING", "当前客户端不在校准中，暂时不需要导入校准码。");
+            (reason, message) = ("NOT_CALIBRATING", CollectorTexts.SharingImportNotCalibrating());
         }
         else if (payload.Region != context.Key.Region)
         {
-            (reason, message) = ("OTHER_REGION", "这份校准码属于另一个服务器区域（国服与国际服不能通用）。");
+            (reason, message) = ("OTHER_REGION", CollectorTexts.SharingImportOtherRegion());
         }
         else if (!string.Equals(payload.GameBuild, context.Key.GameBuild, StringComparison.Ordinal))
         {
-            (reason, message) = ("OTHER_BUILD",
-                $"这份校准码适用于客户端版本 {payload.GameBuild}，当前客户端版本是 {context.Key.GameBuild}，不能通用。");
+            (reason, message) = ("OTHER_BUILD", CollectorTexts.SharingImportOtherBuild(payload.GameBuild, context.Key.GameBuild));
         }
         else if (!SharedProfileBuilder.IsApplicable(payload, context.Template))
         {
-            (reason, message) = ("OTHER_TEMPLATE", "这份校准码是用另一个版本的导随记录器生成的，与本机的版本对不上；请双方更新到同一版本。");
+            (reason, message) = ("OTHER_TEMPLATE", CollectorTexts.SharingImportOtherTemplate());
         }
         else if (userRejected)
         {
@@ -455,11 +587,11 @@ internal sealed partial class SharedCalibrationSession
         return reason is null ? null : new SharedImportResult(SharedImportOutcome.NotApplicable, reason, message!, sha);
     }
 
-    private static string RefusalMessage(string refusal) => refusal switch
+    private static UserText RefusalMessage(string refusal) => refusal switch
     {
-        "REJECTED" => "这份校准码已经在本机流量里对不上，不再使用；在校准卡片上点「重新观察」可以清除这个判定。",
-        "REVOKED" => "这份校准码已经在公开仓库里被撤回，不能再使用；请向分享者要一份新的，或等待其他玩家的分享。",
-        UserRejectedReason => "你已经选择这个游戏版本不用其他玩家的共享校准；在校准卡片上点「重新观察」后才能导入校准码。",
-        _ => "正在核实的校准码已经太多，请等当前的核实有结果后再导入。",
+        "REJECTED" => CollectorTexts.SharingImportRejected(),
+        "REVOKED" => CollectorTexts.SharingImportRevoked(),
+        UserRejectedReason => CollectorTexts.SharingImportUserRejected(),
+        _ => CollectorTexts.SharingImportCheckPending(),
     };
 }

@@ -3,7 +3,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MentorRecorder
 
-// 设置 · 通用: 启动与托盘 / 记录 / 校准 / 外观.
+// 设置 · 通用: 语言 / 启动与托盘 / 记录 / 校准 / 更新 / 外观.
 ColumnLayout {
     id: tab
 
@@ -20,13 +20,44 @@ ColumnLayout {
     // The style on screen, not the persisted one: --mock-ui-style pins Theme
     // without touching desktop.ini, and the segment must agree with the skin.
     readonly property string uiStyleValue: Theme.uiStyle
+    // The application's LanguageManager; a test scene without one shows no card.
+    readonly property var lang: typeof Lang !== "undefined" ? Lang : null
 
     // One place decides how an unsupported Collector reads, so a switch that can
     // do nothing never looks like one that can.
     function captureSettingDescription(text) {
         if (!App.captureSettingsSupported)
-            return qsTr("当前采集器不支持该设置，开关已停用。")
+            return qsTr("当前后台服务不支持这项设置，暂时无法修改。")
         return text
+    }
+
+    // ------------------------------------------------------------ 语言 --
+    // The kicker keeps "Language" beside the translated word, so a player who
+    // landed in a language they cannot read still finds the way back.
+    SettingsPanel {
+        objectName: "languageSettingsCard"
+        visible: tab.lang !== null
+        kicker: tab.lang && tab.lang.code === "en" ? "Language" : qsTr("语言") + " · Language"
+
+        SettingsRow {
+            showDivider: false
+            label: qsTr("界面语言")
+            description: qsTr("界面文字和播报语音一起切换")
+
+            SegmentedControl {
+                objectName: "uiLanguageSettingControl"
+                Layout.preferredWidth: 340
+                options: tab.lang ? tab.lang.languages.map(function(language) {
+                    return {
+                        value: language.code,
+                        label: language.label,
+                        family: tab.lang.displayFamily(language.code)
+                    }
+                }) : []
+                currentValue: tab.lang ? tab.lang.code : ""
+                onActivated: function(value) { tab.lang.setLanguage(value) }
+            }
+        }
     }
 
     // ------------------------------------------------------ 启动与托盘 --
@@ -37,8 +68,8 @@ ColumnLayout {
         SettingToggleRow {
             label: qsTr("开机启动")
             description: Settings.autostartWritable
-                         ? qsTr("随 Windows 登录启动到托盘")
-                         : qsTr("当前平台不支持自动启动项")
+                         ? qsTr("登录 Windows 后自动启动，显示在系统托盘中")
+                         : qsTr("当前系统不支持开机启动")
             toggleEnabled: Settings.autostartWritable
             checked: Settings.autostart
             onToggled: function(value) { Settings.autostart = value }
@@ -51,8 +82,8 @@ ColumnLayout {
             visible: App.maintainerToolsVisible
             label: qsTr("随 FF14 自动开始捕获")
             description: tab.captureSettingDescription(
-                qsTr("检测到游戏进程即自动开始监听，游戏退出后停止。默认开启："
-                     + "解压只能从连接开头跟踪，监听必须先于登录，这样就不用记着手动开始。"))
+                qsTr("默认开启。检测到游戏启动后开始监听，游戏退出后停止。"
+                     + "请先打开本软件，再登录游戏，才能正常自动记录。"))
             toggleEnabled: App.captureSettingsSupported && App.captureSettingsLoaded
             checked: !!App.captureSettings.follow_game
             onToggled: function(value) {
@@ -63,7 +94,7 @@ ColumnLayout {
         SettingToggleRow {
             showDivider: false
             label: qsTr("关闭时最小化到托盘")
-            description: qsTr("托盘菜单：显示 / 退出")
+            description: qsTr("关闭窗口后仍在后台运行；可从托盘菜单选择「显示」或「退出」")
             checked: Settings.minimizeToTray
             onToggled: function(value) { Settings.minimizeToTray = value }
         }
@@ -75,8 +106,8 @@ ColumnLayout {
 
         SettingToggleRow {
             label: qsTr("结束后询问本次结果")
-            description: qsTr("离开副本前没有收到通关结算时，程序不替你判定，结束后询问本次结果；"
-                              + "关掉后可以在总览的待复核里补确认")
+            description: qsTr("未收到通关结算就离开副本时，软件会询问本次结果。"
+                              + "关闭后可在总览的「待复核」中确认。")
             checked: tab.confirmPromptEnabled
             onToggled: function(value) {
                 if (typeof Settings !== "undefined" && Settings.confirmPrompt !== undefined)
@@ -87,7 +118,7 @@ ColumnLayout {
         SettingToggleRow {
             showDivider: false
             label: qsTr("通关后弹出笔记窗口")
-            description: qsTr("通关后接着记一句；也可稍后在历史记录补录")
+            description: qsTr("通关后弹出窗口记笔记；也可稍后到历史记录补写。")
             checked: tab.reflectPromptEnabled
             onToggled: function(value) {
                 if (typeof Settings !== "undefined" && Settings.reflectPrompt !== undefined)
@@ -107,8 +138,8 @@ ColumnLayout {
             objectName: "autoCalibrationToggle"
             label: qsTr("游戏更新后自动校准")
             description: tab.captureSettingDescription(
-                qsTr("游戏更新后原有档案会失效。开启后本软件会在你正常打一把随机任务时重新校准，"
-                     + "核对无误即可继续自动记录；关闭则要等新版本的档案随软件更新。"))
+                qsTr("游戏更新后，软件可能需要重新识别排本和进出副本。开启后照常完成随机任务，按提示核对即可。"
+                     + "校准完成前暂时不能自动记录。关闭后，游戏更新时可能需要等待软件更新才能恢复自动记录。"))
             toggleEnabled: App.captureSettingsSupported && App.captureSettingsLoaded
             checked: !App.captureSettingsLoaded
                      || App.captureSettings.auto_calibration_enabled !== false
@@ -124,8 +155,8 @@ ColumnLayout {
             showDivider: captureSettingsErrorText.visible
             label: qsTr("游戏更新后获取其他玩家的共享校准")
             description: tab.captureSettingDescription(
-                qsTr("默认开启的联网请求：游戏更新后本机没有可用档案时，从公开的 GitHub 仓库下载其他玩家分享的校准，"
-                     + "请求里不带账号、安装编号或任何能认出你的信息，也从不上传。关掉后仍可手动导入校准码。"))
+                qsTr("默认开启。自动校准开启时，软件会联网查找其他玩家分享的校准，检查可用后再使用。"
+                     + "请求不含账号或设备身份信息，不会上传你的游戏数据。关闭后仍可手动导入校准码。"))
             toggleEnabled: App.captureSettingsSupported && App.captureSettingsLoaded
             checked: !App.captureSettingsLoaded
                      || App.captureSettings.shared_calibration_enabled !== false
@@ -162,11 +193,11 @@ ColumnLayout {
             showDivider: true
             label: qsTr("检查新版本并提示")
             description: tab.captureSettingDescription(
-                qsTr("默认开启的联网请求：每天最多一次，从本项目的 GitHub 发布页读取一个只含版本号的小文件，"
-                     + "有新版本时在总览页提示。请求不带账号、安装编号或任何可识别信息。"
-                     + "只有在你点「下载并安装」之后，后台进程才会从本项目的发布页下载安装程序，"
-                     + "并与发布时公布的校验值核对；安装还要你再点「立即安装」。"
-                     + "本软件从不自行下载或安装新版本。"))
+                qsTr("默认开启，每天最多自动联网检查一次，有新版本时在总览提示；关闭后「检查更新」也不可用，并会取消下载、删除已准备好的安装包。"
+                     + "请求不含账号"
+                     + "或设备身份信息。"
+                     + "点「下载并安装」只下载安装包并校验，准备好后还需点「立即安装」启动安装。"
+                     + "软件不会自行下载或安装新版本。"))
             toggleEnabled: App.captureSettingsSupported && App.captureSettingsLoaded
             checked: !App.captureSettingsLoaded
                      || App.captureSettings.update_check_enabled !== false
@@ -250,7 +281,7 @@ ColumnLayout {
 
             Text {
                 Layout.fillWidth: true
-                text: qsTr("维护者工具：下载已发布的最新正式版的安装程序，即使它不比当前版本新。")
+                text: qsTr("下载最新正式版安装包，即使当前已是同一版本或更高版本。")
                 color: Theme.textMuted
                 font.pixelSize: Theme.fs(11)
                 wrapMode: Text.WordWrap

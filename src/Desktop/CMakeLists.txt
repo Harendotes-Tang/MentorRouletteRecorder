@@ -14,6 +14,7 @@ find_package(Qt6 6.8 REQUIRED COMPONENTS
     Quick
     QuickControls2
     Graphs
+    LinguistTools
     Multimedia
     Svg
     Test
@@ -42,6 +43,12 @@ target_compile_features(MentorRecorderDesktopLib PUBLIC cxx_std_20)
 # recognisable as one there (MR_VERSION_FULL, root CMakeLists.txt).
 target_compile_definitions(MentorRecorderDesktopLib
     PRIVATE MR_APP_VERSION="${MR_VERSION_FULL}")
+
+# 唯一更新记录随程序嵌入；内容修改后由构建资源依赖重新编译。
+qt_add_resources(MentorRecorderDesktopLib "mr_release_notes"
+    PREFIX "/release-notes"
+    BASE "${CMAKE_SOURCE_DIR}"
+    FILES "${CMAKE_SOURCE_DIR}/CHANGELOG.md")
 
 # Developer Collector discovery (CollectorProcess::resolveDefaultExecutable): the
 # MR_COLLECTOR_PATH override and the walk up into a source checkout's C# build
@@ -96,6 +103,19 @@ set(MR_CPP_SOURCES
     cpp/StatisticsController.h
     cpp/AppSettings.cpp
     cpp/AppSettings.h
+    cpp/LanguageManager.cpp
+    cpp/LanguageManager.h
+    cpp/GameNames.cpp
+    cpp/GameNames.h
+    cpp/LiveText.h
+    cpp/CollectorText.cpp
+    cpp/CollectorText.h
+    cpp/CollectorTextCatalog.g.cpp
+    cpp/CollectorTextCatalog.h
+    cpp/ReleaseNotesController.cpp
+    cpp/ReleaseNotesController.h
+    cpp/EvidenceSubmissionController.cpp
+    cpp/EvidenceSubmissionController.h
     cpp/CaptureValidationController.cpp
     cpp/CaptureValidationController.h
     cpp/CalibrationController.cpp
@@ -191,6 +211,7 @@ set(MR_QML_FILES
     qml/components/Card.qml
     qml/components/CardKicker.qml
     qml/components/CalibrationCard.qml
+    qml/components/CalibrationCopy.qml
     qml/components/CalibrationDialog.qml
     qml/components/CandidateValidationCard.qml
     qml/components/CapCell.qml
@@ -216,6 +237,7 @@ set(MR_QML_FILES
     qml/components/ProgressRing.qml
     qml/components/ReflectionCard.qml
     qml/components/ReflectionShareCard.qml
+    qml/components/ReflectionShareEntry.qml
     qml/components/RoleIcon.qml
     qml/components/SegmentedControl.qml
     qml/components/SelectionCheckBox.qml
@@ -227,6 +249,8 @@ set(MR_QML_FILES
     qml/components/SharedCalibrationSection.qml
     qml/components/SliderRow.qml
     qml/components/StatCard.qml
+    qml/components/StatusLed.qml
+    qml/components/StatusTag.qml
     qml/components/StyledComboBox.qml
     qml/components/StyledTextArea.qml
     qml/components/StyledTextField.qml
@@ -241,6 +265,8 @@ set(MR_QML_FILES
     qml/components/UpdateNotice.qml
     qml/dialogs/BaselineDialog.qml
     qml/dialogs/DisclosureDialog.qml
+    qml/dialogs/ReleaseNotesDialog.qml
+    qml/dialogs/CalibrationEvidenceDialog.qml
     qml/dialogs/EditRunDialog.qml
     qml/dialogs/OnlineSpeechConfirmDialog.qml
     qml/dialogs/ReflectionDialog.qml
@@ -251,11 +277,12 @@ set(MR_QML_FILES
     qml/dialogs/RunWizardResultStep.qml
     qml/dialogs/RunWizardTimeStep.qml
     qml/pages/CapturePage.qml
+    qml/pages/CaptureChainModel.qml
+    qml/pages/CaptureHeroCopy.qml
+    qml/pages/CaptureHeroPanel.qml
     qml/pages/GameSelectionPanel.qml
-    qml/pages/CaptureChainPanel.qml
     qml/pages/CaptureMaintainerSection.qml
     qml/pages/CaptureNotices.qml
-    qml/pages/CaptureNpcapPanel.qml
     qml/pages/CaptureParsePanel.qml
     qml/pages/CaptureToolsPanel.qml
     qml/pages/CaptureValidationEvidenceCard.qml
@@ -335,7 +362,12 @@ qt_add_resources(MentorRecorderDesktopLib "mr_duties"
     PREFIX "/"
     BASE "${CMAKE_CURRENT_SOURCE_DIR}/../.."
     FILES
-        "${CMAKE_CURRENT_SOURCE_DIR}/../../data/duties/cn.2026-09-04.json")
+        "${CMAKE_CURRENT_SOURCE_DIR}/../../data/duties/cn.2026-09-04.json"
+        # Display names of duties, jobs and roulettes in 繁體中文 / English / 日本語
+        # (GameNames, data/i18n/README.md), and the Chinese roulette names they are
+        # looked up by.
+        "${CMAKE_CURRENT_SOURCE_DIR}/../../data/i18n/game-names.2026-10-15.json"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../../data/roulettes/cn.json")
 
 # Templates are saved from embedded bytes, independent of install location/network.
 qt_add_resources(MentorRecorderDesktopLib "mr_import_templates"
@@ -351,21 +383,30 @@ qt_add_resources(MentorRecorderDesktopLib "mr_statistics"
     BASE ${CMAKE_CURRENT_SOURCE_DIR}
     FILES resources/statistics/main-scenario-membership.json)
 
-# User-approved v5 share materials are local and independent of the application theme.
+# User-provided scroll materials are local and independent of the application theme.
 qt_add_resources(MentorRecorderDesktopLib "mr_reflection_share"
     PREFIX "/"
     BASE ${CMAKE_CURRENT_SOURCE_DIR}
     FILES
-        resources/reflection-share/eorzea-guild-v5/background/header.png
-        resources/reflection-share/eorzea-guild-v5/background/body-tile.png
-        resources/reflection-share/eorzea-guild-v5/background/body-end-transition.png
-        resources/reflection-share/eorzea-guild-v5/background/footer.png
-        resources/reflection-share/eorzea-guild-v5/decor/title-rule.png
-        resources/reflection-share/eorzea-guild-v5/decor/side-flourish.png
-        resources/reflection-share/eorzea-guild-v5/decor/divider-full.png
-        resources/reflection-share/eorzea-guild-v5/decor/mission-complete-stamp-diagonal.png
-        resources/reflection-share/eorzea-guild-v5/decor/mission-failed-stamp-diagonal.png
-        resources/reflection-share/eorzea-guild-v5/decor/footer-brand.png
+        resources/reflection-share/duty-notes-scroll-v1.4.1/paper_tile.png
+        resources/reflection-share/duty-notes-scroll-v1.4.1/scroll_top.png
+        resources/reflection-share/duty-notes-scroll-v1.4.1/scroll_mid.png
+        resources/reflection-share/duty-notes-scroll-v1.4.1/scroll_bottom.png
+        resources/reflection-share/duty-notes-scroll-v1.4.1/frame_9slice.png
+        resources/reflection-share/duty-notes-scroll-v1.4.1/header_art.png
+        resources/reflection-share/duty-notes-scroll-v1.4.1/header_rule.png
+        resources/reflection-share/duty-notes-scroll-v1.4.1/side_gem.png
+        resources/reflection-share/duty-notes-scroll-v1.4.1/end_ornament.png
+        resources/reflection-share/duty-notes-scroll-v1.4.1/rail_node.png
+        resources/reflection-share/duty-notes-scroll-v1.4.1/rail_line.png
+        resources/reflection-share/duty-notes-scroll-v1.4.1/icon_plate.png
+        resources/reflection-share/duty-notes-scroll-v1.4.1/icon_tile.png
+        resources/reflection-share/duty-notes-scroll-v1.4.1/icon_placeholder.png
+        resources/reflection-share/duty-notes-scroll-v1.4.1/stamp_complete_1.png
+        resources/reflection-share/duty-notes-scroll-v1.4.1/stamp_complete_2.png
+        resources/reflection-share/duty-notes-scroll-v1.4.1/stamp_complete_3.png
+        resources/reflection-share/duty-notes-scroll-v1.4.1/entry_rule.png
+        resources/reflection-share/duty-notes-scroll-v1.4.1/tag_9slice.png
 )
 
 # ---------------------------------------------------------------------------
@@ -497,6 +538,28 @@ qt_add_qml_module(MentorRecorder.Desktop
     RESOURCE_PREFIX /qt/qml
     NO_IMPORT_SCAN
     QML_FILES ${MR_QML_FILES})
+
+# ---------------------------------------------------------------------------
+# Interface translations (界面语言).
+#
+# Simplified Chinese is the source text of every qsTr() / tr(); i18n/*.ts hold
+# 繁體中文, English and 日本語. lrelease compiles them into :/i18n/*.qm on every
+# build; the `update_translations` target (lupdate) refreshes the .ts files from
+# the QML and C++ sources and is run by hand after strings change. Locations are
+# left out so a moved line does not rewrite the catalogues.
+# ---------------------------------------------------------------------------
+# Bundled data, fonts and licence texts carry no translatable strings.
+set_property(TARGET MentorRecorder.Desktop MentorRecorderDesktopLib
+    PROPERTY QT_EXCLUDE_SOURCES_FROM_TRANSLATION "*/resources/*" "*/data/*")
+qt_add_translations(MentorRecorder.Desktop
+    SOURCE_TARGETS MentorRecorder.Desktop MentorRecorderDesktopLib
+    TS_FILES
+        i18n/mentor_recorder_zh_TW.ts
+        i18n/mentor_recorder_en.ts
+        i18n/mentor_recorder_ja.ts
+    NO_GENERATE_PLURALS_TS_FILE
+    RESOURCE_PREFIX /i18n
+    LUPDATE_OPTIONS -source-language zh_CN -locations none -no-obsolete)
 
 set_target_properties(MentorRecorder.Desktop PROPERTIES
     OUTPUT_NAME "MentorRecorder.Desktop"

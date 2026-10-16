@@ -78,9 +78,9 @@ public sealed class TimedAnnouncementDraftTests
 
         Assert.Equal(draft.TimedAnnouncement!.Samples.Count, pops.Length);
         Assert.All(pops, item => Assert.True(item.RequiresConfirmation));
-        Assert.All(pops, item => Assert.Contains("按出现时机认出", item.Label, StringComparison.Ordinal));
-        Assert.All(pops, item => Assert.DoesNotContain("0x", item.Label, StringComparison.Ordinal));
-        Assert.Contains(pops, item => item.Label.Contains("练级迷宫", StringComparison.Ordinal));
+        Assert.All(pops, item => Assert.Contains("按时间推测", item.Label.Chinese, StringComparison.Ordinal));
+        Assert.All(pops, item => Assert.DoesNotContain("0x", item.Label.Chinese, StringComparison.Ordinal));
+        Assert.Contains(pops, item => item.Label.Chinese.Contains("练级迷宫", StringComparison.Ordinal));
         Assert.Equal(pops.Length, pops.Select(item => item.EventId).Distinct().Count());
     }
 
@@ -347,6 +347,6 @@ public sealed class TimedAnnouncementDraftTests
         var draft = Derive(CalibrationTrafficCases.Traffic(CalibrationTrafficCases.QueueRequestAnnounced));
 
         Assert.All(draft.Events.Where(item => item.Kind == "pop"),
-            item => Assert.Matches(@"读条前约 \d+ 秒", item.Label));
+            item => Assert.Matches(@"读条前约 \d+ 秒", item.Label.Chinese));
     }
 }

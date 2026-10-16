@@ -1,4 +1,5 @@
 using System.Globalization;
+using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Domain.Events;
 using MentorRecorder.Collector.Protocol.Profiles;
@@ -95,7 +96,7 @@ public sealed record CalibrationEvent(
     string Kind,
     long TMs,
     DateTimeOffset AtUtc,
-    string Label,
+    UserText Label,
     long? RouletteId,
     long? TerritoryId,
     string? DutyName,
@@ -136,7 +137,7 @@ public sealed record CalibrationProgress(
 /// <param name="TemplateProfileId">Profile the shapes came from.</param>
 public sealed partial record CalibrationDraft(
     CalibrationDraftStatus Status,
-    IReadOnlyList<string> Blockers,
+    IReadOnlyList<UserText> Blockers,
     CalibrationProgress Progress,
     IReadOnlyList<CalibrationEvent> Events,
     IReadOnlyList<ProfileMessage> Messages,
@@ -274,7 +275,7 @@ public sealed partial record CalibrationDraft(
         rejections ??= CalibrationRejections.None;
         roulettes ??= RouletteCatalog.Default;
 
-        var blockers = new List<string>();
+        var blockers = new List<UserText>();
         var blocked = false;
         var messages = new List<ProfileMessage>();
         var samples = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -337,14 +338,14 @@ public sealed partial record CalibrationDraft(
         if (ambiguous)
         {
             blocked = true;
-            blockers.Add("有两条报文都像轮盘申请的回执，分不清哪条是弹窗；请点下面的「重新观察」，再打一把随机任务。");
+            blockers.Add(CollectorTexts.CalibrationBlockerQueuePopAmbiguous());
         }
         else if (matched.Ambiguous)
         {
             // More than one state or duty entry can explain the chain. Neither frequency
             // nor connection preference establishes which interpretation is correct.
             blocked = true;
-            blockers.Add("这一版里有好几种报文都可能是「匹配成功」，本机分不出是哪一种；请点下面的「重新观察」再打一把，还是这样就说明这一版需要新版本的软件来支持。");
+            blockers.Add(CollectorTexts.CalibrationBlockerMatchTimeUnknown());
         }
         else if (matched.Contradicted)
         {
@@ -352,18 +353,18 @@ public sealed partial record CalibrationDraft(
             // plain reply to the request. Nothing in the traffic separates "queued" from
             // "matched", so there is no honest constant to write.
             blocked = true;
-            blockers.Add("这一版里「排队中」和「匹配成功」的报文长得一样，本机分不出来；这一版需要新版本的软件来支持，之前的记录不受影响。");
+            blockers.Add(CollectorTexts.CalibrationBlockerQueueVsMatch());
         }
         else if (lockedReply is null)
         {
-            blockers.Add(lockReason ?? "在游戏里申请一次随机任务。");
+            blockers.Add(lockReason ?? CollectorTexts.CalibrationBlockerNoRequest());
         }
         else if (genuinePops.Length == 0)
         {
             // The request/echo pair already names the opcode; what is still missing is one
             // real match, which is the only thing that proves what "matched" looks like on
             // this build. Nothing else the player can do substitutes for it.
-            blockers.Add("等这次申请匹配成功、进入副本，进本之后就可以开始记录了；想让判定更准，之后再打一把别的随机任务。");
+            blockers.Add(CollectorTexts.CalibrationBlockerNoMatch());
         }
         else
         {
@@ -400,12 +401,12 @@ public sealed partial record CalibrationDraft(
 
         if (clusters.Count == 0)
         {
-            blockers.Add("先登录进入游戏。");
+            blockers.Add(CollectorTexts.CalibrationBlockerNoLogin());
         }
 
         if (entry is not null && exit is null)
         {
-            blockers.Add("打完这把副本，离开后再回来。");
+            blockers.Add(CollectorTexts.CalibrationBlockerFinishDuty());
         }
 
         // "换区次数不够" would only restate the two lines above once a duty is in play; it is
@@ -413,7 +414,7 @@ public sealed partial record CalibrationDraft(
         // add up, which means something was missed rather than not done yet.
         if (exit is not null && clusters.Count < MinClusters)
         {
-            blockers.Add("再走一次完整的流程：登录、进本、出本各算一次换区。");
+            blockers.Add(CollectorTexts.CalibrationBlockerDutyCheckPending());
         }
 
         if (snapshot.OverflowCount > 0)
@@ -421,7 +422,7 @@ public sealed partial record CalibrationDraft(
             blocked = true;
             // Re-logging keeps the evidence on purpose, so it keeps the overflow too; only
             // 重新观察 builds a new observer (review finding H-2).
-            blockers.Add("这次观察到的报文种类超出上限，换区报文无法确认；请点下面的「重新观察」重来一次。");
+            blockers.Add(CollectorTexts.CalibrationBlockerOverflow());
         }
 
         // 3. The zone marker: the template's length, once per burst, never outside one.
@@ -441,7 +442,7 @@ public sealed partial record CalibrationDraft(
             else if (zoneCandidates.Length > 1)
             {
                 blocked = true;
-                blockers.Add("有多条报文都像换区标记，分不清；请点下面的「重新观察」重来一次，仍然如此请导出证据交给维护者。");
+                blockers.Add(CollectorTexts.CalibrationBlockerDutyTimeAmbiguous());
             }
             else if (NearlyZone(snapshot, zoneLength, rejections, entry, exit))
             {
@@ -449,7 +450,7 @@ public sealed partial record CalibrationDraft(
                 // changes yet. Logging in only proves one of them; entering and leaving a duty
                 // proves the other two, and one of the bursts on record is the lobby handshake,
                 // which the game server's marker is never part of.
-                blockers.Add("再走一次完整的流程：登录、进本、出本各算一次换区。");
+                blockers.Add(CollectorTexts.CalibrationBlockerDutyCheckPending());
             }
             else if (Contaminated(snapshot, zoneLength, rejections))
             {
@@ -459,13 +460,12 @@ public sealed partial record CalibrationDraft(
                 // is filed as "travelled outside a load". The message must therefore not say
                 // the build changed: that would send the player away to wait for a new version
                 // of software that already works.
-                blockers.Add("换区报文对不上：有一条在换区之外也出现过好几次，还不能当成换区标记。" +
-                             "再完整走一遍（进本、出本），中间来回传送两次城；如果还是这样，请点右下角导出诊断报告。");
+                blockers.Add(CollectorTexts.CalibrationBlockerDutyTimeChecking());
             }
             else
             {
                 blocked = true;
-                blockers.Add("这一版的换区报文和上一版长得不一样，本机认不出来；这一版需要新版本的软件来支持，之前的记录不受影响。");
+                blockers.Add(CollectorTexts.CalibrationBlockerDutyUnsupported());
             }
 
             if (template.ZoneTerritory is { ExpectedLength: { } territoryLength } && entry is not null)
@@ -554,8 +554,7 @@ public sealed partial record CalibrationDraft(
         var ready = blockers.Count == 0 && CalibratedShape.IsComplete(source, messages);
         if (!blocked && !ready && needsTerritory && blockers.Count == 0)
         {
-            blockers.Add("还差一样：本机还没认出「这次换区进的是哪个副本」那条报文。" +
-                         "再进出一次副本就有机会认出来——在那之前就算开始记录，也只会记成「未知副本」。");
+            blockers.Add(CollectorTexts.CalibrationBlockerNoDuty());
         }
 
         var status = blocked
@@ -593,14 +592,14 @@ public sealed partial record CalibrationDraft(
         CalibrationSnapshot snapshot,
         FinderPairHit[] pairs,
         IReadOnlyDictionary<ushort, MatchedState> matches,
-        out string? reason,
+        out UserText? reason,
         out bool ambiguous)
     {
         reason = null;
         ambiguous = false;
         if (pairs.Length == 0)
         {
-            reason = "在游戏里申请一次随机任务。";
+            reason = CollectorTexts.CalibrationBlockerNoRequest();
             return null;
         }
 
@@ -657,10 +656,8 @@ public sealed partial record CalibrationDraft(
         // When a burst has already named a duty, the thing that did not arrive is the match
         // message itself, and the only move left is another roulette.
         reason = snapshot.Clusters.Any(cluster => cluster.TerritoryHits.Count > 0)
-            ? "已经看到你进过副本，但一直没等到对应的匹配成功报文。还差一步：去申请一个和刚才不一样的随机任务，" +
-              "看到开始排队就可以马上取消，不用真的打完，也不要关掉本软件；只要申请这一下，" +
-              "本机就能认出排本报文，接着就会请你核对。"
-            : "再申请一个别的随机任务（申请完可以马上取消），或者等这次匹配成功。";
+            ? CollectorTexts.CalibrationBlockerPopAfterDuty()
+            : CollectorTexts.CalibrationBlockerTryOtherRoulette();
         return null;
     }
 
@@ -1358,7 +1355,8 @@ public sealed partial record CalibrationDraft(
                 Id("finder_request", pair.ReplyAtUtc - TimeSpan.FromMilliseconds(pair.ReplyTMs - pair.RequestTMs)),
                 "finder_request", pair.RequestTMs,
                 pair.ReplyAtUtc - TimeSpan.FromMilliseconds(pair.ReplyTMs - pair.RequestTMs),
-                "排本：" + roulettes.DisplayName((int)Math.Min(pair.RouletteId, int.MaxValue), region),
+                CollectorTexts.CalibrationEventFinderRequest(
+                    roulettes.DisplayName((int)Math.Min(pair.RouletteId, int.MaxValue), region)),
                 pair.RouletteId, null, null, true));
         }
 
@@ -1375,8 +1373,11 @@ public sealed partial record CalibrationDraft(
             var pop = run[0];
             events.Add(new CalibrationEvent(
                 Id("pop", pop.AtUtc), "pop", pop.TMs, pop.AtUtc,
-                "匹配弹窗：" + roulettes.DisplayName((int)Math.Min(pop.RouletteId, int.MaxValue), region) +
-                (run.Count > 1 ? $"（这条报文连发了 {run.Count} 次）" : string.Empty),
+                run.Count > 1
+                    ? CollectorTexts.CalibrationEventPopRepeated(
+                        roulettes.DisplayName((int)Math.Min(pop.RouletteId, int.MaxValue), region), run.Count)
+                    : CollectorTexts.CalibrationEventPop(
+                        roulettes.DisplayName((int)Math.Min(pop.RouletteId, int.MaxValue), region)),
                 pop.RouletteId, null, null, true));
         }
 
@@ -1384,7 +1385,7 @@ public sealed partial record CalibrationDraft(
         foreach (var cluster in snapshot.Clusters)
         {
             string kind;
-            string label;
+            UserText label;
             long? territoryId = null;
             string? dutyName = null;
             var required = false;
@@ -1395,11 +1396,12 @@ public sealed partial record CalibrationDraft(
                 var hit = cluster.TerritoryHits.FirstOrDefault(hit => territoryOpcode is null || hit.Opcode == territoryOpcode);
                 territoryId = hit?.TerritoryId;
                 dutyName = hit?.DutyName;
-                label = dutyName is null ? "进入副本" : "进入副本：" + dutyName;
-                if (source == CalibrationMatchSource.QueueRequest)
-                {
-                    label += "（本机把上面那次排本记为这一把的匹配）";
-                }
+                var queueOnly = source == CalibrationMatchSource.QueueRequest;
+                label = dutyName is null
+                    ? queueOnly ? CollectorTexts.CalibrationEventDutyEnterQueue() : CollectorTexts.CalibrationEventDutyEnter()
+                    : queueOnly
+                        ? CollectorTexts.CalibrationEventDutyEnterNamedQueue(dutyName)
+                        : CollectorTexts.CalibrationEventDutyEnterNamed(dutyName);
             }
             else if (ReferenceEquals(cluster, exit))
             {
@@ -1409,13 +1411,13 @@ public sealed partial record CalibrationDraft(
                 // sits above it, which may be a queue made during the duty rather than the
                 // entry, making the run look far shorter than it was.
                 label = entry is null
-                    ? "离开副本"
-                    : "离开副本（结束的是 " + Local(entry.LoadStartedAtUtc) + " 那次进本）";
+                    ? CollectorTexts.CalibrationEventDutyExit()
+                    : CollectorTexts.CalibrationEventDutyExitFor(entry.LoadStartedAtUtc);
             }
             else if (firstOnConnection.Add(cluster.ConnectionTag))
             {
                 kind = "login";
-                label = "登录进入游戏";
+                label = CollectorTexts.CalibrationEventLogin();
             }
             else if (cluster.TerritoryHits.FirstOrDefault(hit => territoryOpcode is null || hit.Opcode == territoryOpcode)
                      is { DutyName: not null } other)
@@ -1423,14 +1425,14 @@ public sealed partial record CalibrationDraft(
                 // Only the entry the draft rests on is asked about, but every duty of the evening
                 // was recognised the same way, and a bare "换区" reads as "the name is missing".
                 kind = "zone";
-                label = "换区：进入了 " + other.DutyName;
+                label = CollectorTexts.CalibrationEventZoneDuty(other.DutyName);
                 territoryId = other.TerritoryId;
                 dutyName = other.DutyName;
             }
             else
             {
                 kind = "zone";
-                label = "换区";
+                label = CollectorTexts.CalibrationEventZone();
             }
 
             events.Add(new CalibrationEvent(

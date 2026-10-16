@@ -48,13 +48,27 @@ public:
     /// and whenever the error carried none. A handler that needs it holds a
     /// QPointer to the reply: whenDone() runs before the reply is deleted.
     QVariantMap errorDetails() const { return m_errorDetails.toVariantMap(); }
+    /// $defs/ErrorPayload.message_ref of a failed reply: the error's sentence
+    /// as a catalogue key (contracts/collector-texts.md), or an invalid QVariant.
+    /// errorMessage() is already that sentence in the language on screen when
+    /// the reply arrived; a handler that keeps the text for later holds a
+    /// QPointer to the reply and keeps collector_text::live(errorRef(),
+    /// errorMessage()) instead, so it follows a language switch.
+    QVariant errorRef() const
+    {
+        return m_errorRef.isEmpty() ? QVariant() : QVariant(m_errorRef.toVariantMap());
+    }
 
     /// QML-friendly view of payload().
     Q_INVOKABLE QVariantMap payloadMap() const { return m_payload.toVariantMap(); }
 
     /// Complete the reply. Calling either twice is a no-op.
     void succeed(const QJsonObject &payload);
-    void fail(const QString &code, const QString &message, const QJsonObject &details = {});
+    ///  messageRef is the error's `message_ref`; when this build can render
+    /// it, errorMessage() is that sentence in the interface language and
+    ///  message (the Collector's Simplified Chinese) is the fallback.
+    void fail(const QString &code, const QString &message, const QJsonObject &details = {},
+              const QJsonObject &messageRef = {});
     /// Fails a request that never left this process - no connection, a write
     /// the pipe refused, a frame too large to send - so the Collector cannot
     /// have acted on it. \ref neverSent() says so to whoever handles the failure.
@@ -95,6 +109,7 @@ private:
     QString m_errorCode;
     QString m_errorMessage;
     QJsonObject m_errorDetails;
+    QJsonObject m_errorRef;
 };
 
 /// Abstract Collector facade. Mirrors contracts/ipc-v1.schema.json.

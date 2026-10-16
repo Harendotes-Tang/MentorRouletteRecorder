@@ -65,8 +65,8 @@ GCC Runtime Library Exception 3.1 分发（`docs/licenses/GCC-RUNTIME-LIBRARY-EX
 | NSax | 1.0.2 | LGPL-3.0-only |
 | SharpZipLib | 1.4.2 | MIT |
 | SixLabors.Fonts | 1.0.1 | Apache-2.0 |
-| System.Security.Cryptography.Pkcs | 8.0.1 | MIT |
-| System.Security.Cryptography.Xml | 8.0.4 | MIT |
+| System.Security.Cryptography.Pkcs | 8.0.2 | MIT |
+| System.Security.Cryptography.Xml | 8.0.5 | MIT |
 | ZString | 2.6.0 | MIT |
 
 字体库由 NPOI 公式解析内部引用，保留其未经修改的 Apache-2.0 二进制。
@@ -241,6 +241,20 @@ SHA-256 均记录在每个文件的 `provenance` 中。**原始下载不纳入�
 > 改为安装时在本地生成的数据。详见
 > [`data/duties/README.md`](data/duties/README.md) 与
 > [`docs/third-party-licenses.md`](docs/third-party-licenses.md)。
+
+### `data/i18n/game-names.*.json`：界面语言的显示名称
+
+由 `tools/duty-data-generator/generate.py --game-names` 生成，只保存 id → 繁體中文 / English / 日本語
+名称的**显示映射**，记录与统计仍使用简体中文名称。名称均为 FINAL FANTASY XIV 游戏文本，
+© SQUARE ENIX CO., LTD.，依 FINAL FANTASY XIV Materials Usage License 作非商业展示。
+
+| 上游 | 用途 | 许可证状况 |
+|---|---|---|
+| **XIVAPI v2**（<https://v2.xivapi.com>） | English 与日本語名称 | 公开的只读 API；社区服务，本身不拥有游戏数据的版权 |
+| **thewakingsands/ffxiv-datamining-tc**（<https://github.com/thewakingsands/ffxiv-datamining-tc>） | 繁體中文名称（台湾繁体中文版客户端的社区导出） | ⚠️ **没有 LICENSE 文件**，按与 `ffxiv-datamining-cn` 相同的方式处理 |
+
+繁体中文版尚未收录的名称由简体中文机械转换（OpenCC `s2twp`），列于文件的 `zh-TW_converted`。
+详见 [`data/i18n/README.md`](data/i18n/README.md)。
 
 ---
 

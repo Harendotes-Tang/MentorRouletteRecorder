@@ -99,8 +99,26 @@ def payload(source: str = "ANNOUNCEMENT", number: int = 0, region: str = "CN", b
     return result
 
 
-def issue_body(code: str, checked: bool = True) -> str:
-    """An issue body exactly as GitHub renders the share-calibration form."""
+# The texts the client puts into the share form's 这份校准码的来源 input, by the value issue.py records for them.
+BASIS_OPTIONS = {
+    "calibrated": "本机校准得到，并逐条核对过校准时间线",
+    "verified": "其他玩家分享，已在我的软件里核实通过并正常记录",
+}
+
+
+def issue_body(code: str, basis: str | None = "calibrated", checked: bool = True) -> str:
+    """An issue body exactly as GitHub renders the share-calibration form (plan section 20.2).
+
+    ``basis`` is "calibrated" or "verified" for the text the client prefills, any other text for a field
+    edited by hand, or None for the field left empty (``_No response_``, as from a client that sends none).
+    """
+    stated = "_No response_" if basis is None else BASIS_OPTIONS.get(basis, basis)
+    return "### 校准码\n\n%s\n\n### 这份校准码的来源\n\n%s\n\n### 确认\n\n- [%s] 上面的来源属实，我已在软件里核对过\n" % (
+        code, stated, "X" if checked else " ")
+
+
+def checkbox_issue_body(code: str, checked: bool = True) -> str:
+    """A body of the share form before plan section 20.2: no 这份校准码的来源 and the older 确认 option."""
     return "### 校准码\n\n%s\n\n### 确认\n\n- [%s] 我在软件里逐条核对过校准时间线\n" % (code, "X" if checked else " ")
 
 

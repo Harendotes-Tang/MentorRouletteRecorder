@@ -1540,7 +1540,7 @@ ApplicationWindow {
         QVERIFY(!backend.calls.last().payload.contains("deduct_from_baseline"));
         backend.calls.last().reply->succeed({{"imported_count", 1}, {"duplicate_count", 0}, {"conflict_count", 0},
                                             {"baseline_deducted_count", 0}, {"baseline_completed_count", 1500}});
-        QVERIFY(!controller.statusText().contains(QStringLiteral("基数")));
+        QVERIFY(!controller.statusText().contains(QStringLiteral("起始次数")));
 
         // No stored baseline: the question is not asked and the default answer does not travel.
         controller.setBaselineCount(0);
@@ -2181,7 +2181,7 @@ ApplicationWindow {
             controller.importText(pastedSource);
         }
         QCOMPARE(backend.calls.size(), 1);
-        backend.calls.last().reply->fail("ERR_VALIDATION", QStringLiteral("表格没有可识别的记录列，请提供列映射。"));
+        backend.calls.last().reply->fail("ERR_VALIDATION", QStringLiteral("没有识别出表格列名，请点「列映射」指定副本、职业等内容所在的列。"));
         QVERIFY(controller.rows().isEmpty());
         QVERIFY(!controller.previewValid());
         QCOMPARE(controller.sourceKind(), csvSource ? QStringLiteral("CSV") : QStringLiteral("PASTE"));
@@ -2292,7 +2292,7 @@ ApplicationWindow {
         QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 1, 5000);
         QVERIFY(!engine.busy());
         QCOMPARE(finished[0][0].toBool(), false);
-        QVERIFY(failures[0][0].toString().contains(QStringLiteral("超时")));
+        QVERIFY(failures[0][0].toString().contains(QStringLiteral("图片识别超时")));
         failures.clear();
         finished.clear();
         engine.setTimeoutForTesting(5000);

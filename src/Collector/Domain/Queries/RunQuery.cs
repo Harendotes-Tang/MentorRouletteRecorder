@@ -113,6 +113,12 @@ public sealed record RunFilter
 
     /// <summary>Case-insensitive substring matched against duty name, job name and note.</summary>
     public string? Text { get; init; }
+
+    /// <summary>
+    /// Optional translated substring matched only against duty and job names, OR with
+    /// <see cref="Text"/> before applying the remaining filters. Null or blank adds no condition.
+    /// </summary>
+    public string? NameText { get; init; }
 }
 
 /// <summary>Ordering of a run listing.</summary>

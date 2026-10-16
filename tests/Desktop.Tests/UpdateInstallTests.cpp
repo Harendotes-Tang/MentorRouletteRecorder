@@ -734,8 +734,8 @@ private Q_SLOTS:
         auto *update = scene.update();
         QTRY_COMPARE(update->downloadPhase(), QStringLiteral("ready"));
         QCOMPARE(update->downloadActionText(), QString::fromUtf8("立即安装"));
-        QVERIFY(update->downloadStatusText().contains(QString::fromUtf8("会关闭")));
-        QVERIFY(update->downloadStatusText().contains(QString::fromUtf8("管理员")));
+        QVERIFY(update->downloadStatusText().contains(QString::fromUtf8("本软件随后关闭")));
+        QVERIFY(update->downloadStatusText().contains(QString::fromUtf8("请按 Windows 提示完成安装")));
 
         update->downloadAction();
         QTRY_COMPARE(scene.events, (QStringList{QStringLiteral("launch"), QStringLiteral("quit")}));
@@ -870,7 +870,7 @@ private Q_SLOTS:
         QTest::qWait(50);
         QVERIFY(scene.launched.isEmpty());
         QVERIFY(scene.events.isEmpty());
-        QVERIFY(update->installProblem().contains(QString::fromUtf8("校验值")));
+        QVERIFY(update->installProblem().contains(QString::fromUtf8("安装包未通过校验")));
         // Given up: the file is let go of, and a clean-up can delete it.
         QVERIFY(QFile::remove(file.path));
     }
@@ -1185,9 +1185,11 @@ private Q_SLOTS:
         update->reinstallLatest();
         QTRY_COMPARE(backend.startUpdateDownloadCount(), 1);
         QCOMPARE(backend.lastStartUpdateDownload(), (QJsonObject{{QStringLiteral("reinstall"), true}}));
-        // With no newer version on offer the refusal is said once; the update
-        // places keep 检查更新 rather than a 重试 that cannot succeed.
-        QTRY_COMPARE(app.toastMessage(), QString::fromUtf8("没有比当前版本更新的版本可以下载。"));
+        // With no newer version on offer the refusal is said once - the Collector's
+        // NO_UPDATE sentence, which the mock sends with its catalogue key - and the
+        // update places keep 检查更新 rather than a 重试 that cannot succeed.
+        QTRY_COMPARE(app.toastMessage(),
+                     QString::fromUtf8("目前没有比正在使用的版本更新的正式版可供下载；如需确认，请先点击「检查更新」。"));
         QCOMPARE(update->downloadPhase(), QString());
         QVERIFY(update->canCheck());
         QVERIFY(readsWithoutLatin(app.toastMessage()));
@@ -1215,7 +1217,7 @@ private Q_SLOTS:
         QVERIFY(scene.opened.isEmpty());
         QVERIFY(scene.shows(QStringLiteral("updateNoticeDownloadStatusText")));
         QVERIFY(scene.textOf(QStringLiteral("updateNoticeDownloadStatusText"))
-                    .contains(QString::fromUtf8("管理员")));
+                    .contains(QString::fromUtf8("请按 Windows 提示完成安装")));
         // Once there is something to install, it is no longer one to ignore.
         QVERIFY(!scene.shows(QStringLiteral("dismissUpdateButton")));
         QVERIFY(scene.shows(QStringLiteral("openReleasePageButton")));

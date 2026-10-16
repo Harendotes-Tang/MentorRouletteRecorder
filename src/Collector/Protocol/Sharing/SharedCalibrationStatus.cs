@@ -1,3 +1,4 @@
+using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Protocol.Calibration;
 
 namespace MentorRecorder.Collector.Protocol.Sharing;
@@ -99,11 +100,32 @@ public sealed record SharedCandidateSummary(
     IReadOnlyList<SharedCriterion> Criteria,
     bool StagingOverflowed)
 {
+    /// <summary>选择公开证据目标所需的完整校准码哈希；无法准确恢复时为 null。</summary>
+    public string? CodeSha256 { get; init; }
     /// <summary>Which gate set it is judged by (plan §18.3); null for a profile adopted from disk whose code was not recovered.</summary>
     public SharedCandidateProvenance? Provenance { get; init; }
 
     /// <summary>True while it records (or may bind) with an audited criterion still waiting.</summary>
     public bool AuditPending { get; init; }
+
+    /// <summary>
+    /// Messages on which another code being verified for the build declares something else (plan §20.5), named as the
+    /// criteria are; empty when none. For the profile in use, as it stood when it was bound; empty for one adopted from disk.
+    /// </summary>
+    public IReadOnlyList<string> Disputed { get; init; } = Array.Empty<string>();
+
+    /// <summary>
+    /// True when the codes being verified side with it on every disputed message (<see cref="SharedConsensus.Preferred"/>);
+    /// true when nothing is disputed. One reason a published code may bind on the login burst, not the only one.
+    /// </summary>
+    public bool Preferred { get; init; } = true;
+
+    /// <summary>
+    /// The shape prior this machine computed for the code from the calibration it verified for the previous build
+    /// (<see cref="SharedLocalShapePrior"/>; wire <c>shape_prior</c>): true for the same shape, false for another shape of
+    /// the same kind, null when nothing compares or the profile was adopted from disk. Never the index's own value.
+    /// </summary>
+    public bool? LocalShapePrior { get; init; }
 }
 
 /// <summary>The <c>shared</c> part of calibration status (<c>$defs/SharedCalibrationStatus</c>) and of the diagnostics report.</summary>
@@ -181,14 +203,18 @@ public enum SharedImportOutcome
 /// Machine token: a share-code rejection code for malformed input, or NOT_CALIBRATING, OTHER_REGION,
 /// OTHER_BUILD, OTHER_TEMPLATE, REJECTED, TOO_MANY_CANDIDATES, CHANGED, UNBUILDABLE. Null when applied.
 /// </param>
-/// <param name="Message">What to tell the player, in Chinese, without opcodes.</param>
+/// <param name="Text">What to tell the player, a catalogue text without opcodes (<c>message</c> and <c>message_ref</c>).</param>
 /// <param name="CodeSha256">Identity of the code, when it decoded.</param>
 /// <param name="Provenance">
 /// When applied: published (the last index this machine read lists the code) or imported (unknown to any index,
 /// so every criterion must pass before it records). Null otherwise.
 /// </param>
 public sealed record SharedImportResult(
-    SharedImportOutcome Outcome, string? Reason, string Message, string? CodeSha256 = null, SharedCandidateProvenance? Provenance = null);
+    SharedImportOutcome Outcome, string? Reason, UserText Text, string? CodeSha256 = null, SharedCandidateProvenance? Provenance = null)
+{
+    /// <summary>What to tell the player, in Simplified Chinese.</summary>
+    public string Message => Text.Chinese;
+}
 
 /// <summary>What 立即检查 did.</summary>
 public enum SharedCheckOutcome

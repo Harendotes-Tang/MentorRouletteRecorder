@@ -504,7 +504,8 @@ void SpeechTests::controller_clearKeyAndRefusals()
     QCOMPARE(finished.size(), 1);
     QCOMPARE(finished.constFirst().constFirst().toBool(), false);
     QCOMPARE(fixture.speech.resultState(), QStringLiteral("error"));
-    QVERIFY2(fixture.speech.lastError().startsWith(QString::fromUtf8("保存没有成功：接口地址必须是 https://")),
+    // The Collector's sentence (speech.settings.endpoint_invalid), as the mock sends it.
+    QVERIFY2(fixture.speech.lastError().startsWith(QString::fromUtf8("保存没有成功：接口地址必须以 https://")),
              qPrintable(fixture.speech.lastError()));
     // Nothing was written.
     QCOMPARE(fixture.speech.openaiBaseUrl(), QStringLiteral("https://api.example.com/v1"));
@@ -539,11 +540,11 @@ void SpeechTests::controller_testReportsSuccessAndFailure()
     QVERIFY(failing.idle());
     QCOMPARE(failing.speech.resultState(), QStringLiteral("error"));
     QCOMPARE(failing.speech.lastError(),
-             QString::fromUtf8("测试没有成功（网络不可用），示例播报改用本机语音播放。"));
+             QString::fromUtf8("在线语音测试失败：暂时无法使用语音服务。"));
     QVERIFY(failing.player->played.isEmpty());
     QCOMPARE(toasts.size(), 1);
     QCOMPARE(toasts.constFirst().constFirst().toString(),
-             QString::fromUtf8("在线语音暂不可用（网络不可用），本次改用本机语音"));
+             QString::fromUtf8("在线语音暂不可用（暂时无法使用语音服务），将尝试用本机语音播报"));
 
     // Nobody listening: the test ends at once instead of spinning forever.
     ScriptedSpeechBackend backend;
@@ -586,7 +587,7 @@ void SpeechTests::controller_olderCollectorHidesOnlineSpeech()
     QCOMPARE(via.at(1).at(2).toString(), QStringLiteral("local"));
     QCOMPARE(backend.countOf(QStringLiteral("SynthesizeSpeech")), 0);
     QCOMPARE(toasts.size(), 1);
-    QVERIFY(toasts.constFirst().constFirst().toString().contains(QString::fromUtf8("采集器版本不支持")));
+    QVERIFY(toasts.constFirst().constFirst().toString().contains(QString::fromUtf8("当前后台服务版本不支持在线语音")));
 
     // A reconnect asks again. The shipping Collector refuses an unknown type
     // with ERR_BAD_REQUEST, which reads the same for this empty request.
@@ -657,16 +658,16 @@ void SpeechTests::controller_errorReasons_data()
 {
     QTest::addColumn<QString>("code");
     QTest::addColumn<QString>("reason");
-    QTest::newRow("not configured") << "ERR_SPEECH_NOT_CONFIGURED" << QString::fromUtf8("未配置");
+    QTest::newRow("not configured") << "ERR_SPEECH_NOT_CONFIGURED" << QString::fromUtf8("在线语音尚未配置好");
     QTest::newRow("auth") << "ERR_SPEECH_AUTH" << QString::fromUtf8("密钥无效");
-    QTest::newRow("quota") << "ERR_SPEECH_QUOTA" << QString::fromUtf8("额度用完");
-    QTest::newRow("network") << "ERR_SPEECH_NETWORK" << QString::fromUtf8("网络不可用");
-    QTest::newRow("timeout") << "ERR_SPEECH_TIMEOUT" << QString::fromUtf8("超时");
-    QTest::newRow("format") << "ERR_SPEECH_FORMAT" << QString::fromUtf8("返回的不是可播放的声音");
+    QTest::newRow("quota") << "ERR_SPEECH_QUOTA" << QString::fromUtf8("服务额度不足或请求过于频繁");
+    QTest::newRow("network") << "ERR_SPEECH_NETWORK" << QString::fromUtf8("暂时无法使用语音服务");
+    QTest::newRow("timeout") << "ERR_SPEECH_TIMEOUT" << QString::fromUtf8("等待语音服务超时");
+    QTest::newRow("format") << "ERR_SPEECH_FORMAT" << QString::fromUtf8("返回的声音无法播放");
     QTest::newRow("disabled") << "ERR_SPEECH_DISABLED" << QString::fromUtf8("在线语音已被禁用");
-    QTest::newRow("refused path") << "DESKTOP_AUDIO_REJECTED" << QString::fromUtf8("返回的不是可播放的声音");
-    QTest::newRow("older collector") << "ERR_UNKNOWN_MESSAGE" << QString::fromUtf8("采集器版本不支持");
-    QTest::newRow("anything else") << "ERR_INTERNAL" << QString::fromUtf8("采集器没有响应");
+    QTest::newRow("refused path") << "DESKTOP_AUDIO_REJECTED" << QString::fromUtf8("返回的声音无法播放");
+    QTest::newRow("older collector") << "ERR_UNKNOWN_MESSAGE" << QString::fromUtf8("当前后台服务版本不支持在线语音");
+    QTest::newRow("anything else") << "ERR_INTERNAL" << QString::fromUtf8("语音请求未完成");
 }
 
 void SpeechTests::controller_errorReasons()
@@ -675,7 +676,7 @@ void SpeechTests::controller_errorReasons()
     QFETCH(QString, reason);
     QCOMPARE(mr::SpeechController::errorReason(code), reason);
     QCOMPARE(mr::TtsService::fallbackToast(code),
-             QString::fromUtf8("在线语音暂不可用（%1），本次改用本机语音").arg(reason));
+             QString::fromUtf8("在线语音暂不可用（%1），将尝试用本机语音播报").arg(reason));
 }
 
 void SpeechTests::controller_syncsTheVoiceButNeverTheService()
@@ -878,8 +879,8 @@ void SpeechTests::routing_failureFallsBackWithOneToastPerCode()
     QCOMPARE(f.fallbacks, (QStringList{QStringLiteral("ERR_SPEECH_NETWORK"), QStringLiteral("ERR_SPEECH_NETWORK"),
                                        QStringLiteral("ERR_SPEECH_NETWORK"), QStringLiteral("ERR_SPEECH_AUTH"),
                                        QStringLiteral("ERR_SPEECH_AUTH")}));
-    QCOMPARE(f.toasts, (QStringList{QString::fromUtf8("在线语音暂不可用（网络不可用），本次改用本机语音"),
-                                    QString::fromUtf8("在线语音暂不可用（密钥无效），本次改用本机语音")}));
+    QCOMPARE(f.toasts, (QStringList{QString::fromUtf8("在线语音暂不可用（暂时无法使用语音服务），将尝试用本机语音播报"),
+                                    QString::fromUtf8("在线语音暂不可用（密钥无效），将尝试用本机语音播报")}));
     QVERIFY(f.player->played.isEmpty());
     // Each sentence was still asked for: a failure is not a switch-off.
     QCOMPARE(f.backend.countOf(QStringLiteral("SynthesizeSpeech")), 5);
@@ -919,7 +920,7 @@ void SpeechTests::routing_refusesFilesOutsideTheCache()
     QVERIFY(f.player->played.isEmpty());
     QCOMPARE(f.fallbacks.size(), refused.size());
     QCOMPARE(f.fallbacks.constFirst(), QStringLiteral("DESKTOP_AUDIO_REJECTED"));
-    QCOMPARE(f.toasts, QStringList{QString::fromUtf8("在线语音暂不可用（返回的不是可播放的声音），本次改用本机语音")});
+    QCOMPARE(f.toasts, QStringList{QString::fromUtf8("在线语音暂不可用（返回的声音无法播放），将尝试用本机语音播报")});
 
     // The same file named properly plays; without a database path nothing does.
     f.backend.script = {RoutingFixture::file(inCache)};
@@ -981,7 +982,7 @@ void SpeechTests::routing_timeoutFallsBackAndIgnoresTheLateAnswer()
     QCOMPARE(f.routes.at(0), route(QStringLiteral("slow"), QStringLiteral("local")));
     QCOMPARE(f.routes.at(1), route(QStringLiteral("next"), QStringLiteral("online")));
     QCOMPARE(f.fallbacks, QStringList{QStringLiteral("ERR_SPEECH_TIMEOUT")});
-    QCOMPARE(f.toasts, QStringList{QString::fromUtf8("在线语音暂不可用（超时），本次改用本机语音")});
+    QCOMPARE(f.toasts, QStringList{QString::fromUtf8("在线语音暂不可用（等待语音服务超时），将尝试用本机语音播报")});
     QTRY_COMPARE(f.tts.pendingOnlineCount(), 0);
 
     // The answer that finally arrives is for a sentence already spoken.
@@ -1079,7 +1080,7 @@ void SpeechTests::routing_mismatchedServiceIsNotSent()
     QCOMPARE(f.routes.constFirst(), route(QStringLiteral("other service"), QStringLiteral("local")));
     QCOMPARE(f.backend.countOf(QStringLiteral("SynthesizeSpeech")), 0);
     QCOMPARE(f.backend.countOf(QStringLiteral("UpdateSpeechSettings")), 0);
-    QCOMPARE(f.toasts, QStringList{QString::fromUtf8("在线语音暂不可用（未配置），本次改用本机语音")});
+    QCOMPARE(f.toasts, QStringList{QString::fromUtf8("在线语音暂不可用（在线语音尚未配置好），将尝试用本机语音播报")});
 
     // Before any settings arrived (no Collector), nothing is sent either.
     mr::AppSettings settings;
@@ -1163,7 +1164,7 @@ void SpeechTests::routing_tooLongSentenceStaysLocal()
     QTRY_COMPARE(f.routes.size(), 1);
     QVERIFY(f.routes.constFirst().endsWith(QStringLiteral("|local")));
     QCOMPARE(f.backend.countOf(QStringLiteral("SynthesizeSpeech")), 0);
-    QCOMPARE(f.toasts, QStringList{QString::fromUtf8("在线语音暂不可用（这句话超过 200 字），本次改用本机语音")});
+    QCOMPARE(f.toasts, QStringList{QString::fromUtf8("在线语音暂不可用（这句话超过 200 字），将尝试用本机语音播报")});
 
     // 200 characters are fine.
     f.backend.fallback = RoutingFixture::file(f.cache.wav(21));

@@ -318,7 +318,9 @@ QJsonObject MockBackend::calibrationStatus() const
     // voided draft asks nothing.
     const bool asks = ready;
 
-    const auto entryFor = [&start](const QString &kind, qint64 tMs, const QString &label,
+    // Labels are the Collector's own (CalibrationDraft.BuildEvents): the Chinese
+    // and the catalogue reference beside it (contracts/collector-texts.md).
+    const auto entryFor = [&start](const QString &kind, qint64 tMs, const CollectorSentence &label,
                                    bool requiresConfirmation, const QJsonValue &rouletteId,
                                    const QJsonValue &territoryId, const QJsonValue &dutyName) {
         QJsonObject entry;
@@ -326,7 +328,8 @@ QJsonObject MockBackend::calibrationStatus() const
         entry.insert(QStringLiteral("kind"), kind);
         entry.insert(QStringLiteral("at_utc"), isoUtc(start.addMSecs(tMs)));
         entry.insert(QStringLiteral("t_ms"), double(tMs));
-        entry.insert(QStringLiteral("label"), label);
+        entry.insert(QStringLiteral("label"), label.chinese);
+        entry.insert(QStringLiteral("label_ref"), label.ref);
         entry.insert(QStringLiteral("roulette_id"), rouletteId);
         entry.insert(QStringLiteral("territory_id"), territoryId);
         entry.insert(QStringLiteral("duty_name"), dutyName);
@@ -334,23 +337,27 @@ QJsonObject MockBackend::calibrationStatus() const
         return entry;
     };
 
+    const QVariantMap roulette{{QStringLiteral("roulette"), QString::fromUtf8("练级迷宫")}};
+    const QString duty = QString::fromUtf8("沙斯塔夏溶洞");
     QJsonArray events;
-    events.append(entryFor(QStringLiteral("login"), 0, QString::fromUtf8("登录进入游戏"),
+    events.append(entryFor(QStringLiteral("login"), 0, collectorSentence("calibration.event.login"),
                            false, QJsonValue::Null, QJsonValue::Null, QJsonValue::Null));
     events.append(entryFor(QStringLiteral("finder_request"), 60000,
-                           QString::fromUtf8("排本：练级迷宫"), asks, 1,
+                           collectorSentence("calibration.event.finder_request", roulette), asks, 1,
                            QJsonValue::Null, QJsonValue::Null));
     if (!observing) {
         events.append(entryFor(QStringLiteral("pop"), 120000,
-                               QString::fromUtf8("匹配弹窗：练级迷宫"),
+                               collectorSentence("calibration.event.pop", roulette),
                                asks, 1, QJsonValue::Null, QJsonValue::Null));
         events.append(entryFor(QStringLiteral("duty_enter"), 124000,
-                               QString::fromUtf8("进入副本：沙斯塔夏溶洞"),
-                               asks, QJsonValue::Null, 1036,
-                               QString::fromUtf8("沙斯塔夏溶洞")));
+                               collectorSentence("calibration.event.duty_enter_named",
+                                                 {{QStringLiteral("duty"), duty}}),
+                               asks, QJsonValue::Null, 1036, duty));
+        // Which entry the exit closes, as the Collector says it.
         events.append(entryFor(QStringLiteral("duty_exit"), 214000,
-                               QString::fromUtf8("离开副本"), asks,
-                               QJsonValue::Null, QJsonValue::Null, QJsonValue::Null));
+                               collectorSentence("calibration.event.duty_exit_for",
+                                                 {{QStringLiteral("entered"), isoUtc(start.addMSecs(124000))}}),
+                               asks, QJsonValue::Null, QJsonValue::Null, QJsonValue::Null));
     }
 
     QJsonObject progress;
@@ -364,18 +371,20 @@ QJsonObject MockBackend::calibrationStatus() const
     progress.insert(QStringLiteral("duty_entry_seen"), !observing);
     progress.insert(QStringLiteral("duty_exit_seen"), !observing);
 
+    // blocker_refs parallels blockers, entry for entry.
     QJsonArray blockers;
+    QJsonArray blockerRefs;
+    const auto block = [&blockers, &blockerRefs](const CollectorSentence &sentence) {
+        blockers.append(sentence.chinese);
+        blockerRefs.append(sentence.ref);
+    };
     if (blocked) {
-        blockers.append(QString::fromUtf8(
-            "这次更新改了报文的结构，"
-            "本机校准做不了，"
-            "需要维护者出一份新档案。"));
+        // A build whose duty messages this version cannot read (CalibrationDraft).
+        block(collectorSentence("calibration.blocker.duty_unsupported"));
     } else if (m_sharedState == QLatin1String("verified")) {
-        // The Collector's own sentence while a shared profile is still being watched.
-        blockers.append(QString::fromUtf8(
-            "正在用其他玩家分享的校准记录导随，这份校准已经在本机流量里核实过。"
-            "完整记录一次进本和出本之后校准就结束；在那之前软件会继续在后台核对，"
-            "对不上会自动撤下并改回本机校准。"));
+        // The Collector's own sentence while a shared profile is still being watched
+        // (CalibrationCoordinator, retaining).
+        block(collectorSentence("calibration.shared.retaining"));
     }
 
     QJsonObject calibration;
@@ -386,13 +395,17 @@ QJsonObject MockBackend::calibrationStatus() const
                                                    : QStringLiteral("DONE"));
     calibration.insert(QStringLiteral("game_build"), QStringLiteral("2026.09.01.0000.0000"));
     calibration.insert(QStringLiteral("template_profile_id"), QStringLiteral("cn.2026.08.05"));
+    // A proven shared profile ends calibration as DONE under its own id, as the Collector's
+    // MarkDone does; otherwise DONE is this machine's own calibration.
     calibration.insert(QStringLiteral("local_profile_id"),
-                       done ? QJsonValue(QStringLiteral("cn.2026.09.01.local"))
-                            : QJsonValue(QJsonValue::Null));
+                       !done ? QJsonValue(QJsonValue::Null)
+                       : sharedProfileBound() ? QJsonValue(QStringLiteral("cn.2026.09.01.0000.0000.shared"))
+                                              : QJsonValue(QStringLiteral("cn.2026.09.01.local")));
     calibration.insert(QStringLiteral("bound_at_utc"),
                        done ? QJsonValue(isoUtc(start.addMSecs(220000)))
                             : QJsonValue(QJsonValue::Null));
     calibration.insert(QStringLiteral("blockers"), blockers);
+    calibration.insert(QStringLiteral("blocker_refs"), blockerRefs);
     calibration.insert(QStringLiteral("progress"), progress);
     calibration.insert(QStringLiteral("events"), events);
     calibration.insert(QStringLiteral("retired_local_profile_available"),

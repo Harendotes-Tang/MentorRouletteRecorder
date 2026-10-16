@@ -1,8 +1,10 @@
 #include "CaptureValidationController.h"
 
+#include "CollectorText.h"
 #include "IBackend.h"
 
 #include <QSet>
+#include <QScopeGuard>
 
 namespace {
 
@@ -37,6 +39,8 @@ CaptureValidationController::CaptureValidationController(Host *host, QObject *pa
             refreshProfile();
         refreshStatusSnapshot();
     });
+    // Every label is built when it is read; error and feedback are recipes.
+    onLanguageChanged(this, [this] { Q_EMIT changed(); });
 }
 
 void CaptureValidationController::setBackend(IBackend *backend)
@@ -135,6 +139,23 @@ bool CaptureValidationController::actionEnabled() const
     if ((m_host && m_host->candidateValidationEnabled()) || effectiveProfileStatus() == kVerified)
         return true;
     return m_available;
+}
+
+bool CaptureValidationController::metadataActionEnabled() const
+{
+    if (!m_backend || !m_backend->isConnected() || m_commandBusy || state() == QLatin1String("STOPPING"))
+        return false;
+    if (active()) return true;
+    return m_statusLoaded && m_available && !(m_host && m_host->formalCapturing()
+        && (m_host->captureProfileStatus().isEmpty() || m_host->captureProfileStatus() == kVerified
+            || m_profile.value(QStringLiteral("status")).toString() == kVerified));
+}
+
+void CaptureValidationController::setMetadataOwned(bool owned)
+{
+    if (m_metadataOwned == owned) return;
+    m_metadataOwned = owned;
+    Q_EMIT metadataOwnershipChanged(owned);
 }
 
 QString CaptureValidationController::modeStatusText() const
@@ -248,6 +269,7 @@ void CaptureValidationController::reset()
     m_status = QJsonObject();
     m_profile = QJsonObject();
     m_statusInFlight = false;
+    m_statusRefreshQueued = false;
     m_profileInFlight = false;
     m_statusLoaded = false;
     m_available = false;
@@ -306,21 +328,30 @@ void CaptureValidationController::refreshProfile()
 
 void CaptureValidationController::refreshStatusSnapshot()
 {
-    if (!m_backend || !m_backend->isConnected() || m_statusInFlight)
+    if (!m_backend || !m_backend->isConnected()) return;
+    if (m_statusInFlight) {
+        m_statusRefreshQueued = true;
         return;
+    }
 
     m_statusInFlight = true;
+    m_statusRefreshQueued = false;
     const quint64 serial = ++m_statusSerial;
     const quint64 generation = m_generation;
 
     m_backend->getCaptureValidationStatus()->whenDone(
         this, [this, serial, generation](bool ok, const QVariantMap &payload,
                                          const QString &code, const QString &message) {
-            // Cleared before the guards: a stale reply that returns early would
-            // otherwise leave the in-flight flag set and stall every refresh.
-            m_statusInFlight = false;
             if (serial != m_statusSerial)
                 return;
+            m_statusInFlight = false;
+            // 命令使旧 GET 过期时，仍必须执行等待中的新代次读取；IDLE 没有轮询兜底。
+            const auto queuedRefresh = qScopeGuard([this] {
+                if (m_statusRefreshQueued) {
+                    m_statusRefreshQueued = false;
+                    QTimer::singleShot(0, this, &CaptureValidationController::refreshStatusSnapshot);
+                }
+            });
             if (!m_backend || !m_backend->isConnected())
                 return;
             if (generation != m_generation)
@@ -334,9 +365,11 @@ void CaptureValidationController::refreshStatusSnapshot()
                     m_status = QJsonObject();
                     clearRetry();
                     m_pollTimer.stop();
-                    m_error = message.isEmpty()
-                                  ? tr("当前 Collector 不支持桌面验证（%1）。").arg(code)
-                                  : tr("当前 Collector 不支持桌面验证：%1").arg(message);
+                    m_error = [code, message] {
+                        return message.isEmpty()
+                                   ? tr("当前 Collector 不支持桌面验证（%1）。").arg(code)
+                                   : tr("当前 Collector 不支持桌面验证：%1").arg(message);
+                    };
                 } else {
                     // A timeout or transport error is not evidence that a newer
                     // Collector forgot the message. Keep the last canonical
@@ -344,13 +377,15 @@ void CaptureValidationController::refreshStatusSnapshot()
                     // uncertainty visible and retry with backoff.
                     ++m_retryCount;
                     scheduleRetry();
-                    m_error = m_retriesExhausted
-                                  ? tr("验证状态多次刷新失败（%1），已停止自动重试；"
-                                       "可点击“重新扫描 FF14”再试一次。")
-                                        .arg(code)
-                                  : (message.isEmpty()
-                                         ? tr("验证状态刷新失败（%1），将自动重试。").arg(code)
-                                         : tr("验证状态刷新失败：%1，将自动重试。").arg(message));
+                    m_error = [exhausted = m_retriesExhausted, code, message] {
+                        return exhausted
+                                   ? tr("验证状态多次刷新失败（%1），已停止自动重试；"
+                                        "可点击“重新扫描 FF14”再试一次。")
+                                         .arg(code)
+                                   : (message.isEmpty()
+                                          ? tr("验证状态刷新失败（%1），将自动重试。").arg(code)
+                                          : tr("验证状态刷新失败：%1，将自动重试。").arg(message));
+                    };
                 }
                 Q_EMIT changed();
                 return;
@@ -364,6 +399,9 @@ void CaptureValidationController::applyStatus(const QVariantMap &payload, bool c
     m_status = QJsonObject::fromVariantMap(payload);
     m_statusLoaded = true;
     m_available = true;
+    // 未知/缺字段不代表已结束；停止排空及断线重连确认期间仍归玩家所有。
+    if (m_metadataOwned && !m_commandBusy && payload.contains(QStringLiteral("active"))
+        && !payload.value(QStringLiteral("active")).toBool()) setMetadataOwned(false);
     if (clearError || m_errorFromStatus)
         m_error.clear();
     m_errorFromStatus = false;
@@ -386,14 +424,14 @@ void CaptureValidationController::applyStatus(const QVariantMap &payload, bool c
     Q_EMIT changed();
 }
 
-void CaptureValidationController::setFailure(const QString &code, const QString &message)
+void CaptureValidationController::setFailure(const QString &code, const LiveText &message)
 {
     m_errorFromStatus = false;
-    m_error = message.isEmpty() ? code : message;
+    m_error = message.isEmpty() ? LiveText::verbatim(code) : message;
     m_feedback.clear();
     if (m_host)
-        m_host->showToast(m_error);
-    Q_EMIT mutationFailed(code, message);
+        m_host->showToast(m_error.text());
+    Q_EMIT mutationFailed(code, message.text());
     Q_EMIT changed();
 }
 
@@ -417,8 +455,10 @@ void CaptureValidationController::toggle()
 
     if (m_host && m_host->formalCapturing()) {
         const quint64 generation = ++m_generation;
-        m_backend->stopCapture()->whenDone(
-            this, [this, generation](bool ok, const QVariantMap &payload,
+        BackendReply *reply = m_backend->stopCapture();
+        const QPointer<BackendReply> guard(reply);
+        reply->whenDone(
+            this, [this, guard, generation](bool ok, const QVariantMap &payload,
                                      const QString &code, const QString &message) {
                 m_commandBusy = false;
                 if (generation != m_generation) {
@@ -426,7 +466,7 @@ void CaptureValidationController::toggle()
                     return;
                 }
                 if (!ok) {
-                    setFailure(code, message);
+                    setFailure(code, collector_text::replyErrorText(guard, message));
                     return;
                 }
                 if (m_host) {
@@ -446,15 +486,34 @@ void CaptureValidationController::toggle()
     startValidation();
 }
 
-void CaptureValidationController::startValidation()
+void CaptureValidationController::toggleMetadataObservation()
+{
+    if (!metadataActionEnabled()) return;
+    setMetadataOwned(true);
+    m_commandBusy = true;
+    m_error.clear();
+    Q_EMIT changed();
+    if (active()) {
+        stopValidation();
+    } else {
+        // 由采集器在同一生命周期锁内暂停未知模板监听并取得验证所有权，避免 FollowGame 抢占间隙。
+        startValidation(m_host && m_host->formalCapturing());
+    }
+}
+
+void CaptureValidationController::startValidation(bool switchFromUnsupported)
 {
     ++m_generation;
     m_error.clear();
     m_feedback.clear();
     const quint64 generation = m_generation;
 
-    m_backend->startCaptureValidation(m_adapterId)
-        ->whenDone(this, [this, generation](bool ok, const QVariantMap &payload,
+    QJsonObject payload;
+    if (!m_adapterId.isEmpty()) payload.insert(QStringLiteral("adapter_id"), m_adapterId);
+    if (switchFromUnsupported) payload.insert(QStringLiteral("switch_from_unsupported"), true);
+    BackendReply *reply = m_backend->request(QStringLiteral("StartCaptureValidation"), payload);
+    const QPointer<BackendReply> guard(reply);
+    reply->whenDone(this, [this, guard, generation](bool ok, const QVariantMap &payload,
                                             const QString &code, const QString &message) {
             m_commandBusy = false;
             if (generation != m_generation) {
@@ -462,7 +521,8 @@ void CaptureValidationController::startValidation()
                 return;
             }
             if (!ok) {
-                setFailure(code, message);
+                setFailure(code, collector_text::replyErrorText(guard, message));
+                if (m_metadataOwned) refreshStatusSnapshot();
                 return;
             }
             applyStatus(payload);
@@ -475,8 +535,9 @@ void CaptureValidationController::stopValidation()
     m_feedback.clear();
     const quint64 generation = m_generation;
 
-    m_backend->stopCaptureValidation()
-        ->whenDone(this, [this, generation](bool ok, const QVariantMap &payload,
+    BackendReply *reply = m_backend->stopCaptureValidation();
+    const QPointer<BackendReply> guard(reply);
+    reply->whenDone(this, [this, guard, generation](bool ok, const QVariantMap &payload,
                                             const QString &code, const QString &message) {
             m_commandBusy = false;
             if (generation != m_generation) {
@@ -484,7 +545,7 @@ void CaptureValidationController::stopValidation()
                 return;
             }
             if (!ok) {
-                setFailure(code, message);
+                setFailure(code, collector_text::replyErrorText(guard, message));
                 return;
             }
             applyStatus(payload);
@@ -495,8 +556,9 @@ void CaptureValidationController::startFormalCapture()
 {
     const quint64 generation = m_generation;
 
-    m_backend->startCapture(m_adapterId)
-        ->whenDone(this, [this, generation](bool ok, const QVariantMap &payload,
+    BackendReply *reply = m_backend->startCapture(m_adapterId);
+    const QPointer<BackendReply> guard(reply);
+    reply->whenDone(this, [this, guard, generation](bool ok, const QVariantMap &payload,
                                             const QString &code, const QString &message) {
             if (generation != m_generation) {
                 m_commandBusy = false;
@@ -505,7 +567,7 @@ void CaptureValidationController::startFormalCapture()
             }
             m_commandBusy = false;
             if (!ok) {
-                setFailure(code, message);
+                setFailure(code, collector_text::replyErrorText(guard, message));
                 return;
             }
             if (m_host) {
@@ -526,7 +588,7 @@ void CaptureValidationController::addMarker(const QString &marker)
                                        QStringLiteral("left")};
     if (!allowed.contains(marker) || !recording()) {
         setFailure(QStringLiteral("ERR_BAD_REQUEST"),
-                   tr("只能在验证取证中添加五种固定标记。"));
+                   [] { return tr("只能在验证取证中添加五种固定标记。"); });
         return;
     }
     if (!m_backend || !m_backend->isConnected() || m_markerBusy || m_commandBusy)
@@ -539,8 +601,9 @@ void CaptureValidationController::addMarker(const QString &marker)
     const quint64 markerSerial = ++m_markerSerial;
     Q_EMIT changed();
 
-    m_backend->addCaptureValidationMarker(marker)
-        ->whenDone(this, [this, generation, markerSerial](
+    BackendReply *reply = m_backend->addCaptureValidationMarker(marker);
+    const QPointer<BackendReply> guard(reply);
+    reply->whenDone(this, [this, guard, generation, markerSerial](
                              bool ok, const QVariantMap &payload, const QString &code,
                              const QString &message) {
             if (markerSerial != m_markerSerial)
@@ -551,10 +614,10 @@ void CaptureValidationController::addMarker(const QString &marker)
                 return;
             }
             if (!ok) {
-                setFailure(code, message);
+                setFailure(code, collector_text::replyErrorText(guard, message));
                 return;
             }
-            m_feedback = tr("标记已接收");
+            m_feedback = [] { return tr("标记已接收"); };
             applyStatus(payload);
         });
 }

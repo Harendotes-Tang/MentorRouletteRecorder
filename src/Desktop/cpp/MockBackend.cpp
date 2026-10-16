@@ -1,5 +1,6 @@
 #include "MockBackend.h"
 
+#include "CollectorText.h"
 #include "IpcFraming.h"
 #include "JobCatalog.h"
 #include "DutyCatalog.h"
@@ -1041,13 +1042,13 @@ QJsonObject MockBackend::captureStatus() const
     // recovers on its own. The Collector says so; the desktop only repeats it.
     status.insert(QStringLiteral("midstream_suspected"),
                   running && m_midstreamSuspected);
-    status.insert(QStringLiteral("hint"),
-                  running && m_midstreamSuspected
-                      ? QJsonValue(QString::fromUtf8(
-                            "当前连接缺少可用的解码上下文，"
-                            "本次登录不会有记录。请登出到标题画面再重新登录一次（不用关闭游戏），"
-                            "之后会自动恢复。"))
-                      : QJsonValue(QJsonValue::Null));
+    const CollectorSentence midstream = collectorSentence("capture.hint.midstream");
+    status.insert(QStringLiteral("hint"), running && m_midstreamSuspected
+                                              ? QJsonValue(midstream.chinese)
+                                              : QJsonValue(QJsonValue::Null));
+    status.insert(QStringLiteral("hint_ref"), running && m_midstreamSuspected
+                                                  ? QJsonValue(midstream.ref)
+                                                  : QJsonValue(QJsonValue::Null));
 
     status.insert(QStringLiteral("recent_parser_errors"),
                   candidateEnabled ? QJsonArray() : recentParserErrors());
@@ -1301,31 +1302,35 @@ QJsonObject MockBackend::captureValidationStatus() const
                           || state == QLatin1String("COMPLETED");
     const bool completed = state == QLatin1String("COMPLETED");
     const bool failed = state == QLatin1String("FAILED");
+    // The Collector's sentence for each state (CaptureValidationService), with its
+    // catalogue reference beside it.
     QString reason = state;
-    QString message = QString::fromUtf8("尚未开始验证。");
+    const char *messageKey = "capture.validation.idle";
     if (state == QLatin1String("WAITING")) {
         reason = QStringLiteral("WAITING_RESTART");
-        message = QString::fromUtf8("检测到既有连接；请重启游戏，本次会话会继续等待。");
+        messageKey = "capture.validation.waiting_restart_connected";
     } else if (state == QLatin1String("RECORDING")) {
         reason = QStringLiteral("RECORDING");
-        message = QString::fromUtf8("正在保存脱敏验证取证，不会自动记录导随。");
+        messageKey = "capture.validation.recording";
     } else if (state == QLatin1String("STOPPING")) {
         reason = QStringLiteral("STOPPING");
-        message = QString::fromUtf8("正在停止源并排空已接收标记。");
+        messageKey = "capture.validation.stopping";
     } else if (completed) {
         reason = QStringLiteral("COMPLETED");
-        message = QString::fromUtf8("模拟取图状态：文件已关闭并生成 SHA256。");
+        messageKey = "capture.validation.completed";
     } else if (failed) {
         reason = QStringLiteral("FAILED");
-        message = QString::fromUtf8("模拟写入失败；不得显示为保存成功。");
+        messageKey = "capture.validation.failed";
     }
+    const CollectorSentence message = collectorSentence(messageKey);
 
     const QJsonValue nullValue(QJsonValue::Null);
     return QJsonObject{
         {QStringLiteral("state"), state},
         {QStringLiteral("active"), active},
         {QStringLiteral("reason"), reason},
-        {QStringLiteral("message"), message},
+        {QStringLiteral("message"), message.chinese},
+        {QStringLiteral("message_ref"), message.ref},
         {QStringLiteral("session_id"), state == QLatin1String("IDLE")
                                                ? nullValue
                                                : QJsonValue(QStringLiteral("mock-validation-session"))},
@@ -1403,6 +1408,7 @@ QJsonObject MockBackend::collectorStatus() const
     status.insert(QStringLiteral("capture"), captureStatus());
     // GetStatus.npcap exactly as CaptureWire.StatusExtras reports it, so the
     // 链路 panel's Npcap column reads the same fields offline as live.
+    const CollectorSentence npcapGuidance = collectorSentence("capture.npcap.not_installed");
     status.insert(QStringLiteral("npcap"), QJsonObject{
         {QStringLiteral("status"), m_npcapMissing ? QStringLiteral("NOT_INSTALLED")
                                                   : QStringLiteral("READY")},
@@ -1413,8 +1419,9 @@ QJsonObject MockBackend::collectorStatus() const
         {QStringLiteral("admin_only"), false},
         {QStringLiteral("process_elevated"), false},
         {QStringLiteral("install_hint"),
-         m_npcapMissing ? QJsonValue(QString::fromUtf8("本软件不附带 Npcap，请从 npcap.com 自行安装。"))
-                        : QJsonValue(QJsonValue::Null)}});
+         m_npcapMissing ? QJsonValue(npcapGuidance.chinese) : QJsonValue(QJsonValue::Null)},
+        {QStringLiteral("install_hint_ref"),
+         m_npcapMissing ? QJsonValue(npcapGuidance.ref) : QJsonValue(QJsonValue::Null)}});
 
     // GetStatus.update as the Collector reports it. The check itself is the
     // Collector's; this backend never fetches anything, so the verdict is
@@ -1445,11 +1452,18 @@ QJsonObject MockBackend::collectorStatus() const
         status.insert(QStringLiteral("update"), update);
     }
 
+    // warning_refs parallels warnings; the mock's own line has no catalogue entry.
     QJsonArray warnings;
+    QJsonArray warningRefs;
     warnings.append(QString::fromUtf8("这是 Phase 1 的模拟后端，数据不是真实记录。"));
-    if (m_npcapMissing)
-        warnings.append(QString::fromUtf8("未检测到 Npcap，自动记录已停用。"));
+    warningRefs.append(QJsonValue(QJsonValue::Null));
+    if (m_npcapMissing) {
+        // What the Collector warns with while Npcap is not ready (npcap.Guidance).
+        warnings.append(npcapGuidance.chinese);
+        warningRefs.append(npcapGuidance.ref);
+    }
     status.insert(QStringLiteral("warnings"), warnings);
+    status.insert(QStringLiteral("warning_refs"), warningRefs);
     return status;
 }
 
@@ -2007,6 +2021,25 @@ QJsonObject MockBackend::reflectionSummary(int recentLimit) const
 // Dispatch
 // ---------------------------------------------------------------------------
 
+MockBackend::CollectorSentence MockBackend::collectorSentence(const char *key, const QVariantMap &args)
+{
+    // A key the catalogue does not have would send an empty sentence.
+    Q_ASSERT_X(collector_text::knows(QString::fromUtf8(key)), "MockBackend", key);
+    const QVariantMap ref = collector_text::textRef(key, args);
+    return {collector_text::chinese(ref), QJsonObject::fromVariantMap(ref)};
+}
+
+QJsonObject MockBackend::refuseWith(QString *errorCode, QString *errorMessage, const QString &code,
+                                    const char *key, const QVariantMap &args)
+{
+    const CollectorSentence sentence = collectorSentence(key, args);
+    *errorCode = code;
+    *errorMessage = sentence.chinese;
+    m_errorRef = sentence.ref;
+    m_errorRefMessage = sentence.chinese;
+    return {};
+}
+
 BackendReply *MockBackend::request(const QString &messageType, const QJsonObject &payload)
 {
     auto *reply = new BackendReply(ipc::newRequestId(), messageType, this);
@@ -2061,11 +2094,11 @@ BackendReply *MockBackend::request(const QString &messageType, const QJsonObject
         result.insert(QStringLiteral("npcap_version"),
                       m_npcapMissing ? QJsonValue(QJsonValue::Null)
                                      : QJsonValue(QStringLiteral("1.79")));
+        const CollectorSentence guidance = collectorSentence("capture.npcap.not_installed");
         result.insert(QStringLiteral("install_hint"),
-                      m_npcapMissing
-                          ? QJsonValue(QString::fromUtf8(
-                                "本软件不附带 Npcap，请从 npcap.com 自行安装。"))
-                          : QJsonValue(QJsonValue::Null));
+                      m_npcapMissing ? QJsonValue(guidance.chinese) : QJsonValue(QJsonValue::Null));
+        result.insert(QStringLiteral("install_hint_ref"),
+                      m_npcapMissing ? QJsonValue(guidance.ref) : QJsonValue(QJsonValue::Null));
         result.insert(QStringLiteral("adapters"),
                       m_npcapMissing ? QJsonArray() : QJsonArray{adapter});
     } else if (messageType == QLatin1String("SelectGameProcess")) {
@@ -2077,8 +2110,8 @@ BackendReply *MockBackend::request(const QString &messageType, const QJsonObject
                 found = true;
         }
         if (!found) {
-            errorCode = QStringLiteral("ERR_FFXIV_NOT_RUNNING");
-            errorMessage = QString::fromUtf8("所选游戏已退出，请重新选择。");
+            refuseWith(&errorCode, &errorMessage, QStringLiteral("ERR_FFXIV_NOT_RUNNING"),
+                       "capture.select.game_exited");
         } else {
             m_selectedGameProcessId = payload.value(QStringLiteral("process_id")).toInt();
             result = captureStatus();
@@ -2088,8 +2121,8 @@ BackendReply *MockBackend::request(const QString &messageType, const QJsonObject
             errorCode = QStringLiteral("ERR_NPCAP_MISSING");
             errorMessage = QString::fromUtf8("未检测到 Npcap，无法开始捕获。");
         } else if (m_capturing) {
-            errorCode = QStringLiteral("ERR_CAPTURE_ALREADY_RUNNING");
-            errorMessage = QString::fromUtf8("捕获已在运行。");
+            refuseWith(&errorCode, &errorMessage, QStringLiteral("ERR_CAPTURE_ALREADY_RUNNING"),
+                       "capture.start.already_running");
         } else {
             m_capturing = true;
             result = captureStatus();
@@ -2103,8 +2136,8 @@ BackendReply *MockBackend::request(const QString &messageType, const QJsonObject
         }
     } else if (messageType == QLatin1String("StopCapture")) {
         if (!m_capturing) {
-            errorCode = QStringLiteral("ERR_CAPTURE_NOT_RUNNING");
-            errorMessage = QString::fromUtf8("捕获并未运行。");
+            refuseWith(&errorCode, &errorMessage, QStringLiteral("ERR_CAPTURE_NOT_RUNNING"),
+                       "capture.stop.not_running");
         } else {
             m_capturing = false;
             result = captureStatus();
@@ -2133,8 +2166,8 @@ BackendReply *MockBackend::request(const QString &messageType, const QJsonObject
         }
     } else if (messageType == QLatin1String("AddCaptureValidationMarker")) {
         if (m_validationState != QLatin1String("RECORDING")) {
-            errorCode = QStringLiteral("ERR_BAD_REQUEST");
-            errorMessage = QString::fromUtf8("只能在 RECORDING 状态添加标记。");
+            refuseWith(&errorCode, &errorMessage, QStringLiteral("ERR_BAD_REQUEST"),
+                       "capture.validation.marker_not_recording");
         } else {
             m_lastValidationMarker = payload.value(QStringLiteral("marker")).toString();
             ++m_validationMarkerCount;
@@ -2155,8 +2188,8 @@ BackendReply *MockBackend::request(const QString &messageType, const QJsonObject
             // The rollback: the retired file goes back and records again, so the fixture
             // returns to "a local profile is in force and nothing is being calibrated".
             if (!m_retiredLocalProfileAvailable) {
-                errorCode = QStringLiteral("ERR_CALIBRATION_NOT_READY");
-                errorMessage = QString::fromUtf8("没有可以恢复的本机校准。");
+                refuseWith(&errorCode, &errorMessage, QStringLiteral("ERR_CALIBRATION_NOT_READY"),
+                           "calibration.restore.nothing");
             } else {
                 m_retiredLocalProfileAvailable = false;
                 m_calibrationState = QStringLiteral("idle");
@@ -2201,7 +2234,7 @@ BackendReply *MockBackend::request(const QString &messageType, const QJsonObject
             QStringLiteral("date_field"), QStringLiteral("content_id"), QStringLiteral("duty_category"),
             QStringLiteral("job_id"), QStringLiteral("result"), QStringLiteral("source"),
             QStringLiteral("corrected_only"), QStringLiteral("include_deleted"), QStringLiteral("deleted_only"),
-            QStringLiteral("with_reflection"), QStringLiteral("pending_review"), QStringLiteral("text"),
+            QStringLiteral("with_reflection"), QStringLiteral("pending_review"), QStringLiteral("text"), QStringLiteral("name_text"),
             QStringLiteral("run_id"), QStringLiteral("history_from_day"), QStringLiteral("history_to_day")};
         const QJsonObject filter = payload.value(QStringLiteral("filter")).toObject();
         for (auto it = filter.constBegin(); it != filter.constEnd(); ++it)
@@ -2433,10 +2466,16 @@ BackendReply *MockBackend::request(const QString &messageType, const QJsonObject
     // asynchronous behaviour as the real IPC backend - or later, when a test
     // asked for this type's answer to be held back (setReplyDelay).
     const bool failed = !errorCode.isEmpty();
+    // A refusal refuseWith() wrote carries its catalogue reference, as the
+    // Collector's ErrorPayload does (message_ref).
+    const QJsonObject errorRef =
+        failed && !m_errorRef.isEmpty() && errorMessage == m_errorRefMessage ? m_errorRef : QJsonObject();
+    m_errorRef = {};
+    m_errorRefMessage.clear();
     const int delay = m_replyDelays.value(messageType, m_replyDelays.value(QString(), 0));
-    QTimer::singleShot(delay, reply, [reply, failed, result, errorCode, errorMessage, errorDetails] {
+    QTimer::singleShot(delay, reply, [reply, failed, result, errorCode, errorMessage, errorDetails, errorRef] {
         if (failed)
-            reply->fail(errorCode, errorMessage, errorDetails);
+            reply->fail(errorCode, errorMessage, errorDetails, errorRef);
         else
             reply->succeed(result);
     });

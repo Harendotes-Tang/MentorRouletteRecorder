@@ -43,7 +43,7 @@
         "QueryCandidateObservations", "ReviewCandidateObservation", "ExportCandidateEvidence",
         "ConfirmCalibration", "DiscardCalibration",
         "GetCalibrationShareCode", "CheckSharedCalibration", "ImportCalibrationCode", "AcceptSharedQueueInference",
-        "RejectSharedCalibration",
+        "RejectSharedCalibration", "GetCalibrationEvidence", "GetTemplateObservation",
         "GetSpeechSettings", "UpdateSpeechSettings", "SynthesizeSpeech", "CheckDatabaseIntegrity",
         "CheckUpdateNow", "StartUpdateDownload", "CancelUpdateDownload",
         "Event", "Error"
@@ -171,10 +171,42 @@
           ]
         },
         "message": { "type": "string", "description": "Human-readable, zh-Hans by default." },
+        "message_ref": {
+          "$ref": "#/$defs/TextRef",
+          "description": "The same sentence as message, as a key of contracts/collector-texts.json with its arguments, for the Desktop to render in the interface language (contracts/collector-texts.md). Optional: a Collector before 2026-10-15 does not send it, and an error worded outside the catalogue (an operating-system message) has none; the Desktop then shows message."
+        },
         "details": { "type": "object", "description": "Structured, non-sensitive context. Never contains raw packet payloads." },
         "field": { "type": ["string", "null"], "description": "Offending field path for ERR_BAD_REQUEST." },
         "retryable": { "type": "boolean", "default": false }
       }
+    },
+
+    "TextRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key"],
+      "description": "A player-facing sentence of the Collector by reference: a key of contracts/collector-texts.json and the values of its {placeholders} (contracts/collector-texts.md). It always travels next to the same sentence in Simplified Chinese, in the field it accompanies; a Desktop that does not know the key, or cannot read an argument, shows that Chinese.",
+      "properties": {
+        "key": { "type": "string", "maxLength": 96, "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$" },
+        "args": {
+          "type": "object",
+          "maxProperties": 8,
+          "propertyNames": { "pattern": "^[a-z][a-z0-9_]*$" },
+          "description": "One value per placeholder, by name. The catalogue declares each one's kind: number (integer), text, duty / job / roulette (the Chinese client's name), clock (UtcTimestamp, shown as local HH:mm) or text_ref (a nested TextRef). Absent when the sentence has no placeholder.",
+          "additionalProperties": {
+            "oneOf": [
+              { "type": "integer" },
+              { "type": "string", "maxLength": 4000 },
+              { "$ref": "#/$defs/TextRef" }
+            ]
+          }
+        }
+      }
+    },
+    "TextRefList": {
+      "type": "array",
+      "description": "TextRefs parallel to a list of Chinese sentences: entry i is the reference of sentence i, or null when that sentence has none. The Desktop ignores a list whose length differs from the Chinese one.",
+      "items": { "oneOf": [{ "$ref": "#/$defs/TextRef" }, { "type": "null" }] }
     },
 
     "//domain": "======================= domain objects =======================",
@@ -284,6 +316,8 @@
             "run": { "oneOf": [{ "$ref": "#/$defs/Run" }, { "type": "null" }] },
             "errors": { "type": "array", "items": { "type": "string" } },
             "warnings": { "type": "array", "items": { "type": "string" } },
+            "error_refs": { "$ref": "#/$defs/TextRefList", "description": "errors as catalogue references (contracts/collector-texts.md). Optional: a Collector before 2026-10-15 does not send it." },
+            "warning_refs": { "$ref": "#/$defs/TextRefList", "description": "warnings as catalogue references. Optional: a Collector before 2026-10-15 does not send it." },
             "matching_run_id": { "oneOf": [{ "$ref": "#/$defs/Uuid" }, { "type": "null" }] }
           }
         } },
@@ -409,7 +443,7 @@
 
     "RunFilter": {
       "type": "object", "additionalProperties": false,
-      "description": "All fields optional; omitted fields do not constrain the query. Array fields are OR within the field and AND across fields.",
+      "description": "All fields optional; omitted fields do not constrain the query. Array fields are OR within the field and AND across fields. text and name_text are OR with each other and AND with all other fields.",
       "properties": {
         "history_from_day": { "type": "string", "format": "date", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
         "history_to_day": { "type": "string", "format": "date", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
@@ -432,7 +466,8 @@
         "deleted_only": { "type": "boolean", "default": false, "description": "Only soft-deleted runs in listings and filtered exports; takes precedence over include_deleted. Ignored by statistics, which always exclude deleted runs." },
         "with_reflection": { "type": "boolean", "default": false, "description": "Only runs that have a reflection." },
         "pending_review": { "type": "boolean", "description": "true keeps only runs still flagged for review, false keeps only runs that are not. Omitted means no constraint; there is deliberately no default, because 'not asked for' and 'asked for false' are different queries." },
-        "text": { "type": "string", "maxLength": 200, "description": "Case-insensitive substring match over duty_name, job_name and note." }
+        "text": { "type": "string", "maxLength": 200, "description": "Case-insensitive substring match over duty_name, job_name and note." },
+        "name_text": { "type": ["string", "null"], "maxLength": 200, "description": "Optional literal substring over duty_name and job_name only, OR with text. Null or blank adds no condition." }
       }
     },
 
@@ -691,6 +726,10 @@
           "type": ["string", "null"],
           "description": "One actionable zh-Hans sentence for the user about the current capture state, or null when there is nothing to say. Never contains a path, an address or a packet byte."
         },
+        "hint_ref": {
+          "oneOf": [{ "$ref": "#/$defs/TextRef" }, { "type": "null" }],
+          "description": "hint as a catalogue reference (contracts/collector-texts.md); null exactly when hint is. Optional: a Collector before 2026-10-15 does not send it."
+        },
         "oodle_signature_source": {
           "type": ["string", "null"],
           "enum": ["builtin", "profile", "pattern-fallback", null],
@@ -741,6 +780,7 @@
         "uptime_ms": { "$ref": "#/$defs/DurationMs" },
         "capture": { "$ref": "#/$defs/CaptureStatus" },
         "warnings": { "type": "array", "items": { "type": "string" } },
+        "warning_refs": { "$ref": "#/$defs/TextRefList", "description": "warnings as catalogue references (contracts/collector-texts.md). Optional: a Collector before 2026-10-15 does not send it." },
 
         "game": {
           "type": "object",
@@ -750,7 +790,7 @@
         "npcap": {
           "type": "object",
           "additionalProperties": true,
-          "description": "Npcap facts: status, installed, version, winpcap_compatible, admin_only, process_elevated, install_hint."
+          "description": "Npcap facts: status, installed, version, winpcap_compatible, admin_only, process_elevated, install_hint, and install_hint_ref (the hint as a $defs/TextRef, null when the hint is; a Collector before 2026-10-15 does not send it)."
         },
         "oodle_mode": {
           "type": "string",
@@ -785,7 +825,8 @@
         "file_path": { "type": "string", "description": "READY only: absolute path of the verified installer, inside the Collector's data directory (updates/MentorRecorder-<version>-setup.exe)." },
         "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$", "description": "READY only: SHA-256 of the file at file_path, equal to the published one. The Desktop compares the file with it once more before starting it." },
         "failure": { "type": "string", "description": "FAILED only. NO_UPDATE (no newer version is known), DISABLED (update check turned off or the kill switch), HOST_REFUSED, REDIRECT_REFUSED, NOT_FOUND, RATE_LIMITED, HTTP_STATUS, TOO_LARGE, TIMEOUT, DNS_OR_CONNECT, TLS_FAILED, TRANSPORT_FAILED, CHECKSUM_UNAVAILABLE (the published SHA-256 could not be read), CHECKSUM_MISMATCH, DISK_FAILED. Not an enum: a build may learn new ones." },
-        "message": { "type": "string", "description": "FAILED only: a sentence for the user saying what went wrong and what they can do." }
+        "message": { "type": "string", "description": "FAILED only: a sentence for the user saying what went wrong and what they can do." },
+        "message_ref": { "$ref": "#/$defs/TextRef", "description": "FAILED only: message as a catalogue reference (contracts/collector-texts.md). Optional: a Collector before 2026-10-15 does not send it." }
       }
     },
     "UpdateStatus": {
@@ -817,7 +858,8 @@
         "game_build": { "type": ["string", "null"] },
         "verified_at_utc": { "$ref": "#/$defs/NullableUtcTimestamp" },
         "evidence_note": { "type": ["string", "null"], "description": "How the profile was verified. A profile without evidence is never marked VERIFIED." },
-        "message": { "type": ["string", "null"] }
+        "message": { "type": ["string", "null"] },
+        "message_ref": { "oneOf": [{ "$ref": "#/$defs/TextRef" }, { "type": "null" }], "description": "message as a catalogue reference (contracts/collector-texts.md); null when message is or was worded outside the catalogue. Optional: a Collector before 2026-10-15 does not send it." }
       }
     },
 
@@ -864,6 +906,30 @@
 
     "//binding": "======================= per-message payload binding =======================",
 
+    "CalibrationEvidenceRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "code_sha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "CalibrationEvidenceResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["available", "kind", "evidence_json", "issue_url", "evidence_in_url", "reason"],
+      "properties": {
+        "available": { "type": "boolean" },
+        "kind": { "enum": ["CODE_VERIFICATION", "TEMPLATE_OBSERVATION"] },
+        "evidence_json": { "type": ["string", "null"], "maxLength": 49152, "description": "Exact whitelist JSON conforming to calibration-evidence-v1.schema.json; runtime also caps UTF-8 bytes at 48 KiB. Never a trace or arbitrary internal object." },
+        "issue_url": { "type": ["string", "null"], "maxLength": 7500, "description": "Fixed GitHub owner/repository Issue form. Only template and optional complete evidence prefill query; overlong prefill is omitted, never truncated." },
+        "evidence_in_url": { "type": "boolean" },
+        "reason": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{0,63}$" }
+      },
+      "allOf": [
+        { "if": { "properties": { "available": { "const": false } } }, "then": { "properties": { "evidence_json": { "type": "null" }, "issue_url": { "type": "null" }, "evidence_in_url": { "const": false } } } },
+        { "if": { "properties": { "available": { "const": true } } }, "then": { "properties": { "evidence_json": { "type": "string", "minLength": 2 }, "issue_url": { "type": "string", "minLength": 1 } } } }
+      ]
+    },
     "RequestPayloadBinding": {
       "description": "Binds message_type to its request payload schema. Response payload schemas are listed in $defs/Responses.",
       "allOf": [
@@ -881,6 +947,8 @@
         { "if": { "properties": { "message_type": { "const": "DiscardCalibration" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/DiscardCalibrationRequest" } } } },
         { "if": { "properties": { "message_type": { "enum": ["GetCalibrationShareCode", "CheckSharedCalibration", "AcceptSharedQueueInference", "RejectSharedCalibration"] } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/EmptyPayload" } } } },
         { "if": { "properties": { "message_type": { "const": "ImportCalibrationCode" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/ImportCalibrationCodeRequest" } } } },
+        { "if": { "properties": { "message_type": { "const": "GetCalibrationEvidence" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/CalibrationEvidenceRequest" } } } },
+        { "if": { "properties": { "message_type": { "const": "GetTemplateObservation" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/EmptyPayload" } } } },
         { "if": { "properties": { "message_type": { "const": "StartCaptureValidation" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/StartCaptureValidationRequest" } } } },
         { "if": { "properties": { "message_type": { "enum": ["GetCaptureValidationStatus", "StopCaptureValidation"] } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/EmptyPayload" } } } },
         { "if": { "properties": { "message_type": { "const": "AddCaptureValidationMarker" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/AddCaptureValidationMarkerRequest" } } } },
@@ -1064,7 +1132,10 @@
 
     "StartCaptureValidationRequest": {
       "type": "object", "additionalProperties": false,
-      "properties": { "adapter_id": { "type": ["string", "null"], "minLength": 1, "maxLength": 400, "pattern": "\\S" } }
+      "properties": {
+        "adapter_id": { "type": ["string", "null"], "minLength": 1, "maxLength": 400, "pattern": "\\S" },
+        "switch_from_unsupported": { "type": "boolean", "description": "Explicit player action only: atomically stop unsupported capture and start metadata validation under the capture lifecycle lock. VERIFIED recording is refused. Absent/false retains the original start behavior." }
+      }
     },
     "AddCaptureValidationMarkerRequest": {
       "type": "object", "additionalProperties": false, "required": ["marker"],
@@ -1078,6 +1149,7 @@
         "active": { "type": "boolean" },
         "reason": { "enum": ["IDLE", "WAITING_GAME", "WAITING_IDENTITY", "WAITING_ADAPTER", "WAITING_RESTART", "WAITING_CONNECTION_CHECK", "RECORDING", "STOPPING", "COMPLETED", "CANCELLED", "FAILED"] },
         "message": { "type": "string" },
+        "message_ref": { "$ref": "#/$defs/TextRef", "description": "message as a catalogue reference (contracts/collector-texts.md). Optional: a Collector before 2026-10-15 does not send it." },
         "session_id": { "type": ["string", "null"] },
         "started_at_utc": { "$ref": "#/$defs/NullableUtcTimestamp" },
         "ended_at_utc": { "$ref": "#/$defs/NullableUtcTimestamp" },
@@ -1308,6 +1380,7 @@
         "at_utc": { "$ref": "#/$defs/UtcTimestamp" },
         "t_ms": { "$ref": "#/$defs/DurationMs" },
         "label": { "type": "string", "maxLength": 200 },
+        "label_ref": { "$ref": "#/$defs/TextRef", "description": "label as a catalogue reference (contracts/collector-texts.md). Optional: a Collector before 2026-10-15 does not send it." },
         "roulette_id": { "type": ["integer", "null"], "minimum": 0 },
         "territory_id": { "type": ["integer", "null"], "minimum": 0 },
         "duty_name": { "type": ["string", "null"], "maxLength": 200 },
@@ -1325,6 +1398,7 @@
         "local_profile_id": { "type": ["string", "null"] },
         "bound_at_utc": { "oneOf": [{ "$ref": "#/$defs/UtcTimestamp" }, { "type": "null" }] },
         "blockers": { "type": "array", "maxItems": 16, "items": { "type": "string", "maxLength": 400 } },
+        "blocker_refs": { "allOf": [{ "$ref": "#/$defs/TextRefList" }, { "maxItems": 16 }], "description": "blockers as catalogue references (contracts/collector-texts.md). Not in the sanitized diagnostics report. Optional: a Collector before 2026-10-15 does not send it." },
         "progress": { "oneOf": [{ "$ref": "#/$defs/CalibrationProgress" }, { "type": "null" }] },
         "events": { "type": "array", "maxItems": 256, "items": { "$ref": "#/$defs/CalibrationEvent" } },
         "shared": { "$ref": "#/$defs/SharedCalibrationStatus", "description": "Shared calibration for the running client. Optional: a Collector from before shared calibration does not send it, and a Desktop that does not know it ignores it." },
@@ -1384,14 +1458,18 @@
       "required": ["sha12", "source", "match_source", "status", "verdict", "criteria", "staging_overflowed"],
       "properties": {
         "sha12": { "type": "string", "pattern": "^[0-9a-f]{12}$", "description": "First twelve hex digits of the code's identity. The code itself never appears here." },
+        "code_sha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$", "description": "Optional exact identity for selecting public evidence among several candidates. Null when the code is unknown; never infer this from sha12." },
         "source": { "type": ["string", "null"], "enum": ["DOWNLOADED", "MANUAL", null], "description": "Null for a profile adopted from disk whose origin was not recorded." },
         "match_source": { "oneOf": [{ "$ref": "#/$defs/CalibrationMatchSource" }, { "type": "null" }] },
         "status": { "$ref": "#/$defs/SharedCandidateStatus" },
         "verdict": { "$ref": "#/$defs/SharedVerdict" },
         "criteria": { "type": "array", "maxItems": 8, "items": { "$ref": "#/$defs/SharedCalibrationCriterion" } },
         "staging_overflowed": { "type": "boolean" },
-        "provenance": { "oneOf": [{ "$ref": "#/$defs/SharedCandidateProvenance" }, { "type": "null" }], "description": "Null for a profile adopted from disk whose code was not recovered. Optional: a Collector before 1.1.0 does not send it." },
-        "audit_pending": { "type": "boolean", "description": "True while an audited criterion - the match or the duty entry of a PUBLISHED code - is still waiting. Optional: a Collector before 1.1.0 does not send it." }
+        "provenance": { "oneOf": [{ "$ref": "#/$defs/SharedCandidateProvenance" }, { "type": "null" }], "description": "Null for a profile adopted from disk whose code was not recovered. Optional: a Collector before 1.1.0 does not send it. Since plan §20.5, for the profile in use (status IN_USE or PROVEN) PUBLISHED means this machine keeps the published code text - what GetCalibrationShareCode hands back - and IMPORTED otherwise, whatever gate it is watched under." },
+        "audit_pending": { "type": "boolean", "description": "True while an audited criterion - the match or the duty entry of a PUBLISHED code - is still waiting. Optional: a Collector before 1.1.0 does not send it." },
+        "disputed": { "type": "array", "maxItems": 4, "uniqueItems": true, "items": { "type": "string", "enum": ["ZONE_INITIALIZATION", "ZONE_TERRITORY", "PLAYER_JOB", "CONTENT_FINDER_POP"] }, "description": "Plan §20.5: messages on which another code being verified for the build declares a different value, in this order: zone marker, territory, job (compared across match sources), match (CONTENT_FINDER_POP, compared only among codes of the same match_source). Empty when nothing is disputed. For the profile in use, as it stood when it was bound; empty for one adopted from disk. Message names only, never a value. Optional: a Collector up to 1.7.2 does not send it." },
+        "preferred": { "type": "boolean", "description": "Plan §20.5: true when, on every disputed message, this code carries the value backed by strictly more submitters than any other, or, on a tied match only, it alone has shape_prior = true (this machine's own prior). True when nothing is disputed. A PUBLISHED code may bind on the login burst only when it is preferred (among the other conditions of §18.3). Optional: a Collector up to 1.7.2 does not send it; read absent as true." },
+        "shape_prior": { "type": ["boolean", "null"], "description": "The shape prior this machine computed itself (plan §20.5, security review 2026-10-15), never the public index's own shape_prior: true when the code names the match the same way and with the same shape (announcement length, marker length and offset, reply-state selector values) as a calibration this machine verified for the latest strictly earlier build of the region - its own confirmed calibration, or another player's it settled; false when such a calibration names the match the same way with another shape; null when there is none, the code infers the match from the queue request, or the profile was adopted from disk. Breaks a tied match in the consensus only; never rejects. Optional: a Collector up to 1.7.2 does not send it." }
       }
     },
     "SharedCalibrationStatus": {
@@ -1578,7 +1656,8 @@
       "required": ["name", "label"],
       "properties": {
         "name": { "type": "string", "minLength": 1, "maxLength": 128, "description": "Voice name sent to the service." },
-        "label": { "type": "string", "minLength": 1, "maxLength": 64, "description": "zh-Hans label for the settings page." }
+        "label": { "type": "string", "minLength": 1, "maxLength": 64, "description": "zh-Hans label for the settings page." },
+        "label_ref": { "$ref": "#/$defs/TextRef", "description": "label as a catalogue reference (contracts/collector-texts.md). Optional: a Collector before 2026-10-15 does not send it." }
       }
     },
 
@@ -1683,6 +1762,7 @@
           "npcap_installed": { "type": "boolean" },
           "npcap_version": { "type": ["string", "null"] },
           "install_hint": { "type": ["string", "null"], "description": "Shown when Npcap is missing. Npcap is never bundled or downloaded by this software." },
+          "install_hint_ref": { "oneOf": [{ "$ref": "#/$defs/TextRef" }, { "type": "null" }], "description": "install_hint as a catalogue reference (contracts/collector-texts.md); null exactly when install_hint is. Optional: a Collector before 2026-10-15 does not send it." },
           "adapters": { "type": "array", "items": { "$ref": "#/$defs/CaptureAdapter" } }
         }
       },
@@ -1803,16 +1883,19 @@
           "state": { "$ref": "#/$defs/CalibrationState" }
         }
       },
+      "GetCalibrationEvidence": { "$ref": "#/$defs/CalibrationEvidenceResponse" },
+      "GetTemplateObservation": { "$ref": "#/$defs/CalibrationEvidenceResponse" },
       "GetCalibrationShareCode": {
         "type": "object",
         "additionalProperties": false,
         "required": ["code", "code_sha256", "issue_url", "code_in_url"],
-        "description": "The share code of the local calibration in force, taken from the profile file this machine wrote. Refused with ERR_SHARE_CODE_UNAVAILABLE (details.reason NO_PROFILE, NOT_LOCAL, SHARED or NOT_SHAREABLE) when there is none.",
+        "description": "The share code of the calibration in force. A local calibration's code is taken from the profile file this machine wrote (basis CALIBRATED). Since plan §20.5 a shared calibration this machine has proven - a complete duty recorded and every audited criterion passed (its SharedCalibrationCandidate status is PROVEN) - is handed back as the code text the store downloaded (basis VERIFIED). Refused with ERR_SHARE_CODE_UNAVAILABLE (details.reason NO_PROFILE, NOT_LOCAL, SHARED, SHARED_NOT_PROVEN or NOT_SHAREABLE) when there is none.",
         "properties": {
           "code": { "type": "string", "pattern": "^MRC1\\.", "maxLength": 4096 },
           "code_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-          "issue_url": { "type": "string", "pattern": "^https://github\\.com/", "maxLength": 7500, "description": "The public repository's share-calibration issue form, prefilled with the title and, when code_in_url, the code. The Desktop opens it in the system browser; the Collector never requests it." },
-          "code_in_url": { "type": "boolean", "description": "False when the code was left out to keep the address under 7500 characters; the Desktop then only copies the code." }
+          "issue_url": { "type": "string", "pattern": "^https://github\\.com/", "maxLength": 7500, "description": "The public repository's share-calibration issue form, prefilled with the title, the basis text field (since plan §20.5) and, when code_in_url, the code. The Desktop opens it in the system browser; the Collector never requests it." },
+          "code_in_url": { "type": "boolean", "description": "False when the code was left out to keep the address under 7500 characters; the Desktop then only copies the code. The title and the basis always stay in the address." },
+          "basis": { "type": "string", "enum": ["CALIBRATED", "VERIFIED"], "description": "What the code rests on; the form's basis text field is prefilled with the exact text the public repository's Action accepts for it (anything else is refused as BASIS_INVALID): CALIBRATED - calibrated on this machine, timeline checked entry by entry (分享给其他玩家); VERIFIED - another player's code this machine verified and recorded with (这份校准好用，告诉其他玩家). Optional: a Collector up to 1.7.2 does not send it; read absent as CALIBRATED." }
         }
       },
       "CheckSharedCalibration": {
@@ -1831,6 +1914,7 @@
           "outcome": { "type": "string", "enum": ["APPLIED", "NOT_APPLICABLE", "MALFORMED"] },
           "reason": { "type": ["string", "null"], "pattern": "^[A-Z][A-Z0-9_]{0,63}$", "description": "Null when applied. MALFORMED: an E_SHARE_CODE_* rejection or UNBUILDABLE. NOT_APPLICABLE: NOT_CALIBRATING, OTHER_REGION, OTHER_BUILD, OTHER_TEMPLATE, USER_REJECTED, REJECTED, REVOKED (the last index this machine read revoked the code), TOO_MANY_CANDIDATES or CHANGED." },
           "message": { "type": "string", "maxLength": 1000, "description": "What to tell the player, zh-Hans, no hex." },
+          "message_ref": { "$ref": "#/$defs/TextRef", "description": "message as a catalogue reference (contracts/collector-texts.md). Optional: a Collector before 2026-10-15 does not send it." },
           "code_sha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$", "description": "Identity of the code; null when it did not decode." },
           "provenance": { "oneOf": [{ "$ref": "#/$defs/SharedCandidateProvenance" }, { "type": "null" }], "description": "When APPLIED: PUBLISHED when the last index this machine read lists the code, IMPORTED otherwise. Null when not applied. Optional: a Collector before 1.1.0 does not send it." }
         }

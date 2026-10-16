@@ -36,7 +36,7 @@ Card {
 
     Text {
         Layout.fillWidth: true
-        text: qsTr("切换前台窗口不影响记录。更换记录对象会结束当前采集；进行中的导随将按中断处理。")
+        text: qsTr("切换前台窗口不影响记录。选择另一个游戏会停止记录当前游戏，进行中的导随会标为中断。")
         textFormat: Text.PlainText
         wrapMode: Text.WordWrap
         color: Theme.textSecondary

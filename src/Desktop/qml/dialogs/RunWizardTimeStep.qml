@@ -175,8 +175,8 @@ ColumnLayout {
             text: step.wizard.resultCode === "CANCELLED_BEFORE_ENTRY"
                   ? qsTr("进本前取消：进本与结束时间可留空。")
                   : step.wizard.resultCode === "COMPLETED"
-                    ? qsTr("通关记录需要进本与结束时间；耗时 = 结束 − 进本。")
-                    : qsTr("结束时间可留空；不记进本时间时不计入平均耗时。")
+                    ? qsTr("手动补录通关需填进本和结束时间，用于计算耗时；导入记录的未知时间可留空。")
+                    : qsTr("结束时间可留空；未填写进本时间的记录不计入平均耗时。")
             color: Theme.textSecondary
             font.pixelSize: Theme.fs(12)
             wrapMode: Text.WordWrap
@@ -213,7 +213,7 @@ ColumnLayout {
 
             Text {
                 Layout.fillWidth: true
-                text: qsTr("还差进本时间。记得的话填在上面；不记得可按匹配时间估算，并自动注明。估算时间不计入平均耗时。")
+                text: qsTr("还没填进本时间。记得就填在上面；不记得可点「估算进本」，按匹配时间填写并自动加备注。这类记录不计入平均耗时。")
                 color: Theme.textPrimary
                 font.pixelSize: Theme.fs(12)
                 wrapMode: Text.WordWrap
@@ -241,8 +241,9 @@ ColumnLayout {
             enabled: !step.wizard.recordSaved
             Layout.fillWidth: true
             text: step.wizard.reasonText
-            // Of the two examples, Tab enters the first.
-            exampleText: qsTr("程序未运行时手动补录")
+            // Of the two examples, Tab enters the first. Stored in its source text
+            // when left as it was (Theme.storedReason).
+            exampleText: qsTranslate("SystemReason", "程序未运行时手动补录")
             placeholderText: qsTr("例如：程序未运行时手动补录；网络中断但实际已通关") + exampleHint
             onTextChanged: step.wizard.reasonText = text
         }
@@ -414,7 +415,7 @@ ColumnLayout {
             objectName: "noChangesText"
             Layout.fillWidth: true
             visible: step.wizard.diffRows.length === 0
-            text: qsTr("尚未修改任何字段。")
+            text: qsTr("还没有修改记录内容。")
             color: Theme.textSecondary
             font.pixelSize: Theme.fs(12)
         }

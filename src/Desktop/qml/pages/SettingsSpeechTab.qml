@@ -13,6 +13,16 @@ ColumnLayout {
     Layout.fillWidth: true
     spacing: 16
 
+    /// 「在通用里更改」: the language is chosen on the 通用 tab.
+    signal openGeneralRequested()
+
+    // 播报跟随界面语言 (LanguageManager). A test scene without one shows
+    // neither the language row nor a language in the template title.
+    readonly property var lang: typeof Lang !== "undefined" ? Lang : null
+    readonly property string languageName: tab.lang ? tab.lang.nativeName : ""
+    readonly property bool languageVoiceMissing: typeof Tts !== "undefined" && !!Tts
+                                                 && Tts.languageVoiceMissing === true
+
     // The page is also loaded by tests with a Tts stub that may predate the
     // voice list, so every newer member is read defensively.
     readonly property var voiceRows: (typeof Tts !== "undefined" && Tts && Tts.voices)
@@ -74,7 +84,7 @@ ColumnLayout {
             // while the voice really is local.
             label: tab.onlineSelected ? qsTr("语音播报") : qsTr("本地语音播报")
             labelIsKicker: true
-            description: !tab.onlineSelected ? qsTr("使用系统语音引擎，不联网")
+            description: !tab.onlineSelected ? qsTr("使用本机语音，无需联网")
                          : tab.onlineHost.length > 0 ? qsTr("播报文字会发送到 %1").arg(tab.onlineHost)
                          : qsTr("在线语音 · 尚未配置")
             descriptionColor: tab.onlineSelected && tab.onlineHost.length === 0
@@ -95,22 +105,62 @@ ColumnLayout {
             }
         }
 
+        // 播报语言: follows the interface language; changed on the 通用 tab.
         SettingsRow {
+            objectName: "speechLanguageRow"
+            visible: tab.lang !== null
+            label: qsTr("播报语言")
+            description: qsTr("跟随界面语言，语音和播报模板都按这个语言来")
+
+            Tag {
+                objectName: "speechLanguageTag"
+                text: tab.languageName
+            }
+            AppButton {
+                objectName: "speechLanguageChangeButton"
+                variant: "ghost"
+                compact: true
+                text: qsTr("在通用里更改")
+                onClicked: tab.openGeneralRequested()
+            }
+        }
+
+        SettingsRow {
+            id: voiceRow
+
             label: qsTr("语音引擎")
             // "已安装 · Windows 自带" once there is a voice list; until then, or
             // when the engine failed, the engine's own status line. An online
             // voice states what it needs instead.
+            // A machine without a voice for the interface language reads the
+            // lines with another language's voice; it says so and offers the
+            // Windows page where one is added.
+            readonly property bool voiceMissing: !tab.onlineSelected && tab.engineReady
+                                                 && tab.languageVoiceMissing
             description: tab.onlineSelected ? qsTr("在线 · 需配置密钥")
+                         : voiceMissing ? qsTr("这台电脑还没有%1语音，暂用其他语言的语音播报").arg(tab.languageName)
                          : tab.engineReady ? qsTr("已安装 · Windows 自带")
                          : (typeof Tts !== "undefined" && Tts ? Tts.statusText : "")
-            descriptionColor: tab.onlineSelected || tab.engineReady
-                              || (typeof Tts !== "undefined" && Tts && Tts.available)
+            descriptionColor: !voiceMissing && (tab.onlineSelected || tab.engineReady
+                              || (typeof Tts !== "undefined" && Tts && Tts.available))
                               ? Theme.textSecondary : Theme.orangeText
+
+            AppButton {
+                objectName: "openSpeechSettingsButton"
+                visible: voiceRow.voiceMissing
+                variant: "ghost"
+                compact: true
+                text: qsTr("打开 Windows 语音设置")
+                onClicked: Tts.openSpeechSettings()
+            }
 
             StyledComboBox {
                 id: voiceCombo
 
                 objectName: "ttsVoiceCombo"
+                // A switch chooses another voice (the new language's); the
+                // Binding below follows the service, so no row is put back.
+                keepsRowAcrossLanguages: false
                 Layout.preferredWidth: 330
                 enabled: tab.voiceRows.length > 0
                 model: tab.voiceRows
@@ -228,10 +278,11 @@ ColumnLayout {
 
             CardKicker {
                 Layout.fillWidth: false
-                text: qsTr("播报模板")
+                text: tab.languageName.length > 0 ? qsTr("播报模板 · %1").arg(tab.languageName)
+                                                  : qsTr("播报模板")
             }
             Text {
-                text: qsTr("可用变量：")
+                text: qsTr("可用占位符：")
                 color: Theme.textSecondary
                 font.pixelSize: Theme.fs(12)
             }
@@ -275,10 +326,28 @@ ColumnLayout {
             TemplateField {
                 Layout.columnSpan: 2
                 label: qsTr("结束待确认")
-                note: qsTr("副本内收到通关结算时，记录直接记为通关，播报上面的“通关”；"
-                           + "离开副本前没有收到结算时，记录停在“待确认”，播报这一条。")
+                note: qsTr("收到通关结算时，记录记为「通关」，播报上面的「通关」；"
+                           + "未收到结算就离开副本时，记录为「待确认」，播报这一条。")
                 value: Settings.templateFinished
                 onCommitted: function(text) { Settings.templateFinished = text }
+            }
+        }
+
+        // 恢复默认模板: the interface language's five lines only.
+        AppButton {
+            objectName: "resetTemplatesButton"
+            Layout.alignment: Qt.AlignRight
+            variant: "ghost"
+            compact: true
+            text: qsTr("恢复默认模板")
+            enabled: Settings.templatesCustomised === true
+            onClicked: {
+                Settings.resetTemplates()
+                if (typeof App !== "undefined" && App && App.showToast) {
+                    App.showToast(tab.languageName.length > 0
+                                  ? qsTr("已恢复%1的默认播报模板").arg(tab.languageName)
+                                  : qsTr("已恢复默认播报模板"))
+                }
             }
         }
     }

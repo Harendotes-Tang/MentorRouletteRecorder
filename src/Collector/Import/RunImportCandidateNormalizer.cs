@@ -5,6 +5,7 @@ using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using MentorRecorder.Collector.Application.Mutations;
 using MentorRecorder.Collector.Contracts.Errors;
+using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Domain.Time;
 using MentorRecorder.Collector.Ipc;
@@ -13,7 +14,30 @@ using MentorRecorder.Collector.Reference;
 namespace MentorRecorder.Collector.Import;
 
 internal sealed record ImportCandidate(int RowNumber, JsonObject Input, MentorRun? Run,
-    bool HasStableId, IReadOnlySet<string> ComparedFields, IReadOnlyList<string> Errors, IReadOnlyList<string> Warnings);
+    bool HasStableId, IReadOnlySet<string> ComparedFields, IReadOnlyList<ImportRowText> Errors, IReadOnlyList<ImportRowText> Warnings);
+
+/// <summary>
+/// One sentence of a preview row (<c>rows[].errors</c> / <c>rows[].warnings</c>): the Simplified Chinese the row has
+/// always carried and, when the sentence is the Collector's own, its catalogue text for <c>error_refs</c> /
+/// <c>warning_refs</c> (contracts/collector-texts.md). The two travel together so the lists cannot drift apart.
+/// </summary>
+/// <param name="Chinese">The sentence as <c>errors</c> / <c>warnings</c> carry it.</param>
+/// <param name="Text">Its catalogue text; null for an operating-system message or a warning the source supplied.</param>
+internal readonly record struct ImportRowText(string Chinese, UserText? Text)
+{
+    /// <summary>A sentence of the catalogue.</summary>
+    /// <param name="text">The catalogue text.</param>
+    public static implicit operator ImportRowText(UserText text) => new(text.Chinese, text);
+
+    /// <summary>A sentence worded outside the catalogue; it travels with a null reference.</summary>
+    /// <param name="chinese">The sentence, shown as it is.</param>
+    public static ImportRowText Verbatim(string chinese) => new(chinese, null);
+
+    /// <summary>The <c>$defs/TextRefList</c> parallel to <see cref="Chinese"/> of the same sentences.</summary>
+    /// <param name="texts">The sentences, in the order of the Chinese list.</param>
+    public static JsonArray Refs(IEnumerable<ImportRowText> texts) =>
+        new(texts.Select(text => (JsonNode?)text.Text?.ToJson()).ToArray());
+}
 
 /// <summary>Turns external cells into truthful IMPORT facts; source timestamps remain separate.</summary>
 internal static class RunImportCandidateNormalizer
@@ -22,8 +46,8 @@ internal static class RunImportCandidateNormalizer
         string? timeZone, DateTimeOffset now)
     {
         var input = (JsonObject)row.Values.DeepClone();
-        var errors = row.Errors.ToList();
-        var warnings = new List<string>();
+        var errors = row.ErrorTexts.Select(text => (ImportRowText)text).ToList();
+        var warnings = new List<ImportRowText>();
         var comparedFields = input.Select(pair => pair.Key).ToHashSet(StringComparer.Ordinal);
         if (input["reflection"] is JsonObject)
             comparedFields.UnionWith(new[] { "reflection_text", "reflection_mood" });
@@ -35,7 +59,7 @@ internal static class RunImportCandidateNormalizer
             var originalId = Text(input, "run_id", 64);
             var stable = !string.IsNullOrEmpty(originalId);
             if (stable && !Guid.TryParseExact(originalId, "D", out _))
-                throw Bad("run_id 必须是标准 UUID。");
+                throw Bad(CollectorTexts.ImportRowRunIdInvalid());
             var id = stable ? Guid.Parse(originalId!).ToString("D") : Guid.NewGuid().ToString("D");
             var importedMetadata = input["import_metadata"] as JsonObject;
             var recordSourceName = Text(input, "source_name", 500)
@@ -56,14 +80,14 @@ internal static class RunImportCandidateNormalizer
                 || Regex.IsMatch(sourceRecorded, @"(?:Z|[+-]\d{2}:\d{2})$", RegexOptions.CultureInvariant));
             var sourceDateOnly = sourceRecorded is not null && DateTime.TryParseExact(sourceRecorded,
                 new[] { "yyyy-MM-dd", "yyyy/M/d" }, CultureInfo.InvariantCulture, DateTimeStyles.None, out _);
-            var sourceUtc = sourceDateOnly ? null : ParseTime(parseRawSource ? sourceRecorded : sourceUtcText ?? sourceRecorded, timeZone, "原站记录时间");
-            if (sourceDateOnly) warnings.Add("原站只提供日期，保留原文；具体时分和 UTC 时间未知。");
+            var sourceUtc = sourceDateOnly ? null : ParseTime(parseRawSource ? sourceRecorded : sourceUtcText ?? sourceRecorded, timeZone, CollectorTexts.ImportTimeFieldSourceRecorded());
+            if (sourceDateOnly) warnings.Add(CollectorTexts.ImportWarningSourceDateOnly());
             if (!sourceDateOnly && parseRawSource && sourceUtcText is not null
                 && !string.Equals(sourceUtcText, UtcTimestamp.ToTextOrNull(sourceUtc), StringComparison.Ordinal))
-                warnings.Add("原站时间已修改，按明确来源时区重新计算 UTC 时间。");
-            var entered = ParseTime(Text(input, "entered_at_utc", 100), timeZone, "进本时间");
-            var ended = ParseTime(Text(input, "ended_at_utc", 100), timeZone, "结束时间");
-            var matched = ParseTime(Text(input, "matched_at_utc", 100), timeZone, "匹配时间");
+                warnings.Add(CollectorTexts.ImportWarningSourceTimeRecomputed());
+            var entered = ParseTime(Text(input, "entered_at_utc", 100), timeZone, CollectorTexts.ImportTimeFieldEntered());
+            var ended = ParseTime(Text(input, "ended_at_utc", 100), timeZone, CollectorTexts.ImportTimeFieldEnded());
+            var matched = ParseTime(Text(input, "matched_at_utc", 100), timeZone, CollectorTexts.ImportTimeFieldMatched());
             var contentId = Number(input, "content_id", int.MaxValue);
             var jobId = Number(input, "job_id", int.MaxValue);
             var jobName = Text(input, "job_name", 200);
@@ -74,7 +98,7 @@ internal static class RunImportCandidateNormalizer
                     || string.Equals(job.NameEn, jobName, StringComparison.OrdinalIgnoreCase)
                     || string.Equals(job.Abbreviation, jobName, StringComparison.OrdinalIgnoreCase)).ToArray();
                 if (candidates.Length == 1) jobId = candidates[0].JobId;
-                else warnings.Add("职业名称未唯一匹配；保留原文，职业编号未知。");
+                else warnings.Add(CollectorTexts.ImportWarningJobUnmatched());
             }
             var dutyName = Text(input, "duty_name", 500);
             var region = ParseEnum(input, "region", Region.Unknown);
@@ -89,7 +113,7 @@ internal static class RunImportCandidateNormalizer
             var job = JobCatalog.Default.Find(jobId is null ? null : (int)jobId);
             var result = ParseResult(input);
             if (Text(input, "result", 64) is null)
-                warnings.Add("来源未提供结果，按默认通关，可修改。");
+                warnings.Add(CollectorTexts.ImportWarningResultDefaulted());
             var duration = Number(input, "duration_ms", long.MaxValue);
             var text = Text(input, "reflection_text", ReflectionText.MaxLength);
             var moodText = Text(input, "reflection_mood", 32);
@@ -100,7 +124,7 @@ internal static class RunImportCandidateNormalizer
                 moodText = reflectionInput is null ? null : Text(reflectionInput, "mood", 32);
             var mood = ReflectionMood.Unknown;
             if (moodText is not null && !ReflectionText.TryParse(moodText, out mood))
-                throw Bad("心得心情只能是 good、ok、bad 或 unknown。");
+                throw Bad(CollectorTexts.ImportRowMoodInvalid());
             var metadata = new RunImportMetadata(sourceKind, recordSourceName, sourceRecorded, sourceUtc,
                 now, string.Empty, Flag(input, "mentor_confirmed") ?? true);
             var run = new MentorRun
@@ -125,21 +149,21 @@ internal static class RunImportCandidateNormalizer
                 Note = Text(input, "note", 1000),
                 ImportMetadata = metadata,
                 Reflection = text is null ? null : new RunReflection(mood, text, now, now),
-                CreatedAtUtc = ParseTime(Text(input, "created_at_utc", 100), timeZone, "软件记录创建时间") ?? now,
+                CreatedAtUtc = ParseTime(Text(input, "created_at_utc", 100), timeZone, CollectorTexts.ImportTimeFieldCreated()) ?? now,
                 UpdatedAtUtc = now,
             };
             if (run.ContentId is null && run.DutyName is null && run.JobId is null
                 && (jobName is null || jobName == JobCatalog.UnknownJobName)
                 && matched is null && entered is null && ended is null && sourceRecorded is null && sourceUtc is null
                 && text is null && run.Note is null)
-                throw Bad("该行没有副本、职业、游戏时间、原站时间或心得内容，请映射或补充至少一项事实。");
+                throw Bad(CollectorTexts.ImportRowEmpty());
             run = RunMutationValidation.ValidateFinalValue(run, input.ContainsKey("duration_ms"));
             if (run.IsIncompleteImport) warnings.Add(run.Result == RunResult.Unknown
-                ? "结果未知，保留为待补充历史；不计通关或成就。"
-                : "实际游戏时间待补充；核对本人导随及结果后，已确认通关正常计数，未知耗时不计平均耗时。");
-            if (text is not null && mood == ReflectionMood.Unknown) warnings.Add("原来源没有记录心情，保留为未记录心情。");
+                ? CollectorTexts.ImportWarningResultUnknown()
+                : CollectorTexts.ImportWarningTimeMissing());
+            if (text is not null && mood == ReflectionMood.Unknown) warnings.Add(CollectorTexts.ImportWarningMoodMissing());
             if (input["warnings"] is JsonArray sourceWarnings)
-                warnings.AddRange(sourceWarnings.OfType<JsonValue>().Select(value => value.ToString()).Take(20));
+                warnings.AddRange(sourceWarnings.OfType<JsonValue>().Select(value => ImportRowText.Verbatim(value.ToString())).Take(20));
             var signature = Facts(run);
             var key = Text(input, "source_key", 500);
             var fingerprint = Hash(string.Join('\n', sourceKind, recordSourceName ?? string.Empty,
@@ -163,7 +187,9 @@ internal static class RunImportCandidateNormalizer
         }
         catch (Exception failure) when (failure is CollectorException or FormatException or ArgumentException or InvalidOperationException or TimeZoneNotFoundException or InvalidTimeZoneException)
         {
-            errors.Add(failure.Message);
+            // RunMutationValidation and this normalizer word their refusals by the catalogue; the system's
+            // FormatException, ArgumentException and time-zone messages travel as they are, without a reference.
+            errors.Add(failure is CollectorException { Text: { } known } ? known : ImportRowText.Verbatim(failure.Message));
             return new ImportCandidate(row.RowNumber, input, null, false, comparedFields, errors, warnings);
         }
     }
@@ -201,9 +227,9 @@ internal static class RunImportCandidateNormalizer
     private static string? Text(JsonObject input, string key, int max)
     {
         if (input[key] is null) return null;
-        if (input[key] is not JsonValue value) throw Bad(key + " 必须是文本或数字。");
+        if (input[key] is not JsonValue value) throw Bad(CollectorTexts.ImportRowFieldNotScalar(key));
         var text = value.TryGetValue<string>(out var raw) ? raw.Trim() : value.ToString();
-        if (text.Length > max) throw Bad(key + " 超过 " + max + " 字符。");
+        if (text.Length > max) throw Bad(CollectorTexts.ImportRowFieldTooLong(key, max));
         return string.IsNullOrWhiteSpace(text) ? null : text;
     }
 
@@ -212,7 +238,7 @@ internal static class RunImportCandidateNormalizer
         var text = Text(input, key, 100);
         if (text is null) return null;
         if (!long.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out var value) || value < 0 || value > max)
-            throw Bad(key + " 必须是范围内的非负整数；耗时单位为毫秒，含冒号的时间须先明确单位。");
+            throw Bad(CollectorTexts.ImportRowFieldNotCount(key));
         return value;
     }
     private static int? Int(JsonObject input, string key) => Number(input, key, int.MaxValue) is { } value ? (int)value : null;
@@ -222,12 +248,12 @@ internal static class RunImportCandidateNormalizer
         return text?.ToLowerInvariant() switch
         {
             null => null, "true" or "1" or "是" => true, "false" or "0" or "否" => false,
-            _ => throw Bad(key + " 必须为 true/false 或 1/0。"),
+            _ => throw Bad(CollectorTexts.ImportRowFieldNotFlag(key)),
         };
     }
     private static T ParseEnum<T>(JsonObject input, string key, T fallback) where T : struct, Enum =>
         Text(input, key, 64) is { } text
-            ? EnumWire<T>.TryParse(text, out var parsed) ? parsed : throw Bad(key + " 不是支持的枚举值。")
+            ? EnumWire<T>.TryParse(text, out var parsed) ? parsed : throw Bad(CollectorTexts.ImportRowFieldValueUnsupported(key))
             : fallback;
     private static RunResult ParseResult(JsonObject input)
     {
@@ -241,28 +267,28 @@ internal static class RunImportCandidateNormalizer
             "取消" => RunResult.CancelledBeforeEntry,
             "中断" => RunResult.Interrupted,
             "掉线" => RunResult.Disconnected,
-            _ => EnumWire<RunResult>.TryParse(text, out var result) ? result : throw Bad("结果字段无法识别；不会从删除按钮或心得猜测通关。"),
+            _ => EnumWire<RunResult>.TryParse(text, out var result) ? result : throw Bad(CollectorTexts.ImportRowResultInvalid()),
         };
     }
-    private static DateTimeOffset? ParseTime(string? text, string? zone, string field)
+    private static DateTimeOffset? ParseTime(string? text, string? zone, UserText field)
     {
         if (text is null) return null;
         if (!Regex.IsMatch(text, @"\d{1,2}:\d{2}", RegexOptions.CultureInvariant))
-            throw Bad(field + " 缺少明确的时分，不能用日期虚构午夜。");
+            throw Bad(CollectorTexts.ImportRowTimeDateOnly(field));
         if (Regex.IsMatch(text, @"(?:Z|[+-]\d{2}:\d{2})$", RegexOptions.CultureInvariant))
         {
             // TryParse fills missing calendar fields from the host date. Require the same
             // complete numeric date as local imports before accepting an explicit offset.
             if (!Regex.IsMatch(text, @"^\d{4}[-/]\d{1,2}[-/]\d{1,2}(?:T|\s)", RegexOptions.CultureInvariant))
-                throw Bad(field + " 缺少完整日期，请在预览中补充年月日与时间。");
+                throw Bad(CollectorTexts.ImportRowTimeDateMissing(field));
             if (DateTimeOffset.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.None, out var offsetTime))
                 return UtcTimestamp.Truncate(offsetTime);
         }
         var formats = new[] { "yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd HH:mm", "yyyy/M/d H:mm:ss", "yyyy/M/d H:mm",
             "yyyy-MM-ddTHH:mm:ss", "yyyy-MM-ddTHH:mm:ss.FFFFFFF", "yyyy-MM-ddTHH:mm" };
         if (!DateTime.TryParseExact(text, formats, CultureInfo.InvariantCulture, DateTimeStyles.None, out var local))
-            throw Bad(field + " 格式不明确，请在预览中修正完整日期与时间。");
-        if (string.IsNullOrWhiteSpace(zone)) throw Bad(field + " 是本地时间，需明确来源时区。");
+            throw Bad(CollectorTexts.ImportRowTimeUnrecognized(field));
+        if (string.IsNullOrWhiteSpace(zone)) throw Bad(CollectorTexts.ImportRowTimeZoneMissing(field));
         if (Regex.IsMatch(zone, @"^[+-]\d{2}:\d{2}$", RegexOptions.CultureInvariant))
         {
             var sign = zone[0] == '-' ? -1 : 1;
@@ -272,8 +298,8 @@ internal static class RunImportCandidateNormalizer
         var timeZone = TimeZoneInfo.FindSystemTimeZoneById(zone);
         local = DateTime.SpecifyKind(local, DateTimeKind.Unspecified);
         if (timeZone.IsInvalidTime(local) || timeZone.IsAmbiguousTime(local))
-            throw Bad(field + " 落在夏令时跳变或重复时段，请填写带偏移的时间。");
+            throw Bad(CollectorTexts.ImportRowTimeAmbiguous(field));
         return UtcTimestamp.Truncate(new DateTimeOffset(TimeZoneInfo.ConvertTimeToUtc(local, timeZone)));
     }
-    private static CollectorException Bad(string message) => CollectorException.BadRequest(message);
+    private static CollectorException Bad(UserText text) => CollectorException.BadRequest(text);
 }

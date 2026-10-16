@@ -1,6 +1,8 @@
 #include "StatsModels.h"
 
+#include "CollectorText.h"
 #include "DutyCatalog.h"
+#include "GameNames.h"
 #include "IBackend.h"
 #include "JobCatalog.h"
 
@@ -9,6 +11,7 @@
 #include <QJsonDocument>
 #include <QJsonValue>
 #include <QMap>
+#include <QPointer>
 #include <QSet>
 #include <QStringList>
 #include <QTimer>
@@ -78,12 +81,28 @@ QString dutyCategory(const QJsonObject &row)
         category = DutyCatalog::shared()->lookup(row.value(QStringLiteral("content_id")).toVariant())
                        .value(QStringLiteral("duty_category")).toString().trimmed();
     }
+    // The key of the unknown bucket; categoryBreakdown() labels it for display.
     return category.isEmpty() ? QString::fromUtf8("未识别") : category;
 }
 
+/// Marks a duty_meta decorate() derived, so a language switch can derive it again.
+const QString kDerivedMeta = QStringLiteral("duty_meta_derived");
+
 } // namespace
 
-StatsRowsModel::StatsRowsModel(QObject *parent) : QAbstractListModel(parent) {}
+StatsRowsModel::StatsRowsModel(QObject *parent) : QAbstractListModel(parent)
+{
+    onLanguageChanged(this, &StatsRowsModel::retranslate);
+}
+
+void StatsRowsModel::retranslate()
+{
+    retranslateRows();
+    if (!m_rows.isEmpty())
+        Q_EMIT dataChanged(index(0), index(int(m_rows.size()) - 1), {RowRole});
+    Q_EMIT loadErrorChanged();
+    Q_EMIT countChanged();
+}
 
 void StatsRowsModel::setBackend(IBackend *backend)
 {
@@ -181,8 +200,9 @@ void StatsRowsModel::loadPage(quint64 generation, int page, QList<QJsonObject> r
     payload.insert(QStringLiteral("page_size"), pageSize);
 
     BackendReply *reply = m_backend->request(messageType(), payload);
+    const QPointer<BackendReply> guard(reply);
     reply->whenDone(this,
-            [this, generation, page, rows = std::move(rows), total, pageSize](
+            [this, generation, page, rows = std::move(rows), total, pageSize, guard](
                 bool ok, const QVariantMap &response,
                 const QString &code, const QString &message) mutable {
                 // A filter change or a live refresh supersedes every page of
@@ -190,7 +210,7 @@ void StatsRowsModel::loadPage(quint64 generation, int page, QList<QJsonObject> r
                 if (generation != m_loadGeneration)
                     return;
                 if (!ok) {
-                    failLoad(generation, code, message);
+                    failLoad(generation, code, collector_text::replyErrorText(guard, message));
                     return;
                 }
 
@@ -206,7 +226,7 @@ void StatsRowsModel::loadPage(quint64 generation, int page, QList<QJsonObject> r
                     || info.value(QStringLiteral("page_size")).toInt(pageSize) != pageSize
                     || items.size() != qMin(pageSize, qMax(0, total - int(rows.size())))) {
                     failLoad(generation, QStringLiteral("ERR_BAD_RESPONSE"),
-                             tr("统计分页在读取时发生变化，请刷新后重试。"));
+                             [] { return tr("统计分页在读取时发生变化，请刷新后重试。"); });
                     return;
                 }
                 for (const QJsonValue &value : items)
@@ -233,15 +253,15 @@ void StatsRowsModel::loadPage(quint64 generation, int page, QList<QJsonObject> r
             });
 }
 
-void StatsRowsModel::setLoadError(const QString &error)
+void StatsRowsModel::setLoadError(const LiveText &error)
 {
-    if (m_loadError == error)
+    if (m_loadError.text() == error.text())
         return;
     m_loadError = error;
     Q_EMIT loadErrorChanged();
 }
 
-void StatsRowsModel::failLoad(quint64 generation, const QString &code, const QString &message)
+void StatsRowsModel::failLoad(quint64 generation, const QString &code, const LiveText &message)
 {
     if (generation != m_loadGeneration)
         return;
@@ -252,11 +272,11 @@ void StatsRowsModel::failLoad(quint64 generation, const QString &code, const QSt
     endResetModel();
     // Set before countChanged, so whoever rebuilds from the emptied rows can
     // tell a failed read from an answer of zero (review OD-3 / S2-2).
-    setLoadError(message.isEmpty() ? code : message);
+    setLoadError(message.isEmpty() ? LiveText::verbatim(code) : message);
     Q_EMIT countChanged();
     if (generation == m_loadGeneration) {
         Q_EMIT loadingChanged();
-        Q_EMIT loadFailed(code, message);
+        Q_EMIT loadFailed(code, message.text());
     }
 }
 
@@ -286,17 +306,33 @@ QJsonObject DungeonStatsModel::decorate(const QJsonObject &row) const
     }
 
     if (out.value(QStringLiteral("duty_meta")).toString().isEmpty()) {
-        const QString expansion = out.value(QStringLiteral("duty_expansion")).toString();
+        // The expansion as shown: the catalogue's English key in the interface
+        // language (duty_expansion itself keeps the key).
+        const QString expansion =
+            GameNames::shared()->expansion(out.value(QStringLiteral("duty_expansion")).toString());
         const QJsonValue level = out.value(QStringLiteral("duty_level"));
         QStringList parts;
         if (!expansion.isEmpty())
             parts.append(expansion);
         if (level.isDouble())
-            parts.append(QString::fromUtf8("%1级").arg(level.toInt()));
-        if (!parts.isEmpty())
-            out.insert(QStringLiteral("duty_meta"), parts.join(QString::fromUtf8(" · ")));
+            parts.append(tr("%1级").arg(level.toInt()));
+        if (!parts.isEmpty()) {
+            out.insert(QStringLiteral("duty_meta"), parts.join(QStringLiteral(" · ")));
+            out.insert(kDerivedMeta, true);
+        }
     }
     return out;
+}
+
+void DungeonStatsModel::retranslateRows()
+{
+    for (QJsonObject &row : m_rows) {
+        if (!row.value(kDerivedMeta).toBool())
+            continue;
+        row.remove(QStringLiteral("duty_meta"));
+        row.remove(kDerivedMeta);
+        row = decorate(row);
+    }
 }
 
 qint64 DungeonStatsModel::totalCompletedCount() const
@@ -317,7 +353,7 @@ QVariantList DungeonStatsModel::categoryBreakdown() const
     QMap<QString, qint64> counts;
     for (const QString &category : order)
         counts.insert(category, 0);
-    const QString unknown = QString::fromUtf8("未识别");
+    const QString unknown = QString::fromUtf8("未识别"); // key; labelled below
     counts.insert(unknown, 0);
     for (const QJsonObject &row : m_rows)
         counts[dutyCategory(row)] += completionCount(row);
@@ -335,7 +371,12 @@ QVariantList DungeonStatsModel::categoryBreakdown() const
     QVariantList out;
     for (qsizetype i = 0; i < categories.size(); ++i) {
         const QString &category = categories.at(i);
-        out.append(completionBucket(category, counts.value(category), total,
+        // Categories are the Collector's / the catalogue's (Chinese) words,
+        // shown in the interface language; the unknown bucket is this
+        // program's own label.
+        out.append(completionBucket(category == unknown ? tr("未识别")
+                                                        : GameNames::shared()->category(category),
+                   counts.value(category), total,
                    category == unknown ? QStringLiteral("neutral500") : tokens.at(i % tokens.size())));
     }
     return out;
@@ -359,10 +400,10 @@ QVariantList DungeonStatsModel::specialDutyBreakdown() const
         counts[group] += completionCount(row);
     }
     const qint64 total = totalCompletedCount();
-    return {completionBucket(QString::fromUtf8("主线副本"), counts[0], total, QStringLiteral("blue")),
-            completionBucket(QString::fromUtf8("行会令"), counts[1], total, QStringLiteral("green")),
-            completionBucket(QString::fromUtf8("其他副本"), counts[2], total, QStringLiteral("orange")),
-            completionBucket(QString::fromUtf8("未识别"), counts[3], total, QStringLiteral("neutral500"))};
+    return {completionBucket(tr("主线副本"), counts[0], total, QStringLiteral("blue")),
+            completionBucket(tr("行会令"), counts[1], total, QStringLiteral("green")),
+            completionBucket(tr("其他副本"), counts[2], total, QStringLiteral("orange")),
+            completionBucket(tr("未识别"), counts[3], total, QStringLiteral("neutral500"))};
 }
 
 QString JobStatsModel::roleGroupOf(const QJsonObject &row)

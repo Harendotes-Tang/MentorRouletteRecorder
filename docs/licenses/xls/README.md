@@ -18,7 +18,7 @@ Collector 固定 NPOI `[2.7.6]`，只调用 HSSF 读取真实 BIFF8，并保留�
 ## 运行资产与审计
 
 NPOI 默认依赖的 System.Security.Cryptography.Xml 8.0.2 有已知漏洞，明确锁定同一
-.NET 8 系列修复版 `[8.0.4]`。其许可证仍为 MIT，实际传递 Pkcs 版本为 8.0.1。
+.NET 8 系列修复版 `[8.0.5]`。其许可证仍为 MIT，实际传递 Pkcs 版本为 8.0.2。
 
 SixLabors.Fonts `[1.0.1]` 保留运行资产：它由 NPOI 公式字符串解析路径使用，回归样本
 生成在没有该库的全新目录中曾抛出缺少程序集错误。实际 `.nuspec` 和对应源码的

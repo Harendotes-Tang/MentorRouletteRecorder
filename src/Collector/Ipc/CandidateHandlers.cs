@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using MentorRecorder.Collector.Contracts.Errors;
+using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Domain.Time;
 using MentorRecorder.Collector.Storage.Repositories;
 
@@ -15,7 +16,7 @@ public static class CandidateHandlers
         if (session is not null) reader.RequiredUuid("session_id");
         var from = reader.Timestamp("from_utc");
         var to = reader.Timestamp("to_utc");
-        if (from > to) throw CollectorException.BadRequest("开始时间不能晚于结束时间。", "payload.from_utc");
+        if (from > to) throw CollectorException.BadRequest(CollectorTexts.CandidateStartAfterEnd(), "payload.from_utc");
         var page = reader.Has("page") ? reader.RequiredInt("page", 1, 1_000_000) : 1;
         var size = reader.Has("page_size") ? reader.RequiredInt("page_size", 1, 200) : 50;
         var result = host.Candidates.Query(session, from, to, page, size);

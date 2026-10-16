@@ -688,7 +688,7 @@ private Q_SLOTS:
         QCOMPARE(fixture.dialog()->property("countsAfterSave").toBool(), eligible);
         QCOMPARE(fixture.dialog()->property("progressDelta").toInt(), eligible ? 1 : 0);
         if (!eligible)
-            QVERIFY(fixture.dialog()->property("progressExplanation").toString().contains(QStringLiteral("导随资格")));
+            QVERIFY(fixture.dialog()->property("progressExplanation").toString().contains(QStringLiteral("还未确认是指导者任务")));
         QSignalSpy corrections(fixture.dialog(), SIGNAL(correctRequested(QVariant,QString)));
         QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
         QCOMPARE(corrections.count(), 1);

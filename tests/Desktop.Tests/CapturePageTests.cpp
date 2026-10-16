@@ -82,6 +82,12 @@ public:
             reply->succeed({{QStringLiteral("capture"), capture}});
         else if (type == QLatin1String("GetCaptureStatus"))
             reply->succeed(capture);
+        // Follow-the-game on and no validation session: the recording controller
+        // can then reach its capture verdicts instead of waiting for a setting.
+        else if (type == QLatin1String("GetCaptureSettings"))
+            reply->succeed({{QStringLiteral("follow_game"), true}});
+        else if (type == QLatin1String("GetCaptureValidationStatus"))
+            reply->succeed({{QStringLiteral("active"), false}});
         else
             reply->succeed({});
         return reply;
@@ -255,7 +261,7 @@ private slots:
         QVERIFY(scene.open());
         QTRY_COMPARE(scene.app->recording()->state(), QStringLiteral("listening"));
         QTRY_COMPARE(scene.text(QStringLiteral("captureChainSummary")),
-                     QString::fromUtf8("FF14 → Npcap → 适配器 → 协议档案 全部就绪"));
+                     QString::fromUtf8("游戏、驱动、网卡和版本支持均已就绪"));
         QCOMPARE(chainValue(scene, "game"), QStringLiteral("ffxiv_dx11.exe"));
         QCOMPARE(chainSub(scene, "game"), QStringLiteral("PID 18244"));
         QCOMPARE(chainValue(scene, "npcap"), QStringLiteral("v1.79"));
@@ -263,11 +269,11 @@ private slots:
         QTRY_COMPARE(chainValue(scene, "adapter"), QStringLiteral("Ethernet"));
         QCOMPARE(chainSub(scene, "adapter"), QString::fromUtf8("自动选择（有 FF14 连接）"));
         // A player never reads the profile id; the sidebar's words instead.
-        QCOMPARE(chainValue(scene, "profile"), QString::fromUtf8("档案匹配"));
+        QCOMPARE(chainValue(scene, "profile"), QString::fromUtf8("版本已支持"));
         QCOMPARE(chainSub(scene, "profile"), QString::fromUtf8("与游戏版本匹配"));
         QVERIFY(!scene.shows(QStringLiteral("captureNpcapPanel")));
         QVERIFY(!scene.shows(QStringLiteral("protocolProfileCard")));
-        QVERIFY(!scene.shows(QStringLiteral("captureSilentNotice")));
+        QCOMPARE(scene.text(QStringLiteral("captureHeroHeadline")), QString::fromUtf8("自动记录已开启，正在读取游戏数据"));
     }
 
     void maintainerSeesSelectionReasonWithoutAutomaticRecording_data()
@@ -378,7 +384,7 @@ private slots:
         QTRY_COMPARE(scene.app->recording()->state(), QStringLiteral("waiting"));
         QTRY_COMPARE(scene.text(QStringLiteral("captureHeaderStatusText")), QString::fromUtf8("等待游戏启动"));
         QTRY_COMPARE(scene.text(QStringLiteral("captureChainSummary")),
-                     QString::fromUtf8("等待游戏启动 · 档案按版本匹配，游戏启动后才知道能否记录"));
+                     QString::fromUtf8("等待游戏启动 · 启动后会检查能否自动记录"));
         QVERIFY(summaryReadsAsWaiting(scene));
         QVERIFY(!scene.shows(QStringLiteral("gameSelectionPanel")));
         QCOMPARE(chainValue(scene, "game"), QString::fromUtf8("未运行"));
@@ -407,12 +413,12 @@ private slots:
         scene.mock->setRecordingFixture(QStringLiteral("waiting"));
         QVERIFY(scene.open());
         QTRY_COMPARE(scene.text(QStringLiteral("captureChainSummary")),
-                     QString::fromUtf8("等待游戏启动 · 档案按版本匹配，游戏启动后才知道能否记录"));
+                     QString::fromUtf8("等待游戏启动 · 启动后会检查能否自动记录"));
         QCOMPARE(chainValue(scene, "game"), QString::fromUtf8("未运行"));
         QCOMPARE(chainSub(scene, "game"), QString::fromUtf8("启动游戏后自动检测"));
         QCOMPARE(chainValue(scene, "npcap"), QStringLiteral("v1.79"));
         QCOMPARE(chainValue(scene, "profile"), QString::fromUtf8("待游戏启动"));
-        QCOMPARE(chainSub(scene, "profile"), QString::fromUtf8("待游戏启动后校验"));
+        QCOMPARE(chainSub(scene, "profile"), QString::fromUtf8("启动游戏后自动检查"));
         QVERIFY(!scene.shows(QStringLiteral("captureNpcapPanel")));
         // Nothing is wrong yet, so no 协议档案 notice either.
         QVERIFY(!scene.shows(QStringLiteral("protocolProfileCard")));
@@ -433,16 +439,16 @@ private slots:
         scene.mock->setRecordingFixture(QStringLiteral("waiting-verified"));
         QVERIFY(scene.open());
         QTRY_COMPARE(scene.text(QStringLiteral("captureChainSummary")),
-                     QString::fromUtf8("等待游戏启动 · 已安装版本的档案已就绪，启动游戏后会自动记录"));
+                     QString::fromUtf8("等待游戏启动 · 已支持安装的游戏版本，启动后会自动记录"));
         // The chain is still not whole: nothing records until the game runs.
         QVERIFY(summaryReadsAsWaiting(scene));
         QCOMPARE(chainValue(scene, "game"), QString::fromUtf8("未运行"));
         QCOMPARE(chainSub(scene, "game"), QString::fromUtf8("已安装版本 2026.09.01"));
-        QCOMPARE(chainValue(scene, "profile"), QString::fromUtf8("档案匹配"));
+        QCOMPARE(chainValue(scene, "profile"), QString::fromUtf8("版本已支持"));
         QCOMPARE(chainSub(scene, "profile"), QString::fromUtf8("与已安装的游戏版本匹配"));
         // 待游戏启动后校验 was the answer only while the version was unknown.
         const QString page = scene.visibleTexts().join(QLatin1Char('\n'));
-        QVERIFY(!page.contains(QString::fromUtf8("待游戏启动后校验")));
+        QVERIFY(!page.contains(QString::fromUtf8("启动游戏后自动检查")));
         QVERIFY(!scene.shows(QStringLiteral("protocolProfileCard")));
         QVERIFY(!scene.shows(QStringLiteral("calibrationCard")));
     }
@@ -453,21 +459,21 @@ private slots:
         scene.mock->setRecordingFixture(QStringLiteral("waiting-calibrating"));
         QVERIFY(scene.open());
         QTRY_COMPARE(scene.text(QStringLiteral("captureChainSummary")),
-                     QString::fromUtf8("等待游戏启动 · 已安装的游戏版本还没有可用档案，启动游戏后需要重新校准"));
+                     QString::fromUtf8("等待游戏启动 · 当前安装的游戏版本需要重新校准"));
         QVERIFY(!summaryReadsAsWaiting(scene));
         QCOMPARE(chainValue(scene, "game"), QString::fromUtf8("未运行"));
         QCOMPARE(chainSub(scene, "game"), QString::fromUtf8("已安装版本 2026.09.01"));
         QCOMPARE(chainValue(scene, "profile"), QString::fromUtf8("待校准"));
         QCOMPARE(chainSub(scene, "profile"), QString::fromUtf8("启动游戏后重新校准"));
-        // The calibration card explains it, and while the game is closed it
-        // never claims to be calibrating now.
+        // The hero card explains it over the calibration row, and while the
+        // game is closed it never claims to be calibrating now.
         QTRY_VERIFY(scene.shows(QStringLiteral("calibrationCard")));
-        const QString headline = scene.text(QStringLiteral("calibrationHeadline"));
+        const QString headline = scene.text(QStringLiteral("captureHeroHeadline"));
         QVERIFY2(headline.contains(QString::fromUtf8("启动游戏后")), qPrintable(headline));
         QVERIFY(!headline.contains(QString::fromUtf8("正在重新校准")));
         const QString page = scene.visibleTexts().join(QLatin1Char('\n'));
         QVERIFY(!page.contains(QString::fromUtf8("尚未识别游戏版本或区服")));
-        QVERIFY(!page.contains(QString::fromUtf8("待游戏启动后校验")));
+        QVERIFY(!page.contains(QString::fromUtf8("启动游戏后自动检查")));
     }
 
     void aMissingNpcapBlocksTheChainAndOpensTheDegradedPanel()
@@ -480,10 +486,13 @@ private slots:
                      QString::fromUtf8("Npcap 未安装 · 安装前只能手动记录"));
         QCOMPARE(chainValue(scene, "npcap"), QString::fromUtf8("未安装"));
         QCOMPARE(chainSub(scene, "npcap"), QString::fromUtf8("驱动缺失"));
+        // 降级模式 is the hero card itself: the headline, the explanation, the
+        // install steps and the two buttons.
         QVERIFY(scene.shows(QStringLiteral("captureNpcapPanel")));
-        QCOMPARE(scene.text(QStringLiteral("captureNpcapHeadline")), QString::fromUtf8("未安装 Npcap"));
-        QVERIFY(scene.text(QStringLiteral("captureNpcapExplanation"))
-                    .contains(QString::fromUtf8("出于许可证限制需自行安装")));
+        QCOMPARE(scene.text(QStringLiteral("captureHeroHeadline")), QString::fromUtf8("未安装 Npcap，自动记录已停用"));
+        QVERIFY(scene.text(QStringLiteral("captureHeroText"))
+                    .contains(QString::fromUtf8("请自行下载安装")));
+        QCOMPARE(scene.text(QStringLiteral("captureHeaderStatusText")), QString::fromUtf8("需手动记录"));
         QVERIFY(scene.shows(QStringLiteral("openNpcapButton")));
         QVERIFY(scene.shows(QStringLiteral("redetectNpcapButton")));
     }
@@ -567,6 +576,42 @@ private slots:
 
     // -- vocabulary -----------------------------------------------------------
 
+    // A capture error outranks a finished calibration, as it does in
+    // AutomaticRecordingController::project(): the badge and the hero say
+    // 无法自动记录, the calibration row says its own sentence, and the error code
+    // this build has no wording for never reaches the page.
+    void aCaptureErrorOutranksAFinishedCalibrationAndNamesNoCode()
+    {
+        auto fake = std::make_unique<CaptureBackend>();
+        fake->capture = {{QStringLiteral("state"), QStringLiteral("RUNNING")},
+                         {QStringLiteral("ffxiv_running"), true},
+                         {QStringLiteral("ffxiv_process_id"), 18244},
+                         {QStringLiteral("npcap_installed"), true},
+                         {QStringLiteral("profile_status"), QStringLiteral("VERIFIED")},
+                         {QStringLiteral("profile_origin"), QStringLiteral("LOCAL_CALIBRATION")},
+                         {QStringLiteral("region"), QStringLiteral("CN")},
+                         {QStringLiteral("game_build"), QStringLiteral("2026.09.01.0000.0000")},
+                         {QStringLiteral("last_error_code"), QStringLiteral("ERR_BRAND_NEW_CODE")},
+                         {QStringLiteral("calibration"), QJsonObject{
+                              {QStringLiteral("state"), QStringLiteral("DONE")},
+                              {QStringLiteral("game_build"), QStringLiteral("2026.09.01.0000.0000")},
+                              {QStringLiteral("blockers"), QJsonArray()},
+                              {QStringLiteral("events"), QJsonArray()},
+                              {QStringLiteral("progress"), QJsonObject()}}}};
+        PageScene scene;
+        scene.other = std::move(fake);
+        QVERIFY(scene.open());
+        QTRY_COMPARE(scene.app->recording()->state(), QStringLiteral("blocked"));
+        QTRY_COMPARE(scene.text(QStringLiteral("captureHeaderStatusText")), QString::fromUtf8("无法自动记录"));
+        QCOMPARE(scene.text(QStringLiteral("captureHeroHeadline")), QString::fromUtf8("暂时不会自动记录"));
+        const QString text = scene.text(QStringLiteral("captureHeroText"));
+        QVERIFY2(!text.contains(QStringLiteral("ERR_")), qPrintable(text));
+        QVERIFY2(!text.contains(QString::fromUtf8("查看诊断")), qPrintable(text));
+        QVERIFY2(text.endsWith(QString::fromUtf8("。")), qPrintable(text));
+        QVERIFY(scene.shows(QStringLiteral("calibrationCard")));
+        QVERIFY(scene.shows(QStringLiteral("calibrationHeadline")));
+    }
+
     void aPlayersPageCarriesNoWireVocabulary()
     {
         PageScene scene;
@@ -575,7 +620,7 @@ private slots:
         QTRY_VERIFY(!scene.app->parserErrors().isEmpty());
         QTRY_VERIFY(scene.item(QStringLiteral("captureParseFailureText")));
         const QStringList texts = scene.visibleTexts();
-        QVERIFY(texts.contains(QString::fromUtf8("报文长度与档案不符，已忽略")));
+        QVERIFY(texts.contains(QString::fromUtf8("游戏数据的格式不符合预期，已跳过")));
         static const QStringList words{
             QString::fromUtf8("开始捕获"), QString::fromUtf8("停止捕获"), QString::fromUtf8("开始验证"),
             QString::fromUtf8("维护者工具"), QString::fromUtf8("对照核对"), QStringLiteral("opcode"),

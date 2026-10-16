@@ -1,6 +1,8 @@
 #include "TestCollectorGuard.h"
 #include "AutomaticRecordingController.h"
 #include "AppController.h"
+#include "CollectorText.h"
+#include "CollectorTextTestSupport.h"
 #include <QSignalSpy>
 #include <QJsonArray>
 #include <QGuiApplication>
@@ -82,9 +84,9 @@ private slots:
     void unreadableInstallPathIsNamedInsteadOfAProfileMismatch() {
         RecordingBackend b; b.capture["profile_status"] = "NONE"; b.game["install_path_readable"] = false;
         mr::AutomaticRecordingController c(&b); c.refresh();
-        QVERIFY(c.blocked()); QVERIFY(c.message().contains(QStringLiteral("无法读取游戏安装路径")));
+        QVERIFY(c.blocked()); QVERIFY(c.message().contains(QStringLiteral("找不到游戏的安装位置")));
         b.game["install_path_readable"] = true; c.refresh();
-        QVERIFY(c.blocked()); QVERIFY(c.message().contains(QStringLiteral("协议档案不匹配")));
+        QVERIFY(c.blocked()); QVERIFY(c.message().contains(QStringLiteral("适用于当前游戏版本的支持文件")));
     }
     void deferredFaultClearsOnlyOnConfirmedRecovery() {
         RecordingBackend b; b.capture["profile_status"] = "NONE"; mr::AutomaticRecordingController c(&b);
@@ -119,6 +121,31 @@ private slots:
         b.validation["active"] = false; c.refresh(); QCOMPARE(c.state(), "listening");
         b.validation["active"] = true; b.failStop = false; c.retry();
         QCOMPARE(c.state(), "listening"); QCOMPARE(b.calls.count("StopCaptureValidation"), 2);
+    }
+    void explicitObservationPausesMutationsButLegacyCleanupStillWorks() {
+        RecordingBackend b;
+        mr::AutomaticRecordingController c(&b);
+        c.setUserObservation(true);
+        b.validation["active"] = true;
+        b.validation["state"] = "RECORDING";
+        const int calls = b.calls.size();
+        c.refresh(); c.retry(); b.reconnect();
+        QCOMPARE(c.state(), "observing");
+        QCOMPARE(b.calls.size(), calls);
+        QCOMPARE(b.calls.count("StopCaptureValidation"), 0);
+        // 显式所有权释放后，原有清理遗留验证工具的初始化契约继续有效。
+        c.setUserObservation(false);
+        QCOMPARE(b.calls.count("StopCaptureValidation"), 1);
+        QCOMPARE(c.state(), "listening");
+    }
+    void lateAutomaticSnapshotCannotOverwriteExplicitObservation() {
+        RecordingBackend b; b.holdStatus = true;
+        mr::AutomaticRecordingController c(&b); c.refresh();
+        auto *old = b.held; QVERIFY(old);
+        c.setUserObservation(true);
+        old->succeed({{"capture", b.capture}});
+        QCOMPARE(c.state(), "observing");
+        QVERIFY(!c.blocked());
     }
     void acceptedStopDrainsWithoutFailureOrRepeatedStop() {
         RecordingBackend b; b.validation["active"] = true; b.validation["state"] = "RECORDING";
@@ -190,7 +217,7 @@ private slots:
         b.capture["messages_decoded"] = 0; b.capture["uptime_ms"] = 4000;
         mr::AutomaticRecordingController c(&b); c.refresh();
         QCOMPARE(c.state(), QStringLiteral("listening_silent"));
-        QVERIFY(c.message().contains(QStringLiteral("重新选择网卡")));
+        QVERIFY(c.message().contains(QStringLiteral("重新检测网卡")));
     }
     void unknownSilentReasonFallsBackInsteadOfLeakingTheToken() {
         RecordingBackend b; b.capture["silent_reason"] = "SOMETHING_NEW";
@@ -205,6 +232,66 @@ private slots:
         mr::AutomaticRecordingController c(&b); c.refresh();
         QCOMPARE(c.state(), QStringLiteral("listening_silent"));
         QCOMPARE(c.message(), QString::fromUtf8("换一张网卡试试。"));
+    }
+    // contracts/collector-texts.md: hint_ref names the hint by key. The message is a
+    // recipe, so the same reading shows the language now on screen; without a key,
+    // or with one this build does not know, the Collector's Chinese is shown.
+    void theCollectorsHintIsShownInTheInterfaceLanguage() {
+        const QVariantMap ref = mrtest::textRef("capture.hint.no_packets");
+        const QString chinese = mr::collector_text::chinese(ref);
+        QVERIFY(!chinese.isEmpty());
+        RecordingBackend b; b.capture["silent_reason"] = "NO_STREAM_OWNERSHIP";
+        b.capture["hint"] = chinese;
+        b.capture["hint_ref"] = QJsonObject::fromVariantMap(ref);
+        mr::AutomaticRecordingController c(&b); c.refresh();
+        QCOMPARE(c.state(), QStringLiteral("listening_silent"));
+        QCOMPARE(c.message(), chinese);
+        const int serial = c.messageSerial();
+        {
+            const mrtest::MarkedLanguage language;
+            QCOMPARE(c.message(), mrtest::marked("capture.hint.no_packets", chinese));
+            // The next poll says the same thing in the new language: nothing new
+            // to say, so a dismissed notice stays dismissed.
+            c.refresh();
+            QCOMPARE(c.messageSerial(), serial);
+            b.capture["hint_ref"] = QJsonObject{{"key", "capture.hint.brand_new"}};
+            c.refresh();
+            QCOMPARE(c.message(), chinese);
+        }
+        b.capture.remove("hint_ref");
+        c.refresh();
+        QCOMPARE(c.message(), chinese);
+        // Something else to say moves the serial on.
+        b.capture["hint"] = QString::fromUtf8("换一张网卡试试。");
+        c.refresh();
+        QVERIFY(c.messageSerial() != serial);
+    }
+    void theFirstBlockerIsShownByItsKey() {
+        const QVariantMap first = mrtest::textRef("calibration.blocker.no_login");
+        const QVariantMap second = mrtest::textRef("calibration.blocker.finish_duty");
+        RecordingBackend b; b.capture["profile_status"] = "UNSUPPORTED_BUILD";
+        QJsonObject calibration{{"state", "BLOCKED"},
+                                {"blockers", QJsonArray{mr::collector_text::chinese(first),
+                                                        mr::collector_text::chinese(second)}},
+                                {"blocker_refs", QJsonArray{QJsonObject::fromVariantMap(first),
+                                                            QJsonObject::fromVariantMap(second)}},
+                                {"events", QJsonArray{}}};
+        b.capture["calibration"] = calibration;
+        mr::AutomaticRecordingController c(&b); c.refresh();
+        QCOMPARE(c.state(), QStringLiteral("calibration_blocked"));
+        QVERIFY(c.message().startsWith(mr::collector_text::chinese(first)));
+        {
+            const mrtest::MarkedLanguage language;
+            QVERIFY2(c.message().startsWith(mrtest::marked("calibration.blocker.no_login",
+                                                           mr::collector_text::chinese(first))),
+                     qPrintable(c.message()));
+            QVERIFY(!c.message().contains(QStringLiteral("finish_duty")));
+            // A refs list that does not match the blockers is ignored as a whole.
+            calibration["blocker_refs"] = QJsonArray{QJsonObject::fromVariantMap(first)};
+            b.capture["calibration"] = calibration;
+            c.refresh();
+            QVERIFY(c.message().startsWith(mr::collector_text::chinese(first)));
+        }
     }
     void anExplicitNoneWithTrafficIsGreenAgain() {
         RecordingBackend b; b.capture["silent_reason"] = "NONE";
@@ -233,7 +320,7 @@ private slots:
         RecordingBackend b; b.capture["last_error_code"] = "ERR_SOMETHING_NEW";
         mr::AutomaticRecordingController c(&b); c.refresh();
         QVERIFY(c.blocked());
-        QVERIFY(c.message().startsWith(QStringLiteral("采集链路受阻")));
+        QVERIFY(c.message().startsWith(QStringLiteral("暂时不能自动记录")));
         // The raw token may only trail the sentence, never replace the explanation.
         QVERIFY(c.message().indexOf(QStringLiteral("ERR_SOMETHING_NEW")) > 10);
     }
@@ -415,7 +502,7 @@ private slots:
         mr::AppController app(&b, nullptr);
         app.rescanGame();
         QVERIFY2(!app.toastMessage().contains(QString::fromUtf8("记录对象")), qPrintable(app.toastMessage()));
-        QVERIFY(app.toastMessage().contains(QString::fromUtf8("未找到正在运行的 FF14 进程")));
+        QVERIFY(app.toastMessage().contains(QString::fromUtf8("未找到正在运行的 FF14")));
         QVERIFY(!app.gameSelection()->required());
     }
 

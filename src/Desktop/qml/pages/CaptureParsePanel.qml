@@ -2,8 +2,8 @@ import QtQuick
 import QtQuick.Layouts
 import MentorRecorder
 
-// 解析：成功率 in large figures, then 消息速率 / 失败 · 去重 / 最近有效事件, then the
-// most recent parser refusals.
+// 解析：成功率 in large figures with a sparkline of its last readings, then
+// 消息速率 / 失败 · 去重 / 最近有效事件, then the most recent parser refusals.
 //
 // Counters come from App.captureCounters, which holds only what the Collector
 // sent: without parse counters the panel says so and prints no number at all.
@@ -26,6 +26,43 @@ Card {
     }
     readonly property int hiddenFailures: (App.parserErrors || []).length - parse.failures.length
 
+    // The sparkline: the success rate as it was reported, one reading at most
+    // every five seconds, the latest twelve. Only values the Collector sent are
+    // kept, so the bars never show a rate this page made up; a new capture
+    // session, or counters without a rate, start the line over.
+    readonly property int sparkLength: 12
+    readonly property int sparkIntervalMs: 5000
+    property var sparkSamples: []
+    property double sparkLastAt: 0
+    property string sparkSession: ""
+
+    function recordSample() {
+        // Read App directly: this runs from App's own signal, before or after
+        // the `counters` binding has caught up.
+        const rate = App.captureCounters.parse_success_rate
+        const session = String(App.captureStatus.capture_session_id || "")
+        if (session !== parse.sparkSession || rate === undefined || rate === null) {
+            parse.sparkSamples = []
+            parse.sparkLastAt = 0
+            parse.sparkSession = session
+        }
+        if (rate === undefined || rate === null)
+            return
+        const now = Date.now()
+        if (parse.sparkSamples.length > 0 && now - parse.sparkLastAt < parse.sparkIntervalMs)
+            return
+        const next = parse.sparkSamples.slice(1 - parse.sparkLength)
+        next.push(Number(rate))
+        parse.sparkSamples = next
+        parse.sparkLastAt = now
+    }
+
+    Connections {
+        target: App
+        function onStatusChanged() { parse.recordSample() }
+    }
+    Component.onCompleted: parse.recordSample()
+
     function counter(key) {
         const value = parse.counters[key]
         return (value === undefined || value === null) ? Fmt.dash() : Fmt.count(value)
@@ -47,20 +84,20 @@ Card {
         const at = parse.counters.last_valid_event_at_utc
         if (!at)
             return Fmt.dash()
-        const kind = Fmt.eventKindLabel(String(parse.counters.last_valid_event_kind || ""))
+        const kind = Theme.live(Fmt.eventKindLabel(String(parse.counters.last_valid_event_kind || "")))
         return kind.length > 0 ? Fmt.localTime(at) + " " + kind : Fmt.localTime(at)
     }
 
     function failureMessage(row) {
         if (!parse.maintainer)
-            return Fmt.parserErrorLabel(String(row.code || ""))
+            return Theme.live(Fmt.parserErrorLabel(String(row.code || "")))
         return [String(row.direction || ""), String(row.opcode || "")].join(" ").trim()
                + " · " + String(row.message || "")
     }
 
-    horizontalPadding: 24
-    verticalPadding: 18
-    spacing: 14
+    horizontalPadding: 20
+    verticalPadding: 16
+    spacing: 12
 
     RowLayout {
         Layout.fillWidth: true
@@ -69,13 +106,13 @@ Card {
         CardKicker {
             Layout.alignment: Qt.AlignVCenter
             Layout.fillWidth: false
-            text: qsTr("解析")
+            text: qsTr("数据读取")
         }
 
         Text {
             Layout.fillWidth: true
             Layout.alignment: Qt.AlignVCenter
-            text: qsTr("失败即忽略，不改变导随状态、不创建记录")
+            text: qsTr("无法识别的数据会跳过，不会据此新增或修改记录")
             color: Theme.textSecondary
             font.pixelSize: Theme.fs(12)
             elide: Text.ElideRight
@@ -87,77 +124,116 @@ Card {
         Layout.fillWidth: true
         visible: !parse.statsAvailable
         text: parse.maintainer
-              ? qsTr("采集器未报告解析计数（未连接，或对端是更早的版本）。此处不显示任何数字。")
-              : qsTr("还没有拿到解析统计：采集服务没有连接，或它的版本还不会报告这些数字。")
+              ? qsTr("采集器未报告数据读取计数（未连接，或对端是更早的版本）。此处不显示任何数字。")
+              : qsTr("暂时没有读取统计。后台服务可能尚未连接，或需要更新软件。")
         color: Theme.textSecondary
         font.pixelSize: Theme.fs(12)
         wrapMode: Text.WordWrap
     }
 
-    // grid-template-columns:auto 1fr 1fr 1fr; gap:20px; align-items:end
+    // dg-metrics: grid-template-columns:repeat(3,1fr) 1.5fr; gap:12px 20px; align-items:end
     RowLayout {
         Layout.fillWidth: true
         visible: parse.statsAvailable
         spacing: 20
 
         ColumnLayout {
+            Layout.fillWidth: true
+            Layout.preferredWidth: 1
+            Layout.horizontalStretchFactor: 2
             Layout.alignment: Qt.AlignBottom
-            Layout.minimumWidth: implicitWidth
             spacing: 2
 
             Text {
                 text: qsTr("成功率")
-                color: Theme.textSecondary
+                color: Theme.eorzea ? Theme.textSecondary : Theme.textMuted
                 font.pixelSize: Theme.fs(11)
             }
 
+            // dg-big: the heading face in gold (eorzea), Plex Mono in the text
+            // colour (classic). Neither size is one Theme.fs maps.
             Text {
                 objectName: "captureParseSuccessRate"
                 text: parse.successRateText()
-                color: Theme.eorzea ? Theme.gold2 : Theme.accent
-                // A size workbench.css leaves alone, so it is not mapped by Theme.fs.
-                font.pixelSize: 34
-                font.family: Theme.figureFamily
-                font.weight: Theme.figureWeight(true)
+                color: Theme.eorzea ? Theme.gold2 : Theme.textPrimary
+                font.pixelSize: Theme.eorzea ? 30 : 24
+                font.family: Theme.numFamily
+                font.weight: Theme.eorzea ? Font.Bold : Font.DemiBold
                 font.features: ({ "tnum": 1 })
-                lineHeight: 1.0
+                lineHeight: 1.1
+            }
+
+            // dg-spark: 3 px bars, 2 px apart, 18 px tall; the latest one in the
+            // full accent, the earlier ones at 35 %.
+            Row {
+                objectName: "captureParseSparkline"
+                Layout.topMargin: 2
+                visible: parse.sparkSamples.length >= 2
+                spacing: 2
+
+                Repeater {
+                    model: parse.sparkSamples
+
+                    delegate: Item {
+                        id: bar
+                        required property double modelData
+                        required property int index
+
+                        width: 3
+                        height: 18
+
+                        Rectangle {
+                            anchors.bottom: parent.bottom
+                            width: parent.width
+                            height: Math.max(2, Math.round(Math.min(1, Math.max(0, bar.modelData)) * 18))
+                            radius: 1.5
+                            color: bar.index === parse.sparkSamples.length - 1
+                                   ? Theme.accent
+                                   : Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.35)
+                        }
+                    }
+                }
             }
         }
 
         Repeater {
             model: [
-                { key: "rate", label: qsTr("消息速率"), value: parse.messageRateText() },
-                { key: "failures", label: qsTr("失败 · 去重"),
-                  value: parse.counter("parse_fail_count") + " · " + parse.counter("duplicate_count") },
-                { key: "lastEvent", label: qsTr("最近有效事件"), value: parse.lastValidEventText() }
+                { key: "rate", label: qsTr("读取速度"), value: parse.messageRateText(), figure: true, stretch: 2 },
+                { key: "failures", label: qsTr("失败 · 重复"),
+                  value: parse.counter("parse_fail_count") + " · " + parse.counter("duplicate_count"),
+                  figure: true, stretch: 2 },
+                { key: "lastEvent", label: qsTr("最近识别的操作"), value: parse.lastValidEventText(),
+                  figure: false, stretch: 3 }
             ]
 
             delegate: ColumnLayout {
+                id: metric
                 required property var modelData
 
                 Layout.fillWidth: true
-                Layout.preferredWidth: implicitWidth
+                Layout.preferredWidth: 1
+                Layout.horizontalStretchFactor: metric.modelData.stretch
                 Layout.alignment: Qt.AlignBottom
                 Layout.bottomMargin: 4
                 spacing: 2
 
                 Text {
                     Layout.fillWidth: true
-                    text: modelData.label
-                    color: Theme.textSecondary
+                    text: metric.modelData.label
+                    color: Theme.eorzea ? Theme.textSecondary : Theme.textMuted
                     font.pixelSize: Theme.fs(11)
                     elide: Text.ElideRight
                 }
 
                 Text {
-                    objectName: "captureParseValue_" + modelData.key
+                    objectName: "captureParseValue_" + metric.modelData.key
                     Layout.fillWidth: true
-                    text: modelData.value
+                    text: metric.modelData.value
                     textFormat: Text.PlainText
                     color: Theme.textPrimary
                     font.pixelSize: Theme.fs(16)
-                    font.family: Theme.figureFamily
-                    font.weight: Theme.figureWeight(true)
+                    font.family: metric.modelData.figure ? Theme.figureFamily : Theme.bodyFamily
+                    font.weight: metric.modelData.figure ? Theme.figureWeight(true) : Font.DemiBold
                     font.features: ({ "tnum": 1 })
                     wrapMode: Text.WordWrap
                 }
@@ -165,7 +241,7 @@ Card {
         }
     }
 
-    // 最近失败: border-top divider, then rows of 64 px time · 140 px code · text.
+    // 最近失败: border-top divider, then rows of 64 px time · 150 px code · text.
     ColumnLayout {
         objectName: "captureParseFailures"
         Layout.fillWidth: true
@@ -180,9 +256,9 @@ Card {
 
         Text {
             Layout.topMargin: 10
-            Layout.bottomMargin: 4
-            text: qsTr("最近失败")
-            color: Theme.textSecondary
+            Layout.bottomMargin: 2
+            text: qsTr("最近未识别的数据")
+            color: Theme.eorzea ? Theme.textSecondary : Theme.textMuted
             font.pixelSize: Theme.fs(11)
         }
 
@@ -219,7 +295,7 @@ Card {
                     // The refusal code is a token: maintainers read it, a player
                     // reads the sentence beside it (review OK-8).
                     Text {
-                        Layout.preferredWidth: 140
+                        Layout.preferredWidth: 150
                         Layout.alignment: Qt.AlignTop
                         Layout.topMargin: 1
                         visible: parse.maintainer
@@ -238,8 +314,7 @@ Card {
                         Layout.alignment: Qt.AlignTop
                         text: parse.failureMessage(failureRow.modelData)
                         textFormat: Text.PlainText
-                        color: Theme.textPrimary
-                        opacity: 0.8
+                        color: Theme.textSecondary
                         font.pixelSize: Theme.fs(12)
                         wrapMode: Text.WordWrap
                     }
@@ -257,10 +332,10 @@ Card {
 
         Text {
             Layout.fillWidth: true
-            Layout.topMargin: 8
+            Layout.topMargin: 6
             visible: parse.statsAvailable && App.parserErrors.length === 0
-            text: qsTr("最近没有解析失败记录。")
-            color: Theme.textSecondary
+            text: qsTr("最近没有数据读取失败记录。")
+            color: Theme.textPrimary
             font.pixelSize: Theme.fs(12)
             wrapMode: Text.WordWrap
         }
@@ -279,7 +354,7 @@ Card {
             Layout.fillWidth: true
             Layout.topMargin: 8
             visible: App.usingMockData && App.parserErrors.length > 0
-            text: qsTr("以上为模拟后端的示例数据，不是真实解析失败。")
+            text: qsTr("以上为模拟后端的示例数据，不是真实数据读取失败。")
             color: Theme.orangeText
             font.pixelSize: Theme.fs(11)
             wrapMode: Text.WordWrap

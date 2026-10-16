@@ -110,7 +110,7 @@ public sealed class RunImportXlsTests : IDisposable
     public void RenamedTextAndZipAreRejected(string text)
     {
         var path = Path.Combine(_directory, "renamed.xls"); File.WriteAllText(path, text, new UTF8Encoding(false));
-        Assert.Contains("真实", Assert.Throws<InvalidDataException>(() => RunImportSourceParser.Parse("XLS", path)).Message);
+        Assert.Contains("不能只修改后缀", Assert.Throws<InvalidDataException>(() => RunImportSourceParser.Parse("XLS", path)).Message);
     }
 
     [Fact]
@@ -152,7 +152,7 @@ public sealed class RunImportXlsTests : IDisposable
     {
         var bytes = WorkbookBytes();
         MutateRecord(bytes, 0x00fc, record => { record[4] = 0xff; record[5] = 0xff; record[6] = 0xff; record[7] = 0x7f; });
-        Assert.Contains("共享字符串", Assert.Throws<InvalidDataException>(() => RunImportSourceParser.Parse("XLS", Repackage(bytes))).Message);
+        Assert.Contains("文本条目过多", Assert.Throws<InvalidDataException>(() => RunImportSourceParser.Parse("XLS", Repackage(bytes))).Message);
         var path = Write(workbook => workbook.CreateSheet());
         bytes = File.ReadAllBytes(path); BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(44), 4096); File.WriteAllBytes(path, bytes);
         Assert.Contains("64 MiB", Assert.Throws<InvalidDataException>(() => RunImportSourceParser.Parse("XLS", path)).Message);
@@ -199,7 +199,7 @@ public sealed class RunImportXlsTests : IDisposable
         finally { filesystem.Close(); }
         MutateRecord(bytes, 0x0203, body => BinaryPrimitives.WriteUInt16LittleEndian(body.AsSpan(4), 21));
         var rows = RunImportSourceParser.Parse("XLS", Repackage(bytes));
-        Assert.Equal(2, rows.Count); Assert.Contains(rows[0].Errors, error => error.Contains("格式索引", StringComparison.Ordinal));
+        Assert.Equal(2, rows.Count); Assert.Contains(rows[0].Errors, error => error.Contains("单元格格式无法读取", StringComparison.Ordinal));
         Assert.Empty(rows[1].Errors);
     }
 
@@ -226,7 +226,7 @@ public sealed class RunImportXlsTests : IDisposable
     public void NonzeroDataAfterZeroPaddingIsRejectedWithoutRescanningEveryZeroRecord()
     {
         var bytes = WorkbookBytes().Concat(new byte[64 * 1024]).Concat(new byte[] { 1 }).ToArray();
-        Assert.Contains("零填充", Assert.Throws<InvalidDataException>(() => RunImportSourceParser.Parse("XLS", Repackage(bytes))).Message);
+        Assert.Contains("工作表数据格式不正确", Assert.Throws<InvalidDataException>(() => RunImportSourceParser.Parse("XLS", Repackage(bytes))).Message);
     }
 
     [Theory]
@@ -242,7 +242,7 @@ public sealed class RunImportXlsTests : IDisposable
     }
 
     [Theory]
-    [InlineData(17, "深度")]
+    [InlineData(17, "超过 16 层")]
     [InlineData(1025, "1024")]
     [InlineData(10000, "1024")]
     public void RawOleDirectoryIsBoundedBeforeNpoiRecursion(int depth, string error)
@@ -256,7 +256,7 @@ public sealed class RunImportXlsTests : IDisposable
     {
         var path = WriteRawOle(4); var bytes = File.ReadAllBytes(path);
         BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(512 + 4 * 128 + 76), 1); File.WriteAllBytes(path, bytes);
-        Assert.Contains("循环", Assert.Throws<InvalidDataException>(() => RunImportSourceParser.Parse("XLS", path)).Message);
+        Assert.Contains("目录关联损坏", Assert.Throws<InvalidDataException>(() => RunImportSourceParser.Parse("XLS", path)).Message);
     }
 
     private string WriteRawOle(int depth)

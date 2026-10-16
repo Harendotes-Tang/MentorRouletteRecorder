@@ -59,6 +59,7 @@ void MockBackend::setUpdateDownloadFixture(const QString &state)
         m_updateDownloadTimer->stop();
     m_updateFailure.clear();
     m_updateMessage.clear();
+    m_updateMessageRef = {};
     if (state == QLatin1String("downloading")) {
         m_updateDownloadState = kDownloading;
         m_updateReceivedBytes = kMockInstallerBytes * 45 / 100;
@@ -68,9 +69,7 @@ void MockBackend::setUpdateDownloadFixture(const QString &state)
     } else if (state == QLatin1String("ready")) {
         finishUpdateDownload();
     } else {
-        failUpdateDownload(QStringLiteral("TIMEOUT"),
-                           QString::fromUtf8("下载安装程序时超过 30 秒没有收到数据，没有保存任何文件。"
-                                             "可以点「重试」，或点「在浏览器中下载」改用浏览器下载。"));
+        failUpdateDownload(QStringLiteral("TIMEOUT"), "update.download.timeout");
     }
 }
 
@@ -95,6 +94,7 @@ QJsonObject MockBackend::updateDownload() const
     if (m_updateDownloadState == kFailed) {
         download.insert(QStringLiteral("failure"), m_updateFailure);
         download.insert(QStringLiteral("message"), m_updateMessage);
+        download.insert(QStringLiteral("message_ref"), m_updateMessageRef);
         return download;
     }
     download.insert(QStringLiteral("received_bytes"), double(m_updateReceivedBytes));
@@ -123,13 +123,12 @@ QJsonObject MockBackend::applyUpdateDownload(const QString &messageType, const Q
     ++m_startUpdateDownloadCount;
     m_lastStartUpdateDownload = payload;
     if (!captureSettings().value(QStringLiteral("update_check_enabled")).toBool(true)) {
-        failUpdateDownload(QStringLiteral("DISABLED"),
-                           QString::fromUtf8("「检查新版本并提示」已关闭，打开后才能下载新版本。"));
+        // DISABLED because of the setting (UpdateDownloadMessages.SettingOff).
+        failUpdateDownload(QStringLiteral("DISABLED"), "update.download.setting_off");
     } else if (!m_updateAvailable) {
         // The mock only knows 99.9.9 while it says there is an update, so even
         // reinstall has nothing to fetch otherwise.
-        failUpdateDownload(QStringLiteral("NO_UPDATE"),
-                           QString::fromUtf8("没有比当前版本更新的版本可以下载。"));
+        failUpdateDownload(QStringLiteral("NO_UPDATE"), "update.download.no_update");
     } else if (running) {
         // One download at a time: the running one is reported.
     } else if (m_updateDownloadState == kReady && QFileInfo::exists(m_updateFilePath)) {
@@ -139,6 +138,7 @@ QJsonObject MockBackend::applyUpdateDownload(const QString &messageType, const Q
         m_updateReceivedBytes = 0;
         m_updateFailure.clear();
         m_updateMessage.clear();
+        m_updateMessageRef = {};
         if (!m_updateDownloadTimer) {
             m_updateDownloadTimer = new QTimer(this);
             connect(m_updateDownloadTimer, &QTimer::timeout, this,
@@ -178,9 +178,7 @@ void MockBackend::finishUpdateDownload()
     QDir().mkpath(QFileInfo(path).absolutePath());
     QSaveFile file(path);
     if (!file.open(QIODevice::WriteOnly) || file.write(content) != content.size() || !file.commit()) {
-        failUpdateDownload(QStringLiteral("DISK_FAILED"),
-                           QString::fromUtf8("无法把安装程序保存到本机，没有保留任何文件。"
-                                             "可以点「重试」，或点「在浏览器中下载」改用浏览器下载。"));
+        failUpdateDownload(QStringLiteral("DISK_FAILED"), "update.download.disk_failed");
         return;
     }
     m_updateDownloadState = kReady;
@@ -190,14 +188,18 @@ void MockBackend::finishUpdateDownload()
         QCryptographicHash::hash(content, QCryptographicHash::Sha256).toHex());
 }
 
-void MockBackend::failUpdateDownload(const QString &failure, const QString &message)
+void MockBackend::failUpdateDownload(const QString &failure, const char *key)
 {
     if (m_updateDownloadTimer)
         m_updateDownloadTimer->stop();
     m_updateDownloadState = kFailed;
     m_updateReceivedBytes = 0;
     m_updateFailure = failure;
-    m_updateMessage = message;
+    // The Collector's sentence for this failure (UpdateDownloadMessages) and its
+    // catalogue reference.
+    const CollectorSentence sentence = collectorSentence(key);
+    m_updateMessage = sentence.chinese;
+    m_updateMessageRef = sentence.ref;
 }
 
 } // namespace mr

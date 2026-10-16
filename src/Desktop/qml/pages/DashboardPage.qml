@@ -39,7 +39,8 @@ ScrollView {
                                       ? App.pendingReviewRun : ({})
     readonly property bool pendingRunReady: !!(pendingRun && pendingRun.run_id)
     readonly property string pendingRunDuty: pendingRunReady && pendingRun.duty_name
-                                             ? pendingRun.duty_name : qsTr("未知副本")
+                                             ? (Theme.dutyName(pendingRun) || qsTr("未知副本"))
+                                             : qsTr("未知副本")
     // 快速处理按钮发出请求后到采集服务回应为止禁用。连点会发出第二条内容完全
     // 相同的修正请求，它命中修订冲突后会被自动重发一次，于是审计里多出一条用户
     // 从未要求过的重复修订（审查第 10 条）。Main.qml 的 reasonDialog 早有
@@ -99,16 +100,24 @@ ScrollView {
             App.showToast(qsTr("所有通关记录都已写过笔记"))
     }
 
+    // 还差 N 次: one sentence for the translators; the figure between its two
+    // halves is drawn in its own, larger type.
+    readonly property var remainingParts: qsTr("还差 %1 次").split("%1")
+
     // The header's date. The app lives in the tray for days, so the date is
-    // read again every minute instead of once at start (review OK-9).
-    property string todayText: Fmt.dateWithWeekday(new Date().toISOString())
+    // read again every minute instead of once at start (review OK-9), and after
+    // a language switch: the weekday is a word.
+    property string todayText: Theme.live(Fmt.dateWithWeekday(new Date().toISOString()))
 
     Timer {
         objectName: "dashboardDateTimer"
         interval: 60 * 1000
         repeat: true
         running: true
-        onTriggered: page.todayText = Fmt.dateWithWeekday(new Date().toISOString())
+        // A fresh binding, evaluated now and again on the next language switch.
+        onTriggered: page.todayText = Qt.binding(function() {
+            return Theme.live(Fmt.dateWithWeekday(new Date().toISOString()))
+        })
     }
 
     clip: true
@@ -174,8 +183,8 @@ ScrollView {
 
                     Text {
                         text: App.captureMidstreamSuspected
-                              ? qsTr("抓包开始得太晚，本次连接不会产生任何记录")
-                              : qsTr("捕获在运行，但没有解码出任何报文")
+                              ? qsTr("可能错过了连接开头，暂时无法确认自动记录")
+                              : qsTr("正在接收网络数据，但尚未识别出游戏消息")
                         color: Theme.orangeText
                         font.pixelSize: Theme.fs(14)
                         font.bold: true
@@ -192,7 +201,7 @@ ScrollView {
 
                 AppButton {
                     variant: "primary"
-                    text: qsTr("查看抓包状态")
+                    text: qsTr("查看捕获诊断")
                     onClicked: page.openCaptureRequested()
                 }
             }
@@ -234,10 +243,10 @@ ScrollView {
                         Layout.fillWidth: true
                         // Says nothing of any one run: a pending run may already be 通关
                         // (a withdrawn calibration flags its runs and keeps their results).
-                        text: qsTr("这些导随的结果还没有确认，常见的原因是程序异常退出后由崩溃恢复关闭、"
-                                   + "离开副本前没有收到通关结算而无法判定是否通关，或者生成记录的校准事后被撤下。"
+                        text: qsTr("这些记录需要你复核，可能是程序异常退出、"
+                                   + "未收到通关结算，或生成记录时使用的校准后来被停用。"
                                    + "尚未记为通关的记录，确认“通关”后才计入导随次数；"
-                                   + "每次确认都会作为一条新的修订记入审计。")
+                                   + "每次确认都会记入“修改记录”。")
                         color: Theme.textPrimary
                         font.pixelSize: Theme.fs(12)
                         wrapMode: Text.WordWrap
@@ -264,7 +273,7 @@ ScrollView {
                             enabled: !page.resolvingPendingRun
                             text: qsTr("通关")
                             onClicked: page.resolvePendingRun("COMPLETED",
-                                                              qsTr("用户确认通关"))
+                                                              QT_TRANSLATE_NOOP("SystemReason", "用户确认通关"))
                         }
 
                         AppButton {
@@ -273,7 +282,7 @@ ScrollView {
                             enabled: !page.resolvingPendingRun
                             text: qsTr("未通关")
                             onClicked: page.resolvePendingRun("LEFT_OR_ABANDONED",
-                                                              qsTr("用户确认未通关"))
+                                                              QT_TRANSLATE_NOOP("SystemReason", "用户确认未通关"))
                         }
 
                         Item { Layout.fillWidth: true }
@@ -340,7 +349,9 @@ ScrollView {
         // skin's (2026-09-21 audit, finding 21).
         Rectangle {
             Layout.fillWidth: true
-            Layout.preferredHeight: visible ? 68 : 0
+            // 68 px, or taller when a longer translation of the text below
+            // takes its second line.
+            Layout.preferredHeight: visible ? Math.max(68, npcapRow.implicitHeight + 20) : 0
             visible: !App.npcapInstalled
             radius: Theme.radiusM
             border.width: 1
@@ -363,6 +374,8 @@ ScrollView {
             }
 
             RowLayout {
+                id: npcapRow
+
                 anchors.fill: parent
                 anchors.leftMargin: 16
                 anchors.rightMargin: 12
@@ -386,6 +399,8 @@ ScrollView {
                         color: Theme.eorzea ? Theme.textPrimary : Theme.textSecondary
                         opacity: Theme.dimOpacity(0.9)
                         font.pixelSize: Theme.fs(12)
+                        wrapMode: Text.WordWrap
+                        maximumLineCount: 2
                         elide: Text.ElideRight
                     }
                 }
@@ -433,7 +448,8 @@ ScrollView {
                     spacing: 5
 
                     Text {
-                        text: qsTr("还差")
+                        text: page.remainingParts[0].trim()
+                        visible: text.length > 0
                         color: Theme.textSecondary
                         font.pixelSize: Theme.fs(13)
                     }
@@ -449,7 +465,8 @@ ScrollView {
                     }
 
                     Text {
-                        text: qsTr("次")
+                        text: (page.remainingParts[1] || "").trim()
+                        visible: text.length > 0
                         color: Theme.textSecondary
                         font.pixelSize: Theme.fs(13)
                     }
@@ -462,7 +479,7 @@ ScrollView {
                     spacing: 5
 
                     Text {
-                        text: qsTr("含安装前基数 %1 次 ·").arg(App.baselineCount)
+                        text: qsTr("含起始次数 %1 次").arg(App.baselineCount) + " ·"
                         color: Theme.textSecondary
                         font.pixelSize: Theme.fs(11)
                     }
@@ -560,16 +577,19 @@ ScrollView {
                         Repeater {
                             model: [
                                 { label: qsTr("匹配时间"), value: App.currentRun.run ? Fmt.localTime(App.currentRun.run.matched_at_utc) : "—" },
-                                { label: qsTr("当前副本"), value: App.currentRun.run ? (App.currentRun.run.duty_name || "—") : "—" },
+                                // The only value that may be shortened: a narrow window
+                                // (or a longer translation) elides the duty name, never
+                                // a time or the confidence.
+                                { label: qsTr("当前副本"), shrinks: true, value: App.currentRun.run ? (Theme.dutyName(App.currentRun.run) || "—") : "—" },
                                 // Always shown: a run whose job the software has not read yet says so,
                                 // instead of the column disappearing and reappearing.
                                 { label: qsTr("当前职业"), kind: "job",
-                                  value: App.currentRun.run ? (App.currentRun.run.job_id > 0 ? App.currentRun.run.job_name : qsTr("未知")) : "—" },
+                                  value: App.currentRun.run ? (App.currentRun.run.job_id > 0 ? Theme.jobName(App.currentRun.run) : qsTr("未知")) : "—" },
                                 { label: qsTr("已进行"), value: App.currentRun.run ? Fmt.duration(App.liveElapsedMs) : "—" },
                                 { label: qsTr("进本时间"), value: App.currentRun.run ? Fmt.localTime(App.currentRun.run.entered_at_utc) : "—" },
-                                { label: qsTr("检测置信"),
+                                { label: qsTr("识别可信度"),
                                   value: App.currentRun.run
-                                         ? Fmt.runConfidenceLabel(App.currentRun.run)
+                                         ? Theme.live(Fmt.runConfidenceLabel(App.currentRun.run))
                                          : Fmt.dash() }
                             ]
 
@@ -595,6 +615,7 @@ ScrollView {
 
                                 Text {
                                     Layout.fillWidth: true
+                                    Layout.minimumWidth: runCell.modelData.shrinks === true ? 0 : implicitWidth
                                     visible: !parent.isJob
                                     text: modelData.value
                                     textFormat: Text.PlainText
@@ -677,7 +698,7 @@ ScrollView {
                     // buckets already in hand are drawn. The week and month series
                     // are always shown whole.
                     SegmentedControl {
-                        Layout.preferredWidth: 116
+                        Layout.preferredWidth: Math.max(116, naturalWidth)
                         visible: App.trendMode === "day"
                         options: [
                             { value: 7, label: qsTr("7 天") },
@@ -688,7 +709,7 @@ ScrollView {
                     }
 
                     SegmentedControl {
-                        Layout.preferredWidth: 116
+                        Layout.preferredWidth: Math.max(116, naturalWidth)
                         options: [
                             { value: "day", label: qsTr("日") },
                             { value: "week", label: qsTr("周") },
@@ -779,7 +800,7 @@ ScrollView {
                 CardKicker { text: qsTr("导随笔记") }
 
                 Text {
-                    text: qsTr("%1 条笔记 · %2 次通关未记录")
+                    text: qsTr("%1 条笔记 · %2 次通关未写笔记")
                           .arg(page.reflectionCountText).arg(page.pendingReflectionCountText)
                     color: Theme.textSecondary
                     font.pixelSize: Theme.fs(12)
@@ -823,7 +844,7 @@ ScrollView {
             Text {
                 Layout.fillWidth: true
                 visible: page.recentReflections.length === 0
-                text: qsTr("还没有笔记。通关后会弹出记录窗口，也可以在历史记录中补录。")
+                text: qsTr("还没有笔记。可以在历史记录中补录，也可以开启“通关后自动弹出”提醒。")
                 color: Theme.textSecondary
                 font.pixelSize: Theme.fs(12)
                 wrapMode: Text.WordWrap

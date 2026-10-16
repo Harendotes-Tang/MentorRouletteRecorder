@@ -76,7 +76,7 @@ Dialog {
     // a number the stored baseline stands.
     readonly property int previewBaseline: typedBaseline >= 0 ? typedBaseline : baselineCount
     readonly property string previewText: recordedCount <= 0 ? ""
-        : qsTr("软件已记录 %1 次计入进度的通关，会加在基数之上：%2 + %1 = %3。游戏内成就面板显示的完成数已包含这 %1 次，填写时请先减去，以免重复计算。")
+        : qsTr("软件中已有 %1 次通关计入进度，总进度为：%2 + %1 = %3。如果按游戏内成就面板的总次数填写起始次数，请先减去这 %1 次，避免重复计算。")
               .arg(recordedCount).arg(previewBaseline).arg(previewBaseline + recordedCount)
 
     function openDialog(fromSettings) {
@@ -115,18 +115,18 @@ Dialog {
     contentItem: ColumnLayout {
         spacing: 14
 
-        CardKicker { text: dialog.reopened ? qsTr("成就基数") : qsTr("首次启动 · 1 / 1") }
+        CardKicker { text: dialog.reopened ? qsTr("起始次数") : qsTr("首次启动 · 1 / 1") }
 
         HeadingLabel {
             Layout.fillWidth: true
-            text: qsTr("你已经完成了多少次导随？")
+            text: qsTr("开始记录前，你已完成多少次导随？")
             font.pixelSize: Theme.dialogTitleSize(24)
             wrapMode: Text.WordWrap
         }
 
         Text {
             Layout.fillWidth: true
-            text: qsTr("软件只能记录安装之后的导随。基数是安装本软件之前已完成的次数（首次启动时即游戏内成就面板显示的完成数），软件记录的通关会加在基数之上：%1 次进度 = 基数 + 软件记录。之后可在设置中修改。")
+            text: qsTr("起始次数是开始用本软件记录前，已经完成的导随次数。目标是 %1 次。总进度 = 起始次数 + 软件中计入进度的通关次数。导入旧记录时，若确认它们已包含在起始次数中，软件会相应扣减，避免重复计数。已有数据可保留或调整。")
                   .arg(dialog.goalText)
             color: Theme.textSecondary
             font.pixelSize: Theme.fs(13)
@@ -139,7 +139,7 @@ Dialog {
             columnSpacing: 12
             rowSpacing: 4
 
-            FieldLabel { text: qsTr("安装前已完成次数") }
+            FieldLabel { text: qsTr("起始次数") }
             FieldLabel { text: qsTr("目标") }
 
             StyledTextField {
@@ -185,7 +185,7 @@ Dialog {
             objectName: "baselineWaitingText"
             Layout.fillWidth: true
             visible: !dialog.settingsLoaded
-            text: qsTr("还没有从采集服务读到已保存的目标与基数，读到之后才能修改和保存。")
+            text: qsTr("正在读取已保存的目标和起始次数，读取完成后才能修改和保存。")
             color: Theme.textSecondary
             font.pixelSize: Theme.fs(12)
             wrapMode: Text.WordWrap
@@ -228,8 +228,8 @@ Dialog {
                     }
                     dialog.beginSave()
                     dialog.skipped(Math.floor(goal),
-                                   dialog.reopened ? qsTr("在设置中改为从 0 开始")
-                                                   : qsTr("首次启动未填写历史基数"))
+                                   dialog.reopened ? QT_TRANSLATE_NOOP("SystemReason", "在设置中改为从 0 开始")
+                                                   : QT_TRANSLATE_NOOP("SystemReason", "首次启动未填写起始次数"))
                 }
             }
 
@@ -260,7 +260,7 @@ Dialog {
                     const parsed = dialog.typedBaseline
                     const goal = Number(dialog.goalText)
                     if (parsed < 0) {
-                        dialog.errorText = qsTr("基数必须是大于等于 0 的整数。")
+                        dialog.errorText = qsTr("起始次数必须是大于等于 0 的整数。")
                         return
                     }
                     if (!Number.isFinite(goal) || goal < 1) {
@@ -269,7 +269,8 @@ Dialog {
                     }
                     dialog.beginSave()
                     dialog.saved(Math.floor(parsed), Math.floor(goal),
-                                 dialog.reopened ? qsTr("在设置中重新填写基数") : qsTr("首次启动填写基数"))
+                                 dialog.reopened ? QT_TRANSLATE_NOOP("SystemReason", "在设置中重新填写起始次数")
+                                                 : QT_TRANSLATE_NOOP("SystemReason", "首次启动填写起始次数"))
                 }
             }
         }

@@ -35,6 +35,7 @@
 #include "RunListModel.h"
 #include "StatsModels.h"
 #include "HistoryController.h"
+#include "LiveText.h"
 #include "SpeechController.h"
 #include "StatisticsController.h"
 #include "TtsService.h"
@@ -97,6 +98,7 @@ class AppController final : public QObject, public CaptureValidationController::
     Q_PROPERTY(bool validationMarkerEnabled READ validationMarkerEnabled NOTIFY validationChanged)
     Q_PROPERTY(QString captureActionLabel READ captureActionLabel NOTIFY validationChanged)
     Q_PROPERTY(bool captureActionEnabled READ captureActionEnabled NOTIFY validationChanged)
+    Q_PROPERTY(bool templateObservationActionEnabled READ templateObservationActionEnabled NOTIFY validationChanged)
     Q_PROPERTY(QString captureModeStatusText READ captureModeStatusText NOTIFY validationChanged)
     Q_PROPERTY(QString captureModeCompactText READ captureModeCompactText NOTIFY validationChanged)
     Q_PROPERTY(QString captureAdapterId READ captureAdapterId WRITE setCaptureAdapterId NOTIFY captureAdapterIdChanged)
@@ -111,12 +113,16 @@ class AppController final : public QObject, public CaptureValidationController::
     /// had already logged in, so the connection's Oodle state is unknown and
     /// every frame will be rejected until the client reconnects.
     Q_PROPERTY(bool captureMidstreamSuspected READ captureMidstreamSuspected NOTIFY statusChanged)
-    /// The Collector's own hint for that situation, verbatim.
+    /// The Collector's own hint for that situation: hint_ref in the interface
+    /// language, or its Chinese (contracts/collector-texts.md). Built on every
+    /// read; a binding wraps it in Theme.live() to follow a language switch.
     Q_PROPERTY(QString captureHint READ captureHint NOTIFY statusChanged)
     /// Capture is RUNNING, has decoded nothing at all and is accumulating
     /// decode errors. The status line must not read "监听中" in that state.
     Q_PROPERTY(bool captureSilent READ captureSilent NOTIFY statusChanged)
-    Q_PROPERTY(QString captureHealthText READ captureHealthText NOTIFY statusChanged)
+    /// Its own notifier, raised with statusChanged and on a language switch, so a
+    /// switch does not replay statusChanged's side effects.
+    Q_PROPERTY(QString captureHealthText READ captureHealthText NOTIFY captureHealthTextChanged)
 
     // -- capture settings (GetCaptureSettings / UpdateCaptureSettings) -------
     Q_PROPERTY(QVariantMap captureSettings READ captureSettings NOTIFY captureSettingsChanged)
@@ -201,9 +207,10 @@ class AppController final : public QObject, public CaptureValidationController::
     /// Every duty the bundled table knows, for correcting a record by hand.
     /// dutyOptions lists only duties this player has already recorded, so it
     /// cannot correct a record whose duty is unknown.
-    Q_PROPERTY(QVariantList dutyCatalogOptions READ dutyCatalogOptions CONSTANT)
+    /// Re-read after a language switch only (catalogOptionsChanged).
+    Q_PROPERTY(QVariantList dutyCatalogOptions READ dutyCatalogOptions NOTIFY catalogOptionsChanged)
     /// Jobs a duty can actually be run on: no crafters, no gatherers.
-    Q_PROPERTY(QVariantList battleJobOptions READ battleJobOptions CONSTANT)
+    Q_PROPERTY(QVariantList battleJobOptions READ battleJobOptions NOTIFY catalogOptionsChanged)
     /// 最近打过 in the record wizard: catalogue rows (DutyCatalog keys) of the
     /// distinct duties of the latest runs, newest first, at most five. Filled
     /// by refreshRecentDuties().
@@ -249,6 +256,8 @@ class AppController final : public QObject, public CaptureValidationController::
     Q_PROPERTY(QVariantMap gameInfo READ gameInfo NOTIFY statusChanged)
     Q_PROPERTY(QString oodleMode READ oodleMode NOTIFY statusChanged)
     Q_PROPERTY(bool readsGameExecutable READ readsGameExecutable NOTIFY statusChanged)
+    /// GetStatus.warnings, each in the interface language where warning_refs
+    /// allows. Built on every read; bind it through Theme.live().
     Q_PROPERTY(QVariantList collectorWarnings READ collectorWarnings NOTIFY statusChanged)
     /// True once the Collector has actually sent the parser counters. They are
     /// optional in $defs/CaptureStatus, so the diagnostics page prints an em
@@ -339,6 +348,7 @@ public:
     bool validationMarkerEnabled() const { return m_capture->markerEnabled(); }
     QString captureActionLabel() const { return m_capture->actionLabel(); }
     bool captureActionEnabled() const { return m_capture->actionEnabled(); }
+    bool templateObservationActionEnabled() const { return m_capture->metadataActionEnabled(); }
     QString captureModeStatusText() const { return m_capture->modeStatusText(); }
     QString captureModeCompactText() const { return m_capture->modeCompactText(); }
     QString captureAdapterId() const { return m_capture->adapterId(); }
@@ -351,7 +361,7 @@ public:
     QVariantMap captureSettings() const { return m_captureSettings.toVariantMap(); }
     bool captureSettingsLoaded() const { return m_captureSettingsLoaded; }
     bool captureSettingsSupported() const { return m_captureSettingsSupported; }
-    QString captureSettingsError() const { return m_captureSettingsError; }
+    QString captureSettingsError() const { return m_captureSettingsError.text(); }
     bool integrityCheckRunning() const;
     QVariantMap integrityCheckResult() const;
     CandidateReviewController *candidates() const { return m_candidates; }
@@ -427,7 +437,7 @@ public:
     bool historyRetentionSaving() const { return m_history->retentionSaving(); }
     QString historyRetentionFeedback() const { return m_history->retentionFeedback(); }
     bool historyImageCleanupRunning() const { return m_historyImageCleanupRunning; }
-    QString historyImageCleanupFeedback() const { return m_historyImageCleanupFeedback; }
+    QString historyImageCleanupFeedback() const { return m_historyImageCleanupFeedback.text(); }
     /// main() 注入既有图片根；测试使用临时根。没有 store 时不消费清理任务。
     void setNoteImageStore(NoteImageStore *store);
 
@@ -483,6 +493,9 @@ public Q_SLOTS:
     void refreshCaptureSettings();
 
     void toggleCapture();
+    /// 玩家显式开始/停止元数据采证，不启动正式记录、不切换维护者模式。
+    void toggleTemplateObservation();
+    void addTemplateObservationMarker(const QString &marker);
     void setCaptureAdapterId(const QString &adapterId);
     void addCaptureValidationMarker(const QString &marker);
     void openCaptureValidationFolder();
@@ -622,6 +635,10 @@ Q_SIGNALS:
     void captureSettingsChanged();
     void integrityCheckChanged();
     void tick();
+    void captureHealthTextChanged();
+    /// The interface language changed: dutyCatalogOptions and battleJobOptions
+    /// carry names in the new language.
+    void catalogOptionsChanged();
     /// A mutation was refused. \a kind names the request the way
     /// mutationSucceeded does ("create", "correct", "delete", "restore", "undo",
     /// "review", "supplement_job"), or "baseline" / "validation" for the two
@@ -782,13 +799,16 @@ private:
     QPointer<NoteImageStore> m_noteImages;
     QTimer m_historyImageCleanupTimer;
     bool m_historyImageCleanupRunning = false;
-    QString m_historyImageCleanupFeedback;
+    /// A recipe, so a language switch re-renders it (LiveText.h).
+    LiveText m_historyImageCleanupFeedback;
     QStringList m_historyCleanupIds;
     QStringList m_historyCleanupSuccessful;
     QStringList m_historyCleanupFailures;
     int m_historyCleanupIndex = 0;
     void drainHistoryImageCleanup();
-    void finishHistoryImageCleanup(const QString &feedback);
+    void finishHistoryImageCleanup(const LiveText &feedback);
+    /// Re-announces every property whose text is built here, after a language switch.
+    void retranslate();
     QVariantList m_recentDuties;
     StatisticsController *m_statistics = nullptr;
     TtsService *m_tts = nullptr;
@@ -874,7 +894,7 @@ private:
     QString m_themeMode = QStringLiteral("system");
     bool m_maintainerToolsVisible = false;
     QString m_toastMessage;
-    QString m_captureSettingsError;
+    LiveText m_captureSettingsError;
     int m_currentPage = 0;
     bool m_systemDark = true;
     bool m_firstRun = false;

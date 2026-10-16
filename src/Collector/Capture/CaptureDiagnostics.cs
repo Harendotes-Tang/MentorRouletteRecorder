@@ -1,3 +1,4 @@
+using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Protocol.Profiles;
 using MentorRecorder.Collector.Protocol.Calibration;
 using System.Security.Cryptography;
@@ -309,7 +310,7 @@ public sealed record CaptureDiagnosticsSnapshot
     public bool? MidstreamSuspected { get; init; }
 
     /// <summary>One actionable zh-Hans sentence about the current capture state, or null.</summary>
-    public string? Hint { get; init; }
+    public UserText? Hint { get; init; }
 
     /// <summary>Which Oodle signature set the running capture is using.</summary>
     public OodleSignatureUse OodleSignature { get; init; } = OodleSignatureUse.None;
@@ -322,7 +323,7 @@ public sealed record CaptureDiagnosticsSnapshot
     public string? LastErrorMessage { get; init; }
 
     /// <summary>Non-sensitive notes for the diagnostics page.</summary>
-    public IReadOnlyList<string> Warnings { get; init; } = Array.Empty<string>();
+    public IReadOnlyList<UserText> Warnings { get; init; } = Array.Empty<UserText>();
 
     /// <summary>
     /// How many parser refusals the wire ever carries. The parser keeps a hundred; the

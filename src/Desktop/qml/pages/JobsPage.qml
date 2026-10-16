@@ -150,7 +150,7 @@ Item {
 
                                 Text {
                                     Layout.fillWidth: true
-                                    text: modelData.role_group || qsTr("未知")
+                                    text: Theme.roleGroupName(modelData.role_group)
                                     color: Theme.textPrimary
                                     font.pixelSize: Theme.fs(12)
                                 }
@@ -286,7 +286,7 @@ Item {
 
                                     Text {
                                         Layout.fillWidth: true
-                                        text: modelData.job_name || qsTr("未知")
+                                        text: Theme.jobName(modelData) || qsTr("未知")
                                         textFormat: Text.PlainText
                                         color: Theme.textPrimary
                                         font.pixelSize: Theme.fs(12)

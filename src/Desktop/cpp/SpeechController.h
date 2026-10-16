@@ -13,6 +13,7 @@
 // `supported` is false and the settings page shows no online voice at all.
 // ---------------------------------------------------------------------------
 
+#include "LiveText.h"
 #include <QJsonObject>
 #include <QObject>
 #include <QPointer>
@@ -75,8 +76,8 @@ public:
     QVariantList openaiVoices() const { return m_openaiVoices; }
     bool busy() const { return m_busy; }
     QString resultState() const { return m_resultState; }
-    QString resultText() const { return m_resultText; }
-    QString lastError() const { return m_resultState == QLatin1String("error") ? m_resultText : QString(); }
+    QString resultText() const { return m_resultText.text(); }
+    QString lastError() const { return m_resultState == QLatin1String("error") ? m_resultText.text() : QString(); }
 
     /// Online speech can be offered: a Collector answered and knows the messages.
     bool available() const { return m_loaded && m_supported; }
@@ -145,8 +146,11 @@ Q_SIGNALS:
 
 private:
     void adopt(const QJsonObject &settings);
-    void send(const QVariantMap &fields, const QString &successText, const QString &failurePrefix);
-    void setResult(const QString &state, const QString &text);
+    /// \a successText and \a failureText are QT_TR_NOOP source texts, translated when
+    /// the result is read; \a failureText takes the reason as %1. Both null: a quiet
+    /// voice sync that reports nothing.
+    void send(const QVariantMap &fields, const char *successText, const char *failureText);
+    void setResult(const QString &state, const LiveText &text);
     void maybeSyncVoice();
     /// True for an answer that says the request itself is wrong, as opposed to
     /// one the Collector could not take right now.
@@ -164,7 +168,8 @@ private:
     QString m_selectedVoice;
     QString m_syncedVoice;
     QString m_resultState;
-    QString m_resultText;
+    /// A recipe, so a language switch re-renders it (LiveText.h).
+    LiveText m_resultText;
     bool m_loaded = false;
     bool m_supported = true;
     bool m_busy = false;

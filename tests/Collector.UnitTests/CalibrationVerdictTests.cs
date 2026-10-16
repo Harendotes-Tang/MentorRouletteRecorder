@@ -63,7 +63,7 @@ public sealed class CalibrationVerdictTests
         var again = coordinator.CurrentDraft()!;
         Assert.NotEqual(before, Offer(again));
         Assert.NotEqual(CalibrationDraftStatus.Blocked, again.Status);
-        Assert.DoesNotContain(again.Blockers, text => text.Contains("新版本", StringComparison.Ordinal));
+        Assert.DoesNotContain(again.Blockers, text => text.Chinese.Contains("新版本", StringComparison.Ordinal));
         Assert.NotEqual(CalibrationState.Ready, coordinator.Snapshot().State);
     }
 

@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Domain.Time;
 using MentorRecorder.Collector.Protocol.Calibration;
@@ -42,6 +43,7 @@ public static class CalibrationWire
         ArgumentNullException.ThrowIfNull(snapshot);
         var node = Report(snapshot);
         node.Remove("evidence");
+        node["blocker_refs"] = UserText.ToJsonArray(snapshot.Blockers);
         node["events"] = new JsonArray(snapshot.Events.Select(item => (JsonNode?)Event(item)).ToArray());
         return node;
     }
@@ -61,7 +63,7 @@ public static class CalibrationWire
             ["template_profile_id"] = snapshot.TemplateProfileId,
             ["local_profile_id"] = snapshot.LocalProfileId,
             ["bound_at_utc"] = UtcTimestamp.ToTextOrNull(snapshot.BoundAtUtc),
-            ["blockers"] = new JsonArray(snapshot.Blockers.Select(text => (JsonNode?)JsonValue.Create(text)).ToArray()),
+            ["blockers"] = new JsonArray(snapshot.Blockers.Select(text => (JsonNode?)JsonValue.Create(text.Chinese)).ToArray()),
             // Whether 恢复上一份本机校准 has anything to put back. A file-name fact about this
             // machine's own profile directory: it names nothing the player played and nothing
             // about the protocol, so it belongs in the sanitized report as well as on the card.
@@ -148,6 +150,7 @@ public static class CalibrationWire
     private static JsonObject Candidate(SharedCandidateSummary candidate) => new()
     {
         ["sha12"] = candidate.Sha12,
+        ["code_sha256"] = candidate.CodeSha256,
         ["source"] = candidate.Source is { } source ? EnumWire<SharedCandidateSource>.Format(source) : null,
         ["match_source"] = candidate.MatchSource is { } match ? EnumWire<CalibrationMatchSource>.Format(match) : null,
         ["status"] = EnumWire<SharedCandidateStatus>.Format(candidate.Status),
@@ -163,6 +166,11 @@ public static class CalibrationWire
         ["staging_overflowed"] = candidate.StagingOverflowed,
         ["provenance"] = candidate.Provenance is { } provenance ? EnumWire<SharedCandidateProvenance>.Format(provenance) : null,
         ["audit_pending"] = candidate.AuditPending,
+        // Plan §20.5: message names only, as the criteria carry them - never a value the codes disagree about.
+        ["disputed"] = new JsonArray(candidate.Disputed.Select(name => (JsonNode?)JsonValue.Create(name)).ToArray()),
+        ["preferred"] = candidate.Preferred,
+        // This machine's own prior; the index's shape_prior only orders downloads and is not reported here.
+        ["shape_prior"] = candidate.LocalShapePrior,
     };
 
     private static JsonObject Evidence(CalibrationEvidenceSummary evidence, string? carriedSource) => new()
@@ -214,7 +222,8 @@ public static class CalibrationWire
         ["kind"] = item.Kind,
         ["at_utc"] = UtcTimestamp.ToText(item.AtUtc),
         ["t_ms"] = item.TMs,
-        ["label"] = item.Label,
+        ["label"] = item.Label.Chinese,
+        ["label_ref"] = item.Label.ToJson(),
         ["roulette_id"] = item.RouletteId,
         ["territory_id"] = item.TerritoryId,
         ["duty_name"] = item.DutyName,

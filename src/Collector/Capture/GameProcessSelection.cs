@@ -1,4 +1,5 @@
 using MentorRecorder.Collector.Contracts.Errors;
+using MentorRecorder.Collector.Contracts.Texts;
 
 namespace MentorRecorder.Collector.Capture;
 
@@ -72,10 +73,10 @@ internal sealed class GameProcessSelection(GameProcessLocator locator)
             if (!_choices.TryGetValue(processId, out var choice) ||
                 !string.Equals(choice.Token, token, StringComparison.OrdinalIgnoreCase))
                 throw new CollectorException(ErrorCodes.FfxivNotRunning,
-                    "所选游戏已退出或重新启动，请重新选择游戏窗口。");
+                    CollectorTexts.CaptureSelectGameExited());
             if (choice.Candidate.StartedAtUtc is null)
                 throw new CollectorException(ErrorCodes.FfxivNotRunning,
-                    "暂时无法确认该游戏的启动时间，请重新检测后再选择。");
+                    CollectorTexts.CaptureSelectStartTimeUnknown());
             return choice.Candidate;
         }
     }

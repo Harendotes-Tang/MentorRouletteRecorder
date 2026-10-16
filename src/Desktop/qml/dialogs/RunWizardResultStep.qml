@@ -34,7 +34,7 @@ ColumnLayout {
                 Layout.preferredWidth: 1
                 implicitHeight: resultCardColumn.implicitHeight + 26
                 selected: step.wizard.resultCode === modelData.value
-                accessibleName: modelData.label + "，" + modelData.desc
+                accessibleName: qsTr("%1，%2").arg(modelData.label).arg(modelData.desc)
                 onPicked: step.wizard.pickResult(modelData.value)
 
                 ColumnLayout {
@@ -124,7 +124,7 @@ ColumnLayout {
                 }
                 Text {
                     Layout.fillWidth: true
-                    text: qsTr("非导随进入的副本请关闭")
+                    text: qsTr("不是通过指导者任务进入的副本，请关闭此项")
                     color: Theme.textSecondary
                     font.pixelSize: Theme.fs(12)
                     wrapMode: Text.WordWrap

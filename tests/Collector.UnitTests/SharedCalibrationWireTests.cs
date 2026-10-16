@@ -32,6 +32,9 @@ public sealed class SharedCalibrationWireTests : IDisposable
             {
                 Provenance = SharedCandidateProvenance.Published,
                 AuditPending = true,
+                Disputed = new[] { CalibratedShape.PopName },
+                Preferred = false,
+                LocalShapePrior = true,
             },
             new SharedCandidateSummary(
                 "ba9876543210", SharedCandidateSource.Manual, null, SharedCandidateStatus.Rejected, SharedVerdict.Contradicted,
@@ -115,6 +118,17 @@ public sealed class SharedCalibrationWireTests : IDisposable
         Assert.Null(second["provenance"]);
         Assert.False(second["audit_pending"]!.GetValue<bool>());
         Assert.False(node["audit_pending"]!.GetValue<bool>());
+        // Plan §20.5: the consensus, by message name; a candidate nothing disputes says so explicitly.
+        Assert.Equal(new[] { "CONTENT_FINDER_POP" }, first["disputed"]!.AsArray().Select(item => item!.GetValue<string>()));
+        Assert.False(first["preferred"]!.GetValue<bool>());
+        Assert.True(first["shape_prior"]!.GetValue<bool>());
+        Assert.Empty(second["disputed"]!.AsArray());
+        Assert.True(second["preferred"]!.GetValue<bool>());
+        Assert.True(second.AsObject().ContainsKey("shape_prior"));
+        Assert.Null(second["shape_prior"]);
+        // The sanitized diagnostics report writes the very same object.
+        var reported = CalibrationWire.Report(CalibrationStatusSnapshot.Idle with { Shared = Busy() })["shared"]!["candidates"]![0]!;
+        Assert.Equal(first.ToJsonString(), reported.ToJsonString());
         // The relaxation of §8.2: when the index was last read although a profile was recording, and why.
         var recheck = node["recheck"]!.AsObject();
         Assert.Equal(new[] { "last_utc", "reason", "status" }, recheck.Select(pair => pair.Key).Order(StringComparer.Ordinal));
@@ -142,26 +156,39 @@ public sealed class SharedCalibrationWireTests : IDisposable
     public void OnlyTheLeadingTokenOfARefusalLeavesTheMachine(string refusal, string? token) =>
         Assert.Equal(token, CalibrationWire.RefusalToken(refusal));
 
-    [Fact]
-    public void TheIssueLinkNamesTheFormTitleAndCodeAndLeavesACodeThatWouldNotFitOut()
+    [Theory]
+    [InlineData(SharedShareBasis.Calibrated, "本机校准得到，并逐条核对过校准时间线")]
+    [InlineData(SharedShareBasis.Verified, "其他玩家分享，已在我的软件里核实通过并正常记录")]
+    public void TheIssueLinkNamesTheFormTitleBasisAndCodeAndLeavesOnlyACodeThatWouldNotFitOut(SharedShareBasis basis, string option)
     {
         var code = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
+        Assert.Equal(option, SharedCalibrationIssueLink.BasisOption(basis));
 
-        var (url, inUrl) = SharedCalibrationIssueLink.For(Region.Cn, Bed.Build, code.Code);
+        var (url, inUrl) = SharedCalibrationIssueLink.For(Region.Cn, Bed.Build, code.Code, basis);
 
         Assert.True(inUrl);
         Assert.StartsWith(
             "https://github.com/" + SharedCalibrationClient.Owner + "/" + SharedCalibrationClient.Repository +
             "/issues/new?template=share-calibration.yml&title=", url, StringComparison.Ordinal);
         Assert.Contains("&title=" + Uri.EscapeDataString("[共享校准] CN " + Bed.Build) + "&", url, StringComparison.Ordinal);
+        // The basis text field is prefilled with exactly the text the public repository's Action accepts (issue.py).
+        Assert.Contains("&basis=" + Uri.EscapeDataString(option) + "&", url, StringComparison.Ordinal);
         Assert.EndsWith("&code=" + Uri.EscapeDataString(code.Code), url, StringComparison.Ordinal);
         Assert.DoesNotContain("共享", url, StringComparison.Ordinal);
+        Assert.DoesNotContain("校准", url, StringComparison.Ordinal);
         Assert.True(url.Length <= SharedCalibrationIssueLink.MaxUrlLength);
 
-        var (form, fits) = SharedCalibrationIssueLink.For(Region.Cn, Bed.Build, code.Code, url.Length - 1);
+        var (form, fits) = SharedCalibrationIssueLink.For(Region.Cn, Bed.Build, code.Code, basis, url.Length - 1);
 
         Assert.False(fits);
         Assert.Equal(url[..url.IndexOf("&code=", StringComparison.Ordinal)], form);
+        Assert.EndsWith("&basis=" + Uri.EscapeDataString(option), form, StringComparison.Ordinal);
+
+        // However long the code, the form without it - title and basis included - always fits.
+        var (longest, _) = SharedCalibrationIssueLink.For(Region.Cn, new string('9', 128), new string('A', 100_000), basis);
+        Assert.True(longest.Length <= SharedCalibrationIssueLink.MaxUrlLength);
+        Assert.Contains("&basis=", longest, StringComparison.Ordinal);
+        Assert.Throws<ArgumentOutOfRangeException>(() => SharedCalibrationIssueLink.BasisOption((SharedShareBasis)7));
     }
 
     [Fact]
@@ -178,7 +205,8 @@ public sealed class SharedCalibrationWireTests : IDisposable
         var expected = SharedProfileBuilder.ToShareCode(profile, Bed.Template);
         Assert.Equal(expected.Code, code.Code);
         Assert.Equal(expected.CodeSha256, code.CodeSha256);
-        Assert.Equal(SharedCalibrationIssueLink.For(Region.Cn, Bed.Build, code.Code).Url, code.IssueUrl);
+        Assert.Equal(SharedShareBasis.Calibrated, code.Basis);
+        Assert.Equal(SharedCalibrationIssueLink.For(Region.Cn, Bed.Build, code.Code, SharedShareBasis.Calibrated).Url, code.IssueUrl);
         Assert.True(code.CodeInUrl);
 
         // The file on disk is what is shared: once it is no longer the profile in force, there is no code.
@@ -200,10 +228,11 @@ public sealed class SharedCalibrationWireTests : IDisposable
         var none = new ProfileSelection(
             ProfileCompatibilityStatus.Unsupported, ProfileBinding.FailClosed, null, Region.Cn, Bed.Build, ProfileSelector.NoProfileMatchesReason);
 
+        // A shared profile nothing vouches for is still being checked as far as this answer knows (plan §20.5).
         var cases = new (ProfileSelection Selection, Func<Region, CalibrationTemplate?> Template, SharedShareCodeRefusal Refusal)[]
         {
             (none, _ => Bed.Template, SharedShareCodeRefusal.NoProfile),
-            (Selecting(shared, ProfileOrigin.Shared), _ => Bed.Template, SharedShareCodeRefusal.Shared),
+            (Selecting(shared, ProfileOrigin.Shared), _ => Bed.Template, SharedShareCodeRefusal.SharedNotProven),
             (Selecting(local, ProfileOrigin.Shipped), _ => Bed.Template, SharedShareCodeRefusal.NotLocal),
             (Selecting(refused, ProfileOrigin.Local), _ => Bed.Template, SharedShareCodeRefusal.NotShareable),
             (Selecting(local, ProfileOrigin.Local), _ => null, SharedShareCodeRefusal.NotShareable),
@@ -222,7 +251,7 @@ public sealed class SharedCalibrationWireTests : IDisposable
     }
 
     [Fact]
-    public async Task APipelineSharesTheLocalCalibrationItConfirmedButNotASharedProfile()
+    public async Task APipelineSharesTheLocalCalibrationItConfirmedButNotASharedProfileItHasNotProven()
     {
         var pipeline = _bed.Pipeline(_bed.Services(fetch: false));
         pipeline.Refresh(Bed.Game());
@@ -235,6 +264,7 @@ public sealed class SharedCalibrationWireTests : IDisposable
         var code = Assert.IsType<SharedShareCode>(pipeline.GetCalibrationShareCode().ShareCode);
         Assert.Equal(SharedProfileBuilder.ToShareCode(ProfileLoader.Load(confirmed.ProfilePath), Bed.Template).Code, code.Code);
         Assert.Equal(Bed.Build, ShareCode.Decode(code.Code).Payload!.GameBuild);
+        Assert.Equal(SharedShareBasis.Calibrated, code.Basis);
 
         var other = new SharedCalibrationTestBed();
         try
@@ -244,7 +274,7 @@ public sealed class SharedCalibrationWireTests : IDisposable
                 SharedProfileBuilder.Build(sharedCode.Payload, Bed.Template, Bed.Confirmed, new Dictionary<string, int>()), other.SharedRoot);
             var restarted = other.Pipeline(other.Services(fetch: false));
             Assert.Equal(ProfileOrigin.Shared, restarted.Refresh(Bed.Game()).Origin);
-            Assert.Equal(SharedShareCodeRefusal.Shared, restarted.GetCalibrationShareCode().Refusal);
+            Assert.Equal(SharedShareCodeRefusal.SharedNotProven, restarted.GetCalibrationShareCode().Refusal);
             await SharedCalibrationTestBed.Idle(restarted);
         }
         finally

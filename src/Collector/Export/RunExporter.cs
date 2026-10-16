@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json.Nodes;
 using MentorRecorder.Collector.Contracts.Errors;
+using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Domain.Queries;
 using MentorRecorder.Collector.Domain.Time;
@@ -165,7 +166,7 @@ public sealed class RunExporter
         {
             throw new CollectorException(
                 ErrorCodes.ExportFailed,
-                "写入导出文件失败：路径不可写或磁盘空间不足。",
+                CollectorTexts.ExportWriteFailed(),
                 new Dictionary<string, object?> { ["target_path"] = fullPath },
                 inner: ex);
         }
@@ -196,7 +197,7 @@ public sealed class RunExporter
             {
                 if (filter?.RunIds.Count > 0 &&
                     (rows.Count != filter.RunIds.Count || !rows.Select(row => row.RunId).ToHashSet(StringComparer.Ordinal).SetEquals(filter.RunIds)))
-                    throw new CollectorException(ErrorCodes.NotFound, "部分选中的记录已不存在或不符合当前筛选；本次没有写入导出文件，请刷新后重试。",
+                    throw new CollectorException(ErrorCodes.NotFound, CollectorTexts.ExportSelectionChanged(),
                         new Dictionary<string, object?> { ["requested_count"] = filter.RunIds.Count, ["matched_count"] = rows.Count });
                 return rows;
             }

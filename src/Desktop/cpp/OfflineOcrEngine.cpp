@@ -21,7 +21,7 @@ OfflineOcrEngine::OfflineOcrEngine(QObject *parent)
 {
     m_timeout.setSingleShot(true);
     connect(&m_timeout, &QTimer::timeout, this, [this] {
-        stopWithError(tr("本地图片识别超时，已停止。可以减少图片或分批重试。"));
+        stopWithError(tr("图片识别超时，已停止。请裁切图片，只保留记录区域后重试。"));
     });
 }
 
@@ -49,7 +49,7 @@ QString OfflineOcrEngine::modelsPath(const QString &applicationDirectory)
 QString OfflineOcrEngine::dependencyError(const QString &applicationDirectory)
 {
     if (!QFileInfo(enginePath(applicationDirectory)).isFile())
-        return tr("缺少随应用安装的本地 AI 文字识别引擎。请使用包含 OCR 的安装包，或先导入表格/JSON。识别不会上传图片。");
+        return tr("缺少本机图片识别组件，暂时无法识别截图。请使用包含图片识别组件的完整安装包重新安装，也可先导入表格或 JSON。图片只在本机识别，不会上传。");
     // Runtime deployment validates the complete pinned payload. The worker also
     // checks each fixed model hash before loading any inference session.
     for (const QString &name : {QStringLiteral("PP-OCRv6_det_small.onnx"),
@@ -57,7 +57,7 @@ QString OfflineOcrEngine::dependencyError(const QString &applicationDirectory)
                                QStringLiteral("ch_ppocr_mobile_v2.0_cls_mobile.onnx")}) {
         const QFileInfo file(QDir(modelsPath(applicationDirectory)).filePath(name));
         if (!file.isFile() || file.size() <= 0)
-            return tr("本地 AI 文字识别模型不完整，请修复 OCR 安装后重试。");
+            return tr("本机图片识别文件不完整，暂时无法识别截图。请使用完整安装包修复或重新安装后重试。");
     }
     return {};
 }
@@ -162,7 +162,7 @@ void OfflineOcrEngine::startNext()
     const QImage image = reader.read();
     const QString input = m_work->filePath(QStringLiteral("input.png"));
     if (image.isNull() || !image.save(input, "PNG")) {
-        stopWithError(tr("无法解码图片或保存识别副本：%1").arg(currentFile()));
+        stopWithError(tr("无法读取图片或保存识别用的副本：%1。请重新保存图片，并检查临时目录是否可写。").arg(currentFile()));
         return;
     }
     m_imageSize = image.size();
@@ -201,7 +201,7 @@ void OfflineOcrEngine::launchProcess(const QString &input)
     connect(process, &QProcess::readyReadStandardOutput, this, [process] { process->readAllStandardOutput(); });
     connect(process, &QProcess::errorOccurred, this, [this, process, generation](QProcess::ProcessError error) {
         if (generation == m_generation && process == m_process && error == QProcess::FailedToStart)
-            stopWithError(tr("本地 AI 识别引擎无法启动，请检查随包 OCR 依赖是否完整。"));
+            stopWithError(tr("本机图片识别组件无法启动。请使用完整安装包修复或重新安装后重试。"));
     });
     connect(process, qOverload<int, QProcess::ExitStatus>(&QProcess::finished), this,
             [this, process, generation](int exitCode, QProcess::ExitStatus status) {
@@ -214,7 +214,7 @@ void OfflineOcrEngine::launchProcess(const QString &input)
         if (generation == m_generation && process == m_process
             && (QFileInfo(m_outputFile).size() > MaxOutputBytes
                 || QFileInfo(m_outputFile + QStringLiteral(".partial")).size() > MaxOutputBytes))
-            stopWithError(tr("识别结果超过 8 MiB，已停止。请分批裁切后重试。"));
+            stopWithError(tr("识别结果超过 8 MiB，已停止。请裁切图片，只保留记录区域后重试。"));
     });
     outputCheck->start();
     process->start();
@@ -234,19 +234,19 @@ void OfflineOcrEngine::processFinished(int exitCode, bool crashed)
     }
     QFile output(m_outputFile);
     if (crashed || exitCode != 0 || !output.open(QIODevice::ReadOnly) || output.size() > MaxOutputBytes) {
-        stopWithError(tr("本地 AI 识别未完成：%1。请核对图片或修复 OCR 安装。").arg(currentFile()));
+        stopWithError(tr("图片未能完成识别：%1。请检查图片后重试；仍失败时请使用完整安装包修复图片识别组件。").arg(currentFile()));
         return;
     }
     const QByteArray tsv = output.read(MaxOutputBytes + 1);
     output.close();
     if (tsv.size() > MaxOutputBytes) {
-        stopWithError(tr("识别结果超过允许大小，已停止。"));
+        stopWithError(tr("识别结果过大，已停止。请裁切图片，只保留记录区域后重试。"));
         return;
     }
     QList<screenshot::Line> lines;
     QString error;
     if (!screenshot::readLines(tsv, m_imageSize, lines, error)) {
-        stopWithError(tr("本地 AI 识别结果无法校验：%1").arg(error));
+        stopWithError(tr("图片识别结果无法读取。%1").arg(error));
         return;
     }
     finishImage(tsv);

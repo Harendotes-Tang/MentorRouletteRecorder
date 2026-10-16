@@ -199,12 +199,21 @@ public static class RunFilterSql
                 clauses.Add($"NOT {ImportedHistoryPredicate}");
         }
 
+        var textMatches = new List<string>();
         if (!string.IsNullOrWhiteSpace(filter.Text))
         {
-            clauses.Add(
+            textMatches.Add(
                 "(IFNULL(duty_name, '') LIKE $text ESCAPE '\\' OR IFNULL(job_name, '') LIKE $text ESCAPE '\\' OR IFNULL(note, '') LIKE $text ESCAPE '\\')");
             parameters.Add(new("$text", "%" + EscapeLike(filter.Text) + "%"));
         }
+        if (!string.IsNullOrWhiteSpace(filter.NameText))
+        {
+            textMatches.Add(
+                "(IFNULL(duty_name, '') LIKE $name_text ESCAPE '\\' OR IFNULL(job_name, '') LIKE $name_text ESCAPE '\\')");
+            parameters.Add(new("$name_text", "%" + EscapeLike(filter.NameText) + "%"));
+        }
+        if (textMatches.Count > 0)
+            clauses.Add("(" + string.Join(" OR ", textMatches) + ")");
 
         var where = clauses.Count == 0 ? "1 = 1" : string.Join(" AND ", clauses.Select(c => "(" + c + ")"));
         return new Fragment(where, parameters);

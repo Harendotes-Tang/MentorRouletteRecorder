@@ -79,6 +79,9 @@ struct EnvelopeView {
     QString errorCode;
     QString errorMessage;
     QJsonObject errorDetails;
+    /// The error's `message_ref` (contracts/collector-texts.md); empty when the
+    /// Collector worded the error outside its catalogue or predates it.
+    QJsonObject errorRef;
 };
 
 /// Decode one response or event envelope. Never fails: an envelope missing

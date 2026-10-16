@@ -13,6 +13,7 @@
 #include "TestCollectorGuard.h"
 #include "AppController.h"
 #include "AppSettings.h"
+#include "ReleaseNotesController.h"
 #include "Formatters.h"
 #include "IBackend.h"
 #include "JobCatalog.h"
@@ -22,6 +23,7 @@
 #include <QDateTime>
 #include <QDir>
 #include <QGuiApplication>
+#include <QFontDatabase>
 #include <QJSValue>
 #include <QJsonArray>
 #include <QJsonObject>
@@ -82,7 +84,7 @@ public:
         if (unsentTypes.contains(type)) {
             // As IpcClient does with a pipe that is down: refused inside the call,
             // before anything is written.
-            reply->failUnsent(QStringLiteral("ERR_INTERNAL"), QString::fromUtf8("Collector 未连接。"));
+            reply->failUnsent(QStringLiteral("ERR_INTERNAL"), QString::fromUtf8("后台服务尚未连接。"));
             return reply;
         }
         if (holdTypes.contains(type))
@@ -183,6 +185,8 @@ struct Shell {
     /// Start the way the program starts for a new user: the controller reads
     /// `settings` and nothing suppresses what a first start shows.
     bool firstStart = false;
+    mr::ReleaseNotesController *releaseNotes = nullptr;
+    bool suppressReleaseNotes = false;
 
     ~Shell()
     {
@@ -204,6 +208,9 @@ struct Shell {
         context->setContextProperty(QStringLiteral("Roles"), &roles);
         context->setContextProperty(QStringLiteral("RunForm"), &validator);
         context->setContextProperty(QStringLiteral("Settings"), &settings);
+        if (releaseNotes)
+            context->setContextProperty(QStringLiteral("ReleaseNotes"), releaseNotes);
+        context->setContextProperty(QStringLiteral("SuppressReleaseNotes"), suppressReleaseNotes);
         context->setContextProperty(QStringLiteral("SuppressOnboarding"), !firstStart);
         context->setContextProperty(QStringLiteral("ReduceMotion"), true);
         QQmlComponent component(engine.get(), QUrl::fromLocalFile(
@@ -273,10 +280,10 @@ struct Refusal {
 /// sentence, or the form's own check.
 const Refusal kRefusals[] = {
     {"reason", "ERR_REVISION_CONFLICT", "该记录已被修改，请刷新后重试。"},
-    {"wizardCheck", "ERR_REASON_REQUIRED", "必须填写新增原因，请求已拒绝。"},
+    {"wizardCheck", "ERR_REASON_REQUIRED", "请先填写新增原因，再保存。"},
     {"wizard", "ERR_TIME_ORDER", "匹配时间不能晚于进入副本的时间。"},
     {"guide", "ERR_BAD_REQUEST", "基数必须是大于等于 0 的整数。"},
-    {"cardCheck", "ERR_REASON_REQUIRED", "修改成就进度前必须填写原因。"},
+    {"cardCheck", "ERR_REASON_REQUIRED", "请填写「修改原因」后再点「保存」。"},
     {"card", "ERR_DB_BUSY", "本地数据库正忙，请稍后重试。"},
     {"result", "ERR_NOT_FOUND", "找不到该记录，请刷新列表后重试。"},
     {"note", "ERR_DB_BUSY", "本地数据库正忙，笔记没有保存。"},
@@ -430,6 +437,142 @@ private Q_SLOTS:
                                 "MentorRecorder", 1, 0, name.constData());
             }
         }
+    }
+
+    void releaseNotesWaitForOnboardingAndAcknowledgeOnEscape()
+    {
+        Shell shell;
+        const bool oldFirstRun = shell.settings.firstRunCompleted();
+        const QString oldSeen = shell.settings.releaseNotesSeenVersion();
+        const auto restore = qScopeGuard([&] {
+            shell.settings.setFirstRunCompleted(oldFirstRun);
+            shell.settings.setReleaseNotesSeenVersion(oldSeen);
+        });
+        shell.settings.setFirstRunCompleted(false);
+        shell.settings.setReleaseNotesSeenVersion(QString());
+        mr::ReleaseNotesController notes(&shell.settings, "1.7.2", "## [1.7.2]\n- Offline notes");
+        shell.releaseNotes = &notes;
+        shell.firstStart = true;
+        QVERIFY2(shell.create(), qPrintable(shell.errors));
+        auto *guide = shell.named(QStringLiteral("baselineDialog"));
+        auto *dialog = shell.named(QStringLiteral("releaseNotesDialog"));
+        QVERIFY(guide && dialog);
+        QTRY_VERIFY(guide->property("visible").toBool());
+        QTest::qWait(450);
+        QVERIFY(!dialog->property("visible").toBool());
+        QVERIFY(notes.pending());
+        shell.controller->completeFirstRun();
+        QVERIFY(QMetaObject::invokeMethod(guide, "close"));
+        QTRY_VERIFY(dialog->property("opened").toBool());
+        QVERIFY(QTest::qWaitForWindowExposed(shell.window()));
+        QTest::keyClick(shell.window(), Qt::Key_Escape);
+        QTRY_VERIFY(!dialog->property("visible").toBool());
+        QTRY_VERIFY(!notes.pending());
+        QCOMPARE(shell.settings.releaseNotesSeenVersion(), QStringLiteral("1.7.2"));
+        QTest::qWait(400);
+        QVERIFY(!dialog->property("visible").toBool());
+    }
+
+    void releaseNotesWaitForOtherModalAndVisibleWindow()
+    {
+        Shell shell;
+        const QString oldSeen = shell.settings.releaseNotesSeenVersion();
+        const auto restore = qScopeGuard([&] { shell.settings.setReleaseNotesSeenVersion(oldSeen); });
+        shell.settings.setReleaseNotesSeenVersion(QString());
+        mr::ReleaseNotesController notes(&shell.settings, "1.7.2", "## [1.7.2]\n- Offline notes");
+        shell.releaseNotes = &notes;
+        QVERIFY2(shell.create(), qPrintable(shell.errors));
+        auto *dialog = shell.named(QStringLiteral("releaseNotesDialog"));
+        auto *disclosure = shell.named(QStringLiteral("disclosureDialog"));
+        QVERIFY(dialog && disclosure);
+        QVERIFY(QMetaObject::invokeMethod(disclosure, "openDialog"));
+        QTest::qWait(450);
+        QVERIFY(!dialog->property("visible").toBool());
+        shell.window()->hide();
+        QVERIFY(QMetaObject::invokeMethod(disclosure, "close"));
+        QTest::qWait(450);
+        QVERIFY(!dialog->property("visible").toBool());
+        shell.window()->showMinimized();
+        QTest::qWait(450);
+        QVERIFY(!dialog->property("visible").toBool());
+        shell.window()->showNormal();
+        QTRY_VERIFY(dialog->property("opened").toBool());
+        QVERIFY(shell.click(QStringLiteral("releaseNotesAcknowledge")));
+        QTRY_VERIFY(!notes.pending());
+    }
+
+    void releaseNotesLongTextAndKeyboard_data()
+    {
+        QTest::addColumn<QString>("style");
+        QTest::addColumn<QString>("theme");
+        QTest::newRow("classic-dark") << "classic" << "dark";
+        QTest::newRow("classic-light") << "classic" << "light";
+        QTest::newRow("eorzea-dark") << "eorzea" << "dark";
+        QTest::newRow("eorzea-light") << "eorzea" << "light";
+    }
+
+    void releaseNotesLongTextAndKeyboard()
+    {
+        QFETCH(QString, style);
+        QFETCH(QString, theme);
+        Shell shell;
+        const QString oldSeen = shell.settings.releaseNotesSeenVersion();
+        const QString oldStyle = shell.settings.uiStyle();
+        const auto restore = qScopeGuard([&] {
+            shell.settings.setReleaseNotesSeenVersion(oldSeen);
+            shell.settings.setUiStyle(oldStyle);
+        });
+        shell.settings.setReleaseNotesSeenVersion(QString());
+        shell.settings.setUiStyle(style);
+        const QString longNotes = QStringLiteral("## [1.7.2]\n### 改进\n")
+            + QString::fromUtf8("- 更新内容支持离线阅读，较长的说明自动换行，关闭按钮始终可见。\n").repeated(65);
+        mr::ReleaseNotesController notes(&shell.settings, "1.7.2", longNotes);
+        shell.releaseNotes = &notes;
+        QVERIFY2(shell.create(), qPrintable(shell.errors));
+        shell.controller->setThemeMode(theme);
+        shell.window()->resize(1100, 720);
+        auto *dialog = shell.named(QStringLiteral("releaseNotesDialog"));
+        QVERIFY(dialog);
+        QTRY_VERIFY(dialog->property("opened").toBool());
+        auto *scroll = shell.item(QStringLiteral("releaseNotesScroll"));
+        auto *button = shell.item(QStringLiteral("releaseNotesAcknowledge"));
+        auto *text = shell.item(QStringLiteral("releaseNotesText"));
+        QVERIFY(scroll && button && text);
+        QTRY_VERIFY(scroll->property("contentHeight").toReal() > scroll->height());
+        const auto buttonBottom = button->mapToScene(QPointF(button->width(), button->height()));
+        QVERIFY(buttonBottom.y() < shell.window()->height());
+        QVERIFY(buttonBottom.x() < shell.window()->width());
+        QTRY_VERIFY(button->hasActiveFocus());
+        QVERIFY(QTest::qWaitForWindowExposed(shell.window()));
+        QTest::keyClick(shell.window(), Qt::Key_Tab);
+        QTRY_VERIFY(text->hasActiveFocus());
+        QTest::keyClick(shell.window(), Qt::Key_Backtab);
+        QTRY_VERIFY(button->hasActiveFocus());
+        scroll->setProperty("contentY", scroll->property("contentHeight").toReal() - scroll->height());
+        QTest::qWait(100);
+        QVERIFY(button->isVisible());
+        const QString evidence = qEnvironmentVariable("MR_RELEASE_NOTES_EVIDENCE_DIR");
+        if (!evidence.isEmpty()) {
+            QDir().mkpath(evidence);
+            QVERIFY(shell.window()->grabWindow().save(evidence + "/long-" + style + "-" + theme + ".png"));
+        }
+        QTest::keyClick(shell.window(), Qt::Key_Space);
+        QTRY_VERIFY(!notes.pending());
+    }
+
+    void releaseNotesSuppressedInHarness()
+    {
+        Shell shell;
+        const QString oldSeen = shell.settings.releaseNotesSeenVersion();
+        const auto restore = qScopeGuard([&] { shell.settings.setReleaseNotesSeenVersion(oldSeen); });
+        shell.settings.setReleaseNotesSeenVersion(QString());
+        mr::ReleaseNotesController notes(&shell.settings, "1.7.2", "## [1.7.2]\nOffline");
+        shell.releaseNotes = &notes;
+        shell.suppressReleaseNotes = true;
+        QVERIFY2(shell.create(), qPrintable(shell.errors));
+        QTest::qWait(450);
+        QVERIFY(!shell.named(QStringLiteral("releaseNotesDialog"))->property("visible").toBool());
+        QVERIFY(notes.pending());
     }
 
     // 审查 OK-6 / OL-5：原因对话框此前认领任何一条修改回应——别处（本次导随结果）
@@ -734,13 +877,13 @@ private Q_SLOTS:
         reason->setProperty("text", QString::fromUtf8("核对"));
         QVERIFY(shell.click(QStringLiteral("saveAchievementButton")));
         QCOMPARE(shell.backend.callsOf(QStringLiteral("UpdateAchievementBaseline")).size(), 0);
-        QCOMPARE(error->property("text").toString(), QString::fromUtf8("基数必须是大于等于 0 的整数。"));
+        QCOMPARE(error->property("text").toString(), QString::fromUtf8("「起始次数」请填写 0 或正整数。"));
 
         // The reason's placeholder is an example, and says that Tab enters it.
         reason->setProperty("text", QString());
-        const QString example = QString::fromUtf8("补录安装前的历史完成数");
+        const QString example = QString::fromUtf8("调整开始记录前已完成的导随次数");
         QCOMPARE(reason->property("placeholderText").toString(),
-                 QString::fromUtf8("例如：补录安装前的历史完成数（按 Tab 填入）"));
+                 QString::fromUtf8("例如：调整开始记录前已完成的导随次数（按 Tab 填入）"));
         QVERIFY(shell.click(QStringLiteral("baselineReasonField")));
         QTRY_VERIFY(reason->hasActiveFocus());
         QTest::keyClick(shell.window(), Qt::Key_Tab);
@@ -823,7 +966,7 @@ private Q_SLOTS:
         QVERIFY(dialog);
         QVERIFY(QMetaObject::invokeMethod(dialog, "openDialog", Q_ARG(QVariant, true)));
         QTRY_VERIFY(dialog->property("visible").toBool());
-        QVERIFY(shell.itemWithText(QString::fromUtf8("安装前已完成次数")));
+        QVERIFY(shell.itemWithText(QString::fromUtf8("起始次数")));
 
         auto *line = shell.item(QStringLiteral("baselinePreviewText"));
         QVERIFY(line);
@@ -849,7 +992,7 @@ private Q_SLOTS:
         QVERIFY2(text.contains(QStringLiteral("227 + 20 = 247")), qPrintable(text));
         QVERIFY(shell.click(QStringLiteral("baselineSaveButton")));
         QCOMPARE(shell.backend.callsOf(QStringLiteral("UpdateAchievementBaseline")).size(), 0);
-        QCOMPARE(dialog->property("errorText").toString(), QString::fromUtf8("基数必须是大于等于 0 的整数。"));
+        QCOMPARE(dialog->property("errorText").toString(), QString::fromUtf8("起始次数必须是大于等于 0 的整数。"));
 
         // Nothing recorded yet - a real first run: there is nothing to preview or subtract.
         shell.backend.answers.insert(QStringLiteral("GetDashboardStats"), dashboard(2000, 227));
@@ -1181,15 +1324,14 @@ private Q_SLOTS:
         // The client stops waiting (IpcClient's timeout); the Collector may have saved it.
         auto *first = shell.backend.held(QStringLiteral("CreateManualRun"));
         QVERIFY(first);
-        first->fail(QStringLiteral("ERR_INTERNAL"), QString::fromUtf8("Collector 未在超时时间内响应。"));
+        first->fail(QStringLiteral("ERR_INTERNAL"), QString::fromUtf8("后台服务暂时没有响应，操作结果还未确认。请稍后检查结果。"));
         QTRY_VERIFY(!dialog->property("submitting").toBool());
         QVERIFY(dialog->property("visible").toBool());
         // DT-10：同一句话也用于采集服务自己答复了内部错误的情形，所以它说的是「发出了、结果不明」，
         // 而不是「没有回应」。
         const QString shown = dialog->property("errorText").toString();
         QVERIFY2(shown.contains(QString::fromUtf8(
-                     "这次提交已经发出，但没有收到能说明是否保存成功的回应，记录可能已经保存。"
-                     "为免重复，只能原样重试或关闭窗口；关闭后请先在历史记录中确认，再决定是否重新填写。")),
+                     "尚未确认保存结果，记录可能已经保存。为避免重复，只能原样重试或关闭窗口；关闭后请先在历史记录中确认，再决定是否重新填写。")),
                  qPrintable(shown));
         QVERIFY2(!shown.contains(QString::fromUtf8("没有收到采集服务的回应")), qPrintable(shown));
 
@@ -1238,8 +1380,8 @@ private Q_SLOTS:
         QVERIFY(!dialog->property("submitting").toBool());
         QVERIFY(!dialog->property("awaitingRetry").toBool());
         QString shown = dialog->property("errorText").toString();
-        QVERIFY2(shown.contains(QString::fromUtf8("Collector 未连接。")), qPrintable(shown));
-        QVERIFY2(shown.contains(QString::fromUtf8("这次提交没有发给采集服务，记录没有保存。")),
+        QVERIFY2(shown.contains(QString::fromUtf8("后台服务尚未连接。")), qPrintable(shown));
+        QVERIFY2(shown.contains(QString::fromUtf8("这次提交未能发给后台服务，记录尚未保存。连接恢复后可重试。")),
                  qPrintable(shown));
         QVERIFY2(!shown.contains(QString::fromUtf8("可能已经保存")), qPrintable(shown));
 
@@ -1254,7 +1396,7 @@ private Q_SLOTS:
 
         // That one went out and got no answer: now it may have been saved, so the form freezes.
         creates.at(1).reply->fail(QStringLiteral("ERR_INTERNAL"),
-                                  QString::fromUtf8("Collector 未在超时时间内响应。"));
+                                  QString::fromUtf8("后台服务暂时没有响应，操作结果还未确认。请稍后检查结果。"));
         QTRY_VERIFY(dialog->property("awaitingRetry").toBool());
 
         // 原样重试 while the pipe is down again tells nothing about the earlier request: still frozen.
@@ -1293,7 +1435,7 @@ private Q_SLOTS:
         QVERIFY(!dialog->property("submitting").toBool());
         QVERIFY(!dialog->property("awaitingRetry").toBool());
         const QString shown = dialog->property("errorText").toString();
-        QVERIFY2(shown.contains(QString::fromUtf8("这次提交没有发给采集服务，记录没有保存。")),
+        QVERIFY2(shown.contains(QString::fromUtf8("这次提交未能发给后台服务，记录尚未保存。连接恢复后可重试。")),
                  qPrintable(shown));
         QVERIFY2(!shown.contains(QString::fromUtf8("可能已经保存")), qPrintable(shown));
     }
@@ -1359,7 +1501,7 @@ private Q_SLOTS:
                 reply->fail(QStringLiteral("ERR_UNKNOWN_MESSAGE"), QStringLiteral("unknown message_type"));
             QTRY_VERIFY(!controller.captureSettingsError().isEmpty());
             QVERIFY(!controller.captureSettingsSupported());
-            const QString sentence = QString::fromUtf8("当前采集器不支持捕获设置，以下开关不可用。");
+            const QString sentence = QString::fromUtf8("当前后台服务不支持这些设置，请更新软件后重试。");
             QCOMPARE(controller.captureSettingsError(),
                      maintainer ? sentence + QStringLiteral(" (ERR_UNKNOWN_MESSAGE)") : sentence);
         }
@@ -1553,6 +1695,17 @@ int main(int argc, char *argv[])
     QStandardPaths::setTestModeEnabled(true);
     QQuickStyle::setStyle(QStringLiteral("Basic"));
     QGuiApplication app(argc, argv);
+#ifdef Q_OS_WIN
+    // 离屏平台不枚举 Windows 字体；显式加载系统中文字体用于长正文截图验收。
+    const QString windowsDir = qEnvironmentVariable("WINDIR", QStringLiteral("C:/Windows"));
+    const int fontId = QFontDatabase::addApplicationFont(QDir(windowsDir).filePath(QStringLiteral("Fonts/msyh.ttc")));
+    const auto families = QFontDatabase::applicationFontFamilies(fontId);
+    if (!families.isEmpty()) {
+        QFont font;
+        font.setFamilies(families);
+        app.setFont(font);
+    }
+#endif
     ShellDialogTests tests;
     return QTest::qExec(&tests, argc, argv);
 }

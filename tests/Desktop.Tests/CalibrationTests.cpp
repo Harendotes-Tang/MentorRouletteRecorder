@@ -17,6 +17,8 @@
 #include "AppController.h"
 #include "AutomaticRecordingController.h"
 #include "CalibrationController.h"
+#include "CollectorText.h"
+#include "CollectorTextTestSupport.h"
 #include "IBackend.h"
 #include "MockBackend.h"
 
@@ -40,6 +42,7 @@
 #include <QTimer>
 
 #include <algorithm>
+#include <functional>
 #include <memory>
 
 namespace {
@@ -229,11 +232,11 @@ private Q_SLOTS:
         QVERIFY(!recording.pendingAlert());
         QCOMPARE(alerts.count(), 0);
         QVERIFY(recording.message().contains(QString::fromUtf8("正在重新校准")));
-        QVERIFY(recording.message().contains(QString::fromUtf8("打一把随机任务")));
-        QVERIFY(recording.message().contains(QString::fromUtf8("期间不会生成记录")));
+        QVERIFY(recording.message().contains(QString::fromUtf8("照常完成随机任务")));
+        QVERIFY(recording.message().contains(QString::fromUtf8("完成前暂时不能自动记录")));
         // Progress ticks belong to the calibration card, not to a sentence that is
         // also squeezed into the dashboard's fixed-height card.
-        QVERIFY(!recording.message().contains(QString::fromUtf8("已看到")));
+        QVERIFY(!recording.message().contains(QString::fromUtf8("已识别")));
         verifyPlayerCopy(recording.message());
     }
 
@@ -248,14 +251,14 @@ private Q_SLOTS:
         QVERIFY(recording.attention());
         QVERIFY(!recording.blocked());
         QCOMPARE(recording.message(),
-                 QString::fromUtf8("校准完成，核对 4 件事就能开始自动记录。"));
+                 QString::fromUtf8("还差最后一步：核对 4 件事，就能开始自动记录。"));
         verifyPlayerCopy(recording.message());
     }
 
     void blockedRepeatsTheCollectorsOwnSentence()
     {
         const QString blocker = QString::fromUtf8(
-            "这次更新改了报文的结构，本机校准做不了，需要维护者出一份新档案。");
+            "这次游戏更新暂时无法自动校准。请等待软件更新，期间可以先手动记录。");
         CalibrationBackend backend;
         QJsonObject calibration = readyTimeline();
         calibration.insert(QStringLiteral("state"), QStringLiteral("BLOCKED"));
@@ -267,7 +270,7 @@ private Q_SLOTS:
 
         QCOMPARE(recording.state(), QStringLiteral("calibration_blocked"));
         QVERIFY(recording.message().startsWith(blocker));
-        QVERIFY(recording.message().contains(QString::fromUtf8("查看诊断")));
+        QVERIFY(recording.message().contains(QString::fromUtf8("捕获诊断")));
         // Only the first blocker; the rest belong on the card.
         QVERIFY(!recording.message().contains(QString::fromUtf8("打完这把副本")));
         verifyPlayerCopy(recording.message());
@@ -285,7 +288,7 @@ private Q_SLOTS:
 
         QCOMPARE(recording.state(), QStringLiteral("listening"));
         QVERIFY(!recording.attention());
-        QVERIFY(recording.message().contains(QString::fromUtf8("自动监听中")));
+        QVERIFY(recording.message().contains(QString::fromUtf8("自动记录已开启")));
         QVERIFY(recording.message().contains(QString::fromUtf8("本机校准")));
         verifyPlayerCopy(recording.message());
     }
@@ -299,7 +302,7 @@ private Q_SLOTS:
         recording.refresh();
 
         QVERIFY(recording.blocked());
-        QVERIFY(recording.message().contains(QString::fromUtf8("无法读取游戏安装路径")));
+        QVERIFY(recording.message().contains(QString::fromUtf8("找不到游戏的安装位置")));
     }
 
     void aMissingNpcapStillWinsOverCalibration()
@@ -444,7 +447,7 @@ private Q_SLOTS:
         controller.confirm(verdicts);
         QCOMPARE(rejected.size(), 1);
         QCOMPARE(controller.error(),
-                 QString::fromUtf8("有事件被标为不对，这次校准作废；再打一把随机任务后会重新核对。"));
+                 QString::fromUtf8("有内容与你的实际游戏情况不符，本次校准需要重来。请照常完成随机任务，之后会再次提醒你核对。"));
         verifyPlayerCopy(controller.error());
         QVERIFY(!controller.busy());
         // The WRONG verdict travelled verbatim.
@@ -532,7 +535,7 @@ Item {
     readonly property string label:
         App.captureStatus.profile_origin === "LOCAL_CALIBRATION" ? qsTr("本机校准")
         : App.captureStatus.profile_origin === "SHARED_CALIBRATION" ? qsTr("共享校准")
-        : qsTr("档案匹配")
+        : qsTr("版本已支持")
 })", QUrl());
         std::unique_ptr<QObject> root(component.create());
         QVERIFY2(root != nullptr, qPrintable(component.errorString()));
@@ -685,7 +688,7 @@ ApplicationWindow {
         QTRY_COMPARE(rejected.size(), 1);
 
         const QString expected = QString::fromUtf8(
-            "有事件被标为不对，这次校准作废；再打一把随机任务后会重新核对。");
+            "有内容与你的实际游戏情况不符，本次校准需要重来。请照常完成随机任务，之后会再次提醒你核对。");
         QCOMPARE(dialog->property("noticeText").toString(), expected);
         QTRY_VERIFY(!dialog->property("visible").toBool());
         // Voided draft: the Collector observes again, so the user can play on.
@@ -730,7 +733,7 @@ ApplicationWindow {
             QVERIFY(QMetaObject::invokeMethod(dialog, "submit"));
             QTRY_VERIFY(!dialog->property("visible").toBool());
 
-            const QString later = QString::fromUtf8("从下一把起按它记录");
+            const QString later = QString::fromUtf8("从下一次副本开始使用");
             if (bound) {
                 QVERIFY2(!app.toastMessage().contains(later), qPrintable(app.toastMessage()));
             } else {
@@ -774,7 +777,7 @@ ApplicationWindow {
         QVERIFY(card);
         auto *headline = card->findChild<QObject *>(QStringLiteral("calibrationHeadline"));
         QVERIFY(headline);
-        QTRY_VERIFY(headline->property("text").toString().contains(QString::fromUtf8("正在自动记录")));
+        QTRY_VERIFY(headline->property("text").toString().contains(QString::fromUtf8("记录照常进行")));
         const QString offer = headline->property("text").toString();
         QVERIFY2(!offer.contains(QString::fromUtf8("就能开始自动记录")), qPrintable(offer));
         QVERIFY2(offer.contains(QStringLiteral("4")), qPrintable(offer));
@@ -788,7 +791,7 @@ ApplicationWindow {
         backend.capture.insert(QStringLiteral("calibration"), calibration);
         app.refreshStatus();
         QTRY_COMPARE(headline->property("text").toString(),
-                     QString::fromUtf8("校准完成，核对 4 件事就能开始自动记录。"));
+                     QString::fromUtf8("还差最后一步：核对 4 件事，就能开始自动记录。"));
     }
 
     void cardShowsProgressBlockersAndPlayerWording()
@@ -890,23 +893,23 @@ ApplicationWindow {
         QVERIFY(context);
         QVERIFY(times);
         QVERIFY(blocker);
-        QVERIFY(context->property("text").toString().contains(QString::fromUtf8("累计校准进度")));
-        QVERIFY(context->property("text").toString().contains(QString::fromUtf8("不代表你当前仍在副本中")));
+        QVERIFY(context->property("text").toString().contains(QString::fromUtf8("已识别")));
+        QVERIFY(context->property("text").toString().contains(QString::fromUtf8("不是当前游戏状态")));
         QTRY_VERIFY(card->property("reloggedSinceEntry").toBool());
         auto localStamp = [](const QJsonObject &value) {
             return QDateTime::fromString(value.value(QStringLiteral("at_utc")).toString(), Qt::ISODateWithMs)
                 .toLocalTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss"));
         };
         QCOMPARE(times->property("text").toString(),
-            QString::fromUtf8("最近识别登录：%1\n已采到的进本：%2").arg(localStamp(login), localStamp(entry)));
-        QVERIFY(blocker->property("text").toString().contains(QString::fromUtf8("已识别重新登录")));
+            QString::fromUtf8("最近检测到登录：%1\n最近检测到进本：%2").arg(localStamp(login), localStamp(entry)));
+        QVERIFY(blocker->property("text").toString().contains(QString::fromUtf8("你已重新登录")));
         QVERIFY(!blocker->property("text").toString().contains(QString::fromUtf8("打完这把副本")));
         verifyPlayerCopy(blocker->property("text").toString());
         for (const QString &key : {QStringLiteral("finder_request_seen"), QStringLiteral("pop_seen"),
                                   QStringLiteral("duty_entry_seen")}) {
             auto *row = findVisualItem(card, QStringLiteral("calibrationProgressText_") + key);
             QVERIFY(row);
-            QVERIFY(row->property("text").toString().endsWith(QString::fromUtf8(" · 已看到")));
+            QCOMPARE(row->property("text").toString(), QString::fromUtf8("已识别"));
         }
         QCOMPARE(app.calibration()->blockers(), QStringList{legacyBlocker});
         QCOMPARE(backend.count("DiscardCalibration"), 0);
@@ -927,7 +930,7 @@ ApplicationWindow {
         QTRY_VERIFY(!card->property("reloggedSinceEntry").toBool());
         QTRY_VERIFY(times->property("text").toString().contains(localStamp(entry)));
         QVERIFY(findVisualItem(card, QStringLiteral("calibrationBlockerText"))
-            ->property("text").toString().contains(QString::fromUtf8("如果你已经离开副本")));
+            ->property("text").toString().contains(QString::fromUtf8("如果你已经出本")));
 
         // Older or empty snapshots do not leave the previous session's times on screen.
         calibration.insert(QStringLiteral("events"), QJsonArray{});
@@ -953,14 +956,68 @@ ApplicationWindow {
         app.recording()->refresh();
         QTRY_VERIFY(card->property("captureSilent").toBool());
         QVERIFY(findVisualItem(card, QStringLiteral("calibrationBlockerText"))
-            ->property("text").toString().contains(QString::fromUtf8("现在抓包一条报文都解不出来")));
+            ->property("text").toString().contains(QString::fromUtf8("暂时读不到游戏数据")));
         QCOMPARE(backend.count("DiscardCalibration"), 0);
+    }
+
+    // The card clarifies the older Collector's 「打完这把副本，离开后再回来。」 by its
+    // catalogue key, so the clarification holds in every interface language; the
+    // other blockers are the Collector's sentences in that language
+    // (contracts/collector-texts.md).
+    void theFinishDutySentenceIsRecognisedByItsKeyInAnyLanguage()
+    {
+        const mrtest::MarkedLanguage language;
+        const QVariantMap finishDuty = mrtest::textRef("calibration.blocker.finish_duty");
+        const QVariantMap noLogin = mrtest::textRef("calibration.blocker.no_login");
+        CalibrationBackend backend;
+        QJsonObject calibration = observingCalibration();
+        auto progress = calibration.value(QStringLiteral("progress")).toObject();
+        progress.insert(QStringLiteral("pop_seen"), true);
+        progress.insert(QStringLiteral("duty_entry_seen"), true);
+        calibration.insert(QStringLiteral("progress"), progress);
+        calibration.insert(QStringLiteral("blockers"),
+                           QJsonArray{mr::collector_text::chinese(finishDuty), mr::collector_text::chinese(noLogin)});
+        calibration.insert(QStringLiteral("blocker_refs"),
+                           QJsonArray{QJsonObject::fromVariantMap(finishDuty), QJsonObject::fromVariantMap(noLogin)});
+        backend.capture.insert(QStringLiteral("calibration"), calibration);
+        mr::AppController app(&backend, nullptr);
+        QTRY_COMPARE(app.calibration()->state(), QStringLiteral("OBSERVING"));
+        QVERIFY(app.calibration()->blockers().constFirst().startsWith(QStringLiteral("[calibration.blocker.finish_duty]")));
+
+        QQmlEngine engine;
+        engine.rootContext()->setContextProperty(QStringLiteral("App"), &app);
+        engine.rootContext()->setContextProperty(QStringLiteral("ReduceMotion"), true);
+        QQmlComponent component(&engine);
+        component.setData(R"(import QtQuick
+import QtQuick.Controls
+import MentorRecorder
+ApplicationWindow {
+    width: 720; height: card.implicitHeight + 32; visible: true
+    color: Theme.surface
+    CalibrationCard { id: card; x: 16; y: 16; width: parent.width - 32; height: implicitHeight }
+})", QUrl());
+        std::unique_ptr<QObject> root(component.create());
+        QVERIFY2(root != nullptr, qPrintable(component.errorString()));
+        auto *card = qobject_cast<QQuickItem *>(root->findChild<QObject *>(QStringLiteral("calibrationCard")));
+        QVERIFY(card);
+        QStringList lines;
+        QTRY_VERIFY(findVisualItem(card, QStringLiteral("calibrationBlockerText")));
+        const std::function<void(QQuickItem *)> collect = [&lines, &collect](QQuickItem *item) {
+            if (item->objectName() == QLatin1String("calibrationBlockerText"))
+                lines.append(item->property("text").toString());
+            for (auto *child : item->childItems())
+                collect(child);
+        };
+        QTRY_VERIFY((lines.clear(), collect(card), lines.size() == 2));
+        QVERIFY2(lines.at(0).contains(QString::fromUtf8("软件还没识别到这次副本的离开时间")), qPrintable(lines.at(0)));
+        QVERIFY2(!lines.at(0).contains(QStringLiteral("finish_duty")), qPrintable(lines.at(0)));
+        QCOMPARE(lines.at(1), mrtest::marked("calibration.blocker.no_login", mr::collector_text::chinese(noLogin)));
     }
 
     void aRecordingProfileReadsAsProvisionalWhileTheGameIsClosed()
     {
-        // Real machine, 1.2.1: after 清空进度并重新观察 with the game closed the card said
-        // "正在重新校准…期间不会生成记录" above a line saying recording works. WAITING is the
+        // Real machine, 1.2.1: after 清空校准进度 with the game closed the card said
+        // "正在重新校准…完成前暂时不能自动记录" above a line saying recording works. WAITING is the
         // same calibration with no capture session under it; a named profile is still in force.
         CalibrationBackend backend;
         QJsonObject calibration = observingCalibration();
@@ -1010,9 +1067,13 @@ ApplicationWindow {
         auto *label = findVisualItem(
             visualCard, QStringLiteral("calibrationProgressText_pop_seen"));
         QVERIFY(label);
-        const QString expected = QString::fromUtf8("匹配弹窗 · 尚未确认，等待进本核对");
+        const QString expected = QString::fromUtf8("等待进本后确认");
         QCOMPARE(label->property("text").toString(), expected);
         verifyPlayerCopy(expected);
+        // The step keeps its name beside the state it is in.
+        auto *stepLabel = findVisualItem(visualCard, QStringLiteral("calibrationProgressLabel_pop_seen"));
+        QVERIFY(stepLabel);
+        QCOMPARE(stepLabel->property("text").toString(), QString::fromUtf8("匹配弹窗"));
 
         auto *window = qobject_cast<QQuickWindow *>(root.get());
         QVERIFY(window);
@@ -1032,10 +1093,9 @@ ApplicationWindow {
             QVERIFY2(frame.save(screenshotPath), qPrintable(screenshotPath));
             QCOMPARE(frame.width(), qRound(width * window->devicePixelRatio()));
 
-            // The real font fits on one line at 320px; 240px exercises wrapping.
+            // Too narrow for the five steps in a line, the card stacks them; the
+            // state text must still sit inside its own box at both widths.
             QTRY_VERIFY(label->property("width").toReal() > 0.0);
-            if (width == 240)
-                QTRY_VERIFY(label->property("lineCount").toInt() >= 2);
             QVERIFY(label->property("contentWidth").toReal()
                     <= label->property("width").toReal() + 0.5);
             QVERIFY(label->property("height").toReal()
@@ -1085,13 +1145,13 @@ ApplicationWindow {
             visualCard, QStringLiteral("calibrationProgressText_pop_seen"));
         QVERIFY(label);
         QCOMPARE(label->property("text").toString(),
-                 QString::fromUtf8("匹配弹窗 · 还没见到"));
+                 QString::fromUtf8("等待识别"));
     }
 
     void theJobRowSaysRecognisedOrNotRatherThanSeen()
     {
         // A job message that never meets the calibration rule writes every record as
-        // 职业未知, so the card must say so. "还没见到" is wrong here: the message was
+        // 职业未知, so the card must say so. "等待识别" is wrong here: the message was
         // on the wire, it just was not recognised.
         CalibrationBackend backend;
         backend.capture.insert(QStringLiteral("calibration"), observingCalibration());
@@ -1119,14 +1179,14 @@ ApplicationWindow {
 
         auto *job = findVisualItem(visualCard, QStringLiteral("calibrationProgressText_job_seen"));
         QVERIFY(job);
-        const QString unseen = QString::fromUtf8("职业 · 还没认出来，先记为未知");
+        const QString unseen = QString::fromUtf8("暂未识别，职业先记为未知");
         QCOMPARE(job->property("text").toString(), unseen);
         verifyPlayerCopy(unseen);
 
         // The other rows keep their wording.
         auto *exit = findVisualItem(visualCard, QStringLiteral("calibrationProgressText_duty_exit_seen"));
         QVERIFY(exit);
-        QCOMPARE(exit->property("text").toString(), QString::fromUtf8("出本 · 还没见到"));
+        QCOMPARE(exit->property("text").toString(), QString::fromUtf8("等待识别"));
 
         // Once the Collector reports it, the row says so in the same words the rule uses.
         CalibrationBackend recognised;
@@ -1157,12 +1217,12 @@ ApplicationWindow {
         QVERIFY(seenCard);
         auto *seenJob = findVisualItem(seenCard, QStringLiteral("calibrationProgressText_job_seen"));
         QVERIFY(seenJob);
-        QCOMPARE(seenJob->property("text").toString(), QString::fromUtf8("职业 · 已认出"));
+        QCOMPARE(seenJob->property("text").toString(), QString::fromUtf8("已识别"));
     }
 
     void aPlayedDutyReadsAsSeenEvenBeforeItSupportsTheMatch()
     {
-        // After a finished roulette every row saying 还没见到 reads as software that
+        // After a finished roulette every row saying 等待识别 reads as software that
         // noticed nothing. duty_entry_seen is the stricter claim; duty_zone_seen is
         // what the player actually did.
         CalibrationBackend backend;
@@ -1196,7 +1256,7 @@ ApplicationWindow {
         auto *entry = findVisualItem(
             visualCard, QStringLiteral("calibrationProgressText_duty_entry_seen"));
         QVERIFY(entry);
-        const QString expected = QString::fromUtf8("进本 · 已看到，还没能和这次排本对上");
+        const QString expected = QString::fromUtf8("已检测到进本，还没对上排队记录");
         QCOMPARE(entry->property("text").toString(), expected);
         verifyPlayerCopy(expected);
 
@@ -1204,7 +1264,7 @@ ApplicationWindow {
         auto *exit = findVisualItem(
             visualCard, QStringLiteral("calibrationProgressText_duty_exit_seen"));
         QVERIFY(exit);
-        QCOMPARE(exit->property("text").toString(), QString::fromUtf8("出本 · 还没见到"));
+        QCOMPARE(exit->property("text").toString(), QString::fromUtf8("等待识别"));
     }
 
     void aMissingDutyZoneFieldKeepsTheOldCollectorFallback()
@@ -1237,7 +1297,7 @@ ApplicationWindow {
         auto *entry = findVisualItem(
             visualCard, QStringLiteral("calibrationProgressText_duty_entry_seen"));
         QVERIFY(entry);
-        QCOMPARE(entry->property("text").toString(), QString::fromUtf8("进本 · 还没见到"));
+        QCOMPARE(entry->property("text").toString(), QString::fromUtf8("等待识别"));
     }
 
     void settingsToggleWritesTheCollectorOwnedSwitch()

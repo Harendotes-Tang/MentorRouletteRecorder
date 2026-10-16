@@ -1723,8 +1723,10 @@ QList<mr::TtsService::VoiceEntry> sampleVoices()
 
 } // namespace
 
-/// Settings · 播报 lists the machine's voices with the Chinese ones on top, each
-/// with an id the choice is stored under.
+/// Settings · 播报 lists the machine's voices with the Chinese ones on top - the
+/// mainland's first, then Chinese of other territories - each with an id the
+/// choice is stored under. (The interface language decides the language on top;
+/// LanguageManagerTests covers the others.)
 void TtsServiceTests::voices_areListedChineseFirstWithReadableLabels()
 {
     const auto ordered = mr::TtsService::orderVoices(sampleVoices());
@@ -1734,8 +1736,8 @@ void TtsServiceTests::voices_areListedChineseFirstWithReadableLabels()
     QCOMPARE(names, (QStringList{QStringLiteral("Microsoft Huihui Desktop"),
                                  QStringLiteral("Microsoft Kangkang Desktop"),
                                  QStringLiteral("Neutral"),
-                                 QStringLiteral("Microsoft David Desktop"),
-                                 QStringLiteral("Microsoft Hanhan Desktop")}));
+                                 QStringLiteral("Microsoft Hanhan Desktop"),
+                                 QStringLiteral("Microsoft David Desktop")}));
 
     const QVariantList rows = mr::TtsService::describeVoices(ordered);
     QCOMPARE(rows.size(), 5);
@@ -1753,10 +1755,10 @@ void TtsServiceTests::voices_areListedChineseFirstWithReadableLabels()
     // No gender: only the language is said.
     QCOMPARE(rows.at(2).toMap().value(QStringLiteral("label")).toString(),
              QString::fromUtf8("Neutral（中文）"));
-    QCOMPARE(rows.at(3).toMap().value(QStringLiteral("label")).toString(),
+    QCOMPARE(rows.at(4).toMap().value(QStringLiteral("label")).toString(),
              QString::fromUtf8("Microsoft David Desktop（英语 · 男声）"));
     // Chinese outside the mainland names its territory.
-    QVERIFY(rows.at(4).toMap().value(QStringLiteral("label")).toString()
+    QVERIFY(rows.at(3).toMap().value(QStringLiteral("label")).toString()
                 .startsWith(QString::fromUtf8("Microsoft Hanhan Desktop（中文 · ")));
     QCOMPARE(mr::TtsService::localVoiceId(QStringLiteral("X")), QStringLiteral("local:X"));
 }
@@ -1767,7 +1769,7 @@ void TtsServiceTests::savedVoice_fallsBackToTheDefaultWhenItCannotBeUsed()
 {
     const auto ordered = mr::TtsService::orderVoices(sampleVoices());
     QCOMPARE(mr::TtsService::savedVoiceIndex(ordered, QStringLiteral("local:Microsoft Kangkang Desktop")), 1);
-    QCOMPARE(mr::TtsService::savedVoiceIndex(ordered, QStringLiteral("local:Microsoft David Desktop")), 3);
+    QCOMPARE(mr::TtsService::savedVoiceIndex(ordered, QStringLiteral("local:Microsoft David Desktop")), 4);
     QCOMPARE(mr::TtsService::savedVoiceIndex(ordered, QString()), -1);
     QCOMPARE(mr::TtsService::savedVoiceIndex(ordered, QStringLiteral("local:")), -1);
     QCOMPARE(mr::TtsService::savedVoiceIndex(ordered, QStringLiteral("local:Uninstalled Voice")), -1);

@@ -48,6 +48,8 @@
 #include <functional>
 #include <utility>
 
+#include "LiveText.h"
+
 namespace mr {
 
 class CollectorProcess : public QObject
@@ -232,7 +234,10 @@ public:
     /// The sentence a player reads for a refused start with \a exitCode: the
     /// last line the child wrote to its standard error, without the error
     /// token or "failed:" in front of it, or a sentence of ours when there is
-    /// nothing usable. \a stderrTail is UTF-8, which the Collector writes.
+    /// nothing usable. When the tail also carries an "MR-TEXT {TextRef}" line
+    /// (contracts/collector-texts.md §2.2), the last one renders that sentence
+    /// in the interface language instead. \a stderrTail is UTF-8, which the
+    /// Collector writes.
     static QString exitExplanation(int exitCode, const QByteArray &stderrTail);
     /// How much of the child's standard error is kept for that sentence.
     static constexpr int kStderrTailBytes = 4096;
@@ -332,12 +337,12 @@ Q_SIGNALS:
 
 private:
     void wireProcess();
-    void setState(State state, const QString &detail = {});
+    void setState(State state, const LiveText &detail = {});
     void onFinished(int exitCode, QProcess::ExitStatus status);
     void scheduleRestart();
     /// Stop the restart loop after a start it cannot cure, and say why - once
     /// per reason. \a retryLater arms the quiet retry.
-    void refuseStart(const QString &reason, bool retryLater);
+    void refuseStart(const LiveText &reason, bool retryLater);
     /// Keep the last \ref kStderrTailBytes of what the child wrote to stderr.
     void collectStderr();
     /// Set the Collector's stop event, if it exists. False when there is no
@@ -378,7 +383,9 @@ private:
     /// The quiet retry after a refused exit 3 (\ref refusedRetryMs).
     QTimer m_refusedRetryTimer;
     QString m_executablePath;
-    QString m_detail;
+    /// A recipe, so statusText follows a language switch (LiveText.h); AppController
+    /// re-announces it.
+    LiveText m_detail;
     qint64 m_startedAtMs = 0;
     State m_state = State::Idle;
     int m_backoffMs = minBackoffMs();

@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json.Nodes;
 using Microsoft.Data.Sqlite;
 using MentorRecorder.Collector.Contracts.Errors;
+using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Domain.Time;
 using MentorRecorder.Collector.Ipc;
@@ -30,6 +31,9 @@ public sealed class RunImportService
     public const int MaxPreviews = 8;
     public static readonly TimeSpan PreviewLifetime = TimeSpan.FromMinutes(30);
 
+    /// <summary>Longest verbatim argument a <c>$defs/TextRef</c> carries (contracts/ipc-v1.schema.json).</summary>
+    private const int MaxVerbatimArgument = 4000;
+
     public RunImportService(SqliteDatabase database, IClock clock)
     {
         _database = database;
@@ -50,20 +54,20 @@ public sealed class RunImportService
         cancellationToken.ThrowIfCancellationRequested();
         sourceKind = sourceKind.ToUpperInvariant();
         if (!new[] { "CSV", "XLS", "XLSX", "JSON", "BACKUP", "PASTE", "SCREENSHOT", "ROWS" }.Contains(sourceKind, StringComparer.Ordinal))
-            throw CollectorException.BadRequest("不支持的记录来源格式。", "source_kind");
-        if (sourceName?.Length > 500) throw CollectorException.BadRequest("来源名称超过 500 字符。", "source_name");
+            throw CollectorException.BadRequest(CollectorTexts.ImportPreviewKindUnsupported(), "source_kind");
+        if (sourceName?.Length > 500) throw CollectorException.BadRequest(CollectorTexts.ImportPreviewSourceNameTooLong(), "source_name");
         if (filePath is not null)
         {
-            if (!Path.IsPathFullyQualified(filePath)) throw CollectorException.BadRequest("请选择完整的本地文件路径。", "file_path");
+            if (!Path.IsPathFullyQualified(filePath)) throw CollectorException.BadRequest(CollectorTexts.ImportPreviewPathNotAbsolute(), "file_path");
             // Import reads only ordinary local sources; it never changes the source or follows a network destination.
             Export.ExportPaths.Resolve(filePath);
         }
         IReadOnlyList<ImportSourceRow> parsed;
         try { parsed = RunImportSourceParser.Parse(sourceKind, filePath, text, rows, columnMapping); }
         catch (Exception failure) when (failure is IOException or InvalidDataException or UnauthorizedAccessException or SqliteException or System.Xml.XmlException or System.Text.Json.JsonException)
-        { throw CollectorException.BadRequest("无法解析导入来源：" + failure.Message, "file_path"); }
+        { throw Unreadable(failure); }
         cancellationToken.ThrowIfCancellationRequested();
-        if (parsed.Count > MaxRows) throw CollectorException.BadRequest("一次最多预览 5000 条记录，请分批选择。", "rows");
+        if (parsed.Count > MaxRows) throw CollectorException.BadRequest(CollectorTexts.ImportPreviewTooManyRows(), "rows");
         // Hash the bounded parsed snapshot, never reread a file that could change after parsing.
         var snapshot = new JsonArray(parsed.Select(row => (JsonNode)row.Values.DeepClone()).ToArray());
         var inputFingerprint = RunImportCandidateNormalizer.Hash(snapshot.ToJsonString(Wire.JsonOptions));
@@ -83,7 +87,7 @@ public sealed class RunImportService
         var rendered = _database.Read(_ => Render(preview, cancellationToken), cancellationToken);
         // Retain the existing IPC framing limit, with room for the response envelope.
         if (Encoding.UTF8.GetByteCount(rendered.ToJsonString(Wire.JsonOptions)) > FrameCodec.MaxFrameBytes * 3 / 4)
-            throw CollectorException.BadRequest("预览内容超过 4 MiB 通信上限，请拆分来源或减少本批记录。", "rows");
+            throw CollectorException.BadRequest(CollectorTexts.ImportPreviewTooLarge(), "rows");
         lock (_gate)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -106,11 +110,11 @@ public sealed class RunImportService
         bool deductFromBaseline = false, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        if (!confirmOwnRecords) throw CollectorException.BadRequest("请确认本批记录属于本人。", "confirm_own_records");
+        if (!confirmOwnRecords) throw CollectorException.BadRequest(CollectorTexts.ImportCommitOwnRecordsRequired(), "confirm_own_records");
         if (!Guid.TryParseExact(previewId, "D", out _) || !Guid.TryParseExact(requestId, "D", out _))
-            throw CollectorException.BadRequest("预览编号和请求编号必须是标准 UUID。");
+            throw CollectorException.BadRequest(CollectorTexts.ImportCommitIdsInvalid());
         if (rowNumbers.Count == 0 || rowNumbers.Count > MaxRows || rowNumbers.Distinct().Count() != rowNumbers.Count)
-            throw CollectorException.BadRequest("请选择不重复的可导入行。", "row_numbers");
+            throw CollectorException.BadRequest(CollectorTexts.ImportCommitSelectionInvalid(), "row_numbers");
         var selected = rowNumbers.OrderBy(number => number).ToArray();
         // The baseline choice is part of the selection: a retry that changes it is a different commit.
         var selectionFingerprint = RunImportCandidateNormalizer.Hash(previewId + ":" + string.Join(',', selected)
@@ -124,20 +128,20 @@ public sealed class RunImportService
             if (receipt is not null)
             {
                 if (!string.Equals(receipt.Value.Fingerprint, selectionFingerprint, StringComparison.Ordinal))
-                    throw new CollectorException(ErrorCodes.IdempotencyConflict, "同一预览或请求编号不能提交不同的选择。", field: "preview_id");
+                    throw new CollectorException(ErrorCodes.IdempotencyConflict, CollectorTexts.ImportCommitSelectionChanged(), field: "preview_id");
                 var replay = JsonNode.Parse(receipt.Value.Json)!.AsObject();
                 replay["replayed"] = true;
                 return replay;
             }
             if (_idempotency.TryGetResponse(requestId, transaction) is not null || _idempotency.WasAppliedBeforePrune(requestId, transaction))
                 throw new CollectorException(ErrorCodes.IdempotencyConflict,
-                    "此请求编号已用于另一项变更，请重新生成请求编号。", field: "request_id");
+                    CollectorTexts.ImportCommitRequestReused(), field: "request_id");
             if (preview is null || _clock.UtcNow - preview.Created > PreviewLifetime)
-                throw CollectorException.BadRequest("导入预览已失效，请重新预览后提交。", "preview_id");
+                throw CollectorException.BadRequest(CollectorTexts.ImportCommitPreviewExpired(), "preview_id");
             var candidates = selected.Select(number => preview.Candidates.SingleOrDefault(candidate => candidate.RowNumber == number)
-                ?? throw CollectorException.BadRequest("所选行不在这次预览中。", "row_numbers")).ToArray();
+                ?? throw CollectorException.BadRequest(CollectorTexts.ImportCommitRowNotInPreview(), "row_numbers")).ToArray();
             if (candidates.Any(candidate => candidate.Run is null || candidate.Errors.Count != 0))
-                throw CollectorException.BadRequest("所选行仍有错误，请修正并重新预览；本次没有写入记录。", "row_numbers");
+                throw CollectorException.BadRequest(CollectorTexts.ImportCommitRowsHaveErrors(), "row_numbers");
             var outcomes = new JsonArray();
             var accepted = new List<string>();
             var duplicateCount = 0;
@@ -209,8 +213,8 @@ public sealed class RunImportService
         };
         _settings.UpdateAchievementSettings(settings, transaction);
         var reason = deducted == contributing
-            ? string.Format(CultureInfo.InvariantCulture, "导入 {0} 条已包含在基数中的历史通关，自基数中扣除", contributing)
-            : string.Format(CultureInfo.InvariantCulture, "导入 {0} 条已包含在基数中的历史通关，基数只有 {1}，扣到 0", contributing, stored.BaselineCompletedCount);
+            ? string.Format(CultureInfo.InvariantCulture, "导入 {0} 条已包含在起始次数中的历史通关，从起始次数中扣除", contributing)
+            : string.Format(CultureInfo.InvariantCulture, "导入 {0} 条已包含在起始次数中的历史通关，起始次数只有 {1}，扣到 0", contributing, stored.BaselineCompletedCount);
         _settings.AppendBaselineAudit(Guid.NewGuid().ToString("D"), settings, reason, requestId, transaction);
         return (deducted, settings.BaselineCompletedCount);
     }
@@ -269,7 +273,9 @@ public sealed class RunImportService
                 ["can_import"] = status is "new" or "possible_duplicate",
                 ["incomplete"] = candidate.Run?.IsIncompleteImport ?? false,
                 ["candidate"] = candidate.Input.DeepClone(), ["run"] = candidate.Run is null ? null : Wire.Run(candidate.Run),
-                ["errors"] = Wire.Strings(candidate.Errors), ["warnings"] = Wire.Strings(candidate.Warnings),
+                ["errors"] = Wire.Strings(candidate.Errors.Select(text => text.Chinese)),
+                ["warnings"] = Wire.Strings(candidate.Warnings.Select(text => text.Chinese)),
+                ["error_refs"] = ImportRowText.Refs(candidate.Errors), ["warning_refs"] = ImportRowText.Refs(candidate.Warnings),
                 ["matching_run_id"] = matching,
             });
         }
@@ -280,6 +286,20 @@ public sealed class RunImportService
             ["preview_id"] = preview.Id, ["source_kind"] = preview.Kind,
             ["source_name"] = preview.Name, ["rows"] = rows, ["summary"] = summary,
         };
+    }
+
+    /// <summary>
+    /// "无法读取导入内容：" and why. The parser's own sentence nests as a reference; an operating-system, SQLite, XML or
+    /// JSON message travels as a verbatim argument, and one longer than a TextRef argument may be stays Chinese only.
+    /// </summary>
+    private static CollectorException Unreadable(Exception failure)
+    {
+        if (RunImportSourceParser.TextOf(failure) is { } ours)
+            return CollectorException.BadRequest(CollectorTexts.ImportSourceUnreadable(ours), "file_path");
+        var verbatim = CollectorTexts.ImportSourceUnreadableSystem(failure.Message);
+        return failure.Message.Length <= MaxVerbatimArgument
+            ? CollectorException.BadRequest(verbatim, "file_path")
+            : CollectorException.BadRequest(verbatim.Chinese, "file_path");
     }
 
     private (string Status, string? Matching) Classify(ImportCandidate candidate, SqliteTransaction? transaction)

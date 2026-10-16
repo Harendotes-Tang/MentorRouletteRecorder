@@ -63,7 +63,7 @@ Dialog {
 
         Text {
             Layout.fillWidth: true
-            text: qsTr("你选的是「%1」。它不是在本机合成的：每次播报都要把这句话发给语音服务。").arg(dialog.voiceLabel)
+            text: qsTr("你选的是「%1」。在线语音需要联网，会把要播报的文字发给你选择的语音服务。").arg(dialog.voiceLabel)
             color: Theme.textPrimary
             font.pixelSize: Theme.fs(13)
             wrapMode: Text.WordWrap
@@ -73,22 +73,22 @@ Dialog {
             model: [
                 {
                     title: qsTr("发送什么"),
-                    body: qsTr("只发这一句要播报的话（模板填好后的一句，含副本名与进度数字），以及音色和语速。"
-                               + "不带账号、角色名、队友、游戏报文或任何能认出这台电脑的信息。")
+                    body: qsTr("发送要播报的文字、音色和语速。文字可能包含副本名、进度，以及你在播报模板中填写的内容。"
+                               + "不会额外发送账号、角色名、队友、游戏报文或设备身份信息。")
                 },
                 {
                     title: qsTr("发给谁"),
                     body: dialog.azure
-                          ? qsTr("微软 Azure 语音（你填写的区域）。请求由后台的采集器发出，对方能看到请求来自哪个 IP 地址，并按它自己的隐私政策处理收到的文字。")
-                          : qsTr("你填写地址的 OpenAI 兼容服务。请求由后台的采集器发出，对方能看到请求来自哪个 IP 地址，并按它自己的隐私政策处理收到的文字。")
+                          ? qsTr("微软 Azure 语音（你填写的区域）。请求由后台服务发送。对方能看到你的 IP 地址，并按自己的隐私政策处理文字。")
+                          : qsTr("你填写地址的 OpenAI 兼容服务。请求由后台服务发送。对方能看到你的 IP 地址，并按自己的隐私政策处理文字。")
                 },
                 {
                     title: qsTr("密钥"),
-                    body: qsTr("用你自己申请的密钥。它只保存在本机，由 Windows 加密，不会写进日志或诊断报告，也不会被发给别的服务。")
+                    body: qsTr("使用你自己申请的密钥（API Key），仅发给所选语音服务用于验证。密钥由 Windows 加密保存在本机，不写入日志或诊断报告。")
                 },
                 {
                     title: qsTr("怎么关"),
-                    body: qsTr("在「设置 → 播报」把语音引擎改回本机语音，之后一个请求也不发。在线语音出错时，这一句会自动改用本机语音。")
+                    body: qsTr("在「设置 → 播报」的「语音引擎」选回本机语音，即停止在线播报请求，已保存的密钥会保留。在线语音出错时会尝试改用本机语音。")
                 }
             ]
 
@@ -131,7 +131,7 @@ Dialog {
 
             Text {
                 Layout.fillWidth: true
-                text: qsTr("这台电脑只问这一次。")
+                text: qsTr("确认后，这台电脑不再重复询问。")
                 color: Theme.textSecondary
                 font.pixelSize: Theme.fs(11)
                 wrapMode: Text.WordWrap

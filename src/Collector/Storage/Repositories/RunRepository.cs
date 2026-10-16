@@ -1,5 +1,6 @@
 using Microsoft.Data.Sqlite;
 using MentorRecorder.Collector.Contracts.Errors;
+using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Domain.Queries;
 using MentorRecorder.Collector.Domain.Time;
@@ -98,7 +99,7 @@ public sealed class RunRepository
 
         throw new CollectorException(
             ErrorCodes.RevisionConflict,
-            "这条记录已在别处被修改，请刷新后重试。",
+            CollectorTexts.MutationRevisionConflict(),
             new Dictionary<string, object?>
             {
                 ["run_id"] = run.RunId,
@@ -168,13 +169,13 @@ public sealed class RunRepository
     {
         if (page < 1)
         {
-            throw CollectorException.BadRequest("page 必须大于等于 1。", "page");
+            throw CollectorException.BadRequest(CollectorTexts.IpcFieldAtLeast("page", 1), "page");
         }
 
         if (pageSize < 1 || pageSize > Paging.MaxPageSize)
         {
             throw CollectorException.BadRequest(
-                $"page_size 必须在 1 到 {Paging.MaxPageSize} 之间。", "page_size");
+                CollectorTexts.IpcFieldOutOfRange("page_size", 1, Paging.MaxPageSize), "page_size");
         }
 
         sort ??= RunSort.Default;

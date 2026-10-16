@@ -63,11 +63,16 @@
 
 ## 3. 字体与数字
 
-正文字体栈（`QFont::setFamilies`，`main.cpp`）：
+正文字体栈（`QFont::setFamilies`，`main.cpp`）在 Windows 上为：
 
 ```
-"Noto Sans SC", "Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI"
+"Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans SC", "Segoe UI"
 ```
+
+其他平台仍按原型以 `"Noto Sans SC"` 居首。Windows 11 装的思源黑体是一个可变字体
+（`NotoSansSC-VF.ttf`），Qt 的 Windows 字体库只取到它的默认字重：粗体靠加粗模拟、笔画糊成一片，
+常规字重在 12–13 px 下偏细且无 hinting，可读性明显不如微软雅黑 UI 的静态字面；
+原型的字体栈本就把微软雅黑列为 Windows 回退，因此在 Windows 上让它居首。
 
 **标题字体（仅 eorzea 风格）** 对应 `ff14.css` 的
 `--font-heading: "Cinzel","Noto Serif SC","Songti SC","SimSun",serif`：
@@ -300,54 +305,70 @@ IBM Plex Mono 随程序分发，许可为 SIL OFL 1.1。字体文件位于 `src/
 
 ### 4.4 捕获诊断（page 5）
 
-本页自 2026-09 改版起按设计稿的「链路 / 解析 / 工具」排布：单列，最大宽度 1040，靠左对齐，
-块与块之间间距 20 px。页面拆分为下列文件，均位于 `qml/pages/`，单个文件不超过约 400 行：
+本页自 2026-10 改版起按设计稿「三皮肤整合版 · 捕获诊断」排布：单列，最大宽度 1080，靠左对齐，
+卡片之间间距 12 px。页面拆分为下列文件，均位于 `qml/pages/`，单个文件不超过约 400 行：
 
 | 块 | 文件 | 何时出现 |
 |---|---|---|
-| 标题行 | `CapturePage.qml` | 始终。标题「捕获诊断」+「被动监听 · 不发包 · 不注入」；右侧普通用户是状态文字（`captureHeaderStatus`：自动监听中 / 等待游戏启动 / 校准中 / 校准待核对 / 监听中 · 收不到游戏数据 / 无法自动记录 / 检查中，取自 `App.recording`，与侧栏同一套判断，状态点的颜色也相同），维护者是「开始 / 停止捕获」按钮（`captureHeaderAction`，`App.captureActionLabel` / `toggleCapture()`） |
-| 降级模式 | `CaptureNpcapPanel.qml` | 未安装 Npcap，或已安装但 `GetStatus.npcap.status` 不是 `READY` |
-| 提示条 | `CaptureNotices.qml` | 各自按需；全部不出现时整块不占位 |
-| 链路 | `CaptureChainPanel.qml` | 始终 |
-| 解析 ｜ 工具 | `CaptureParsePanel.qml` ｜ `CaptureToolsPanel.qml` | 始终；并排 1.3 : 1，顶端对齐 |
+| 标题行 | `CapturePage.qml` | 始终。标题「捕获诊断」+「被动监听 · 不发包 · 不注入」；右侧普通用户是带状态点的状态标签（`captureHeaderStatus` / `captureHeaderStatusText`，`components/StatusTag.qml`：自动监听中 / 等待游戏启动 / 校准中 / 校准待核对 / 监听中 · 收不到游戏数据 / 无法自动记录 / 降级模式 / 等待选择游戏 / 检查中，与首张卡片的判断同源，颜色按 ok / warn / bad / off 四种语气），维护者是「开始 / 停止捕获」按钮（`captureHeaderAction`，`App.captureActionLabel` / `toggleCapture()`） |
+| 首张卡片（状态 + 链路） | `CaptureHeroPanel.qml`（文案 `CaptureHeroCopy.qml`，链路数据 `CaptureChainModel.qml`） | 始终。上半是一盏状态灯、一句标题、一句说明和该状态的按钮，降级模式也在这里；下半是链路总结与四个节点 |
+| 记录对象 | `GameSelectionPanel.qml` | 有游戏窗口可选时 |
+| 提示与校准 | `CaptureNotices.qml` | 各自按需；全部不出现时整块不占位。含网卡提示、自动跟随提示、校准行（`components/CalibrationCard.qml`：本机校准 ｜ 共享校准）与协议档案一行 |
+| 解析 ｜ 工具 | `CaptureParsePanel.qml` ｜ `CaptureToolsPanel.qml` | 始终；并排 2 : 1，顶端对齐 |
 | 维护者工具 | `CaptureMaintainerSection.qml`（+ `CaptureValidationEvidenceCard.qml`） | 仅 `App.maintainerToolsVisible` |
 
 页面只读取 `App`、`Fmt`、`Theme`，不读取 `Settings`。
 因此 `SharedCalibrationCardTests` 与 `CapturePageTests` 只需提供这三个上下文便可加载整页。
 启动自检的禁词不变：普通页面不得出现「开始捕获」「停止捕获」「开始验证」「维护者工具」「对照核对」。
 
-**降级模式**是一块橙色描边面板，分为两栏。
-左栏包含橙色小标题「降级模式」、标题「未安装 Npcap」（已安装但不可用时为「Npcap 暂时用不了」）、
-说明「被动抓包依赖 Npcap 驱动，出于许可证限制需自行安装。安装前仍可手动记录、统计、导出与备份。」，
-以及贴在底边的按钮「打开 npcap.com」与「重新检测」（`ListCaptureAdapters`）。
+**首张卡片**（`captureHeroPanel`）的上半部分由 `CaptureHeroCopy` 决定说什么：按
+`AutomaticRecordingController::project()` 的优先级依次判断 Npcap 不可用（降级模式）、
+等待选择游戏、抓包无输出、本机校准（含共享校准）、游戏未运行、受阻、检查中、正常监听。
+本机校准只在自动记录控制器也处于校准状态、游戏未运行、或已按校准出的档案正常监听时说话
+（`calibrationSpeaks`）：采集受阻、设置尚未确认等状态优先于一份已完成的校准，页面标签因此与侧栏一致；
+此时校准行自己把那句话说出来（`CaptureNotices.heroSpeaksCalibration`）。
+每种状态给出一盏状态灯（`components/StatusLed.qml`，ok 绿 / warn 橙 / bad 红 / off 灰）、
+一句标题（`captureHeroHeadline`）与一句说明（`captureHeroText`）；抓包无输出时另有一行
+「已解码 N · 解码失败 N」（`captureHeroDetail`）。正常监听时标题为「链路正常，自动监听中」，
+游戏未运行时为「等待游戏启动」，说明按已安装版本的档案结论变化；受阻时标题为「暂时不会自动记录」，
+说明取自动记录控制器的句子（去掉末尾的「请查看诊断」）。右侧是两个透明文字按钮
+「重扫 FF14」（`GetStatus` 与档案状态）与「重扫适配器」（`ListCaptureAdapters`）。
+
+**降级模式**就是这张卡片的 Npcap 状态：标题「未安装 Npcap，自动记录已停用」（已安装但不可用时为
+「Npcap 暂时用不了，自动记录已停用」）、说明「被动抓包依赖 Npcap 驱动，出于许可证限制需自行安装。
+安装前仍可手动记录、统计、导出与备份。」，右边是四步安装说明（`captureNpcapPanel`），
+按钮换成「打开 npcap.com」与「重新检测」（`ListCaptureAdapters`），页面标签为「降级模式」。
 已安装但不可用时（`NOT_WINPCAP_COMPATIBLE` / `NPCAP_ADMIN_ONLY` / `LOAD_FAILED`），
 说明改为一句中文原因，加上采集服务自身的 `npcap.install_hint`。
 该提示给出的正是具体的修复方式，界面与 `--capture-doctor` 因此不会给出两种说法。
 未安装时不显示 `install_hint`（其全文见 [capture-diagnostics.md](capture-diagnostics.md) §2），
-由上述固定说明与右栏的安装步骤代替。
-右栏是四步安装说明，采用设计稿的短句。
+由上述固定说明与安装步骤代替。
 
-**提示条**位于链路上方，顺序固定，左右内边距与下方的面板一致：
+**提示与校准**位于首张卡片下方，顺序固定：
 
-* 校准卡片（`calibrationCard`，含共享校准一节，见 4.4.1、4.4.2）：`calibration.state != IDLE` 时出现。
-* 协议档案（`protocolProfileCard`，紧凑面板）：正在使用本机校准或共享校准的档案、
-  可以「分享给其他玩家」（`protocolShareHint` / `protocolShareButton`）、
-  「重新校准」（`protocolRecalibrateButton`，仅本机校准）或
-  「恢复上一份本机校准」（`protocolRestoreButton`，仅在有被停用的档案待恢复时），
-  或游戏正在运行而档案不是 `VERIFIED`（校准卡片存在时由校准卡片解释）时出现。
-  普通用户看到的标题是「正在使用本机校准出来的档案」「当前游戏版本没有可用档案」一类语句，
-  **不出现档案编号与状态令牌**；维护者在 `VERIFIED` 时看到「已就绪：`<profile_id>`」。
-  游戏未运行时，措辞中的「当前游戏版本」改为「已安装的游戏版本」；档案不可用的提示此时不出现，
-  相关信息已由链路总结按已安装的版本给出。
-* 中途开抓 / 无流量（`captureSilentNotice`，标题 `midstreamBannerTitle`）：
-  `captureMidstreamSuspected`、`captureSilent` 或 `recording.silent` 时出现。
-  正文取采集服务的 `hint`，缺失时取自动记录控制器的提示，下面一行为「已解码 N · 解码失败 N」。
 * 记住的网卡没有游戏流量（`adapterPreferenceStaleNotice`）：`preference_stale` 与 `recommended`
   两个适配器都已知时出现。「使用推荐适配器」（`useRecommendedAdapterButton`）写入 `CaptureSettings.adapter_id`。
 * 自动跟随（`captureReadinessNotice`，仅维护者可见，且仅在未捕获时出现）：关闭时显示橙框与「开启自动跟随」。
+* 校准行（`calibrationCard`，本机校准面板 `calibrationLocalPanel` 在左、共享校准面板
+  `calibrationSharedSection` 在右，宽度 2 : 1，卡片窄于 640 px 时上下叠放，见 4.4.1、4.4.2）：
+  `calibration.state != IDLE` 时出现。状态的那句话由首张卡片说（`headlineInHero`），
+  本机校准面板只摆进度；共享档案正在记录时本机校准面板隐藏，共享校准面板占满整行。
+* 协议档案（`protocolProfileCard`，一行：小标题、句子与说明、右侧按钮）：正在使用本机校准或共享校准的档案、
+  可以「分享给其他玩家」（`protocolShareHint` / `protocolShareButton`）、
+  「重新校准」（`protocolRecalibrateButton`，仅本机校准）或
+  「恢复上一份本机校准」（`protocolRestoreButton`，仅在有被停用的档案待恢复时），
+  或游戏正在运行而档案不是 `VERIFIED`（校准行存在时由校准行解释）时出现。
+  普通用户看到的标题是「正在使用本机校准出来的档案」「当前游戏版本没有可用档案」一类语句，
+  **不出现档案编号与状态令牌**；维护者在 `VERIFIED` 时看到「已就绪：`<profile_id>`」。
+  游戏未运行时，措辞中的「当前游戏版本」改为「已安装的游戏版本」；档案不可用的提示此时不出现，
+  相关信息已由首张卡片按已安装的版本给出。
 
-**链路**的标题行包含小标题「链路」、一句总结，以及两个透明文字按钮：
-「重扫 FF14」（`GetStatus` 与档案状态）与「重扫适配器」（`ListCaptureAdapters`）。
+中途开抓 / 无流量不再是单独的提示条：`captureMidstreamSuspected`、`captureSilent` 或 `recording.silent`
+时，首张卡片的标题就是「抓包开始得太晚：这条连接不会解出任何报文」/「捕获在运行，但至今没有解码出任何报文」/
+「正在监听，但还没有收到游戏数据」，说明取采集服务的 `hint`，缺失时取自动记录控制器的提示，
+下面一行为「已解码 N · 解码失败 N」。
+
+**链路**是首张卡片的下半部分（数据来自 `CaptureChainModel.qml`）：一条分隔线下是小标题「链路」与一句总结。
 总结（`captureChainSummary`）按链路顺序给出**第一个**阻碍记录的原因，依次为：
 Npcap 未安装或不可用；游戏未运行（见下）；
 校准中 / 待核对 / 校准受阻；档案核对中；档案不可用（与协议档案提示使用同一套说法）；
@@ -362,14 +383,14 @@ Npcap 未安装或不可用；游戏未运行（见下）；
 * 版本已知且档案为 `VERIFIED`：「等待游戏启动 · 已安装版本的档案已就绪，启动游戏后会自动记录」，灰字。
 * 版本已知而没有可用档案：以「等待游戏启动 · 已安装的游戏版本还没有可用档案」开头，橙字，
   其后按情况说明「启动游戏后需要重新校准」、待核对、校准受阻、档案冲突或暂时不会自动记录；
-  共享校准正在获取、等待核实或等待同意时，以「见上方校准卡片」结尾，不与校准卡片的说法冲突。
+  共享校准正在获取、等待核实或等待同意时，以「见下方共享校准」结尾，不与校准行的说法冲突。
 
 游戏未运行时一律称「已安装的游戏版本」而不称「当前」或「最新」：补丁日启动器完成更新之前，
 磁盘上仍是旧版本，游戏启动后以运行中的客户端为准。此时界面不给出「去打一把副本」一类的操作指示。
 
-总结下方是四列等宽、竖线分隔的状态列（`captureChain_<key>`，值为 `captureChainValue_<key>`，
-副行为 `captureChainSub_<key>`）。每列包含一个状态点（绿为就绪、灰为等待、橙为有问题）与名称、
-16 px 数字字体的值，以及小字副行。
+总结下方是四列等宽的节点（`captureChain_<key>`，值为 `captureChainValue_<key>`，
+副行为 `captureChainSub_<key>`）。每列顶部一条 2 px 色条，色条、状态灯（`StatusLed`）与值的颜色同取节点语气：
+绿为就绪、灰为等待、橙为校准中或网卡提示、红为 Npcap 缺失或档案不可用；名称 11 px，值 16 px 数字字体，副行 12 px。
 
 | 列 | 值 | 副行 | 来源 |
 |---|---|---|---|
@@ -381,7 +402,8 @@ Npcap 未安装或不可用；游戏未运行（见下）；
 适配器只有在监听运行时才显示绿点；游戏未运行时，即使采集服务已记住网卡也显示灰点。
 
 **解析**包含小标题「解析」与说明「失败即忽略，不改变导随状态、不创建记录」，下方是一行指标：
-「成功率」使用 34 px 数字字体（艾欧泽亚风格为金色，经典风格为主色）；「消息速率」为 `n / s`；
+「成功率」在艾欧泽亚系皮肤用 30 px 标题字体、金色，经典皮肤用 24 px IBM Plex Mono、正文色，
+其下是一条迷你柱状线（`captureParseSparkline`：最近 12 次读到的成功率，每 5 秒至多记一次，不足两次时不显示）；「消息速率」为 `n / s`；
 「失败 · 去重」为 `a · b`；「最近有效事件」为本地时间加 `Fmt.eventKindLabel(last_valid_event_kind)`，
 例如「21:38:04 副本结算」。未知类型只显示时间，契约要求将未知令牌视为「某个事件」。
 `last_valid_event_kind` 的取值含义如下：`CONTENT_FINDER_POP` 匹配成功、
@@ -398,7 +420,7 @@ Npcap 未安装或不可用；游戏未运行（见下）；
 只显示一句「还没有拿到解析统计……」。
 
 「最近失败」位于一条分隔线之下，行间有分隔线，最新的一行在上。普通用户看到的每行依次为
-64 px 时间与说明；维护者视图在两者之间另有一列 140 px、红色 11 px 的等宽错误码。
+64 px 时间与说明；维护者视图在两者之间另有一列 150 px、红色 11 px 的等宽错误码。
 普通用户看到的说明来自 `Fmt.parserErrorLabel(code)`，例如「报文长度与档案不符，已忽略」；
 六个 `ParserErrorEntry.code` 各对应一句，未知码有通用句。
 普通用户视图**不显示 opcode、方向与采集服务原文**，原文中含有十六进制数值；
@@ -476,15 +498,21 @@ QtTest `MentorRecorderCapturePage`（`tests/Desktop.Tests/CapturePageTests.cpp`�
 游戏更新后没有匹配档案时，Collector 进入本机校准。
 此时界面只增加三处内容，全部面向玩家，且不置于「维护者工具」之后：
 
-* **校准卡片**（`calibrationCard`，位于捕获页协议档案卡之上，`capture.calibration.state != IDLE` 时显示）：
-  四行进度为 已看到排本 / 已看到匹配弹窗 / 已看到进本 / 已看到出本，以 ✓ 或 – 表示，
-  取自 `calibration.progress`。`blockers[]` 逐句原样显示，Collector 写入的即是面向玩家的完整句子。
-  `READY` 时卡片标题为「校准完成，核对 N 件事就能开始自动记录。」；若此时已有档案在记录
+* **校准行**（`calibrationCard`，位于捕获页首张卡片之下，`capture.calibration.state != IDLE` 时显示）：
+  左边的本机校准面板（`calibrationLocalPanel`）是小标题「本机校准」加一句「累计校准进度 N / 4 · …」（只数排本、匹配、进本、出本四项必需证据）
+  （`calibrationProgressContext`），下面是五步进度线 排本 / 匹配弹窗 / 进本 / 出本 / 职业
+  （`calibrationProgress_<key>`：圆圈 ✓ 已看到、! 看到了相近证据、空圈还没见到；步名
+  `calibrationProgressLabel_<key>`，状态 `calibrationProgressText_<key>`，取自 `calibration.progress`；
+  面板窄于 400 px 时改为上下排列），再是「最近识别登录 / 已采到的进本」（`calibrationEvidenceTimes`）
+  与「下一步」（`calibrationBlockers`：`blockers[]` 逐句原样显示，Collector 写入的即是面向玩家的完整句子）。
+  状态本身的那句话（`components/CalibrationCopy.qml`）由首张卡片说：`READY` 时为
+  「校准完成，核对 N 件事就能开始自动记录。」；若此时已有档案在记录
   （共享档案在用、`profile_status = VERIFIED`，或 `calibration.local_profile_id` 非空，例如按排本推断
-  或缺职业的本机档案），标题改为「正在自动记录。核对 N 件事后，之后的记录会更准确、更完整。」，
-  采集服务的说明句改用灰色而不用警示色（`recordingBesideOffer`）。
-  卡片有两个按钮：**核对并启用**（`calibrationConfirmButton`，仅在 `READY` 时可用）与
-  **重新观察**（`calibrationDiscardButton`，发送 `DiscardCalibration`）。
+  或缺职业的本机档案），改为「正在自动记录。核对 N 件事后，之后的记录会更准确、更完整。」（`recordingBesideOffer`）；
+  观察中为「游戏更新了，正在重新校准」，游戏未运行时为「启动游戏后会重新校准」，完成后为「校准完成，已经可以正常记录」。
+  单独加载卡片（测试）时这句话显示在卡片顶部（`calibrationHeadline` / `calibrationExplanation`）。
+  面板有两个按钮：**核对并启用**（`calibrationConfirmButton`，仅在 `READY` 时可用）与
+  **清空进度并重新观察**（`calibrationDiscardButton`，发送 `DiscardCalibration`）。
 * **核对对话框**（`calibrationDialog`）按时间列出 `calibration.events`，每行为 `HH:mm` 与 `label`，
   登录与换区行灰显且没有按钮。每条 `requires_confirmation` 的事件带一对 **对 / 错** 按钮
   （`calibrationVerdictCorrect_<event_id>` 与 `calibrationVerdictWrong_<event_id>`），
@@ -518,7 +546,7 @@ QtTest `MentorRecorderCapturePage`（`tests/Desktop.Tests/CapturePageTests.cpp`�
 本节内容全部面向玩家。句子由 `SharedCalibrationController`（`App.calibration.shared`）在 C++ 侧拼装，
 并已通过词表检查，QML 只负责摆放句子与按钮。
 
-**校准卡片的「共享校准」一节**（`SharedCalibrationSection.qml`）位于卡片最下方。
+**校准行右边的「共享校准」面板**（`SharedCalibrationSection.qml`，`calibrationSharedSection`）与本机校准面板并排。
 `calibration.shared` 缺失时（旧版采集服务）整节不显示。
 显示内容先按 `user_rejected` 判定，再按 `phase` 判定：
 
@@ -539,14 +567,15 @@ QtTest `MentorRecorderCapturePage`（`tests/Desktop.Tests/CapturePageTests.cpp`�
 | `NONE` 且 `last_fetch_status = DISABLED` | 获取共享校准已关闭，继续本机校准。 | 立即检查、导入校准码 |
 | `user_rejected = true` | 已按你的选择改为本机校准，这个游戏版本不再使用共享校准。并提示可用「清空进度并重新观察」撤销 | 无 |
 | `profile_origin = LOCAL_CALIBRATION`（校准卡片仍显示时，即刚完成校准的那一次） | 一行分享说明（浏览器打开 GitHub 分享页、复制校准码、软件不上传） | 分享给其他玩家 |
+| `profile_origin = SHARED_CALIBRATION`，首个候选 `status = PROVEN`、`audit_pending` 为假、`provenance = PUBLISHED`，且带 `preferred` 字段（仅 §20 起的采集服务发送；更早的版本对这种档案拒绝给码）（共享档案已在本机完整记录过一次，`shareKind = verified`，plans/shared-calibration.md §20.6） | 灰字「会打开 GitHub 页面，把这份校准记为你也核实过，让其他玩家的软件更优先使用它。」；应答 `basis = VERIFIED` 时 toast 说明提交后这份共享校准会多一个核实通过的账号，`SHARED_NOT_PROVEN` 时说明还在核对中；候选的 `disputed`、`preferred`、`shape_prior` 不显示 | 这份校准好用，告诉其他玩家（同一个 `share()`；校准卡片不在时由协议档案卡提供，规则同上） |
 
-**「分享给其他玩家」同时出现在协议档案卡上**（`protocolProfileCard`，即捕获页链路上方的提示条），
+**「分享给其他玩家」同时出现在协议档案卡上**（`protocolProfileCard`，即校准行下方的协议档案一行），
 只要具备分享条件即会出现。校准卡片仅在 `calibration.state != IDLE` 时出现，
 而重启软件之后本机档案直接生效，校准不再处于观察状态；在 0.7.12 中，最需要分享的用户因此没有入口。
-当前的行为是：正在使用的档案由本机校准产生（`profile_origin = LOCAL_CALIBRATION`），
+当前的行为是：正在使用的档案由本机校准产生（`profile_origin = LOCAL_CALIBRATION`），或是上表中可以告诉其他玩家的共享档案（`shareKind = verified`），
 且采集服务支持共享校准时，协议档案卡上增加一行分享说明与一个 `protocolShareButton`。
 该按钮与校准卡片上的 `sharedShareButton` 调用同一个 `App.calibration.shared.share()`，
-说明句也取自同一处（C++ 的 `shareHint`）。
+按钮文字与说明句也取自同一处（C++ 的 `shareButtonText` 与 `shareHintText`，随 `shareKind` 变化）。
 **校准卡片存在时该按钮不出现**：校准卡片正在说明刚完成的校准，分享入口放在该卡片上更为连贯，
 同一屏内不应出现两个功能相同的按钮。
 「导入校准码」不随之迁移，因为采集服务只在校准进行中才接受导入。
@@ -621,7 +650,7 @@ QtTest `MentorRecorderCapturePage`（`tests/Desktop.Tests/CapturePageTests.cpp`�
 * **分享**：`GetCalibrationShareCode` 成功后先将 `code` 复制到剪贴板。
   仅当 `code_in_url = true` 且地址位于 `https://github.com/` 之下（不含账号、不含端口）时，
   才交给 `QDesktopServices::openUrl`；否则只复制并在 toast 中说明。
-  `ERR_SHARE_CODE_UNAVAILABLE` 按 `details.reason`（`NO_PROFILE` / `NOT_LOCAL` / `SHARED` / `NOT_SHAREABLE`）
+  `ERR_SHARE_CODE_UNAVAILABLE` 按 `details.reason`（`NO_PROFILE` / `NOT_LOCAL` / `SHARED` / `SHARED_NOT_PROVEN` / `NOT_SHAREABLE`）
   各给出一句说明，不显示采集服务的原文，原文中可能含有路径。
   为此 `BackendReply` 提供 `errorDetails()`，由 `IpcClient` 传递错误信封中的 `details`。
 * 每个请求的结果都以一条 toast 呈现。改变共享状态的请求之后，
@@ -633,6 +662,7 @@ QtTest `MentorRecorderCapturePage`（`tests/Desktop.Tests/CapturePageTests.cpp`�
   分别为登录时已核实、排本与进本仍在核对；导入后命中索引；导入后未命中任何索引。
   带 `provenance` 的候选同时带判据的 `gate`（`PUBLISHED` 为 `AUDIT`，`IMPORTED` 为 `REQUIRED`）。
   其余状态不带 `provenance`、`gate` 与 `audit_pending`，用于覆盖旧采集服务的"未报告"分支。
+  `verified-proven` 为共享档案已完整记录过一次（首个候选 `PROVEN`，校准 `DONE`），校准码以 `basis = VERIFIED` 给出，截图另有 `--mock-calibration idle` 的 `MentorRecorderQmlSharedCalibration_verified_proven_after_restart`。
   重启之后的分享入口使用 `--mock-calibration idle --mock-shared share`，
   截图目标为 `MentorRecorderQmlSharedCalibration_share_after_restart`。
   QtTest 包括 `MentorRecorderSharedCalibration`（控制器、接线与 Mock）与
@@ -647,7 +677,7 @@ QtTest `MentorRecorderCapturePage`（`tests/Desktop.Tests/CapturePageTests.cpp`�
 
 | 分页 | `id` | 小字 | 面板 |
 |---|---|---|---|
-| 通用 | `general` | 启动 · 记录 · 外观 | 启动与托盘 / 记录 / 校准 / 更新 / 外观 |
+| 通用 | `general` | 语言 · 启动 · 记录 · 外观 | 语言 / 启动与托盘 / 记录 / 校准 / 更新 / 外观 |
 | 播报 | `tts` | 语音与模板 | 本地语音播报 / 在线语音（只在选中在线语音时）/ 播报模板 |
 | 成就 | `goal` | 目标与基数 | 成就进度 |
 | 数据 | `data` | 数据库与备份 | 数据库 |
@@ -666,6 +696,11 @@ kicker `padding: 12px 0 4px`；`freeLayout` 面板 `padding: 20px 24px`，间距
 
 **通用**
 
+* **语言**（`languageSettingsCard`，位于最上方）：kicker 为「语言 · Language」（英文界面为「Language」），
+  保留英文单词，使误选了看不懂的语言的玩家也能找回此处。唯一一行「界面语言」，小字「界面文字和播报语音一起切换」，
+  右侧为四段分段控件（`uiLanguageSettingControl`）：简体中文 / 繁體中文 / English / 日本語，
+  每个选项以其自身语言书写，并以该语言的字形绘制（`Lang.displayFamily`）。
+  点选即切换并写入 `desktop.ini` 的 `ui/language`，**不需要重启**，见 §4.5.3。
 * **启动与托盘**（`generalSettingsCard`）：开机启动、随 FF14 自动开始捕获
   （`followGameToggle`，仅维护者可见，写入 `UpdateCaptureSettings.follow_game`）、关闭时最小化到托盘。
 * **记录**：结束后询问本次结果（`Settings.confirmPrompt`，默认开启）、
@@ -755,7 +790,16 @@ kicker `padding: 12px 0 4px`；`freeLayout` 面板 `padding: 20px 24px`，间距
     与主按钮「保存」（`onlineSpeechSaveButton`）。保存时**先清空密钥框**，再发送 `UpdateSpeechSettings`，
     内容包括 `provider`、该服务的字段与音色（Azure 取下拉框中的音色）；
     `api_key` 仅在密钥框有输入时携带。成功后将所选语音改为 `azure:<音色>` 或 `openai:<音色>`。
-* **播报模板**（`speechTemplatesCard`）：kicker 与「可用变量：`{duty} {progress} {remaining}`」（等宽）；
+* **播报语言**（`speechLanguageRow`，在语音引擎之上）：小字「跟随界面语言，语音和播报模板都按这个语言来」，
+  右侧为当前界面语言的标签（`speechLanguageTag`）与透明按钮「在通用里更改」（`speechLanguageChangeButton`，切到「通用」分页）。
+  语音与五条模板**按界面语言各存一套**：简体中文沿用原有的 `tts/voice`、`tts/tpl_*` 键，
+  其他语言写在 `tts/<语言>/voice`、`tts/<语言>/tpl_*`；未编辑过的模板读取该语言的默认句（来自界面翻译）。
+  语音列表按界面语言排序（同语言同地区、同语言其他地区、简体中文、其余），未保存语音时选列表第一项。
+  本机已有语音、但没有界面语言的语音时，语音引擎小字改为橙色的「这台电脑还没有<语言>语音，暂用其他语言的语音播报」，
+  并出现「打开 Windows 语音设置」（`openSpeechSettingsButton`，打开本机的 `ms-settings:speech`，不联网）。
+  `{duty}` 按界面语言读出副本名（§4.5.3）。
+* **播报模板**（`speechTemplatesCard`）：kicker「播报模板 · <语言>」与「可用变量：`{duty} {progress} {remaining}`」（等宽）；
+  末尾的透明按钮「恢复默认模板」（`resetTemplatesButton`）只清除当前语言的五条模板，没有编辑过时停用；
   两列排列 匹配成功 / 进入副本 / 通关 / 异常结束；下方整行为 **结束待确认**，
   带说明「副本内收到通关结算时，记录直接记为通关，播报上面的“通关”；离开副本前没有收到结算时，
   记录停在“待确认”，播报这一条。」。试听与在线语音的「测试」播放的是「通关」那一条：
@@ -1002,6 +1046,40 @@ MockBackend 回 `{passed: true, detail: "ok", checked_at_utc: 现在}`。
 待复核的记录可能已是通关（校准被撤下的记录保留原结果），这类记录已经计入进度。
 `App.pendingReviewRun` 是最近一条待确认的记录，仅在 `pendingReviewCount > 0` 时才查询。
 每条记录只询问一次；`ended_at_utc` 早于本次启动的记录（重连时被重放的旧事件）不再询问。
+
+### 4.5.3 界面语言
+
+界面提供简体中文、繁體中文、English、日本語四种语言，默认简体中文。
+简体中文是所有 `qsTr()` / `tr()` 的源文本；其余三种是 Qt Linguist 译文
+（`src/Desktop/i18n/mentor_recorder_<语言>.ts`），构建时编译为 `:/i18n/*.qm` 并嵌入程序。
+语言由 `LanguageManager`（QML 上下文属性 `Lang`）管理：
+
+* **切换即生效**：安装对应的 `QTranslator`，设置 `QLocale::setDefault`，调用 `QQmlEngine::retranslate()`。
+  只在 C++ 中生成的文字（`Fmt.*`、控制器的状态句、模型的显示列）不经过 `qsTr()`，
+  其绑定以 `Theme.live(...)` 包裹，依赖 `Lang.revision`；C++ 侧暂存的文字以 `LiveText` 保存生成方式，
+  切换后重新生成并发出 NOTIFY（`cpp/LiveText.h`）。
+* **字体随语言切换**：应用字体只登记一个别名 `MentorRecorder Interface`，
+  切换时更换别名所替代的字体：繁體中文以 Microsoft JhengHei UI、日本語以 Yu Gothic UI / Meiryo UI 居首，
+  其后是 §3 的正文字体栈；简体中文与 English 与 §3 相同。每个文本项创建时复制一次应用字体，
+  因此只有别名能让已经显示的文字换用新字形；切换后清空字体缓存，Qt Quick 文本随之重新排版。
+* **游戏名称**：记录、统计与导出始终保存简体中文名称。界面显示时，副本、职业、随机任务、副本分类、
+  资料片与职能组经 `GameNames`（QML 上下文属性 `Names`）换成界面语言的官方游戏文本
+  （`data/i18n/game-names.<date>.json`，[data/i18n/README.md](../data/i18n/README.md)）；
+  选择器以简体中文名称为值、以译名为标签，搜索同时匹配两者。
+* **程序写入的修订原因**（「用户确认通关」等）以简体中文原文保存，显示时按当前语言翻译
+  （上下文 `SystemReason`，`Theme.storedReason()`）；用户自己填写的原因原样显示。
+* **采集服务发来的句子**：采集服务（C#）的错误说明、捕获提示、校准阻塞原因与时间线、
+  导入行的错误与警告、在线语音的音色名等，除原有字段中的简体中文原句外，另以配套的 `*_ref` 字段
+  给出文字目录中的键与参数（[contracts/collector-texts.md](../contracts/collector-texts.md)）。
+  桌面端据此按当前界面语言生成句子（`cpp/CollectorText.*`，QML 中为 `Fmt.collectorText()`），
+  暂存的句子以 `LiveText` 保存生成方式，切换语言后随之重新生成；拒绝启动时标准错误中的说明
+  同样按其前一行的 `MR-TEXT` 显示。没有配套字段（旧版采集服务）、键不在本版本的目录中或参数不全时，
+  显示采集服务的中文原句。界面需要辨认某一句话时（例如校准卡片对「打完这把副本，离开后再回来。」的补充说明），
+  比较的是目录键而不是文字，因此在各种语言下判断一致。
+* **仍为简体中文的文字**：协议档案中的说明、随程序嵌入的更新记录与导入说明；
+  历史记录搜索框的文字（`QueryRuns.filter.text`）由采集服务在记录所存的简体中文副本名、职业名与备注中匹配，
+  不匹配译名。
+* 截图与测试可用 `--ui-language zh-CN|zh-TW|en|ja` 固定本次运行的语言，不改写 `desktop.ini`（§7）。
 
 ### 4.6 首次启动与软件说明（DEC-OODLE-01）
 
@@ -1341,7 +1419,7 @@ Esc 同样关闭，左侧小字为「此说明可随时在「设置 → 关于�
 | `.btn` | `buttonBorder` / `buttonText` | 艾欧泽亚次级按钮：`surfaceRaised` 底、`gold3` 边、`textPrimary` 字 |
 | 页签选中态 | `tabActiveTop/Bottom/Border/Text` | 艾欧泽亚 = 游戏页签：深灰 / 深棕底、浅字（`components/SegmentedControl.qml`）；经典 = accent |
 | `--radius-xxs/xs/sm/md/lg` = 1/2/3/4/6 | `radiusXxs/Xs/S/M/L` | 经典风格 = 3/4/6/8/10 |
-| body 的两层 radial wash | `washTop` / `washBottom` | `Main.qml` 的 `backdropWash` Canvas 用 `createRadialGradient` 画真正的两层径向渐变，位置、半径、颜色同原型，两种风格相同 |
+| body 的两层 radial wash | `washTop` / `washBottom`（+ `washBottomRadiusX/Y`） | `Main.qml` 的 `backdropWash` Canvas 用 `createRadialGradient` 画真正的两层径向渐变，位置、半径、颜色同原型；右下角一层在经典浅色改为浅金 `rgba(255,226,160,.30)`，在 Harendotes（深浅均是）改为亮橙 `#ff7a3d` 16%，两者范围都放大到 760×520、70% 处淡出 |
 | `h1..h4` 的颜色 | `headingColor` | 艾欧泽亚 深 `#f6f1e4` / 浅 `#3a2c17`（游戏窗口标题不是金色）；经典 = `textPrimary` |
 
 下列辅助函数把 CSS 的类名收敛到一处：
@@ -1524,6 +1602,7 @@ build/src/Desktop/MentorRecorder.Desktop.exe --screenshot <png> --page N
                              # 向导停在第几步（配合 --mock-open-create / --mock-open-edit，默认 1）
     [--mock-detail-tab refl] # 详情浮层默认页签 info / events / revs / refl（会一并打开浮层）
     [--mock-ui-style classic]# 固定界面风格 classic / eorzea / harendotes，不改写 desktop.ini
+    [--ui-language en]       # 固定界面语言 zh-CN / zh-TW / en / ja，不改写 desktop.ini（两种后端均可）
     [--settings-tab tts]     # 设置页（--page 6）打开的分页：general / tts / goal / data / about
     [--export-target DIR]    # 用固定目录替代 QFileDialog（测试 / 无人值守）
 

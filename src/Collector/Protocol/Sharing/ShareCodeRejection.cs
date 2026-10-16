@@ -1,15 +1,22 @@
+using MentorRecorder.Collector.Contracts.Texts;
+
 namespace MentorRecorder.Collector.Protocol.Sharing;
 
 /// <summary>
 /// Why a share code was refused. <see cref="Code"/> is the stable token the Python tools and the
-/// shared test vectors use; <see cref="Message"/> is what a player reads (Chinese, no opcodes);
-/// <see cref="Detail"/> names the offending key or step for logs and the diagnostics report.
+/// shared test vectors use; <see cref="Text"/> is what a player reads (a catalogue text, no opcodes) and
+/// <see cref="Message"/> its Chinese; <see cref="Detail"/> names the offending key or step for logs and the
+/// diagnostics report. tools/shared-calibration/test_public_repo_files.py reads the arms of <see cref="TextFor"/>
+/// to hold sharecode.py's MESSAGES to the catalogue, so keep one <c>Token[ or Token] => CollectorTexts.X()</c> per arm.
 /// </summary>
 /// <param name="Code">Stable rejection token, <c>E_SHARE_CODE_*</c>.</param>
-/// <param name="Message">Plain-language explanation for the player.</param>
+/// <param name="Text">Plain-language explanation for the player (contracts/collector-texts.json).</param>
 /// <param name="Detail">Short technical detail; never contains payload content beyond a key name.</param>
-public sealed record ShareCodeRejection(string Code, string Message, string Detail)
+public sealed record ShareCodeRejection(string Code, UserText Text, string Detail)
 {
+    /// <summary>The explanation in Simplified Chinese, as a Desktop that predates the catalogue shows it.</summary>
+    public string Message => Text.Chinese;
+
     /// <summary>Nothing was pasted.</summary>
     public const string Empty = "E_SHARE_CODE_EMPTY";
 
@@ -67,25 +74,25 @@ public sealed record ShareCodeRejection(string Code, string Message, string Deta
     /// <summary>Valid content not written in the one canonical form.</summary>
     public const string NotCanonical = "E_SHARE_CODE_NOT_CANONICAL";
 
-    /// <summary>Builds the rejection for a token, with the player's message looked up.</summary>
+    /// <summary>Builds the rejection for a token, with the player's explanation looked up.</summary>
     /// <param name="code">Rejection token.</param>
     /// <param name="detail">Technical detail.</param>
-    internal static ShareCodeRejection For(string code, string detail) => new(code, MessageFor(code), detail);
+    internal static ShareCodeRejection For(string code, string detail) => new(code, TextFor(code), detail);
 
-    private static string MessageFor(string code) => code switch
+    private static UserText TextFor(string code) => code switch
     {
-        Empty => "没有粘贴任何内容。",
-        TooLong => "内容太长，不是本软件生成的校准码。",
-        NotACode => "这不是本软件的校准码：校准码以 MRC1. 开头。",
-        Version => "这份校准码来自更新版本的软件，当前版本读不了；请先更新本软件。",
-        Characters => "校准码里有不该出现的字符，可能复制时多了或少了内容；请重新完整复制一次。",
-        Base64 => "校准码不完整，可能复制时少了一截；请重新完整复制一次。",
-        Compression => "校准码已经损坏，解不开；请重新完整复制一次。",
-        InflatedTooLong => "校准码解开后内容过大，不是有效的校准码。",
+        Empty => CollectorTexts.SharingCodeEmpty(),
+        TooLong => CollectorTexts.SharingCodeTooLong(),
+        NotACode => CollectorTexts.SharingCodeNotACode(),
+        Version => CollectorTexts.SharingCodeNewerVersion(),
+        Characters => CollectorTexts.SharingCodeCharacters(),
+        Base64 => CollectorTexts.SharingCodeTruncated(),
+        Compression => CollectorTexts.SharingCodeDamaged(),
+        InflatedTooLong => CollectorTexts.SharingCodeTooLarge(),
         Json or DuplicateKey or UnknownKey or MissingKey or Value or PopKeyForbidden or PopKeyMissing or NotCanonical =>
-            "校准码的内容有误，不是本软件生成的有效校准码。",
-        PayloadVersion => "这份校准码的内容格式来自更新版本的软件，当前版本读不了；请先更新本软件。",
-        TerritoryRequired => "这份校准码缺少「这次进的是哪个副本」那条报文，按它记录只会记成未知副本，所以不能使用。",
-        _ => "校准码无法使用。",
+            CollectorTexts.SharingCodeContentInvalid(),
+        PayloadVersion => CollectorTexts.SharingCodeNewerVersion(),
+        TerritoryRequired => CollectorTexts.SharingCodeTerritoryRequired(),
+        _ => CollectorTexts.SharingCodeUnusable(),
     };
 }

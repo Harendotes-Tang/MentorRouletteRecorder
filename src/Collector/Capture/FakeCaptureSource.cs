@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using MentorRecorder.Collector.Contracts.Errors;
+using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Protocol.Decoded;
 
 namespace MentorRecorder.Collector.Capture;
@@ -29,6 +30,9 @@ public sealed class FakeCaptureSource : ICaptureSource
     /// <see cref="Start"/> returns. This exercises the real callback timing boundary.
     /// </summary>
     public string? FaultDuringStart { get; set; }
+
+    /// <summary>The same as <see cref="FaultDuringStart"/>, with a reason worded by the catalogue.</summary>
+    public UserText? FaultTextDuringStart { get; set; }
 
     /// <summary>Set true to claim this source reads the game executable, as Machina's default does.</summary>
     public bool ReadsGameExecutable { get; set; }
@@ -104,6 +108,11 @@ public sealed class FakeCaptureSource : ICaptureSource
         if (FaultDuringStart is { } reason)
         {
             observer.OnFault(reason, new InvalidOperationException("simulated start callback fault"));
+        }
+
+        if (FaultTextDuringStart is { } text)
+        {
+            observer.OnFault(text, new InvalidOperationException("simulated start callback fault"));
         }
     }
 

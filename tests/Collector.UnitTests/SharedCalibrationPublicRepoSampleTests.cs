@@ -21,7 +21,7 @@ public sealed class SharedCalibrationPublicRepoSampleTests
     private static readonly Lazy<JsonDocument> Expected =
         new(() => JsonDocument.Parse(File.ReadAllText(Fixture("index-sample.expected.json"))));
 
-    private sealed record Pick(string Sha, int Submitters, string Commit, string CodePath);
+    private sealed record Pick(string Sha, int Submitters, string Commit, string CodePath, bool Conflicting, bool? ShapePrior);
 
     private static string Fixture(string relative) =>
         Path.Combine(AppContext.BaseDirectory, "Fixtures", "shared-calibration", relative);
@@ -50,7 +50,11 @@ public sealed class SharedCalibrationPublicRepoSampleTests
                 pick.GetProperty("code_sha256").GetString()!,
                 pick.GetProperty("submitters").GetInt32(),
                 pick.GetProperty("commit").GetString()!,
-                pick.GetProperty("path").GetString()!))
+                pick.GetProperty("path").GetString()!,
+                pick.TryGetProperty("conflicting", out var conflicting) && conflicting.ValueKind == JsonValueKind.True,
+                pick.TryGetProperty("shape_prior", out var prior) && prior.ValueKind is JsonValueKind.True or JsonValueKind.False
+                    ? prior.GetBoolean()
+                    : null))
             .ToArray();
 
     [Fact]
@@ -85,6 +89,9 @@ public sealed class SharedCalibrationPublicRepoSampleTests
         Assert.Equal(picks.Select(pick => pick.Submitters), chosen.Select(entry => entry.Submitters));
         Assert.Equal(picks.Select(pick => pick.Commit), chosen.Select(entry => entry.Commit));
         Assert.Equal(picks.Select(pick => pick.CodePath), chosen.Select(entry => entry.Path));
+        // The marks the publishing tool wrote travel with each pick: they order the download (plan §20.3).
+        Assert.Equal(picks.Select(pick => pick.Conflicting), chosen.Select(entry => entry.Conflicting));
+        Assert.Equal(picks.Select(pick => pick.ShapePrior), chosen.Select(entry => entry.ShapePrior));
         Assert.Equal(
             Group(region, build).GetProperty("revoked").EnumerateArray().Select(sha => sha.GetString()!),
             SharedCalibrationIndex.Revoked(read.Entries, wire, build));
@@ -113,6 +120,8 @@ public sealed class SharedCalibrationPublicRepoSampleTests
         Assert.Empty(result.SkippedEntries);
         Assert.Equal(picks.Select(pick => pick.Sha), result.Candidates.Select(candidate => candidate.CodeSha256));
         Assert.Equal(picks.Select(pick => pick.Commit), result.Candidates.Select(candidate => candidate.Commit));
+        Assert.Equal(picks.Select(pick => pick.Conflicting), result.Candidates.Select(candidate => candidate.Conflicting));
+        Assert.Equal(picks.Select(pick => pick.ShapePrior), result.Candidates.Select(candidate => candidate.ShapePrior));
         Assert.All(result.Candidates, candidate =>
         {
             Assert.Equal(region, EnumWire<Region>.Format(candidate.Payload.Region));

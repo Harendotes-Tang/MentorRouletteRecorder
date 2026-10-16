@@ -2,6 +2,7 @@
 
 #include "AppSettings.h"
 #include "CollectorProcess.h"
+#include "CollectorText.h"
 #include "IBackend.h"
 #include "TrayController.h"
 
@@ -56,6 +57,8 @@ UpdateController::UpdateController(QObject *parent)
     // Nothing is re-read and nothing is hashed once the application is leaving.
     if (auto *application = QCoreApplication::instance())
         connect(application, &QCoreApplication::aboutToQuit, this, &UpdateController::stopForQuit);
+    // Every sentence is built when it is read; installProblem is a recipe.
+    onLanguageChanged(this, [this] { Q_EMIT changed(); });
 }
 
 UpdateController::~UpdateController() = default;
@@ -152,11 +155,11 @@ QString UpdateController::headline() const
 QString UpdateController::detail() const
 {
     if (!downloadSupported()) {
-        return tr("当前 %1。更新需要用户自行下载安装，本软件不会自动下载或替换任何文件。")
+        return tr("当前 %1。点「下载新版本」用浏览器下载安装包，再自行运行安装。")
             .arg(currentVersion());
     }
-    return tr("当前 %1。只有在你点「下载并安装」之后才会下载，下载完成后还要再点「立即安装」才会安装；"
-              "本软件不会自行下载或安装。")
+    return tr("当前 %1。点「下载并安装」只下载安装包并校验；"
+              "准备好后，再点「立即安装」启动安装程序。")
         .arg(currentVersion());
 }
 
@@ -228,6 +231,11 @@ bool UpdateController::isInstallerUrl(const QUrl &url)
            && segments.at(6).endsWith(kInstallerSuffix, Qt::CaseInsensitive);
 }
 
+QString UpdateController::downloadMessage(const Download &download)
+{
+    return collector_text::render(download.messageRef, download.message);
+}
+
 UpdateController::Download UpdateController::downloadFrom(const QVariant &raw)
 {
     Download download;
@@ -241,6 +249,7 @@ UpdateController::Download UpdateController::downloadFrom(const QVariant &raw)
     download.sha256 = object.value(QStringLiteral("sha256")).toString();
     download.failure = object.value(QStringLiteral("failure")).toString();
     download.message = object.value(QStringLiteral("message")).toString();
+    download.messageRef = object.value(QStringLiteral("message_ref"));
     download.receivedBytes = qMax<qint64>(0, object.value(QStringLiteral("received_bytes")).toLongLong());
     const QVariant total = object.value(QStringLiteral("total_bytes"));
     download.totalBytes = total.isValid() && !total.isNull() ? qMax<qint64>(0, total.toLongLong()) : -1;
@@ -332,11 +341,11 @@ void UpdateController::showReleasePage(const QString &opened)
 {
     const QUrl url(m_state.releaseUrl);
     if (!isReleaseUrl(url)) {
-        Q_EMIT toastRequested(tr("采集器没有给出可用的发布页地址，没有打开浏览器。"));
+        Q_EMIT toastRequested(tr("后台服务未提供可用的发布页地址，无法打开更新说明。"));
         return;
     }
     if (!m_openUrl(url)) {
-        Q_EMIT toastRequested(tr("无法调用系统浏览器，请自行到项目的发布页下载新版本。"));
+        Q_EMIT toastRequested(tr("无法打开浏览器，请自行前往项目发布页下载新版本。"));
         return;
     }
     Q_EMIT toastRequested(opened);
@@ -344,8 +353,8 @@ void UpdateController::showReleasePage(const QString &opened)
 
 void UpdateController::openReleasePage()
 {
-    showReleasePage(tr("已在系统浏览器中打开发布页（由你手动触发）。"
-                       "是否下载安装由你决定，本软件不会自动下载或替换任何文件。"));
+    showReleasePage(tr("已打开更新说明。"
+                       "可在发布页查看详情并自行下载。"));
 }
 
 void UpdateController::openInstallerDownload()
@@ -354,20 +363,21 @@ void UpdateController::openInstallerDownload()
     if (!isInstallerUrl(url)) {
         // A Collector that names no installer, or none this process would open:
         // the release page, where the player downloads it by hand.
-        showReleasePage(tr("没有可用的安装程序地址，已改为在系统浏览器中打开发布页"
-                           "（由你手动触发），请在页面中下载新版本。"));
+        showReleasePage(tr("没有可用的安装包地址，已打开发布页。"
+                           "请在页面中下载新版本。"));
         return;
     }
     if (!m_openUrl(url)) {
-        Q_EMIT toastRequested(tr("无法调用系统浏览器，请自行到项目的发布页下载新版本。"));
+        Q_EMIT toastRequested(tr("无法打开浏览器，请自行前往项目发布页下载新版本。"));
         return;
     }
     // The browser downloads; this process fetched nothing and starts nothing.
-    const QString version = m_state.latestVersion.isEmpty()
-                                ? tr("新版本") : tr("%1 版").arg(m_state.latestVersion);
-    Q_EMIT toastRequested(tr("已请系统浏览器下载 %1的安装程序（由你手动触发）。"
-                             "这次由浏览器下载，安装需要你自己运行它。")
-                              .arg(version));
+    Q_EMIT toastRequested(m_state.latestVersion.isEmpty()
+        ? tr("已向浏览器发送新版本的安装包下载请求。"
+             "请在浏览器中确认下载结果，下载后自行运行安装包。")
+        : tr("已向浏览器发送 %1 版的安装包下载请求。"
+             "请在浏览器中确认下载结果，下载后自行运行安装包。")
+              .arg(m_state.latestVersion));
 }
 
 QString UpdateController::checkSentence(const QVariantMap &payload) const
@@ -376,7 +386,7 @@ QString UpdateController::checkSentence(const QVariantMap &payload) const
     if (outcome == QLatin1String("DISABLED"))
         return tr("「检查新版本并提示」已关闭，打开后才能检查。");
     if (outcome == QLatin1String("BLOCKED"))
-        return tr("本机已通过环境变量禁用更新检查。");
+        return tr("此电脑已停用更新检查。");
 
     // CHECKED: a check ran, and how it ended is the answer's own
     // update.last_outcome. The verdict is read back from the state the answer
@@ -393,7 +403,7 @@ QString UpdateController::checkSentence(const QVariantMap &payload) const
     }
     // NOT_FOUND, TIMEOUT, DNS_OR_CONNECT and anything a later Collector adds:
     // one sentence for all of them, and never the token itself.
-    return tr("没有检查成功（网络不通或发布页暂时不可用），稍后再试。");
+    return tr("检查更新失败，网络或发布页暂时不可用，请稍后再试。");
 }
 
 void UpdateController::checkNow()
@@ -497,18 +507,18 @@ QString UpdateController::downloadStatusText() const
         return tr("%1：已下载 %2 MB").arg(installerName(), megabytes(download.receivedBytes));
     }
     if (phase == QLatin1String("verifying"))
-        return tr("%1：已下载完毕，正在核对发布时公布的校验值…").arg(installerName());
+        return tr("%1：已下载完毕，正在校验安装包…").arg(installerName());
     if (phase == QLatin1String("ready")) {
         if (verifyingInstaller())
-            return tr("%1：正在校验，通过后启动安装程序并关闭本软件。").arg(installerName());
-        return tr("%1：已下载并通过校验。点「立即安装」后本软件会关闭，由安装程序完成更新；"
-                  "Windows 会请你批准它以管理员身份运行。")
+            return tr("%1：正在再次校验安装包，通过后启动安装程序并关闭本软件。").arg(installerName());
+        return tr("%1：已下载并通过校验，尚未安装。点「立即安装」启动安装程序，本软件随后关闭；"
+                  "请按 Windows 提示完成安装。")
             .arg(installerName());
     }
     if (phase == QLatin1String("failed")) {
         // The Collector's own sentence; never the failure token.
         if (!download.message.isEmpty())
-            return download.message;
+            return downloadMessage(download);
         return tr("下载没有完成。可以点「重试」，或点「在浏览器中下载」改用浏览器下载。");
     }
     return {};
@@ -588,7 +598,7 @@ void UpdateController::sendStart(bool reinstall)
             if (after.state == kFailed && !updateAvailable()) {
                 Q_EMIT toastRequested(after.message.isEmpty()
                                           ? tr("没有开始下载，请稍后再试。")
-                                          : after.message);
+                                          : downloadMessage(after));
             } else if (after.state == kIdle
                        || (after.state == kFailed && before.state == kFailed
                            && after.failure == before.failure)) {
@@ -609,7 +619,7 @@ void UpdateController::sendStart(bool reinstall)
             openInstallerDownload();
             return;
         }
-        Q_EMIT toastRequested(m_errorText(tr("没有开始下载，请稍后再试。"), code));
+        Q_EMIT toastRequested(m_errorText(tr("暂未确认下载是否开始，请稍后查看进度。"), code));
     });
 }
 
@@ -627,7 +637,7 @@ void UpdateController::cancelDownload()
             return;
         }
         Q_EMIT changed();
-        Q_EMIT toastRequested(m_errorText(tr("没有取消下载，请稍后再试。"), code));
+        Q_EMIT toastRequested(m_errorText(tr("暂未确认下载是否取消，请稍后查看下载状态。"), code));
     });
 }
 
@@ -647,29 +657,32 @@ void UpdateController::adoptDownloadAnswer(const QVariantMap &payload)
 // 立即安装
 // ---------------------------------------------------------------------------
 
-QString UpdateController::runRefusal(QString *code) const
+QString UpdateController::runRefusal() const
 {
     const std::optional<bool> inProgress = m_runProbe ? m_runProbe() : std::nullopt;
-    if (!inProgress.has_value()) {
-        *code = QStringLiteral("RUN_STATE_UNKNOWN");
-        return tr("还没有读到当前是否在导随中，暂时不能安装，请稍后再试。");
-    }
-    if (*inProgress) {
-        *code = QStringLiteral("RUN_IN_PROGRESS");
-        return tr("正在导随（已匹配或已在副本中），现在安装会中断这次记录。"
-                  "请在这次导随结束后再点「立即安装」。");
-    }
+    if (!inProgress.has_value())
+        return QStringLiteral("RUN_STATE_UNKNOWN");
+    if (*inProgress)
+        return QStringLiteral("RUN_IN_PROGRESS");
     return {};
 }
 
-void UpdateController::refuseInstall(const QString &sentence, const QString &code)
+QString UpdateController::runRefusalSentence(const QString &code)
+{
+    if (code == QLatin1String("RUN_IN_PROGRESS"))
+        return tr("正在导随（已匹配或已在副本中），现在安装会中断这次记录。"
+                  "请在这次导随结束后再点「立即安装」。");
+    return tr("尚未确认当前导随是否结束，暂时不能安装，请稍后再试。");
+}
+
+void UpdateController::refuseInstall(const LiveText &sentence, const QString &code)
 {
     // Nothing is started from this attempt: the file is let go of, so the
     // Collector, or the user, may replace or delete it again.
     m_heldInstaller.release();
-    m_installProblem = m_errorText(sentence, code);
+    m_installProblem = [this, sentence, code] { return m_errorText(sentence.text(), code); };
     Q_EMIT changed();
-    Q_EMIT toastRequested(m_installProblem);
+    Q_EMIT toastRequested(m_installProblem.text());
 }
 
 void UpdateController::install()
@@ -677,10 +690,8 @@ void UpdateController::install()
     if (m_quitting || downloadPhase() != QLatin1String("ready") || m_hasher)
         return;
     m_installProblem.clear();
-    QString code;
-    const QString refusal = runRefusal(&code);
-    if (!refusal.isEmpty()) {
-        refuseInstall(refusal, code);
+    if (const QString code = runRefusal(); !code.isEmpty()) {
+        refuseInstall([code] { return runRefusalSentence(code); }, code);
         return;
     }
 
@@ -689,14 +700,14 @@ void UpdateController::install()
     const Download &download = m_state.download;
     m_pendingInstaller = {download.filePath, download.sha256, download.version};
     if (!installer::isInUpdatesDirectory(download.filePath, m_dataDirectory(), download.version)) {
-        refuseInstall(tr("下载的安装程序不在本软件的数据目录中，为安全起见没有启动它。"
-                         "可以改为在浏览器中下载。"),
+        refuseInstall([] { return tr("安装包不在软件的下载目录中，没有启动安装程序。"
+                                     "请点「在浏览器中下载」。"); },
                       QStringLiteral("INSTALLER_LOCATION"));
         return;
     }
     if (!installer::isRegularFile(download.filePath)) {
-        refuseInstall(tr("下载的安装程序不是一个普通文件，为安全起见没有启动它。"
-                         "可以改为在浏览器中下载。"),
+        refuseInstall([] { return tr("安装包文件不符合安全要求，没有启动安装程序。"
+                                     "请点「在浏览器中下载」。"); },
                       QStringLiteral("INSTALLER_NOT_A_FILE"));
         return;
     }
@@ -707,21 +718,21 @@ void UpdateController::install()
     // be swapped in between. Every give-up releases it (refuseInstall), and so
     // does the application's exit (stopForQuit).
     if (!m_heldInstaller.open(download.filePath)) {
-        refuseInstall(tr("无法读取下载的安装程序，没有启动它。可以改为在浏览器中下载。"),
+        refuseInstall([] { return tr("无法读取安装包，没有启动安装程序。请点「在浏览器中下载」。"); },
                       QStringLiteral("INSTALLER_UNREADABLE"));
         return;
     }
     if (!m_heldInstaller.isRegularFile()) {
-        refuseInstall(tr("下载的安装程序不是一个普通文件，为安全起见没有启动它。"
-                         "可以改为在浏览器中下载。"),
+        refuseInstall([] { return tr("安装包文件不符合安全要求，没有启动安装程序。"
+                                     "请点「在浏览器中下载」。"); },
                       QStringLiteral("INSTALLER_NOT_A_FILE"));
         return;
     }
     if (!m_heldInstaller.isAt(download.filePath)) {
         // A data directory reached through a link, a SUBST drive or a mapped
         // drive ends here: the path would not be bound to the file that is held.
-        refuseInstall(tr("无法确认下载的安装程序位于本软件的数据目录中（数据目录可能经由链接或映射的盘符到达），"
-                         "为安全起见没有启动它。可以改为在浏览器中下载。"),
+        refuseInstall([] { return tr("无法确认安装包的存放位置是否安全，没有启动安装程序。"
+                                     "请点「在浏览器中下载」。"); },
                       QStringLiteral("INSTALLER_LOCATION"));
         return;
     }
@@ -731,7 +742,7 @@ void UpdateController::install()
     auto hasher = std::make_unique<InstallerHasher>();
     connect(hasher.get(), &InstallerHasher::finished, this, &UpdateController::onInstallerHashed);
     if (!hasher->start(&m_heldInstaller, m_hashSliceBytes)) {
-        refuseInstall(tr("无法读取下载的安装程序，没有启动它。可以改为在浏览器中下载。"),
+        refuseInstall([] { return tr("无法读取安装包，没有启动安装程序。请点「在浏览器中下载」。"); },
                       QStringLiteral("INSTALLER_UNREADABLE"));
         return;
     }
@@ -748,34 +759,32 @@ void UpdateController::onInstallerHashed(bool ok, const QString &sha256)
     const Installer installer = m_pendingInstaller;
     m_pendingInstaller = {};
     if (!ok) {
-        refuseInstall(tr("无法读取下载的安装程序，没有启动它。可以改为在浏览器中下载。"),
+        refuseInstall([] { return tr("无法读取安装包，没有启动安装程序。请点「在浏览器中下载」。"); },
                       QStringLiteral("INSTALLER_UNREADABLE"));
         return;
     }
     if (!installer::isSha256(installer.sha256) || sha256 != installer.sha256) {
-        refuseInstall(tr("下载的安装程序与发布时公布的校验值不一致，为安全起见没有启动它。"
-                         "可以改为在浏览器中下载。"),
+        refuseInstall([] { return tr("安装包未通过校验，为安全起见没有启动安装程序。"
+                                     "请点「在浏览器中下载」。"); },
                       QStringLiteral("INSTALLER_CHECKSUM_MISMATCH"));
         return;
     }
     // A run may have begun while the file was read: asked again right before
     // the start. The file itself cannot have changed - it is still held - and
     // its path still names what is held.
-    QString code;
-    const QString refusal = runRefusal(&code);
-    if (!refusal.isEmpty()) {
-        refuseInstall(refusal, code);
+    if (const QString code = runRefusal(); !code.isEmpty()) {
+        refuseInstall([code] { return runRefusalSentence(code); }, code);
         return;
     }
     if (!m_heldInstaller.isRegularFile() || !m_heldInstaller.isAt(installer.path)) {
-        refuseInstall(tr("下载的安装程序不是一个普通文件，为安全起见没有启动它。"
-                         "可以改为在浏览器中下载。"),
+        refuseInstall([] { return tr("安装包文件不符合安全要求，没有启动安装程序。"
+                                     "请点「在浏览器中下载」。"); },
                       QStringLiteral("INSTALLER_NOT_A_FILE"));
         return;
     }
     if (!m_launchInstaller(QDir::toNativeSeparators(installer.path))) {
-        refuseInstall(tr("安装程序没有启动（可能是在 Windows 的确认窗口中选择了「否」）。"
-                         "本软件继续运行，可以再点「立即安装」，或改为在浏览器中下载。"),
+        refuseInstall([] { return tr("安装程序没有启动，可能是未通过 Windows 的安装确认。"
+                                     "本软件继续运行，可再点「立即安装」，或点「在浏览器中下载」。"); },
                       QStringLiteral("INSTALLER_NOT_STARTED"));
         return;
     }

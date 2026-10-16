@@ -218,7 +218,7 @@ public sealed class CalibrationDraftRegressionTests
         var draft = Derive(CalibrationObserverTests.Session1().Concat(decoys));
 
         Assert.Equal(CalibrationDraftStatus.Blocked, draft.Status);
-        Assert.Contains(draft.Blockers, blocker => blocker.Contains("多条报文都像换区标记", StringComparison.Ordinal));
+        Assert.Contains(draft.Blockers, blocker => blocker.Chinese.Contains("暂时分不清进出副本的时间", StringComparison.Ordinal));
         Assert.Empty(draft.Messages);
     }
 
@@ -271,8 +271,8 @@ public sealed class CalibrationDraftRegressionTests
         Assert.NotEqual(0, evidence.TerritoryCandidates);
         // Telling a player who has just finished a duty to wait for the match is the one
         // instruction that cannot be carried out.
-        Assert.DoesNotContain(draft.Blockers, blocker => blocker.Contains("等这次匹配成功"));
-        Assert.Contains(draft.Blockers, blocker => blocker.Contains("已经看到你进过副本"));
+        Assert.DoesNotContain(draft.Blockers, blocker => blocker.Chinese.Contains("等这次匹配成功"));
+        Assert.Contains(draft.Blockers, blocker => blocker.Chinese.Contains("已看到你进过副本"));
     }
 
     /// <summary>

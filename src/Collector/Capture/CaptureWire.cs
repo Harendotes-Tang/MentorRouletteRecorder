@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json.Nodes;
+using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Domain.Time;
 
@@ -17,7 +18,7 @@ namespace MentorRecorder.Collector.Capture;
 public static class CaptureWire
 {
     /// <summary>Installation guidance shown when Npcap is missing.</summary>
-    public const string InstallHint = NpcapDetector.NotInstalledGuidance;
+    public static UserText InstallHint => NpcapDetector.NotInstalledGuidance;
 
     /// <summary>Builds a <c>$defs/CaptureStatus</c> object.</summary>
     /// <param name="snapshot">Diagnostics reading to render.</param>
@@ -108,7 +109,8 @@ public static class CaptureWire
             // distinct failure from "nothing is arriving" and has a different fix; it is
             // reported rather than left to be inferred from a decode-error counter
             // (docs/live-validation-guide.md section 6).
-            ["hint"] = snapshot.Hint,
+            ["hint"] = snapshot.Hint?.Chinese,
+            ["hint_ref"] = snapshot.Hint?.ToJson(),
             ["oodle_signature_source"] = snapshot.OodleSignature.Source,
             ["oodle_profile_id"] = snapshot.OodleSignature.ProfileId,
             ["oodle_profile_status"] = snapshot.OodleSignature.Status,
@@ -175,7 +177,8 @@ public static class CaptureWire
         {
             ["npcap_installed"] = snapshot.Npcap.Installed,
             ["npcap_version"] = snapshot.Npcap.Version,
-            ["install_hint"] = snapshot.Npcap.Usable ? null : snapshot.Npcap.Guidance,
+            ["install_hint"] = snapshot.Npcap.Usable ? null : snapshot.Npcap.Guidance.Chinese,
+            ["install_hint_ref"] = snapshot.Npcap.Usable ? null : snapshot.Npcap.Guidance.ToJson(),
             ["adapters"] = rows,
         };
     }
@@ -225,7 +228,8 @@ public static class CaptureWire
             ["game_build"] = profile.GameBuild,
             ["verified_at_utc"] = UtcTimestamp.ToTextOrNull(profile.VerifiedAtUtc),
             ["evidence_note"] = profile.EvidenceNote,
-            ["message"] = profile.Message,
+            ["message"] = profile.Message?.Chinese,
+            ["message_ref"] = profile.Message?.ToJson(),
         };
     }
 
@@ -257,7 +261,8 @@ public static class CaptureWire
                 ["winpcap_compatible"] = snapshot.Npcap.WinPcapCompatible,
                 ["admin_only"] = snapshot.Npcap.AdminOnly,
                 ["process_elevated"] = snapshot.Npcap.Elevated,
-                ["install_hint"] = snapshot.Npcap.Usable ? null : snapshot.Npcap.Guidance,
+                ["install_hint"] = snapshot.Npcap.Usable ? null : snapshot.Npcap.Guidance.Chinese,
+                ["install_hint_ref"] = snapshot.Npcap.Usable ? null : snapshot.Npcap.Guidance.ToJson(),
             },
 
             // DEC-OODLE-01 requires this to be visible, not buried in the implementation:

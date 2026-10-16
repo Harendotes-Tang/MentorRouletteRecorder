@@ -16,6 +16,8 @@
 #include "AppController.h"
 #include "AppSettings.h"
 #include "CollectorProcess.h"
+#include "CollectorText.h"
+#include "CollectorTextTestSupport.h"
 #include "IBackend.h"
 #include "IpcClient.h"
 
@@ -247,7 +249,7 @@ public:
         for (const QPointer<mr::BackendReply> &reply : std::as_const(pending)) {
             if (reply) {
                 reply->fail(QStringLiteral("ERR_INTERNAL"),
-                            QString::fromUtf8("与 Collector 的连接已关闭。"));
+                            QString::fromUtf8("与后台服务的连接已关闭。"));
             }
         }
     }
@@ -306,6 +308,7 @@ private Q_SLOTS:
     void aRefusedStartIsReportedInsteadOfRestarted();
     void exitReasonsAreTheCollectorsOwnWords_data();
     void exitReasonsAreTheCollectorsOwnWords();
+    void anMrTextLineShowsTheSentenceInTheInterfaceLanguage();
     void aChildThatCannotBeStartedIsTriedOnceMore();
     void aRefusedStartIsTriedAgainQuietlyUntilItSucceeds();
     void aCollectorThatKeepsDyingAfterConnectingBacksOffFurther();
@@ -412,7 +415,7 @@ void LifecycleTests::unexpectedExitRestartsWithAGrowingBackoff()
     // than leaving the Desktop permanently without a Collector.
     QTRY_VERIFY_WITH_TIMEOUT(collector.restartPending(), 10000);
     QCOMPARE(collector.stateToken(), QStringLiteral("exited"));
-    QVERIFY(collector.statusText().contains(QStringLiteral("重启")));
+    QVERIFY(collector.statusText().contains(QStringLiteral("重试启动")));
 
     QTRY_VERIFY_WITH_TIMEOUT(restarts.count() >= 2, 15000);
     QCOMPARE(restarts.at(0).at(0).toInt(), 1);
@@ -445,7 +448,7 @@ void LifecycleTests::aConnectedBackendStopsTheRestartLoop()
     QTest::qWait(mr::CollectorProcess::minBackoffMs() * 3);
     QCOMPARE(restarts.count(), 0);
     QCOMPARE(collector.restartCount(), 0);
-    QVERIFY(collector.statusText().contains(QStringLiteral("复用")));
+    QVERIFY(collector.statusText().contains(QStringLiteral("已有后台服务")));
 }
 
 void LifecycleTests::stopCancelsAPendingRestart()
@@ -486,7 +489,7 @@ void LifecycleTests::anAlreadyRunningExitIsReusedWithoutARestartLoop()
     collector.start();
 
     QTRY_COMPARE_WITH_TIMEOUT(collector.stateToken(), QStringLiteral("reused"), 10000);
-    QVERIFY(collector.statusText().contains(QString::fromUtf8("\u590d\u7528")));
+    QVERIFY(collector.statusText().contains(QString::fromUtf8("已有后台服务")));
     QTest::qWait(mr::CollectorProcess::minBackoffMs() * 3);
     QCOMPARE(restarts.count(), 0);
     QVERIFY(!collector.restartPending());
@@ -1135,6 +1138,24 @@ void LifecycleTests::exitReasonsAreTheCollectorsOwnWords_data()
     QTest::newRow("silent-refusal") << 3 << QByteArray() << QString::fromUtf8("本机日志");
     QTest::newRow("bad-arguments")
         << 2 << QByteArrayLiteral("Unknown option.\nUsage: ...") << QString::fromUtf8("重新安装");
+    // contracts/collector-texts.md §2.2: the catalogue reference on the line before.
+    // Simplified Chinese renders exactly the Collector's sentence; the MR-TEXT line
+    // itself is never shown.
+    const QByteArray busy = QString::fromUtf8("数据库正忙，请稍后重试。").toUtf8();
+    QTest::newRow("mr-text")
+        << 3 << QByteArray("MR-TEXT {\"key\":\"database.busy\"}\r\nERR_DB_BUSY: " + busy + "\r\n")
+        << QString::fromUtf8("数据库正忙，请稍后重试。");
+    // A key this build does not know (a newer Collector), or a line that is not a
+    // reference at all: the last line's Chinese, as before the catalogue.
+    QTest::newRow("mr-text-unknown-key")
+        << 3 << QByteArray("MR-TEXT {\"key\":\"startup.brand_new\"}\nERR_DB_BUSY: " + busy)
+        << QString::fromUtf8("数据库正忙，请稍后重试。");
+    QTest::newRow("mr-text-malformed")
+        << 3 << QByteArray("MR-TEXT {\"key\":\nERR_DB_BUSY: " + busy)
+        << QString::fromUtf8("数据库正忙，请稍后重试。");
+    QTest::newRow("mr-text-missing-argument")
+        << 3 << QByteArray("MR-TEXT {\"key\":\"ipc.field.missing\"}\nERR_DB_BUSY: " + busy)
+        << QString::fromUtf8("数据库正忙，请稍后重试。");
 }
 
 /// What the player reads after a refused start: the Collector's sentence with
@@ -1149,6 +1170,52 @@ void LifecycleTests::exitReasonsAreTheCollectorsOwnWords()
     QVERIFY2(reason.contains(expected), qPrintable(reason));
     QVERIFY2(!reason.contains(QLatin1String("ERR_")), qPrintable(reason));
     QVERIFY2(!reason.startsWith(QLatin1String("failed")), qPrintable(reason));
+    QVERIFY2(!reason.contains(QLatin1String("MR-TEXT")), qPrintable(reason));
+}
+
+/// The last MR-TEXT line of the tail names the sentence by key, so a refused
+/// start reads in the interface language - and, kept as a recipe, follows a
+/// later switch, because the tail is read again whenever the text is shown.
+void LifecycleTests::anMrTextLineShowsTheSentenceInTheInterfaceLanguage()
+{
+    const QByteArray tail = QByteArray(
+        "MR-TEXT {\"key\":\"ipc.internal_error\"}\r\n"
+        "ERR_INTERNAL: old\r\n"
+        "MR-TEXT {\"key\":\"ipc.field.missing\",\"args\":{\"field\":\"database_path\"}}\r\n"
+        "ERR_BAD_REQUEST: ")
+        + QString::fromUtf8("缺少必填字段 database_path。").toUtf8() + "\r\n";
+    QCOMPARE(mr::CollectorProcess::exitExplanation(3, tail), QString::fromUtf8("缺少必填字段 database_path。"));
+
+    QString translated, unknown, alone;
+    {
+        const mrtest::MarkedLanguage language;
+        translated = mr::CollectorProcess::exitExplanation(3, tail);
+        // Unknown to this build: the Chinese, never a guess.
+        unknown = mr::CollectorProcess::exitExplanation(
+            3, QByteArray("MR-TEXT {\"key\":\"no.such_key\"}\nERR_X: ") + QString::fromUtf8("中文。").toUtf8());
+        // An announcement with no sentence after it still has its words.
+        alone = mr::CollectorProcess::exitExplanation(3, QByteArray("MR-TEXT {\"key\":\"database.busy\"}"));
+    }
+
+    QCOMPARE(translated, mrtest::marked("ipc.field.missing", QString::fromUtf8("缺少必填字段 database_path。")));
+    QCOMPARE(unknown, QString::fromUtf8("中文。"));
+    QCOMPARE(alone, mrtest::marked("database.busy", QString::fromUtf8("数据库正忙，请稍后重试。")));
+    QVERIFY(mr::collector_text::knows(QStringLiteral("ipc.field.missing")));
+
+    // The shape of contracts/collector-texts.md §2.2, with a path argument that is
+    // shown as written in every language. Kept as a recipe by refuseStart(), the
+    // tail is read again on every reading, so a later switch is followed too.
+    const QString path = QStringLiteral("D:\\MentorRecorder\\data\\mentor.db");
+    const QVariantMap locked = mrtest::textRef("startup.db_locked", {{QStringLiteral("path"), path}});
+    const QString lockedChinese = mr::collector_text::chinese(locked);
+    QVERIFY(lockedChinese.endsWith(path));
+    const QByteArray lockedTail =
+        QByteArray("MR-TEXT {\"key\":\"startup.db_locked\",\"args\":{\"path\":\"D:\\\\MentorRecorder\\\\data\\\\mentor.db\"}}\r\n"
+                   "ERR_DB_LOCKED: ")
+        + lockedChinese.toUtf8() + "\r\n";
+    QCOMPARE(mr::CollectorProcess::exitExplanation(3, lockedTail), lockedChinese);
+    const mrtest::MarkedLanguage language;
+    QCOMPARE(mr::CollectorProcess::exitExplanation(3, lockedTail), mrtest::marked("startup.db_locked", lockedChinese));
 }
 
 /// A launch Windows refuses outright is retried once - a scanner may have held
@@ -1445,7 +1512,7 @@ void LifecycleTests::theClientRefusesAPipeServedByAnotherAccount()
     QTRY_VERIFY_WITH_TIMEOUT(!client.lastError().isEmpty(), 5000);
     QVERIFY(!client.isConnected());
     QVERIFY(!everConnected);
-    QVERIFY2(client.lastError().contains(QString::fromUtf8("不属于当前用户")),
+    QVERIFY2(client.lastError().contains(QString::fromUtf8("属于另一个 Windows 用户")),
              qPrintable(client.lastError()));
 
     // Nothing is ever written to it: a request fails locally.

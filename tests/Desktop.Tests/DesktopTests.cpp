@@ -70,7 +70,7 @@ public:
     QString connectionDetail() const override
     {
         return m_connected ? QStringLiteral("connected")
-                           : QStringLiteral("Collector 未连接。");
+                           : QStringLiteral("后台服务尚未连接。");
     }
 
     mr::BackendReply *request(const QString &messageType,
@@ -101,7 +101,7 @@ public:
                 return;
             if (!connected) {
                 guard->fail(QStringLiteral("ERR_INTERNAL"),
-                            QString::fromUtf8("Collector 未连接。"));
+                            QString::fromUtf8("后台服务尚未连接。"));
                 return;
             }
             guard->succeed(response);
@@ -262,6 +262,7 @@ private Q_SLOTS:
     void ipcFraming_roundTripsAndRejectsInvalidPayload();
     void dutyCatalog_fillsLevelAndExpansionByTerritoryWhenContentIdIsMissing();
     void ipcEnvelope_readsSuccessErrorAndEventShapes();
+    void ipcEnvelope_readsTheErrorsMessageRef();
     void ipcEnvelope_toleratesAdditiveFields();
     void formatters_renderNullsAndDurations();
     void mockBackend_reportsTheMatchAnnouncementBeforeTheDutyIsEntered();
@@ -420,6 +421,53 @@ void DesktopTests::ipcEnvelope_readsSuccessErrorAndEventShapes()
     QCOMPARE(view.errorCode, QStringLiteral("ERR_INTERNAL"));
 }
 
+void DesktopTests::ipcEnvelope_readsTheErrorsMessageRef()
+{
+    // contracts/collector-texts.md: $defs/ErrorPayload.message_ref names the
+    // sentence in message by catalogue key; the error object is authoritative,
+    // the payload copy serves the message_type == "Error" branch.
+    const QString requestId = QStringLiteral("33333333-3333-3333-3333-333333333333");
+    const QJsonObject ref{{QStringLiteral("key"), QStringLiteral("ipc.field.missing")},
+                          {QStringLiteral("args"),
+                           QJsonObject{{QStringLiteral("field"), QStringLiteral("run_id")}}}};
+    const QJsonObject error{{QStringLiteral("code"), QStringLiteral("ERR_BAD_REQUEST")},
+                            {QStringLiteral("message"), QString::fromUtf8("缺少必填字段 run_id。")},
+                            {QStringLiteral("message_ref"), ref}};
+    QJsonObject failure{{QStringLiteral("protocol_version"), mr::ipc::kProtocolVersion},
+                        {QStringLiteral("request_id"), requestId},
+                        {QStringLiteral("message_type"), QStringLiteral("CorrectRun")},
+                        {QStringLiteral("ok"), false},
+                        {QStringLiteral("error"), error},
+                        {QStringLiteral("payload"), error}};
+    mr::ipc::EnvelopeView view = mr::ipc::readEnvelope(failure);
+    QVERIFY(!view.ok);
+    QCOMPARE(view.errorRef, ref);
+    QCOMPARE(view.errorMessage, QString::fromUtf8("缺少必填字段 run_id。"));
+
+    QJsonObject unreadable{{QStringLiteral("protocol_version"), mr::ipc::kProtocolVersion},
+                           {QStringLiteral("request_id"), requestId},
+                           {QStringLiteral("message_type"), QStringLiteral("Error")},
+                           {QStringLiteral("payload"), error}};
+    QCOMPARE(mr::ipc::readEnvelope(unreadable).errorRef, ref);
+
+    // An older Collector sends none, and a malformed one is not a reference.
+    QJsonObject older = error;
+    older.remove(QStringLiteral("message_ref"));
+    failure.insert(QStringLiteral("error"), older);
+    QVERIFY(mr::ipc::readEnvelope(failure).errorRef.isEmpty());
+    older.insert(QStringLiteral("message_ref"), QStringLiteral("ipc.field.missing"));
+    failure.insert(QStringLiteral("error"), older);
+    QVERIFY(mr::ipc::readEnvelope(failure).errorRef.isEmpty());
+
+    // A success never carries one.
+    QJsonObject success{{QStringLiteral("protocol_version"), mr::ipc::kProtocolVersion},
+                        {QStringLiteral("request_id"), requestId},
+                        {QStringLiteral("message_type"), QStringLiteral("GetVersion")},
+                        {QStringLiteral("ok"), true},
+                        {QStringLiteral("payload"), QJsonObject{{QStringLiteral("message_ref"), ref}}}};
+    QVERIFY(mr::ipc::readEnvelope(success).errorRef.isEmpty());
+}
+
 void DesktopTests::ipcEnvelope_toleratesAdditiveFields()
 {
     // The contract only ever grows within protocol_version 1, so a field this
@@ -551,7 +599,7 @@ void DesktopTests::formatters_renderNullsAndDurations()
         QVERIFY2(!label.contains(QStringLiteral("0x")) && !label.contains(QLatin1Char('_')), code);
     }
     QCOMPARE(mr::Formatters::parserErrorLabel(QStringLiteral("E_LEN_MISMATCH")),
-             QString::fromUtf8("报文长度与档案不符，已忽略"));
+             QString::fromUtf8("游戏数据的格式不符合预期，已跳过"));
 }
 
 void DesktopTests::mockBackend_reportsTheMatchAnnouncementBeforeTheDutyIsEntered()
@@ -1380,7 +1428,7 @@ void DesktopTests::runFormValidator_rejectsEveryPrototypeCase()
     const auto sentence = [](const QVariantMap &form) {
         return mr::RunFormValidator::validate(form).value(QStringLiteral("message")).toString();
     };
-    QCOMPARE(sentence(noReason), QString::fromUtf8("必须填写修正原因，请求已拒绝。"));
+    QCOMPARE(sentence(noReason), QString::fromUtf8("请先填写修正原因，再保存。"));
 
     // Matched time is mandatory.
     QVariantMap noMatched = baseForm();
@@ -1397,7 +1445,7 @@ void DesktopTests::runFormValidator_rejectsEveryPrototypeCase()
     QVariantMap negative = baseForm();
     negative.insert(QStringLiteral("ended"), QStringLiteral("20:00:30"));
     QCOMPARE(validationCode(negative), QStringLiteral("ERR_NEGATIVE_DURATION"));
-    QCOMPARE(sentence(negative), QString::fromUtf8("时间顺序错误：结束时间早于进本时间，耗时为负。"));
+    QCOMPARE(sentence(negative), QString::fromUtf8("结束时间不能早于进本时间。如果跨了零点，请把结束日期改为第二天。"));
 
     // ERR_TIME_ORDER - end before the match when there is no entry at all.
     QVariantMap cancelledBackwards = baseForm();
@@ -1437,7 +1485,7 @@ void DesktopTests::runFormValidator_rejectsEveryPrototypeCase()
     QCOMPARE(mr::RunFormValidator::validate(unchanged, before)
                  .value(QStringLiteral("message"))
                  .toString(),
-             QString::fromUtf8("\u6ca1\u6709\u4efb\u4f55\u5b57\u6bb5\u88ab\u4fee\u6539\u3002"));
+             QString::fromUtf8("内容还没有变化，无需保存。"));
 
     // One changed field is enough to make the same form valid.
     QVariantMap changed = unchanged;

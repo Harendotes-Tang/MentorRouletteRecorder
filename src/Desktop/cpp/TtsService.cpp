@@ -1,13 +1,17 @@
 #include "TtsService.h"
 
 #include "AppSettings.h"
+#include "LanguageManager.h"
 #include "SpeechController.h"
 #include "SpeechPlayer.h"
 
+#include <QCoreApplication>
+#include <QDesktopServices>
 #include <QLocale>
 #include <QLoggingCategory>
 #include <QStringList>
 #include <QTextToSpeech>
+#include <QUrl>
 #include <QVoice>
 
 namespace {
@@ -41,12 +45,27 @@ TtsService::TtsService(AppSettings *settings, QObject *parent, EngineMode engine
         m_onlineVoice = onlineVoiceSelected();
     }
 
+    // The status line and the voice labels are rebuilt for a language switch.
+    onLanguageChanged(this, [this] {
+        // 播报跟随界面语言: the new language's voices move to the top, and its
+        // own saved voice (or its default) is chosen once the engine is idle.
+        reorderVoices();
+        m_voices = describeVoices(m_voiceEntries);
+        m_allVoices.clear(); // the online rows' labels change too
+        refreshAllVoices();
+        if (m_engine) {
+            m_voicePending = true;
+            applyVoiceAndLevels();
+        }
+        Q_EMIT availabilityChanged();
+    });
+
     if (engineMode == EngineMode::None) {
-        m_statusText = QString::fromUtf8("本机没有可用的语音引擎，播报已停用。");
+        m_statusText = [] { return tr("本机没有可用的系统语音，无法使用本机播报。"); };
         return;
     }
     if (QTextToSpeech::availableEngines().isEmpty()) {
-        m_statusText = QString::fromUtf8("本机没有可用的语音引擎，播报已停用。");
+        m_statusText = [] { return tr("本机没有可用的系统语音，无法使用本机播报。"); };
         qCInfo(lcTts) << "no speech engine available; announcements disabled";
         return;
     }
@@ -54,7 +73,7 @@ TtsService::TtsService(AppSettings *settings, QObject *parent, EngineMode engine
     auto *engine = engineMode == EngineMode::Mock ? new QTextToSpeech(QStringLiteral("mock"), this)
                                                   : new QTextToSpeech(this);
     if (engine->state() == QTextToSpeech::Error) {
-        m_statusText = QString::fromUtf8("语音引擎初始化失败：%1").arg(engine->errorString());
+        m_statusText = [reason = engine->errorString()] { return tr("无法启动本机语音：%1").arg(reason); };
         qCWarning(lcTts) << "engine error" << engine->errorString();
         delete engine;
         return;
@@ -173,33 +192,49 @@ void TtsService::refreshVoiceList()
     entries.reserve(all.size());
     for (const QVoice &voice : all)
         entries.append({voice.name(), voice.locale(), voice.gender()});
-    const QList<VoiceEntry> ordered = orderVoices(entries);
+    m_voiceEntries = entries;
+    m_engineVoices = all;
+    reorderVoices();
+    m_voices = describeVoices(m_voiceEntries);
+    refreshAllVoices();
+}
+
+void TtsService::reorderVoices()
+{
+    if (m_voiceEntries.isEmpty())
+        return;
+    const QList<VoiceEntry> ordered = orderVoices(m_voiceEntries, speechLocale());
 
     // The same order for the QVoice objects: match each ordered entry back to
     // the first unused voice with its name and locale.
     QList<QVoice> engineOrdered;
-    QList<bool> used(all.size(), false);
+    QList<bool> used(m_engineVoices.size(), false);
     for (const VoiceEntry &entry : ordered) {
-        for (qsizetype index = 0; index < all.size(); ++index) {
-            if (!used.at(index) && all.at(index).name() == entry.name
-                && all.at(index).locale() == entry.locale) {
+        for (qsizetype index = 0; index < m_engineVoices.size(); ++index) {
+            if (!used.at(index) && m_engineVoices.at(index).name() == entry.name
+                && m_engineVoices.at(index).locale() == entry.locale) {
                 used[index] = true;
-                engineOrdered.append(all.at(index));
+                engineOrdered.append(m_engineVoices.at(index));
                 break;
             }
         }
     }
-
     m_voiceEntries = ordered;
     m_engineVoices = engineOrdered;
-    m_voices = describeVoices(ordered);
-    refreshAllVoices();
+    Q_EMIT voicesChanged();
 }
 
 void TtsService::applyDefaultVoice()
 {
-    // Prefer a zh-CN voice; fall back to whatever the engine offers so the
-    // feature still works on an English-only install.
+    // The list is ordered for the interface language (reorderVoices), so its
+    // first voice is that language's when the machine has one, else zh-CN.
+    if (!m_engineVoices.isEmpty()) {
+        m_engine->setVoice(m_engineVoices.constFirst());
+        m_voiceName = m_engineVoices.constFirst().name();
+        return;
+    }
+    // No voice list (yet): prefer a zh-CN voice; fall back to whatever the
+    // engine offers so the feature still works on an English-only install.
     const QLocale chinese(QLocale::Chinese, QLocale::China);
     if (m_engine->locale() != chinese) {
         for (const QLocale &locale : m_engine->availableLocales()) {
@@ -272,13 +307,13 @@ void TtsService::applyVoiceAndLevels()
     // an engine that errored, or one that has no voice to speak with, cannot
     // produce sound and the settings page must not claim otherwise.
     if (!m_errorText.isEmpty()) {
-        m_statusText = QString::fromUtf8("语音引擎出错：%1").arg(m_errorText);
+        m_statusText = [reason = m_errorText] { return tr("本机语音出错：%1").arg(reason); };
     } else if (m_engine->state() == QTextToSpeech::Error) {
-        m_statusText = QString::fromUtf8("语音引擎出错：%1").arg(m_engine->errorString());
+        m_statusText = [reason = m_engine->errorString()] { return tr("本机语音出错：%1").arg(reason); };
     } else if (m_voiceName.isEmpty()) {
-        m_statusText = QString::fromUtf8("正在等待系统语音列表…");
+        m_statusText = [] { return tr("正在读取本机语音列表…"); };
     } else {
-        m_statusText = QString::fromUtf8("语音引擎已就绪 · %1").arg(m_voiceName);
+        m_statusText = [voice = m_voiceName] { return tr("本机语音可用 · %1").arg(voice); };
     }
     Q_EMIT availabilityChanged();
 }
@@ -341,14 +376,14 @@ QString languageLabel(const QLocale &locale)
     switch (locale.language()) {
     case QLocale::Chinese:
         return isMainlandChinese(locale)
-                   ? QString::fromUtf8("中文")
-                   : QString::fromUtf8("中文 · %1").arg(locale.nativeTerritoryName());
+                   ? QCoreApplication::translate("mr::TtsService", "中文")
+                   : QCoreApplication::translate("mr::TtsService", "中文 · %1").arg(locale.nativeTerritoryName());
     case QLocale::English:
-        return QString::fromUtf8("英语");
+        return QCoreApplication::translate("mr::TtsService", "英语");
     case QLocale::Japanese:
-        return QString::fromUtf8("日语");
+        return QCoreApplication::translate("mr::TtsService", "日语");
     case QLocale::Korean:
-        return QString::fromUtf8("韩语");
+        return QCoreApplication::translate("mr::TtsService", "韩语");
     default:
         return locale.nativeLanguageName();
     }
@@ -358,9 +393,9 @@ QString genderLabel(QVoice::Gender gender)
 {
     switch (gender) {
     case QVoice::Male:
-        return QString::fromUtf8("男声");
+        return QCoreApplication::translate("mr::TtsService", "男声");
     case QVoice::Female:
-        return QString::fromUtf8("女声");
+        return QCoreApplication::translate("mr::TtsService", "女声");
     default:
         return {};
     }
@@ -378,19 +413,56 @@ QString TtsService::localVoiceId(const QString &name)
     return localVoicePrefix() + name;
 }
 
-QList<TtsService::VoiceEntry> TtsService::orderVoices(const QList<VoiceEntry> &voices)
+QList<TtsService::VoiceEntry> TtsService::orderVoices(const QList<VoiceEntry> &voices,
+                                                      const QLocale &preferred)
 {
+    // 0: the preferred language and territory, 1: the rest of that language,
+    // 2: zh-CN (this program's own language), 3: everything else.
+    const auto rank = [&preferred](const QLocale &locale) {
+        if (locale.language() == preferred.language()) {
+            return locale.territory() == preferred.territory()
+                           || preferred.territory() == QLocale::AnyTerritory
+                       ? 0
+                       : 1;
+        }
+        return isMainlandChinese(locale) ? 2 : 3;
+    };
     QList<VoiceEntry> ordered;
     ordered.reserve(voices.size());
-    for (const VoiceEntry &voice : voices) {
-        if (isMainlandChinese(voice.locale))
-            ordered.append(voice);
-    }
-    for (const VoiceEntry &voice : voices) {
-        if (!isMainlandChinese(voice.locale))
-            ordered.append(voice);
+    for (int group = 0; group < 4; ++group) {
+        for (const VoiceEntry &voice : voices) {
+            if (rank(voice.locale) == group)
+                ordered.append(voice);
+        }
     }
     return ordered;
+}
+
+bool TtsService::missesLanguage(const QList<VoiceEntry> &voices, const QLocale &preferred)
+{
+    if (voices.isEmpty())
+        return false;
+    for (const VoiceEntry &voice : voices) {
+        if (voice.locale.language() == preferred.language())
+            return false;
+    }
+    return true;
+}
+
+QLocale TtsService::speechLocale()
+{
+    return QLocale(LanguageManager::speechLocaleFor(LanguageManager::currentCode()));
+}
+
+bool TtsService::languageVoiceMissing() const
+{
+    return missesLanguage(m_voiceEntries, speechLocale());
+}
+
+void TtsService::openSpeechSettings()
+{
+    // A local settings page of Windows; nothing is fetched.
+    QDesktopServices::openUrl(QUrl(QStringLiteral("ms-settings:speech")));
 }
 
 QString TtsService::voiceLabel(const VoiceEntry &voice)
@@ -404,7 +476,8 @@ QString TtsService::voiceLabel(const VoiceEntry &voice)
         details.append(gender);
     if (details.isEmpty())
         return voice.name;
-    return QString::fromUtf8("%1（%2）").arg(voice.name, details.join(QString::fromUtf8(" · ")));
+    //: A voice name, then its language and gender.
+    return tr("%1（%2）").arg(voice.name, details.join(QStringLiteral(" · ")));
 }
 
 QVariantList TtsService::describeVoices(const QList<VoiceEntry> &ordered)
@@ -566,7 +639,7 @@ QString TtsService::previewText(const QString &kind) const
     // otherwise. Never a made-up sample that could be mistaken for progress.
     QVariantMap values = m_contextValues;
     if (!values.contains(QStringLiteral("duty")))
-        values.insert(QStringLiteral("duty"), QString::fromUtf8("未知副本"));
+        values.insert(QStringLiteral("duty"), tr("未知副本"));
     if (!values.contains(QStringLiteral("progress")))
         values.insert(QStringLiteral("progress"), 0);
     if (!values.contains(QStringLiteral("remaining")))

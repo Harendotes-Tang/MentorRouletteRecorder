@@ -160,6 +160,20 @@ Machina.FFXIV 包中附带的原生注入载荷 `deucalion-*.dll` 从所有构�
 
 CMake 路径一律使用正斜杠 `/`。反斜杠在 CMake 中是转义字符。
 
+### 3.0 界面翻译
+
+译文文件位于 `src/Desktop/i18n/mentor_recorder_{zh_TW,en,ja}.ts`，源语言为简体中文。
+构建时 `lrelease` 自动把它们编译为 `.qm` 并嵌入可执行文件（资源前缀 `/i18n`），发布包不需要额外文件。
+修改或新增界面文字后，运行 `update_translations` 目标（`lupdate`）刷新三份 `.ts`，
+再补齐其中 `type="unfinished"` 的条目：
+
+```powershell
+& "D:\APPS\Qt\Tools\CMake_64\bin\cmake.exe" --build build --target update_translations
+```
+
+`lupdate` 以 `-locations none -no-obsolete` 运行：不写行号，删除已不存在的源文本。
+未翻译的条目在界面上显示简体中文原文。
+
 ### 3.1 桌面端验证
 
 桌面目标链接 `Qt6::Quick`、`Qt6::QuickControls2`、`Qt6::Graphs`、
@@ -215,9 +229,10 @@ build\src\Desktop\MentorRecorder.Desktop.exe --screenshot out.png --page 5 --the
 `--mock-first-run`、`--mock-open-detail`、`--mock-open-edit`、
 `--mock-open-reflection`（对第一条记录打开导随心得对话框）、
 `--mock-calibration observing|ready|blocked|done`（本机校准卡片）、
-`--mock-shared fetching|verifying|consent|verified|verified-auditing|imported-published|imported-unpublished|rejected|unavailable|user-rejected|none-for-build|share`
+`--mock-shared fetching|verifying|consent|verified|verified-auditing|verified-proven|imported-published|imported-unpublished|rejected|unavailable|user-rejected|none-for-build|share`
 （校准卡片的共享校准一节；未提供 `--mock-calibration` 时自动补一个观察中或已完成的本机校准，且不执行任何下载。
-`verified-auditing` 为登录时已核实、排本与进本仍在核对；`imported-published` 与 `imported-unpublished`
+`verified-auditing` 为登录时已核实、排本与进本仍在核对；`verified-proven` 为共享档案已在本机完整记录过一次、
+卡片提供「这份校准好用，告诉其他玩家」；`imported-published` 与 `imported-unpublished`
 为导入后命中／未命中公开仓库索引的校准码）、
 `--mock-update-available`（更新检查报告有新版本）、
 `--mock-update-download downloading|verifying|ready|failed`（软件内下载停在指定阶段，隐含 `--mock-update-available`；

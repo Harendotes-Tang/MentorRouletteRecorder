@@ -13,6 +13,8 @@
 
 #include <memory>
 
+#include "LiveText.h"
+
 namespace mr {
 class IBackend;
 class OfflineOcrEngine;
@@ -48,8 +50,10 @@ class ImportRecordsController final : public QObject
     Q_PROPERTY(QString timeZone READ timeZone WRITE setTimeZone NOTIFY changed)
     Q_PROPERTY(QVariantMap columnMapping READ columnMapping WRITE setColumnMapping NOTIFY changed)
     Q_PROPERTY(QVariantMap commitResult READ commitResult NOTIFY changed)
-    Q_PROPERTY(QVariantList jobChoices READ jobChoices CONSTANT)
-    Q_PROPERTY(QVariantList dutyChoices READ dutyChoices CONSTANT)
+    /// Re-read only after a language switch (choicesChanged), so an open combo box
+    /// keeps its state while the import is edited.
+    Q_PROPERTY(QVariantList jobChoices READ jobChoices NOTIFY choicesChanged)
+    Q_PROPERTY(QVariantList dutyChoices READ dutyChoices NOTIFY choicesChanged)
     /// The stored achievement baseline (安装前已完成次数), fed by the owner from the dashboard.
     Q_PROPERTY(int baselineCount READ baselineCount WRITE setBaselineCount NOTIFY changed)
     /// Selected reviewed mentor completions; unknown game times do not prevent contribution.
@@ -71,9 +75,9 @@ public:
     bool pendingCommitConfirmation() const { return !m_pendingCommitPayload.isEmpty(); }
     QString phase() const { return m_phase; }
     QString statusText() const;
-    QString errorText() const { return m_error; }
-    QString templateStatusText() const { return m_templateStatus; }
-    QString templateErrorText() const { return m_templateError; }
+    QString errorText() const { return m_error.text(); }
+    QString templateStatusText() const { return m_templateStatus.text(); }
+    QString templateErrorText() const { return m_templateError.text(); }
     QString templateInstructions() const;
     QString sourceLabel() const { return m_sourceName; }
     QString sourceKind() const { return m_sourceKind; }
@@ -132,16 +136,21 @@ public:
 
 Q_SIGNALS:
     void changed();
+    /// The interface language changed: jobChoices and dutyChoices have new names.
+    void choicesChanged();
     void imported(const QVariantMap &result);
 
 private:
     void beginInput(const QString &kind, const QString &name);
     void invalidatePreview(bool rememberSelection = true);
     void acceptPreview(const QVariantMap &payload);
-    void discardAppend(const QString &message);
+    /// Puts \c error_texts / \c warning_texts on a preview row: its errors and
+    /// warnings in the interface language (error_refs / warning_refs).
+    static void renderCollectorTexts(QVariantMap &row);
+    void discardAppend(const LiveText &message);
     void removeImportedRows(const QVariantMap &receipt);
     QString screenshotSourceName(const QStringList &paths) const;
-    void fail(const QString &message);
+    void fail(const LiveText &message);
     void recognizeImage(const QString &path, const QByteArray &tsv);
     QJsonObject previewRequest() const;
 
@@ -171,9 +180,11 @@ private:
     QString m_previewId;
     QString m_commitRequestId;
     QString m_phase = QStringLiteral("empty");
-    QString m_error;
-    QString m_templateStatus;
-    QString m_templateError;
+    // Recipes, so a language switch re-renders them (LiveText.h). A sentence that
+    // arrived as text - the Collector's, the OCR engine's - is kept verbatim.
+    LiveText m_error;
+    LiveText m_templateStatus;
+    LiveText m_templateError;
     int m_current = -1;
     quint64 m_generation = 0;
     bool m_ownConfirmed = false;

@@ -1,4 +1,5 @@
 using MentorRecorder.Collector.Contracts.Errors;
+using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Domain.Queries;
 
 namespace MentorRecorder.Collector.Ipc;
@@ -35,14 +36,14 @@ public static class StatsSorting
         if (field is not ("attempt_count" or "completed_count" or "completion_rate"
             or "avg_duration_ms" or "name"))
         {
-            throw CollectorException.BadRequest("sort.field 不是契约声明的取值。", "sort.field");
+            throw CollectorException.BadRequest(CollectorTexts.IpcFieldUndeclaredValue("sort.field"), "sort.field");
         }
 
         var direction = reader.String("direction", 8) switch
         {
             null or "desc" => SortDirection.Desc,
             "asc" => SortDirection.Asc,
-            _ => throw CollectorException.BadRequest("sort.direction 只能取 asc 或 desc。", "sort.direction"),
+            _ => throw CollectorException.BadRequest(CollectorTexts.IpcFieldEither("sort.direction", "asc", "desc"), "sort.direction"),
         };
 
         return new StatsSort(field, direction);

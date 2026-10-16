@@ -1,4 +1,5 @@
 using MentorRecorder.Collector.Contracts.Errors;
+using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Diagnostics;
 using MentorRecorder.Collector.Domain.Time;
 using MentorRecorder.Collector.Storage.Repositories;
@@ -7,8 +8,18 @@ namespace MentorRecorder.Collector.Speech;
 
 /// <summary>One voice the settings page offers for a service.</summary>
 /// <param name="Name">Name sent to the service.</param>
-/// <param name="Label">What the settings page shows.</param>
-public sealed record SpeechVoiceOption(string Name, string Label);
+/// <param name="Label">What the settings page shows, in Simplified Chinese.</param>
+public sealed record SpeechVoiceOption(string Name, string Label)
+{
+    /// <summary>A voice whose label is a catalogue text (contracts/collector-texts.md).</summary>
+    /// <param name="name">Name sent to the service.</param>
+    /// <param name="label">What the settings page shows.</param>
+    public SpeechVoiceOption(string name, UserText label)
+        : this(name, (label ?? throw new ArgumentNullException(nameof(label))).Chinese) => LabelText = label;
+
+    /// <summary>The label as a catalogue text; null when the label is the service's own voice name.</summary>
+    public UserText? LabelText { get; }
+}
 
 /// <summary>What <c>GetSpeechSettings</c> reports. There is deliberately no key here, only whether one is stored.</summary>
 /// <param name="Config">Settings in force.</param>
@@ -66,12 +77,12 @@ public sealed class OnlineSpeechService : IDisposable
     /// </summary>
     public static IReadOnlyList<SpeechVoiceOption> AzureVoices { get; } = Array.AsReadOnly(new[]
     {
-        new SpeechVoiceOption("zh-CN-XiaoxiaoNeural", "晓晓（女声）"),
-        new SpeechVoiceOption("zh-CN-YunxiNeural", "云希（男声）"),
-        new SpeechVoiceOption("zh-CN-XiaoyiNeural", "晓伊（女声）"),
-        new SpeechVoiceOption("zh-CN-YunjianNeural", "云健（男声）"),
-        new SpeechVoiceOption("zh-CN-XiaochenNeural", "晓辰（女声）"),
-        new SpeechVoiceOption("zh-CN-YunyangNeural", "云扬（男声，新闻）"),
+        new SpeechVoiceOption("zh-CN-XiaoxiaoNeural", CollectorTexts.SpeechVoiceXiaoxiao()),
+        new SpeechVoiceOption("zh-CN-YunxiNeural", CollectorTexts.SpeechVoiceYunxi()),
+        new SpeechVoiceOption("zh-CN-XiaoyiNeural", CollectorTexts.SpeechVoiceXiaoyi()),
+        new SpeechVoiceOption("zh-CN-YunjianNeural", CollectorTexts.SpeechVoiceYunjian()),
+        new SpeechVoiceOption("zh-CN-XiaochenNeural", CollectorTexts.SpeechVoiceXiaochen()),
+        new SpeechVoiceOption("zh-CN-YunyangNeural", CollectorTexts.SpeechVoiceYunyang()),
     });
 
     /// <summary>
@@ -158,13 +169,13 @@ public sealed class OnlineSpeechService : IDisposable
             if (!SpeechValidation.TryNormalizeKey(supplied, out var trimmed))
             {
                 throw CollectorException.BadRequest(
-                    "密钥只能包含可见的英文字符，不能有空格，最多 512 个字符。", "payload.api_key");
+                    CollectorTexts.SpeechApiKeyInvalid(), "payload.api_key");
             }
 
             if (newBinding is null)
             {
                 throw CollectorException.BadRequest(
-                    "请先选择在线语音服务并填写区域或接口地址，再填写密钥。", "payload.api_key");
+                    CollectorTexts.SpeechApiKeyNeedsTarget(), "payload.api_key");
             }
 
             newKey = trimmed;
@@ -203,7 +214,7 @@ public sealed class OnlineSpeechService : IDisposable
             {
                 ["error_type"] = ex.GetType().Name,
             });
-            throw new CollectorException(ErrorCodes.Internal, "无法在本机保存语音服务密钥，请检查数据目录的写入权限。");
+            throw new CollectorException(ErrorCodes.Internal, CollectorTexts.SpeechApiKeyUnsaved());
         }
     }
 
@@ -404,16 +415,16 @@ public sealed class OnlineSpeechService : IDisposable
 
         var message = outcome switch
         {
-            SpeechOutcome.Disabled => "在线语音已被环境变量 MR_DISABLE_ONLINE_SPEECH 关闭。",
-            SpeechOutcome.NotConfigured => "在线语音还没有配置好：请选择服务，填写区域或接口地址、音色和密钥。",
-            SpeechOutcome.Auth => "语音服务拒绝了密钥，请检查密钥与区域是否匹配。",
-            SpeechOutcome.Quota => "语音服务的额度或频率用完了，请稍后再试。",
-            SpeechOutcome.Network => "连不上语音服务，这一句改用本机语音。",
-            SpeechOutcome.Timeout when reason is "QUEUE_FULL" or "QUEUE_WAIT" => "排队播报的句子太多，这一句改用本机语音。",
-            SpeechOutcome.Timeout => "语音服务响应超时，这一句改用本机语音。",
-            SpeechOutcome.Cancelled => "这一句的在线语音请求已取消，改用本机语音。",
-            SpeechOutcome.Format => "语音服务返回的不是可播放的 WAV 音频。",
-            _ => "在线语音出错。",
+            SpeechOutcome.Disabled => CollectorTexts.SpeechFailureDisabled(),
+            SpeechOutcome.NotConfigured => CollectorTexts.SpeechFailureNotConfigured(),
+            SpeechOutcome.Auth => CollectorTexts.SpeechFailureAuth(),
+            SpeechOutcome.Quota => CollectorTexts.SpeechFailureQuota(),
+            SpeechOutcome.Network => CollectorTexts.SpeechFailureNetwork(),
+            SpeechOutcome.Timeout when reason is "QUEUE_FULL" or "QUEUE_WAIT" => CollectorTexts.SpeechFailureQueueFull(),
+            SpeechOutcome.Timeout => CollectorTexts.SpeechFailureTimeout(),
+            SpeechOutcome.Cancelled => CollectorTexts.SpeechFailureCancelled(),
+            SpeechOutcome.Format => CollectorTexts.SpeechFailureFormat(),
+            _ => CollectorTexts.SpeechFailureOther(),
         };
         // A cancelled sentence is reported as ERR_SPEECH_TIMEOUT, and that code is retryable in the contract.
         return new CollectorException(

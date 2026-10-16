@@ -1,5 +1,6 @@
 using Microsoft.Data.Sqlite;
 using System.Text.Json.Nodes;
+using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Ipc;
 using MentorRecorder.Collector.Application.Mutations;
 using MentorRecorder.Collector.Contracts.Errors;
@@ -172,7 +173,7 @@ public sealed class RunMutationService
             if (command.Changes.IsEmpty)
             {
                 throw new CollectorException(
-                    ErrorCodes.NoChanges, "未做任何修改，不会写入修订记录。", field: "changes");
+                    ErrorCodes.NoChanges, CollectorTexts.MutationNoChanges(), field: "changes");
             }
 
             var patched = ApplyChangeSet(before, command.Changes);
@@ -207,8 +208,7 @@ public sealed class RunMutationService
             {
                 throw new CollectorException(
                     ErrorCodes.BadRequest,
-                    "结果为「未知」的自动记录必须填写结束时间：没有结束时间的未知结果会被当作仍在进行的记录，" +
-                    "既不计入统计，也不会出现在待复核中。请填写结束时间，或选择实际结果。",
+                    CollectorTexts.MutationUnknownNeedsEnd(),
                     new Dictionary<string, object?>
                     {
                         ["run_id"] = before.RunId,
@@ -241,13 +241,13 @@ public sealed class RunMutationService
     {
         ArgumentNullException.ThrowIfNull(command);
         if (!Guid.TryParseExact(command.RequestId, "D", out _))
-            throw CollectorException.BadRequest("request_id 必须是标准 UUID。", "request_id");
+            throw CollectorException.BadRequest(CollectorTexts.IpcFieldNotUuid("request_id"), "request_id");
         if (command.Action is not ("soft_delete" or "restore" or "purge"))
-            throw CollectorException.BadRequest("action 只能取 soft_delete / restore / purge。", "action");
+            throw CollectorException.BadRequest(CollectorTexts.IpcFieldOnlyValues("action", "soft_delete / restore / purge"), "action");
         var reason = RunMutationValidation.RequireReason(command.Reason);
         HistoryRetentionService.ValidateIds(command.Runs.Select(run => run.RunId).ToArray());
         if (command.Runs.Any(run => run.ExpectedRevision < 1))
-            throw CollectorException.BadRequest("expected_revision 必须大于等于 1。", "runs");
+            throw CollectorException.BadRequest(CollectorTexts.IpcFieldAtLeast("expected_revision", 1), "runs");
         var sorted = command.Runs.OrderBy(run => run.RunId, StringComparer.Ordinal).ToArray();
         var fingerprint = MutationSnapshotCodec.Fingerprint("BatchMutateRuns", command.Action, reason,
             string.Join(',', sorted.Select(run => run.RunId + ":" + run.ExpectedRevision.ToString(System.Globalization.CultureInfo.InvariantCulture))));
@@ -258,7 +258,7 @@ public sealed class RunMutationService
             {
                 var cache = JsonNode.Parse(stored)?.AsObject();
                 if (cache?["batch_fingerprint"]?.GetValue<string>() != fingerprint || cache["outcome"] is not JsonObject prior)
-                    throw new CollectorException(ErrorCodes.IdempotencyConflict, "此请求编号已用于不同的批量操作。", field: "request_id");
+                    throw new CollectorException(ErrorCodes.IdempotencyConflict, CollectorTexts.HistoryBatchRequestReused(), field: "request_id");
                 var replay = prior.DeepClone().AsObject(); replay["idempotent_replay"] = true; return replay;
             }
             if (_idempotency.WasAppliedBeforePrune(command.RequestId, tx)) throw ExpiredReplay(command.RequestId);
@@ -266,10 +266,10 @@ public sealed class RunMutationService
             {
                 var run = Load(target.RunId, tx); RequireRevision(run, target.ExpectedRevision);
                 if (command.Action == "soft_delete" && run.SoftDeleted)
-                    throw new CollectorException(ErrorCodes.AlreadyDeleted, "选中的记录已删除，请刷新后重试。",
+                    throw new CollectorException(ErrorCodes.AlreadyDeleted, CollectorTexts.HistoryBatchAlreadyDeleted(),
                         new Dictionary<string, object?> { ["run_id"] = run.RunId });
                 if (command.Action != "soft_delete" && !run.SoftDeleted)
-                    throw new CollectorException(ErrorCodes.NotDeleted, "恢复和永久删除只能处理已软删除的记录。",
+                    throw new CollectorException(ErrorCodes.NotDeleted, CollectorTexts.HistoryBatchNotDeleted(),
                         new Dictionary<string, object?> { ["run_id"] = run.RunId });
                 return run;
             }).ToArray();
@@ -325,7 +325,7 @@ public sealed class RunMutationService
             {
                 throw new CollectorException(
                     ErrorCodes.UndoNotAllowed,
-                    "第 1 条修订是创建记录本身，无法撤销；如需移除请使用软删除。",
+                    CollectorTexts.MutationUndoCreation(),
                     new Dictionary<string, object?> { ["run_id"] = before.RunId },
                     field: "expected_revision");
             }
@@ -336,7 +336,7 @@ public sealed class RunMutationService
             if (target.Actor == RevisionActor.System && (target.Reason == Import.ImportedHistoryMaintenance.AuditReason ||
                 target.Changes.Any(change => change.Field == "source")))
                 throw new CollectorException(ErrorCodes.UndoNotAllowed,
-                    "此修订修复历史导入来源，不能撤销为错误来源；请直接更正需要调整的记录内容。", field: "expected_revision");
+                    CollectorTexts.MutationUndoImportSourceRepair(), field: "expected_revision");
 
             // Older duty revisions did not record their associated territory/source.
             // The current catalog cannot reconstruct historical observed values safely.
@@ -347,7 +347,7 @@ public sealed class RunMutationService
             {
                 throw new CollectorException(
                     ErrorCodes.UndoNotAllowed,
-                    "旧版副本修订缺少区域或来源的历史值，无法安全撤销；请通过更正记录重新选择副本。",
+                    CollectorTexts.MutationUndoLegacyDutyRevision(),
                     field: "expected_revision");
             }
 
@@ -367,8 +367,7 @@ public sealed class RunMutationService
             {
                 throw new CollectorException(
                     ErrorCodes.UndoNotAllowed,
-                    "这条修订是程序为未完结的记录自动写下的。撤销它会让记录回到无法统计、也无法确认的状态，" +
-                    "因此不能撤销；如果判断有误，请直接更正这条记录。",
+                    CollectorTexts.MutationUndoSystemSettlement(),
                     new Dictionary<string, object?> { ["run_id"] = before.RunId },
                     field: "expected_revision");
             }
@@ -396,13 +395,13 @@ public sealed class RunMutationService
         var reason = RunMutationValidation.RequireReason(command.Reason);
         if (command.GoalCount < 1)
         {
-            throw CollectorException.BadRequest("目标值必须大于等于 1。", "goal_count");
+            throw CollectorException.BadRequest(CollectorTexts.BaselineGoalAtLeastOne(), "goal_count");
         }
 
         if (command.BaselineCompletedCount < 0)
         {
             throw CollectorException.BadRequest(
-                "已完成次数不能为负数。", "baseline_completed_count");
+                CollectorTexts.BaselineCompletedNegative(), "baseline_completed_count");
         }
 
         var fingerprint = MutationSnapshotCodec.Fingerprint(
@@ -447,7 +446,7 @@ public sealed class RunMutationService
             if (completed > int.MaxValue - (long)command.BaselineCompletedCount)
             {
                 throw CollectorException.BadRequest(
-                    "已有基数与已记录完成次数的合计超过支持上限，请减小已有基数。",
+                    CollectorTexts.BaselineTotalTooLarge(),
                     "baseline_completed_count");
             }
 
@@ -519,7 +518,7 @@ public sealed class RunMutationService
             {
                 throw new CollectorException(
                     ErrorCodes.AlreadyDeleted,
-                    "该记录已经处于删除状态。",
+                    CollectorTexts.MutationAlreadyDeleted(),
                     new Dictionary<string, object?> { ["run_id"] = before.RunId });
             }
 
@@ -527,7 +526,7 @@ public sealed class RunMutationService
             {
                 throw new CollectorException(
                     ErrorCodes.NotDeleted,
-                    "该记录并未被删除，无需恢复。",
+                    CollectorTexts.MutationNotDeleted(),
                     new Dictionary<string, object?> { ["run_id"] = before.RunId });
             }
 
@@ -695,7 +694,7 @@ public sealed class RunMutationService
 
         throw new CollectorException(
             ErrorCodes.RevisionConflict,
-            "这条记录已在别处被修改，请刷新后重试。",
+            CollectorTexts.MutationRevisionConflict(),
             new Dictionary<string, object?>
             {
                 ["run_id"] = run.RunId,
@@ -721,7 +720,7 @@ public sealed class RunMutationService
     {
         if (!Guid.TryParseExact(requestId, "D", out _))
         {
-            throw CollectorException.BadRequest("request_id 必须是标准 UUID。", "request_id");
+            throw CollectorException.BadRequest(CollectorTexts.IpcFieldNotUuid("request_id"), "request_id");
         }
 
         return _database.RunInTransaction(tx =>
@@ -732,7 +731,7 @@ public sealed class RunMutationService
             {
                 var snapshot = MutationSnapshotCodec.Deserialize(stored)
                     ?? throw new CollectorException(
-                        ErrorCodes.Internal, "幂等记录已损坏，无法安全重放该请求。");
+                        ErrorCodes.Internal, CollectorTexts.IdempotencyRecordDamaged());
 
                 if (!string.Equals(snapshot.Fingerprint, fingerprint, StringComparison.Ordinal))
                 {
@@ -742,7 +741,7 @@ public sealed class RunMutationService
                     // written against the older ERR_BAD_REQUEST spelling.
                     throw new CollectorException(
                         ErrorCodes.IdempotencyConflict,
-                        "同一个 request_id 被用于内容不同的请求，已拒绝以免产生歧义的结果。",
+                        CollectorTexts.IdempotencyRequestReused(),
                         new Dictionary<string, object?> { ["conflict"] = "idempotency" },
                         field: "request_id");
                 }
@@ -784,7 +783,7 @@ public sealed class RunMutationService
     /// <param name="requestId">Client-generated request id.</param>
     private static CollectorException ExpiredReplay(string requestId) => new(
         ErrorCodes.IdempotencyConflict,
-        "该请求编号已经执行过，但可重放的结果已超出保留期，请用新的请求编号重试。",
+        CollectorTexts.IdempotencyResponseExpired(),
         new Dictionary<string, object?>
         {
             ["conflict"] = "idempotency",

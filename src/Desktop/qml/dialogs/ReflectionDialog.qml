@@ -28,8 +28,9 @@ Dialog {
     property string pendingReason: ""
     property int jobIndex: 0
     readonly property bool needsJob: !(runData && runData.job_id > 0)
-    readonly property var jobOptions: [{ job_id: null, job_name: qsTr("稍后补录") }]
-        .concat(typeof App !== "undefined" && App.battleJobOptions ? App.battleJobOptions : [])
+    // label: the job in the interface language; the request sends job_id.
+    readonly property var jobOptions: [{ job_id: null, job_name: qsTr("稍后补录"), label: qsTr("稍后补录") }]
+        .concat(Theme.labelledJobs(typeof App !== "undefined" && App.battleJobOptions ? App.battleJobOptions : []))
     readonly property int selectedJobId: needsJob && jobIndex > 0 && jobIndex < jobOptions.length
                                          ? jobOptions[jobIndex].job_id : 0
     // True between App.resultConfirmationShown() for the run on screen and the
@@ -100,7 +101,7 @@ Dialog {
                                             && Settings.confirmPrompt !== undefined)
                                            ? Settings.confirmPrompt : true
     readonly property string dutyText: (runData && runData.duty_name)
-                                       ? runData.duty_name : qsTr("未知副本")
+                                       ? (Theme.dutyName(runData) || qsTr("未知副本")) : qsTr("未知副本")
 
     modal: true
     // Qt Basic's backdrop in eorzea, workbench's .dialog-backdrop in classic.
@@ -221,14 +222,14 @@ Dialog {
         if (dialog.runId.length === 0 || dialog.busy)
             return
         if (typeof App === "undefined" || (result.length > 0 ? !App.resolveRunResult : !App.supplementRunJob)) {
-            dialog.errorText = qsTr("当前版本尚未接入结果确认接口。")
+            dialog.errorText = qsTr("当前版本不支持在此确认结果或补录职业。")
             return
         }
         dialog.errorText = ""
         const note = textArea.text.trim()
         const saveNote = note.length > 0 || (!dialog.askingResult && !!dialog.runData.reflection)
         if (saveNote && !App.saveReflection) {
-            dialog.errorText = qsTr("当前版本尚未接入笔记保存接口。")
+            dialog.errorText = qsTr("当前版本无法保存笔记。")
             return
         }
         if (saveNote && App.reflectionSaving === true) {
@@ -308,7 +309,7 @@ Dialog {
             dialog.waitingForReflection = false
             dialog.resolving = false
             if ((!message || message.length === 0) && (!code || code.length === 0))
-                dialog.errorText = qsTr("保存失败，请重试。")
+                dialog.errorText = qsTr("未能确认笔记是否保存，请稍后重试。")
             else
                 dialog.errorText = App.errorText(message, code)
         }
@@ -354,7 +355,7 @@ Dialog {
                 Layout.fillWidth: true
                 enabled: !dialog.busy
                 model: dialog.jobOptions
-                textRole: "job_name"
+                textRole: "label"
                 showJobIcons: true
                 Binding {
                     target: completedJobCombo
@@ -376,7 +377,7 @@ Dialog {
             Text {
                 Layout.fillWidth: true
                 textFormat: Text.PlainText
-                text: qsTr("《%1》打完了吗？离开副本前没有收到通关结算，"
+                text: qsTr("《%1》通关了吗？软件尚未确认本次结果，"
                            + "只有你确认“通关”后这一次才会计入导随次数。").arg(dialog.dutyText)
                 color: Theme.textPrimary
                 font.pixelSize: Theme.fs(13)
@@ -392,7 +393,7 @@ Dialog {
                     variant: "primary"
                     enabled: !dialog.resolving
                     text: qsTr("通关")
-                    onClicked: dialog.resolveWith("COMPLETED", qsTr("用户确认通关"))
+                    onClicked: dialog.resolveWith("COMPLETED", QT_TRANSLATE_NOOP("SystemReason", "用户确认通关"))
                 }
 
                 AppButton {
@@ -400,7 +401,7 @@ Dialog {
                     enabled: !dialog.resolving
                     text: qsTr("未通关 / 中途离开")
                     onClicked: dialog.resolveWith("LEFT_OR_ABANDONED",
-                                                  qsTr("用户确认未通关"))
+                                                  QT_TRANSLATE_NOOP("SystemReason", "用户确认未通关"))
                 }
 
                 Item { Layout.fillWidth: true }
@@ -429,6 +430,10 @@ Dialog {
             GridLayout {
                 id: summaryGrid
 
+                // Set when the duty name takes its second line; the columns then
+                // hang from the top so their labels stay level.
+                property bool dutyWrapped: false
+
                 anchors.left: parent.left
                 anchors.right: parent.right
                 anchors.verticalCenter: parent.verticalCenter
@@ -440,9 +445,11 @@ Dialog {
 
                 Repeater {
                     model: [
-                        { k: qsTr("副本"), v: dialog.runData.duty_name || qsTr("未知副本") },
+                        // A long duty name (most English and Japanese ones) takes a
+                        // second line instead of an ellipsis; the others stay on one.
+                        { k: qsTr("副本"), wraps: true, v: Theme.dutyName(dialog.runData) || qsTr("未知副本") },
                         { k: qsTr("职业"), v: dialog.selectedJobId > 0
-                            ? dialog.jobOptions[dialog.jobIndex].job_name : dialog.runData.job_name || qsTr("未知") },
+                            ? dialog.jobOptions[dialog.jobIndex].label : Theme.jobName(dialog.runData) || qsTr("未知") },
                         { k: qsTr("结果"), v: Fmt.resultLabel(dialog.runData.result || "UNKNOWN") },
                         { k: qsTr("耗时"), v: Fmt.duration(dialog.runData.duration_ms) }
                     ]
@@ -452,6 +459,8 @@ Dialog {
 
                         Layout.fillWidth: true
                         Layout.preferredWidth: 1
+                        Layout.alignment: summaryGrid.dutyWrapped ? Qt.AlignLeft | Qt.AlignTop
+                                                                  : Qt.AlignLeft | Qt.AlignVCenter
                         spacing: 2
 
                         Text {
@@ -469,7 +478,10 @@ Dialog {
                             font.weight: Theme.figureWeight(true)
                             font.family: Theme.figureFamily
                             font.features: ({ "tnum": 1 })
+                            wrapMode: modelData.wraps === true ? Text.WordWrap : Text.NoWrap
+                            maximumLineCount: modelData.wraps === true ? 2 : 1
                             elide: Text.ElideRight
+                            onLineCountChanged: if (modelData.wraps === true) summaryGrid.dutyWrapped = lineCount > 1
                         }
                     }
                 }
@@ -637,11 +649,11 @@ Dialog {
                     if (dialog.runId.length === 0)
                         return
                     if (dialog.selectedJobId > 0) {
-                        dialog.resolveWith("", qsTr("补录本次导随职业"))
+                        dialog.resolveWith("", QT_TRANSLATE_NOOP("SystemReason", "补录本次导随职业"))
                         return
                     }
                     if (typeof App === "undefined" || !App.saveReflection) {
-                        dialog.errorText = qsTr("当前版本尚未接入笔记保存接口。")
+                        dialog.errorText = qsTr("当前版本无法保存笔记。")
                         return
                     }
                     dialog.errorText = ""

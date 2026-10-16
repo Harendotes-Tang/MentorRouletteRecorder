@@ -62,7 +62,7 @@ public sealed class RunImportXlsIpcTests
         await using var fixture = ServerFixture.Start(); await using var client = await fixture.ConnectAsync();
         var path = Path.Combine(Path.GetDirectoryName(fixture.DatabasePath)!, "renamed.xls"); File.WriteAllText(path, "<html>not BIFF8</html>");
         var response = await client.SendAsync("PreviewRunImport", new JsonObject { ["source_kind"] = "XLS", ["file_path"] = path });
-        Assert.Equal(ErrorCodes.BadRequest, response.ErrorCode); Assert.Contains("真实", response.ErrorMessage);
+        Assert.Equal(ErrorCodes.BadRequest, response.ErrorCode); Assert.Contains("不能只修改后缀", response.ErrorMessage);
         Assert.Empty((await client.SendAsync("QueryRuns")).Require()["items"]!.AsArray());
     }
 

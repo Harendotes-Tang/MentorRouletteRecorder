@@ -751,11 +751,11 @@ private Q_SLOTS:
         // No result was observed: the duty was left without the clear signal
         // (docs/protocol-profile-format.md §12), or a restart closed it.
         QTest::newRow("unknown") << "UNKNOWN" << false
-            << QString::fromUtf8("是 · 结果未经确认（崩溃恢复，或离开副本前未收到通关结算）");
+            << QString::fromUtf8("是 · 结果尚未确认，请核对是否通关");
         // Completed by the clear, flagged later because the calibration that recorded it
         // was withdrawn: the clear WAS received, and the system revision says why.
         QTest::newRow("completed-flagged") << "COMPLETED" << true
-            << QString::fromUtf8("是 · 需要你确认这条记录（原因见修正历史）");
+            << QString::fromUtf8("是 · 需要你确认这条记录（原因见“修改记录”）");
         // A known result flagged as the duty ended (a match lost before entry): no
         // revision names a reason, so none is guessed.
         QTest::newRow("cancelled-unexplained") << "CANCELLED_BEFORE_ENTRY" << false

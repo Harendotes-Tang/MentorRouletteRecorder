@@ -52,7 +52,7 @@ private Q_SLOTS:
 
         QCOMPARE(succeeded.count(), 0);
         QCOMPARE(toast.count(), 1);
-        QVERIFY(toast.first().first().toString().contains(QString::fromUtf8("备份失败")));
+        QVERIFY(toast.first().first().toString().contains(QString::fromUtf8("备份的数据检查未通过")));
     }
 
     void verifiedBackupSignalsSuccess()

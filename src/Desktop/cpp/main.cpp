@@ -11,6 +11,7 @@
 //                          [--mock-open-create] [--mock-wizard-step 1|2|3]
 //                          [--mock-detail-tab refl] [--mock-open-reflection]
 //                          [--mock-ui-style classic] [--settings-tab tts]
+//                          [--ui-language en]
 //                          [--mock-calibration done] [--mock-shared consent]
 //                          [--mock-update-available] [--mock-update-download ready]
 //                          [--mock-recording-state waiting-verified]
@@ -38,6 +39,10 @@
 #include "CollectorProcess.h"
 #include <memory>
 #include "AppSettings.h"
+#include "LanguageManager.h"
+#include "GameNames.h"
+#include "ReleaseNotesController.h"
+#include "EvidenceSubmissionController.h"
 #include "Formatters.h"
 #include "IpcBackend.h"
 #include "JobCatalog.h"
@@ -128,10 +133,23 @@ bool hasRawArgument(int argc, char **argv, const char *name)
 /// it stays a Windows system asset and is never redistributed.
 void installApplicationFont(bool screenshotMode)
 {
+    // On Windows the hinted static faces of Microsoft YaHei UI lead. Windows 11
+    // installs Noto Sans SC as one variable font (NotoSansSC-VF.ttf), of which
+    // Qt's Windows font database sees only the default instance: every bold is
+    // then synthesised (strokes smear into each other) and the regular weight
+    // renders thin and unhinted at the 12-13 px the UI uses, so the page reads
+    // worse than the same text in YaHei. The prototype's own stack names YaHei
+    // as its Windows fallback; elsewhere Noto Sans SC keeps the first place.
     const QStringList families0{
+#ifdef Q_OS_WIN
+        QStringLiteral("Microsoft YaHei UI"),
+        QStringLiteral("Microsoft YaHei"),
+        QStringLiteral("Noto Sans SC"),
+#else
         QStringLiteral("Noto Sans SC"),
         QStringLiteral("Microsoft YaHei UI"),
         QStringLiteral("Microsoft YaHei"),
+#endif
         QStringLiteral("Segoe UI"),
     };
     QStringList families = families0;
@@ -180,6 +198,12 @@ void installApplicationFont(bool screenshotMode)
         // capitals. Optional: a machine without the file keeps the fallback.
         QFontDatabase::addApplicationFont(
             QDir(windowsDir).filePath(QStringLiteral("Fonts/consola.ttf")));
+        // The 繁體中文 and 日本語 interfaces lead with their own UI faces
+        // (LanguageManager::preferredFamiliesFor); offscreen sees only what is
+        // registered here. Optional: without them those screenshots keep YaHei.
+        for (const char *file : {"Fonts/msjh.ttc", "Fonts/YuGothM.ttc", "Fonts/meiryo.ttc"})
+            QFontDatabase::addApplicationFont(
+                QDir(windowsDir).filePath(QString::fromLatin1(file)));
     }
 #else
     Q_UNUSED(screenshotMode)
@@ -509,6 +533,13 @@ int main(int argc, char *argv[])
 
     installApplicationFont(screenshotMode);
 
+    // Windows 11 installs Noto Sans SC as one variable font (NotoSansSC-VF.ttf).
+    // Qt Quick's default distance-field glyph cache mixes that font's weight
+    // instances once a window uses more than one: bold headings come out thin and
+    // glyphs such as 录 / 虚 lose strokes. Native rendering draws each weight
+    // correctly and stays crisp at the small CJK sizes the UI uses.
+    QQuickWindow::setTextRenderType(QQuickWindow::NativeTextRendering);
+
     QCommandLineParser parser;
     parser.setApplicationDescription(
         QStringLiteral("FF14 mentor roulette recorder - desktop shell"));
@@ -544,8 +575,8 @@ int main(int argc, char *argv[])
     QCommandLineOption sharedOption(
         QStringLiteral("mock-shared"),
         QStringLiteral("Synthetic 共享校准 state: fetching, verifying, consent, verified, "
-                       "verified-auditing, imported-published, imported-unpublished, rejected, "
-                       "unavailable, user-rejected, none-for-build or share. Arms a matching "
+                       "verified-auditing, verified-proven, imported-published, imported-unpublished, "
+                       "rejected, unavailable, user-rejected, none-for-build or share. Arms a matching "
                        "--mock-calibration state when none is given; nothing is downloaded."),
         QStringLiteral("state"));
     QCommandLineOption updateOption(
@@ -617,6 +648,11 @@ int main(int argc, char *argv[])
         QStringLiteral("Pin the UI style for this run without touching desktop.ini: classic, "
                        "eorzea or harendotes. Works with either backend."),
         QStringLiteral("style"), QString());
+    QCommandLineOption uiLanguageOption(
+        QStringLiteral("ui-language"),
+        QStringLiteral("Show the interface in this language for this run without touching "
+                       "desktop.ini: zh-CN, zh-TW, en or ja. Works with either backend."),
+        QStringLiteral("code"), QString());
     QCommandLineOption openShareOption(
         QStringLiteral("mock-open-share"),
         QStringLiteral("Open the reflection share-image preview on the first reflection."));
@@ -636,6 +672,9 @@ int main(int argc, char *argv[])
         QStringLiteral("show-disclosure"),
         QStringLiteral("Open the explanation window (what the software does and does not do) "
                        "at start-up, as 设置 · 关于 opens it. Works with either backend."));
+    QCommandLineOption releaseNotesOption(
+        QStringLiteral("show-release-notes"),
+        QStringLiteral("Preview bundled release notes in an isolated mock or screenshot run."));
     QCommandLineOption verifyTextOption(
         QStringLiteral("verify-text"),
         QStringLiteral("Before grabbing, assert that some visible item shows <text>. "
@@ -703,9 +742,11 @@ int main(int argc, char *argv[])
     parser.addOption(openShareOption);
     parser.addOption(openImportOption);
     parser.addOption(uiStyleOption);
+    parser.addOption(uiLanguageOption);
     parser.addOption(settingsTabOption);
     parser.addOption(sizeOption);
     parser.addOption(disclosureOption);
+    parser.addOption(releaseNotesOption);
     parser.addOption(verifyTextOption);
     parser.addOption(midstreamOption);
     parser.addOption(exportTargetOption);
@@ -769,6 +810,18 @@ int main(int argc, char *argv[])
 
     // 设置先于控制器和 QML 引擎创建，确保它们销毁时设置对象仍然存活。
     mr::AppSettings settings;
+    mr::ReleaseNotesController releaseNotes(&settings);
+
+    // 界面语言先于控制器生效：它们在构造时就会拼出界面文字。
+    const QString uiLanguage = parser.value(uiLanguageOption);
+    if (!uiLanguage.isEmpty() && !mr::LanguageManager::isSupported(uiLanguage)) {
+        std::fprintf(stderr, "invalid --ui-language value: %s (expected %s)\n",
+                     qPrintable(uiLanguage),
+                     qPrintable(mr::LanguageManager::supportedCodes().join(QStringLiteral(", "))));
+        return 2;
+    }
+    mr::LanguageManager language(&settings);
+    language.initialize(uiLanguage);
 
     const QString mockLiveMode = parser.value(liveOption);
     if (selectedBackend == QLatin1String("mock")
@@ -840,7 +893,8 @@ int main(int argc, char *argv[])
     }
     if (parser.isSet(sharedOption) && !QStringList{QStringLiteral("fetching"),
             QStringLiteral("verifying"), QStringLiteral("consent"), QStringLiteral("verified"),
-            QStringLiteral("verified-auditing"), QStringLiteral("imported-published"),
+            QStringLiteral("verified-auditing"), QStringLiteral("verified-proven"),
+            QStringLiteral("imported-published"),
             QStringLiteral("imported-unpublished"),
             QStringLiteral("rejected"), QStringLiteral("unavailable"), QStringLiteral("user-rejected"),
             QStringLiteral("none-for-build"), QStringLiteral("share")}.contains(parser.value(sharedOption))) {
@@ -958,6 +1012,13 @@ int main(int argc, char *argv[])
     if (selectedBackend == QLatin1String("ipc"))
         collector = std::make_unique<mr::CollectorProcess>();
     mr::AppController controller(backend, &settings, nullptr, collector.get());
+    mr::EvidenceSubmissionController evidence(backend);
+    QObject::connect(&controller, &mr::AppController::statusChanged, &evidence,
+                     [&controller, &evidence] { evidence.refreshFromCaptureStatus(controller.captureStatus()); });
+    QObject::connect(&controller, &mr::AppController::validationChanged, &evidence,
+                     [&controller, &evidence] { evidence.refreshFromValidationStatus(controller.validationStatus()); });
+    QObject::connect(&evidence, &mr::EvidenceSubmissionController::notice,
+                     &controller, &mr::AppController::showToast);
     mr::ReflectionLibraryController reflections(backend);
     mr::ReflectionShareController reflectionShare;
     auto *importRecords = new mr::ImportRecordsController(&app);
@@ -1003,9 +1064,18 @@ int main(int argc, char *argv[])
     if (parser.isSet(themeOption))
         controller.setThemeMode(parser.value(themeOption));
 
+    // 播报跟随界面语言: the voice and the templates the settings page shows are
+    // the new language's. Connected after the controllers, so TtsService has
+    // already reordered its voices for that language when this arrives.
+    QObject::connect(&language, &mr::LanguageManager::languageChanged,
+                     &settings, &mr::AppSettings::ttsChanged);
+
     QQmlApplicationEngine engine;
     if (screenshotMode)
         qmlWarnings.watch(&engine);
+    language.attachEngine(&engine);
+    engine.rootContext()->setContextProperty(QStringLiteral("Lang"), &language);
+    engine.rootContext()->setContextProperty(QStringLiteral("Names"), mr::GameNames::shared());
     engine.rootContext()->setContextProperty(QStringLiteral("App"), &controller);
     engine.rootContext()->setContextProperty(QStringLiteral("Fmt"), formatters);
     engine.rootContext()->setContextProperty(QStringLiteral("Jobs"), jobs);
@@ -1016,6 +1086,13 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty(QStringLiteral("ReflectionShare"), &reflectionShare);
     engine.rootContext()->setContextProperty(QStringLiteral("ImportRecords"), importRecords);
     engine.rootContext()->setContextProperty(QStringLiteral("Settings"), &settings);
+    engine.rootContext()->setContextProperty(QStringLiteral("ReleaseNotes"), &releaseNotes);
+    engine.rootContext()->setContextProperty(QStringLiteral("CalibrationEvidence"), &evidence);
+    engine.rootContext()->setContextProperty(QStringLiteral("SuppressReleaseNotes"),
+        mr::AppSettings::isHarnessRun(screenshotMode, selectedBackend));
+    engine.rootContext()->setContextProperty(QStringLiteral("ForceReleaseNotes"),
+        parser.isSet(releaseNotesOption)
+            && mr::AppSettings::isHarnessRun(screenshotMode, selectedBackend));
     engine.rootContext()->setContextProperty(QStringLiteral("Tts"), controller.tts());
     engine.rootContext()->setContextProperty(QStringLiteral("GraphsAvailable"),
                                              probeGraphs(&engine));

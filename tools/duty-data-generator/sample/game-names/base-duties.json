@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "region": "CN",
+  "language": "zh-Hans",
+  "data_version": "2026-09-04",
+  "sample": true,
+  "provenance": { "xivapi_game_version": "sample-version" },
+  "duties": [
+    { "content_id": 1, "territory_id": 1039, "localized_name": "样例迷宫一", "duty_category": "四人迷宫", "expansion": "A Realm Reborn", "level": 15, "party_size": 4, "enabled": true },
+    { "content_id": 2, "territory_id": 1040, "localized_name": "样例讨伐二", "duty_category": "讨伐歼灭战", "expansion": "Heavensward", "level": 50, "party_size": 8, "enabled": true },
+    { "content_id": 3, "territory_id": 1041, "localized_name": "样例迷宫三", "duty_category": "其他", "expansion": "Heavensward", "level": 60, "party_size": 4, "enabled": true },
+    { "content_id": 5, "territory_id": 1331, "localized_name": "样例重制迷宫五", "duty_category": "四人迷宫", "expansion": "A Realm Reborn", "level": 28, "party_size": 4, "enabled": true }
+  ]
+}

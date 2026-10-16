@@ -12,8 +12,11 @@
 // It never touches the network. 分享给其他玩家 hands a github.com address to the
 // system browser on an explicit click, the same way the npcap.com link does,
 // and copies the code to the clipboard; whether anything is submitted is the
-// player's decision in that browser. last_refusal and the candidates' short
-// ids are diagnostics and never reach a sentence built here.
+// player's decision in that browser. 这份校准好用，告诉其他玩家 (a shared profile
+// this machine proved, plans/shared-calibration.md §20.6) is the same request
+// and the same path. last_refusal, the candidates' short ids and their
+// disputed / preferred / shape_prior marks are diagnostics and never reach a
+// sentence built here.
 // ---------------------------------------------------------------------------
 
 #include <QObject>
@@ -58,12 +61,21 @@ class SharedCalibrationController final : public QObject
     Q_PROPERTY(bool canImport READ canImport NOTIFY changed)
     Q_PROPERTY(bool canReject READ canReject NOTIFY changed)
     Q_PROPERTY(bool canShare READ canShare NOTIFY changed)
+    /// Which share the button sends (plans/shared-calibration.md §20.6): "local" for a
+    /// calibration this machine made, "verified" for another player's published one that
+    /// recorded one complete duty here with nothing left to audit, as reported by a Collector
+    /// that hands such a code out, empty when there is nothing to share.
+    Q_PROPERTY(QString shareKind READ shareKind NOTIFY changed)
+    /// The button and the sentence under it, for whichever card offers it. One place:
+    /// the calibration card and the 协议档案 card must never word this differently.
+    Q_PROPERTY(QString shareButtonText READ shareButtonText NOTIFY changed)
+    Q_PROPERTY(QString shareHintText READ shareHintText NOTIFY changed)
     Q_PROPERTY(bool busy READ busy NOTIFY changed)
     /// The queue-inference trade-off, in the words the local calibration card uses.
-    Q_PROPERTY(QString consentText READ consentText CONSTANT)
-    /// What 分享给其他玩家 does, for whichever card offers it. One sentence, one place:
-    /// the calibration card and the 协议档案 card must never word this differently.
-    Q_PROPERTY(QString shareHint READ shareHint CONSTANT)
+    Q_PROPERTY(QString consentText READ consentText NOTIFY changed)
+    /// What 分享给其他玩家 does for this machine's own calibration. The cards read
+    /// shareHintText, which is this sentence whenever shareKind is "local".
+    Q_PROPERTY(QString shareHint READ shareHint NOTIFY changed)
 
 public:
     using UrlOpener = std::function<bool(const QUrl &)>;
@@ -89,10 +101,15 @@ public:
     bool canImport() const;
     bool canReject() const;
     bool canShare() const;
+    QString shareKind() const;
+    QString shareButtonText() const;
+    QString shareHintText() const;
     bool busy() const { return m_busy; }
 
     static QString consentText();
     static QString shareHint();
+    /// What 这份校准好用，告诉其他玩家 does (shareKind "verified").
+    static QString verifiedShareHint();
     /// The sentence each ERR_SHARE_CODE_UNAVAILABLE details.reason is explained with.
     static QString shareRefusalMessage(const QString &reason);
     /// True only for an https://github.com/ address without credentials or a port:
@@ -131,6 +148,10 @@ private:
         bool userRejected = false;
         bool manualOnly = false;
         bool auditPending = false;
+        /// The profile in use - the first candidate - recorded one complete duty, has nothing
+        /// left to audit and can be handed out: status PROVEN, its audit_pending false,
+        /// provenance PUBLISHED, reported by a §20 Collector (the candidate carries preferred).
+        bool inUseProven = false;
         /// "published", "imported" or empty when no candidate reports a provenance.
         QString provenance;
         /// "login", "queue" or empty when the candidates' gate cannot be told.

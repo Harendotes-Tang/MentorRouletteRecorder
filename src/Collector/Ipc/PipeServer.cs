@@ -3,6 +3,7 @@ using System.Security.AccessControl;
 using System.Security.Principal;
 using System.Text.Json.Nodes;
 using MentorRecorder.Collector.Contracts.Errors;
+using MentorRecorder.Collector.Contracts.Texts;
 
 namespace MentorRecorder.Collector.Ipc;
 
@@ -306,7 +307,7 @@ public sealed class PipeServer : IAsyncDisposable
         using var identity = WindowsIdentity.GetCurrent();
         var user = identity.User
             ?? throw new CollectorException(
-                ErrorCodes.Internal, "无法读取当前用户 SID，命名管道 ACL 无法设置。");
+                ErrorCodes.Internal, CollectorTexts.StartupPipeAclSidUnknown());
 
         // Exactly one entry. No Everyone, no Authenticated Users, no NETWORK.
         security.AddAccessRule(new PipeAccessRule(user, PipeAccessRights.FullControl, AccessControlType.Allow));
@@ -406,7 +407,7 @@ public sealed class FrameChannel
                 case FrameStatus.Oversized:
                     throw new CollectorException(
                         ErrorCodes.ProtocolVersion,
-                        "收到超过 4 MiB 的帧，连接已断开。",
+                        CollectorTexts.IpcFrameTooLargeReceived(),
                         new Dictionary<string, object?> { ["max_frame_bytes"] = FrameCodec.MaxFrameBytes });
             }
 

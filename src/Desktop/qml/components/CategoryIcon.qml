@@ -32,7 +32,7 @@ Item {
 
     Text {
         anchors.centerIn: parent
-        text: root.category.length > 0 ? root.category.substring(0, 1) : qsTr("?")
+        text: root.category.length > 0 ? Theme.categoryName(root.category).substring(0, 1) : qsTr("?")
         color: Theme.eorzea ? Theme.gold2 : Theme.textSecondary
         font.pixelSize: 11
         font.bold: true

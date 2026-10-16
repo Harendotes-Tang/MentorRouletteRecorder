@@ -57,7 +57,7 @@ public sealed class RunImportServiceTests
         var preview = service.PreviewSource("SCREENSHOT", rows: new JsonArray(candidate), timeZone: "+08:00");
         Assert.Equal("COMPLETED", Row(preview)["run"]!["result"]!.GetValue<string>());
         Assert.True(Row(preview)["incomplete"]!.GetValue<bool>());
-        Assert.Contains(Row(preview)["warnings"]!.AsArray(), value => value!.GetValue<string>().Contains("默认通关", StringComparison.Ordinal));
+        Assert.Contains(Row(preview)["warnings"]!.AsArray(), value => value!.GetValue<string>().Contains("已预填为通关", StringComparison.Ordinal));
         Commit(service, preview);
         var stats = new StatisticsRepository(fixture.Database, Settings(fixture)).GetDashboard();
         Assert.Equal(1, stats.CompletedCount);

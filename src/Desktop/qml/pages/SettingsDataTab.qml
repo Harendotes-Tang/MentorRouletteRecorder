@@ -18,7 +18,7 @@ ColumnLayout {
 
     function captureSettingDescription(text) {
         if (!App.captureSettingsSupported)
-            return qsTr("当前采集器不支持该设置，开关已停用。")
+            return qsTr("当前后台服务不支持这项设置，暂时无法修改。")
         return text
     }
 
@@ -76,7 +76,7 @@ ColumnLayout {
 
         SettingToggleRow {
             label: qsTr("自动备份")
-            description: qsTr("每天自动备份一次，保留 14 份")
+            description: qsTr("软件运行且未在导随中时，每天备份一次，保留最近 14 份")
             checked: Settings.autoBackup
             onToggled: function(value) { Settings.autoBackup = value }
         }
@@ -89,10 +89,10 @@ ColumnLayout {
             label: qsTr("诊断日志保留天数")
             description: tab.captureSettingDescription(
                 App.captureSettingsLoaded
-                ? qsTr("1–90 天 · 采集器当前生效值：%1 天")
+                ? qsTr("可设为 1–90 天，当前保留 %1 天")
                   .arg(App.captureSettings.log_retention_days !== undefined
                        ? App.captureSettings.log_retention_days : Fmt.dash())
-                : qsTr("1–90 天 · 正在读取采集器的生效值…"))
+                : qsTr("可设为 1–90 天，正在读取当前设置…"))
 
             StyledTextField {
                 objectName: "logRetentionField"
@@ -134,7 +134,7 @@ ColumnLayout {
             }
             AppButton {
                 objectName: "integrityCheckButton"
-                text: App.integrityCheckRunning ? qsTr("正在校验…") : qsTr("完整性校验")
+                text: App.integrityCheckRunning ? qsTr("正在检查…") : qsTr("检查数据")
                 enabled: !App.integrityCheckRunning
                 onClicked: App.checkDatabaseIntegrity()
             }
@@ -158,8 +158,8 @@ ColumnLayout {
             Layout.bottomMargin: 6
             // BackupDatabase runs PRAGMA integrity_check too, and the backup
             // toast repeats its result verbatim.
-            text: qsTr("采集器在启动时和每次备份时也会自动校验，备份完成的提示会显示校验结果。"
-                       + "桌面端通过采集器访问数据，不直接连接数据库。")
+            text: qsTr("点「检查数据」可检查记录数据库是否损坏，软件启动和备份时也会检查。"
+                       + "「自动备份」和「立即备份」都只备份数据库，不含备注图片，图片需另行备份。备份结果会显示数据完整性检查的结论。")
             color: Theme.textSecondary
             font.pixelSize: Theme.fs(11)
             wrapMode: Text.WordWrap
@@ -168,17 +168,17 @@ ColumnLayout {
 
     SettingsPanel {
         objectName: "historyRetentionCard"
-        kicker: qsTr("回收站")
+        kicker: qsTr("已删除")
         SettingsRow {
             label: qsTr("删除记录保留期")
-            description: qsTr("普通删除先移入回收站；默认保留 30 天，到期永久清理当前记录、心得和备注图片。旧删除从升级日起算。")
+            description: qsTr("删除记录会先移到「已删除」，可以恢复。默认保留 30 天，到期永久删除记录、心得和备注图片。旧版本中已删除的记录从升级日起算。")
             StyledComboBox {
                 id: retentionMode
                 objectName: "historyRetentionMode"
                 Layout.preferredWidth: 160
                 enabled: App.historyRetentionLoaded && App.historyRetentionDays >= 0 && !App.historyRetentionSaving
                 model: [qsTr("按天自动清理"), qsTr("永不自动清理")]
-                currentIndex: App.historyRetentionDays === 0 ? 1 : 0
+                currentIndex: Theme.live(App.historyRetentionDays === 0 ? 1 : 0)
                 onActivated: if (currentIndex === 1) App.updateHistoryRetentionSettings(0)
             }
         }
@@ -186,7 +186,7 @@ ColumnLayout {
             objectName: "historyRetentionDaysRow"
             visible: retentionMode.currentIndex === 0
             label: qsTr("保留天数")
-            description: App.historyRetentionDays > 0 ? qsTr("当前生效：%1 天。恢复取消计时，再次删除重新起算。").arg(App.historyRetentionDays) : qsTr("1–36500 天；保存后生效。")
+            description: App.historyRetentionDays > 0 ? qsTr("当前保留 %1 天。恢复后停止计时，再次删除会重新计时。").arg(App.historyRetentionDays) : qsTr("可设为 1–36500 天，点「保存」后生效。")
             StyledTextField {
                 id: retentionDays
                 objectName: "historyRetentionDays"
@@ -195,7 +195,7 @@ ColumnLayout {
                 text: App.historyRetentionDays > 0 ? String(App.historyRetentionDays) : "30"
                 inputMethodHints: Qt.ImhDigitsOnly
                 validator: IntValidator { bottom: 1; top: 36500 }
-                Accessible.name: qsTr("回收站保留天数")
+                Accessible.name: qsTr("已删除记录保留天数")
             }
             AppButton {
                 objectName: "saveHistoryRetention"
@@ -208,7 +208,7 @@ ColumnLayout {
             Layout.fillWidth: true
             objectName: "historyRetentionExplanation"
             Layout.topMargin: 12
-            text: qsTr("清理只在软件运行时检查，关闭期间到期将在下次启动处理。已有备份、导出文件和分享图片保留，不会随回收站清理。")
+            text: qsTr("软件运行时才会自动清理，关闭期间到期的记录会在下次启动时处理。备份、导出文件和分享图片不受影响。")
             textFormat: Text.PlainText
             color: Theme.textSecondary
             font.pixelSize: Theme.fs(12)

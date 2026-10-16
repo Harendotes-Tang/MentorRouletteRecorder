@@ -882,7 +882,7 @@ private Q_SLOTS:
         history.createManualRun(fields, reason);
         const auto first = backend.last(QStringLiteral("CreateManualRun"));
         first.reply->fail(QStringLiteral("ERR_INTERNAL"),
-                          QString::fromUtf8("Collector 未在超时时间内响应。"));
+                          QString::fromUtf8("后台服务暂时没有响应，操作结果还未确认。请稍后检查结果。"));
         history.createManualRun(fields, reason);
         const auto resent = backend.last(QStringLiteral("CreateManualRun"));
         QCOMPARE(resent.requestId, first.requestId);
@@ -957,7 +957,7 @@ private Q_SLOTS:
         QVERIFY(reply);
         reply->fail(QStringLiteral("ERR_UNKNOWN_MESSAGE"), QStringLiteral("unknown message_type"));
         QCOMPARE(history.runEventsState(), QStringLiteral("unsupported"));
-        QCOMPARE(history.runEventsMessage(), QString::fromUtf8("当前 Collector 不提供逐事件摘要。"));
+        QCOMPARE(history.runEventsMessage(), QString::fromUtf8("当前后台服务不支持查看事件摘要。"));
     }
 
     void destructionDisconnectsPendingRepliesAndBackendLossIsSafe()

@@ -235,10 +235,16 @@ public sealed class SharedCalibrationClient
     {
         var revoked = SharedCalibrationIndex.Revoked(index.Entries, region, gameBuild);
         var chosen = SharedCalibrationIndex.Select(index.Entries, region, gameBuild);
+        // Apply the same duplicate/revocation rules as the download selection, once per identity so
+        // the download limit cannot hide a new restriction on a code already cached or in use.
+        var entries = index.Entries.GroupBy(entry => entry.CodeSha256, StringComparer.Ordinal)
+            .SelectMany(group => SharedCalibrationIndex.Select(group, region, gameBuild))
+            .ToArray();
         if (chosen.Count == 0)
         {
             return new SharedCalibrationFetchResult(SharedFetchStatus.NoneForBuild, indexAttempts,
-                Array.Empty<SharedCalibrationCandidate>(), Array.Empty<SharedCodeDiscard>(), index.Skipped, revoked);
+                Array.Empty<SharedCalibrationCandidate>(), Array.Empty<SharedCodeDiscard>(), index.Skipped, revoked)
+                { IndexEntries = entries };
         }
 
         // The source that just served the index is known to answer, so codes are asked there first.
@@ -278,7 +284,8 @@ public sealed class SharedCalibrationClient
         }
 
         var status = candidates.Count > 0 ? SharedFetchStatus.Ok : SharedFetchStatus.CodesUnavailable;
-        return new SharedCalibrationFetchResult(status, indexAttempts, candidates, discards, index.Skipped, revoked);
+        return new SharedCalibrationFetchResult(status, indexAttempts, candidates, discards, index.Skipped, revoked)
+            { IndexEntries = entries };
     }
 
     private async Task<(SharedCalibrationCandidate? Candidate, SharedCodeDiscard? Discard)> FetchCodeAsync(
@@ -366,7 +373,8 @@ public sealed class SharedCalibrationClient
         }
 
         return (new SharedCalibrationCandidate(
-            entry.CodeSha256, text.Trim(), payload, entry.Submitters, entry.FirstPublishedAtUtc, entry.Commit, entry.Conflicting), null);
+            entry.CodeSha256, text.Trim(), payload, entry.Submitters, entry.FirstPublishedAtUtc, entry.Commit, entry.Conflicting,
+            entry.ShapePrior, entry.Quarantined, entry.QuarantineEpoch), null);
     }
 
     private async Task<(SharedSourceAttempt Attempt, ReadOnlyMemory<byte> Body)> GetAsync(

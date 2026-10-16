@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Domain;
 
 namespace MentorRecorder.Collector.Capture;
@@ -79,7 +80,7 @@ public sealed record GameProcessDetection(
     string? GameBuild,
     int InstanceCount,
     string? ExecutablePath,
-    IReadOnlyList<string> Warnings)
+    IReadOnlyList<UserText> Warnings)
 {
     /// <summary>
     /// Whether recording is waiting for an explicit client choice. Only ever true while
@@ -93,7 +94,7 @@ public sealed record GameProcessDetection(
     public IReadOnlyList<GameProcessOption> Processes { get; init; } = Array.Empty<GameProcessOption>();
     /// <summary>The "nothing is running" answer.</summary>
     public static GameProcessDetection NotRunning { get; } = new(
-        false, null, null, null, Region.Unknown, null, 0, null, Array.Empty<string>());
+        false, null, null, null, Region.Unknown, null, 0, null, Array.Empty<UserText>());
 }
 
 /// <summary>
@@ -274,9 +275,9 @@ public sealed class GameProcessLocator
 
         Remember(chosen.ExecutablePath);
 
-        var warnings = new List<string>();
+        var warnings = new List<UserText>();
         if (instanceCount > 1)
-            warnings.Add($"检测到 {instanceCount} 个 FFXIV 进程。请在总览或捕获诊断页确认当前记录对象。");
+            warnings.Add(CollectorTexts.CaptureGameInstances(instanceCount));
 
         if (chosen.ExecutablePath is null)
         {
@@ -284,8 +285,8 @@ public sealed class GameProcessLocator
             // reaches the first message; the Windows one cannot, so in practice this is the
             // second (see GameProcessCandidate.AccessDenied).
             warnings.Add(chosen.AccessDenied
-                ? "没有权限读取游戏安装路径，区服与客户端版本将保持未知；此时不会进行任何自动记录（fail-closed）。"
-                : "无法确定游戏安装路径，区服与客户端版本将保持未知；此时不会进行任何自动记录（fail-closed）。");
+                ? CollectorTexts.CaptureGamePathDenied()
+                : CollectorTexts.CaptureGamePathUnknown());
         }
 
         var detected = GuessRegion(chosen.ExecutablePath);
@@ -296,8 +297,7 @@ public sealed class GameProcessLocator
             if (detected != Region.Unknown && detected != forced)
             {
                 warnings.Add(
-                    "设置中手动指定的区服与安装路径推断出的区服不一致，已按手动指定的区服处理。" +
-                    "若这不是你想要的，请到设置里清除区服覆盖。");
+                    CollectorTexts.CaptureGameRegionOverrideMismatch());
             }
         }
         else if (detected == Region.Unknown && chosen.ExecutablePath is not null)
@@ -306,17 +306,15 @@ public sealed class GameProcessLocator
             // carries none of the markers, or markers of both regions. That is a permanent
             // condition and waiting will never fix it, so the message has to say what the
             // user can actually do (H-9).
-            warnings.Add(
-                (HasMarkersOfBothRegions(chosen.ExecutablePath)
-                    ? "无法从安装路径判断区服（路径同时含有国服与国际服的标记）。"
-                    : "无法从安装路径判断区服（路径可读，但不含可识别的区服标记）。") +
-                "请到设置里手动指定区服（国服 / 国际服）；在此之前不会进行任何自动记录（fail-closed）。");
+            warnings.Add(HasMarkersOfBothRegions(chosen.ExecutablePath)
+                ? CollectorTexts.CaptureGameRegionAmbiguous()
+                : CollectorTexts.CaptureGameRegionUnmarked());
         }
 
         var build = ReadBuild(chosen.ExecutablePath);
         if (chosen.ExecutablePath is not null && build is null)
         {
-            warnings.Add($"未能在游戏目录中读取到 {VersionFileName}，客户端版本未知。");
+            warnings.Add(CollectorTexts.CaptureGameVersionFileMissing(VersionFileName));
         }
 
         return new GameProcessDetection(
@@ -386,7 +384,7 @@ public sealed class GameProcessLocator
         return new GameProcessDetection(
             false, null, null, null,
             SafeRegionOverride() ?? GuessRegion(remembered),
-            build, 0, null, Array.Empty<string>());
+            build, 0, null, Array.Empty<UserText>());
     }
 
     /// <summary>

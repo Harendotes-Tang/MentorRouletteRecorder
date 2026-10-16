@@ -1,9 +1,12 @@
 #include "SpeechController.h"
 
+#include "CollectorText.h"
 #include "IBackend.h"
 
+#include <QCoreApplication>
 #include <QJsonArray>
 #include <QLoggingCategory>
+#include <QPointer>
 #include <QUrl>
 
 namespace {
@@ -23,8 +26,13 @@ QVariantList voiceList(const QJsonValue &value)
         if (name.isEmpty())
             continue;
         const QString label = object.value(QStringLiteral("label")).toString().trimmed();
-        rows.append(QVariantMap{{QStringLiteral("name"), name},
-                                {QStringLiteral("label"), label.isEmpty() ? name : label}});
+        QVariantMap row{{QStringLiteral("name"), name},
+                        {QStringLiteral("label"), label.isEmpty() ? name : label}};
+        // label_ref names the same label in the catalogue; it is rendered when the
+        // rows are built, so the list follows the interface language.
+        if (!label.isEmpty() && object.contains(QStringLiteral("label_ref")))
+            row.insert(QStringLiteral("label_ref"), object.value(QStringLiteral("label_ref")).toVariant());
+        rows.append(row);
     }
     return rows;
 }
@@ -40,11 +48,12 @@ QString normalizedUrl(const QString &url)
 QVariantMap voiceRow(const QString &provider, const QString &name, const QString &label)
 {
     const bool azure = provider == kAzure;
-    const QString suffix = azure ? QString::fromUtf8(" · 在线（Azure）")
-                                 : QString::fromUtf8(" · 在线（OpenAI 兼容）");
+    const QString shown = label.isEmpty() ? name : label;
     return {{QStringLiteral("id"), mr::SpeechController::voiceIdFor(provider, name)},
             {QStringLiteral("name"), name},
-            {QStringLiteral("label"), (label.isEmpty() ? name : label) + suffix},
+            {QStringLiteral("label"),
+             azure ? QCoreApplication::translate("mr::SpeechController", "%1 · 在线（Azure）").arg(shown)
+                   : QCoreApplication::translate("mr::SpeechController", "%1 · 在线（OpenAI 兼容）").arg(shown)},
             {QStringLiteral("locale"), azure ? QStringLiteral("zh-CN") : QString()},
             {QStringLiteral("provider"), azure ? QStringLiteral("azure") : QStringLiteral("openai")},
             {QStringLiteral("group"), QStringLiteral("online")}};
@@ -59,6 +68,8 @@ SpeechController::SpeechController(QObject *parent)
 {
     m_settingsRetry.setSingleShot(true);
     connect(&m_settingsRetry, &QTimer::timeout, this, &SpeechController::refresh);
+    // resultText is a recipe; TtsService rebuilds the voice rows it took from here.
+    onLanguageChanged(this, [this] { Q_EMIT changed(); });
 }
 
 void SpeechController::setBackend(IBackend *backend)
@@ -152,15 +163,17 @@ QVariantList SpeechController::voiceRows(const QString &current) const
         ids.append(id);
         rows.append(row);
     };
+    const auto labelOf = [](const QVariantMap &voice) {
+        return collector_text::render(voice.value(QStringLiteral("label_ref")),
+                                      voice.value(QStringLiteral("label")).toString());
+    };
     for (const QVariant &entry : m_azureVoices) {
         const QVariantMap voice = entry.toMap();
-        add(voiceRow(kAzure, voice.value(QStringLiteral("name")).toString(),
-                     voice.value(QStringLiteral("label")).toString()));
+        add(voiceRow(kAzure, voice.value(QStringLiteral("name")).toString(), labelOf(voice)));
     }
     for (const QVariant &entry : m_openaiVoices) {
         const QVariantMap voice = entry.toMap();
-        add(voiceRow(kOpenAi, voice.value(QStringLiteral("name")).toString(),
-                     voice.value(QStringLiteral("label")).toString()));
+        add(voiceRow(kOpenAi, voice.value(QStringLiteral("name")).toString(), labelOf(voice)));
     }
     // A name typed on the panel (any OpenAI-compatible service names its
     // voices its own way), and whatever the Collector has in force.
@@ -180,29 +193,29 @@ QString SpeechController::errorReason(const QString &code)
 {
     if (code == QLatin1String("ERR_SPEECH_NOT_CONFIGURED")
         || code == QLatin1String("DESKTOP_PROVIDER_MISMATCH"))
-        return QString::fromUtf8("未配置");
+        return tr("在线语音尚未配置好");
     if (code == QLatin1String("ERR_SPEECH_AUTH"))
-        return QString::fromUtf8("密钥无效");
+        return tr("密钥无效");
     if (code == QLatin1String("ERR_SPEECH_QUOTA"))
-        return QString::fromUtf8("额度用完");
+        return tr("服务额度不足或请求过于频繁");
     if (code == QLatin1String("ERR_SPEECH_NETWORK"))
-        return QString::fromUtf8("网络不可用");
+        return tr("暂时无法使用语音服务");
     if (code == QLatin1String("ERR_SPEECH_TIMEOUT"))
-        return QString::fromUtf8("超时");
+        return tr("等待语音服务超时");
     if (code == QLatin1String("ERR_SPEECH_FORMAT")
         || code == QLatin1String("DESKTOP_AUDIO_REJECTED"))
-        return QString::fromUtf8("返回的不是可播放的声音");
+        return tr("返回的声音无法播放");
     if (code == QLatin1String("ERR_SPEECH_DISABLED"))
-        return QString::fromUtf8("在线语音已被禁用");
+        return tr("在线语音已被禁用");
     if (code == QLatin1String("ERR_UNKNOWN_MESSAGE"))
-        return QString::fromUtf8("采集器版本不支持");
+        return tr("当前后台服务版本不支持在线语音");
     if (code == QLatin1String("DESKTOP_PLAYBACK_FAILED"))
-        return QString::fromUtf8("无法播放返回的声音");
+        return tr("无法播放返回的声音");
     if (code == QLatin1String("DESKTOP_TEXT_TOO_LONG"))
-        return QString::fromUtf8("这句话超过 200 字");
+        return tr("这句话超过 200 字");
     if (code == QLatin1String("DESKTOP_CANCELLED"))
-        return QString::fromUtf8("被新的播报打断");
-    return QString::fromUtf8("采集器没有响应");
+        return tr("被新的播报打断");
+    return tr("语音请求未完成");
 }
 
 QString SpeechController::describeTarget(const QString &provider, const QString &region,
@@ -217,12 +230,12 @@ QString SpeechController::describeTarget(const QString &provider, const QString 
     }
     if (provider == kOpenAi) {
         const QString typed = hostOfUrl(baseUrl);
-        return typed.isEmpty() ? QString::fromUtf8("你填写的地址") : typed;
+        return typed.isEmpty() ? tr("你填写的地址") : typed;
     }
     const QString typedRegion = region.trimmed().toLower();
     return typedRegion.isEmpty()
-               ? QString::fromUtf8("微软 Azure 语音服务")
-               : QString::fromUtf8("微软 Azure 语音（%1 区域）").arg(typedRegion);
+               ? tr("微软 Azure 语音服务")
+               : tr("微软 Azure 语音（%1 区域）").arg(typedRegion);
 }
 
 QString SpeechController::hostOfUrl(const QString &url)
@@ -312,36 +325,38 @@ void SpeechController::save(const QVariantMap &fields)
     const QString key = fields.value(QStringLiteral("api_key")).toString().trimmed();
     if (!key.isEmpty())
         outgoing.insert(QStringLiteral("api_key"), key);
-    send(outgoing, QString::fromUtf8("已保存"), QString::fromUtf8("保存没有成功"));
+    send(outgoing, QT_TR_NOOP("已保存"), QT_TR_NOOP("保存没有成功：%1"));
 }
 
 void SpeechController::clearKey()
 {
-    send({{QStringLiteral("api_key"), QString()}}, QString::fromUtf8("已清除密钥"),
-         QString::fromUtf8("清除密钥没有成功"));
+    send({{QStringLiteral("api_key"), QString()}}, QT_TR_NOOP("已清除密钥"),
+         QT_TR_NOOP("清除密钥没有成功：%1"));
 }
 
-void SpeechController::send(const QVariantMap &fields, const QString &successText,
-                            const QString &failurePrefix)
+void SpeechController::send(const QVariantMap &fields, const char *successText,
+                            const char *failureText)
 {
     if (!m_backend || m_busy || fields.isEmpty())
         return;
-    const bool quiet = successText.isEmpty();
+    const bool quiet = successText == nullptr;
     m_busy = true;
     if (!quiet)
-        setResult(QString(), QString());
+        setResult(QString(), LiveText());
     Q_EMIT changed();
 
     const int generation = m_generation;
-    m_backend->updateSpeechSettings(fields)->whenDone(this,
-        [this, generation, quiet, successText, failurePrefix](
+    BackendReply *reply = m_backend->updateSpeechSettings(fields);
+    const QPointer<BackendReply> guard(reply);
+    reply->whenDone(this,
+        [this, guard, generation, quiet, successText, failureText](
             bool ok, const QVariantMap &payload, const QString &code, const QString &message) {
             if (generation != m_generation)
                 return;
             m_busy = false;
             if (ok) {
                 if (!quiet)
-                    setResult(QStringLiteral("ok"), successText);
+                    setResult(QStringLiteral("ok"), [successText] { return tr(successText); });
                 adopt(QJsonObject::fromVariantMap(payload));
                 if (!quiet)
                     Q_EMIT saveFinished(true);
@@ -351,9 +366,10 @@ void SpeechController::send(const QVariantMap &fields, const QString &successTex
                 m_supported = false;
             // ERR_BAD_REQUEST carries the Collector's own sentence naming the
             // field; anything else is explained by its code.
-            const QString reason = code == QLatin1String("ERR_BAD_REQUEST") && !message.trimmed().isEmpty()
-                                       ? message.trimmed()
-                                       : errorReason(code);
+            // Kept as a recipe: message_ref renders it in the language on screen.
+            const LiveText refusal = code == QLatin1String("ERR_BAD_REQUEST")
+                                         ? collector_text::replyErrorText(guard, message.trimmed())
+                                         : LiveText();
             if (quiet) {
                 qCInfo(lcSpeech) << "voice sync failed:" << code;
                 // A refusal stands: the same voice would be refused again. Anything
@@ -362,7 +378,9 @@ void SpeechController::send(const QVariantMap &fields, const QString &successTex
                 if (!isRefusal(code))
                     m_syncedVoice.clear();
             } else {
-                setResult(QStringLiteral("error"), failurePrefix + QString::fromUtf8("：") + reason);
+                setResult(QStringLiteral("error"), [failureText, refusal, code] {
+                    return tr(failureText).arg(refusal.isEmpty() ? errorReason(code) : refusal.text());
+                });
             }
             Q_EMIT changed();
             if (!quiet)
@@ -376,7 +394,7 @@ void SpeechController::test()
         return;
     m_busy = true;
     m_testing = true;
-    setResult(QString(), QString::fromUtf8("正在测试…"));
+    setResult(QString(), [] { return tr("正在测试…"); });
     Q_EMIT changed();
     if (!isSignalConnected(QMetaMethod::fromSignal(&SpeechController::testRequested))) {
         noteTestResult(false, QStringLiteral("ERR_INTERNAL"), false);
@@ -392,11 +410,10 @@ void SpeechController::noteTestResult(bool ok, const QString &code, bool spokenO
     m_testing = false;
     m_busy = false;
     if (ok && spokenOnline) {
-        setResult(QStringLiteral("ok"), QString::fromUtf8("测试成功：示例播报已用在线语音播放。"));
+        setResult(QStringLiteral("ok"), [] { return tr("测试成功：示例播报已用在线语音播放。"); });
     } else {
         setResult(QStringLiteral("error"),
-                  QString::fromUtf8("测试没有成功（%1），示例播报改用本机语音播放。")
-                      .arg(errorReason(code)));
+                  [code] { return tr("在线语音测试失败：%1。").arg(errorReason(code)); });
     }
     Q_EMIT changed();
     maybeSyncVoice();
@@ -408,7 +425,7 @@ void SpeechController::setSettingsRetryDelayMs(int milliseconds)
     m_settingsRetryDelayMs = m_settingsRetryFirstMs;
 }
 
-void SpeechController::setResult(const QString &state, const QString &text)
+void SpeechController::setResult(const QString &state, const LiveText &text)
 {
     m_resultState = state;
     m_resultText = text;
@@ -441,7 +458,7 @@ void SpeechController::maybeSyncVoice()
         return;
     // Tried once per selection: a refusal must not turn into a request loop.
     m_syncedVoice = m_selectedVoice;
-    send({{QStringLiteral("voice"), name}}, QString(), QString());
+    send({{QStringLiteral("voice"), name}}, nullptr, nullptr);
 }
 
 } // namespace mr

@@ -11,6 +11,7 @@
 #include "TestCollectorGuard.h"
 #include "AppController.h"
 #include "AppSettings.h"
+#include "CollectorText.h"
 #include "DutyCatalog.h"
 #include "Formatters.h"
 #include "JobCatalog.h"
@@ -22,6 +23,7 @@
 #include <QHash>
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QPointer>
 #include <QScopeGuard>
 #include <QSet>
 #include <QSignalSpy>
@@ -55,6 +57,16 @@ Answer ask(mr::IBackend &backend, const QString &type, const QJsonObject &payloa
     if (!QTest::qWaitFor([&answer] { return answer.done; }, 3000))
         answer.code = QStringLiteral("TEST_NO_REPLY");
     return answer;
+}
+
+/// The Collector's two copies of one sentence agree: \a ref names a catalogue
+/// key this build knows, and renders exactly \a chinese (contracts/collector-texts.md).
+bool sameSentence(const QJsonValue &chinese, const QJsonValue &ref)
+{
+    const QVariantMap map = ref.toObject().toVariantMap();
+    return chinese.isString() && !chinese.toString().isEmpty()
+           && mr::collector_text::knows(map.value(QStringLiteral("key")).toString())
+           && mr::collector_text::chinese(map) == chinese.toString();
 }
 
 QJsonObject autoRun(const QString &id, const QString &result, bool entered)
@@ -118,6 +130,44 @@ class MockBackendTests : public QObject
     Q_OBJECT
 
 private Q_SLOTS:
+    void localizedNameSearchPreservesOriginalNotesAndOtherFilters()
+    {
+        mr::MockBackend backend;
+        const auto row = [](const QString &id, int jobId, const QString &jobName, const QString &note) {
+            QJsonObject run = autoRun(id, QStringLiteral("COMPLETED"), true);
+            run.insert(QStringLiteral("job_id"), jobId);
+            run.insert(QStringLiteral("job_name"), jobName);
+            run.insert(QStringLiteral("note"), note);
+            return run;
+        };
+        backend.resetRuns(QJsonArray{
+            row(QStringLiteral("job"), 19, QString::fromUtf8("骑士"), QStringLiteral("unrelated")),
+            row(QStringLiteral("note"), 24, QString::fromUtf8("白魔法师"), QStringLiteral("helped a Paladin")),
+            row(QStringLiteral("alias-in-note"), 24, QString::fromUtf8("白魔法师"), QString::fromUtf8("helped 骑士")),
+            row(QStringLiteral("unrelated"), 24, QString::fromUtf8("白魔法师"), QStringLiteral("unrelated"))});
+        const auto query = [&backend](const QJsonObject &filter) {
+            return ask(backend, QStringLiteral("QueryRuns"), {{QStringLiteral("filter"), filter}});
+        };
+        QJsonObject filter{{QStringLiteral("text"), QStringLiteral("Paladin")},
+                           {QStringLiteral("name_text"), QString::fromUtf8("骑士")}};
+        const Answer both = query(filter);
+        QVERIFY(both.ok);
+        QCOMPARE(both.payload.value(QStringLiteral("page_info")).toObject().value(QStringLiteral("total")).toInt(), 2);
+        const Answer names = query({{QStringLiteral("name_text"), QString::fromUtf8("骑士")}});
+        QCOMPARE(names.payload.value(QStringLiteral("items")).toArray().size(), 1);
+        QCOMPARE(names.payload.value(QStringLiteral("items")).toArray().first().toObject()
+                     .value(QStringLiteral("run_id")).toString(), QStringLiteral("job"));
+        filter.insert(QStringLiteral("job_id"), QJsonArray{24});
+        const Answer constrained = query(filter);
+        QCOMPARE(constrained.payload.value(QStringLiteral("items")).toArray().size(), 1);
+        QCOMPARE(constrained.payload.value(QStringLiteral("items")).toArray().first().toObject()
+                     .value(QStringLiteral("run_id")).toString(), QStringLiteral("note"));
+        const Answer calendar = ask(backend, QStringLiteral("QueryRunCalendarDays"),
+            {{QStringLiteral("month"), QStringLiteral("2026-09")}, {QStringLiteral("filter"), filter}});
+        QVERIFY2(calendar.ok, qPrintable(calendar.message));
+        QCOMPARE(calendar.payload.value(QStringLiteral("days")).toArray(), QJsonArray{QStringLiteral("2026-09-01")});
+    }
+
     void calendarDaysUseFullSetIgnoreDateBoundsAndKeepLocalHistoryDays()
     {
         mr::MockBackend backend;
@@ -1273,6 +1323,100 @@ private Q_SLOTS:
 
     // OJ-6: a reply can be held back, so a test can let a later request
     // overtake an earlier one the way a slow Collector answer does.
+    // Wherever the mock imitates a Collector sentence it sends the catalogue key
+    // beside the Chinese, exactly as the Collector does (contracts/collector-texts.md
+    // §2.1), so screenshots in other languages show what a player would see.
+    void collectorSentencesTravelWithTheirKeys()
+    {
+        mr::MockBackend backend;
+        backend.setLiveMode(mr::MockBackend::LiveMode::None);
+        backend.setMidstreamSuspected(true);
+        backend.setUpdateAvailable(true);
+        backend.setUpdateDownloadFixture(QStringLiteral("failed"));
+        Answer status = ask(backend, QStringLiteral("GetStatus"));
+        QVERIFY(status.ok);
+        const QJsonObject capture = status.payload.value(QStringLiteral("capture")).toObject();
+        QVERIFY(sameSentence(capture.value(QStringLiteral("hint")), capture.value(QStringLiteral("hint_ref"))));
+        const QJsonArray warnings = status.payload.value(QStringLiteral("warnings")).toArray();
+        const QJsonArray warningRefs = status.payload.value(QStringLiteral("warning_refs")).toArray();
+        QCOMPARE(warningRefs.size(), warnings.size());
+        QVERIFY(warningRefs.at(0).isNull()); // the mock's own line
+        const QJsonObject download = status.payload.value(QStringLiteral("update")).toObject()
+                                         .value(QStringLiteral("download")).toObject();
+        QCOMPARE(download.value(QStringLiteral("state")).toString(), QStringLiteral("FAILED"));
+        QVERIFY(sameSentence(download.value(QStringLiteral("message")), download.value(QStringLiteral("message_ref"))));
+
+        backend.setNpcapMissing(true);
+        status = ask(backend, QStringLiteral("GetStatus"));
+        const QJsonObject npcap = status.payload.value(QStringLiteral("npcap")).toObject();
+        QVERIFY(sameSentence(npcap.value(QStringLiteral("install_hint")), npcap.value(QStringLiteral("install_hint_ref"))));
+        const QJsonArray npcapWarnings = status.payload.value(QStringLiteral("warnings")).toArray();
+        QCOMPARE(npcapWarnings.size(), 2);
+        QVERIFY(sameSentence(npcapWarnings.at(1), status.payload.value(QStringLiteral("warning_refs")).toArray().at(1)));
+        const Answer adapters = ask(backend, QStringLiteral("ListCaptureAdapters"));
+        QVERIFY(sameSentence(adapters.payload.value(QStringLiteral("install_hint")),
+                             adapters.payload.value(QStringLiteral("install_hint_ref"))));
+        backend.setNpcapMissing(false);
+
+        for (const QString &fixture : {QStringLiteral("ready"), QStringLiteral("blocked")}) {
+            backend.setCalibrationFixture(fixture);
+            const QJsonObject calibration = ask(backend, QStringLiteral("GetStatus")).payload
+                                                .value(QStringLiteral("capture")).toObject()
+                                                .value(QStringLiteral("calibration")).toObject();
+            const QJsonArray events = calibration.value(QStringLiteral("events")).toArray();
+            QVERIFY(!events.isEmpty());
+            for (const QJsonValue &event : events) {
+                QVERIFY2(sameSentence(event.toObject().value(QStringLiteral("label")),
+                                      event.toObject().value(QStringLiteral("label_ref"))),
+                         qPrintable(event.toObject().value(QStringLiteral("label")).toString()));
+            }
+            const QJsonArray blockers = calibration.value(QStringLiteral("blockers")).toArray();
+            const QJsonArray blockerRefs = calibration.value(QStringLiteral("blocker_refs")).toArray();
+            QCOMPARE(blockerRefs.size(), blockers.size());
+            for (qsizetype i = 0; i < blockers.size(); ++i)
+                QVERIFY(sameSentence(blockers.at(i), blockerRefs.at(i)));
+            if (fixture == QLatin1String("blocked"))
+                QCOMPARE(blockers.size(), 1);
+        }
+
+        backend.setValidationFixture(QStringLiteral("RECORDING"));
+        const Answer validation = ask(backend, QStringLiteral("GetCaptureValidationStatus"));
+        QVERIFY(sameSentence(validation.payload.value(QStringLiteral("message")),
+                             validation.payload.value(QStringLiteral("message_ref"))));
+
+        // The Azure voice labels are catalogue sentences; the OpenAI names are names.
+        const Answer speech = ask(backend, QStringLiteral("GetSpeechSettings"));
+        const QJsonArray azure = speech.payload.value(QStringLiteral("azure_voices")).toArray();
+        QVERIFY(!azure.isEmpty());
+        for (const QJsonValue &voice : azure) {
+            QVERIFY(sameSentence(voice.toObject().value(QStringLiteral("label")),
+                                 voice.toObject().value(QStringLiteral("label_ref"))));
+        }
+        for (const QJsonValue &voice : speech.payload.value(QStringLiteral("openai_voices")).toArray())
+            QVERIFY(!voice.toObject().contains(QStringLiteral("label_ref")));
+
+        // A refusal: message_ref beside the message, as $defs/ErrorPayload carries it.
+        // The validation fixture stopped the formal capture: stopping it is refused.
+        mr::BackendReply *reply = backend.request(QStringLiteral("StopCapture"), {});
+        const QPointer<mr::BackendReply> guard(reply);
+        QString message;
+        QVariant ref;
+        bool done = false;
+        reply->whenDone(&backend, [&](bool ok, const QVariantMap &, const QString &code, const QString &text) {
+            QVERIFY(!ok);
+            QCOMPARE(code, QStringLiteral("ERR_CAPTURE_NOT_RUNNING"));
+            message = text;
+            ref = guard ? guard->errorRef() : QVariant();
+            done = true;
+        });
+        QTRY_VERIFY(done);
+        QVERIFY(sameSentence(message, QJsonObject::fromVariantMap(ref.toMap())));
+        QCOMPARE(ref.toMap().value(QStringLiteral("key")).toString(), QStringLiteral("capture.stop.not_running"));
+        // A refusal the mock wrote itself carries none.
+        const Answer unknown = ask(backend, QStringLiteral("NoSuchMessage"));
+        QVERIFY(!unknown.ok);
+    }
+
     void aDelayedReplyCanArriveAfterALaterOne()
     {
         mr::MockBackend backend;

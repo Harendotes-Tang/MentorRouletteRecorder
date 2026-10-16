@@ -105,7 +105,7 @@ IpcClient::IpcClient(QObject *parent)
             if (pending.reply) {
                 pending.reply->fail(
                     QStringLiteral("ERR_INTERNAL"),
-                    QString::fromUtf8("Collector 未在超时时间内响应。"));
+                    tr("后台服务暂时没有响应，操作结果还未确认。请稍后检查结果。"));
             }
         }
         if (m_pending.isEmpty())
@@ -151,7 +151,7 @@ void IpcClient::start()
     m_backoffMs = kMinBackoffMs;
 
     if (m_serverName.isEmpty()) {
-        m_lastError = QString::fromUtf8("无法确定当前用户 SID，管道名不可用。");
+        m_lastError = [] { return tr("无法确认当前 Windows 用户，暂时不能连接后台服务。"); };
         Q_EMIT connectionChanged();
         return;
     }
@@ -164,7 +164,7 @@ void IpcClient::stop()
     m_reconnectTimer.stop();
     m_timeoutTimer.stop();
     failAllPending(QStringLiteral("ERR_INTERNAL"),
-                   QString::fromUtf8("与 Collector 的连接已关闭。"));
+                   tr("与后台服务的连接已关闭。"));
     if (m_socket && m_socket->state() != QLocalSocket::UnconnectedState)
         m_socket->abort();
     m_buffer.clear();
@@ -230,7 +230,7 @@ void IpcClient::onConnected()
         // be written to it (review OH-4).
         qCWarning(lcIpc) << "refused" << m_serverName << ": the pipe belongs to another account";
         m_buffer.clear();
-        m_lastError = QString::fromUtf8("连接到的采集服务管道不属于当前用户，已拒绝连接。");
+        m_lastError = [] { return tr("后台服务属于另一个 Windows 用户，无法连接。请在当前用户下重新启动软件。"); };
         m_socket->abort();
         if (!m_reconnectTimer.isActive()) {
             // abort() reported no disconnect of its own.
@@ -252,7 +252,7 @@ void IpcClient::onDisconnected()
     // Pending requests are failed, never silently replayed: a mutation may
     // already have been applied on the other side.
     failAllPending(QStringLiteral("ERR_INTERNAL"),
-                   QString::fromUtf8("与 Collector 的连接中断，请重试。"));
+                   tr("与后台服务的连接已中断，暂时无法确认操作结果。连接恢复后，请先检查操作结果。"));
     m_buffer.clear();
     Q_EMIT connectionChanged();
     scheduleReconnect();
@@ -261,8 +261,8 @@ void IpcClient::onDisconnected()
 void IpcClient::onError(QLocalSocket::LocalSocketError error)
 {
     Q_UNUSED(error)
-    m_lastError = m_socket->errorString();
-    failAllPending(QStringLiteral("ERR_INTERNAL"), m_lastError);
+    m_lastError = LiveText::verbatim(m_socket->errorString());
+    failAllPending(QStringLiteral("ERR_INTERNAL"), m_lastError.text());
     Q_EMIT connectionChanged();
     scheduleReconnect();
 }
@@ -285,23 +285,23 @@ void IpcClient::onReadyRead()
         if (status == ipc::FrameStatus::Incomplete)
             return;
         if (status == ipc::FrameStatus::Oversized) {
-            abortStream(QString::fromUtf8("收到超过 4 MiB 的帧，连接已断开。"));
+            abortStream([] { return tr("后台服务返回的数据量过大，连接已断开。请重启软件，并先检查上次操作的结果。"); });
             return;
         }
         if (status == ipc::FrameStatus::BadJson) {
-            abortStream(QString::fromUtf8("收到无法解析的帧，连接已断开。"));
+            abortStream([] { return tr("后台服务返回的数据无法读取，连接已断开。请重启软件，并先检查上次操作的结果。"); });
             return;
         }
         dispatch(envelope);
     }
 }
 
-void IpcClient::abortStream(const QString &reason)
+void IpcClient::abortStream(const LiveText &reason)
 {
-    qCWarning(lcIpc) << reason;
+    qCWarning(lcIpc) << reason.text();
     m_lastError = reason;
     m_buffer.clear();
-    failAllPending(QStringLiteral("ERR_PROTOCOL_VERSION"), reason);
+    failAllPending(QStringLiteral("ERR_PROTOCOL_VERSION"), reason.text());
     m_socket->abort();
     Q_EMIT connectionChanged();
     scheduleReconnect();
@@ -315,7 +315,7 @@ void IpcClient::dispatch(const QJsonObject &envelope)
     const ipc::EnvelopeView view = ipc::readEnvelope(envelope);
 
     if (view.protocolVersion != ipc::kProtocolVersion) {
-        abortStream(QString::fromUtf8("协议版本不匹配，需要重新安装以使两端版本一致。"));
+        abortStream([] { return tr("界面和后台服务的版本不匹配，请重新安装软件后重试。"); });
         return;
     }
 
@@ -338,7 +338,7 @@ void IpcClient::dispatch(const QJsonObject &envelope)
         return;
 
     if (!view.ok) {
-        pending.reply->fail(view.errorCode, view.errorMessage, view.errorDetails);
+        pending.reply->fail(view.errorCode, view.errorMessage, view.errorDetails, view.errorRef);
         return;
     }
     pending.reply->succeed(view.payload);
@@ -363,7 +363,7 @@ void IpcClient::send(BackendReply *reply, const QString &messageType,
     // editable after one, never after a request that went out unanswered.
     if (!isConnected()) {
         reply->failUnsent(QStringLiteral("ERR_INTERNAL"),
-                          QString::fromUtf8("Collector 未连接。"));
+                          tr("后台服务尚未连接。"));
         scheduleReconnect();
         return;
     }
@@ -387,7 +387,7 @@ void IpcClient::send(BackendReply *reply, const QString &messageType,
         ipc::encodeFrame(ipc::makeRequest(reply->requestId(), messageType, payload));
     if (frame.isEmpty()) {
         reply->failUnsent(QStringLiteral("ERR_BAD_REQUEST"),
-                          QString::fromUtf8("请求过大，超过 4 MiB 帧上限。"));
+                          tr("本次操作的数据量过大，无法发送。请减少数据量后重试。"));
         return;
     }
 
@@ -412,8 +412,8 @@ void IpcClient::send(BackendReply *reply, const QString &messageType,
         qCWarning(lcIpc) << "short write for" << messageType << detail;
         reply->failUnsent(QStringLiteral("ERR_INTERNAL"),
                           detail.isEmpty()
-                              ? QString::fromUtf8("请求没能完整发给 Collector，请重试。")
-                              : QString::fromUtf8("请求没能完整发给 Collector，请重试。%1").arg(detail));
+                              ? tr("操作还没有完整发送给后台服务，请重试。")
+                              : tr("操作还没有完整发送给后台服务，请重试。%1").arg(detail));
     }
 }
 

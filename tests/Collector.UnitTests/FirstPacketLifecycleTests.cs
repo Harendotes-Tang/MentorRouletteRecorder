@@ -138,7 +138,7 @@ public sealed class FirstPacketLifecycleTests
         var reader = new Reader();
         var faults = new ConcurrentQueue<string>();
         using var monitor = new FirstPacketMonitor(Options, (_, _, _, _) => { }, reason =>
-            { faults.Enqueue(reason); failed.Set(); }, reader,
+            { faults.Enqueue(reason.Chinese); failed.Set(); }, reader,
             () => Array.Empty<Machina.Infrastructure.TCPConnection>(), () => { });
         monitor.Prepare(); monitor.Start();
         reader.FailRead = true;
@@ -214,7 +214,7 @@ public sealed class FirstPacketLifecycleTests
         using var monitor = new FirstPacketMonitor(
             Options,
             (_, _, _, _) => Interlocked.Increment(ref delivered),
-            faults.Enqueue,
+            reason => faults.Enqueue(reason.Chinese),
             reader,
             () => Interlocked.Exchange(ref failNext, 0) == 1
                 ? throw new System.ComponentModel.Win32Exception(122, "simulated TCP table failure")

@@ -51,6 +51,8 @@ class AppSettings : public QObject
     Q_PROPERTY(QString templateCompleted READ templateCompleted WRITE setTemplateCompleted NOTIFY ttsChanged)
     Q_PROPERTY(QString templateFinished READ templateFinished WRITE setTemplateFinished NOTIFY ttsChanged)
     Q_PROPERTY(QString templateAborted READ templateAborted WRITE setTemplateAborted NOTIFY ttsChanged)
+    /// Some template of the interface language differs from its default.
+    Q_PROPERTY(bool templatesCustomised READ templatesCustomised NOTIFY ttsChanged)
 
     // -- 数据 ---------------------------------------------------------------
     Q_PROPERTY(bool autoBackup READ autoBackup WRITE setAutoBackup NOTIFY dataChanged)
@@ -137,6 +139,17 @@ public:
     void setTemplateFinished(const QString &value);
     QString templateAborted() const;
     void setTemplateAborted(const QString &value);
+    /// 播报跟随界面语言：the voice and the five templates are kept per interface
+    /// language (简体中文 under the original keys). Unedited templates read the
+    /// language's own default.
+    bool templatesCustomised() const;
+    /// 恢复默认模板 - the interface language's five templates only.
+    Q_INVOKABLE void resetTemplates();
+    /// The interface language the voice and the templates are kept for
+    /// ("zh-CN" by default). LanguageManager sets it before it announces a
+    /// switch; ttsChanged follows from there (main.cpp).
+    void setSpeechLanguage(const QString &code);
+    QString speechLanguage() const { return m_speechLanguage; }
 
     bool autoBackup() const;
     void setAutoBackup(bool enabled);
@@ -154,6 +167,11 @@ public:
     QString dismissedUpdateVersion() const;
     void setDismissedUpdateVersion(const QString &version);
 
+    /// 已关闭更新说明的最高完整版本；空表示尚未读过。与忽略待下载版本互相独立。
+    QString releaseNotesSeenVersion() const;
+    /// 同步写入本地 INI；调用方负责仅在关闭说明时保存更高版本。
+    void setReleaseNotesSeenVersion(const QString &version);
+
     bool value(const QString &key, bool defaultValue) const;
     int value(const QString &key, int defaultValue) const;
     QString value(const QString &key, const QString &defaultValue) const;
@@ -166,10 +184,16 @@ Q_SIGNALS:
     void dataChanged();
 
 private:
+    /// tts/<leaf> for 简体中文, tts/<language>/<leaf> otherwise.
+    QString ttsKey(const char *leaf) const;
+    QString templateValue(const char *leaf) const;
+    void setTemplateValue(const char *leaf, const QString &value);
+
     /// Add or remove the HKCU\...\Run value. No-op off Windows or in Qt test mode.
     static void applyAutostartRegistration(bool enabled);
 
     QSettings m_settings;
+    QString m_speechLanguage = QStringLiteral("zh-CN");
 };
 
 /// Read the persisted UI scale before QApplication exists, so the value can be

@@ -1,5 +1,6 @@
 #include "CollectorProcess.h"
 
+#include "CollectorText.h"
 #include "PipeName.h"
 
 #include <QCoreApplication>
@@ -7,6 +8,8 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QLoggingCategory>
 #include <QRegularExpression>
 
@@ -296,12 +299,14 @@ void CollectorProcess::wireProcess()
         // a broken installation, which no amount of retrying repairs.
         if (++m_failedLaunches > 1) {
             qCWarning(lcCollector) << "collector could not be launched:" << m_process->errorString();
-            refuseStart(QString::fromUtf8("Windows 无法运行采集服务程序，安装可能已损坏，"
-                                          "请重新安装本软件。"),
+            refuseStart([] {
+                            return tr("Windows 无法运行采集服务程序，安装可能已损坏，"
+                                      "请重新安装本软件。");
+                        },
                         /*retryLater=*/false);
             return;
         }
-        setState(State::Exited, m_process->errorString());
+        setState(State::Exited, LiveText::verbatim(m_process->errorString()));
         scheduleRestart();
     });
 }
@@ -347,43 +352,43 @@ QString CollectorProcess::statusText() const
     switch (m_state) {
     case State::Missing:
 #ifdef MR_DEV_COLLECTOR_DISCOVERY
-        return QString::fromUtf8("未找到 Collector（期望位置：%1）。请运行 scripts/build.ps1、"
-                                 "在 CMake 中启用 MR_STAGE_COLLECTOR，或设置 MR_COLLECTOR_PATH")
+        return tr("未找到 Collector（期望位置：%1）。请运行 scripts/build.ps1、"
+                  "在 CMake 中启用 MR_STAGE_COLLECTOR，或设置 MR_COLLECTOR_PATH")
             .arg(QDir::toNativeSeparators(m_executablePath));
 #else
         // Shown to players (docs/ui-design.md §4.8): the installation is
         // incomplete, and reinstalling is the one thing they can do about it.
-        return QString::fromUtf8("未找到 Collector，安装可能不完整，请重新安装本软件。");
+        return tr("缺少后台服务，软件可能没有安装完整。请重新安装后重试。");
 #endif
     case State::Idle:
-        return QString::fromUtf8("Collector 可用，未启动");
+        return tr("后台服务尚未启动");
     case State::Starting:
-        return QString::fromUtf8("Collector 启动中…");
+        return tr("后台服务正在启动…");
     case State::Running:
-        return QString::fromUtf8("Collector 运行中");
+        return tr("后台服务已启动");
     case State::Reused:
         if (!m_detail.isEmpty())
-            return QString::fromUtf8("Collector 复用已有实例（%1）").arg(m_detail);
-        return QString::fromUtf8("Collector 运行中（复用已有实例）");
+            return tr("检测到已有后台服务（%1）").arg(m_detail.text());
+        return tr("检测到已有后台服务");
     case State::Exited:
         if (m_startRefused)
-            return QString::fromUtf8("Collector 无法启动：%1").arg(m_detail);
+            return tr("后台服务无法启动：%1").arg(m_detail.text());
         if (m_restartTimer.isActive()) {
-            return QString::fromUtf8("Collector 已退出（%1），%2 秒后重启（第 %3 次）")
-                .arg(m_detail)
+            return tr("后台服务已停止（%1），将在 %2 秒后重试启动（第 %3 次）")
+                .arg(m_detail.text())
                 .arg(double(m_scheduledDelayMs) / 1000.0, 0, 'f', 1)
                 .arg(m_restartCount + 1);
         }
-        return QString::fromUtf8("Collector 已退出（%1）").arg(m_detail);
+        return tr("后台服务已停止（%1）").arg(m_detail.text());
     case State::Stopped:
-        return QString::fromUtf8("Collector 已停止");
+        return tr("后台服务已停止");
     }
     return QString();
 }
 
-void CollectorProcess::setState(State state, const QString &detail)
+void CollectorProcess::setState(State state, const LiveText &detail)
 {
-    if (m_state == state && m_detail == detail)
+    if (m_state == state && m_detail.text() == detail.text())
         return;
     m_state = state;
     m_detail = detail;
@@ -698,7 +703,7 @@ bool CollectorProcess::tryRelaunchForLease()
     if (m_stopRequested)
         return false;
     if (m_takeoverAttempts >= kMaxTakeoverAttempts) {
-        setState(State::Reused, QString::fromUtf8("占用者无响应"));
+        setState(State::Reused, [] { return tr("占用者无响应"); });
         return false;
     }
     ++m_takeoverAttempts;
@@ -812,7 +817,7 @@ void CollectorProcess::requestServeLeaseTakeover()
         m_takeoverToasted = false;
         if (tryRelaunchForLease()) {
             emitTakeoverOnce(
-                true, QString::fromUtf8("未找到占用采集服务的进程，已重新启动采集服务。"));
+                true, tr("未找到占用采集服务的进程，已重新启动采集服务。"));
         }
         return;
     }
@@ -826,8 +831,8 @@ void CollectorProcess::requestServeLeaseTakeover()
             m_freshHolderReported = true;
             m_takeoverToasted = false;
             emitTakeoverOnce(true,
-                             QString::fromUtf8("采集服务刚刚启动（进程 %1），"
-                                               "可能正在升级数据库，请稍候。")
+                             tr("采集服务刚刚启动（进程 %1），"
+                                "可能正在升级数据库，请稍候。")
                                  .arg(readServeLeasePid()));
         }
         return;
@@ -860,7 +865,7 @@ void CollectorProcess::continueTakeover()
         finishTakeover();
         if (tryRelaunchForLease()) {
             emitTakeoverOnce(
-                true, QString::fromUtf8("未找到占用采集服务的进程，已重新启动采集服务。"));
+                true, tr("未找到占用采集服务的进程，已重新启动采集服务。"));
         }
         return;
     }
@@ -889,7 +894,7 @@ void CollectorProcess::onHolderListed(int exitCode, const QString &output)
         finishTakeover();
         if (tryRelaunchForLease()) {
             emitTakeoverOnce(
-                true, QString::fromUtf8("未找到占用采集服务的进程，已重新启动采集服务。"));
+                true, tr("未找到占用采集服务的进程，已重新启动采集服务。"));
         }
         return;
     }
@@ -910,7 +915,7 @@ void CollectorProcess::onPoliteKillFinished(int exitCode, const QString &output)
         finishTakeover();
         if (tryRelaunchForLease()) {
             emitTakeoverOnce(
-                true, QString::fromUtf8("未找到占用采集服务的进程，已重新启动采集服务。"));
+                true, tr("未找到占用采集服务的进程，已重新启动采集服务。"));
         }
         return;
     }
@@ -937,8 +942,8 @@ void CollectorProcess::onHolderRelisted(int exitCode, const QString &output)
         finishTakeover();
         if (tryRelaunchForLease()) {
             emitTakeoverOnce(true,
-                             QString::fromUtf8("采集服务被一个没有响应的旧实例（进程 %1）占用，"
-                                               "已请求它退出并重新启动采集服务。")
+                             tr("采集服务被一个没有响应的旧实例（进程 %1）占用，"
+                                "已请求它退出并重新启动采集服务。")
                                  .arg(m_takeoverPid));
         }
         return;
@@ -960,16 +965,16 @@ void CollectorProcess::onForcedKillFinished(int exitCode, const QString &output)
         // so in Chinese - which is why this is judged by the exit code.
         qCWarning(lcCollector) << "taskkill refused for" << pid << "exit code" << exitCode;
         emitTakeoverOnce(false,
-                         QString::fromUtf8("采集服务被没有响应的旧实例（进程 %1）占用，"
-                                           "本软件无法结束它。请在任务管理器中结束它后重试。")
+                         tr("采集服务被没有响应的旧实例（进程 %1）占用，"
+                            "本软件无法结束它。请在任务管理器中结束它后重试。")
                              .arg(pid));
         return;
     }
     qCInfo(lcCollector) << "stalled serve-lease holder" << pid << "ended; starting our own";
     if (tryRelaunchForLease()) {
         emitTakeoverOnce(true,
-                         QString::fromUtf8("采集服务被一个没有响应的旧实例（进程 %1）占用，"
-                                           "已结束它并重新启动采集服务。")
+                         tr("采集服务被一个没有响应的旧实例（进程 %1）占用，"
+                            "已结束它并重新启动采集服务。")
                              .arg(pid));
     }
 }
@@ -1026,7 +1031,7 @@ void CollectorProcess::onFinished(int exitCode, QProcess::ExitStatus status)
     // database looks the same - so this only asks through the stop event and
     // watches; ending it is left to the owner's failed-connect counter.
     if (status == QProcess::NormalExit && exitCode == kUnresponsiveHolderExitCode) {
-        setState(State::Reused, QString::fromUtf8("占用者无响应"));
+        setState(State::Reused, [] { return tr("占用者无响应"); });
         // Queued: the grace can start our own child, and starting a QProcess
         // from inside its own finished() slot is not a thing to rely on.
         QTimer::singleShot(0, this, [this] { beginHolderGrace(); });
@@ -1047,7 +1052,7 @@ void CollectorProcess::onFinished(int exitCode, QProcess::ExitStatus status)
     if (status == QProcess::NormalExit
         && (exitCode == kBadArgumentsExitCode
             || (exitCode == kCannotServeExitCode && !m_childServed))) {
-        refuseStart(exitExplanation(exitCode, m_stderrTail),
+        refuseStart([exitCode, tail = m_stderrTail] { return exitExplanation(exitCode, tail); },
                     /*retryLater=*/exitCode == kCannotServeExitCode);
         return;
     }
@@ -1057,10 +1062,10 @@ void CollectorProcess::onFinished(int exitCode, QProcess::ExitStatus status)
     if (lifetime >= m_stableRunMs)
         m_backoffMs = minBackoffMs();
 
-    const QString detail = status == QProcess::CrashExit
-                               ? QString::fromUtf8("崩溃")
-                               : QString::fromUtf8("代码 %1").arg(exitCode);
-    setState(State::Exited, detail);
+    const bool crashed = status == QProcess::CrashExit;
+    setState(State::Exited, [crashed, exitCode] {
+        return crashed ? tr("崩溃") : tr("代码 %1").arg(exitCode);
+    });
     scheduleRestart();
 }
 
@@ -1069,29 +1074,50 @@ QString CollectorProcess::exitExplanation(int exitCode, const QByteArray &stderr
     if (exitCode == kBadArgumentsExitCode) {
         // The usage text that follows is for a person at a console; what the
         // player can do is reinstall, so both halves are the same version.
-        return QString::fromUtf8("采集服务无法识别本软件给出的启动参数，两部分的版本可能不一致，"
-                                 "请重新安装本软件。");
+        return tr("采集服务无法识别本软件给出的启动参数，两部分的版本可能不一致，"
+                  "请重新安装本软件。");
     }
     // The Collector prints "<ERR_CODE>: <sentence>" for its own refusals and
-    // "failed: <sentence>" for an I/O failure, as its last line.
+    // "failed: <sentence>" for an I/O failure, as its last line. A sentence from
+    // its catalogue is announced on the line before by "MR-TEXT <TextRef JSON>"
+    // (contracts/collector-texts.md §2.2), which renders it in the interface
+    // language; the last line's Chinese is shown when that cannot be read.
+    static const QLatin1String kTextPrefix("MR-TEXT ");
     const QStringList lines =
         QString::fromUtf8(stderrTail).split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+    QString chinese;
+    QVariant ref;
     for (auto line = lines.crbegin(); line != lines.crend(); ++line) {
         QString text = line->trimmed();
         if (text.isEmpty())
             continue;
+        if (text.startsWith(kTextPrefix)) {
+            if (!ref.isValid()) {
+                const QJsonDocument json = QJsonDocument::fromJson(text.mid(kTextPrefix.size()).toUtf8());
+                // An unreadable announcement is skipped, never shown: it is not a sentence.
+                ref = json.isObject() ? QVariant(json.object().toVariantMap()) : QVariant(false);
+            }
+            continue;
+        }
+        if (!chinese.isEmpty())
+            continue;
         static const QRegularExpression kPrefix(QStringLiteral("^(?:ERR_[A-Z0-9_]+|failed)\\s*:\\s*"));
         text.remove(kPrefix);
-        if (!text.isEmpty())
-            return text;
+        chinese = text;
     }
-    return QString::fromUtf8("采集服务无法打开数据库或数据目录（代码 %1），详情见本机日志。")
+    if (!chinese.isEmpty())
+        return collector_text::render(ref, chinese);
+    // No Chinese line to fall back on: the announcement alone, when it renders.
+    if (const QString rendered = collector_text::render(ref); !rendered.isEmpty())
+        return rendered;
+    return tr("采集服务无法打开数据库或数据目录（代码 %1），详情见本机日志。")
         .arg(exitCode);
 }
 
-void CollectorProcess::refuseStart(const QString &reason, bool retryLater)
+void CollectorProcess::refuseStart(const LiveText &reason, bool retryLater)
 {
-    qCWarning(lcCollector) << "collector refused to start:" << reason;
+    const QString text = reason.text();
+    qCWarning(lcCollector) << "collector refused to start:" << text;
     m_restartTimer.stop();
     m_startRefused = true;
     m_state = State::Exited;
@@ -1100,10 +1126,10 @@ void CollectorProcess::refuseStart(const QString &reason, bool retryLater)
         m_refusedRetryTimer.start();
     Q_EMIT stateChanged();
     // A quiet retry refused for the same reason has nothing new to say.
-    if (reason == m_lastRefusal)
+    if (text == m_lastRefusal)
         return;
-    m_lastRefusal = reason;
-    Q_EMIT startRefused(reason);
+    m_lastRefusal = text;
+    Q_EMIT startRefused(text);
 }
 
 void CollectorProcess::scheduleRestart()

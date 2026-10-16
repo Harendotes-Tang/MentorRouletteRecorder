@@ -51,10 +51,13 @@ void ReflectionLibraryController::setActive(bool active)
 void ReflectionLibraryController::setFilter(const QVariantMap &filter)
 {
     QVariantMap next{{QStringLiteral("with_reflection"), true}};
-    // QueryRuns.text covers duty/job/note; it does not search reflection text.
-    const QString text = filter.value(QStringLiteral("text")).toString().trimmed().left(200);
-    if (!text.isEmpty())
-        next.insert(QStringLiteral("text"), text);
+    // text keeps note words; name_text adds only duty/job matches. Neither
+    // searches reflection text. Keep both across selection confirmation.
+    for (const QString &key : {QStringLiteral("text"), QStringLiteral("name_text")}) {
+        const QString text = filter.value(key).toString().trimmed().left(200);
+        if (!text.isEmpty())
+            next.insert(key, text);
+    }
     for (const QString &key : {QStringLiteral("job_id"), QStringLiteral("duty_category")}) {
         const QVariantList values = filter.value(key).toList();
         if (!values.isEmpty())

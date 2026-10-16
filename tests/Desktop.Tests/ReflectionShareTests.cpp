@@ -3,6 +3,7 @@
 #include "JobCatalog.h"
 
 #include <QDir>
+#include <QDate>
 #include <QFileInfo>
 #include <QGuiApplication>
 #include <QFont>
@@ -22,6 +23,7 @@
 #include <QtMath>
 
 #include <memory>
+#include <utility>
 
 namespace {
 QQuickItem *findVisual(QQuickItem *at, const QString &name)
@@ -42,6 +44,16 @@ QList<QQuickItem *> completeCards(QQuickItem *at)
     for (auto *child : at->childItems())
         cards.append(completeCards(child));
     return cards;
+}
+
+QList<QQuickItem *> visibleEntries(QQuickItem *at)
+{
+    QList<QQuickItem *> entries;
+    if (at->objectName() == QStringLiteral("reflectionShareEntry") && at->isVisible())
+        entries.append(at);
+    for (auto *child : at->childItems())
+        entries.append(visibleEntries(child));
+    return entries;
 }
 
 bool paperJoinsAreContinuous(const QImage &png, QQuickItem *card, qreal ratio)
@@ -246,19 +258,21 @@ ApplicationWindow {
         QTRY_VERIFY(dialog->property("visible").toBool());
         auto *combined = findVisual(window->contentItem(), QStringLiteral("reflectionShareCombinedCard"));
         QVERIFY(combined);
-        QTRY_COMPARE(completeCards(combined).size(), 2);
-        const auto cards = completeCards(combined);
+        auto *individuals = findVisual(window->contentItem(), QStringLiteral("reflectionShareIndividualCards"));
+        QVERIFY(individuals);
+        QTRY_COMPARE(completeCards(individuals).size(), 2);
+        const auto cards = completeCards(individuals);
         auto *firstBody = findVisual(cards.at(0), QStringLiteral("reflectionShareFullText"));
         auto *secondBody = findVisual(cards.at(1), QStringLiteral("reflectionShareFullText"));
         QVERIFY(firstBody && secondBody);
-        QTRY_VERIFY(combined->height() > size.height());
+        QTRY_VERIFY(individuals->height() > size.height());
         auto *preview = findVisual(window->contentItem(), QStringLiteral("reflectionSharePreview"));
         auto *save = findVisual(window->contentItem(), QStringLiteral("saveReflectionImageButton"));
         auto *mode = findVisual(window->contentItem(), QStringLiteral("reflectionImageOutputMode"));
         QVERIFY(preview && save && mode);
         auto *flickable = qvariant_cast<QObject *>(preview->property("contentItem"));
         QVERIFY(flickable);
-        QTRY_COMPARE(flickable->property("contentHeight").toReal(), combined->height());
+        QTRY_COMPARE(flickable->property("contentHeight").toReal(), individuals->height());
         QVERIFY(flickable->property("contentHeight").toReal() > preview->height());
         const QPointF savePosition = save->mapToScene(QPointF());
         const QPointF modePosition = mode->mapToScene(QPointF());
@@ -268,7 +282,7 @@ ApplicationWindow {
         QCoreApplication::sendEvent(window, &wheel);
         QTRY_VERIFY(flickable->property("contentY").toReal() > 0);
         // 到达末尾后仍能看到最后一张卡片，顶部输出方式和底部保存按钮保持固定。
-        flickable->setProperty("contentY", combined->height() - preview->height());
+        flickable->setProperty("contentY", individuals->height() - preview->height());
         const QPointF lastBottom = cards.last()->mapToItem(preview, QPointF(0, cards.last()->height()));
         QVERIFY(qAbs(lastBottom.y() - preview->height()) < 2);
         QCOMPARE(save->mapToScene(QPointF()), savePosition);
@@ -314,8 +328,8 @@ ApplicationWindow {
             if (!evidence.isEmpty())
                 QVERIFY(png.save(QDir(evidence).filePath(QStringLiteral("individual-%1-%2.png").arg(index + 1).arg(themeName))));
             QVERIFY2(paperJoinsAreContinuous(png, cards.at(index), ratio), "长图顶底拼接处出现整行黑线或透明空隙");
-            QCOMPARE(png.pixelColor(0, 0).alpha(), 0);
-            QCOMPARE(png.pixelColor(png.width() - 1, png.height() - 1).alpha(), 0);
+            QCOMPARE(png.pixelColor(0, 0).alpha(), 255);
+            QCOMPARE(png.pixelColor(png.width() - 1, png.height() - 1).alpha(), 255);
             QCOMPARE(png.size(), QSize(qCeil(cards.at(index)->width()), qCeil(cards.at(index)->height())) * ratio);
             QVERIFY(finalTextHasInk(png, index == 0 ? firstBody : secondBody, cards.at(index), ratio));
 
@@ -327,14 +341,26 @@ ApplicationWindow {
             QVERIFY(window->grabWindow().save(QDir(evidence).filePath(QStringLiteral("batch-results-%1.png").arg(themeName))));
         }
         const QString combinedPath = target.filePath(QStringLiteral("combined.png"));
+        mode->setProperty("currentIndex", 1);
+        QTRY_VERIFY(combined->isVisible());
+        QTRY_COMPARE(flickable->property("contentHeight").toReal(), combined->height());
+        const auto timelineEntries = visibleEntries(combined);
+        QCOMPARE(timelineEntries.size(), 2);
+        auto *timelineFirstBody = findVisual(timelineEntries[0], QStringLiteral("reflectionShareFullText"));
+        auto *timelineSecondBody = findVisual(timelineEntries[1], QStringLiteral("reflectionShareFullText"));
+        QVERIFY(timelineFirstBody && timelineSecondBody);
+        QCOMPARE(timelineFirstBody->property("text").toString(), firstText);
+        QCOMPARE(timelineSecondBody->property("text").toString(), secondText);
         controller.saveTo(combined, combinedPath);
         QTRY_VERIFY_WITH_TIMEOUT(!controller.busy(), 20000);
         QCOMPARE(saved.count(), 3);
         const QImage png(combinedPath);
         QCOMPARE(png.size(), QSize(qCeil(combined->width()), qCeil(combined->height())) * ratio);
-        QVERIFY(finalTextHasInk(png, firstBody, combined, ratio));
-        QVERIFY(finalTextHasInk(png, secondBody, combined, ratio));
-        QCOMPARE(png.pixelColor(png.width() / 2, qRound((cards.at(1)->y() - 6) * ratio)).alpha(), 0);
+        QVERIFY(finalTextHasInk(png, timelineFirstBody, combined, ratio));
+        QVERIFY(finalTextHasInk(png, timelineSecondBody, combined, ratio));
+        // 长卷条目间是一张连续的纸，而非独立卡片之间的透明间隔。
+        const QPointF gap = timelineEntries[1]->mapToItem(combined, QPointF(570, -38));
+        QCOMPARE(png.pixelColor(qRound(gap.x() * ratio), qRound(gap.y() * ratio)).alpha(), 255);
         if (!evidence.isEmpty())
             QVERIFY(png.save(QDir(evidence).filePath(QStringLiteral("combined-%1.png").arg(themeName))));
         QCOMPARE(firstBody->property("text").toString(), firstText);
@@ -348,7 +374,7 @@ ApplicationWindow {
         QTest::keyClick(window, Qt::Key_Escape);
         QTRY_VERIFY(!dialog->property("visible").toBool());
     }
-    void v5MaterialsAndResultBoundaries_data() {
+    void scrollMaterialsAndResultBoundaries_data() {
         QTest::addColumn<QString>("result");
         QTest::addColumn<bool>("stamped");
         for (const auto &code : {"COMPLETED", "LEFT_OR_ABANDONED", "CANCELLED_BEFORE_ENTRY",
@@ -356,14 +382,13 @@ ApplicationWindow {
             QTest::newRow(*code ? code : "missing") << QString::fromLatin1(code)
                                                    << (QString::fromLatin1(code) == QStringLiteral("COMPLETED"));
     }
-    void v5MaterialsAndResultBoundaries() {
+    void scrollMaterialsAndResultBoundaries() {
         QFETCH(QString, result);
         QFETCH(bool, stamped);
-        const QString asset = QStringLiteral(":/resources/reflection-share/eorzea-guild-v5/");
-        for (const auto &name : {"background/header.png", "background/body-tile.png", "background/footer.png",
-                                "background/body-end-transition.png", "decor/title-rule.png", "decor/side-flourish.png",
-                                "decor/divider-full.png", "decor/mission-complete-stamp-diagonal.png",
-                                "decor/mission-failed-stamp-diagonal.png", "decor/footer-brand.png"})
+        const QString asset = QStringLiteral(":/resources/reflection-share/duty-notes-scroll-v1.4.1/");
+        for (const auto &name : {"paper_tile.png", "frame_9slice.png", "header_art.png", "header_rule.png",
+                                "end_ornament.png", "side_gem.png", "stamp_complete_1.png",
+                                "stamp_complete_2.png", "stamp_complete_3.png", "icon_tile.png", "rail_node.png"})
             QVERIFY2(!QImage(asset + QString::fromLatin1(name)).isNull(), name);
         ShareThemeState theme;
         mr::Formatters formatters;
@@ -405,9 +430,13 @@ Window {
         QCOMPARE(stamp->opacity(), 1.0);
         QCOMPARE(stamp->rotation(), 0.0);
         QCOMPARE(job->property("jobId").toInt(), 24);
-        for (auto *child : job->childItems())
-            if (child->property("source").isValid())
-                QCOMPARE(child->property("source").toUrl().toString(), jobs.framedIcon(24));
+        auto *gameJob = findVisual(job, QStringLiteral("reflectionShareGameJobImage"));
+        QVERIFY(gameJob);
+        QCOMPARE(gameJob->property("source").toUrl().toString(), jobs.framedIcon(24));
+        QCOMPARE(findVisual(card, QStringLiteral("reflectionShareEyebrow"))->property("text").toString(), QStringLiteral("导随记录"));
+        auto *date = findVisual(card, QStringLiteral("reflectionShareExportDate"));
+        QVERIFY(date);
+        QCOMPARE(date->property("text").toString(), QStringLiteral("导出于 ") + QDate::currentDate().toString(QStringLiteral("yyyy.MM.dd")));
         QCOMPARE(findVisual(card, QStringLiteral("reflectionShareResultText"))->property("text").toString(),
                  QStringLiteral("白魔法师 · ") + formatters.resultLabel(result));
         QVERIFY(findVisual(card, QStringLiteral("reflectionShareTimeText"))->property("text").toString()
@@ -415,14 +444,17 @@ Window {
         QTemporaryDir output;
         QSignalSpy saved(&controller, &mr::ReflectionShareController::saved);
         const QString withBrand = output.filePath(QStringLiteral("brand.png"));
+        // 模拟用户在跨午夜前打开了预览；实际抓图不能沿用过期日期。
+        card->setProperty("exportDate", QStringLiteral("2001.01.01"));
         controller.saveTo(card, withBrand);
         QTRY_COMPARE(saved.count(), 1);
+        QCOMPARE(date->property("text").toString(), QStringLiteral("导出于 ") + QDate::currentDate().toString(QStringLiteral("yyyy.MM.dd")));
         const QImage first(withBrand);
         QVERIFY(!first.isNull());
         const qreal ratio = window->effectiveDevicePixelRatio();
         for (const QPoint &corner : {QPoint(0, 0), QPoint(first.width() - 1, 0),
                                    QPoint(0, first.height() - 1), QPoint(first.width() - 1, first.height() - 1)})
-            QCOMPARE(first.pixelColor(corner).alpha(), 0);
+            QCOMPARE(first.pixelColor(corner).alpha(), 255);
         QCOMPARE(first.pixelColor(first.width() / 2, first.height() / 2).alpha(), 255);
         // 正文留白与底片交界不能因缩放取整出现黑线；此范围远离角饰、正文和署名。
         auto *footer = findVisual(card, QStringLiteral("reflectionShareFooter"));
@@ -431,16 +463,18 @@ Window {
         for (int y = qFloor(footerY) - 2; y <= qCeil(footerY) + 2; ++y)
             for (int x = first.width() / 3; x < first.width() * 2 / 3; ++x) {
                 const QColor pixel = first.pixelColor(x, y);
-                QVERIFY2(pixel.red() > 140 && pixel.green() > 120 && pixel.blue() > 100,
+                QVERIFY2(pixel.alpha() == 255,
                          "正文与底片拼接处出现黑色接缝");
             }
         QVERIFY(finalTextHasInk(first, body, card, ratio));
         card->setProperty("showAttribution", false);
         QTRY_VERIFY(!brand->isVisible());
+        const QString dateBefore = date->property("text").toString();
         const QString withoutBrand = output.filePath(QStringLiteral("no-brand.png"));
         controller.saveTo(card, withoutBrand);
         QTRY_COMPARE(saved.count(), 2);
         const QImage second(withoutBrand);
+        QCOMPARE(date->property("text").toString(), dateBefore);
         QCOMPARE(first.size(), second.size());
         const QRectF brandBounds = brand->mapRectToItem(card, brand->boundingRect());
         const QRect brandPixels(qFloor(brandBounds.x() * ratio), qFloor(brandBounds.y() * ratio),
@@ -452,18 +486,17 @@ Window {
         if (!evidence.isEmpty()) {
             QVERIFY(QDir().mkpath(evidence));
             const QString name = result.isEmpty() ? QStringLiteral("missing") : result;
-            QVERIFY(first.save(QDir(evidence).filePath(QStringLiteral("v5-%1.png").arg(name))));
+            QVERIFY(first.save(QDir(evidence).filePath(QStringLiteral("scroll-%1.png").arg(name))));
             if (stamped)
-                QVERIFY(second.save(QDir(evidence).filePath(QStringLiteral("v5-no-brand.png"))));
+                QVERIFY(second.save(QDir(evidence).filePath(QStringLiteral("scroll-no-brand.png"))));
         }
         QVariantMap longRun = run;
         longRun.insert(QStringLiteral("duty_name"), QStringLiteral("非常长的副本名称需要完整换行").repeated(12));
         longRun.insert(QStringLiteral("job_id"), 99999);
         card->setProperty("runData", longRun);
         QTRY_COMPARE(job->property("jobId").toInt(), 99999);
-        for (auto *child : job->childItems())
-            if (child->property("source").isValid())
-                QCOMPARE(child->property("source").toUrl().toString(), QString());
+        QCOMPARE(gameJob->property("source").toUrl().toString(), QString());
+        QVERIFY(findVisual(job, QStringLiteral("reflectionShareJobFallback"))->isVisible());
         auto *title = findVisual(card, QStringLiteral("reflectionShareDutyTitle"));
         auto *metadata = findVisual(card, QStringLiteral("reflectionShareResultText"));
         QTRY_VERIFY(title->height() > 100);
@@ -475,9 +508,113 @@ Window {
         QTRY_COMPARE(saved.count(), 3);
         QVERIFY(finalTextHasInk(QImage(longPath), body, card, ratio));
         if (stamped && !evidence.isEmpty())
-            QVERIFY(QImage(longPath).save(QDir(evidence).filePath(QStringLiteral("v5-wrapped-title.png"))));
+            QVERIFY(QImage(longPath).save(QDir(evidence).filePath(QStringLiteral("scroll-wrapped-title.png"))));
         QCOMPARE(card->property("runData").toMap(), longRun);
         QVERIFY2(warnings.isEmpty(), warnings.isEmpty() ? "" : qPrintable(warnings.first().toString()));
+    }
+    void scrollExamplesKeepOrderAndUnknownFacts() {
+        ShareThemeState theme;
+        mr::Formatters formatters;
+        mr::JobCatalog jobs;
+        mr::ReflectionShareController controller;
+        QQmlEngine engine;
+        engine.rootContext()->setContextProperty(QStringLiteral("App"), &theme);
+        engine.rootContext()->setContextProperty(QStringLiteral("Fmt"), &formatters);
+        engine.rootContext()->setContextProperty(QStringLiteral("Jobs"), &jobs);
+        QQmlComponent component(&engine);
+        component.setData(R"(import QtQuick
+import MentorRecorder
+Window { visible: true; width: 1180; height: 900
+    ReflectionShareCard { width: 1140 }
+})", QUrl());
+        std::unique_ptr<QObject> root(component.create());
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.get());
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        auto *card = findVisual(window->contentItem(), QStringLiteral("reflectionShareCard"));
+        QVERIFY(card);
+        const QStringList names{QStringLiteral("伊弗利特讨伐战"), QStringLiteral("神兵要塞帝国南方堡"), QStringLiteral("险峻峡谷塞尔法特尔溪谷")};
+        const QStringList notes{QStringLiteral("三剑一豆芽，全明星团队亲情奉献！（美美+1）"), QStringLiteral("有本打就好；；"), QStringLiteral("排了好久才排到…我们猪区还有救吗")};
+        QVariantList runs;
+        for (int i = 0; i < 3; ++i)
+            runs.append(QVariantMap{{QStringLiteral("duty_name"), names[i]}, {QStringLiteral("job_id"), 34},
+                {QStringLiteral("job_name"), QStringLiteral("武士")},
+                {QStringLiteral("result"), QStringLiteral("COMPLETED")},
+                {QStringLiteral("matched_at_utc"), QStringLiteral("2026-10-%1T06:40:14Z").arg(12 - i)},
+                {QStringLiteral("reflection"), QVariantMap{{QStringLiteral("text"), notes[i]}, {QStringLiteral("mood"), QStringLiteral("good")}}}});
+        card->setProperty("runsData", runs);
+        QTRY_COMPARE(visibleEntries(card).size(), 3);
+        const auto entries = visibleEntries(card);
+        QCOMPARE(entries.first()->mapToItem(card, QPointF()).y(), 292.0);
+        for (int i = 0; i < entries.size(); ++i) {
+            auto *title = findVisual(entries[i], QStringLiteral("reflectionShareDutyTitle"));
+            auto *body = findVisual(entries[i], QStringLiteral("reflectionShareFullText"));
+            auto *stamp = findVisual(entries[i], QStringLiteral("reflectionShareResultStamp"));
+            QVERIFY(title && body && stamp);
+            QCOMPARE(title->property("text").toString(), names[i]);
+            QCOMPARE(body->property("text").toString(), notes[i]);
+            // 用户 HTML 标注的相对基线：35 / 69 / 128，正文行距 48。
+            QCOMPARE(title->y() + title->baselineOffset(), 35.0);
+            auto *metadata = findVisual(entries[i], QStringLiteral("reflectionShareResultText"));
+            QCOMPARE(metadata->y() + metadata->baselineOffset(), 69.0);
+            QCOMPARE(body->y() + body->baselineOffset(), 128.0);
+            QVERIFY(title->x() + title->width() <= stamp->x());
+            QVERIFY(body->y() + body->baselineOffset() - body->property("font").value<QFont>().pixelSize() >= stamp->y() + stamp->height());
+        }
+        const QString evidence = qEnvironmentVariable("MR_REFLECTION_SHARE_SCREENSHOT_DIR");
+        QTemporaryDir output;
+        QSignalSpy saved(&controller, &mr::ReflectionShareController::saved);
+        const QString scroll = output.filePath(QStringLiteral("scroll.png"));
+        controller.saveTo(card, scroll);
+        QTRY_COMPARE(saved.count(), 1);
+        QVERIFY(finalTextHasInk(QImage(scroll), findVisual(entries.last(), QStringLiteral("reflectionShareFullText")), card, window->effectiveDevicePixelRatio()));
+        if (!evidence.isEmpty())
+            QVERIFY(QImage(scroll).save(QDir(evidence).filePath(QStringLiteral("example-scroll.png"))));
+        card->setProperty("runsData", QVariantList{runs.first()});
+        QTRY_COMPARE(visibleEntries(card).size(), 1);
+        auto *singleEntry = visibleEntries(card).first();
+        QCOMPARE(card->height(), 506.0);
+        QCOMPARE(singleEntry->property("dividerY").toReal(), 238.0);
+        for (const auto &[name, baseline] : {std::pair{"reflectionShareDutyTitle", 156.0},
+                                           std::pair{"reflectionShareResultText", 192.0},
+                                           std::pair{"reflectionShareFullText", 304.0}}) {
+            auto *text = findVisual(singleEntry, QString::fromLatin1(name));
+            QVERIFY(text);
+            QCOMPARE(text->y() + text->baselineOffset(), baseline);
+        }
+        const QString single = output.filePath(QStringLiteral("single.png"));
+        controller.saveTo(card, single);
+        QTRY_COMPARE(saved.count(), 2);
+        if (!evidence.isEmpty())
+            QVERIFY(QImage(single).save(QDir(evidence).filePath(QStringLiteral("example-single.png"))));
+        QVariantMap twoLineRun = runs.first().toMap();
+        twoLineRun.insert(QStringLiteral("duty_name"), QStringLiteral("很长的副本名称").repeated(3));
+        card->setProperty("runsData", QVariantList{twoLineRun});
+        auto *twoLineTitle = findVisual(singleEntry, QStringLiteral("reflectionShareDutyTitle"));
+        QTRY_COMPARE(twoLineTitle->property("lineCount").toInt(), 2);
+        QCOMPARE(twoLineTitle->y() + twoLineTitle->baselineOffset(), 138.0);
+        auto *twoLineMeta = findVisual(singleEntry, QStringLiteral("reflectionShareResultText"));
+        QCOMPARE(twoLineMeta->y() + twoLineMeta->baselineOffset(), 210.0);
+        QCOMPARE(singleEntry->property("dividerY").toReal(), 238.0);
+        const QString twoLine = output.filePath(QStringLiteral("two-lines.png"));
+        controller.saveTo(card, twoLine);
+        QTRY_COMPARE(saved.count(), 3);
+        if (!evidence.isEmpty())
+            QVERIFY(QImage(twoLine).save(QDir(evidence).filePath(QStringLiteral("example-single-two-lines.png"))));
+        QVariantMap imported = runs.last().toMap();
+        imported.remove(QStringLiteral("matched_at_utc"));
+        imported.insert(QStringLiteral("result"), QStringLiteral("UNKNOWN"));
+        imported.insert(QStringLiteral("import_metadata"), QVariantMap{{QStringLiteral("source_recorded_at"), QStringLiteral("1999-01-01 00:00:00")}});
+        runs[2] = imported;
+        card->setProperty("runsData", runs);
+        QTRY_COMPARE(visibleEntries(card).size(), 3);
+        const auto unknownEntries = visibleEntries(card);
+        QVERIFY(!findVisual(unknownEntries.last(), QStringLiteral("reflectionShareResultStamp"))->isVisible());
+        auto *meta = findVisual(card, QStringLiteral("reflectionShareCollectionMeta"));
+        QVERIFY(meta);
+        QVERIFY(!meta->property("text").toString().contains(QStringLiteral("1999")));
+        QVERIFY(meta->property("text").toString().contains(QStringLiteral("1 条游玩时间未知")));
+        QVERIFY(findVisual(unknownEntries.last(), QStringLiteral("reflectionShareTimeText"))->property("text").toString().contains(QStringLiteral("1999-01-01 00:00:00 · 游玩时间未知")));
     }
     void partialFailureRetriesOnlyFailedAndCombinedOverflowIsExplicit() {
         QQmlEngine engine;

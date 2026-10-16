@@ -4,6 +4,7 @@ using System.Text.Unicode;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using MentorRecorder.Collector.Contracts.Errors;
+using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Protocol.Profiles;
 
 namespace MentorRecorder.Collector.Ipc;
@@ -57,14 +58,14 @@ public static class IpcEnvelope
         catch (JsonException ex)
         {
             throw new CollectorException(
-                ErrorCodes.BadRequest, "请求不是合法的 JSON。", inner: ex);
+                ErrorCodes.BadRequest, CollectorTexts.IpcRequestNotJson(), inner: ex);
         }
 
         // JsonNode reads a key or string only when something touches it, and throws there for
         // a lone surrogate escape or non-UTF-8 bytes. Refused before any handler runs.
         if (!WellFormedJson.TryParse(bytes, default, out var readable))
         {
-            throw CollectorException.BadRequest("请求不是合法的 JSON。");
+            throw CollectorException.BadRequest(CollectorTexts.IpcRequestNotJson());
         }
 
         // A repeated key gives the request two meanings, one per copy. JsonNode does not notice
@@ -75,19 +76,19 @@ public static class IpcEnvelope
         {
             if (HasRepeatedKey(readable.RootElement))
             {
-                throw CollectorException.BadRequest("请求中有重复的字段名。");
+                throw CollectorException.BadRequest(CollectorTexts.IpcRequestRepeatedField());
             }
         }
 
         if (node is not JsonObject envelope)
         {
-            throw CollectorException.BadRequest("请求信封必须是一个 JSON 对象。");
+            throw CollectorException.BadRequest(CollectorTexts.IpcRequestEnvelopeNotObject());
         }
 
         var requestId = ReadString(envelope, "request_id");
         if (requestId is null || !Guid.TryParseExact(requestId, "D", out _))
         {
-            throw CollectorException.BadRequest("request_id 必须是标准 UUID。", "request_id");
+            throw CollectorException.BadRequest(CollectorTexts.IpcRequestBadRequestId(), "request_id");
         }
 
         var version = ReadInt(envelope, "protocol_version");
@@ -95,7 +96,7 @@ public static class IpcEnvelope
         {
             throw new CollectorException(
                 ErrorCodes.ProtocolVersion,
-                "协议版本不匹配，需要重新安装以使两端版本一致。",
+                CollectorTexts.IpcRequestProtocolVersion(),
                 new Dictionary<string, object?>
                 {
                     ["supported"] = ProtocolVersion,
@@ -106,7 +107,7 @@ public static class IpcEnvelope
         var messageType = ReadString(envelope, "message_type");
         if (string.IsNullOrEmpty(messageType))
         {
-            throw CollectorException.BadRequest("message_type 缺失。", "message_type");
+            throw CollectorException.BadRequest(CollectorTexts.IpcRequestMessageTypeMissing(), "message_type");
         }
 
         var payload = envelope["payload"];
@@ -117,7 +118,7 @@ public static class IpcEnvelope
 
         if (payload is not JsonObject payloadObject)
         {
-            throw CollectorException.BadRequest("payload 必须是一个 JSON 对象。", "payload");
+            throw CollectorException.BadRequest(CollectorTexts.IpcRequestPayloadNotObject(), "payload");
         }
 
         return new IpcRequest(requestId, messageType, payloadObject);
@@ -221,6 +222,11 @@ public static class IpcEnvelope
             ["field"] = error.Field,
             ["retryable"] = error.Retryable,
         };
+
+        if (error.Text is not null)
+        {
+            payload["message_ref"] = error.Text.ToJson();
+        }
 
         if (error.Details is { Count: > 0 })
         {

@@ -1,0 +1,985 @@
+{
+  "version": 1,
+  "texts": {
+    "ipc.request.not_json": "请求不是合法的 JSON。",
+    "ipc.request.repeated_field": "请求中有重复的字段名。",
+    "ipc.request.envelope_not_object": "请求信封必须是一个 JSON 对象。",
+    "ipc.request.bad_request_id": "request_id 必须是标准 UUID。",
+    "ipc.request.protocol_version": "协议版本不匹配，需要重新安装以使两端版本一致。",
+    "ipc.request.message_type_missing": "message_type 缺失。",
+    "ipc.request.payload_not_object": "payload 必须是一个 JSON 对象。",
+    "ipc.field.unknown": {
+      "zh": "请求包含契约未声明的字段 {field}。",
+      "args": {
+        "field": "text"
+      }
+    },
+    "ipc.field.no_parameters": "该消息不接受任何参数。",
+    "ipc.field.not_object": {
+      "zh": "{field} 必须是一个对象。",
+      "args": {
+        "field": "text"
+      }
+    },
+    "ipc.field.not_string": {
+      "zh": "{field} 必须是字符串。",
+      "args": {
+        "field": "text"
+      }
+    },
+    "ipc.field.too_long": {
+      "zh": "{field} 超过 {max} 个字符的上限。",
+      "args": {
+        "field": "text",
+        "max": "number"
+      }
+    },
+    "ipc.field.missing": {
+      "zh": "缺少必填字段 {field}。",
+      "args": {
+        "field": "text"
+      }
+    },
+    "ipc.field.not_uuid": {
+      "zh": "{field} 必须是标准 UUID。",
+      "args": {
+        "field": "text"
+      }
+    },
+    "ipc.field.not_integer": {
+      "zh": "{field} 必须是整数。",
+      "args": {
+        "field": "text"
+      }
+    },
+    "ipc.field.out_of_range": {
+      "zh": "{field} 必须在 {min} 到 {max} 之间。",
+      "args": {
+        "field": "text",
+        "min": "number",
+        "max": "number"
+      }
+    },
+    "ipc.field.not_boolean": {
+      "zh": "{field} 必须是布尔值。",
+      "args": {
+        "field": "text"
+      }
+    },
+    "ipc.field.not_timestamp": {
+      "zh": "{field} 必须是带毫秒的 UTC ISO-8601 时间（形如 2026-09-04T11:22:33.456Z）。",
+      "args": {
+        "field": "text"
+      }
+    },
+    "ipc.field.not_one_of": {
+      "zh": "{field} 只能取 {choices} 之一。",
+      "args": {
+        "field": "text",
+        "choices": "text"
+      },
+      "note": "{choices} is a list of protocol tokens such as \"day / week / month\"."
+    },
+    "ipc.field.integers_only": {
+      "zh": "{field} 只能包含整数。",
+      "args": {
+        "field": "text"
+      }
+    },
+    "ipc.field.strings_only": {
+      "zh": "{field} 只能包含字符串。",
+      "args": {
+        "field": "text"
+      }
+    },
+    "ipc.field.item_too_long": {
+      "zh": "{field} 的每个元素最多 {max} 个字符。",
+      "args": {
+        "field": "text",
+        "max": "number"
+      }
+    },
+    "ipc.field.objects_only": {
+      "zh": "{field} 只能包含对象。",
+      "args": {
+        "field": "text"
+      }
+    },
+    "ipc.field.not_array": {
+      "zh": "{field} 必须是数组。",
+      "args": {
+        "field": "text"
+      }
+    },
+    "ipc.field.too_many_items": {
+      "zh": "{field} 最多只能有 {max} 个元素。",
+      "args": {
+        "field": "text",
+        "max": "number"
+      }
+    },
+    "ipc.field.only_values": {
+      "zh": "{field} 只能取 {choices}。",
+      "args": {
+        "field": "text",
+        "choices": "text"
+      },
+      "note": "{choices} is a list of protocol tokens such as \"good / ok / bad\"."
+    },
+    "ipc.field.either": {
+      "zh": "{field} 只能取 {first} 或 {second}。",
+      "args": {
+        "field": "text",
+        "first": "text",
+        "second": "text"
+      },
+      "note": "{first} and {second} are protocol tokens."
+    },
+    "ipc.field.undeclared_value": {
+      "zh": "{field} 不是契约声明的取值。",
+      "args": {
+        "field": "text"
+      }
+    },
+    "ipc.field.array_or_empty": {
+      "zh": "{field} 必须是数组，清空请传 []。",
+      "args": {
+        "field": "text"
+      }
+    },
+    "ipc.field.not_calendar_day": {
+      "zh": "{field} 必须是有效的 yyyy-MM-dd 日历日期。",
+      "args": {
+        "field": "text"
+      }
+    },
+    "ipc.request.month_invalid": "month 必须是有效的 YYYY-MM 月份。",
+    "ipc.filter.from_after_to": "from_utc 不能晚于 to_utc。",
+    "ipc.filter.history_day_needs_bounds": "历史日历日期仅用于 history_date，并须同时提供对应的 UTC 起止边界。",
+    "ipc.filter.history_from_after_to": "history_from_day 不能晚于 history_to_day。",
+    "mutation.duration_negative": "时长不能为负数。",
+    "mutation.pending_review_only_false": "pending_review 只能改为 false（确认复核）。",
+    "mutation.reason_required": "该操作必须填写 1 到 500 字的修改理由。",
+    "import.request.rows_invalid": "rows 必须是最多 5000 行的候选对象数组。",
+    "import.request.mapping_too_wide": "列映射超过 200 列。",
+    "mutation.matched_after_entered": "匹配时间不能晚于进入副本的时间。",
+    "mutation.entered_after_ended": "进入副本的时间不能晚于结束时间。",
+    "mutation.entry_required": "只有「未进入副本即取消」可以没有进入时间，其余结果都必须填写进入时间。",
+    "mutation.end_required": "判定为「已完成」的记录必须填写结束时间。",
+    "mutation.no_changes": "未做任何修改，不会写入修订记录。",
+    "ipc.internal_error": "内部错误，详情见本机诊断日志。",
+    "ipc.already_subscribed": "该连接已订阅实时事件。请复用现有订阅，或断开后重新连接。",
+    "ipc.response_too_large": "响应超过 4 MiB 上限，请缩小查询范围或每页条数后重试。",
+    "ipc.frame_too_large_to_send": "待发送的帧超过 4 MiB 上限，已拒绝发送。",
+    "ipc.frame_too_large_received": "收到超过 4 MiB 的帧，连接已断开。",
+    "ipc.unknown_message_type": "收到本版本不支持的消息类型，请确认两端版本一致。",
+    "import.busy": "记录导入正在进行，请稍后用相同的请求编号重试。",
+    "database.integrity_check_busy": "数据库校验正在进行，请等待本次校验结束后再试。",
+    "ipc.field.at_least": {
+      "zh": "{field} 必须大于等于 {min}。",
+      "args": {
+        "field": "text",
+        "min": "number"
+      }
+    },
+    "mutation.undo.unrestorable_field": "修订记录包含无法还原的字段，已拒绝撤销以免部分还原。",
+    "mutation.undo.bad_history_value": "修订记录中的历史值类型异常，已拒绝撤销以免写入错误数据。",
+    "mutation.unknown_needs_end": "结果为「未知」的自动记录必须填写结束时间：没有结束时间的未知结果会被当作仍在进行的记录，既不计入统计，也不会出现在待复核中。请填写结束时间，或选择实际结果。",
+    "history.batch.request_reused": "此请求编号已用于不同的批量操作。",
+    "history.batch.already_deleted": "选中的记录已删除，请刷新后重试。",
+    "history.batch.not_deleted": "恢复和永久删除只能处理已软删除的记录。",
+    "mutation.undo.creation": "第 1 条修订是创建记录本身，无法撤销；如需移除请使用软删除。",
+    "mutation.undo.import_source_repair": "此修订修复历史导入来源，不能撤销为错误来源；请直接更正需要调整的记录内容。",
+    "mutation.undo.legacy_duty_revision": "旧版副本修订缺少区域或来源的历史值，无法安全撤销；请通过更正记录重新选择副本。",
+    "mutation.undo.system_settlement": "这条修订是程序为未完结的记录自动写下的。撤销它会让记录回到无法统计、也无法确认的状态，因此不能撤销；如果判断有误，请直接更正这条记录。",
+    "baseline.goal_at_least_one": "目标值必须大于等于 1。",
+    "baseline.completed_negative": "已完成次数不能为负数。",
+    "baseline.total_too_large": "已有基数与已记录完成次数的合计超过支持上限，请减小已有基数。",
+    "mutation.already_deleted": "该记录已经处于删除状态。",
+    "mutation.not_deleted": "该记录并未被删除，无需恢复。",
+    "mutation.revision_conflict": "这条记录已在别处被修改，请刷新后重试。",
+    "idempotency.record_damaged": "幂等记录已损坏，无法安全重放该请求。",
+    "idempotency.request_reused": "同一个 request_id 被用于内容不同的请求，已拒绝以免产生歧义的结果。",
+    "idempotency.response_expired": "该请求编号已经执行过，但可重放的结果已超出保留期，请用新的请求编号重试。",
+    "reflection.unrecorded_mood_import_only": "未记录心情仅适用于导入的心得。",
+    "history.retention_days_range": {
+      "zh": "retention_days 必须在 0 到 {max} 之间，0 表示永不自动清理。",
+      "args": {
+        "max": "number"
+      }
+    },
+    "history.batch.ids_invalid": {
+      "zh": "请选择不重复的标准记录编号，一次最多 {max} 条。",
+      "args": {
+        "max": "number"
+      }
+    },
+    "export.integrity_failed": "导出文件完整性校验未通过，已保留原文件。",
+    "export.backup_integrity_failed": "备份完整性校验未通过，未清理既有备份。",
+    "export.candidate_evidence_failed": "候选证据导出失败，请检查本地路径和磁盘空间。",
+    "export.diagnostics_unwritable": "无法写入诊断报告，请检查磁盘空间与写入权限。",
+    "export.path.empty": "导出路径不能为空。",
+    "export.path.invalid": "导出路径不是合法的本地路径。",
+    "export.path.not_local": "请选择本机磁盘上的文件位置，不支持网络共享或设备路径。",
+    "export.path.uncheckable": "无法检查导出路径，请检查目录和访问权限。",
+    "export.path.exists": "目标文件已存在。请更换文件名，或勾选「覆盖」后重试。",
+    "export.path.no_directory": "导出路径缺少所在目录。",
+    "export.path.cannot_create_directory": "无法创建导出目录，请检查权限或磁盘空间。",
+    "export.write_failed": "写入导出文件失败：路径不可写或磁盘空间不足。",
+    "export.selection_changed": "部分选中的记录已不存在或不符合当前筛选；本次没有写入导出文件，请刷新后重试。",
+    "candidate.page_size_range": "page_size 必须在 1–200 之间。",
+    "candidate.from_after_to": "from_utc 不得晚于 to_utc。",
+    "candidate.verdict_invalid": "verdict 只能为 CORRECT / WRONG / UNSURE。",
+    "candidate.note_too_long": "核对备注最多 2000 字符。",
+    "candidate.not_found": "该候选观测不存在或已超出保留期，请刷新后重试。",
+    "database.busy": "数据库正忙，请稍后重试。",
+    "candidate.idempotency_damaged": "幂等记录已损坏，无法安全重放核对请求。",
+    "candidate.request_reused": "同一个 request_id 被用于内容不同的请求，核对未修改。",
+    "candidate.idempotency_missing": "核对幂等结果缺失。",
+    "idempotency.purged_run": "该请求涉及已永久删除的记录，不能重放；请刷新历史记录。",
+    "history.revisions_paging": "page 必须大于等于 1，page_size 必须在 1 到 200 之间。",
+    "update.download.setting_off": "更新检查已在设置中关闭，因此没有下载任何内容；如需下载，请先在「设置 · 通用」中开启更新检查。",
+    "update.download.withdrawn": "更新检查已在设置中关闭，因此下载已停止，已下载的安装程序也不再提供；如需更新，请先在「设置 · 通用」中重新开启更新检查，再点「重试」。",
+    "update.download.no_update": "目前没有比正在使用的版本更新的正式版可供下载；如需确认，请先点击「检查更新」。",
+    "update.download.disabled": "本机已禁止本软件检查和下载更新，因此没有下载任何内容；如需更新，请点击「在浏览器中下载」。",
+    "update.download.host_refused": "下载地址指向了本软件不信任的服务器，下载已停止；请稍后重试，或点击「在浏览器中下载」。",
+    "update.download.redirect_refused": "下载服务器的转向无效或次数过多，下载已停止；请稍后重试，或点击「在浏览器中下载」。",
+    "update.download.not_found": "发布页面上暂时找不到该版本的安装程序，可能仍在上传；请稍后重试，或点击「在浏览器中下载」。",
+    "update.download.rate_limited": "下载服务器暂时拒绝了请求，可能是短时间内访问过多；请过一段时间后重试，或点击「在浏览器中下载」。",
+    "update.download.http_status": "下载服务器返回了错误，未能下载安装程序；请稍后重试，或点击「在浏览器中下载」。",
+    "update.download.too_large": "安装程序的大小超出了合理范围，为安全起见已停止下载；请点击「在浏览器中下载」。",
+    "update.download.timeout": "下载长时间没有进展或耗时过长，已经停止；请检查网络连接后重试，或点击「在浏览器中下载」。",
+    "update.download.dns_or_connect": "无法连接到下载服务器；请检查网络连接后重试，或点击「在浏览器中下载」。",
+    "update.download.tls_failed": "无法与下载服务器建立安全连接；请检查系统时间和网络环境后重试，或点击「在浏览器中下载」。",
+    "update.download.transport_failed": "下载过程中网络连接中断，安装程序不完整，已将其删除；请重试，或点击「在浏览器中下载」。",
+    "update.download.checksum_unavailable": "无法读取官方发布的安装程序校验值，因此没有下载安装程序；请稍后重试，或点击「在浏览器中下载」。",
+    "update.download.checksum_mismatch": "下载的安装程序与官方发布的校验值不一致，已将其删除；请重试，或点击「在浏览器中下载」。",
+    "update.download.disk_failed": "无法在本机保存安装程序；请确认磁盘空间充足、数据文件夹可以写入后重试，或点击「在浏览器中下载」。",
+    "speech.api_key_invalid": "密钥只能包含可见的英文字符，不能有空格，最多 512 个字符。",
+    "speech.api_key_needs_target": "请先选择在线语音服务并填写区域或接口地址，再填写密钥。",
+    "speech.api_key_unsaved": "无法在本机保存语音服务密钥，请检查数据目录的写入权限。",
+    "speech.failure.disabled": "在线语音已被环境变量 MR_DISABLE_ONLINE_SPEECH 关闭。",
+    "speech.failure.not_configured": "在线语音还没有配置好：请选择服务，填写区域或接口地址、音色和密钥。",
+    "speech.failure.auth": "语音服务拒绝了密钥，请检查密钥与区域是否匹配。",
+    "speech.failure.quota": "语音服务的额度或频率用完了，请稍后再试。",
+    "speech.failure.network": "连不上语音服务，这一句改用本机语音。",
+    "speech.failure.queue_full": "排队播报的句子太多，这一句改用本机语音。",
+    "speech.failure.timeout": "语音服务响应超时，这一句改用本机语音。",
+    "speech.failure.cancelled": "这一句的在线语音请求已取消，改用本机语音。",
+    "speech.failure.format": "语音服务返回的不是可播放的 WAV 音频。",
+    "speech.failure.other": "在线语音出错。",
+    "speech.settings.azure_region_invalid": "Azure 区域只能是 2 到 32 个小写字母或数字，例如 eastasia。",
+    "speech.settings.endpoint_invalid": "接口地址必须以 https:// 开头（本机地址可用 http://），不能带用户名、密码、问号参数或 # 片段。",
+    "speech.settings.model_invalid": "模型名只能包含字母、数字和 . _ : / -，最多 128 个字符。",
+    "speech.settings.voice_invalid": "音色名只能包含字母、数字和 . _ : / -，最多 128 个字符。",
+    "speech.settings.azure_voice_invalid": "Azure 音色名只能包含字母、数字和连字符，长度 3 到 64，例如 zh-CN-XiaoxiaoNeural。",
+    "speech.text_invalid": {
+      "zh": "text 必须是 1 到 {max} 个字符的一句话，不能含控制字符。",
+      "args": {
+        "max": "number"
+      }
+    },
+    "speech.api_key_not_string": "api_key 必须是字符串：省略表示不变，空字符串表示清除。",
+    "calibration.event.finder_request": {
+      "zh": "开始排队：{roulette}",
+      "args": {
+        "roulette": "roulette"
+      }
+    },
+    "calibration.event.pop": {
+      "zh": "匹配弹窗：{roulette}",
+      "args": {
+        "roulette": "roulette"
+      }
+    },
+    "calibration.event.pop_repeated": {
+      "zh": "匹配弹窗：{roulette}（检测到 {count} 次）",
+      "args": {
+        "roulette": "roulette",
+        "count": "number"
+      }
+    },
+    "calibration.event.pop_timed": {
+      "zh": "匹配弹窗：{roulette}（按时间推测，请核对）",
+      "args": {
+        "roulette": "roulette"
+      }
+    },
+    "calibration.event.pop_timed_lead": {
+      "zh": "匹配弹窗：{roulette}（按时间推测，读条前约 {seconds} 秒，请核对）",
+      "args": {
+        "roulette": "roulette",
+        "seconds": "number"
+      }
+    },
+    "calibration.event.duty_enter": "进入副本",
+    "calibration.event.duty_enter_named": {
+      "zh": "进入副本：{duty}",
+      "args": {
+        "duty": "duty"
+      }
+    },
+    "calibration.event.duty_enter_queue": "进入副本（仅靠排队和进本核对时，记入的是排队时间）",
+    "calibration.event.duty_enter_named_queue": {
+      "zh": "进入副本：{duty}（仅靠排队和进本核对时，记入的是排队时间）",
+      "args": {
+        "duty": "duty"
+      }
+    },
+    "calibration.event.duty_exit": "离开副本",
+    "calibration.event.duty_exit_for": {
+      "zh": "离开副本（对应 {entered} 的进本）",
+      "args": {
+        "entered": "clock"
+      }
+    },
+    "calibration.event.login": "登录游戏",
+    "calibration.event.zone_duty": {
+      "zh": "切换区域：进入副本 {duty}",
+      "args": {
+        "duty": "duty"
+      }
+    },
+    "calibration.event.zone": "切换区域",
+    "calibration.verdict_missing": {
+      "zh": "请先核对这条时间线：{event}",
+      "args": {
+        "event": "text_ref"
+      }
+    },
+    "calibration.relabel_not_possible": {
+      "zh": "这条内容无法修改随机任务名：{event}",
+      "args": {
+        "event": "text_ref"
+      }
+    },
+    "calibration.blocker.queue_pop_ambiguous": "暂时分不清哪次排队对应匹配弹窗。请点「清空校准进度」，再照常申请随机任务并进出副本。",
+    "calibration.blocker.match_time_unknown": "暂时无法识别匹配成功的时间。请点「清空校准进度」后重新校准；若仍无进展，请「导出诊断报告」交给维护者。",
+    "calibration.blocker.queue_vs_match": "还无法区分排队中和匹配成功。请更新导随记录器，或「导出诊断报告」交给维护者。",
+    "calibration.blocker.no_request": "还没识别到你申请的随机任务。请在游戏里申请一次随机任务。",
+    "calibration.blocker.no_match": "还没识别到这次匹配成功。请等这次匹配成功，进入副本并打完离开，再回来查看校准进度。",
+    "calibration.blocker.no_login": "还没识别到你登录游戏。请保持软件开启，先登录进入游戏。",
+    "calibration.blocker.finish_duty": "打完这把副本，离开后再回来。",
+    "calibration.blocker.duty_check_pending": "进出副本的检查还没完成。请保持软件开启，照常进本并打完离开，之后查看校准进度。",
+    "calibration.blocker.overflow": "这次校准积累的信息太多，已无法继续。请点「清空校准进度」，再照常申请随机任务并进出副本。",
+    "calibration.blocker.duty_time_ambiguous": "暂时分不清进出副本的时间。请点「清空校准进度」后重新校准；若仍无进展，请「导出诊断报告」交给维护者。",
+    "calibration.blocker.duty_time_checking": "进出副本的时间还在检查中。请再完成一次进本、出本，期间在城市间往返传送两次；若仍无进展，请「导出诊断报告」。",
+    "calibration.blocker.duty_unsupported": "还无法识别当前游戏版本的进出副本。请更新导随记录器，或「导出诊断报告」交给维护者。",
+    "calibration.blocker.no_duty": "还没识别到你进入的副本。请保持软件开启，再进出一次副本，然后回来查看校准进度。",
+    "calibration.blocker.pop_after_duty": "已看到你进过副本，但还没识别到对应的匹配弹窗。请保持软件开启，申请一个与刚才不同的随机任务；看到开始排队后可以取消，取消排队不会产生记录。信息足够后会请你核对时间线。",
+    "calibration.blocker.try_other_roulette": "还需要检查你申请的随机任务。请申请一个不同的随机任务（开始排队后可以取消，取消排队不会产生记录），或等这次匹配成功并进入副本。",
+    "calibration.provisional.recording": "导随记录照常进行。仅靠排队和进本核对时，记入的是排队时间；取消排队不会产生记录。",
+    "calibration.provisional.blocked": "后台还没认出匹配弹窗，这次校准进度已无法继续。如需继续完善，请先点「清空校准进度」（现用校准会继续记录），保持软件开启，再尝试不同的随机任务并进出副本；组队时请由你来申请。",
+    "calibration.provisional.searching": "导随记录照常进行。仅靠排队和进本核对时，记入的是排队时间；取消排队不会产生记录。后台仍在尝试识别匹配弹窗，找到后会请你核对时间线。你可以照常游戏，也可以尝试不同的随机任务帮助校准；组队时请由你来申请。",
+    "calibration.shared.retaining": "导随记录照常进行，正在使用共享校准。启用前的检查已通过，后台检查还没结束。请照常游戏；完整记录一次副本且通过检查后，校准才算完成。若检查不通过，会停用这份共享校准并改回本机校准。",
+    "calibration.completing.job_found": "导随记录照常进行。已找到补全职业的信息，请核对下面的时间线，再点「核对并启用」；之后的新记录会自动带上职业。",
+    "calibration.provisional.pop_found": "导随记录照常进行。已找到匹配弹窗，请核对下面的时间线，再点「核对并启用」；之后会记入匹配成功的时间。",
+    "calibration.provisional.job_and_pop": "导随记录照常进行。请核对下面的时间线，再点「核对并启用」；之后的新记录会带上职业，检测到匹配弹窗时会记入弹窗时间，未检测到时仍记入排队时间；取消排队不会产生记录。",
+    "calibration.provisional.job_only": "导随记录照常进行。仅靠排队和进本核对时，记入的是排队时间；取消排队不会产生记录。请核对下面的时间线，再点「核对并启用」；之后的新记录会自动带上职业。",
+    "calibration.provisional.pop_only": "导随记录照常进行。请核对下面的时间线，再点「核对并启用」；之后检测到匹配弹窗时会记入弹窗时间，未检测到时仍记入排队时间；取消排队不会产生记录。",
+    "calibration.not_ready": "这次校准还不能启用，暂时没有可核对的时间线。请继续按校准提示操作。",
+    "capture.hint.midstream": "已连接游戏，但一直读不到有效数据，可能漏掉了连接开始时的信息。可在方便时登出到标题画面再重新登录（不用关闭游戏），让软件尝试捕获新连接。若仍无记录，请导出诊断报告。",
+    "capture.hint.midstream_reconnected": "你已经重新连接过游戏，但软件仍然没能读到连接开始时的信息。请先关闭加速器、VPN 和正在进行的下载，重启本软件后再试；若仍如此，请导出诊断报告。",
+    "capture.hint.no_packets": "所选网卡上没有看到游戏流量，可能使用了加速器或 VPN。请在「捕获诊断」点「重新检测网卡」，再按网卡提示操作；也可以关闭加速器后重新登录游戏。",
+    "capture.hint.no_ownership": "看到了网络流量，但无法确认这些连接属于游戏。请确认没有使用加速器或代理；若仍然如此，请尝试以管理员身份运行本软件后重新开始。",
+    "capture.warning.validation_holds": "正在进行采集验证，验证期间不会自动记录。如需恢复记录，请在捕获诊断页停止验证。",
+    "capture.warning.recalibrating": "游戏更新了，需要重新校准。请照常完成随机任务，再按提示核对。校准完成前暂时不能自动记录。",
+    "capture.warning.profile_unverified": "游戏数据正在读取中，但还没有确认当前游戏版本是否支持。暂时不能自动记录，期间可以先手动记录。",
+    "capture.warning.preexisting_reconnected": "你已经重新连接过游戏，但软件仍然没能读到连接开始时的信息。请先关闭加速器、VPN 和正在进行的下载，再重启本软件后重试。",
+    "capture.warning.preexisting": "软件开始读取时游戏已经登录，暂时读不到有效游戏数据。这部分游戏过程不会被记录，校准也会显得一直没进展。请保持本软件开启，回到游戏标题画面重新登录，再查看是否恢复记录。",
+    "capture.select.validation_running": "采集验证正在使用游戏窗口，请先停止验证再切换。",
+    "capture.select.previous_not_finished": "旧的采集尚未结束，请稍后再选择游戏窗口。",
+    "capture.select.game_exited": "所选游戏已退出或重新启动，请重新选择游戏窗口。",
+    "capture.validation.switch_refused_verified": "当前版本已有已验证档案，请先停止正式记录后再使用维护工具采证。",
+    "capture.start.already_running": "抓包已在运行，无需重复启动。",
+    "capture.start.select_game": "请先在总览或捕获诊断页选择要记录的游戏窗口。",
+    "capture.start.game_not_running": "未找到正在运行的 FINAL FANTASY XIV 客户端，抓包未启动。请先启动并登录游戏后重试。",
+    "capture.start.process_not_selected": "请先选择该游戏窗口，再开始监听。",
+    "capture.start.no_adapters": "没有枚举到任何可用网卡。请确认 Npcap 服务已启动，必要时以管理员身份运行一次本软件。",
+    "capture.start.adapter_no_ipv4": "所选网卡没有可绑定的 IPv4 地址，抓包未启动。请刷新网卡列表并选择实际承载游戏流量的 IPv4 网卡。",
+    "capture.start.profile_unavailable": "协议档案不可用（fail-closed），未启动抓包：本版本不会解析任何报文，也不会自动写入任何记录。若只是想验证抓包链路本身，请先把设置 capture.allow_without_profile 打开（仅统计，不记录）。",
+    "capture.stop.not_running": "抓包未在运行，无需停止。",
+    "capture.stop.pipeline_busy": "协议处理尚未退出，已保留会话资源。请稍后重试停止，或退出采集服务。",
+    "capture.start.session_log_failed": "无法建立抓包会话日志，未启动抓包。详情见本机诊断日志。",
+    "capture.start.failed": "启动抓包失败，详情见本机诊断日志。",
+    "capture.start.adapter_not_found": "指定的网卡不存在，请刷新网卡列表后重新选择。",
+    "capture.start.adapter_undetermined": "无法确定游戏流量所在的网卡（不做猜测）。请在诊断页手动选择一张网卡后重试。",
+    "capture.fault.pipeline": "协议处理或写库失败，抓包已停止以避免漏记。",
+    "capture.npcap.not_installed": "未检测到 Npcap。本软件需要 Npcap 才能被动读取本机网卡流量，请从 Npcap 官方站点自行下载安装（安装时请勾选 “WinPcap API-compatible Mode”），安装完成后重新启动本软件。本软件运行时不会替您下载或安装任何驱动；只有安装程序在安装时发现缺少 Npcap，才会下载 Npcap 官方安装程序，由您在它自己的向导中完成安装。",
+    "capture.npcap.load_failed": "检测到 Npcap 的安装记录，但 wpcap.dll 或 Packet.dll 不在 %SystemRoot%\\System32\\Npcap\\ 下，安装可能不完整或已被部分卸载。请重新安装 Npcap（安装时勾选 “WinPcap API-compatible Mode”）。",
+    "capture.npcap.not_winpcap_compatible": "检测到 Npcap，但未安装 WinPcap 兼容模式。本软件通过 WinPcap 兼容接口抓包，请重新运行 Npcap 安装程序并勾选 “WinPcap API-compatible Mode”。（不需要勾选 “Support raw 802.11 traffic”。）",
+    "capture.npcap.admin_only": "Npcap 安装时启用了 “Restrict Npcap driver's access to Administrators only”，当前进程没有管理员权限，无法打开网卡。请以管理员身份运行本软件，或重新安装 Npcap 并取消该限制选项。",
+    "capture.npcap.ready": "Npcap 可用。抓包全程只读，从不发送任何数据包。",
+    "capture.game.instances": {
+      "zh": "检测到 {count} 个 FFXIV 进程。请在总览或捕获诊断页确认当前记录对象。",
+      "args": {
+        "count": "number"
+      }
+    },
+    "capture.game.region_ambiguous": "无法从安装路径判断区服（路径同时含有国服与国际服的标记）。请到设置里手动指定区服（国服 / 国际服）；在此之前不会进行任何自动记录（fail-closed）。",
+    "capture.game.region_unmarked": "无法从安装路径判断区服（路径可读，但不含可识别的区服标记）。请到设置里手动指定区服（国服 / 国际服）；在此之前不会进行任何自动记录（fail-closed）。",
+    "capture.game.version_file_missing": {
+      "zh": "未能在游戏目录中读取到 {file}，客户端版本未知。",
+      "args": {
+        "file": "text"
+      },
+      "note": "{file} is the game's version file name, ffxivgame.ver."
+    },
+    "capture.game.path_denied": "没有权限读取游戏安装路径，区服与客户端版本将保持未知；此时不会进行任何自动记录（fail-closed）。",
+    "capture.game.path_unknown": "无法确定游戏安装路径，区服与客户端版本将保持未知；此时不会进行任何自动记录（fail-closed）。",
+    "capture.game.region_override_mismatch": "设置中手动指定的区服与安装路径推断出的区服不一致，已按手动指定的区服处理。若这不是你想要的，请到设置里清除区服覆盖。",
+    "capture.profile.none": "仓库中没有任何协议档案（PROTOCOL_PROFILE_STATUS = NONE）。按 fail-closed 规则，本版本不会解析任何报文，也不会自动写入任何记录，只能手工补录。",
+    "status.recovered_runs": {
+      "zh": "启动时恢复了 {count} 条未完结记录，请在「待复核」中确认。",
+      "args": {
+        "count": "number"
+      }
+    },
+    "status.log_writes_lost": {
+      "zh": "有 {count} 条诊断日志未能写入，本机日志可能不完整。",
+      "args": {
+        "count": "number"
+      }
+    },
+    "capture.fault.connection_table_full": "首包连接状态容量已满。",
+    "capture.fault.raw_buffer_full": "首包原始缓冲容量已满，无法保证流前缀完整。",
+    "capture.fault.npcap_read": "Npcap 读取失败，已停止采集。",
+    "capture.fault.ownership_decode": "连接归属确认或解码失败，已停止采集。",
+    "capture.start.native_release_failed": "启动失败且原生采集资源未能释放，已保留资源供停止操作重试。",
+    "capture.fault.monitor": "抓包监视器报告了致命错误，抓包已停止。详情见本机诊断日志。",
+    "capture.start.npcap_open_failed": "无法通过 Npcap 打开网卡。请确认 Npcap 已安装并勾选了 WinPcap 兼容模式，必要时以管理员身份运行本软件。",
+    "capture.start.monitor_failed": "启动抓包监视器失败，抓包未开始。详情见本机诊断日志。",
+    "capture.start.adapter_list_changed": "网卡列表已经发生变化，刚才选中的网卡现在找不到了。正在重新扫描并挑选承载游戏流量的网卡，请稍候。",
+    "capture.oodle.previous_not_released": "上次 Oodle 资源尚未释放，抓包未开始。 请运行 tools/oodle-signature-finder 重新生成并核验签名档案。",
+    "capture.oodle.machina_incompatible": "当前 Machina 版本与 Oodle 签名档案接线不兼容，抓包未开始。 请运行 tools/oodle-signature-finder 重新生成并核验签名档案。",
+    "capture.oodle.profile_load_failed": "匹配的 Oodle 签名档案无法加载，抓包未开始。 请运行 tools/oodle-signature-finder 重新生成并核验签名档案。",
+    "capture.select.start_time_unknown": "暂时无法确认该游戏的启动时间，请重新检测后再选择。",
+    "capture.ownership_busy": "正式采集或验证会话尚未结束，请先停止并等待资源释放。",
+    "capture.settings.research_needs_validation": "请先开启候选档案验证，再设置研究白名单。",
+    "capture.settings.research_too_many": "研究白名单最多 32 项。",
+    "capture.settings.research_format": "白名单条目必须是 0x 加四位十六进制数。",
+    "capture.settings.research_duplicate": "研究白名单不能重复。",
+    "capture.settings.research_not_eligible": "该 opcode 未被声明为不超过 512 字节的非混淆候选。",
+    "capture.validation.idle": "尚未开始验证。",
+    "capture.validation.waiting_restart_selected": "仅验证，不自动记录。正在等待所选游戏重新启动。若游戏已启动仍未继续，请停止验证，重新检测并选择窗口。",
+    "capture.validation.waiting_selection": "仅验证，不自动记录。请先停止验证，在总览或捕获诊断页选择游戏窗口后再开始。",
+    "capture.validation.waiting_game": "仅验证，不自动记录。正在等待游戏启动。",
+    "capture.validation.waiting_identity": "仅验证，不自动记录。正在等待可读取的游戏路径与客户端版本。",
+    "capture.validation.waiting_adapter_ambiguous": "仅验证，不自动记录。多张网卡承载游戏连接，请取消并明确选择网卡。",
+    "capture.validation.waiting_adapter": "仅验证，不自动记录。等待可用 IPv4 网卡；无法自动确定时，请取消并明确选择网卡。",
+    "capture.validation.waiting_restart_connected": "仅验证，不自动记录。游戏已有连接，请退出并重新启动游戏，验证将自动继续。",
+    "capture.validation.waiting_connection_check": "仅验证，不自动记录。无法确认游戏连接状态，正在等待系统查询恢复。",
+    "capture.validation.waiting_region": "仅验证，不自动记录。无法从安装路径判断区服。请在设置里手动指定区服（国服 / 国际服）后重试。",
+    "capture.validation.marker_invalid": {
+      "zh": "标记只能为 {markers}。",
+      "args": {
+        "markers": "text"
+      },
+      "note": "{markers} lists the marker tokens, for example queued / pop / entered / victory / left."
+    },
+    "capture.validation.stopping": "正在停止验证并保存本地文件……",
+    "capture.validation.stopping_wait_time_limit": "已达到单次验证的时长上限，正在停止等待……",
+    "capture.validation.recording": "仅验证，不自动记录。正在保存脱敏取证，可添加事件标记。",
+    "capture.validation.stopping_time_limit": "已达到单次验证的时长上限，正在停止并保存本地文件……",
+    "capture.validation.failed": "验证失败，文件可能不完整。详情见本机诊断日志。",
+    "capture.validation.cancelled_time_limit": "已达到单次验证的时长上限，已停止等待，未创建取证文件。",
+    "capture.validation.cancelled": "已取消等待，未创建取证文件。",
+    "capture.validation.completed": "取证文件已保存到本机。真实 FF14 / Oodle 仍未验证。",
+    "capture.validation.stopping_after_error": "验证遇到错误，正在停止并保存可用证据……",
+    "capture.validation.adapter_id_invalid": "网卡标识必须为非空字符串，且不超过 400 字符。",
+    "capture.validation.npcap_unavailable": "Npcap 不可用，请安装官方 Npcap 并启用兼容模式后重试。",
+    "capture.validation.marker_not_recording": "仅在验证录制期间可以添加标记。",
+    "capture.validation.marker_queue_full": "标记队列或会话标记总数已满，请等待已接收标记写入。",
+    "capture.profile.unavailable": {
+      "zh": "协议档案不可用（fail-closed）：{reason}",
+      "args": {
+        "reason": "text"
+      },
+      "note": "{reason} is the profile directory's English explanation, for example: no profile matches this region and build."
+    },
+    "calibration.write_failed": {
+      "zh": "无法写出本机校准档案：{error}",
+      "args": {
+        "error": "text"
+      },
+      "note": "{error} is the operating system's explanation."
+    },
+    "calibration.written_not_selected": {
+      "zh": "本机校准档案已写出，但档案目录没有选中它：{reason}",
+      "args": {
+        "reason": "text"
+      },
+      "note": "{reason} is the profile directory's English explanation."
+    },
+    "capture.settings.stop_before_validation": "请先停止捕获，再开启候选档案验证。",
+    "calibration.rejected": "有事件被标为不对，这次校准作废；再打一把随机任务后会重新核对。",
+    "calibration.build_unknown": "客户端版本未知，无法写出档案。",
+    "calibration.state_changed": "写出档案期间校准状态发生了变化，这次确认作废；请重新核对。",
+    "calibration.restore.build_unknown": "还没识别到游戏版本，暂时无法恢复上一份本机校准。请确认游戏已启动。",
+    "calibration.restore.nothing": "没有可以恢复的本机校准：上一份可能已经被新的校准覆盖，或者文件不在了。",
+    "calibration.restore.unreadable": "暂时无法读取校准文件，尚未恢复上一份本机校准。请稍后重试。",
+    "calibration.restore.unusable": "上一份本机校准已经无法使用，请重新校准。",
+    "calibration.restore.outranked_by_pop": "上一份本机校准已恢复并留作备用。当前校准能识别匹配成功的时间，比上一份更完整，因此继续使用当前校准记录。",
+    "calibration.restore.outranked_by_shipped": "上一份本机校准已恢复并留作备用。当前使用的是软件自带的校准，将继续使用。",
+    "calibration.restore.outranked": "上一份本机校准已恢复并留作备用。当前另有优先使用的校准，将继续使用当前校准记录。",
+    "calibration.verdict_invalid": "verdict 只能是 CORRECT、WRONG 或 RELABEL。",
+    "calibration.relabel_needs_name": "RELABEL 必须带上 roulette_name。",
+    "calibration.verdicts_empty": "verdicts 不能为空。",
+    "calibration.pipeline_not_ready": "游戏数据读取服务尚未就绪，请稍后重试。",
+    "calibration.discard_conflict": "retire_local_profile 与 restore_local_profile 不能同时为真。",
+    "calibration.evidence_hash_invalid": "code_sha256 必须是 64 位小写十六进制。",
+    "history.run_not_found": "找不到该记录，请刷新列表后重试。",
+    "candidate.start_after_end": "开始时间不能晚于结束时间。",
+    "speech.voice.xiaoxiao": {
+      "zh": "晓晓（女声）",
+      "note": "A voice of the online speech service: keep the voice's name, translate the description in brackets."
+    },
+    "speech.voice.yunxi": {
+      "zh": "云希（男声）",
+      "note": "A voice of the online speech service: keep the voice's name, translate the description in brackets."
+    },
+    "speech.voice.xiaoyi": {
+      "zh": "晓伊（女声）",
+      "note": "A voice of the online speech service: keep the voice's name, translate the description in brackets."
+    },
+    "speech.voice.yunjian": {
+      "zh": "云健（男声）",
+      "note": "A voice of the online speech service: keep the voice's name, translate the description in brackets."
+    },
+    "speech.voice.xiaochen": {
+      "zh": "晓辰（女声）",
+      "note": "A voice of the online speech service: keep the voice's name, translate the description in brackets."
+    },
+    "speech.voice.yunyang": {
+      "zh": "云扬（男声，新闻）",
+      "note": "A voice of the online speech service: keep the voice's name, translate the description in brackets."
+    },
+    "startup.db_locked": {
+      "zh": "数据库文件正被其他程序占用，本软件无法启动。请关闭占用它的程序后重试。数据库文件：{path}",
+      "args": {
+        "path": "text"
+      }
+    },
+    "startup.db_open_damaged": {
+      "zh": "无法打开数据库，本软件无法启动。该文件已损坏，或不是本软件的数据库。请先把数据库文件复制一份保存到别处，再排查问题。数据库文件：{path}",
+      "args": {
+        "path": "text"
+      }
+    },
+    "startup.db_open_access": {
+      "zh": "无法打开数据库，本软件无法启动。无法以读写方式打开该文件，可能是没有权限或路径不可用。请先把数据库文件复制一份保存到别处，再排查问题。数据库文件：{path}",
+      "args": {
+        "path": "text"
+      }
+    },
+    "startup.db_open_disk_full": {
+      "zh": "无法打开数据库，本软件无法启动。磁盘空间不足。请先把数据库文件复制一份保存到别处，再排查问题。数据库文件：{path}",
+      "args": {
+        "path": "text"
+      }
+    },
+    "startup.db_open_io": {
+      "zh": "无法打开数据库，本软件无法启动。读写该文件时出错。请先把数据库文件复制一份保存到别处，再排查问题。数据库文件：{path}",
+      "args": {
+        "path": "text"
+      }
+    },
+    "startup.db_integrity_failed": {
+      "zh": "数据库完整性校验失败，本软件无法启动。请先把数据库文件复制一份保存到别处，再排查问题。数据库文件：{path}",
+      "args": {
+        "path": "text"
+      }
+    },
+    "startup.migration_failed": {
+      "zh": "数据库迁移失败，已整体回滚，本软件无法启动。请先把数据库文件复制一份保存到别处，再排查问题。数据库文件：{path}",
+      "args": {
+        "path": "text"
+      }
+    },
+    "startup.migration_failed_no_path": {
+      "zh": "数据库迁移失败，已整体回滚，本软件无法启动。请先把数据库文件复制一份保存到别处，再排查问题。",
+      "note": "The same refusal for a database with no file behind it."
+    },
+    "startup.schema_too_new": {
+      "zh": "数据库的结构版本高于本程序支持的版本，本软件无法启动。请先把数据库文件复制一份保存到别处，再升级本软件。数据库文件：{path}",
+      "args": {
+        "path": "text"
+      }
+    },
+    "startup.schema_too_new_no_path": {
+      "zh": "数据库的结构版本高于本程序支持的版本，本软件无法启动。请先把数据库文件复制一份保存到别处，再升级本软件。",
+      "note": "The same refusal for a database with no file behind it."
+    },
+    "startup.migration_tampered": {
+      "zh": "历史迁移脚本的校验和与记录不符，数据库可能已被篡改，本软件无法启动。请先把数据库文件复制一份保存到别处，再排查问题。数据库文件：{path}",
+      "args": {
+        "path": "text"
+      }
+    },
+    "startup.migration_tampered_no_path": {
+      "zh": "历史迁移脚本的校验和与记录不符，数据库可能已被篡改，本软件无法启动。请先把数据库文件复制一份保存到别处，再排查问题。",
+      "note": "The same refusal for a database with no file behind it."
+    },
+    "startup.pipe_sid_unknown": "无法读取当前用户的 SID，命名管道名称无法确定。",
+    "startup.pipe_acl_sid_unknown": "无法读取当前用户 SID，命名管道 ACL 无法设置。",
+    "startup.log_dir_unwritable": "无法写入日志目录，采集服务未启动。请检查 --log-dir 指向的位置是否存在、是否是文件、以及当前用户是否有写入权限。",
+    "startup.pipe_other_account": "本机的通信管道已被另一个 Windows 账户（或以管理员身份运行）的程序占用，本软件不会连接它，采集服务因此无法启动。请先结束那个程序（例如在另一个账户中退出本软件）后重试。",
+    "startup.collector_unresponsive": {
+      "zh": "本机已有一个 Collector 占用着通信管道，但它没有响应，无法复用。请在任务管理器中结束 MentorRecorder.Collector 后重试；它的进程号记录在日志目录下的 {file}。",
+      "args": {
+        "file": "text"
+      },
+      "note": "{file} is the name of the file that holds the process id."
+    },
+    "startup.lock_failed": "无法建立 Collector 单实例锁，详情见本机日志。",
+    "startup.already_running": "Collector 已在本机运行。请复用现有实例，而不是再次启动。",
+    "database.busy_retry": "数据库正忙，请稍后用相同的请求编号重试。",
+    "database.busy_integrity_check": "数据库正忙，请稍后再校验。",
+    "export.backup_failed": "备份失败：目标路径不可写或磁盘空间不足。",
+    "sharing.code.empty": "还没有校准码，请粘贴完整的校准码。",
+    "sharing.code.too_long": "校准码太长，无法导入。请重新复制完整的校准码，不要带上其他文字。",
+    "sharing.code.not_a_code": "无法识别这份校准码。请完整复制以 MRC1. 开头的校准码。",
+    "sharing.code.newer_version": "当前导随记录器无法读取这份校准码。请先更新软件，再「导入校准码」。",
+    "sharing.code.characters": "校准码中有无法识别的字符。请重新完整复制，不要带上其他文字。",
+    "sharing.code.truncated": "校准码不完整，可能复制时少了一截；请重新完整复制一次。",
+    "sharing.code.damaged": "校准码已损坏，无法读取。请重新完整复制一次。",
+    "sharing.code.too_large": "校准码的内容超出处理范围，无法导入。请向分享者获取新的校准码。",
+    "sharing.code.content_invalid": "校准码的内容有误，无法导入。请重新完整复制；若仍无法导入，请分享者重新生成校准码。",
+    "sharing.code.territory_required": "这份校准码无法识别你进入的副本，不能用于记录。请向分享者获取新的校准码，或使用「本机校准」。",
+    "sharing.code.unusable": "这份校准码暂时无法使用。请重新完整复制，或使用「本机校准」。",
+    "sharing.import.unbuildable": "这份校准码暂时无法使用。请更新导随记录器，或请分享者重新生成校准码。",
+    "sharing.import.changed": "这次导入未完成，不能用它开始记录。导入时游戏版本或校准进度发生了变化，请重新「导入校准码」。",
+    "sharing.import.applied_unpublished": "校准码已导入，暂未查到公开发布信息。请保持软件开启，照常登录、申请随机任务并进出副本。通过检查后即可使用；如果提示需要同意，请在「共享校准」中点「同意，开始记录」。",
+    "sharing.import.applied_at_login": "校准码已导入，通过登录检查后可用。请保持软件开启并登录游戏；如果提示需要同意，请在「共享校准」中点「同意，开始记录」。启用后还会继续检查排队和进出副本。",
+    "sharing.import.applied": "校准码已导入。请保持软件开启，照常申请随机任务并进出副本。通过检查后即可使用；如果提示需要同意，请在「共享校准」中点「同意，开始记录」。",
+    "sharing.import.not_calibrating": "当前没有正在进行的校准，暂时无需「导入校准码」。",
+    "sharing.import.other_region": "这份校准码不能用于当前游戏，国服与国际服不能通用。请导入当前区服的校准码，或使用「本机校准」。",
+    "sharing.import.other_template": "这份校准码不能用于当前导随记录器。请你和分享者先更新到同一版本，再「导入校准码」。",
+    "sharing.import.rejected": "这份校准码未通过检查，已停用。请改用其他校准码；如需重新尝试，先点「清空校准进度」，再「导入校准码」。",
+    "sharing.import.revoked": "这份共享校准已被撤回，不能继续用于记录。请向分享者获取新校准码，或使用「本机校准」。",
+    "sharing.import.user_rejected": "当前游戏版本已选择只用「本机校准」，暂时不能「导入校准码」。如需使用共享校准，请先点「清空校准进度」，再「导入校准码」。",
+    "sharing.import.check_pending": "暂时无法检查这份校准码。请等当前的共享校准检查有结果后，再「导入校准码」。",
+    "sharing.code.paste_whole": "请粘贴完整的校准码。",
+    "sharing.import.not_imported": {
+      "zh": "校准码未导入：{reason}",
+      "args": {
+        "reason": "text_ref"
+      },
+      "note": "reason is one of the sharing.code.* sentences."
+    },
+    "sharing.import.other_build": {
+      "zh": "这份校准码不能用于当前游戏。它适用于游戏版本 {code_build}，你当前的版本是 {current_build}；请导入相同游戏版本的校准码，或使用「本机校准」。",
+      "args": {
+        "code_build": "text",
+        "current_build": "text"
+      },
+      "note": "code_build and current_build are game build strings such as 2026.10.06.0000.0000."
+    },
+    "sharing.share_code.no_profile": "当前没有正在使用的协议档案，没有可以分享的校准。",
+    "sharing.share_code.not_local": "当前使用的是随包档案，不是本机校准出来的，不需要分享。",
+    "sharing.share_code.shared_missing": "当前使用的共享校准在本机找不到对应的校准码，无法生成。",
+    "sharing.share_code.shared_not_proven": "这份共享校准还在核对中，等它完整记录过一次随机任务后再告诉其他玩家。",
+    "sharing.share_code.local_unusable": "本机校准的档案暂时不能使用、读不出来或已被改动，无法生成校准码。",
+    "sharing.share_code.unavailable": "当前校准无法生成校准码。请先完成「本机校准」。",
+    "sharing.import.code_too_long": {
+      "zh": "校准码太长，无法导入，最多支持 {max} 个字符。请重新复制校准码，不要带上其他文字。",
+      "args": {
+        "max": "number"
+      }
+    },
+    "capture.validation.still_running": "验证会话仍在进行，请先停止。",
+    "import.table.row_too_wide": {
+      "zh": "第 {row} 行超过 200 列上限。",
+      "args": {
+        "row": "number"
+      }
+    },
+    "import.sheet.too_many_cells": {
+      "zh": "工作表第 {row} 行超过 200 个单元格上限。",
+      "args": {
+        "row": "number"
+      }
+    },
+    "import.sheet.row_too_wide": {
+      "zh": "工作表第 {row} 行超过 200 列上限。",
+      "args": {
+        "row": "number"
+      }
+    },
+    "import.table.header_invalid": {
+      "zh": "表头格式错误：{errors}",
+      "args": {
+        "errors": "text_ref"
+      },
+      "note": "errors is one row error, or several joined by import.table.errors_joined."
+    },
+    "import.table.errors_joined": {
+      "zh": "{first}；{rest}",
+      "args": {
+        "first": "text_ref",
+        "rest": "text_ref"
+      },
+      "note": "Joins two sentences of a list of errors; use the language's own list separator."
+    },
+    "import.table.duplicate_mapping": {
+      "zh": "多个表格列对应了同一项内容，请调整「列映射」：{fields}",
+      "args": {
+        "fields": "text"
+      },
+      "note": "fields lists record field names such as duty_name, joined by 、."
+    },
+    "import.xlsx.part_missing": {
+      "zh": "XLSX 内容不完整，请重新另存为工作簿后重试。缺少：{part}",
+      "args": {
+        "part": "text"
+      },
+      "note": "part is a file inside the workbook, such as xl/workbook.xml."
+    },
+    "import.backup.table_missing": {
+      "zh": "备份缺少记录数据，请重新创建备份后重试。缺少：{table}",
+      "args": {
+        "table": "text"
+      },
+      "note": "table is a database table name, such as mentor_runs."
+    },
+    "import.source.kind_unsupported": "无法导入这种格式，请选择支持的文件或粘贴表格。",
+    "import.source.rows_required": "还没有可预览的记录，请重新识别截图或读取已编辑的内容。",
+    "import.source.file_required": "请选择本地来源文件。",
+    "import.source.file_not_found": "找不到所选文件，请重新选择。",
+    "import.source.file_too_large": "来源文件超过 20 MiB 上限。",
+    "import.source.text_too_large": "来源文本超过 20 MiB 上限。",
+    "import.source.text_unreadable": "文字中有无法读取的字符，请检查并重新保存文本后重试。",
+    "import.source.encoding_invalid": "文本编码无法读取，请将文件另存为 UTF-8 后重试。",
+    "import.source.encoding_unknown": "无法按 UTF-8 或 GB18030 读取文件，请另存为 UTF-8 后重试。",
+    "import.json.not_array": "JSON 文件需要包含一组记录，请按 JSON 导入模板填写。",
+    "import.json.malformed": "JSON 来源结构损坏或包含重复字段。",
+    "import.json.too_many_rows": "待导入记录超过 5000 条，请分批导入。",
+    "import.json.row_not_object": "这条记录的 JSON 格式不正确，请按导入模板填写。",
+    "import.json.too_complex": "JSON 内容过于复杂，无法读取。请按导入模板整理并分批导入。",
+    "import.json.too_many_fields": "单条记录超过 200 个字段，请减少字段后重试。",
+    "import.json.field_name_unreadable": "记录字段名中有无法读取的字符，请检查 JSON 文件。",
+    "import.json.too_much": "JSON 内容过多，无法读取。请拆分文件后重试。",
+    "import.json.array_too_long": "JSON 中的一组数据过多，无法读取。请拆分文件后重试。",
+    "import.json.value_unreadable": "记录中有无法读取的字符，请修正后再导入。",
+    "import.json.too_large": "JSON 内容超过 20 MiB，请拆分文件后重试。",
+    "import.json.value_too_long": "JSON 中单项内容超过 8000 字符，请缩短后再导入。",
+    "import.cell.too_long": "单元格超过 8000 字符上限，须修正后再导入。",
+    "import.table.too_many_rows": "表格超过 5000 数据行上限。",
+    "import.table.quote_invalid": "引号或引号后的内容不符合 CSV/TSV 格式。",
+    "import.table.quote_unclosed": "单元格缺少结尾引号，请修正表格或重新导出后重试。",
+    "import.table.mapping_unsupported": "列映射中有不支持的记录字段，请检查后重新设置。",
+    "import.table.no_known_columns": "没有识别出表格列名，请点「列映射」指定副本、职业等内容所在的列。",
+    "import.table.width_mismatch": "数据列数与表头不一致。",
+    "import.xlsx.too_many_parts": "XLSX 内部文件过多，无法读取。请将需要的记录另存为新的工作簿后重试。",
+    "import.xlsx.inflated_too_large": "XLSX 解压大小超过 64 MiB 上限。",
+    "import.xlsx.duplicate_part": "XLSX 内部文件重名，无法读取。请重新另存为工作簿后重试。",
+    "import.xlsx.macro_part": "不支持包含宏的工作簿，请先另存为无宏 XLSX。",
+    "import.xlsx.macro_enabled": "工作簿含有宏，无法导入。请先另存为无宏 XLSX 文件。",
+    "import.xlsx.date_system_invalid": "XLSX 的日期设置无法读取，请重新另存为工作簿后重试。",
+    "import.xlsx.no_visible_sheet": "XLSX 没有可见工作表，请取消工作表隐藏后保存并重试。",
+    "import.xlsx.sheet_id_missing": "XLSX 的工作表信息不完整，请重新另存为工作簿后重试。",
+    "import.xlsx.sheet_relation_invalid": "XLSX 的工作表信息损坏或指向其他文件，请将记录另存到独立工作簿后重试。",
+    "import.sheet.too_many_rows": "工作表超过 5000 数据行上限（含格式空行）。",
+    "import.sheet.row_number_invalid": "工作表行号无效或顺序错误。",
+    "import.sheet.cell_reference_invalid": "单元格坐标无效。",
+    "import.sheet.text_too_large": "工作表展开文本超过 20 MiB 上限。",
+    "import.sheet.duplicate_cell": "工作表含重复单元格坐标。",
+    "import.xlsx.unreadable": "XLSX 文件内容损坏或过于复杂，无法读取。请将需要的记录另存为新的工作簿后重试。",
+    "import.xlsx.part_too_large": "XLSX 内部单个文件超过 16 MiB，请将需要的记录另存到较小的工作簿后重试。",
+    "import.xlsx.sheet_target_invalid": "XLSX 的工作表位置无效，请重新另存为工作簿后重试。",
+    "import.xlsx.sheet_target_outside": "XLSX 的工作表位置超出文件范围，请重新另存为工作簿后重试。",
+    "import.xlsx.too_many_strings": "XLSX 内部文本条目超过 100000 项，请将需要的记录另存到较小的工作簿后重试。",
+    "import.xlsx.too_many_formats": "XLSX 自定义格式过多，请减少格式或将记录另存为 CSV 后重试。",
+    "import.xlsx.too_many_styles": "XLSX 单元格格式过多，请减少格式或将记录另存为 CSV 后重试。",
+    "import.cell.formula": "公式单元格未导入；请转为明确的文本或数值。",
+    "import.cell.shared_string_invalid": "单元格文字无法读取，请检查原表格并重新保存。",
+    "import.cell.error_value": "单元格含有错误值，请在原表格中修正后重试。",
+    "import.cell.type_unsupported": "无法读取这种单元格，请在原表格中转为文本或数值后重试。",
+    "import.cell.boolean_invalid": "单元格的真假值无法读取，请在原表格中修正后重试。",
+    "import.cell.style_invalid": "单元格格式无法读取，请检查原表格并重新保存。",
+    "import.cell.date_serial_invalid": "Excel 日期或时间数值无效。",
+    "import.cell.date_format_ambiguous": "工作表日期/时间格式不明确；请补充完整格式后导入。",
+    "import.cell.date_invalid": "Excel 日期无效（包括不存在的 1900-02-29）。",
+    "import.cell.date_out_of_range": "Excel 日期或时间超过支持范围。",
+    "import.cell.text_encoding_invalid": "单元格文字编码无法读取，请检查原表格并重新保存。",
+    "import.backup.wal_pending": "这个数据库还有未合并的数据，不能直接导入。请在原软件中创建独立备份，再选择备份文件。",
+    "import.backup.not_a_backup": "这个数据库不是软件支持的记录备份，请选择由导随记录创建的备份文件。",
+    "import.backup.reflections_incomplete": "备份中的心得数据不完整，请重新创建备份后重试。",
+    "import.backup.metadata_incomplete": "备份中的记录来源信息不完整，请重新创建备份后重试。",
+    "import.backup.too_many_rows": "备份超过 5000 条记录上限。",
+    "import.backup.text_too_large": "备份展开文本超过 20 MiB 上限。",
+    "import.backup.unreadable": "无法读取数据库备份，原文件未改动。请确认文件完整，或重新创建备份后重试。",
+    "import.backup.too_many_columns": "备份表超过 200 列上限。",
+    "import.backup.value_unreadable": "备份中有无法读取的记录内容，请检查备份是否完整或重新创建备份。",
+    "import.cell.text_unreadable": "单元格中有无法读取的字符，请检查原表格并重新保存。",
+    "import.xls.not_a_workbook": "文件内容不是 Excel 97–2003 工作簿，不能只修改后缀。请在 Excel 中另存为 .xls 或 .xlsx 后重试。",
+    "import.xls.too_large": "XLS 内部数据超过 64 MiB，请将需要的记录另存到较小的工作簿后重试。",
+    "import.xls.workbook_missing": "XLS 缺少可读取的工作表数据，请另存为 Excel 97–2003 工作簿后重试。",
+    "import.xls.workbook_damaged": "XLS 的工作表数据损坏，请重新另存为工作簿后重试。",
+    "import.xls.too_many_sheets": "XLS 包含过多工作表。",
+    "import.xls.no_visible_sheet": "XLS 没有可见工作表，请取消工作表隐藏后保存并重试。",
+    "import.xls.unreadable": "XLS 文件内容损坏或过于复杂，无法读取。请将记录另存为无宏、无密码的工作簿后重试。",
+    "import.xls.directory_too_deep": "XLS 内部文件层级过深，无法读取。请将记录另存为新的工作簿后重试。",
+    "import.xls.too_many_entries": "XLS 内部文件过多，无法读取。请将记录另存为新的工作簿后重试。",
+    "import.xls.encrypted": "不支持加密的 XLS，请先取消密码后保存。",
+    "import.xls.macro": "不支持包含宏的 XLS，请先另存为无宏工作簿。",
+    "import.xls.stream_size_invalid": "XLS 内部数据长度异常或过大，无法读取。请重新另存为工作簿后重试。",
+    "import.xls.entry_type_invalid": "XLS 内部文件格式不正确，请重新另存为工作簿后重试。",
+    "import.xls.records_truncated": "XLS 的工作表数据不完整，请重新另存为工作簿后重试。",
+    "import.xls.records_malformed": "XLS 的工作表数据格式不正确，请重新另存为工作簿后重试。",
+    "import.xls.records_too_many": "XLS 的工作表数据损坏或过大，无法读取。请重新另存为工作簿后重试。",
+    "import.xls.record_length_invalid": "XLS 的工作表数据长度异常，请重新另存为工作簿后重试。",
+    "import.xls.version_unsupported": "这个 XLS 版本不受支持，请另存为 Excel 97–2003 工作簿后重试。",
+    "import.xls.substream_invalid": "XLS 的工作表结构异常或过于复杂，无法读取。请重新另存为工作簿后重试。",
+    "import.xls.end_marker_invalid": "XLS 的工作表结束标记损坏，请重新另存为工作簿后重试。",
+    "import.xls.too_many_strings": "XLS 内部文本条目过多，请将需要的记录另存到较小的工作簿后重试。",
+    "import.xls.workbook_incomplete": "XLS 工作簿不完整，请重新另存为工作簿后重试。",
+    "import.xls.too_many_styles": "XLS 单元格格式过多，请减少格式或将记录另存为 CSV 后重试。",
+    "import.xls.too_many_formats": "XLS 自定义格式过多，请减少格式或将记录另存为 CSV 后重试。",
+    "import.xls.header_truncated": "XLS 文件头不完整，请重新保存文件后重试。",
+    "import.xls.header_invalid": "XLS 文件格式不正确，请重新另存为工作簿后重试。",
+    "import.xls.file_truncated": "XLS 文件数据不完整，请重新保存文件后重试。",
+    "import.xls.sector_invalid": "XLS 文件中的数据位置无效，请重新另存为工作簿后重试。",
+    "import.xls.allocation_too_large": "XLS 内部数据大小异常或超过 64 MiB，无法读取。请将记录另存为新的工作簿后重试。",
+    "import.xls.index_damaged": "XLS 文件的数据索引损坏，无法读取。请重新另存为工作簿后重试。",
+    "import.xls.index_loop": "XLS 文件的数据索引重复循环，无法读取。请重新另存为工作簿后重试。",
+    "import.xls.index_incomplete": "XLS 文件的数据索引不完整，请重新另存为工作簿后重试。",
+    "import.xls.directory_damaged": "XLS 内部文件目录损坏，无法读取。请重新另存为工作簿后重试。",
+    "import.xls.directory_too_many": "XLS 内部文件超过 1024 项，请将记录另存为新的工作簿后重试。",
+    "import.xls.directory_entry_invalid": "XLS 内部文件目录格式不正确，请重新另存为工作簿后重试。",
+    "import.xls.directory_name_invalid": "XLS 内部文件名称损坏，请重新另存为工作簿后重试。",
+    "import.xls.directory_missing": "XLS 内部文件目录缺失，请重新另存为工作簿后重试。",
+    "import.xls.directory_link_invalid": "XLS 内部文件目录关联损坏，无法读取。请重新另存为工作簿后重试。",
+    "import.xls.directory_depth": "XLS 内部文件目录超过 16 层，无法读取。请将记录另存为新的工作簿后重试。",
+    "import.xls.directory_incomplete": "XLS 内部文件目录不完整，请重新另存为工作簿后重试。",
+    "import.row.field_not_scalar": {
+      "zh": "{field} 必须是文本或数字。",
+      "args": {
+        "field": "text"
+      },
+      "note": "field is a record field name such as duration_ms, shown as it is."
+    },
+    "import.row.field_too_long": {
+      "zh": "{field} 超过 {max} 字符。",
+      "args": {
+        "field": "text",
+        "max": "number"
+      },
+      "note": "field is a record field name such as duration_ms, shown as it is."
+    },
+    "import.row.field_not_count": {
+      "zh": "{field} 不是支持范围内的非负整数。请检查数值；耗时须换算为毫秒，不能直接填写含冒号的时长。",
+      "args": {
+        "field": "text"
+      },
+      "note": "field is a record field name such as duration_ms, shown as it is."
+    },
+    "import.row.field_not_flag": {
+      "zh": "{field} 必须为 true/false 或 1/0。",
+      "args": {
+        "field": "text"
+      },
+      "note": "field is a record field name such as duration_ms, shown as it is."
+    },
+    "import.row.field_value_unsupported": {
+      "zh": "{field} 的值不受支持，请按导入模板填写。",
+      "args": {
+        "field": "text"
+      },
+      "note": "field is a record field name such as duration_ms, shown as it is."
+    },
+    "import.row.time_date_only": {
+      "zh": "{field} 只有日期，没有具体时间。请补充时分；实际游戏时间不知道可以留空。",
+      "args": {
+        "field": "text_ref"
+      },
+      "note": "field is one of the import.time_field.* names."
+    },
+    "import.row.time_date_missing": {
+      "zh": "{field} 缺少完整日期，请在预览中补充年月日与时间。",
+      "args": {
+        "field": "text_ref"
+      },
+      "note": "field is one of the import.time_field.* names."
+    },
+    "import.row.time_unrecognized": {
+      "zh": "{field} 格式无法识别，请在预览中填写完整日期和时间。",
+      "args": {
+        "field": "text_ref"
+      },
+      "note": "field is one of the import.time_field.* names."
+    },
+    "import.row.time_zone_missing": {
+      "zh": "{field} 未注明时区，请在导入窗口选择原记录所在地区或填写时区。",
+      "args": {
+        "field": "text_ref"
+      },
+      "note": "field is one of the import.time_field.* names."
+    },
+    "import.row.time_ambiguous": {
+      "zh": "{field} 处于夏令时调整时段，无法确定具体时刻。请填写带时区偏移的完整时间。",
+      "args": {
+        "field": "text_ref"
+      },
+      "note": "field is one of the import.time_field.* names."
+    },
+    "import.time_field.source_recorded": {
+      "zh": "原记录时间",
+      "note": "The name of a time in an imported record; it opens the import.row.time_* sentences."
+    },
+    "import.time_field.entered": {
+      "zh": "进本时间",
+      "note": "The name of a time in an imported record; it opens the import.row.time_* sentences."
+    },
+    "import.time_field.ended": {
+      "zh": "结束时间",
+      "note": "The name of a time in an imported record; it opens the import.row.time_* sentences."
+    },
+    "import.time_field.matched": {
+      "zh": "匹配时间",
+      "note": "The name of a time in an imported record; it opens the import.row.time_* sentences."
+    },
+    "import.time_field.created": {
+      "zh": "软件记录创建时间",
+      "note": "The name of a time in an imported record; it opens the import.row.time_* sentences."
+    },
+    "import.row.run_id_invalid": "记录编号（run_id）格式不正确，请按 JSON 模板填写标准 UUID。",
+    "import.row.mood_invalid": "打本心情无法识别，请重新选择；JSON 中请填写 good、ok、bad 或 unknown。",
+    "import.row.empty": "这条记录没有可读取的内容。请在「列映射」中指定列名，或补充副本、职业、时间、心得或备注中的至少一项。",
+    "import.row.result_invalid": "无法识别结果，请在预览中重新选择。不会根据删除按钮或心得推断是否通关。",
+    "import.warning.source_date_only": "原记录只提供日期，已保留原文，不会补填具体时间。",
+    "import.warning.source_time_recomputed": "原记录时间已修改，已按所选时区重新换算。",
+    "import.warning.job_unmatched": "未能确认职业，已保留原名称。请核对并选择职业；不确定可保留未知。",
+    "import.warning.result_defaulted": "原记录未提供结果，已预填为通关，请核对后确认或修改。",
+    "import.warning.result_unknown": "结果未知，记录会保留，但不计入通关或成就。知道结果后可再补充。",
+    "import.warning.time_missing": "实际游戏时间未填写，可以以后再补。确认是自己的指导者任务并核对结果后，通关正常计数；未知耗时不计入平均耗时。",
+    "import.warning.mood_missing": "原记录没有打本心情，已保留为「未记录心情」。",
+    "import.source.unreadable": {
+      "zh": "无法读取导入内容：{detail}",
+      "args": {
+        "detail": "text_ref"
+      },
+      "note": "detail is one of the import.* sentences about the file."
+    },
+    "import.source.unreadable_system": {
+      "zh": "无法读取导入内容：{text}",
+      "args": {
+        "text": "text"
+      },
+      "note": "text is the operating system's or a library's own message, shown as it is."
+    },
+    "import.preview.kind_unsupported": "无法导入这种文件格式，请选择支持的记录文件或截图。",
+    "import.preview.source_name_too_long": "来源名称超过 500 字符。",
+    "import.preview.path_not_absolute": "请选择完整的本地文件路径。",
+    "import.preview.too_many_rows": "一次最多预览 5000 条记录，请分批选择。",
+    "import.preview.too_large": "预览内容过多，暂时无法显示。请拆分文件或减少本批记录后重试。",
+    "import.commit.own_records_required": "只能导入自己的记录，请先勾选「我确认这些是自己的记录」。",
+    "import.commit.ids_invalid": "本次导入的确认信息无效，请重新预览后再导入。",
+    "import.commit.selection_invalid": "所选记录为空、重复或过多，请重新勾选可导入的记录。",
+    "import.commit.selection_changed": "这批记录已提交过，不能更改原来的选择后重试。请先确认历史记录，再重新预览。",
+    "import.commit.request_reused": "本次提交的确认信息已用于其他操作，请重新打开导入窗口后预览。",
+    "import.commit.preview_expired": "导入预览已失效，尚未保存。请点「重新校验」后再导入。",
+    "import.commit.row_not_in_preview": "所选记录不在当前预览中，请重新校验并勾选。",
+    "import.commit.rows_have_errors": "所选记录仍有错误，本次未保存任何记录。请修正后重新校验。"
+  }
+}

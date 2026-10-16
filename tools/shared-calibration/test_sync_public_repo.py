@@ -21,10 +21,14 @@ EXPECTED = {
     ".gitattributes", ".gitignore", ".github/ISSUE_TEMPLATE/config.yml", ".github/ISSUE_TEMPLATE/share-calibration.yml",
     ".github/ISSUE_TEMPLATE/report-calibration.yml", ".github/workflows/publish-calibration.yml",
     ".github/workflows/report-calibration.yml", "LICENSE.md", "LICENSES/GPL-3.0-or-later.txt", "README.md",
+    "README.en.md", "README.ja.md", "README.zh-TW.md",
     ".github/workflows/mirror-repository.yml", "tools/sync_refs.py",
     "index.json", "submissions.json", "templates/cn.2026.08.05.json", "tools/index.py", "tools/issue.py",
     "tools/publish.py", "tools/publish_issue.sh", "tools/rebuild.py", "tools/report_issue.sh", "tools/sharecode.py",
     "tools/sweep_issues.sh",
+    "tools/evidence.py", "tools/evidence_workflow.py", "schemas/calibration-evidence-v1.schema.json",
+    ".github/ISSUE_TEMPLATE/evidence-calibration.yml", ".github/ISSUE_TEMPLATE/template-observation.yml",
+    ".github/workflows/evidence-calibration.yml",
 }
 TEXT_SUFFIXES = {".py", ".sh", ".yml", ".md", ".txt", ""}
 

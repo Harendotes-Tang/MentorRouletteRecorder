@@ -247,7 +247,7 @@ public sealed class CalibrationObserverSafetyTests
     /// of every capture session the observer ever adopted. A player who restarts the game or
     /// switches characters twenty-odd times without restarting this software passed the cap, the
     /// overflow was written to disk with the evidence, and the draft blocked with "这次观察到的报文
-    /// 种类超出上限" - nothing about the traffic. A new session means the earlier ones are over:
+    /// 种类积累的信息太多" - nothing about the traffic. A new session means the earlier ones are over:
     /// their connections are closed and set aside, and only their tags are remembered.
     /// </summary>
     [Fact]
@@ -290,7 +290,7 @@ public sealed class CalibrationObserverSafetyTests
         Assert.Equal(sessions, snapshot.ConnectionSessions.Values.Distinct().Count());
         Assert.Single(snapshot.Clusters);
         Assert.DoesNotContain(CalibrationDraft.Derive(snapshot, Template()).Blockers,
-            blocker => blocker.Contains("超出上限", StringComparison.Ordinal));
+            blocker => blocker.Chinese.Contains("积累的信息太多", StringComparison.Ordinal));
     }
 
     private static IEnumerable<DecodedMessage> FillReplyDiagnostics()

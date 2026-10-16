@@ -12,6 +12,8 @@
 #include <QQmlEngine>
 #include <QVariantMap>
 
+#include "LiveText.h"
+
 namespace mr {
 
 class IBackend;
@@ -50,7 +52,7 @@ public:
     /// Sum of attempt_count over every row, for share percentages.
     int totalAttemptCount() const;
     bool isLoading() const { return m_loading; }
-    QString loadError() const { return m_loadError; }
+    QString loadError() const { return m_loadError.text(); }
 
 public Q_SLOTS:
     void setFilter(const QVariantMap &filter);
@@ -73,18 +75,25 @@ protected:
     /// duty_expansion and the derived duty_meta the table shows under the
     /// name. Overridden as a no-op where it does not apply.
     virtual QJsonObject decorate(const QJsonObject &row) const { return row; }
+    /// After a language switch: rebuild whatever text decorate() wrote into the
+    /// held rows. Nothing by default.
+    virtual void retranslateRows() {}
 
     IBackend *m_backend = nullptr;
     QList<QJsonObject> m_rows;
     QJsonObject m_filter;
     int m_distinctCount = 0;
     bool m_loading = false;
-    QString m_loadError;
+    /// A recipe, so a language switch re-renders it (LiveText.h).
+    LiveText m_loadError;
 
 private:
     void loadPage(quint64 generation, int page, QList<QJsonObject> rows, int total = -1);
-    void failLoad(quint64 generation, const QString &code, const QString &message);
-    void setLoadError(const QString &error);
+    void failLoad(quint64 generation, const QString &code, const LiveText &message);
+    void setLoadError(const LiveText &error);
+    /// Re-announce the rows and the error after a language switch, so pages that
+    /// cache rows or breakdowns (they reload on countChanged) read them again.
+    void retranslate();
     quint64 m_loadGeneration = 0;
 };
 
@@ -110,6 +119,7 @@ public:
 protected:
     QString messageType() const override { return QStringLiteral("GetDungeonStats"); }
     QJsonObject decorate(const QJsonObject &row) const override;
+    void retranslateRows() override;
 };
 
 class JobStatsModel : public StatsRowsModel

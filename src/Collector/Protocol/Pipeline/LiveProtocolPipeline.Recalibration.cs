@@ -1,4 +1,5 @@
 using MentorRecorder.Collector.Contracts.Errors;
+using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Domain.StateMachine;
 using MentorRecorder.Collector.Protocol.Calibration;
@@ -134,7 +135,7 @@ public sealed partial class LiveProtocolPipeline
         if (RollbackBuild() is not { } target)
         {
             throw new CollectorException(
-                ErrorCodes.CalibrationNotReady, "还不知道游戏版本，暂时无法恢复上一份本机校准。");
+                ErrorCodes.CalibrationNotReady, CollectorTexts.CalibrationRestoreBuildUnknown());
         }
 
         var profileId = LocalProfileWriter.ProfileIdFor(target.Region, target.GameBuild);
@@ -154,7 +155,7 @@ public sealed partial class LiveProtocolPipeline
         {
             throw new CollectorException(
                 ErrorCodes.CalibrationNotReady,
-                "没有可以恢复的本机校准：上一份可能已经被新的校准覆盖，或者文件不在了。");
+                CollectorTexts.CalibrationRestoreNothing());
         }
 
         // Retiring put the id here so a file that could not be renamed was never bound again.
@@ -169,7 +170,7 @@ public sealed partial class LiveProtocolPipeline
         {
             UndoRestore(target, profileId);
             throw new CollectorException(
-                ErrorCodes.CalibrationNotReady, "暂时读不到校准档案，上一份本机校准还没有换回来，请稍后再试一次。");
+                ErrorCodes.CalibrationNotReady, CollectorTexts.CalibrationRestoreUnreadable());
         }
 
         // Nor is what records stopped when the reloaded catalogue keeps it anyway: closing a run in
@@ -221,7 +222,7 @@ public sealed partial class LiveProtocolPipeline
         }
 
         throw new CollectorException(
-            ErrorCodes.CalibrationNotReady, "上一份本机校准已经无法使用，请重新校准。");
+            ErrorCodes.CalibrationNotReady, CollectorTexts.CalibrationRestoreUnusable());
     }
 
     /// <summary>
@@ -233,7 +234,7 @@ public sealed partial class LiveProtocolPipeline
     /// </summary>
     /// <param name="target">Region and build the restore applied to.</param>
     /// <param name="profileId">Id of the restored profile.</param>
-    private string? OutrankedAnswer((Region Region, string GameBuild) target, string profileId)
+    private UserText? OutrankedAnswer((Region Region, string GameBuild) target, string profileId)
     {
         if (_selection is not { IsUsable: true, Profile: { } inUse } ||
             string.Equals(inUse.ProfileId, profileId, StringComparison.Ordinal))
@@ -259,10 +260,10 @@ public sealed partial class LiveProtocolPipeline
         }
 
         return restored.MatchFromQueue && !inUse.MatchFromQueue
-            ? "上一份本机校准已经放回，但它是按排本推断匹配的，现在用的校准能直接认出匹配通知，所以继续用现在这份记录。"
+            ? CollectorTexts.CalibrationRestoreOutrankedByPop()
             : _selection.Origin == ProfileOrigin.Shipped
-                ? "上一份本机校准已经放回，但这一版游戏已有随软件附带的档案，所以继续用它记录。"
-                : "上一份本机校准已经放回，但这一版游戏另有一份优先使用的校准，所以继续用它记录。";
+                ? CollectorTexts.CalibrationRestoreOutrankedByShipped()
+                : CollectorTexts.CalibrationRestoreOutranked();
     }
 
     /// <summary>

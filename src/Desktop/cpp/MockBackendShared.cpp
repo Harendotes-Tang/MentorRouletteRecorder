@@ -102,7 +102,8 @@ QString phaseFor(const QString &state)
         || state == QLatin1String("imported-unpublished"))
         return QStringLiteral("VERIFYING");
     if (state == QLatin1String("consent")) return QStringLiteral("AWAITING_CONSENT");
-    if (state == QLatin1String("verified") || state == QLatin1String("verified-auditing"))
+    if (state == QLatin1String("verified") || state == QLatin1String("verified-auditing")
+        || state == QLatin1String("verified-proven"))
         return QStringLiteral("VERIFIED");
     if (state == QLatin1String("rejected") || state == QLatin1String("user-rejected"))
         return QStringLiteral("REJECTED");
@@ -124,6 +125,17 @@ QJsonArray candidatesFor(const QString &state)
         // §18.4: bound at the login burst, recording, with the match still audited.
         return {candidate("DOWNLOADED", "IN_USE", "PASS", "REPLY_STATE", "PUBLISHED", true)};
     }
+    if (state == QLatin1String("verified-proven")) {
+        // §20.6: it recorded one complete duty here and nothing is audited any more, so the
+        // watch is over and its code may be confirmed to other players. The §20.5 marks ride
+        // along - it won a dispute over the match message on its shape - and the desktop
+        // shows none of them.
+        QJsonObject proven = candidate("DOWNLOADED", "PROVEN", "PASS", "REPLY_STATE", "PUBLISHED", false);
+        proven.insert(QStringLiteral("disputed"), QJsonArray{QStringLiteral("CONTENT_FINDER_POP")});
+        proven.insert(QStringLiteral("preferred"), true);
+        proven.insert(QStringLiteral("shape_prior"), true);
+        return {proven};
+    }
     // §18.5: a pasted code the last index read lists is judged like a downloaded one;
     // one no index knows waits for the match and the duty entry as well.
     if (state == QLatin1String("imported-published"))
@@ -143,7 +155,7 @@ QJsonValue lastFetchFor(const QString &state)
     // downloaded for this build, which is exactly why the pasted code counts as IMPORTED.
     static const QStringList fetched{QStringLiteral("verifying"), QStringLiteral("consent"),
                                      QStringLiteral("verified"), QStringLiteral("verified-auditing"),
-                                     QStringLiteral("rejected"), QStringLiteral("user-rejected"),
+                                     QStringLiteral("verified-proven"), QStringLiteral("rejected"), QStringLiteral("user-rejected"),
                                      QStringLiteral("imported-published")};
     return fetched.contains(state) ? QJsonValue(QStringLiteral("OK")) : QJsonValue(QJsonValue::Null);
 }
@@ -153,12 +165,15 @@ QJsonObject outcome(const char *token)
     return {{QStringLiteral("outcome"), QLatin1String(token)}};
 }
 
-QJsonObject importAnswer(const char *result, const QJsonValue &reason, const char *message,
-                         const QJsonValue &sha256 = QJsonValue::Null)
+/// An ImportCalibrationCode answer: the sentence in \a message and its catalogue
+/// reference in \a messageRef, as SharedCalibrationHandlers.ImportResponse writes them.
+QJsonObject importAnswer(const char *result, const QJsonValue &reason, const QString &message,
+                         const QJsonObject &messageRef, const QJsonValue &sha256 = QJsonValue::Null)
 {
     return {{QStringLiteral("outcome"), QLatin1String(result)},
             {QStringLiteral("reason"), reason},
-            {QStringLiteral("message"), QString::fromUtf8(message)},
+            {QStringLiteral("message"), message},
+            {QStringLiteral("message_ref"), messageRef},
             {QStringLiteral("code_sha256"), sha256}};
 }
 
@@ -176,16 +191,19 @@ void MockBackend::setSharedCalibrationFixture(const QString &state)
     m_sharedState = state;
     // Only when --mock-calibration said nothing: `--mock-calibration idle --mock-shared share`
     // is the restart, where the local profile records and no calibration card is shown.
+    // A proven shared profile ends the watch the way the Collector does (MarkDone): DONE.
     if (m_calibrationState.isEmpty()) {
-        m_calibrationState = state == QLatin1String("share") ? QStringLiteral("done")
-                                                             : QStringLiteral("observing");
+        m_calibrationState = state == QLatin1String("share") || state == QLatin1String("verified-proven")
+                                 ? QStringLiteral("done")
+                                 : QStringLiteral("observing");
     }
 }
 
 bool MockBackend::sharedProfileBound() const
 {
     return m_sharedState == QLatin1String("verified")
-        || m_sharedState == QLatin1String("verified-auditing");
+        || m_sharedState == QLatin1String("verified-auditing")
+        || m_sharedState == QLatin1String("verified-proven");
 }
 
 QJsonObject MockBackend::sharedCalibrationStatus() const
@@ -251,54 +269,76 @@ QJsonObject MockBackend::shareCodePayload(QString *errorCode, QString *errorMess
                                           QJsonObject *errorDetails) const
 {
     // Like the Collector: whatever the profile in force is decides, not whether
-    // calibration happens to be running.
+    // calibration happens to be running. Another player's profile is handed out once it
+    // has proven itself here (plans/shared-calibration.md §20.5), with basis VERIFIED and
+    // the form's 来源 prefilled to match; before that it is refused as not proven yet.
     const bool shared = sharedProfileBound();
-    if (localProfileBound() && !shared) {
+    const bool proven = m_sharedState == QLatin1String("verified-proven");
+    if (shared ? proven : localProfileBound()) {
+        // The two options of the issue form's 来源 dropdown (plans/shared-calibration.md §20.4).
+        const char *basisLabel = proven ? "其他玩家分享，已在我的软件里核实通过并正常记录"
+                                        : "本机校准得到，并逐条核对过校准时间线";
         QUrlQuery query;
         query.addQueryItem(QStringLiteral("template"), QStringLiteral("share-calibration.yml"));
         query.addQueryItem(QStringLiteral("title"), QString::fromUtf8("[共享校准] CN 2026.09.01.0000.0000"));
+        query.addQueryItem(QStringLiteral("basis"), QString::fromUtf8(basisLabel));
         query.addQueryItem(QStringLiteral("code"), QLatin1String(kVectorCode));
         QUrl url(QStringLiteral("https://github.com/Harendotes-Tang/MentorRecorder-Calibrations/issues/new"));
         url.setQuery(query);
         return {{QStringLiteral("code"), QLatin1String(kVectorCode)},
                 {QStringLiteral("code_sha256"), QLatin1String(kVectorSha256)},
                 {QStringLiteral("issue_url"), url.toString(QUrl::FullyEncoded)},
-                {QStringLiteral("code_in_url"), true}};
+                {QStringLiteral("code_in_url"), true},
+                {QStringLiteral("basis"), proven ? QStringLiteral("VERIFIED") : QStringLiteral("CALIBRATED")}};
     }
     *errorCode = QStringLiteral("ERR_SHARE_CODE_UNAVAILABLE");
-    *errorMessage = QString::fromUtf8(shared ? "当前档案来自其他玩家分享的校准，不能再生成校准码。"
+    *errorMessage = QString::fromUtf8(shared ? "这份共享校准还在核对中，等它完整记录过一次随机任务后再告诉其他玩家。"
                                              : "当前没有可以分享的本机校准档案。");
-    *errorDetails = {{QStringLiteral("reason"), shared ? QStringLiteral("SHARED") : QStringLiteral("NO_PROFILE")}};
+    *errorDetails = {{QStringLiteral("reason"),
+                      shared ? QStringLiteral("SHARED_NOT_PROVEN") : QStringLiteral("NO_PROFILE")}};
     return {};
 }
 
 QJsonObject MockBackend::importCodePayload(const QJsonObject &payload, QString *errorCode,
                                            QString *errorMessage)
 {
+    // The Collector's sentences (SharedCalibrationSession.Import, ShareCodeRejection): a
+    // code it cannot read is 「校准码未导入：<why>」, the why a sentence of its own.
+    const auto notImported = [](const char *reason) {
+        const CollectorSentence why = collectorSentence(reason);
+        return collectorSentence("sharing.import.not_imported",
+                                 {{QStringLiteral("reason"), why.ref.toVariantMap()}});
+    };
+    const auto importRefusal = [](const char *result, const QString &reason, const CollectorSentence &sentence) {
+        return importAnswer(result, reason, sentence.chinese, sentence.ref);
+    };
     const QJsonValue value = payload.value(QStringLiteral("code"));
     if (payload.size() != 1 || !value.isString() || value.toString().size() > 65536)
         return badRequest(errorCode, errorMessage, "缺少必填字段 code。");
     const QString code = value.toString().trimmed();
     if (code.isEmpty())
-        return importAnswer("MALFORMED", QStringLiteral("E_SHARE_CODE_EMPTY"), "这不是一份能识别的校准码：内容为空。");
+        return importRefusal("MALFORMED", QStringLiteral("E_SHARE_CODE_EMPTY"),
+                             notImported("sharing.code.empty"));
     if (code.size() > 4096)
-        return importAnswer("MALFORMED", QStringLiteral("E_SHARE_CODE_TOO_LONG"),
-                            "这不是一份能识别的校准码：内容太长，校准码最多 4096 个字符。");
+        return importRefusal("MALFORMED", QStringLiteral("E_SHARE_CODE_TOO_LONG"),
+                             collectorSentence("sharing.import.code_too_long", {{QStringLiteral("max"), 4096}}));
     if (!code.startsWith(QStringLiteral("MRC1.")))
-        return importAnswer("MALFORMED", QStringLiteral("E_SHARE_CODE_NOT_A_CODE"),
-                            "这不是一份能识别的校准码：它不是本软件生成的校准码。");
+        return importRefusal("MALFORMED", QStringLiteral("E_SHARE_CODE_NOT_A_CODE"),
+                             notImported("sharing.code.not_a_code"));
     if (m_calibrationState != QLatin1String("observing"))
-        return importAnswer("NOT_APPLICABLE", QStringLiteral("NOT_CALIBRATING"),
-                            "当前客户端不在校准中，暂时不需要导入校准码。");
+        return importRefusal("NOT_APPLICABLE", QStringLiteral("NOT_CALIBRATING"),
+                             collectorSentence("sharing.import.not_calibrating"));
     if (m_sharedState == QLatin1String("user-rejected"))
-        return importAnswer("NOT_APPLICABLE", QStringLiteral("USER_REJECTED"),
-                            "你已经选择这个游戏版本不用其他玩家的共享校准；在校准卡片上点「重新观察」后才能导入校准码。");
+        return importRefusal("NOT_APPLICABLE", QStringLiteral("USER_REJECTED"),
+                             collectorSentence("sharing.import.user_rejected"));
     if (code != QLatin1String(kVectorCode))
-        return importAnswer("MALFORMED", QStringLiteral("UNBUILDABLE"),
-                            "（模拟后端）这份校准码无法在本机的随包模板上生成协议档案。");
+        return importRefusal("MALFORMED", QStringLiteral("UNBUILDABLE"),
+                             collectorSentence("sharing.import.unbuildable"));
     m_sharedState = QStringLiteral("manual");
     emitCalibrationChangedLater();
-    return importAnswer("APPLIED", QJsonValue::Null, "校准码已导入，登录或排本时会在本机流量里自动核实。",
+    // No index lists the mock's code: the Collector's wording for an unpublished one.
+    const CollectorSentence applied = collectorSentence("sharing.import.applied_unpublished");
+    return importAnswer("APPLIED", QJsonValue::Null, applied.chinese, applied.ref,
                         QLatin1String(kVectorSha256));
 }
 
@@ -325,6 +365,12 @@ QJsonObject MockBackend::rejectSharedPayload()
     const bool withdrawn = sharedProfileBound();
     const int dropped = candidatesFor(m_sharedState).size() > 0 && !withdrawn
                             && m_sharedState != QLatin1String("rejected") ? 1 : 0;
+    // A withdrawn shared profile leaves nothing of this machine's own behind it in these
+    // fixtures, so the Collector re-arms calibration. Left at done / idle, the mock would
+    // report a local profile that never existed and offer 分享给其他玩家 for it.
+    if (withdrawn && (m_calibrationState == QLatin1String("done")
+                      || m_calibrationState == QLatin1String("idle")))
+        m_calibrationState = QStringLiteral("observing");
     m_sharedState = QStringLiteral("user-rejected");
     emitCalibrationChangedLater();
     return {{QStringLiteral("withdrawn_profile_id"),

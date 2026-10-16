@@ -12,6 +12,8 @@ Dialog {
     readonly property var reflection: runData.reflection || ({})
     readonly property bool busy: controller && controller.busy
     readonly property bool batch: runsData.length > 1
+    readonly property bool collection: batch && outputMode.currentIndex === 1
+    property string exportDate: ""
     modal: true
     width: Math.min(800, Overlay.overlay ? Overlay.overlay.width - 48 : 800)
     height: Math.min(850, Overlay.overlay ? Overlay.overlay.height - 48 : 850)
@@ -39,13 +41,14 @@ Dialog {
         runData = valid[0]
         outputMode.currentIndex = 0
         attribution.checked = true
+        exportDate = Qt.formatDate(new Date(), "yyyy.MM.dd")
         if (controller) controller.resetFeedback()
         open()
     }
     function captureEntries() {
         const entries = []
         for (let i = 0; i < cards.count; ++i)
-            entries.push({ run_id: runsData[i].run_id, label: runsData[i].duty_name || qsTr("未知副本"), item: cards.itemAt(i) })
+            entries.push({ run_id: runsData[i].run_id, label: Theme.dutyName(runsData[i]) || qsTr("未知副本"), item: cards.itemAt(i) })
         return entries
     }
     function saveSelected() {
@@ -65,8 +68,8 @@ Dialog {
         HeadingLabel { text: qsTr("生成分享图片"); font.pixelSize: Theme.dialogTitleSize(20) }
         Text {
             Layout.fillWidth: true
-            text: dialog.batch ? qsTr("已选 %1 条。预览按选择顺序包含完整心得和元数据，图片仅保存到你选择的位置。").arg(dialog.runsData.length)
-                              : qsTr("预览包含完整心得和副本、职业等信息。图片仅保存到你选择的位置。")
+            text: dialog.batch ? qsTr("已选 %1 条。下方按选择顺序预览完整心得及副本、职业等信息。点击保存后，图片会保存到你选择的位置；如需分享，请自行发送图片。").arg(dialog.runsData.length)
+                              : qsTr("下方预览完整心得和副本、职业等信息。点击保存后，图片会保存到你选择的位置；如需分享，请自行发送图片。")
             color: Theme.textSecondary
             font.pixelSize: Theme.fs(12)
             wrapMode: Text.Wrap
@@ -105,18 +108,27 @@ Dialog {
             Layout.preferredHeight: 320
             clip: true
             contentWidth: availableWidth
-            contentHeight: combined.height
+            contentHeight: dialog.collection ? combined.height : stack.height
             ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
             ScrollBar.vertical.policy: ScrollBar.AsNeeded
             // Repeater 实例化每一条完整卡片；抓图对象为卡片/组合自身，绝不捕获可见视口。
             Item {
-                id: combined
-                objectName: "reflectionShareCombinedCard"
                 width: preview.availableWidth
-                height: stack.implicitHeight
+                height: dialog.collection ? combined.height : stack.height
+                ReflectionShareCard {
+                    id: combined
+                    objectName: "reflectionShareCombinedCard"
+                    width: parent.width
+                    visible: dialog.collection
+                    runsData: dialog.runsData
+                    showAttribution: attribution.checked
+                    exportDate: dialog.exportDate
+                }
                 Column {
                     id: stack
+                    objectName: "reflectionShareIndividualCards"
                     width: parent.width
+                    visible: !dialog.collection
                     spacing: 12
                     Repeater {
                         id: cards
@@ -126,6 +138,7 @@ Dialog {
                             width: stack.width
                             runData: modelData
                             showAttribution: attribution.checked
+                            exportDate: dialog.exportDate
                         }
                     }
                 }
@@ -135,7 +148,7 @@ Dialog {
             objectName: "reflectionShareFeedback"
             Layout.fillWidth: true
             visible: text.length > 0
-            text: controller ? controller.feedback : qsTr("分享服务未就绪。")
+            text: controller ? controller.feedback : qsTr("暂时无法保存图片，请关闭后重新打开。")
             textFormat: Text.PlainText
             color: controller && controller.failedCount > 0 ? Theme.orangeText
                 : controller && (controller.savedPath.length > 0 || controller.successfulCount > 0) ? Theme.green : Theme.textSecondary

@@ -8,9 +8,11 @@ import MentorRecorder
 // check), the evidence counters and the saved trace.
 Card {
     id: card
-    objectName: "validationEvidenceCard"
+    objectName: guidedMode ? "templateObservationGuideCard" : "validationEvidenceCard"
 
     readonly property var validation: App.validationStatus
+    property bool guidedMode: false
+    readonly property var evidence: typeof CalibrationEvidence !== "undefined" ? CalibrationEvidence : null
 
     readonly property var adapterChoices: {
         const choices = [{ adapter_id: "", label: qsTr("自动选择（唯一推荐网卡）") }]
@@ -19,10 +21,9 @@ Card {
             const name = row.friendly_name || row.description || qsTr("未命名适配器")
             choices.push({
                 adapter_id: row.adapter_id,
-                label: qsTr("%1 · %2%3")
+                label: (row.recommended ? qsTr("%1 · %2 · 推荐") : qsTr("%1 · %2"))
                        .arg(name)
                        .arg(row.adapter_id)
-                       .arg(row.recommended ? qsTr(" · 推荐") : "")
             })
         }
         return choices
@@ -74,12 +75,53 @@ Card {
 
     RowLayout {
         Layout.fillWidth: true
-        CardKicker { text: qsTr("桌面验证取证") }
+        CardKicker { text: card.guidedMode ? qsTr("新区服采证步骤") : qsTr("桌面验证取证") }
         Item { Layout.fillWidth: true }
         Tag {
             text: card.validationStateLabel()
             variant: App.validationState === "FAILED" ? "danger" : "ink"
         }
+    }
+
+    Text {
+        Layout.fillWidth: true
+        visible: card.guidedMode
+        text: qsTr("1. 先回到游戏标题画面，确认下方区服和网卡，点击开始采证，再重新登录。\n2. 排一次随机任务；排队、匹配弹窗出现、进本、通关、离本时，依次点击对应标记。\n3. 离本后停止采证，等到“已保存”再预览摘要。仅提交候选线索，不代表此区服已经适配。")
+        color: Theme.textPrimary
+        font.pixelSize: Theme.fs(13)
+        wrapMode: Text.WordWrap
+    }
+
+    Flow {
+        Layout.fillWidth: true
+        visible: card.guidedMode
+        spacing: 10
+        AppButton {
+            objectName: "templateObservationActionButton"
+            text: App.validationState === "WAITING" ? qsTr("取消等待")
+                  : App.validationActive ? qsTr("停止采证")
+                  : App.capturing ? qsTr("切换为采证") : qsTr("开始采证")
+            variant: "primary"
+            enabled: App.templateObservationActionEnabled
+            onClicked: App.toggleTemplateObservation()
+        }
+        AppButton {
+            objectName: "previewTemplateObservationButton"
+            text: qsTr("预览候选摘要")
+            enabled: !!card.evidence && !card.evidence.busy && App.validationSaved && !App.validationActive
+            onClicked: card.evidence.previewTemplateObservation()
+        }
+    }
+
+    Text {
+        Layout.fillWidth: true
+        visible: card.guidedMode && App.capturing && !App.validationActive
+        text: App.protocolProfileStatus === "VERIFIED"
+              ? qsTr("当前正在正式记录，不能切换为候选采证。已有模板的校准核实请使用上方“共享校准证据”。")
+              : qsTr("点击“切换为采证”会停止当前被动监听，改为只保存本机元数据；停止采证后自动监听可恢复。")
+        color: Theme.orangeText
+        wrapMode: Text.WordWrap
+        font.pixelSize: Theme.fs(12)
     }
 
     Text {
@@ -97,8 +139,12 @@ Card {
 
     Text {
         Layout.fillWidth: true
-        text: card.validation.message || (App.validationStatusLoaded
-              ? qsTr("点击标题行的按钮开始或停止。")
+        // message_ref renders the Collector's sentence in the interface language.
+        text: (card.validation.message
+               ? Theme.live(Fmt.collectorText(card.validation.message_ref, card.validation.message))
+               : "") || (App.validationStatusLoaded
+              ? card.guidedMode ? qsTr("点击上方按钮开始或停止采证。")
+                               : qsTr("点击标题行的按钮开始或停止。")
               : qsTr("正在读取采集器验证能力…"))
         color: Theme.textPrimary
         font.pixelSize: Theme.fs(13)
@@ -209,10 +255,11 @@ Card {
             ]
             delegate: AppButton {
                 required property var modelData
-                objectName: "validationMarker_" + modelData.code
+                objectName: (card.guidedMode ? "templateObservationMarker_" : "validationMarker_") + modelData.code
                 text: modelData.label
                 enabled: App.validationMarkerEnabled
-                onClicked: App.addCaptureValidationMarker(modelData.code)
+                onClicked: card.guidedMode ? App.addTemplateObservationMarker(modelData.code)
+                                          : App.addCaptureValidationMarker(modelData.code)
                 Accessible.name: qsTr("添加验证标记：%1").arg(modelData.label)
             }
         }

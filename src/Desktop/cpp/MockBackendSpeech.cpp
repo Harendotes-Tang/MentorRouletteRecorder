@@ -14,6 +14,8 @@
 
 #include "MockBackend.h"
 
+#include "CollectorText.h"
+
 #include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
@@ -36,30 +38,42 @@ const QString kNone = QStringLiteral("none");
 
 struct VoiceOption {
     const char *name;
+    /// The catalogue key of the label (contracts/collector-texts.json), or the
+    /// label itself when it is a name that reads the same in every language.
+    const char *labelKey;
     const char *label;
 };
 
 // The Collector's curated lists (src/Collector/Speech/OnlineSpeechService.cs).
 constexpr VoiceOption kAzureVoices[] = {
-    {"zh-CN-XiaoxiaoNeural", "晓晓（女声）"},
-    {"zh-CN-YunxiNeural", "云希（男声）"},
-    {"zh-CN-XiaoyiNeural", "晓伊（女声）"},
-    {"zh-CN-YunjianNeural", "云健（男声）"},
-    {"zh-CN-XiaochenNeural", "晓辰（女声）"},
-    {"zh-CN-YunyangNeural", "云扬（男声，新闻）"},
+    {"zh-CN-XiaoxiaoNeural", "speech.voice.xiaoxiao", nullptr},
+    {"zh-CN-YunxiNeural", "speech.voice.yunxi", nullptr},
+    {"zh-CN-XiaoyiNeural", "speech.voice.xiaoyi", nullptr},
+    {"zh-CN-YunjianNeural", "speech.voice.yunjian", nullptr},
+    {"zh-CN-XiaochenNeural", "speech.voice.xiaochen", nullptr},
+    {"zh-CN-YunyangNeural", "speech.voice.yunyang", nullptr},
 };
 
 constexpr VoiceOption kOpenAiVoices[] = {
-    {"alloy", "alloy"}, {"echo", "echo"}, {"fable", "fable"},
-    {"onyx", "onyx"},   {"nova", "nova"}, {"shimmer", "shimmer"},
+    {"alloy", nullptr, "alloy"}, {"echo", nullptr, "echo"}, {"fable", nullptr, "fable"},
+    {"onyx", nullptr, "onyx"},   {"nova", nullptr, "nova"}, {"shimmer", nullptr, "shimmer"},
 };
 
+/// $defs/SpeechVoiceOption rows as SpeechHandlers.Voices writes them: a label
+/// from the catalogue carries label_ref beside its Chinese.
 QJsonArray voiceArray(const VoiceOption *first, const VoiceOption *last)
 {
     QJsonArray rows;
     for (const VoiceOption *option = first; option != last; ++option) {
-        rows.append(QJsonObject{{QStringLiteral("name"), QString::fromUtf8(option->name)},
-                                {QStringLiteral("label"), QString::fromUtf8(option->label)}});
+        QJsonObject row{{QStringLiteral("name"), QString::fromUtf8(option->name)}};
+        if (option->labelKey) {
+            const QVariantMap ref = collector_text::textRef(option->labelKey);
+            row.insert(QStringLiteral("label"), collector_text::chinese(ref));
+            row.insert(QStringLiteral("label_ref"), QJsonObject::fromVariantMap(ref));
+        } else {
+            row.insert(QStringLiteral("label"), QString::fromUtf8(option->label));
+        }
+        rows.append(row);
     }
     return rows;
 }
@@ -266,10 +280,10 @@ QJsonObject MockBackend::speechSettings() const
 QJsonObject MockBackend::updateSpeechPayload(const QJsonObject &payload, QString *errorCode,
                                              QString *errorMessage)
 {
-    const auto refuse = [errorCode, errorMessage](const char *message) {
-        *errorCode = QStringLiteral("ERR_BAD_REQUEST");
-        *errorMessage = QString::fromUtf8(message);
-        return QJsonObject();
+    // The Collector's refusals (SpeechHandlers, SpeechSettingsStore), each with
+    // its catalogue reference.
+    const auto refuse = [this, errorCode, errorMessage](const char *key, const QVariantMap &args = {}) {
+        return refuseWith(errorCode, errorMessage, QStringLiteral("ERR_BAD_REQUEST"), key, args);
     };
 
     // Everything is validated before anything is written.
@@ -277,26 +291,28 @@ QJsonObject MockBackend::updateSpeechPayload(const QJsonObject &payload, QString
     if (payload.contains(QStringLiteral("provider"))) {
         const QString provider = payload.value(QStringLiteral("provider")).toString();
         if (provider != kNone && provider != kAzure && provider != kOpenAi)
-            return refuse("provider 只能是 none、azure 或 openai_compatible。");
+            return refuse("ipc.field.not_one_of",
+                          {{QStringLiteral("field"), QStringLiteral("provider")},
+                           {QStringLiteral("choices"), QStringLiteral("none / azure / openai_compatible")}});
         next.insert(QStringLiteral("provider"), provider);
     }
     if (payload.contains(QStringLiteral("azure_region"))) {
         const QString region = payload.value(QStringLiteral("azure_region")).toString().trimmed().toLower();
         if (!region.isEmpty() && !isRegion(region))
-            return refuse("区域只能是 2–32 个小写字母或数字，例如 eastasia。");
+            return refuse("speech.settings.azure_region_invalid");
         next.insert(QStringLiteral("azure_region"), region);
     }
     if (payload.contains(QStringLiteral("openai_base_url"))) {
         const QString raw = payload.value(QStringLiteral("openai_base_url")).toString().trimmed();
         const QString url = normalizeBaseUrl(raw);
         if (!raw.isEmpty() && url.isEmpty())
-            return refuse("接口地址必须是 https:// 开头的完整地址（本机回环地址可以用 http://），不能带用户名、查询串或片段。");
+            return refuse("speech.settings.endpoint_invalid");
         next.insert(QStringLiteral("openai_base_url"), url);
     }
     if (payload.contains(QStringLiteral("openai_model"))) {
         const QString model = payload.value(QStringLiteral("openai_model")).toString().trimmed();
         if (!model.isEmpty() && !isName(model))
-            return refuse("模型名只能包含英文字母、数字和 . _ : / -，最多 128 个字符。");
+            return refuse("speech.settings.model_invalid");
         next.insert(QStringLiteral("openai_model"), model);
     }
     if (payload.contains(QStringLiteral("voice"))) {
@@ -306,7 +322,8 @@ QJsonObject MockBackend::updateSpeechPayload(const QJsonObject &payload, QString
     const QString provider = stringField(next, "provider");
     const QString voice = stringField(next, "voice");
     if (!voice.isEmpty() && (provider == kAzure || provider == kOpenAi) && !isVoice(provider, voice))
-        return refuse("音色名不合法。");
+        return refuse(provider == kAzure ? "speech.settings.azure_voice_invalid"
+                                         : "speech.settings.voice_invalid");
 
     const QString oldBinding = keyBinding(m_speech);
     const QString newBinding = keyBinding(next);
@@ -314,9 +331,9 @@ QJsonObject MockBackend::updateSpeechPayload(const QJsonObject &payload, QString
     const QString key = payload.value(QStringLiteral("api_key")).toString().trimmed();
     if (keyGiven && !key.isEmpty()) {
         if (key.size() > 512 || !matches("^[!-~]+$", key))
-            return refuse("密钥只能包含可见的英文字符，不能有空格，最多 512 个字符。");
+            return refuse("speech.api_key_invalid");
         if (newBinding.isEmpty())
-            return refuse("请先选择在线语音服务并填写区域或接口地址，再填写密钥。");
+            return refuse("speech.api_key_needs_target");
     }
 
     m_speech = next;
@@ -338,21 +355,18 @@ QJsonObject MockBackend::synthesizePayload(const QJsonObject &payload, QString *
     text = text.trimmed();
     const int rate = payload.value(QStringLiteral("rate_percent")).toInt(100);
     if (text.isEmpty() || text.toUcs4().size() > 200 || rate < 50 || rate > 200) {
-        *errorCode = QStringLiteral("ERR_BAD_REQUEST");
-        *errorMessage = QString::fromUtf8("播报文字必须是 1–200 个字，语速必须在 50–200 之间。");
-        return {};
+        return refuseWith(errorCode, errorMessage, QStringLiteral("ERR_BAD_REQUEST"), "speech.text_invalid",
+                          {{QStringLiteral("max"), 200}});
     }
     if (m_speechState == QLatin1String("fail")) {
-        *errorCode = QStringLiteral("ERR_SPEECH_NETWORK");
-        *errorMessage = QString::fromUtf8("连不上语音服务，这一句改用本机语音。");
         *errorDetails = {{QStringLiteral("reason"), QStringLiteral("CONNECTION_ERROR")}};
-        return {};
+        return refuseWith(errorCode, errorMessage, QStringLiteral("ERR_SPEECH_NETWORK"),
+                          "speech.failure.network");
     }
     const QJsonObject settings = speechSettings();
     if (!settings.value(QStringLiteral("configured")).toBool()) {
-        *errorCode = QStringLiteral("ERR_SPEECH_NOT_CONFIGURED");
-        *errorMessage = QString::fromUtf8("在线语音还没有配置好：请选择服务，填写区域或接口地址、音色和密钥。");
-        return {};
+        return refuseWith(errorCode, errorMessage, QStringLiteral("ERR_SPEECH_NOT_CONFIGURED"),
+                          "speech.failure.not_configured");
     }
 
     const QString provider = stringField(m_speech, "provider");
@@ -366,10 +380,9 @@ QJsonObject MockBackend::synthesizePayload(const QJsonObject &payload, QString *
         QSaveFile file(path);
         if (!QDir().mkpath(folder) || !file.open(QIODevice::WriteOnly)
             || file.write(silentWave()) < 0 || !file.commit()) {
-            *errorCode = QStringLiteral("ERR_SPEECH_FORMAT");
-            *errorMessage = QString::fromUtf8("语音服务返回的不是可播放的 WAV 音频。");
             *errorDetails = {{QStringLiteral("reason"), QStringLiteral("CACHE_WRITE")}};
-            return {};
+            return refuseWith(errorCode, errorMessage, QStringLiteral("ERR_SPEECH_FORMAT"),
+                              "speech.failure.format");
         }
     }
     return {{QStringLiteral("audio_path"), QDir::toNativeSeparators(QFileInfo(path).absoluteFilePath())},

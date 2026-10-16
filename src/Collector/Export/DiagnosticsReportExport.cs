@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 using MentorRecorder.Collector.Contracts.Errors;
 using MentorRecorder.Collector.Capture;
+using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Domain.Time;
 using MentorRecorder.Collector.Ipc;
 using MentorRecorder.Collector.Storage;
@@ -109,7 +110,7 @@ public sealed class DiagnosticsReportExport
         {
             throw new CollectorException(
                 ErrorCodes.ExportFailed,
-                "无法写入诊断报告，请检查磁盘空间与写入权限。",
+                CollectorTexts.ExportDiagnosticsUnwritable(),
                 inner: ex);
         }
 

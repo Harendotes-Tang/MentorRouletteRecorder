@@ -1,7 +1,9 @@
 #include "AppController.h"
 
 #include "AppSettings.h"
+#include "GameNames.h"
 #include "CollectorProcess.h"
+#include "CollectorText.h"
 #include "DutyCatalog.h"
 #include "ExportController.h"
 #include "Formatters.h"
@@ -80,6 +82,8 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
     m_capture = new CaptureValidationController(this, this);
     m_capture->setBackend(backend);
     m_recording = new AutomaticRecordingController(backend, this);
+    connect(m_capture, &CaptureValidationController::metadataOwnershipChanged,
+            m_recording, &AutomaticRecordingController::setUserObservation);
     m_gameSelection = new GameSelectionController(backend, this);
     connect(this, &AppController::statusChanged, this,
             [this] { m_gameSelection->observe(captureStatus()); });
@@ -236,6 +240,8 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
     });
 
     connect(m_statistics, &StatisticsController::dashboardChanged, this, &AppController::dashboardChanged);
+    connect(this, &AppController::statusChanged, this, &AppController::captureHealthTextChanged);
+    onLanguageChanged(this, &AppController::retranslate);
     connect(m_statistics, &StatisticsController::achievementSettingsLoadedChanged, this,
             &AppController::achievementSettingsLoadedChanged);
     connect(m_statistics, &StatisticsController::trendChanged, this, &AppController::trendChanged);
@@ -372,13 +378,13 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
                 [this](bool, const QString &message) { showToast(message); });
         connect(m_collector, &CollectorProcess::stateChanged, this, &AppController::backendChanged);
         connect(m_collector, &CollectorProcess::restarted, this, [this](int attempt, int delayMs) {
-            showToast(QString::fromUtf8("Collector 已退出，已自动重启（第 %1 次，退避 %2 秒）")
+            showToast(tr("Collector 已退出，已自动重启（第 %1 次，退避 %2 秒）")
                           .arg(attempt)
                           .arg(double(delayMs) / 1000.0, 0, 'f', 1));
         });
         // The Collector's own explanation, once, in place of a restart loop.
         connect(m_collector, &CollectorProcess::startRefused, this, [this](const QString &reason) {
-            showToast(QString::fromUtf8("Collector 无法启动：%1").arg(reason));
+            showToast(tr("Collector 无法启动：%1").arg(reason));
         });
     }
 
@@ -480,7 +486,7 @@ void AppController::setUiScale(int percent)
     Q_EMIT uiScaleChanged();
     // QT_SCALE_FACTOR is injected before QApplication exists (main.cpp), so the
     // new value cannot take effect in this process.
-    showToast(QString::fromUtf8("界面缩放已设为 %1%，重启后生效。").arg(uiScale()));
+    showToast(tr("界面缩放已设为 %1%，重启后生效。").arg(uiScale()));
 }
 
 void AppController::navigate(int page)
@@ -521,13 +527,13 @@ bool AppController::usingMockData() const
 QString AppController::collectorStatusText() const
 {
     if (usingMockData())
-        return QString::fromUtf8("模拟数据");
+        return tr("模拟数据");
     if (!m_collector)
-        return QString::fromUtf8("未连接");
+        return tr("未连接");
     // A live pipe is the ground truth: our own child may have exited because
     // another instance already holds the per-user serve lease.
     if (backendConnected() && m_collector->state() != CollectorProcess::State::Running)
-        return QString::fromUtf8("Collector 运行中（复用已有实例）");
+        return tr("Collector 运行中（复用已有实例）");
     return m_collector->statusText();
 }
 
@@ -594,10 +600,11 @@ bool AppController::captureMidstreamSuspected() const
 
 QString AppController::captureHint() const
 {
-    return m_collectorStatus.value(QStringLiteral("capture"))
-        .toObject()
-        .value(QStringLiteral("hint"))
-        .toString();
+    // In the interface language when the Collector also sent hint_ref
+    // (contracts/collector-texts.md); its Chinese otherwise.
+    const QJsonObject capture = m_collectorStatus.value(QStringLiteral("capture")).toObject();
+    return collector_text::render(capture.value(QStringLiteral("hint_ref")).toVariant(),
+                                  capture.value(QStringLiteral("hint")).toString());
 }
 
 bool AppController::captureSilent() const
@@ -622,13 +629,13 @@ QString AppController::captureHealthText() const
     if (captureMidstreamSuspected()) {
         const QString hint = captureHint();
         return hint.isEmpty()
-                   ? tr("当前连接缺少可用的解码上下文，无法确认自动记录。"
+                   ? tr("游戏已连接，但暂时读不到有效数据。"
                         "请登出到标题画面再重新登录一次（不用关闭游戏）。")
                    : hint;
     }
     if (captureSilent()) {
-        return tr("捕获在运行，但至今没有解码出任何报文，解码失败数还在上升。"
-                  "当前解码链路异常；请查看诊断，并尝试回到标题画面重新登录。");
+        return tr("正在读取游戏数据，但还没有识别成功，失败次数仍在增加。"
+                  "暂时不能自动记录。请查看「捕获诊断」，也可以回到游戏标题画面后重新登录。");
     }
     return QString();
 }
@@ -659,11 +666,13 @@ void AppController::refreshCaptureSettings()
                 m_captureSettings = QJsonObject();
                 m_captureSettingsLoaded = false;
                 m_captureSettingsSupported = false;
-                m_captureSettingsError =
-                    errorText(tr("当前采集器不支持捕获设置，以下开关不可用。"), code);
+                m_captureSettingsError = [this, code] {
+                    return errorText(tr("当前后台服务不支持这些设置，请更新软件后重试。"), code);
+                };
             } else {
-                m_captureSettingsError =
-                    message.isEmpty() ? tr("读取捕获设置失败：%1").arg(code) : message;
+                m_captureSettingsError = [code, message] {
+                    return message.isEmpty() ? tr("没能读取自动记录设置：%1").arg(code) : message;
+                };
             }
             Q_EMIT captureSettingsChanged();
         });
@@ -698,9 +707,10 @@ void AppController::flushCaptureSettings()
             if (m_captureSettingsWritesInFlight > 0)
                 --m_captureSettingsWritesInFlight;
             if (!ok) {
-                m_captureSettingsError =
-                    message.isEmpty() ? tr("保存捕获设置失败：%1").arg(code) : message;
-                showToast(m_captureSettingsError);
+                m_captureSettingsError = [code, message] {
+                    return message.isEmpty() ? tr("没能保存自动记录设置：%1").arg(code) : message;
+                };
+                showToast(m_captureSettingsError.text());
                 Q_EMIT captureSettingsChanged();
                 // Re-read, so the page shows what the Collector actually has
                 // rather than the value this process optimistically wrote.
@@ -988,7 +998,16 @@ bool AppController::readsGameExecutable() const
 
 QVariantList AppController::collectorWarnings() const
 {
-    return m_collectorStatus.value(QStringLiteral("warnings")).toArray().toVariantList();
+    // warning_refs parallels warnings (contracts/collector-texts.md §2): each line in
+    // the interface language where it can be, the Collector's Chinese otherwise.
+    const QStringList lines = collector_text::renderList(
+        m_collectorStatus.value(QStringLiteral("warning_refs")).toVariant(),
+        m_collectorStatus.value(QStringLiteral("warnings")).toVariant());
+    QVariantList rows;
+    rows.reserve(lines.size());
+    for (const QString &line : lines)
+        rows.append(line);
+    return rows;
 }
 
 bool AppController::parserStatsAvailable() const
@@ -1263,8 +1282,18 @@ QVariantMap AppController::announcementValues(const QJsonObject &run) const
                        .value(QStringLiteral("duty_name"))
                        .toString();
     }
+    // {duty} is read in the interface language, as the template around it is.
+    QVariant contentId = run.value(QStringLiteral("content_id")).toVariant();
+    if ((!contentId.isValid() || contentId.isNull())
+        && run.value(QStringLiteral("duty_name")).toString().isEmpty()) {
+        contentId = m_currentRun.value(QStringLiteral("run"))
+                        .toObject()
+                        .value(QStringLiteral("content_id"))
+                        .toVariant();
+    }
+    const QString spokenDuty = GameNames::shared()->duty(contentId, dutyName);
     values.insert(QStringLiteral("duty"),
-                  dutyName.isEmpty() ? QString::fromUtf8("未知副本") : dutyName);
+                  spokenDuty.isEmpty() ? tr("未知副本") : spokenDuty);
     values.insert(QStringLiteral("progress"), m_statistics->achievementProgress());
     values.insert(QStringLiteral("remaining"), m_statistics->remainingCount());
     return values;
@@ -1313,11 +1342,11 @@ void AppController::announceState(const QString &state, const QJsonObject &run, 
 QString AppController::numberlessAnnouncement(const QString &kind)
 {
     if (kind == QLatin1String("completed"))
-        return QString::fromUtf8("导随完成");
+        return tr("导随完成");
     if (kind == QLatin1String("finished"))
-        return QString::fromUtf8("导随结束，请确认是否通关");
+        return tr("导随结束，请确认是否通关");
     if (kind == QLatin1String("aborted"))
-        return QString::fromUtf8("导随异常结束");
+        return tr("导随异常结束");
     return QString();
 }
 
@@ -1420,7 +1449,7 @@ void AppController::saveReflection(const QString &runId, const QString &mood,
         return;
     if (m_reflectionSaving) {
         Q_EMIT reflectionFailed(QStringLiteral("ERR_BUSY"),
-                                QString::fromUtf8("上一条笔记仍在保存中，请稍候再试。"));
+                                tr("上一条笔记仍在保存中，请稍候再试。"));
         return;
     }
 
@@ -1474,12 +1503,14 @@ void AppController::applySavedReflection(const QString &runId, const QVariantMap
     Q_EMIT reflectionSaved(runId, cleared);
 
     if (cleared) {
-        showToast(QString::fromUtf8("已清空该记录的笔记"));
+        showToast(tr("已清空该记录的笔记"));
         return;
     }
-    const QString dutyName = run.value(QStringLiteral("duty_name")).toString();
-    showToast(QString::fromUtf8("笔记已保存 · %1")
-                  .arg(dutyName.isEmpty() ? QString::fromUtf8("未知副本") : dutyName));
+    const QString dutyName = GameNames::shared()->duty(
+        run.value(QStringLiteral("content_id")).toVariant(),
+        run.value(QStringLiteral("duty_name")).toString());
+    showToast(tr("笔记已保存 · %1")
+                  .arg(dutyName.isEmpty() ? tr("未知副本") : dutyName));
 }
 
 bool AppController::endedDuringThisSession(const QJsonObject &run) const
@@ -1663,6 +1694,8 @@ void AppController::openHistoryForRun(const QVariantMap &run)
 
 QVariantList AppController::categoryOptions() const
 {
+    // $defs/Run.duty_category values: sent back as RunFilter.duty_category, so
+    // they stay the Collector's words in every interface language.
     return {QString::fromUtf8("四人迷宫"), QString::fromUtf8("讨伐歼灭战"),
             QString::fromUtf8("大型任务"), QString::fromUtf8("行会令")};
 }
@@ -1777,7 +1810,9 @@ void AppController::retryHistoryImageCleanup()
     m_backend->request(QStringLiteral("GetPendingImageCleanup"))
         ->whenDone(this, [this](bool ok, const QVariantMap &payload, const QString &code, const QString &message) {
             if (!ok) {
-                finishHistoryImageCleanup(tr("无法读取附件清理任务：%1").arg(message.isEmpty() ? code : message));
+                finishHistoryImageCleanup([reason = message.isEmpty() ? code : message] {
+                    return tr("没能获取待清理的图片：%1").arg(reason);
+                });
                 return;
             }
             m_historyCleanupIds = payload.value(QStringLiteral("run_ids")).toStringList();
@@ -1791,7 +1826,7 @@ void AppController::retryHistoryImageCleanup()
 void AppController::drainHistoryImageCleanup()
 {
     if (!m_noteImages) {
-        finishHistoryImageCleanup(tr("图片服务已关闭，清理任务仍保留，稍后重试。"));
+        finishHistoryImageCleanup([] { return tr("图片服务已关闭，清理任务仍保留，稍后重试。"); });
         return;
     }
     if (m_historyCleanupIndex < m_historyCleanupIds.size()) {
@@ -1805,9 +1840,10 @@ void AppController::drainHistoryImageCleanup()
         QTimer::singleShot(0, this, &AppController::drainHistoryImageCleanup);
         return;
     }
-    const QString failures = m_historyCleanupFailures.isEmpty() ? QString()
-        : tr("%1 个记录的附件清理失败，任务已保留并将重试。%2")
-            .arg(m_historyCleanupFailures.size()).arg(m_historyCleanupFailures.first());
+    const LiveText failures = m_historyCleanupFailures.isEmpty() ? LiveText()
+        : LiveText([count = m_historyCleanupFailures.size(), first = m_historyCleanupFailures.first()] {
+              return tr("%1 条记录的图片暂时没能清理，软件会自动重试。%2").arg(count).arg(first);
+          });
     if (m_historyCleanupSuccessful.isEmpty()) {
         finishHistoryImageCleanup(failures);
         return;
@@ -1818,8 +1854,10 @@ void AppController::drainHistoryImageCleanup()
     m_backend->request(QStringLiteral("AcknowledgeImageCleanup"), {{QStringLiteral("run_ids"), ids}})
         ->whenDone(this, [this, failures](bool ok, const QVariantMap &, const QString &code, const QString &message) {
             if (!ok) {
-                finishHistoryImageCleanup(tr("附件已清理，但确认状态未保存，将自动重试：%1 %2")
-                    .arg(message.isEmpty() ? code : message, failures));
+                finishHistoryImageCleanup([reason = message.isEmpty() ? code : message, failures] {
+                    return tr("图片已清理，但清理结果还没保存，软件会自动重试：%1 %2")
+                        .arg(reason, failures.text());
+                });
                 return;
             }
             const bool nextBatch = failures.isEmpty() && m_historyCleanupIds.size() == 2000;
@@ -1829,14 +1867,30 @@ void AppController::drainHistoryImageCleanup()
         });
 }
 
-void AppController::finishHistoryImageCleanup(const QString &feedback)
+void AppController::finishHistoryImageCleanup(const LiveText &feedback)
 {
-    const bool changed = feedback != m_historyImageCleanupFeedback;
+    const QString text = feedback.text();
+    const bool changed = text != m_historyImageCleanupFeedback.text();
     m_historyImageCleanupRunning = false;
     m_historyImageCleanupFeedback = feedback;
     Q_EMIT historyImageCleanupChanged();
-    if (changed && !feedback.isEmpty())
-        showToast(feedback);
+    if (changed && !text.isEmpty())
+        showToast(text);
+}
+
+void AppController::retranslate()
+{
+    // Sub-controllers re-announce their own text; these properties are built
+    // here, or read from a model this object owns.
+    Q_EMIT backendChanged();
+    Q_EMIT captureHealthTextChanged();
+    Q_EMIT captureSettingsChanged();
+    Q_EMIT dashboardChanged();
+    Q_EMIT historyImageCleanupChanged();
+    Q_EMIT catalogOptionsChanged();
+    // 试听 reads the current run's {duty}: in the new language from now on.
+    if (m_tts)
+        m_tts->setContextValues(announcementValues());
 }
 
 // A statistics row without a duty or job identity (未知副本, a zone several
@@ -1894,6 +1948,16 @@ void AppController::toggleCapture()
 {
     if (!m_maintainerToolsVisible) return;
     m_capture->toggle();
+}
+
+void AppController::toggleTemplateObservation()
+{
+    m_capture->toggleMetadataObservation();
+}
+
+void AppController::addTemplateObservationMarker(const QString &marker)
+{
+    m_capture->addMarker(marker);
 }
 
 void AppController::addCaptureValidationMarker(const QString &marker)
@@ -1964,14 +2028,14 @@ void AppController::rescanGame()
                 return;
             }
             if (!game.value(QStringLiteral("running")).toBool(false)) {
-                showToast(QString::fromUtf8("已重新扫描：未找到正在运行的 FF14 进程。"));
+                showToast(tr("已重新检测，未找到正在运行的 FF14。"));
                 return;
             }
-            showToast(QString::fromUtf8("已重新扫描：FF14 PID %1 · 实例 %2 · build %3")
+            showToast(tr("已重新扫描：FF14 PID %1 · 实例 %2 · build %3")
                           .arg(game.value(QStringLiteral("process_id")).toInt())
                           .arg(game.value(QStringLiteral("instance_count")).toInt())
                           .arg(game.value(QStringLiteral("game_build"))
-                                   .toString(QString::fromUtf8("未知"))));
+                                   .toString(tr("未知"))));
         });
 }
 
@@ -1994,10 +2058,10 @@ void AppController::rescanAdapters()
             Q_EMIT adaptersChanged();
 
             showToast(object.value(QStringLiteral("npcap_installed")).toBool(false)
-                          ? QString::fromUtf8("已重新枚举网络适配器：%1 个")
+                          ? tr("已重新检测到 %1 张网卡")
                                 .arg(m_captureAdapters.size())
-                          : QString::fromUtf8("已重新枚举网络适配器：%1 个"
-                                              "（未安装 Npcap，仍无法开始捕获）")
+                          : tr("已重新检测到 %1 张网卡"
+                               "（尚未安装 Npcap，暂时不能自动记录）")
                                 .arg(m_captureAdapters.size()));
         });
 }
@@ -2133,9 +2197,9 @@ void AppController::openNpcapWebsite()
 {
     static const QUrl kNpcapUrl(QStringLiteral("https://npcap.com/"));
     if (QDesktopServices::openUrl(kNpcapUrl)) {
-        showToast(tr("已在系统浏览器中打开 https://npcap.com（由你手动触发，本软件不会自行联网）。"));
+        showToast(tr("已打开 Npcap 官方网站，请在浏览器中下载驱动。"));
     } else {
-        showToast(tr("无法调用系统浏览器，请手动访问 https://npcap.com。"));
+        showToast(tr("没能打开浏览器，请手动访问 https://npcap.com 下载驱动。"));
     }
 }
 
@@ -2196,7 +2260,7 @@ void AppController::showToast(const QString &message)
 QString AppController::errorText(const QString &message, const QString &code) const
 {
     const QString sentence =
-        message.isEmpty() ? QString::fromUtf8("操作没有完成，原因不明。") : message;
+        message.isEmpty() ? tr("操作没有完成，原因不明。") : message;
     if (!m_maintainerToolsVisible || code.isEmpty())
         return sentence;
     return sentence + QStringLiteral(" (") + code + QLatin1Char(')');

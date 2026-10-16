@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "language": "zh-Hans",
+  "jobs": [
+    { "job_id": 1, "abbreviation": "GLA", "name_en": "sample gladiator", "name_zh": "样例剑士", "role": "坦克" },
+    { "job_id": 19, "abbreviation": "PLD", "name_en": "sample paladin", "name_zh": "样例骑士", "role": "坦克" },
+    { "job_id": 43, "abbreviation": "BST", "name_en": "sample beastmaster", "name_zh": "样例驯兽师", "role": "近战" }
+  ]
+}

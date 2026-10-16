@@ -1,9 +1,11 @@
 #include "CandidateReviewController.h"
+#include "CollectorText.h"
 #include "IBackend.h"
 
 #include <QDateTime>
 #include <QDir>
 #include <QJsonArray>
+#include <QPointer>
 #include <QUuid>
 #include <algorithm>
 
@@ -11,9 +13,12 @@ namespace {
 constexpr int kIndexPageSize = 200;
 constexpr int kMaxObservations = 20000;
 
-QString failure(const QString &code, const QString &message)
+/// A refusal kept for later: the Collector's message, following the language through
+/// the reply's message_ref (contracts/collector-texts.md), or its code when it sent none.
+mr::LiveText failureText(const mr::BackendReply *reply, const QString &code, const QString &message)
 {
-    return message.isEmpty() ? code : message;
+    return message.isEmpty() ? mr::LiveText::verbatim(code)
+                             : mr::collector_text::replyErrorText(reply, message);
 }
 
 // Hypotheses that become timeline events. Everything else (queue acks, zone-load
@@ -57,6 +62,15 @@ CandidateReviewController::CandidateReviewController(QObject *parent) : QObject(
         Q_EMIT captureStatusRefreshRequested();
         if (m_active && !m_loading && m_reviewBusyId.isEmpty()) loadPage(m_page);
     });
+    onLanguageChanged(this, [this] {
+        // The messages are recipes; only the session labels were built as text.
+        for (auto &session : m_sessions) {
+            auto summary = session.toMap();
+            summary[QStringLiteral("label")] = sessionLabel(summary);
+            session = summary;
+        }
+        Q_EMIT changed();
+    });
 }
 
 void CandidateReviewController::setBackend(IBackend *backend)
@@ -83,7 +97,7 @@ void CandidateReviewController::disconnected()
     m_pairs.clear();
     m_indexIds.clear();
     m_reviewBusyId.clear();
-    m_indexMessage = tr("连接后刷新候选观测。");
+    m_indexMessage = [] { return tr("连接后刷新候选观测。"); };
     Q_EMIT changed();
 }
 
@@ -112,7 +126,7 @@ QVariantList CandidateReviewController::anchorPairs() const
 void CandidateReviewController::refresh()
 {
     if (!m_backend || !m_backend->isConnected()) {
-        m_error = tr("Collector 未连接，请连接后重试。");
+        m_error = [] { return tr("Collector 未连接，请连接后重试。"); };
         Q_EMIT changed();
         return;
     }
@@ -139,12 +153,14 @@ void CandidateReviewController::loadPage(int page)
     m_loading = true;
     m_error.clear();
     Q_EMIT changed();
-    m_backend->queryCandidateObservations(m_sessionId, {}, {}, m_page, pageSize())->whenDone(
-        this, [this, generation](bool ok, const QVariantMap &payload, const QString &code, const QString &message) {
+    BackendReply *pageReply = m_backend->queryCandidateObservations(m_sessionId, {}, {}, m_page, pageSize());
+    const QPointer<BackendReply> pageGuard(pageReply);
+    pageReply->whenDone(
+        this, [this, generation, pageGuard](bool ok, const QVariantMap &payload, const QString &code, const QString &message) {
             if (generation != m_pageGeneration) return;
             m_loading = false;
             if (!ok) {
-                m_error = failure(code, message);
+                m_error = failureText(pageGuard, code, message);
                 Q_EMIT changed();
                 return;
             }
@@ -154,7 +170,7 @@ void CandidateReviewController::loadPage(int page)
             if (total < 0 || total > kMaxObservations || items.size() > pageSize()
                 || info.value(QStringLiteral("page")).toInt() != m_page
                 || info.value(QStringLiteral("page_size")).toInt() != pageSize()) {
-                m_error = tr("候选分页响应不完整，请刷新。");
+                m_error = [] { return tr("候选分页响应不完整，请刷新。"); };
             } else {
                 m_total = total;
                 const int last = qMax(1, (total + pageSize() - 1) / pageSize());
@@ -180,17 +196,21 @@ void CandidateReviewController::startIndex(bool retry)
     m_pairs.clear();
     m_timeline.clear();
     m_indexUpperUtc = QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
-    m_indexMessage = retry ? tr("观测发生变化，重新读取会话索引（1/1）……") : tr("正在读取完整会话与锚点索引……");
+    m_indexMessage = [retry] {
+        return retry ? tr("观测发生变化，重新读取会话索引（1/1）……") : tr("正在读取完整会话与锚点索引……");
+    };
     Q_EMIT changed();
     readIndexPage(1, m_indexGeneration);
 }
 
 void CandidateReviewController::readIndexPage(int page, int generation)
 {
-    m_backend->queryCandidateObservations({}, {}, m_indexUpperUtc, page, kIndexPageSize)->whenDone(
-        this, [this, page, generation](bool ok, const QVariantMap &payload, const QString &code, const QString &message) {
+    BackendReply *indexReply = m_backend->queryCandidateObservations({}, {}, m_indexUpperUtc, page, kIndexPageSize);
+    const QPointer<BackendReply> indexGuard(indexReply);
+    indexReply->whenDone(
+        this, [this, page, generation, indexGuard](bool ok, const QVariantMap &payload, const QString &code, const QString &message) {
             if (generation != m_indexGeneration) return;
-            if (!ok) { indexFailed(failure(code, message), false); return; }
+            if (!ok) { indexFailed(failureText(indexGuard, code, message), false); return; }
             const auto info = payload.value(QStringLiteral("page_info")).toMap();
             const int total = info.value(QStringLiteral("total"), -1).toInt();
             const auto items = payload.value(QStringLiteral("items")).toList();
@@ -199,7 +219,7 @@ void CandidateReviewController::readIndexPage(int page, int generation)
             if (total < 0 || total > kMaxObservations || total != m_indexExpectedTotal || items.size() != expected
                 || info.value(QStringLiteral("page")).toInt() != page
                 || info.value(QStringLiteral("page_size")).toInt() != kIndexPageSize) {
-                indexFailed(tr("观测数量发生变化，需重新刷新后查看锚点配对。"), true);
+                indexFailed([] { return tr("观测数量发生变化，需重新刷新后查看锚点配对。"); }, true);
                 return;
             }
             for (const auto &value : items) {
@@ -209,7 +229,7 @@ void CandidateReviewController::readIndexPage(int page, int generation)
                 const auto stamp = row.value(QStringLiteral("observed_at_utc")).toString();
                 if (id.isEmpty() || session.isEmpty() || !QDateTime::fromString(stamp, Qt::ISODateWithMs).isValid()
                     || m_indexIds.contains(id)) {
-                    indexFailed(tr("分页出现重复或缺失观测，需重新刷新。"), true);
+                    indexFailed([] { return tr("分页出现重复或缺失观测，需重新刷新。"); }, true);
                     return;
                 }
                 m_indexIds.insert(id);
@@ -233,12 +253,12 @@ void CandidateReviewController::readIndexPage(int page, int generation)
                     if (generation == m_indexGeneration) readIndexPage(page + 1, generation);
                 });
             } else if (m_indexIds.size() != total || m_indexChanged) {
-                indexFailed(tr("捕获期间观测发生变化，需重新刷新后查看锚点配对。"), true);
+                indexFailed([] { return tr("捕获期间观测发生变化，需重新刷新后查看锚点配对。"); }, true);
             } else finishIndex();
         });
 }
 
-void CandidateReviewController::indexFailed(const QString &message, bool retryable)
+void CandidateReviewController::indexFailed(const LiveText &message, bool retryable)
 {
     if (retryable && !m_indexRetried) {
         startIndex(true);
@@ -256,10 +276,7 @@ void CandidateReviewController::finishIndex()
 {
     m_sessions.clear();
     for (auto summary : m_indexSessions) {
-        const auto local = QDateTime::fromString(summary.value(QStringLiteral("first_at_utc")).toString(), Qt::ISODateWithMs).toLocalTime();
-        summary[QStringLiteral("label")] = tr("%1 · %2 · %3 条")
-            .arg(local.toString(QStringLiteral("MM-dd HH:mm")), summary.value(QStringLiteral("session_id")).toString().left(8))
-            .arg(summary.value(QStringLiteral("count")).toInt());
+        summary[QStringLiteral("label")] = sessionLabel(summary);
         m_sessions.append(summary);
     }
     std::sort(m_sessions.begin(), m_sessions.end(), [](const QVariant &a, const QVariant &b) {
@@ -273,7 +290,9 @@ void CandidateReviewController::finishIndex()
     buildTimeline();
     m_indexLoading = false;
     m_indexComplete = true;
-    m_indexMessage = tr("已读取全部 %1 条观测；进本／离开为推断，请对照实际经历核对。").arg(m_indexIds.size());
+    m_indexMessage = [count = m_indexIds.size()] {
+        return tr("已读取全部 %1 条观测；进本／离开为推断，请对照实际经历核对。").arg(count);
+    };
     if (!m_sessionId.isEmpty() && !m_indexSessions.contains(m_sessionId)) {
         m_sessionId.clear();
         loadPage(1);
@@ -282,6 +301,14 @@ void CandidateReviewController::finishIndex()
     m_indexSessions.clear();
     m_indexEvents.clear();
     Q_EMIT changed();
+}
+
+QString CandidateReviewController::sessionLabel(const QVariantMap &summary)
+{
+    const auto local = QDateTime::fromString(summary.value(QStringLiteral("first_at_utc")).toString(), Qt::ISODateWithMs).toLocalTime();
+    return tr("%1 · %2 · %3 条")
+        .arg(local.toString(QStringLiteral("MM-dd HH:mm")), summary.value(QStringLiteral("session_id")).toString().left(8))
+        .arg(summary.value(QStringLiteral("count")).toInt());
 }
 
 // Reads the event rows of one connection in capture order and names them.
@@ -429,7 +456,7 @@ void CandidateReviewController::observeLiveEvent(const QVariantMap &event)
     m_indexComplete = false;
     m_pairs.clear();
     m_timeline.clear();
-    if (!m_indexLoading) m_indexMessage = tr("有新观测，刷新后重新计算完整锚点配对。");
+    if (!m_indexLoading) m_indexMessage = [] { return tr("有新观测，刷新后重新计算完整锚点配对。"); };
     if (!m_liveRefresh.isActive()) m_liveRefresh.start();
     Q_EMIT changed();
 }
@@ -439,9 +466,9 @@ void CandidateReviewController::review(const QString &id, const QString &verdict
     if (!m_backend || !m_reviewBusyId.isEmpty()) return;
     if (id.isEmpty() || !QStringList{QStringLiteral("CORRECT"), QStringLiteral("WRONG"), QStringLiteral("UNSURE")}.contains(verdict)
         || note.size() > 2000) {
-        m_reviewError = tr("请选择有效观测与核对结论，备注最多 2000 字符。");
+        m_reviewError = [] { return tr("请选择有效观测与核对结论，备注最多 2000 字符。"); };
         Q_EMIT changed();
-        Q_EMIT reviewFinished(id, false, m_reviewError);
+        Q_EMIT reviewFinished(id, false, m_reviewError.text());
         return;
     }
     const int generation = m_connectionGeneration;
@@ -453,11 +480,13 @@ void CandidateReviewController::review(const QString &id, const QString &verdict
     const int cancelledPage = ++m_pageGeneration; // A pending read must not replace the just-reviewed row with older data.
     m_loading = false;
     Q_EMIT changed();
-    m_backend->reviewCandidateObservation(id, verdict, note)->whenDone(this,
-        [this, generation, id, note, pageWasLoading, cancelledPage](bool ok, const QVariantMap &payload, const QString &code, const QString &message) {
+    BackendReply *reviewReply = m_backend->reviewCandidateObservation(id, verdict, note);
+    const QPointer<BackendReply> reviewGuard(reviewReply);
+    reviewReply->whenDone(this,
+        [this, generation, id, note, pageWasLoading, cancelledPage, reviewGuard](bool ok, const QVariantMap &payload, const QString &code, const QString &message) {
             if (generation != m_connectionGeneration) return;
             m_reviewBusyId.clear();
-            if (!ok) m_reviewError = failure(code, message);
+            if (!ok) m_reviewError = failureText(reviewGuard, code, message);
             else {
                 const auto patch = [&](QVariantList &list) {
                     for (auto &value : list) {
@@ -475,7 +504,7 @@ void CandidateReviewController::review(const QString &id, const QString &verdict
             // No later read was started meanwhile: finish the one this review cut off.
             if (pageWasLoading && cancelledPage == m_pageGeneration) loadPage(m_page);
             Q_EMIT changed();
-            Q_EMIT reviewFinished(id, ok, m_reviewError);
+            Q_EMIT reviewFinished(id, ok, m_reviewError.text());
         });
 }
 
@@ -486,11 +515,13 @@ void CandidateReviewController::writeSettings(const QJsonObject &changes)
     m_settingsBusy = true;
     m_settingsError.clear();
     Q_EMIT changed();
-    m_backend->updateCaptureSettings(changes)->whenDone(this,
-        [this, generation](bool ok, const QVariantMap &payload, const QString &code, const QString &message) {
+    BackendReply *settingsReply = m_backend->updateCaptureSettings(changes);
+    const QPointer<BackendReply> settingsGuard(settingsReply);
+    settingsReply->whenDone(this,
+        [this, generation, settingsGuard](bool ok, const QVariantMap &payload, const QString &code, const QString &message) {
             if (generation != m_connectionGeneration) return;
             m_settingsBusy = false;
-            if (!ok) m_settingsError = failure(code, message);
+            if (!ok) m_settingsError = failureText(settingsGuard, code, message);
             else {
                 Q_EMIT captureSettingsApplied(payload);
                 Q_EMIT captureStatusRefreshRequested();
@@ -520,11 +551,13 @@ void CandidateReviewController::exportEvidence()
     if (!m_targetOverride.isEmpty()) path = QDir(m_targetOverride).absoluteFilePath(
         QStringLiteral("candidate-evidence-") + QUuid::createUuid().toString(QUuid::WithoutBraces) + QStringLiteral(".json"));
     Q_EMIT changed();
-    m_backend->exportCandidateEvidence(path)->whenDone(this,
-        [this, generation](bool ok, const QVariantMap &payload, const QString &code, const QString &message) {
+    BackendReply *exportReply = m_backend->exportCandidateEvidence(path);
+    const QPointer<BackendReply> exportGuard(exportReply);
+    exportReply->whenDone(this,
+        [this, generation, exportGuard](bool ok, const QVariantMap &payload, const QString &code, const QString &message) {
             if (generation != m_connectionGeneration) return;
             m_exporting = false;
-            if (!ok) m_exportError = failure(code, message);
+            if (!ok) m_exportError = failureText(exportGuard, code, message);
             else m_exportResult = payload;
             Q_EMIT changed();
         });

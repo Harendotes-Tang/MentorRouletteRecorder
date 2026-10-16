@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text;
 using Microsoft.Data.Sqlite;
 using MentorRecorder.Collector.Contracts.Errors;
+using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Domain.Time;
 
 namespace MentorRecorder.Collector.Storage;
@@ -50,7 +51,7 @@ public static class MigrationRunner
         ArgumentNullException.ThrowIfNull(clock);
 
         var applied = ReadAppliedMigrations(connection);
-        VerifyHistory(applied, DatabaseFileHint(connection));
+        VerifyHistory(applied, DatabasePath(connection));
 
         using var transaction = connection.BeginTransaction();
         try
@@ -91,8 +92,9 @@ public static class MigrationRunner
             transaction.Rollback();
             throw new CollectorException(
                 ErrorCodes.DbIntegrity,
-                "数据库迁移失败，已整体回滚，本软件无法启动。" +
-                "请先把数据库文件复制一份保存到别处，再排查问题。" + DatabaseFileHint(connection),
+                DatabasePath(connection) is { } path
+                    ? CollectorTexts.StartupMigrationFailed(path)
+                    : CollectorTexts.StartupMigrationFailedNoPath(),
                 new Dictionary<string, object?> { ["sqlite_error"] = ex.SqliteErrorCode },
                 inner: ex);
         }
@@ -126,7 +128,7 @@ public static class MigrationRunner
 
     private static void VerifyHistory(
         IReadOnlyDictionary<int, (string Name, string Checksum)> applied,
-        string fileHint)
+        string? path)
     {
         var known = Scripts.ToDictionary(s => s.Version);
 
@@ -136,8 +138,9 @@ public static class MigrationRunner
             {
                 throw new CollectorException(
                     ErrorCodes.DbIntegrity,
-                    "数据库的结构版本高于本程序支持的版本，本软件无法启动。" +
-                    "请先把数据库文件复制一份保存到别处，再升级本软件。" + fileHint,
+                    path is not null
+                        ? CollectorTexts.StartupSchemaTooNew(path)
+                        : CollectorTexts.StartupSchemaTooNewNoPath(),
                     new Dictionary<string, object?>
                     {
                         ["database_version"] = version,
@@ -150,8 +153,9 @@ public static class MigrationRunner
             {
                 throw new CollectorException(
                     ErrorCodes.DbIntegrity,
-                    "历史迁移脚本的校验和与记录不符，数据库可能已被篡改，本软件无法启动。" +
-                    "请先把数据库文件复制一份保存到别处，再排查问题。" + fileHint,
+                    path is not null
+                        ? CollectorTexts.StartupMigrationTampered(path)
+                        : CollectorTexts.StartupMigrationTamperedNoPath(),
                     new Dictionary<string, object?>
                     {
                         ["version"] = version,
@@ -162,14 +166,12 @@ public static class MigrationRunner
     }
 
     /// <summary>
-    /// The sentence naming the file the user is being asked to copy. Empty for a connection with
-    /// no file behind it (an in-memory database in tests): an empty path would read worse than
-    /// none at all.
+    /// The file the user is being asked to copy, which the refusal names. Null for a connection with
+    /// no file behind it (an in-memory database in tests): the refusal then names none, an empty path
+    /// would read worse than none at all.
     /// </summary>
-    private static string DatabaseFileHint(SqliteConnection connection) =>
-        string.IsNullOrWhiteSpace(connection.DataSource)
-            ? string.Empty
-            : "数据库文件：" + connection.DataSource;
+    private static string? DatabasePath(SqliteConnection connection) =>
+        string.IsNullOrWhiteSpace(connection.DataSource) ? null : connection.DataSource;
 
     private static bool TableExists(SqliteConnection connection, string table)
     {

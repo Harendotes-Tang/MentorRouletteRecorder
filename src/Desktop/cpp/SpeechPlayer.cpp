@@ -109,7 +109,7 @@ SoundEffectPlayer::SoundEffectPlayer(QObject *parent)
             finish(true, {});
         } else {
             qCWarning(lcSpeechPlayer) << "playback never started";
-            finish(false, QString::fromUtf8("声音没有开始播放"));
+            finish(false, tr("声音没有开始播放"));
         }
     });
 }
@@ -128,7 +128,7 @@ void SoundEffectPlayer::play(const QString &path, double volume, int expectedDur
     if (QMediaDevices::defaultAudioOutput().isNull()) {
         // Queued so the caller always observes finished() after play() returns.
         QMetaObject::invokeMethod(this, [this] {
-            finish(false, QString::fromUtf8("没有可用的音频输出设备"));
+            finish(false, tr("没有可用的音频输出设备"));
         }, Qt::QueuedConnection);
         return;
     }
@@ -164,7 +164,7 @@ void SoundEffectPlayer::onStatusChanged()
             m_effect->play();
         break;
     case QSoundEffect::Error:
-        finish(false, QString::fromUtf8("无法读取声音文件"));
+        finish(false, tr("无法读取声音文件"));
         break;
     default:
         break;

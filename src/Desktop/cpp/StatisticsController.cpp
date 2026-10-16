@@ -286,19 +286,19 @@ QVariantList StatisticsController::statCards() const
     return {
         // Counts only what this software recorded; the 已有基数 typed in by hand is not in it,
         // so the card must not read as a lifetime total.
-        statCard(QString::fromUtf8("已记录次数"),
+        statCard(tr("已记录次数"),
                  QString::number(m_dashboard.value(QStringLiteral("attempt_count")).toInt())),
-        statCard(QString::fromUtf8("完成次数"),
+        statCard(tr("完成次数"),
                  QString::number(m_dashboard.value(QStringLiteral("completed_count")).toInt())),
-        statCard(QString::fromUtf8("通关率"), Formatters::percent(completionRate)),
-        statCard(QString::fromUtf8("退出率"), Formatters::percent(leaveRate)),
-        statCard(QString::fromUtf8("平均耗时"), Formatters::duration(avgDuration)),
-        statCard(QString::fromUtf8("近 30 天完成"), QString::number(m_completedLast30Days)),
-        statCard(QString::fromUtf8("断线 / 中断"),
+        statCard(tr("通关率"), Formatters::percent(completionRate)),
+        statCard(tr("退出率"), Formatters::percent(leaveRate)),
+        statCard(tr("平均耗时"), Formatters::duration(avgDuration)),
+        statCard(tr("近 30 天完成"), QString::number(m_completedLast30Days)),
+        statCard(tr("断线 / 中断"),
                  QStringLiteral("%1 / %2")
                      .arg(counts.value(QStringLiteral("DISCONNECTED")))
                      .arg(counts.value(QStringLiteral("INTERRUPTED")))),
-        statCard(QString::fromUtf8("未知结果"),
+        statCard(tr("未知结果"),
                  QString::number(counts.value(QStringLiteral("UNKNOWN")))),
     };
 }
@@ -351,7 +351,7 @@ void StatisticsController::updateAchievementBaseline(int goal, int baseline, con
         // The form was filled from defaults, not from what is stored: a goal-only
         // save would send baseline 0, a real change, and wipe the stored baseline
         // (audit 2026-10-03, CS7-D3). The pages do not offer 保存 in this state.
-        const QString message = QString::fromUtf8("还没有读到已保存的目标与基数，请稍候再保存。");
+        const QString message = tr("还没读到你保存的目标和起始次数，请稍后再保存。");
         Q_EMIT baselineFailed(QStringLiteral("ERR_INTERNAL"), message);
         Q_EMIT mutationFailed(QStringLiteral("ERR_INTERNAL"), message);
         Q_EMIT toastRequested(message);
@@ -388,12 +388,12 @@ void StatisticsController::updateAchievementBaseline(int goal, int baseline, con
                     m_dashboard.value(QStringLiteral("achievement_progress"));
                 if (reread && progress.isDouble()) {
                     Q_EMIT toastRequested(
-                        QString::fromUtf8("基数已设为 %1 · 目标 %2 · 进度 %3 · 已重算")
+                        tr("基数已设为 %1 · 目标 %2 · 进度 %3 · 已重算")
                             .arg(savedBaseline)
                             .arg(savedGoal)
                             .arg(progress.toInt()));
                 } else {
-                    Q_EMIT toastRequested(QString::fromUtf8("基数已设为 %1 · 目标 %2 · 已保存")
+                    Q_EMIT toastRequested(tr("基数已设为 %1 · 目标 %2 · 已保存")
                                               .arg(savedBaseline)
                                               .arg(savedGoal));
                 }

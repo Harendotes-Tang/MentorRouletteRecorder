@@ -1,4 +1,5 @@
 using MentorRecorder.Collector.Contracts.Errors;
+using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Domain.Mutations;
 using MentorRecorder.Collector.Domain.Time;
@@ -51,7 +52,7 @@ public static class RunFieldWriter
             RunFields.ManuallyCorrected => run with { ManuallyCorrected = AsBool(field, value) },
             _ => throw new CollectorException(
                 ErrorCodes.Internal,
-                "修订记录包含无法还原的字段，已拒绝撤销以免部分还原。",
+                CollectorTexts.MutationUndoUnrestorableField(),
                 new Dictionary<string, object?> { ["field"] = field }),
         };
     }
@@ -128,6 +129,6 @@ public static class RunFieldWriter
 
     private static CollectorException Refuse(string field) => new(
         ErrorCodes.Internal,
-        "修订记录中的历史值类型异常，已拒绝撤销以免写入错误数据。",
+        CollectorTexts.MutationUndoBadHistoryValue(),
         new Dictionary<string, object?> { ["field"] = field });
 }

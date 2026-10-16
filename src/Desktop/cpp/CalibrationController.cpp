@@ -1,5 +1,6 @@
 #include "CalibrationController.h"
 
+#include "CollectorText.h"
 #include "IBackend.h"
 
 #include <QDateTime>
@@ -28,6 +29,8 @@ CalibrationController::CalibrationController(QObject *parent)
     : QObject(parent)
     , m_shared(new SharedCalibrationController(this))
 {
+    // error is a recipe and queueInferenceText is built on every read.
+    onLanguageChanged(this, [this] { Q_EMIT changed(); });
 }
 
 void CalibrationController::setBackend(IBackend *backend)
@@ -38,12 +41,12 @@ void CalibrationController::setBackend(IBackend *backend)
 
 QString CalibrationController::rejectedMessage()
 {
-    return tr("有事件被标为不对，这次校准作废；再打一把随机任务后会重新核对。");
+    return tr("有内容与你的实际游戏情况不符，本次校准需要重来。请照常完成随机任务，之后会再次提醒你核对。");
 }
 
 QString CalibrationController::queueInferenceText()
 {
-    return tr("按「你申请了哪个随机任务」加「你进了哪个副本」来记录");
+    return tr("根据你申请的随机任务和实际进入的副本来记录");
 }
 
 void CalibrationController::refreshFromCaptureStatus(const QVariantMap &capture)
@@ -61,17 +64,24 @@ void CalibrationController::refreshFromCaptureStatus(const QVariantMap &capture)
     }
     const QVariant raw = capture.value(QStringLiteral("calibration"));
     if (!raw.isValid() || raw.isNull()) {
-        publish(QStringLiteral("IDLE"), QString(), {}, {}, {}, false, false);
+        publish(QStringLiteral("IDLE"), QString(), {}, {}, {}, {}, false, false);
         return;
     }
     const QVariantMap calibration = raw.toMap();
 
+    // blocker_refs parallels blockers (contracts/collector-texts.md §2); a list of
+    // another length is ignored as a whole, so the Chinese is shown.
     QStringList blockers;
+    QVariantList blockerRefs;
     const auto blockerValues = calibration.value(QStringLiteral("blockers")).toList();
-    for (const auto &value : blockerValues) {
-        const QString sentence = value.toString();
-        if (!sentence.isEmpty())
-            blockers.append(sentence);
+    const auto refValues = calibration.value(QStringLiteral("blocker_refs")).toList();
+    const bool refsParallel = refValues.size() == blockerValues.size();
+    for (qsizetype i = 0; i < blockerValues.size(); ++i) {
+        const QString sentence = blockerValues.at(i).toString();
+        if (sentence.isEmpty())
+            continue;
+        blockers.append(sentence);
+        blockerRefs.append(refsParallel ? refValues.at(i) : QVariant());
     }
 
     QVariantList events;
@@ -106,7 +116,7 @@ void CalibrationController::refreshFromCaptureStatus(const QVariantMap &capture)
     // WAITING is the same calibration with no capture session under it (the game is closed).
     const bool provisional = (state == QLatin1String("OBSERVING") || state == QLatin1String("WAITING"))
         && !calibration.value(QStringLiteral("local_profile_id")).toString().isEmpty();
-    publish(state, calibration.value(QStringLiteral("game_build")).toString(), blockers,
+    publish(state, calibration.value(QStringLiteral("game_build")).toString(), blockers, blockerRefs,
             progress.isValid() && !progress.isNull() ? progress.toMap() : QVariantMap(), events,
             provisional,
             // Optional: a Collector that does not report it offers no rollback, which is the
@@ -115,9 +125,9 @@ void CalibrationController::refreshFromCaptureStatus(const QVariantMap &capture)
 }
 
 void CalibrationController::publish(const QString &state, const QString &gameBuild,
-                                    const QStringList &blockers, const QVariantMap &progress,
-                                    const QVariantList &events, bool provisional,
-                                    bool retiredLocalProfileAvailable)
+                                    const QStringList &blockers, const QVariantList &blockerRefs,
+                                    const QVariantMap &progress, const QVariantList &events,
+                                    bool provisional, bool retiredLocalProfileAvailable)
 {
     int required = 0;
     for (const auto &value : events) {
@@ -126,7 +136,7 @@ void CalibrationController::publish(const QString &state, const QString &gameBui
     }
     const QString nextState = state.isEmpty() ? QStringLiteral("IDLE") : state;
     if (m_state == nextState && m_gameBuild == gameBuild && m_blockers == blockers
-        && m_progress == progress && m_events == events && m_confirmCount == required
+        && m_blockerRefs == blockerRefs && m_progress == progress && m_events == events && m_confirmCount == required
         && m_provisional == provisional
         && m_retiredLocalProfileAvailable == retiredLocalProfileAvailable) {
         return;
@@ -136,6 +146,7 @@ void CalibrationController::publish(const QString &state, const QString &gameBui
     m_provisional = provisional;
     m_retiredLocalProfileAvailable = retiredLocalProfileAvailable;
     m_blockers = blockers;
+    m_blockerRefs = blockerRefs;
     m_progress = progress;
     m_events = events;
     m_confirmCount = required;
@@ -164,7 +175,7 @@ void CalibrationController::confirm(const QVariantMap &verdicts)
             // A missing verdict is not a silent CORRECT. The dialog keeps its
             // button disabled until every row is answered; this is the guard
             // for anything that calls the slot directly.
-            m_error = tr("还有事件没有核对，请把每一条都点“对”或“错”。");
+            m_error = [] { return tr("还有内容没有核对。请逐条点“对”或“错”；选“错”后，如需改名，请选出正确的随机任务。"); };
             Q_EMIT changed();
             return;
         }
@@ -180,8 +191,10 @@ void CalibrationController::confirm(const QVariantMap &verdicts)
     m_error.clear();
     m_restoreAnswer.clear();
     Q_EMIT changed();
-    m_backend->confirmCalibration(payload)->whenDone(this,
-        [this](bool ok, const QVariantMap &result, const QString &code, const QString &message) {
+    BackendReply *reply = m_backend->confirmCalibration(payload);
+    const QPointer<BackendReply> guard(reply);
+    reply->whenDone(this,
+        [this, guard](bool ok, const QVariantMap &result, const QString &code, const QString &message) {
         m_busy = false;
         if (ok) {
             m_lastResult = result;
@@ -192,15 +205,16 @@ void CalibrationController::confirm(const QVariantMap &verdicts)
             return;
         }
         if (code == QLatin1String("ERR_CALIBRATION_REJECTED")) {
-            m_error = rejectedMessage();
+            m_error = [] { return rejectedMessage(); };
             Q_EMIT changed();
-            Q_EMIT rejected(m_error);
+            Q_EMIT rejected(m_error.text());
             return;
         }
         // A player cannot act on a raw error token, and the card shows this text
         // verbatim; the code stays in the log, not on the page.
         Q_UNUSED(code);
-        m_error = message.isEmpty() ? tr("启用本机校准失败，请稍后再试。") : message;
+        m_error = message.isEmpty() ? LiveText([] { return tr("没能启用这次校准，请稍后重试。"); })
+                                    : collector_text::replyErrorText(guard, message);
         Q_EMIT changed();
     });
 }
@@ -231,8 +245,10 @@ void CalibrationController::sendDiscard(bool retireLocalProfile, bool restoreLoc
     m_error.clear();
     m_restoreAnswer.clear();
     Q_EMIT changed();
-    m_backend->discardCalibration(retireLocalProfile, restoreLocalProfile)->whenDone(this,
-        [this, retireLocalProfile, restoreLocalProfile, changesProfile](
+    BackendReply *reply = m_backend->discardCalibration(retireLocalProfile, restoreLocalProfile);
+    const QPointer<BackendReply> guard(reply);
+    reply->whenDone(this,
+        [this, guard, retireLocalProfile, restoreLocalProfile, changesProfile](
             bool ok, const QVariantMap &result, const QString &code, const QString &message) {
         m_busy = false;
         if (!ok) {
@@ -243,14 +259,17 @@ void CalibrationController::sendDiscard(bool retireLocalProfile, bool restoreLoc
                 && !message.isEmpty()) {
                 // Possibly not a refusal at all: the file may be back and outranked. The
                 // page tells the two apart by the status read below (see restoreAnswer).
-                m_restoreAnswer = message;
+                m_restoreAnswer = collector_text::replyErrorText(guard, message);
                 m_restoreAnswerProfile = m_profileInForce;
             } else {
-                m_error = !message.isEmpty()
-                    ? message
-                    : retireLocalProfile ? tr("重新校准失败，请稍后再试。")
-                    : restoreLocalProfile ? tr("恢复上一份本机校准失败，请稍后再试。")
-                                          : tr("重新观察失败，请稍后再试。");
+                const LiveText refusal = collector_text::replyErrorText(guard, message);
+                m_error = [refusal, retireLocalProfile, restoreLocalProfile] {
+                    return !refusal.isEmpty()
+                        ? refusal.text()
+                        : retireLocalProfile ? tr("没能重新开始校准，请稍后重试。")
+                        : restoreLocalProfile ? tr("没能恢复上一份本机校准，请稍后重试。")
+                                              : tr("没能清空校准进度，请稍后重试。");
+                };
             }
             Q_EMIT changed();
             // A restore the Collector answered may still have moved the file, so whether
@@ -266,8 +285,8 @@ void CalibrationController::sendDiscard(bool retireLocalProfile, bool restoreLoc
         // 重新观察丢掉的是草稿，不是已经写出并生效的本机档案：provisional 保持原样。
         // 重新校准 does stop that profile, and what is in force is not this controller's to
         // decide: the capture status is re-read and says so.
-        publish(state.isEmpty() ? m_state : state, m_gameBuild, QStringList(), QVariantMap(),
-                QVariantList(), changesProfile ? false : m_provisional,
+        publish(state.isEmpty() ? m_state : state, m_gameBuild, QStringList(), QVariantList(),
+                QVariantMap(), QVariantList(), changesProfile ? false : m_provisional,
                 // The rollback consumed the retired file; a retirement produced one. Either way
                 // the next capture status is what decides, and it is asked for below.
                 restoreLocalProfile ? false : m_retiredLocalProfileAvailable);
@@ -275,6 +294,39 @@ void CalibrationController::sendDiscard(bool retireLocalProfile, bool restoreLoc
         if (changesProfile)
             Q_EMIT refreshRequested();
     });
+}
+
+QStringList CalibrationController::blockers() const
+{
+    QStringList out;
+    out.reserve(m_blockers.size());
+    for (qsizetype i = 0; i < m_blockers.size(); ++i)
+        out.append(collector_text::render(m_blockerRefs.value(i), m_blockers.at(i)));
+    return out;
+}
+
+QStringList CalibrationController::blockerKeys() const
+{
+    QStringList out;
+    out.reserve(m_blockers.size());
+    for (qsizetype i = 0; i < m_blockers.size(); ++i)
+        out.append(m_blockerRefs.value(i).toMap().value(QStringLiteral("key")).toString());
+    return out;
+}
+
+QVariantList CalibrationController::events() const
+{
+    QVariantList out;
+    out.reserve(m_events.size());
+    for (const QVariant &value : m_events) {
+        QVariantMap event = value.toMap();
+        const QVariant ref = event.value(QStringLiteral("label_ref"));
+        if (ref.isValid() && !ref.isNull())
+            event.insert(QStringLiteral("label"),
+                         collector_text::render(ref, event.value(QStringLiteral("label")).toString()));
+        out.append(event);
+    }
+    return out;
 }
 
 QString CalibrationController::profileInForce(const QVariantMap &capture)

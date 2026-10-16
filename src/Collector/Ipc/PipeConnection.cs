@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json.Nodes;
 using MentorRecorder.Collector.Contracts.Errors;
+using MentorRecorder.Collector.Contracts.Texts;
 
 namespace MentorRecorder.Collector.Ipc;
 
@@ -163,7 +164,7 @@ public sealed class PipeConnection
             return IpcEnvelope.Failure(
                 request.RequestId,
                 IpcEnvelope.ErrorMessageType,
-                new CollectorException(ErrorCodes.Internal, "内部错误，详情见本机诊断日志。"));
+                new CollectorException(ErrorCodes.Internal, CollectorTexts.IpcInternalError()));
         }
     }
 
@@ -189,7 +190,7 @@ public sealed class PipeConnection
             envelope = IpcEnvelope.Failure(
                 request.RequestId,
                 IpcEnvelope.ErrorMessageType,
-                new CollectorException(ErrorCodes.Internal, "内部错误，详情见本机诊断日志。"));
+                new CollectorException(ErrorCodes.Internal, CollectorTexts.IpcInternalError()));
         }
 
         if (!cancellationToken.IsCancellationRequested)
@@ -216,7 +217,7 @@ public sealed class PipeConnection
         if (subscriptions.Count >= MaxLiveSubscriptions)
         {
             throw CollectorException.BadRequest(
-                "该连接已订阅实时事件。请复用现有订阅，或断开后重新连接。", "message_type");
+                CollectorTexts.IpcAlreadySubscribed(), "message_type");
         }
 
         var subscriptionId = Guid.NewGuid().ToString("D");
@@ -326,7 +327,7 @@ public sealed class PipeConnection
                 _log?.Invoke("response exceeded the frame limit", ex);
                 var refusal = new CollectorException(
                     ErrorCodes.Internal,
-                    "响应超过 4 MiB 上限，请缩小查询范围或每页条数后重试。",
+                    CollectorTexts.IpcResponseTooLarge(),
                     ex.Details);
                 await channel.WriteAsync(
                     IpcEnvelope.Failure(

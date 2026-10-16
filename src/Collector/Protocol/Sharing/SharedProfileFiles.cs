@@ -1,6 +1,7 @@
 using System.Text;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Protocol.Calibration;
+using MentorRecorder.Collector.Protocol.Profiles;
 
 namespace MentorRecorder.Collector.Protocol.Sharing;
 
@@ -73,6 +74,26 @@ public static class SharedProfileFiles
             return true;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// 取消绑定时按 canonical 哈希删除本次尚未采用的派生文档。调用者须持有写入/撤下共用的文件锁，
+    /// 已被其他文档替换、损坏或无法读取时保留原文件，不扩大为按路径盲删。
+    /// </summary>
+    public static bool DeleteIfMatches(string root, Region region, string gameBuild, string expectedSha256)
+    {
+        var path = PathFor(root, region, gameBuild);
+        try
+        {
+            if (!File.Exists(path) || !string.Equals(ProfileLoader.Load(path).ProfileSha256, expectedSha256, StringComparison.Ordinal))
+                return false;
+            File.Delete(path);
+            return true;
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException and not StackOverflowException)
         {
             return false;
         }

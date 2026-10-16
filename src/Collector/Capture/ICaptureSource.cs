@@ -2,6 +2,7 @@ using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using MentorRecorder.Collector.Contracts.Errors;
+using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Protocol.Decoded;
 
@@ -72,6 +73,14 @@ public interface ICaptureSourceObserver
     /// <param name="reason">Short, user-facing reason with no path or address in it.</param>
     /// <param name="error">Underlying exception, for the local log only.</param>
     void OnFault(string reason, Exception? error);
+
+    /// <summary>
+    /// The monitor failed with a reason worded by the catalogue (contracts/collector-texts.md). An
+    /// observer that keeps references overrides this; every other one receives the Chinese.
+    /// </summary>
+    /// <param name="reason">The reason as a catalogue text.</param>
+    /// <param name="error">Underlying exception, for the local log only.</param>
+    void OnFault(UserText reason, Exception? error) => OnFault(reason.Chinese, error);
 
     /// <summary>
     /// A game connection that had delivered decoded messages ended: closed with FIN or RST, or

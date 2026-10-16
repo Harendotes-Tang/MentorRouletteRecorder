@@ -527,7 +527,7 @@ public sealed class CaptureTraceTests
         Assert.Contains("标题画面", output.ToString(), StringComparison.Ordinal);
         // The doctor report printed above the refusal does not claim the software has no profile.
         Assert.Contains(CaptureCli.ProfileNotLoadedMessage, output.ToString(), StringComparison.Ordinal);
-        Assert.DoesNotContain(NoProfileStatusProvider.Message, output.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain(NoProfileStatusProvider.Message.Chinese, output.ToString(), StringComparison.Ordinal);
         Assert.True(source.Disposed);
     }
 

@@ -15,6 +15,8 @@
 #include <QQmlEngine>
 #include <QVariantMap>
 
+#include "LiveText.h"
+
 namespace mr {
 
 class IBackend;
@@ -58,14 +60,14 @@ public:
     int pageSize() const { return m_pageSize; }
     int total() const { return m_total; }
     bool isLoading() const { return m_loading; }
-    QString loadError() const { return m_loadError; }
+    QString loadError() const { return m_loadError.text(); }
     QString sortField() const { return m_sortField; }
     bool sortAscending() const { return m_sortAscending; }
 
     void setPageSize(int pageSize);
     QString calendarMonth() const { return m_calendarMonth; }
     bool calendarLoading() const { return m_calendarPending.contains(m_calendarMonth); }
-    QString calendarError() const { return m_calendarErrors.value(m_calendarMonth); }
+    QString calendarError() const { return m_calendarErrors.value(m_calendarMonth).text(); }
     QStringList calendarAvailableDays() const;
     QStringList calendarKnownMonths() const { return m_calendarDays.keys(); }
     Q_INVOKABLE bool calendarDayAvailable(const QString &day) const;
@@ -101,7 +103,7 @@ private:
     void invalidateCalendar();
     void loadCalendarMonth(const QString &month, bool retryError);
     void setLoading(bool loading);
-    void setLoadError(const QString &error);
+    void setLoadError(const LiveText &error);
 
     IBackend *m_backend = nullptr;
     QList<QJsonObject> m_rows;
@@ -115,12 +117,14 @@ private:
     int m_anchorRow = 0;
     int m_total = 0;
     bool m_loading = false;
-    QString m_loadError;
+    /// A recipe, so the Collector's sentence follows a language switch.
+    LiveText m_loadError;
     quint64 m_loadGeneration = 0;
     QJsonObject m_calendarFilter;
     QString m_calendarMonth;
     QMap<QString, QStringList> m_calendarDays;
-    QMap<QString, QString> m_calendarErrors;
+    /// Recipes, read by QML bindings wrapped in Theme.live() (LiveText.h).
+    QMap<QString, LiveText> m_calendarErrors;
     QSet<QString> m_calendarPending;
     quint64 m_calendarGeneration = 0;
 };

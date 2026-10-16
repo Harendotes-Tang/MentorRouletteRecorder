@@ -152,7 +152,7 @@ private Q_SLOTS:
         QSignalSpy finished(&engine, &mr::OfflineOcrEngine::finished);
         QVERIFY(!engine.start({createScreenshot(directory)}));
         QCOMPARE(failures.size(), 1);
-        QVERIFY(failures[0][0].toString().contains(QStringLiteral("本地 AI")));
+        QVERIFY(failures[0][0].toString().contains(QStringLiteral("缺少本机图片识别组件")));
         QVERIFY(finished.isEmpty() && !engine.busy());
         QVERIFY(engine.findChildren<QProcess *>().isEmpty());
     }
@@ -180,7 +180,7 @@ private Q_SLOTS:
         QSignalSpy failures(&engine, &mr::OfflineOcrEngine::failed);
         QVERIFY(!engine.start({createScreenshot(directory)}));
         QCOMPARE(failures.size(), 1);
-        QVERIFY(failures[0][0].toString().contains(QStringLiteral("模型不完整")));
+        QVERIFY(failures[0][0].toString().contains(QStringLiteral("本机图片识别文件不完整")));
         QVERIFY(engine.findChildren<QProcess *>().isEmpty());
     }
 
@@ -368,7 +368,7 @@ private Q_SLOTS:
         QVERIFY(!finished[0][0].toBool());
         QCOMPARE(failures.size(), timeout ? 1 : 0);
         if (timeout)
-            QVERIFY(failures[0][0].toString().contains(QStringLiteral("超时")));
+            QVERIFY(failures[0][0].toString().contains(QStringLiteral("图片识别超时")));
         QVERIFY(recognized.isEmpty() && !QFileInfo::exists(work) && !engine.busy());
         qunsetenv("MR_TEST_AI_OCR_MODE");
         engine.setTimeoutForTesting(5000);

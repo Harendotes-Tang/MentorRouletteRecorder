@@ -233,21 +233,21 @@
     {
       "runtime_assets": [
         {
-          "sha256": "d8e4b733fbaec1fe0e808fd6391479f190b170df03e309c5f07dc85445447d22",
+          "sha256": "443c614ab2f18918770ee5187e5deb39cd09c06a475ca6ed58c7a4b466d3e658",
           "file": "System.Security.Cryptography.Pkcs.dll"
         }
       ],
       "compile_only": false,
       "copyright": "© Microsoft Corporation. All rights reserved.",
       "license": "MIT",
-      "repository_commit": "81cabf2857a01351e5ab578947c7403a5b128ad1",
+      "repository_commit": "b9a49e4a6d3a444a3685e318c74a7892d01873f7",
       "authors": "Microsoft",
-      "nuspec_file": "System.Security.Cryptography.Pkcs-8.0.1.nuspec",
-      "package_sha256": "28c348909df243fe4ee962213e3c8021aaecbc8321929dba03a69bcb92a49de5",
-      "nuget_content_sha512": "CoCRHFym33aUSf/NtWSVSZa99dkd0Hm7OCZUxORBjRB16LNhIEOf8THPqzIYlvKM0nNDAPTRBa1FxEECrgaxxA==",
-      "license_file": "System.Security.Cryptography.Pkcs-8.0.1-LICENSE.txt",
-      "nuget_url": "https://www.nuget.org/packages/System.Security.Cryptography.Pkcs/8.0.1",
-      "version": "8.0.1",
+      "nuspec_file": "System.Security.Cryptography.Pkcs-8.0.2.nuspec",
+      "package_sha256": "372b652ceb0c34a77eff65381ef2435b9bc93e8261216cf5de711fc7d9ea7200",
+      "nuget_content_sha512": "VWACYq0JGxi9sw3TonSSV4B2MfhYk5nhgOtp9wbrt5NFOtUetFqHkMZylcCwPX+117cBJH5EnIzIy6X4OKn/kA==",
+      "license_file": "System.Security.Cryptography.Pkcs-8.0.2-LICENSE.txt",
+      "nuget_url": "https://www.nuget.org/packages/System.Security.Cryptography.Pkcs/8.0.2",
+      "version": "8.0.2",
       "id": "System.Security.Cryptography.Pkcs",
       "repository_url": "https://github.com/dotnet/runtime",
       "license_source": "NuGet package"
@@ -255,21 +255,21 @@
     {
       "runtime_assets": [
         {
-          "sha256": "b022f4a6ab061d80b94df072badfbabf00489181229ae5b74140aeb07d89513b",
+          "sha256": "b6cd19e08262b70d836ebb442d2d439e7949f7d613f9f6187f416d8511635574",
           "file": "System.Security.Cryptography.Xml.dll"
         }
       ],
       "compile_only": false,
       "copyright": "© Microsoft Corporation. All rights reserved.",
       "license": "MIT",
-      "repository_commit": "18fd75c847399745c43b5970fec840ba71064e80",
+      "repository_commit": "b9a49e4a6d3a444a3685e318c74a7892d01873f7",
       "authors": "Microsoft",
-      "nuspec_file": "System.Security.Cryptography.Xml-8.0.4.nuspec",
-      "package_sha256": "941fd70e782208c4c52fa8b2d81b682603cde85608f625d75f842ee7b628b1bf",
-      "nuget_content_sha512": "1y+ROEEmEOACrQWqRi37GkGHOThPc31m7vezOySpPE9xXN2nTN6ndLYjylvy42aCtQq4owlYhcqaKpQKMDFKFg==",
-      "license_file": "System.Security.Cryptography.Xml-8.0.4-LICENSE.txt",
-      "nuget_url": "https://www.nuget.org/packages/System.Security.Cryptography.Xml/8.0.4",
-      "version": "8.0.4",
+      "nuspec_file": "System.Security.Cryptography.Xml-8.0.5.nuspec",
+      "package_sha256": "5e9cb9884ed268a1e36abecc886bf567825bca18e91e8b78f5d02669039dc633",
+      "nuget_content_sha512": "vu85aidUbxTh39CXdo/4mgtDlBNQ0h6k7oq5RIBwV2V2QYbRvtY6XlV3ikwYIyLX/LyaOraVvoCVVYnjFbV4/w==",
+      "license_file": "System.Security.Cryptography.Xml-8.0.5-LICENSE.txt",
+      "nuget_url": "https://www.nuget.org/packages/System.Security.Cryptography.Xml/8.0.5",
+      "version": "8.0.5",
       "id": "System.Security.Cryptography.Xml",
       "repository_url": "https://github.com/dotnet/runtime",
       "license_source": "NuGet package"

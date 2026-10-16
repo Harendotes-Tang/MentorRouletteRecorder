@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using MentorRecorder.Collector.Contracts.Errors;
+using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Import;
 
 namespace MentorRecorder.Collector.Ipc;
@@ -16,13 +17,13 @@ public static class RunImportHandlers
         if (reader.Has("rows"))
         {
             if (payload["rows"] is not JsonArray array || array.Count > RunImportService.MaxRows || array.Any(node => node is not JsonObject))
-                throw CollectorException.BadRequest("rows 必须是最多 5000 行的候选对象数组。", "rows");
+                throw CollectorException.BadRequest(CollectorTexts.ImportRequestRowsInvalid(), "rows");
             rows = (JsonArray)array.DeepClone();
         }
         Dictionary<string, string>? mapping = null;
         if (reader.Object("column_mapping") is { } mapReader)
         {
-            if (mapReader.Names.Count() > 200) throw CollectorException.BadRequest("列映射超过 200 列。", "column_mapping");
+            if (mapReader.Names.Count() > 200) throw CollectorException.BadRequest(CollectorTexts.ImportRequestMappingTooWide(), "column_mapping");
             mapping = mapReader.Names.ToDictionary(name => name, name => mapReader.RequiredString(name, 100), StringComparer.Ordinal);
         }
         return host.Imports.PreviewSource(reader.RequiredString("source_kind", 32),

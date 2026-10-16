@@ -7,12 +7,20 @@ using System.Text.RegularExpressions;
 using System.Xml;
 using System.Xml.Linq;
 using Microsoft.Data.Sqlite;
+using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Export;
 
 namespace MentorRecorder.Collector.Import;
 
-/// <summary>一条独立候选；RowNumber 是来源行号，Values 归解析器所有，Errors 只描述本行的读取错误。</summary>
-public sealed record ImportSourceRow(int RowNumber, JsonObject Values, IReadOnlyList<string> Errors);
+/// <summary>
+/// 一条独立候选；RowNumber 是来源行号，Values 归解析器所有，ErrorTexts 只描述本行的读取错误（目录文字，
+/// contracts/collector-texts.json），预览据此同时发送 rows[].errors 与 rows[].error_refs。
+/// </summary>
+public sealed record ImportSourceRow(int RowNumber, JsonObject Values, IReadOnlyList<UserText> ErrorTexts)
+{
+    /// <summary>本行读取错误的简体中文，与 <see cref="ErrorTexts"/> 等长同序。</summary>
+    public IReadOnlyList<string> Errors => ErrorTexts.Select(text => text.Chinese).ToArray();
+}
 
 /// <summary>
 /// 只读取本地来源并建立候选，不验证游戏事实、不写入数据库，也不执行公式、宏或外部链接。
@@ -60,7 +68,7 @@ public static partial class RunImportSourceParser
         ArgumentException.ThrowIfNullOrWhiteSpace(sourceKind);
         var kind = sourceKind.Trim().ToUpperInvariant();
         if (kind is not ("CSV" or "XLS" or "XLSX" or "JSON" or "BACKUP" or "PASTE" or "SCREENSHOT" or "ROWS"))
-            throw new InvalidDataException("不支持的导入来源。 ");
+            throw Invalid(CollectorTexts.ImportSourceKindUnsupported());
         if (rows is not null) return ParseJsonRows(rows, preserveCandidateFields: true);
 
         return kind switch
@@ -71,17 +79,17 @@ public static partial class RunImportSourceParser
             "XLSX" => ParseWorkbook(RequireFile(filePath), columnMapping),
             "XLS" => ParseBinaryWorkbook(RequireFile(filePath), columnMapping),
             "BACKUP" => ParseBackup(RequireFile(filePath)),
-            _ => throw new InvalidDataException("该来源必须提供识别或编辑后的候选行。"),
+            _ => throw Invalid(CollectorTexts.ImportSourceRowsRequired()),
         };
     }
 
     private static string RequireFile(string? filePath)
     {
-        if (string.IsNullOrWhiteSpace(filePath)) throw new InvalidDataException("请选择本地来源文件。");
+        if (string.IsNullOrWhiteSpace(filePath)) throw Invalid(CollectorTexts.ImportSourceFileRequired());
         var path = Path.GetFullPath(filePath);
         var info = new FileInfo(path);
-        if (!info.Exists) throw new InvalidDataException("来源文件不存在。");
-        if (info.Length > MaxInputBytes) throw new InvalidDataException("来源文件超过 20 MiB 上限。");
+        if (!info.Exists) throw Invalid(CollectorTexts.ImportSourceFileNotFound());
+        if (info.Length > MaxInputBytes) throw Invalid(CollectorTexts.ImportSourceFileTooLarge());
         return path;
     }
 
@@ -92,9 +100,9 @@ public static partial class RunImportSourceParser
             try
             {
                 if (text.Length > MaxInputBytes || StrictUtf8.GetByteCount(text) > MaxInputBytes)
-                    throw new InvalidDataException("来源文本超过 20 MiB 上限。");
+                    throw Invalid(CollectorTexts.ImportSourceTextTooLarge());
             }
-            catch (EncoderFallbackException error) { throw new InvalidDataException("来源文本包含非法 Unicode 字符。", error); }
+            catch (EncoderFallbackException error) { throw Invalid(CollectorTexts.ImportSourceTextUnreadable(), error); }
             return text.TrimStart('\uFEFF');
         }
 
@@ -105,7 +113,7 @@ public static partial class RunImportSourceParser
         int read;
         while ((read = file.Read(bytes, 0, bytes.Length)) != 0)
         {
-            if (buffer.Length + read > MaxInputBytes) throw new InvalidDataException("来源文件超过 20 MiB 上限。");
+            if (buffer.Length + read > MaxInputBytes) throw Invalid(CollectorTexts.ImportSourceFileTooLarge());
             buffer.Write(bytes, 0, read);
         }
         var body = buffer.ToArray();
@@ -114,7 +122,7 @@ public static partial class RunImportSourceParser
         catch (DecoderFallbackException error)
         {
             // UTF-8 BOM 宣告了编码，出现非法字节时不能换编码掩盖文件损坏。
-            if (!allowGb18030 || offset != 0) throw new InvalidDataException("来源不是有效 UTF-8 文本。", error);
+            if (!allowGb18030 || offset != 0) throw Invalid(CollectorTexts.ImportSourceEncodingInvalid(), error);
             try
             {
                 // 框架已有 provider 时才提供旧中文 CSV 回退；不下载或添加编码包。
@@ -126,7 +134,7 @@ public static partial class RunImportSourceParser
             }
             catch (Exception fallbackError) when (fallbackError is ArgumentException or NotSupportedException or DecoderFallbackException)
             {
-                throw new InvalidDataException("来源不是有效 UTF-8，当前运行环境也无法按 GB18030 读取。", fallbackError);
+                throw Invalid(CollectorTexts.ImportSourceEncodingUnknown(), fallbackError);
             }
         }
     }
@@ -136,25 +144,25 @@ public static partial class RunImportSourceParser
         try
         {
             var node = JsonNode.Parse(text, documentOptions: new JsonDocumentOptions { MaxDepth = 16 });
-            if (node is not JsonArray array) throw new InvalidDataException("JSON 来源必须是 Run 数组。");
+            if (node is not JsonArray array) throw Invalid(CollectorTexts.ImportJsonNotArray());
             return ParseJsonRows(array, preserveCandidateFields: false);
         }
         catch (Exception error) when (error is JsonException or ArgumentException or InvalidOperationException)
-        { throw new InvalidDataException("JSON 来源结构损坏或包含重复字段。", error); }
+        { throw Invalid(CollectorTexts.ImportJsonMalformed(), error); }
     }
 
     private static IReadOnlyList<ImportSourceRow> ParseJsonRows(JsonArray rows, bool preserveCandidateFields)
     {
-        if (rows.Count > MaxRows) throw new InvalidDataException("候选超过 5000 行上限。");
+        if (rows.Count > MaxRows) throw Invalid(CollectorTexts.ImportJsonTooManyRows());
         var output = new List<ImportSourceRow>(rows.Count);
         long budget = 0;
         var nodeCount = 0;
         for (var i = 0; i < rows.Count; i++)
         {
-            var errors = new List<string>();
+            var errors = new List<UserText>();
             if (rows[i] is not JsonObject original)
             {
-                output.Add(new ImportSourceRow(i + 1, new JsonObject(), new[] { "候选必须是 JSON 对象。" }));
+                output.Add(new ImportSourceRow(i + 1, new JsonObject(), new[] { CollectorTexts.ImportJsonRowNotObject() }));
                 continue;
             }
             var clone = (JsonObject)CloneBounded(original, errors, ref budget, ref nodeCount, 0)!;
@@ -170,27 +178,27 @@ public static partial class RunImportSourceParser
         return output;
     }
 
-    private static JsonNode? CloneBounded(JsonNode? node, List<string> errors, ref long budget, ref int count, int depth)
+    private static JsonNode? CloneBounded(JsonNode? node, List<UserText> errors, ref long budget, ref int count, int depth)
     {
-        if (++count > 1_000_000 || depth > 16) throw new InvalidDataException("候选 JSON 结构超过资源上限。");
+        if (++count > 1_000_000 || depth > 16) throw Invalid(CollectorTexts.ImportJsonTooComplex());
         budget += 16;
         if (node is JsonObject obj)
         {
-            if (obj.Count > MaxColumns) throw new InvalidDataException("候选对象超过 200 个字段上限。");
+            if (obj.Count > MaxColumns) throw Invalid(CollectorTexts.ImportJsonTooManyFields());
             var copy = new JsonObject();
             foreach (var (key, value) in obj)
             {
                 try { budget += StrictUtf8.GetByteCount(key); }
-                catch (EncoderFallbackException error) { throw new InvalidDataException("候选字段名包含非法 Unicode。", error); }
+                catch (EncoderFallbackException error) { throw Invalid(CollectorTexts.ImportJsonFieldNameUnreadable(), error); }
                 if (key.Length > MaxCellCharacters || budget > MaxInputBytes)
-                    throw new InvalidDataException("候选 JSON 超过资源上限。");
+                    throw Invalid(CollectorTexts.ImportJsonTooMuch());
                 copy[key] = CloneBounded(value, errors, ref budget, ref count, depth + 1);
             }
             return copy;
         }
         if (node is JsonArray array)
         {
-            if (array.Count > MaxRows) throw new InvalidDataException("候选数组超过资源上限。");
+            if (array.Count > MaxRows) throw Invalid(CollectorTexts.ImportJsonArrayTooLong());
             var copy = new JsonArray();
             foreach (var value in array) copy.Add(CloneBounded(value, errors, ref budget, ref count, depth + 1));
             return copy;
@@ -200,10 +208,10 @@ public static partial class RunImportSourceParser
             try { budget += StrictUtf8.GetByteCount(valueText); }
             catch (EncoderFallbackException)
             {
-                AddError(errors, "候选文本包含非法 Unicode，须修正后再导入。");
+                AddError(errors, CollectorTexts.ImportJsonValueUnreadable());
                 return null;
             }
-            if (budget > MaxInputBytes) throw new InvalidDataException("候选 JSON 超过 20 MiB 上限。");
+            if (budget > MaxInputBytes) throw Invalid(CollectorTexts.ImportJsonTooLarge());
             return JsonValue.Create(BoundCell(valueText, errors));
         }
         if (node is JsonValue otherScalar)
@@ -212,12 +220,12 @@ public static partial class RunImportSourceParser
             budget += StrictUtf8.GetByteCount(raw);
             if (raw.Length > MaxCellCharacters)
             {
-                AddError(errors, "JSON 单值超过 8000 字符上限，须修正后再导入。");
-                if (budget > MaxInputBytes) throw new InvalidDataException("候选 JSON 超过 20 MiB 上限。");
+                AddError(errors, CollectorTexts.ImportJsonValueTooLong());
+                if (budget > MaxInputBytes) throw Invalid(CollectorTexts.ImportJsonTooLarge());
                 return null;
             }
         }
-        if (budget > MaxInputBytes) throw new InvalidDataException("候选 JSON 超过 20 MiB 上限。");
+        if (budget > MaxInputBytes) throw Invalid(CollectorTexts.ImportJsonTooLarge());
         return node?.DeepClone();
     }
 
@@ -236,7 +244,7 @@ public static partial class RunImportSourceParser
     }
 
     private sealed record Cell(string Text, bool Quoted = false);
-    private sealed record TableRow(int Number, IReadOnlyList<Cell> Cells, IReadOnlyList<string> Errors);
+    private sealed record TableRow(int Number, IReadOnlyList<Cell> Cells, IReadOnlyList<UserText> Errors);
 
     private static IReadOnlyList<ImportSourceRow> ParsePastedTable(string text,
         IReadOnlyDictionary<string, string>? mapping)
@@ -269,7 +277,7 @@ public static partial class RunImportSourceParser
     {
         var records = new List<TableRow>();
         var cells = new List<Cell>();
-        var errors = new List<string>();
+        var errors = new List<UserText>();
         var value = new StringBuilder();
         var quoted = false;
         var wasQuoted = false;
@@ -281,11 +289,11 @@ public static partial class RunImportSourceParser
         void AddCharacter(char character)
         {
             if (value.Length < MaxCellCharacters) value.Append(character);
-            else AddError(errors, "单元格超过 8000 字符上限，须修正后再导入。");
+            else AddError(errors, CollectorTexts.ImportCellTooLong());
         }
         void EndCell()
         {
-            if (cells.Count >= MaxColumns) throw new InvalidDataException($"第 {recordLine} 行超过 200 列上限。");
+            if (cells.Count >= MaxColumns) throw Invalid(CollectorTexts.ImportTableRowTooWide(recordLine));
             cells.Add(new Cell(value.ToString(), wasQuoted));
             value.Clear(); wasQuoted = false; afterQuote = false;
         }
@@ -294,7 +302,7 @@ public static partial class RunImportSourceParser
             EndCell();
             if (cells.Any(cell => cell.Text.Length != 0) || errors.Count != 0)
             {
-                if (records.Count >= MaxRows + 1) throw new InvalidDataException("表格超过 5000 数据行上限。");
+                if (records.Count >= MaxRows + 1) throw Invalid(CollectorTexts.ImportTableTooManyRows());
                 records.Add(new TableRow(recordLine, cells.ToArray(), errors.ToArray()));
             }
             cells.Clear(); errors.Clear(); recordStarted = false;
@@ -327,10 +335,10 @@ public static partial class RunImportSourceParser
                 continue;
             }
             if (character == '"' && value.Length == 0 && !afterQuote) { quoted = true; wasQuoted = true; continue; }
-            if (character == '"' || afterQuote) AddError(errors, "引号或引号后的内容不符合 CSV/TSV 格式。");
+            if (character == '"' || afterQuote) AddError(errors, CollectorTexts.ImportTableQuoteInvalid());
             AddCharacter(character);
         }
-        if (quoted) AddError(errors, "引号单元格未闭合。");
+        if (quoted) AddError(errors, CollectorTexts.ImportTableQuoteUnclosed());
         if (recordStarted || cells.Count > 0 || value.Length > 0 || errors.Count > 0) EndRecord();
         return records;
     }
@@ -339,23 +347,23 @@ public static partial class RunImportSourceParser
         IReadOnlyDictionary<string, string>? mapping, bool nativeCsv)
     {
         var header = records[0];
-        if (header.Errors.Count != 0) throw new InvalidDataException("表头格式错误：" + string.Join("；", header.Errors));
+        if (header.Errors.Count != 0) throw HeaderInvalid(header.Errors);
         if (mapping is not null && mapping.Any(pair => !Fields.Contains(pair.Value)))
-            throw new InvalidDataException("列映射包含未知目标字段。");
+            throw Invalid(CollectorTexts.ImportTableMappingUnsupported());
         var headers = header.Cells.Select(cell => cell.Text.Trim().TrimStart('\uFEFF')).ToArray();
         var native = nativeCsv && mapping is null && headers.Length == RunExporter.CsvHeader.Count &&
             header.Cells.Select(cell => cell.Text).ToHashSet(StringComparer.Ordinal).SetEquals(RunExporter.CsvHeader);
         var fields = headers.Select(name => ResolveHeader(name, mapping)).ToArray();
-        if (fields.All(field => field is null)) throw new InvalidDataException("表格没有可识别的记录列，请提供列映射。");
+        if (fields.All(field => field is null)) throw Invalid(CollectorTexts.ImportTableNoKnownColumns());
         var duplicates = fields.Where(field => field is not null).GroupBy(field => field, StringComparer.Ordinal)
             .Where(group => group.Count() > 1).Select(group => group.Key).ToArray();
         var output = new List<ImportSourceRow>(Math.Max(0, records.Count - 1));
         foreach (var record in records.Skip(1))
         {
-            if (output.Count >= MaxRows) throw new InvalidDataException("表格超过 5000 数据行上限。");
+            if (output.Count >= MaxRows) throw Invalid(CollectorTexts.ImportTableTooManyRows());
             var errors = record.Errors.ToList();
-            if (record.Cells.Count != headers.Length) errors.Add("数据列数与表头不一致。");
-            if (duplicates.Length != 0) errors.Add("多个来源列映射到同一字段：" + string.Join("、", duplicates));
+            if (record.Cells.Count != headers.Length) errors.Add(CollectorTexts.ImportTableWidthMismatch());
+            if (duplicates.Length != 0) errors.Add(CollectorTexts.ImportTableDuplicateMapping(string.Join("、", duplicates)));
             var values = new JsonObject();
             for (var i = 0; i < fields.Length; i++)
             {
@@ -386,40 +394,40 @@ public static partial class RunImportSourceParser
     private static IReadOnlyList<ImportSourceRow> ParseWorkbook(string path, IReadOnlyDictionary<string, string>? mapping)
     {
         using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
-        if (file.Length > MaxInputBytes) throw new InvalidDataException("来源文件超过 20 MiB 上限。");
+        if (file.Length > MaxInputBytes) throw Invalid(CollectorTexts.ImportSourceFileTooLarge());
         try
         {
             using var zip = new ZipArchive(file, ZipArchiveMode.Read);
-            if (zip.Entries.Count > 1024) throw new InvalidDataException("XLSX 包含过多 ZIP 部件。");
+            if (zip.Entries.Count > 1024) throw Invalid(CollectorTexts.ImportXlsxTooManyParts());
             var entries = new Dictionary<string, ZipArchiveEntry>(StringComparer.Ordinal);
             long inflated = 0;
             foreach (var entry in zip.Entries)
             {
                 inflated = checked(inflated + entry.Length);
-                if (inflated > MaxInflatedZipBytes) throw new InvalidDataException("XLSX 解压大小超过 64 MiB 上限。");
-                if (!entries.TryAdd(entry.FullName, entry)) throw new InvalidDataException("XLSX 包含重名 ZIP 部件。");
+                if (inflated > MaxInflatedZipBytes) throw Invalid(CollectorTexts.ImportXlsxInflatedTooLarge());
+                if (!entries.TryAdd(entry.FullName, entry)) throw Invalid(CollectorTexts.ImportXlsxDuplicatePart());
                 if (entry.FullName.EndsWith("vbaProject.bin", StringComparison.OrdinalIgnoreCase))
-                    throw new InvalidDataException("不支持包含宏的工作簿，请先另存为无宏 XLSX。");
+                    throw Invalid(CollectorTexts.ImportXlsxMacroPart());
             }
             var contentTypes = LoadXml(entries, "[Content_Types].xml", required: true)!;
             if (contentTypes.Descendants().Attributes().Any(attribute => attribute.Value.Contains("macroEnabled", StringComparison.OrdinalIgnoreCase)))
-                throw new InvalidDataException("不支持包含宏的工作簿。");
+                throw Invalid(CollectorTexts.ImportXlsxMacroEnabled());
             var workbook = LoadXml(entries, "xl/workbook.xml", required: true)!;
             var date1904Value = workbook.Descendants().FirstOrDefault(element => element.Name.LocalName == "workbookPr")?.Attribute("date1904")?.Value;
             if (date1904Value is not (null or "0" or "1" or "false" or "true"))
-                throw new InvalidDataException("XLSX 日期系统标记无效。");
+                throw Invalid(CollectorTexts.ImportXlsxDateSystemInvalid());
             var date1904 = date1904Value is "1" or "true";
             var sheets = workbook.Descendants().Where(element => element.Name.LocalName == "sheet");
             var sheet = sheets.FirstOrDefault(element => element.Attribute("state")?.Value is not ("hidden" or "veryHidden"));
-            if (sheet is null) throw new InvalidDataException("XLSX 没有可见工作表。");
+            if (sheet is null) throw Invalid(CollectorTexts.ImportXlsxNoVisibleSheet());
             var relationshipId = sheet.Attributes().FirstOrDefault(attribute => attribute.Name.LocalName == "id")?.Value;
-            if (string.IsNullOrEmpty(relationshipId)) throw new InvalidDataException("XLSX 工作表缺少关系编号。");
+            if (string.IsNullOrEmpty(relationshipId)) throw Invalid(CollectorTexts.ImportXlsxSheetIdMissing());
             var relations = LoadXml(entries, "xl/_rels/workbook.xml.rels", required: true)!;
             var relation = relations.Descendants().FirstOrDefault(element => element.Name.LocalName == "Relationship" &&
                 element.Attribute("Id")?.Value == relationshipId);
             if (relation is null || relation.Attribute("TargetMode")?.Value == "External" ||
                 relation.Attribute("Type")?.Value.EndsWith("/worksheet", StringComparison.Ordinal) != true)
-                throw new InvalidDataException("XLSX 工作表关系无效或指向外部资源。");
+                throw Invalid(CollectorTexts.ImportXlsxSheetRelationInvalid());
             var worksheetPath = ResolveZipTarget("xl", relation.Attribute("Target")?.Value);
             var strings = ReadSharedStrings(LoadXml(entries, "xl/sharedStrings.xml", required: false));
             var dateStyles = ReadDateStyles(LoadXml(entries, "xl/styles.xml", required: false));
@@ -430,27 +438,27 @@ public static partial class RunImportSourceParser
             var worksheetRows = 0;
             foreach (var row in worksheet.Descendants().Where(element => element.Name.LocalName == "row"))
             {
-                if (++worksheetRows > MaxRows + 1) throw new InvalidDataException("工作表超过 5000 数据行上限（含格式空行）。");
+                if (++worksheetRows > MaxRows + 1) throw Invalid(CollectorTexts.ImportSheetTooManyRows());
                 var number = row.Attribute("r") is { } rowAttribute && int.TryParse(rowAttribute.Value, out var parsedRow) ? parsedRow : previousRow + 1;
-                if (number <= previousRow || number > 1_048_576) throw new InvalidDataException("工作表行号无效或顺序错误。");
+                if (number <= previousRow || number > 1_048_576) throw Invalid(CollectorTexts.ImportSheetRowNumberInvalid());
                 previousRow = number;
                 var cells = new Dictionary<int, Cell>();
-                var errors = new List<string>();
+                var errors = new List<UserText>();
                 var previousColumn = -1;
                 var worksheetCells = 0;
                 foreach (var element in row.Elements().Where(element => element.Name.LocalName == "c"))
                 {
-                    if (++worksheetCells > MaxColumns) throw new InvalidDataException($"工作表第 {number} 行超过 200 个单元格上限。");
+                    if (++worksheetCells > MaxColumns) throw Invalid(CollectorTexts.ImportSheetTooManyCells(number));
                     var reference = element.Attribute("r")?.Value;
                     var column = reference is null ? previousColumn + 1 : ColumnIndex(reference, number);
-                    if (column < 0) { errors.Add("单元格坐标无效。"); continue; }
-                    if (column >= MaxColumns) throw new InvalidDataException($"工作表第 {number} 行超过 200 列上限。");
+                    if (column < 0) { errors.Add(CollectorTexts.ImportSheetCellReferenceInvalid()); continue; }
+                    if (column >= MaxColumns) throw Invalid(CollectorTexts.ImportSheetRowTooWide(number));
                     previousColumn = column;
                     var value = ReadExcelCell(element, strings, dateStyles, date1904, errors);
                     // 一个短共享字符串索引可以重复扩张为很多长文本；限制候选总量而非仅 ZIP 部件。
                     expandedTextBytes += StrictUtf8.GetByteCount(value);
-                    if (expandedTextBytes > MaxInputBytes) throw new InvalidDataException("工作表展开文本超过 20 MiB 上限。");
-                    if (!cells.TryAdd(column, new Cell(value))) errors.Add("工作表含重复单元格坐标。");
+                    if (expandedTextBytes > MaxInputBytes) throw Invalid(CollectorTexts.ImportSheetTextTooLarge());
+                    if (!cells.TryAdd(column, new Cell(value))) errors.Add(CollectorTexts.ImportSheetDuplicateCell());
                 }
                 if (cells.Count == 0) continue;
                 var maxColumn = cells.Keys.Max();
@@ -467,7 +475,7 @@ public static partial class RunImportSourceParser
         }
         catch (Exception error) when (error is XmlException or OverflowException or ArgumentOutOfRangeException or RegexMatchTimeoutException)
         {
-            throw new InvalidDataException("XLSX ZIP/XML 结构损坏或超过资源上限。", error);
+            throw Invalid(CollectorTexts.ImportXlsxUnreadable(), error);
         }
     }
 
@@ -475,10 +483,10 @@ public static partial class RunImportSourceParser
     {
         if (!entries.TryGetValue(name, out var entry))
         {
-            if (required) throw new InvalidDataException("XLSX 缺少必要部件：" + name);
+            if (required) throw Invalid(CollectorTexts.ImportXlsxPartMissing(name));
             return null;
         }
-        if (entry.Length > MaxXmlCharacters) throw new InvalidDataException("XLSX XML 部件超过 16 MiB 上限。");
+        if (entry.Length > MaxXmlCharacters) throw Invalid(CollectorTexts.ImportXlsxPartTooLarge());
         using var stream = entry.Open();
         using var reader = XmlReader.Create(stream, new XmlReaderSettings
         {
@@ -491,14 +499,14 @@ public static partial class RunImportSourceParser
     private static string ResolveZipTarget(string directory, string? target)
     {
         if (string.IsNullOrWhiteSpace(target) || target.Contains('\\') || target.Contains('?') || target.Contains('#') || target.Contains(':'))
-            throw new InvalidDataException("XLSX 工作表路径无效。");
+            throw Invalid(CollectorTexts.ImportXlsxSheetTargetInvalid());
         var path = new List<string>();
         foreach (var part in (target.StartsWith('/') ? target[1..] : directory + "/" + target).Split('/'))
         {
             if (part is "." or "") continue;
             if (part == "..")
             {
-                if (path.Count == 0) throw new InvalidDataException("XLSX 工作表路径越过 ZIP 根目录。");
+                if (path.Count == 0) throw Invalid(CollectorTexts.ImportXlsxSheetTargetOutside());
                 path.RemoveAt(path.Count - 1);
             }
             else path.Add(part);
@@ -512,7 +520,7 @@ public static partial class RunImportSourceParser
         var output = new List<string>();
         foreach (var item in document.Descendants().Where(element => element.Name.LocalName == "si"))
         {
-            if (output.Count >= 100_000) throw new InvalidDataException("XLSX 共享字符串超过 100000 项上限。");
+            if (output.Count >= 100_000) throw Invalid(CollectorTexts.ImportXlsxTooManyStrings());
             output.Add(ExcelText(item));
         }
         return output;
@@ -532,13 +540,13 @@ public static partial class RunImportSourceParser
         var formats = new Dictionary<int, string>();
         foreach (var format in document.Descendants().Where(element => element.Name.LocalName == "numFmt"))
         {
-            if (formats.Count >= 10_000) throw new InvalidDataException("XLSX 自定义格式超过资源上限。");
+            if (formats.Count >= 10_000) throw Invalid(CollectorTexts.ImportXlsxTooManyFormats());
             if (int.TryParse(format.Attribute("numFmtId")?.Value, out var id))
                 formats[id] = format.Attribute("formatCode")?.Value ?? string.Empty;
         }
         var styles = document.Descendants().FirstOrDefault(element => element.Name.LocalName == "cellXfs")?.Elements()
             .Where(element => element.Name.LocalName == "xf").ToArray() ?? Array.Empty<XElement>();
-        if (styles.Length > 10_000) throw new InvalidDataException("XLSX 格式超过资源上限。");
+        if (styles.Length > 10_000) throw Invalid(CollectorTexts.ImportXlsxTooManyStyles());
         return styles.Select(style =>
         {
             if (!int.TryParse(style.Attribute("numFmtId")?.Value, out var id))
@@ -615,11 +623,11 @@ public static partial class RunImportSourceParser
     }
 
     private static string ReadExcelCell(XElement cell, IReadOnlyList<string> strings, IReadOnlyList<ExcelCellStyle> dateStyles,
-        bool date1904, List<string> errors)
+        bool date1904, List<UserText> errors)
     {
         if (cell.Elements().Any(element => element.Name.LocalName == "f"))
         {
-            errors.Add("公式单元格未导入；请转为明确的文本或数值。");
+            errors.Add(CollectorTexts.ImportCellFormula());
             return string.Empty;
         }
         var type = cell.Attribute("t")?.Value;
@@ -629,23 +637,23 @@ public static partial class RunImportSourceParser
         if (type == "s")
         {
             if (!int.TryParse(raw, NumberStyles.None, CultureInfo.InvariantCulture, out var index) || index < 0 || index >= strings.Count)
-            { errors.Add("共享字符串索引无效。"); return string.Empty; }
+            { errors.Add(CollectorTexts.ImportCellSharedStringInvalid()); return string.Empty; }
             return ExcelString(strings[index], errors);
         }
-        if (type == "e") { errors.Add("工作表单元格包含错误值。 "); return string.Empty; }
-        if (type is not (null or "n" or "b" or "d" or "str")) errors.Add("工作表单元格类型不受支持。");
-        if (type == "b" && raw is not ("0" or "1")) errors.Add("工作表布尔单元格无效。");
+        if (type == "e") { errors.Add(CollectorTexts.ImportCellErrorValue()); return string.Empty; }
+        if (type is not (null or "n" or "b" or "d" or "str")) errors.Add(CollectorTexts.ImportCellTypeUnsupported());
+        if (type == "b" && raw is not ("0" or "1")) errors.Add(CollectorTexts.ImportCellBooleanInvalid());
         var dateStyle = new ExcelCellStyle(ExcelTemporalKind.None, ExcelTemporalKind.None);
         if (cell.Attribute("s") is { } style)
         {
             if (!int.TryParse(style.Value, NumberStyles.None, CultureInfo.InvariantCulture, out var index) || index < 0 || index >= dateStyles.Count)
-                errors.Add("工作表格式索引无效。");
+                errors.Add(CollectorTexts.ImportCellStyleInvalid());
             else dateStyle = dateStyles[index];
         }
         if ((dateStyle.Positive != ExcelTemporalKind.None || dateStyle.Zero != ExcelTemporalKind.None) && (type is null or "n") && raw.Length != 0)
         {
             if (!double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out var serial) || !double.IsFinite(serial) || serial < 0)
-                errors.Add("Excel 日期或时间数值无效。");
+                errors.Add(CollectorTexts.ImportCellDateSerialInvalid());
             else
             {
                 try
@@ -654,7 +662,7 @@ public static partial class RunImportSourceParser
                     if (kind == ExcelTemporalKind.None) return BoundCell(raw, errors);
                     if (kind == ExcelTemporalKind.Ambiguous)
                     {
-                        errors.Add("工作表日期/时间格式不明确；请补充完整格式后导入。");
+                        errors.Add(CollectorTexts.ImportCellDateFormatAmbiguous());
                         return BoundCell(raw, errors);
                     }
                     if (kind == ExcelTemporalKind.ElapsedTime)
@@ -664,7 +672,7 @@ public static partial class RunImportSourceParser
                     }
                     if (!date1904 && (serial is >= 60 and < 61) && (kind is ExcelTemporalKind.DateOnly or ExcelTemporalKind.DateTime))
                     {
-                        errors.Add("Excel 日期无效（包括不存在的 1900-02-29）。");
+                        errors.Add(CollectorTexts.ImportCellDateInvalid());
                         return BoundCell(raw, errors);
                     }
                     var origin = date1904 ? new DateTime(1904, 1, 1) : new DateTime(1899, 12, serial < 60 ? 31 : 30);
@@ -678,13 +686,13 @@ public static partial class RunImportSourceParser
                     }, CultureInfo.InvariantCulture);
                 }
                 catch (Exception error) when (error is ArgumentOutOfRangeException or OverflowException)
-                { errors.Add("Excel 日期或时间超过支持范围。"); }
+                { errors.Add(CollectorTexts.ImportCellDateOutOfRange()); }
             }
         }
         return type == "str" ? ExcelString(raw, errors) : BoundCell(raw, errors);
     }
 
-    private static string ExcelString(string raw, List<string> errors)
+    private static string ExcelString(string raw, List<UserText> errors)
     {
         // OOXML 使用 _xNNNN_ 存储 CR 等字符；只替换一遍，使 _x005F_x000A_ 保持字面 _x000A_。
         var text = Regex.Replace(raw, "_x([0-9A-Fa-f]{4})_", match =>
@@ -693,7 +701,7 @@ public static partial class RunImportSourceParser
         try { _ = StrictUtf8.GetByteCount(text); }
         catch (EncoderFallbackException)
         {
-            AddError(errors, "工作表文本包含非法 Unicode 转义。");
+            AddError(errors, CollectorTexts.ImportCellTextEncodingInvalid());
             return BoundCell(raw, errors);
         }
         return BoundCell(text, errors);
@@ -703,7 +711,7 @@ public static partial class RunImportSourceParser
     {
         // 软件备份是独立快照。immutable 防止 SQLite 创建 sidecar，也不读取活动数据库的 WAL。
         if (new FileInfo(path + "-wal") is { Exists: true, Length: > 0 })
-            throw new InvalidDataException("请导入独立的软件备份，不能导入仍有 WAL 的活动数据库。");
+            throw Invalid(CollectorTexts.ImportBackupWalPending());
         try
         {
             var builder = new SqliteConnectionStringBuilder
@@ -721,14 +729,14 @@ public static partial class RunImportSourceParser
             var columns = BackupColumns(connection, "mentor_runs", required: true);
             var required = new[] { "run_id", "region", "content_id", "duty_name", "job_id", "job_name", "role",
                 "matched_at_utc", "entered_at_utc", "ended_at_utc", "duration_ms", "result", "source", "soft_deleted", "created_at_utc", "updated_at_utc" };
-            if (required.Any(column => !columns.Contains(column))) throw new InvalidDataException("数据库不是已知软件记录备份结构。");
+            if (required.Any(column => !columns.Contains(column))) throw Invalid(CollectorTexts.ImportBackupNotABackup());
             var reflectionColumns = BackupColumns(connection, "run_reflections", required: false);
             if (reflectionColumns.Count != 0 && new[] { "run_id", "mood", "text" }.Any(column => !reflectionColumns.Contains(column)))
-                throw new InvalidDataException("备份心得结构无效。");
+                throw Invalid(CollectorTexts.ImportBackupReflectionsIncomplete());
             var metadataColumns = BackupColumns(connection, "run_import_metadata", required: false);
             var metadataFields = new[] { "source_name", "source_recorded_at", "source_recorded_at_utc", "mentor_confirmed" };
             if (metadataColumns.Count != 0 && metadataFields.Append("run_id").Any(column => !metadataColumns.Contains(column)))
-                throw new InvalidDataException("备份导入来源结构无效。");
+                throw Invalid(CollectorTexts.ImportBackupMetadataIncomplete());
             var selected = columns.Where(column => Fields.Contains(column) && column != "reflection").Order(StringComparer.Ordinal).ToArray();
             using var command = connection.CreateCommand();
             command.CommandText = "SELECT " + string.Join(',', selected.Select(column => "r.\"" + column + "\"")) +
@@ -742,8 +750,8 @@ public static partial class RunImportSourceParser
             using var reader = command.ExecuteReader();
             while (reader.Read())
             {
-                if (output.Count >= MaxRows) throw new InvalidDataException("备份超过 5000 条记录上限。");
-                var errors = new List<string>();
+                if (output.Count >= MaxRows) throw Invalid(CollectorTexts.ImportBackupTooManyRows());
+                var errors = new List<UserText>();
                 var values = new JsonObject();
                 for (var i = 0; i < reader.FieldCount; i++)
                 {
@@ -751,7 +759,7 @@ public static partial class RunImportSourceParser
                     if (value is string textValue)
                     {
                         projectedTextBytes += StrictUtf8.GetByteCount(textValue);
-                        if (projectedTextBytes > MaxInputBytes) throw new InvalidDataException("备份展开文本超过 20 MiB 上限。");
+                        if (projectedTextBytes > MaxInputBytes) throw Invalid(CollectorTexts.ImportBackupTextTooLarge());
                     }
                     values[reader.GetName(i)] = value switch
                     {
@@ -764,7 +772,7 @@ public static partial class RunImportSourceParser
             }
             return output;
         }
-        catch (SqliteException error) { throw new InvalidDataException("无法只读解析软件数据库备份。", error); }
+        catch (SqliteException error) { throw Invalid(CollectorTexts.ImportBackupUnreadable(), error); }
     }
 
     private static HashSet<string> BackupColumns(SqliteConnection connection, string table, bool required)
@@ -774,36 +782,70 @@ public static partial class RunImportSourceParser
         command.Parameters.AddWithValue("$name", table);
         var type = command.ExecuteScalar() as string;
         if (type is null && !required) return new HashSet<string>(StringComparer.Ordinal);
-        if (type != "table") throw new InvalidDataException("备份缺少真实记录表：" + table);
+        if (type != "table") throw Invalid(CollectorTexts.ImportBackupTableMissing(table));
         // table 仅由本类的两个固定字面量传入，外部文件名和表头不会进入 SQL。
         command.CommandText = "PRAGMA table_info(\"" + table + "\");";
         using var reader = command.ExecuteReader();
         var columns = new HashSet<string>(StringComparer.Ordinal);
         while (reader.Read())
         {
-            if (columns.Count >= MaxColumns) throw new InvalidDataException("备份表超过 200 列上限。");
+            if (columns.Count >= MaxColumns) throw Invalid(CollectorTexts.ImportBackupTooManyColumns());
             columns.Add(reader.GetString(1));
         }
         return columns;
     }
 
-    private static JsonNode? UnknownBackupValue(List<string> errors)
+    private static JsonNode? UnknownBackupValue(List<UserText> errors)
     {
-        AddError(errors, "备份记录包含不支持的字段存储类型。");
+        AddError(errors, CollectorTexts.ImportBackupValueUnreadable());
         return null;
     }
 
-    private static string BoundCell(string value, List<string> errors)
+    private static string BoundCell(string value, List<UserText> errors)
     {
         if (value.Length <= MaxCellCharacters) return value;
-        AddError(errors, "单元格超过 8000 字符上限，须修正后再导入。");
+        AddError(errors, CollectorTexts.ImportCellTooLong());
         var end = MaxCellCharacters;
         if (char.IsHighSurrogate(value[end - 1]) && char.IsLowSurrogate(value[end])) end--;
         return value[..end];
     }
 
-    private static void AddError(List<string> errors, string message)
+    private static void AddError(List<UserText> errors, UserText message)
     {
-        if (!errors.Contains(message, StringComparer.Ordinal)) errors.Add(message);
+        // 按目录键与中文去重（UserText 的相等性），与原先按中文去重的结果相同。
+        if (!errors.Contains(message)) errors.Add(message);
+    }
+
+    private const string TextDataKey = "MentorRecorder.Collector.UserText";
+
+    /// <summary>不嵌套引用的表头错误上限：每多连接一条错误，引用就深一层。</summary>
+    private const int MaxNestedHeaderErrors = 8;
+
+    /// <summary>
+    /// 来源无法读取：消息是目录文字的简体中文，目录文字随异常的 <see cref="Exception.Data"/> 携带，
+    /// PreviewRunImport 据此在 message_ref 中嵌套它（<see cref="TextOf"/>）。抛出的仍是 InvalidDataException 本身，
+    /// 调用方与测试照旧按这个类型捕获。
+    /// </summary>
+    private static InvalidDataException Invalid(UserText text, Exception? inner = null)
+    {
+        var failure = new InvalidDataException(text.Chinese, inner);
+        failure.Data[TextDataKey] = text;
+        return failure;
+    }
+
+    /// <summary>本解析器抛出的失败所带的目录文字；操作系统、SQLite、XML 或 JSON 的原文消息没有，返回 null。</summary>
+    /// <param name="failure">PreviewRunImport 捕获的异常。</param>
+    internal static UserText? TextOf(Exception failure) => failure.Data[TextDataKey] as UserText;
+
+    /// <summary>
+    /// 「表头格式错误：」之后是表头本行的读取错误，以「；」连接。错误超过 <see cref="MaxNestedHeaderErrors"/> 条时，
+    /// 中文不变，但不再携带目录文字（预览把整句作为原文发送）。
+    /// </summary>
+    private static InvalidDataException HeaderInvalid(IReadOnlyList<UserText> errors)
+    {
+        var joined = errors[^1];
+        for (var i = errors.Count - 2; i >= 0; i--) joined = CollectorTexts.ImportTableErrorsJoined(errors[i], joined);
+        var text = CollectorTexts.ImportTableHeaderInvalid(joined);
+        return errors.Count <= MaxNestedHeaderErrors ? Invalid(text) : new InvalidDataException(text.Chinese);
     }
 }

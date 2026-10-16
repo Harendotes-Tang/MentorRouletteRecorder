@@ -1,22 +1,20 @@
 import QtQuick
-import QtQuick.Layouts
 import MentorRecorder
 
-// 链路：FF14 进程 → Npcap → 适配器 → 协议档案.
-//
-// A title row (kicker, one line saying whether the chain is whole or what blocks
-// it first, the two rescan buttons) over four equal columns separated by 1 px
-// dividers. Each column: a dot (green ready / grey waiting / orange problem) and
-// its name, a 16 px figure value, a small sub line.
+// 链路 as data: FF14 进程 → Npcap → 适配器 → 协议档案, read off the contract and
+// turned into the four nodes of the hero card and its one-line summary. No
+// layout here, so the hero card and the page's copy (CaptureHeroCopy) read the
+// same verdicts.
 //   FF14 进程  capture.ffxiv_running / ffxiv_process_id, and while the game is
 //              closed the installed capture.game_build the Collector read off disk
 //   Npcap      GetStatus.npcap.version / status, capture.npcap_*
 //   适配器     capture.adapter_id joined on ListCaptureAdapters; captureSettings.adapter_id
 //   协议档案   capture.profile_status / profile_origin, App.calibration.state;
 //              maintainers read the profile id and the raw status
-Card {
+// A node's tone is "ok", "warn", "bad" or "off"; the summary's is "ok", "wait"
+// or "bad" (a waiting summary reads in the same grey as the nodes' sub lines).
+QtObject {
     id: chain
-    objectName: "captureChainPanel"
 
     readonly property var capture: App.captureStatus
     readonly property var npcap: App.npcapInfo
@@ -64,7 +62,7 @@ Card {
     // called 当前 or 最新 while the game is closed.
     readonly property string installedVersion: Fmt.gameVersionLabel(chain.capture.game_build)
     // 共享校准 is fetching, verifying or waiting for consent: the calibration
-    // card above says what happens next, and this panel must not talk past it.
+    // row below says what happens next, and this summary must not talk past it.
     readonly property var sharedCalibration: App.calibration ? App.calibration.shared : null
     readonly property string sharedView: chain.sharedCalibration
                                          ? String(chain.sharedCalibration.view || "none") : "none"
@@ -77,7 +75,7 @@ Card {
     readonly property bool silent: App.captureMidstreamSuspected || App.captureSilent
                                    || App.recording.silent
 
-    // -- 标题行 ------------------------------------------------------------
+    // -- 总结 ----------------------------------------------------------------
     // The first thing in the chain that stops a record, in the order the
     // chain is walked. Returns [sentence, tone]; tone is "ok", "wait" or "bad".
     function summary() {
@@ -94,57 +92,62 @@ Card {
         // is given instead of being deferred to the game's launch.
         if (!chain.gameRunning) {
             if (chain.buildUnknown)
-                return [qsTr("等待游戏启动 · 档案按版本匹配，游戏启动后才知道能否记录"), "wait"]
+                return [qsTr("等待游戏启动 · 启动后会检查能否自动记录"), "wait"]
             if (chain.profileStatus === "")
-                return [qsTr("等待游戏启动 · 正在核对已安装游戏版本的档案"), "wait"]
+                return [qsTr("等待游戏启动 · 正在检查已安装的游戏版本"), "wait"]
             if (chain.profileReady)
-                return [qsTr("等待游戏启动 · 已安装版本的档案已就绪，启动游戏后会自动记录"), "wait"]
+                return [qsTr("等待游戏启动 · 已支持安装的游戏版本，启动后会自动记录"), "wait"]
             if (chain.calibrationState === "READY")
-                return [qsTr("等待游戏启动 · 校准完成，等你核对 · 见上方校准卡片"), "bad"]
+                return [qsTr("等待游戏启动 · 请先在「本机校准」中核对结果"), "bad"]
             if (chain.calibrationState === "BLOCKED")
-                return [qsTr("等待游戏启动 · 本机校准无法继续 · 见上方校准卡片"), "bad"]
+                return [qsTr("等待游戏启动 · 校准遇到问题，请查看「本机校准」"), "bad"]
             if (chain.sharedPending)
-                return [qsTr("等待游戏启动 · 已安装的游戏版本还没有可用档案 · 见上方校准卡片"), "bad"]
+                return [qsTr("等待游戏启动 · 请查看「共享校准」中的进度"), "bad"]
             if (chain.calibrating)
-                return [qsTr("等待游戏启动 · 已安装的游戏版本还没有可用档案，启动游戏后需要重新校准"), "bad"]
+                return [qsTr("等待游戏启动 · 当前安装的游戏版本需要重新校准"), "bad"]
             if (chain.profileStatus === "AMBIGUOUS")
-                return [qsTr("等待游戏启动 · 已安装的游戏版本有两份档案，已全部拒绝"), "bad"]
-            return [qsTr("等待游戏启动 · 已安装的游戏版本没有可用档案，暂时不会自动记录"), "bad"]
+                return [qsTr("等待游戏启动 · 游戏版本支持文件有冲突，暂时不能自动记录"), "bad"]
+            return [qsTr("等待游戏启动 · 当前安装的游戏版本暂不支持自动记录"), "bad"]
         }
         if (chain.calibrating) {
             if (chain.calibrationState === "READY")
-                return [qsTr("校准完成，等你核对 · 见上方校准卡片"), "bad"]
+                return [qsTr("请在「本机校准」中核对结果"), "bad"]
             if (chain.calibrationState === "BLOCKED")
-                return [qsTr("本机校准无法继续 · 见上方校准卡片"), "bad"]
-            return [qsTr("游戏更新后正在重新校准 · 进度见上方校准卡片"), "bad"]
+                return [qsTr("校准遇到问题，请查看「本机校准」"), "bad"]
+            // 适配器 就绪 is a claim about a running capture; armed-but-waiting
+            // (WAITING) or an error code keeps to the profile alone.
+            return [chain.adapterTone() === "ok" && chain.errorCode.length === 0
+                    ? qsTr("游戏和网卡已连接 · 正在重新校准")
+                    : qsTr("正在重新校准 · 进度见「本机校准」"), "bad"]
         }
         if (chain.profileStatus === "")
-            return [qsTr("正在核对协议档案…"), "wait"]
+            return [qsTr("正在检查当前游戏版本能否自动记录…"), "wait"]
         if (!chain.profileReady) {
-            // The same words as the 协议档案 notice above.
+            // The same words as the 协议档案 card below.
             if (chain.buildUnknown)
                 return [qsTr("尚未识别游戏版本或区服 · 暂时不会自动记录"), "bad"]
             if (chain.profileStatus === "UNSUPPORTED_BUILD")
-                return [qsTr("当前游戏版本没有可用档案 · 暂时不会自动记录"), "bad"]
+                return [qsTr("当前游戏版本暂不支持自动记录"), "bad"]
             if (chain.profileStatus === "AMBIGUOUS")
-                return [qsTr("同一版本有两份档案，已全部拒绝 · 暂时不会自动记录"), "bad"]
-            return [qsTr("尚未匹配到档案 · 暂时不会自动记录"), "bad"]
+                return [qsTr("游戏版本支持文件有冲突，暂时不能自动记录"), "bad"]
+            return [qsTr("还没找到适用的游戏版本支持文件，暂时不能自动记录"), "bad"]
         }
         if (chain.adapterStale)
-            return [qsTr("记住的网卡上没有游戏流量 · 见上方提示"), "bad"]
+            return [qsTr("之前选择的网卡收不到游戏数据 · 请查看下方提示"), "bad"]
         if (chain.errorCode.length > 0)
-            return [qsTr("采集受阻 · %1").arg(Fmt.captureErrorLabel(chain.errorCode).replace(/。$/, "")), "bad"]
+            return [qsTr("暂时无法读取游戏数据 · %1").arg(Fmt.captureErrorLabel(chain.errorCode).replace(/。$/, "")), "bad"]
         if (chain.adapterId.length === 0 || !App.capturing)
             return [qsTr("正在启动监听…"), "wait"]
         if (chain.silent)
-            return [qsTr("链路已就绪，但还没有解析出游戏数据 · 见上方提示"), "bad"]
+            return [qsTr("已连接游戏，但还读不到游戏数据 · 请查看上方说明"), "bad"]
+        // The hero card above already carries the controller's sentence.
         if (App.recording.blocked)
-            return [App.recording.message, "bad"]
-        return [qsTr("FF14 → Npcap → 适配器 → 协议档案 全部就绪"), "ok"]
+            return [qsTr("暂时不会自动记录 · 见上方说明"), "bad"]
+        return [qsTr("游戏、驱动、网卡和版本支持均已就绪"), "ok"]
     }
     readonly property var summaryLine: chain.summary()
 
-    // -- 四列 ----------------------------------------------------------------
+    // -- 四个节点 ------------------------------------------------------------
     function npcapSub() {
         if (!App.npcapInstalled)
             return qsTr("驱动缺失")
@@ -169,10 +172,10 @@ Card {
         return chain.maintainer ? chain.adapterId : qsTr("已选择")
     }
 
-    function adapterState() {
+    function adapterTone() {
         if (chain.adapterStale)
-            return "bad"
-        return chain.adapterId.length > 0 && App.capturing ? "ok" : "wait"
+            return "warn"
+        return chain.adapterId.length > 0 && App.capturing ? "ok" : "off"
     }
 
     function profileValue() {
@@ -186,10 +189,10 @@ Card {
         if (chain.profileReady)
             return chain.profileOrigin === "LOCAL_CALIBRATION" ? qsTr("本机校准")
                  : chain.profileOrigin === "SHARED_CALIBRATION" ? qsTr("共享校准")
-                 : qsTr("档案匹配")
+                 : qsTr("版本已支持")
         if (chain.calibrating)
             return chain.calibrationState === "READY" ? qsTr("待核对")
-                 : chain.calibrationState === "BLOCKED" ? qsTr("需诊断")
+                 : chain.calibrationState === "BLOCKED" ? qsTr("需要处理")
                  // Nothing is being observed until the game runs.
                  : chain.gameRunning ? qsTr("校准中") : qsTr("待校准")
         if (chain.profileStatus === "")
@@ -199,7 +202,7 @@ Card {
         if (chain.profileStatus === "UNSUPPORTED_BUILD")
             return qsTr("版本不支持")
         if (chain.profileStatus === "AMBIGUOUS")
-            return qsTr("档案冲突")
+            return qsTr("支持文件有冲突")
         return qsTr("未匹配")
     }
 
@@ -210,36 +213,36 @@ Card {
             return qsTr("%1 · build %2").arg(App.protocolProfileStatus)
                    .arg(chain.profile.game_build || chain.capture.game_build || Fmt.dash())
         if (!chain.gameRunning && chain.buildUnknown)
-            return qsTr("待游戏启动后校验")
+            return qsTr("启动游戏后自动检查")
         if (chain.profileReady)
             return chain.gameRunning ? qsTr("与游戏版本匹配") : qsTr("与已安装的游戏版本匹配")
         if (chain.calibrating)
-            return chain.gameRunning ? qsTr("游戏更新后重新校准") : qsTr("启动游戏后重新校准")
+            return chain.gameRunning ? qsTr("进度见下方本机校准") : qsTr("启动游戏后重新校准")
         if (chain.profileStatus === "")
             return qsTr("正在核对")
         if (chain.buildUnknown)
             return qsTr("尚未识别游戏版本或区服")
         if (chain.profileStatus === "AMBIGUOUS")
-            return qsTr("同一版本有两份档案")
+            return qsTr("游戏版本支持文件有冲突")
         return chain.gameRunning ? qsTr("当前版本暂时不会自动记录")
                                  : qsTr("已安装版本暂时不会自动记录")
     }
 
-    function profileState() {
+    function profileTone() {
         if (chain.choosingGame)
-            return "wait"
+            return "off"
         if (chain.profileStatus === "" || (!chain.gameRunning && chain.buildUnknown))
-            return "wait"
-        return chain.profileReady ? "ok" : "bad"
-    }
-
-    function dotColor(tone) {
-        return tone === "ok" ? Theme.green : tone === "bad" ? Theme.orange : Theme.neutral400
+            return "off"
+        if (chain.profileReady)
+            return "ok"
+        if (chain.calibrating)
+            return chain.calibrationState === "BLOCKED" ? "bad" : "warn"
+        return "bad"
     }
 
     readonly property var nodes: [
         {
-            key: "game", label: qsTr("FF14 进程"),
+            key: "game", label: qsTr("FF14"),
             value: chain.choosingGame && chain.gameCount > 0 ? qsTr("待选择")
                    : chain.gameRunning ? "ffxiv_dx11.exe" : qsTr("未运行"),
             // With the game closed the installed version is what the profile is
@@ -248,7 +251,7 @@ Card {
                  : chain.gameRunning ? qsTr("PID %1").arg(chain.capture.ffxiv_process_id || Fmt.dash())
                  : chain.buildUnknown ? qsTr("启动游戏后自动检测")
                                       : qsTr("已安装版本 %1").arg(chain.installedVersion),
-            tone: chain.gameRunning ? "ok" : "wait"
+            tone: chain.gameRunning ? "ok" : "off"
         },
         {
             key: "npcap", label: qsTr("Npcap"),
@@ -261,145 +264,17 @@ Card {
             tone: chain.npcapReady ? "ok" : "bad"
         },
         {
-            key: "adapter", label: qsTr("适配器"),
+            key: "adapter", label: qsTr("网卡"),
             value: chain.adapterValue(),
-            sub: chain.adapterStale ? qsTr("记住的网卡上没有游戏流量")
+            sub: chain.adapterStale ? qsTr("之前选择的网卡收不到游戏数据")
                  : App.captureSettings.adapter_id ? qsTr("手动指定") : qsTr("自动选择（有 FF14 连接）"),
-            tone: chain.adapterState()
+            tone: chain.adapterTone()
         },
         {
-            key: "profile", label: qsTr("协议档案"),
+            key: "profile", label: qsTr("版本支持"),
             value: chain.profileValue(),
             sub: chain.profileSub(),
-            tone: chain.profileState()
+            tone: chain.profileTone()
         }
     ]
-
-    horizontalPadding: 24
-    verticalPadding: 18
-    spacing: 14
-
-    RowLayout {
-        Layout.fillWidth: true
-        spacing: 12
-
-        CardKicker {
-            Layout.alignment: Qt.AlignVCenter
-            Layout.fillWidth: false
-            text: qsTr("链路")
-        }
-
-        Text {
-            objectName: "captureChainSummary"
-            Layout.fillWidth: true
-            Layout.alignment: Qt.AlignVCenter
-            text: chain.summaryLine[0]
-            textFormat: Text.PlainText
-            color: chain.summaryLine[1] === "bad" ? Theme.orangeText : Theme.textSecondary
-            font.pixelSize: Theme.fs(12)
-            elide: Text.ElideRight
-        }
-
-        AppButton {
-            objectName: "rescanGameButton"
-            variant: "ghost"
-            text: qsTr("重扫 FF14")
-            onClicked: App.rescanGame()
-        }
-
-        AppButton {
-            objectName: "rescanAdaptersButton"
-            variant: "ghost"
-            text: qsTr("重扫适配器")
-            onClicked: App.rescanAdapters()
-        }
-    }
-
-    // grid-template-columns:repeat(4,1fr); cells padding:0 18px with a divider
-    // between them - the first one starts flush with the kicker. The row gets
-    // its height from the tallest cell.
-    RowLayout {
-        Layout.fillWidth: true
-        spacing: 0
-
-        Repeater {
-            model: chain.nodes
-
-            delegate: Item {
-                id: cell
-                required property var modelData
-                required property int index
-
-                objectName: "captureChain_" + modelData.key
-                Layout.fillWidth: true
-                Layout.preferredWidth: 1
-                Layout.alignment: Qt.AlignTop
-                implicitHeight: cellColumn.implicitHeight
-
-                Rectangle {
-                    anchors.left: parent.left
-                    anchors.top: parent.top
-                    anchors.bottom: parent.bottom
-                    width: 1
-                    visible: cell.index > 0
-                    color: Theme.border
-                }
-
-                ColumnLayout {
-                    id: cellColumn
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.top: parent.top
-                    anchors.leftMargin: cell.index > 0 ? 18 : 0
-                    anchors.rightMargin: 18
-                    spacing: 6
-
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: 8
-
-                        Rectangle {
-                            Layout.alignment: Qt.AlignVCenter
-                            implicitWidth: 8
-                            implicitHeight: 8
-                            radius: 4
-                            color: chain.dotColor(cell.modelData.tone)
-                        }
-
-                        Text {
-                            Layout.fillWidth: true
-                            text: cell.modelData.label
-                            color: Theme.textSecondary
-                            font.pixelSize: Theme.fs(11)
-                            elide: Text.ElideRight
-                        }
-                    }
-
-                    Text {
-                        objectName: "captureChainValue_" + cell.modelData.key
-                        Layout.fillWidth: true
-                        text: cell.modelData.value
-                        textFormat: Text.PlainText
-                        color: cell.modelData.tone === "bad" && cell.modelData.key === "npcap"
-                               ? Theme.orangeText : Theme.textPrimary
-                        font.family: Theme.figureFamily
-                        font.pixelSize: Theme.fs(16)
-                        font.weight: Theme.figureWeight(true)
-                        font.features: ({ "tnum": 1 })
-                        elide: Text.ElideRight
-                    }
-
-                    Text {
-                        objectName: "captureChainSub_" + cell.modelData.key
-                        Layout.fillWidth: true
-                        text: cell.modelData.sub
-                        textFormat: Text.PlainText
-                        color: Theme.textSecondary
-                        font.pixelSize: Theme.fs(11)
-                        elide: Text.ElideRight
-                    }
-                }
-            }
-        }
-    }
 }

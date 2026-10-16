@@ -1,4 +1,5 @@
 using MentorRecorder.Collector.Contracts.Errors;
+using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Domain.Events;
 using MentorRecorder.Collector.Protocol.Decoded;
@@ -84,7 +85,7 @@ public sealed record CalibrationStatusSnapshot(
     string? GameBuild,
     string? TemplateProfileId,
     CalibrationProgress? Progress,
-    IReadOnlyList<string> Blockers,
+    IReadOnlyList<UserText> Blockers,
     IReadOnlyList<CalibrationEvent> Events,
     DateTimeOffset? BoundAtUtc,
     string? LocalProfileId,
@@ -104,7 +105,7 @@ public sealed record CalibrationStatusSnapshot(
 
     /// <summary>Nothing is being calibrated.</summary>
     public static CalibrationStatusSnapshot Idle { get; } = new(
-        CalibrationState.Idle, null, null, null, Array.Empty<string>(), Array.Empty<CalibrationEvent>(), null, null);
+        CalibrationState.Idle, null, null, null, Array.Empty<UserText>(), Array.Empty<CalibrationEvent>(), null, null);
 }
 
 /// <summary>
@@ -564,7 +565,7 @@ public sealed class CalibrationCoordinator
             return CalibrationStatusSnapshot.Idle;
         }
 
-        var blockers = draft?.Blockers ?? Array.Empty<string>();
+        var blockers = draft?.Blockers ?? Array.Empty<UserText>();
         if (_provisional)
         {
             // The player is recording already; what is left is an upgrade, so the card must not
@@ -587,24 +588,19 @@ public sealed class CalibrationCoordinator
                 : draft?.Status == CalibrationDraftStatus.Blocked
                 ? new[]
                 {
-                    "已经可以正常记录导随了：目前按「你申请了哪个随机任务 + 你进了哪个副本」判定，记录不受下面这件事影响。",
-                    "软件在后台找这一版真正的「匹配成功」报文，但这次积累的观察已经用不上了（多半是抓包从游戏中途开始，" +
-                    "或者周围报文太多把记录表挤满了），继续打本也不会有进展。想让它重新找：先开着本软件，" +
-                    "再启动游戏并登录，然后点下面的「清空进度并重新观察」，之后打两把不同的随机任务。",
+                    CollectorTexts.CalibrationProvisionalRecording(),
+                    CollectorTexts.CalibrationProvisionalBlocked(),
                 }
                 : new[]
                 {
-                    "已经可以正常记录导随了：目前按「你申请了哪个随机任务 + 你进了哪个副本」判定。" +
-                    "软件还在后台找这一版真正的「匹配成功」报文，找到后会请你再核对一次，之后判定会更准。" +
-                    "想帮忙的话，打两把不同的随机任务就够了（要自己点申请：组队排本时只有队长的电脑发出申请，你不是队长的那几把帮不上校准）。",
+                    CollectorTexts.CalibrationProvisionalSearching(),
                 };
         }
         else if (_retaining)
         {
             blockers = new[]
             {
-                "正在用其他玩家分享的校准记录导随，这份校准已经在本机流量里核实过。" +
-                "完整记录一次进本和出本之后校准就结束；在那之前软件会继续在后台核对，对不上会自动撤下并改回本机校准。",
+                CollectorTexts.CalibrationSharedRetaining(),
             };
         }
         else if (_completing && _state == CalibrationState.Ready)
@@ -614,7 +610,7 @@ public sealed class CalibrationCoordinator
             // on offer before the player reads the timeline.
             blockers = new[]
             {
-                "这份校准可以补上职业了：核对下面的时间线后，之后的记录会自动带上职业。",
+                CollectorTexts.CalibrationCompletingJobFound(),
             };
         }
 
@@ -644,13 +640,13 @@ public sealed class CalibrationCoordinator
     /// stopped, so the line says what confirming brings and that nothing waits on it.
     /// </summary>
     /// <param name="draft">The ready draft.</param>
-    private string[] ProvisionalOffer(CalibrationDraft draft)
+    private UserText[] ProvisionalOffer(CalibrationDraft draft)
     {
         if (draft.MatchSource != CalibrationMatchSource.QueueRequest)
         {
             return new[]
             {
-                "软件找到了这一版真正的「匹配成功」报文：核对下面的时间线后，改为按这条报文判定，判定会更准；核对之前记录照常进行。",
+                CollectorTexts.CalibrationProvisionalPopFound(),
             };
         }
 
@@ -661,12 +657,10 @@ public sealed class CalibrationCoordinator
         return new[]
         {
             job && announced
-                ? "这份校准可以补上职业，也能认出匹配弹窗了：核对下面的时间线后，之后的记录会自动带上职业，" +
-                  "匹配弹窗一出现就知道匹配成功，不必等到进本；核对之前记录照常进行。"
+                ? CollectorTexts.CalibrationProvisionalJobAndPop()
                 : job
-                    ? "这份校准可以补上职业了：核对下面的时间线后，之后的记录会自动带上职业；核对之前记录照常进行。"
-                    : "这份校准可以认出匹配弹窗了：核对下面的时间线后，匹配弹窗一出现就知道匹配成功，不必等到进本；" +
-                      "核对之前记录照常进行。",
+                    ? CollectorTexts.CalibrationProvisionalJobOnly()
+                    : CollectorTexts.CalibrationProvisionalPopOnly(),
         };
     }
 
@@ -695,7 +689,7 @@ public sealed class CalibrationCoordinator
         {
             throw new CollectorException(
                 ErrorCodes.CalibrationNotReady,
-                "校准还没有完成，暂时没有可核对的内容。",
+                CollectorTexts.CalibrationNotReady(),
                 new Dictionary<string, object?> { ["state"] = _state.ToString().ToUpperInvariant() });
         }
 
@@ -705,7 +699,7 @@ public sealed class CalibrationCoordinator
         {
             if (!verdicts.TryGetValue(item.EventId, out var verdict))
             {
-                throw CollectorException.BadRequest("还有事件没有核对：" + item.Label, "payload.verdicts");
+                throw CollectorException.BadRequest(CollectorTexts.CalibrationVerdictMissing(item.Label), "payload.verdicts");
             }
 
             if (verdict.IsWrong)
@@ -725,7 +719,7 @@ public sealed class CalibrationCoordinator
             if (item.RouletteId is not { } rouletteId || rouletteId is < 0 or > int.MaxValue)
             {
                 throw CollectorException.BadRequest(
-                    "这一条没有随机任务编号，改不了名字：" + item.Label, "payload.verdicts");
+                    CollectorTexts.CalibrationRelabelNotPossible(item.Label), "payload.verdicts");
             }
 
             corrected.Add(new RouletteRenaming((int)rouletteId, verdict.RouletteName!.Trim()));

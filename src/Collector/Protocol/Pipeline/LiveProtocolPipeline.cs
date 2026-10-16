@@ -1,3 +1,4 @@
+using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Protocol.Calibration;
 using System.Diagnostics;
 using MentorRecorder.Collector.Contracts.Errors;
@@ -352,7 +353,7 @@ public sealed partial class LiveProtocolPipeline :
     {
         lock (_gate)
             if (enabled && !_candidateEnabled && _active)
-                throw new CollectorException(ErrorCodes.CaptureAlreadyRunning, "请先停止捕获，再开启候选档案验证。");
+                throw new CollectorException(ErrorCodes.CaptureAlreadyRunning, CollectorTexts.CaptureSettingsStopBeforeValidation());
     }
 
     /// <summary>关闭立即丢弃观测器。不会为仍在运行的候选会话创建正式解析器。</summary>
@@ -670,6 +671,7 @@ public sealed partial class LiveProtocolPipeline :
                 // stopwatch, so the last one observed is what a lifecycle event must be stamped
                 // with (see LifecycleMono).
                 _lastMessageMono = message.Mono;
+                _shared.ObservePublicEvidence(message);
                 _candidateObserver?.Accept(message);
                 _calibration.Accept(message);
                 if (_parser is null || _processor is null)
@@ -741,6 +743,7 @@ public sealed partial class LiveProtocolPipeline :
             // nothing. Merge this before any staging or parser work can judge the evidence.
             _calibration.RecordSessionHealth(new CaptureSessionHealth(
                 captureSessionId, CaptureSilentReason.None, null, 0, DecodedMessagesDropped: droppedCount));
+            _shared.PublicEvidenceLoss(decoded: droppedCount);
 
             if (_processor is null)
             {
@@ -806,6 +809,8 @@ public sealed partial class LiveProtocolPipeline :
             {
                 return;
             }
+
+            _shared.PublicEvidenceLoss(damaged: 1);
 
             if (_processor is null)
             {
@@ -887,6 +892,7 @@ public sealed partial class LiveProtocolPipeline :
             }
             finally
             {
+                _shared.CompletePublicEvidence(captureSessionId, reason);
                 _active = false;
                 _sessionId = null;
                 _sharedSwapOwed = null;
@@ -1145,7 +1151,7 @@ public sealed partial class LiveProtocolPipeline :
             status == ProfileStatus.Verified ? profile?.ProvenanceSummary : null,
             status == ProfileStatus.Verified
                 ? null
-                : "协议档案不可用（fail-closed）：" + selection.Reason,
+                : CollectorTexts.CaptureProfileUnavailable(selection.Reason),
             selection.Origin,
             _calibration.Armed);
     }
@@ -1229,13 +1235,13 @@ public sealed partial class LiveProtocolPipeline :
                 NotifyCalibrationChanged();
                 throw new CollectorException(
                     ErrorCodes.CalibrationRejected,
-                    "有事件被标为不对，这次校准作废；再打一把随机任务后会重新核对。");
+                    CollectorTexts.CalibrationRejected());
             }
 
             draft = judged;
             template = _calibration.Template!;
             build = _game.GameBuild ?? throw new CollectorException(
-                ErrorCodes.CalibrationNotReady, "客户端版本未知，无法写出档案。");
+                ErrorCodes.CalibrationNotReady, CollectorTexts.CalibrationBuildUnknown());
             generation = _calibration.Generation;
         }
 
@@ -1248,7 +1254,7 @@ public sealed partial class LiveProtocolPipeline :
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
         {
-            throw new CollectorException(ErrorCodes.ExportFailed, "无法写出本机校准档案：" + ex.Message, inner: ex);
+            throw new CollectorException(ErrorCodes.ExportFailed, CollectorTexts.CalibrationWriteFailed(ex.Message), inner: ex);
         }
 
         using var pending = prepared;
@@ -1258,7 +1264,7 @@ public sealed partial class LiveProtocolPipeline :
             {
                 throw new CollectorException(
                     ErrorCodes.CalibrationNotReady,
-                    "写出档案期间校准状态发生了变化，这次确认作废；请重新核对。",
+                    CollectorTexts.CalibrationStateChanged(),
                     new Dictionary<string, object?> { ["profile_id"] = prepared.Result.ProfileId });
             }
 
@@ -1271,7 +1277,7 @@ public sealed partial class LiveProtocolPipeline :
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
             {
-                throw new CollectorException(ErrorCodes.ExportFailed, "无法写出本机校准档案：" + ex.Message, inner: ex);
+                throw new CollectorException(ErrorCodes.ExportFailed, CollectorTexts.CalibrationWriteFailed(ex.Message), inner: ex);
             }
 
             _withdrawnLocalProfiles.Remove(written.ProfileId);
@@ -1284,7 +1290,7 @@ public sealed partial class LiveProtocolPipeline :
             {
                 throw new CollectorException(
                     ErrorCodes.Internal,
-                    "本机校准档案已写出，但档案目录没有选中它：" + selection.Reason,
+                    CollectorTexts.CalibrationWrittenNotSelected(selection.Reason),
                     new Dictionary<string, object?> { ["profile_id"] = written.ProfileId, ["reason"] = selection.Reason });
             }
 

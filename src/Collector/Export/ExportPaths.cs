@@ -1,4 +1,5 @@
 using MentorRecorder.Collector.Contracts.Errors;
+using MentorRecorder.Collector.Contracts.Texts;
 
 namespace MentorRecorder.Collector.Export;
 
@@ -21,7 +22,7 @@ public static class ExportPaths
         if (string.IsNullOrWhiteSpace(targetPath))
         {
             throw new CollectorException(
-                ErrorCodes.ExportFailed, "导出路径不能为空。", field: field);
+                ErrorCodes.ExportFailed, CollectorTexts.ExportPathEmpty(), field: field);
         }
 
         string fullPath;
@@ -32,7 +33,7 @@ public static class ExportPaths
         catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
         {
             throw new CollectorException(
-                ErrorCodes.ExportFailed, "导出路径不是合法的本地路径。", field: field, inner: ex);
+                ErrorCodes.ExportFailed, CollectorTexts.ExportPathInvalid(), field: field, inner: ex);
         }
 
         // 先检查输入，避免对明确的 UNC/设备目标做文件系统访问；再检查链接最终落点。
@@ -40,7 +41,7 @@ public static class ExportPaths
         {
             throw new CollectorException(
                 ErrorCodes.ExportFailed,
-                "请选择本机磁盘上的文件位置，不支持网络共享或设备路径。",
+                CollectorTexts.ExportPathNotLocal(),
                 field: field);
         }
 
@@ -69,7 +70,7 @@ public static class ExportPaths
             or ArgumentException or NotSupportedException or PathTooLongException)
         {
             throw new CollectorException(
-                ErrorCodes.ExportFailed, "无法检查导出路径，请检查目录和访问权限。",
+                ErrorCodes.ExportFailed, CollectorTexts.ExportPathUncheckable(),
                 field: "target_path", inner: ex);
         }
     }
@@ -160,7 +161,7 @@ public static class ExportPaths
         {
             throw new CollectorException(
                 ErrorCodes.ExportFailed,
-                "目标文件已存在。请更换文件名，或勾选「覆盖」后重试。",
+                CollectorTexts.ExportPathExists(),
                 new Dictionary<string, object?> { ["target_path"] = fullPath });
         }
 
@@ -168,7 +169,7 @@ public static class ExportPaths
         if (string.IsNullOrEmpty(directory))
         {
             throw new CollectorException(
-                ErrorCodes.ExportFailed, "导出路径缺少所在目录。", field: "target_path");
+                ErrorCodes.ExportFailed, CollectorTexts.ExportPathNoDirectory(), field: "target_path");
         }
 
         try
@@ -178,7 +179,7 @@ public static class ExportPaths
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             throw new CollectorException(
-                ErrorCodes.ExportFailed, "无法创建导出目录，请检查权限或磁盘空间。", inner: ex);
+                ErrorCodes.ExportFailed, CollectorTexts.ExportPathCannotCreateDirectory(), inner: ex);
         }
     }
 

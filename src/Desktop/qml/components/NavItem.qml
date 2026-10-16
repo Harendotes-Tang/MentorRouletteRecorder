@@ -161,7 +161,8 @@ Button {
             }
 
             // `.set-navi-sub`: text-2 at rest; on the current entry it takes the
-            // label's colour at .8.
+            // label's colour at .8. A translation longer than the 168 px column
+            // takes a second line instead of losing its last item.
             Text {
                 Layout.fillWidth: true
                 visible: navItem.sub.length > 0
@@ -170,6 +171,8 @@ Button {
                 opacity: navItem.current ? 0.8 : 1.0
                 font.pixelSize: 11
                 font.weight: Font.Normal
+                wrapMode: Text.WordWrap
+                maximumLineCount: 2
                 elide: Text.ElideRight
             }
         }

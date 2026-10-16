@@ -40,6 +40,8 @@
 
 #include <optional>
 
+#include "LiveText.h"
+
 class QTextToSpeech;
 
 namespace mr {
@@ -56,7 +58,8 @@ class TtsService : public QObject
     Q_PROPERTY(bool available READ isAvailable NOTIFY availabilityChanged)
     Q_PROPERTY(QString statusText READ statusText NOTIFY availabilityChanged)
     Q_PROPERTY(QString voiceName READ voiceName NOTIFY availabilityChanged)
-    /// The machine's installed voices, zh-CN first, then - while the Collector
+    /// The machine's installed voices, those of the interface language first
+    /// (LanguageManager::speechLocaleFor), then - while the Collector
     /// offers online speech - its Azure and OpenAI-compatible voices:
     /// {id, name, label, locale, provider, group}. group is "local" or
     /// "online". The local part is empty until the engine is Ready (SAPI
@@ -66,6 +69,9 @@ class TtsService : public QObject
     /// is idle again (see setVoice()). An online id while online speech is
     /// offered. Empty without a voice.
     Q_PROPERTY(QString voiceId READ voiceId NOTIFY availabilityChanged)
+    /// The machine has voices, but none in the interface language: announcements
+    /// are read by another language's voice until one is added in Windows.
+    Q_PROPERTY(bool languageVoiceMissing READ languageVoiceMissing NOTIFY voicesChanged)
 
 public:
     /// System: the machine's speech engine, when there is one. None: no engine
@@ -90,7 +96,7 @@ public:
     /// True only while the engine can actually produce sound: an engine that
     /// reported an error is not "available" just because the object exists.
     bool isAvailable() const;
-    QString statusText() const { return m_statusText; }
+    QString statusText() const { return m_statusText.text(); }
     QString voiceName() const { return m_voiceName; }
     QVariantList voices() const { return m_allVoices; }
     QString voiceId() const;
@@ -124,9 +130,16 @@ public:
     static QString localVoicePrefix();
     /// "local:<name>".
     static QString localVoiceId(const QString &name);
-    /// zh-CN voices first, everything else after them, each group in the
+    /// Voices of \a preferred (language and territory) first, then the rest of
+    /// its language, then zh-CN, then everything else, each group in the
     /// engine's own order.
-    static QList<VoiceEntry> orderVoices(const QList<VoiceEntry> &voices);
+    static QList<VoiceEntry> orderVoices(const QList<VoiceEntry> &voices,
+                                         const QLocale &preferred = QLocale(QLocale::Chinese,
+                                                                            QLocale::China));
+    /// True when \a voices is not empty and holds no voice of \a preferred's language.
+    static bool missesLanguage(const QList<VoiceEntry> &voices, const QLocale &preferred);
+    /// The locale announcements are spoken in: the interface language's.
+    static QLocale speechLocale();
     /// "Microsoft Huihui Desktop（中文 · 女声）".
     static QString voiceLabel(const VoiceEntry &voice);
     /// The rows of the `voices` property for \a ordered.
@@ -194,6 +207,10 @@ public Q_SLOTS:
     /// while speaking is applied at the next Ready. Ids of any other form are
     /// ignored and nothing is stored.
     Q_INVOKABLE void setVoice(const QString &id);
+    /// Windows 设置 › 时间和语言 › 语音, where a voice for another language is added.
+    Q_INVOKABLE void openSpeechSettings();
+
+    bool languageVoiceMissing() const;
 
 Q_SIGNALS:
     void availabilityChanged();
@@ -233,6 +250,8 @@ private:
     /// Today's default: the first voice of the zh-CN locale, or of the
     /// engine's own locale on a machine without a Chinese voice.
     void applyDefaultVoice();
+    /// Puts m_voiceEntries / m_engineVoices in the interface language's order.
+    void reorderVoices();
     /// Re-read the engine's state and rebuild statusText. Called from the
     /// engine's own stateChanged/errorOccurred, because Windows SAPI finishes
     /// initialising after the constructor returns: a list sampled once at
@@ -267,7 +286,8 @@ private:
     AppSettings *m_settings = nullptr;
     QTextToSpeech *m_engine = nullptr;
     QVariantMap m_contextValues;
-    QString m_statusText;
+    /// A recipe, so a language switch re-renders it (LiveText.h).
+    LiveText m_statusText;
     QString m_voiceName;
     /// "local:<m_voiceName>", or empty.
     QString m_voiceId;

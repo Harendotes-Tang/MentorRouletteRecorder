@@ -1,0 +1,66 @@
+{
+  "ContentFinderCondition": {
+    "en": [
+      { "row_id": 0, "fields": { "Name": "", "TerritoryType@as(raw)": 0 } },
+      { "row_id": 1, "fields": { "Name": "Sample Dungeon One", "TerritoryType@as(raw)": 1039 } },
+      { "row_id": 2, "fields": { "Name": "the Sample Trial Two", "TerritoryType@as(raw)": 1040 } },
+      { "row_id": 3, "fields": { "Name": "Sample Dungeon Three", "TerritoryType@as(raw)": 1041 } },
+      { "row_id": 5, "fields": { "Name": "the Sample Remaster Five", "TerritoryType@as(raw)": 1331 } },
+      { "row_id": 6, "fields": { "Name": "Sample Not In The Base Six", "TerritoryType@as(raw)": 1042 } }
+    ],
+    "ja": [
+      { "row_id": 0, "fields": { "Name": "", "TerritoryType@as(raw)": 0 } },
+      { "row_id": 1, "fields": { "Name": "サンプル迷宮 一", "TerritoryType@as(raw)": 1039 } },
+      { "row_id": 2, "fields": { "Name": "サンプル討伐戦 二", "TerritoryType@as(raw)": 1040 } },
+      { "row_id": 3, "fields": { "Name": "サンプル迷宮 三", "TerritoryType@as(raw)": 1041 } },
+      { "row_id": 5, "fields": { "Name": "サンプル迷宮 五", "TerritoryType@as(raw)": 1331 } },
+      { "row_id": 6, "fields": { "Name": "サンプル 六", "TerritoryType@as(raw)": 1042 } }
+    ]
+  },
+  "ClassJob": {
+    "en": [
+      { "row_id": 0, "fields": { "Name": "adventurer", "NameEnglish": "Adventurer", "Abbreviation": "ADV" } },
+      { "row_id": 1, "fields": { "Name": "sample gladiator", "NameEnglish": "Sample Gladiator", "Abbreviation": "GLA" } },
+      { "row_id": 19, "fields": { "Name": "sample paladin", "NameEnglish": "Sample Paladin", "Abbreviation": "PLD" } },
+      { "row_id": 43, "fields": { "Name": "sample beastmaster", "NameEnglish": "Sample Beastmaster", "Abbreviation": "BST" } }
+    ],
+    "ja": [
+      { "row_id": 0, "fields": { "Name": "", "NameEnglish": "Adventurer", "Abbreviation": "" } },
+      { "row_id": 1, "fields": { "Name": "サンプル剣術士", "NameEnglish": "Sample Gladiator", "Abbreviation": "GLA" } },
+      { "row_id": 19, "fields": { "Name": "サンプルナイト", "NameEnglish": "Sample Paladin", "Abbreviation": "PLD" } },
+      { "row_id": 43, "fields": { "Name": "サンプル魔獣使い", "NameEnglish": "Sample Beastmaster", "Abbreviation": "BST" } }
+    ]
+  },
+  "ContentRoulette": {
+    "en": [
+      { "row_id": 1, "fields": { "Name": "Duty Roulette: Sample Leveling", "Category": "Sample Leveling" } },
+      { "row_id": 9, "fields": { "Name": "Duty Roulette: Sample Mentor", "Category": "Sample Mentor" } }
+    ],
+    "ja": [
+      { "row_id": 1, "fields": { "Name": "コンテンツルーレット：サンプルレベリング", "Category": "サンプルレベリング" } },
+      { "row_id": 9, "fields": { "Name": "コンテンツルーレット：サンプルメンター", "Category": "サンプルメンター" } }
+    ]
+  },
+  "ContentType": {
+    "en": [
+      { "row_id": 0, "fields": { "Name": "" } },
+      { "row_id": 2, "fields": { "Name": "Dungeons" } },
+      { "row_id": 4, "fields": { "Name": "Trials" } }
+    ],
+    "ja": [
+      { "row_id": 0, "fields": { "Name": "" } },
+      { "row_id": 2, "fields": { "Name": "サンプルダンジョン" } },
+      { "row_id": 4, "fields": { "Name": "サンプル討伐戦" } }
+    ]
+  },
+  "ExVersion": {
+    "en": [
+      { "row_id": 0, "fields": { "Name": "A Realm Reborn" } },
+      { "row_id": 1, "fields": { "Name": "Heavensward" } }
+    ],
+    "ja": [
+      { "row_id": 0, "fields": { "Name": "サンプル新生" } },
+      { "row_id": 1, "fields": { "Name": "サンプル蒼天" } }
+    ]
+  }
+}

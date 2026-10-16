@@ -24,6 +24,7 @@
 #include <QJsonArray>
 #include <QList>
 #include <QString>
+#include <QVariantMap>
 
 class QTimer;
 
@@ -80,12 +81,18 @@ public:
     QString calibrationFixture() const { return m_calibrationState; }
 
     /// Synthetic 共享校准 fixture: "fetching", "verifying", "consent", "verified",
-    /// "rejected", "unavailable", "user-rejected", "none-for-build" or "share".
+    /// "verified-auditing", "verified-proven", "imported-published",
+    /// "imported-unpublished", "rejected", "unavailable", "user-rejected",
+    /// "none-for-build" or "share".
     /// Arms a 本机校准 fixture when none is set: "share" is a finished local
-    /// calibration whose code GetCalibrationShareCode hands out; every other state
-    /// is still observing ("verified" records with the shared profile while
-    /// calibration stays armed, as the Collector does until that profile records
-    /// one whole duty). Nothing here was ever downloaded, decoded or verified.
+    /// calibration whose code GetCalibrationShareCode hands out with basis
+    /// CALIBRATED; "verified-proven" is a shared profile that recorded one whole
+    /// duty, so calibration is DONE and its code is handed out with basis VERIFIED
+    /// (plans/shared-calibration.md §20.6); every other state is still observing
+    /// ("verified" records with the shared profile while calibration stays armed,
+    /// as the Collector does until that profile records one whole duty, and its
+    /// code is refused as SHARED_NOT_PROVEN). Nothing here was ever downloaded,
+    /// decoded or verified.
     void setSharedCalibrationFixture(const QString &state);
     QString sharedCalibrationFixture() const { return m_sharedState; }
 
@@ -205,6 +212,21 @@ public:
     QJsonObject reflectionSummary(int recentLimit) const;
 
 private:
+    /// A sentence of the Collector's catalogue (contracts/collector-texts.json),
+    /// sent the way the Collector sends it: the Chinese in the legacy field and
+    /// the reference in its `*_ref` companion.
+    struct CollectorSentence
+    {
+        QString chinese;
+        QJsonObject ref;
+    };
+    static CollectorSentence collectorSentence(const char *key, const QVariantMap &args = {});
+    /// Refuses the way the Collector does with a catalogue sentence: \a code in
+    /// \a errorCode, the Chinese in \a errorMessage, and the reference kept for
+    /// the reply's message_ref. Returns an empty result.
+    QJsonObject refuseWith(QString *errorCode, QString *errorMessage, const QString &code,
+                           const char *key, const QVariantMap &args = {});
+
     // -- dataset ------------------------------------------------------------
     void generateRuns();
     /// Seeds the six prototype reflections (DOC/表单提交后设计, const RF=).
@@ -224,7 +246,8 @@ private:
     /// $defs/SharedCalibrationStatus for the shared fixture.
     QJsonObject sharedCalibrationStatus() const;
     /// Another player's profile is in force, whether or not the match and the
-    /// duty entry are still being audited beside it (verified, verified-auditing).
+    /// duty entry are still being audited beside it or it already proved itself
+    /// (verified, verified-auditing, verified-proven).
     bool sharedProfileBound() const;
     static bool isSharedCalibrationMessage(const QString &messageType);
     /// The five shared-calibration requests against the fixture.
@@ -260,7 +283,8 @@ private:
     void advanceUpdateDownload();
     /// READY with a freshly written synthetic file, or FAILED / DISK_FAILED.
     void finishUpdateDownload();
-    void failUpdateDownload(const QString &failure, const QString &message);
+    /// FAILED for \a failure, with the Collector's sentence \a key.
+    void failUpdateDownload(const QString &failure, const char *key);
     QString mockInstallerPath() const;
     QJsonObject captureValidationStatus() const;
     /// $defs/CaptureSettings, defaulted the way a fresh Collector would.
@@ -332,6 +356,7 @@ private:
     QString m_updateSha256;
     QString m_updateFailure;
     QString m_updateMessage;
+    QJsonObject m_updateMessageRef;
     /// Steps the simulated download; stopped while a fixture holds it.
     QTimer *m_updateDownloadTimer = nullptr;
     int m_updateDownloadStepMs = 150;
@@ -360,6 +385,10 @@ private:
     int m_validationMarkerCount = 0;
     QString m_lastValidationMarker;
     LiveMode m_liveMode = LiveMode::Entered;
+    /// The last refuseWith(): the reply's message_ref while its message is still
+    /// the one refuseWith() wrote.
+    QJsonObject m_errorRef;
+    QString m_errorRefMessage;
 };
 
 } // namespace mr

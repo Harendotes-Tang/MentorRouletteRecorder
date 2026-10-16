@@ -15,7 +15,7 @@ public sealed class RunImportIpcTests
             ["source_kind"] = "JSON", ["text"] = "{}",
         });
         Assert.Equal(ErrorCodes.BadRequest, response.ErrorCode);
-        Assert.Contains("解析", response.ErrorMessage);
+        Assert.Contains("无法读取导入内容", response.ErrorMessage);
         Assert.Empty((await client.SendAsync("QueryRuns")).Require()["items"]!.AsArray());
     }
 

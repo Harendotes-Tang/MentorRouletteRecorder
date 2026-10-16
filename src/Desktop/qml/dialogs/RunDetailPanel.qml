@@ -89,8 +89,8 @@ Rectangle {
     // is known (a 通关 included) is not told that no clear arrived.
     readonly property string pendingReviewText: !root.pendingReview ? qsTr("否")
         : (runData.result || "UNKNOWN") === "UNKNOWN"
-          ? qsTr("是 · 结果未经确认（崩溃恢复，或离开副本前未收到通关结算）")
-        : root.flaggedBySystemRevision ? qsTr("是 · 需要你确认这条记录（原因见修正历史）")
+          ? qsTr("是 · 结果尚未确认，请核对是否通关")
+        : root.flaggedBySystemRevision ? qsTr("是 · 需要你确认这条记录（原因见“修改记录”）")
         : qsTr("是 · 需要你确认这条记录")
     // The highest revision in the list; gates the undo button below.
     readonly property int newestRevision: {
@@ -109,7 +109,7 @@ Rectangle {
         const fields = [
             { k: qsTr("版本 / 等级"),
               v: runData.duty_expansion
-                 ? qsTr("%1 · %2级").arg(runData.duty_expansion).arg(runData.duty_level || 0)
+                 ? qsTr("%1 · %2级").arg(Theme.expansionName(runData.duty_expansion)).arg(runData.duty_level || 0)
                  : Fmt.dash() },
             { k: qsTr("结果"), v: Fmt.runResultLabel(runData) },
             // Rendered by the delegate as job icon + name + role icon + label;
@@ -117,9 +117,9 @@ Rectangle {
             // catalogue is empty.
             { k: qsTr("职业"),
               kind: "job",
-              v: (runData.job_name || qsTr("未知"))
+              v: (Theme.jobName(runData) || qsTr("未知"))
                  + (runData.job_id
-                    ? " (" + Jobs.roleGroup(runData.job_id) + ")"
+                    ? " (" + Theme.roleGroupName(Jobs.roleGroup(runData.job_id)) + ")"
                     : " · " + qsTr("未能识别职业")) },
             { k: qsTr("匹配时间"), v: Fmt.localTime(runData.matched_at_utc) },
             { k: qsTr("进本时间"), v: Fmt.localTime(runData.entered_at_utc) },
@@ -134,7 +134,7 @@ Rectangle {
                               v: source.source_recorded_at_utc ? Fmt.localDateTime(source.source_recorded_at_utc) : source.source_recorded_at })
         }
         if (root.importIncomplete)
-            fields.push({ k: qsTr("导入完整性"), v: qsTr("待补充") })
+            fields.push({ k: qsTr("导入信息"), v: qsTr("待补充") })
 
         if (root.showRawTokens) {
             fields.push({ k: qsTr("content_id / territory_id"),
@@ -150,7 +150,7 @@ Rectangle {
                          ? (runData.source || "AUTO_NETWORK")
                          : Fmt.sourceLabel(runData.source || "AUTO_NETWORK") })
         fields.push({ k: qsTr("计入进度"), v: runData.contributes_to_goal ? qsTr("是") : qsTr("否") })
-        fields.push({ k: qsTr("检测置信"),
+        fields.push({ k: qsTr("识别可信度"),
                       v: root.showRawTokens
                          ? (runData.detection_confidence || Fmt.dash())
                          : Fmt.runConfidenceLabel(runData) })
@@ -216,7 +216,7 @@ Rectangle {
 
                 HeadingLabel {
                     Layout.fillWidth: true
-                    text: root.runData.duty_name || qsTr("未知副本")
+                    text: Theme.dutyName(root.runData) || qsTr("未知副本")
                     textFormat: Text.PlainText
                     font.pixelSize: Theme.fs(19)
                     wrapMode: Text.WordWrap
@@ -255,7 +255,7 @@ Rectangle {
                 model: [
                     { value: "info", label: qsTr("详情") },
                     { value: "events", label: qsTr("事件摘要") },
-                    { value: "revs", label: qsTr("修正历史") },
+                    { value: "revs", label: qsTr("修改记录") },
                     { value: "refl", label: qsTr("笔记") }
                 ]
 
@@ -376,7 +376,7 @@ Rectangle {
 
             AppButton {
                 visible: !root.runData.soft_deleted
-                text: qsTr("软删除")
+                text: qsTr("删除记录")
                 onClicked: root.deleteRequested()
             }
 
@@ -447,7 +447,7 @@ Rectangle {
                             }
 
                             Text {
-                                text: root.runData.job_name || qsTr("未知")
+                                text: Theme.jobName(root.runData) || qsTr("未知")
                                 textFormat: Text.PlainText
                                 color: Theme.textPrimary
                                 font.pixelSize: Theme.fs(13)
@@ -467,7 +467,7 @@ Rectangle {
                                 labelPixelSize: 12
                                 labelColor: Theme.textSecondary
                                 labelText: root.runData.job_id
-                                           ? Jobs.roleGroup(root.runData.job_id)
+                                           ? Theme.roleGroupName(Jobs.roleGroup(root.runData.job_id))
                                            : qsTr("未知") + " · " + qsTr("未能识别职业")
                             }
                         }
@@ -580,8 +580,8 @@ Rectangle {
                             case "loading": return qsTr("正在读取事件摘要…")
                             case "unsupported":
                             case "error": return App.runEventsMessage
-                            case "ready": return qsTr("这条记录没有留下事件行。")
-                            default: return qsTr("打开此页签即会读取。")
+                            case "ready": return qsTr("这条记录没有事件摘要。")
+                            default: return qsTr("打开“事件摘要”后会读取。")
                             }
                         }
                         color: App.runEventsState === "error" ? Theme.red : Theme.textSecondary
@@ -614,7 +614,7 @@ Rectangle {
                                 Text {
                                     text: root.showRawTokens
                                           ? (modelData.event_type || Fmt.dash())
-                                          : Fmt.runEventLabel(modelData.event_type || "")
+                                          : Theme.live(Fmt.runEventLabel(modelData.event_type || ""))
                                     color: Theme.textPrimary
                                     font.pixelSize: Theme.fs(12)
                                     font.bold: true
@@ -650,10 +650,10 @@ Rectangle {
                                 Layout.fillWidth: true
                                 visible: App.maintainerToolsVisible
                                 textFormat: Text.PlainText
-                                text: (modelData.direction || Fmt.dash())
-                                      + " \u00b7 " + (modelData.opcode || Fmt.dash())
-                                      + " \u00b7 " + qsTr("哈希 ")
-                                      + (modelData.payload_hash || Fmt.dash())
+                                text: qsTr("%1 \u00b7 %2 \u00b7 哈希 %3")
+                                      .arg(modelData.direction || Fmt.dash())
+                                      .arg(modelData.opcode || Fmt.dash())
+                                      .arg(modelData.payload_hash || Fmt.dash())
                                 color: Theme.textSecondary
                                 font.pixelSize: Theme.fs(11)
                                 font.family: Theme.monoFamily
@@ -701,7 +701,7 @@ Rectangle {
                     Layout.fillWidth: true
                     text: App.maintainerToolsVisible
                           ? qsTr("默认不保存完整报文，仅保留操作码、方向、哈希与解析字段。")
-                          : qsTr("这里只留下每件事的名称和发生时间，不保存任何游戏内容。")
+                          : qsTr("这里显示事件名称和发生时间，不保存完整的网络消息。")
                     color: Theme.textSecondary
                     font.pixelSize: Theme.fs(11)
                     wrapMode: Text.WordWrap
@@ -711,7 +711,7 @@ Rectangle {
                     Layout.fillWidth: true
                     visible: App.usingMockData && App.runEventsState === "ready"
                              && App.selectedRunEvents.length > 0
-                    text: qsTr("以上为模拟后端合成的示例事件，不是真实抓包结果。")
+                    text: qsTr("以上是演示数据，不是实际记录到的游戏事件。")
                     color: Theme.orangeText
                     font.pixelSize: Theme.fs(11)
                     wrapMode: Text.WordWrap
@@ -874,7 +874,7 @@ Rectangle {
                                 Layout.fillWidth: true
                                 text: root.showRawTokens
                                       ? (revisionBox.modelData.change_kind || Fmt.dash())
-                                      : Fmt.changeKindLabel(revisionBox.modelData.change_kind || "")
+                                      : Theme.live(Fmt.changeKindLabel(revisionBox.modelData.change_kind || ""))
                                 color: Theme.textPrimary
                                 font.pixelSize: Theme.fs(12)
                                 wrapMode: Text.WordWrap
@@ -890,7 +890,9 @@ Rectangle {
                                     const changes = revisionBox.modelData.changes || []
                                     if (root.showRawTokens)
                                         return changes
-                                    return changes.filter(function(row) {
+                                    // live(): the rows are read again, in the new
+                                    // language, after a switch.
+                                    return Theme.live(changes).filter(function(row) {
                                         const field = row.field || ""
                                         return Fmt.revisionFieldVisible(field)
                                             && Fmt.revisionFieldValue(field, row.old_value)
@@ -907,7 +909,7 @@ Rectangle {
 
                                     Text {
                                         Layout.preferredWidth: 74
-                                        text: Fmt.fieldLabel(modelData.field || "")
+                                        text: Theme.live(Fmt.fieldLabel(modelData.field || ""))
                                         color: Theme.textSecondary
                                         font.pixelSize: Theme.fs(11)
                                         elide: Text.ElideRight
@@ -916,9 +918,9 @@ Rectangle {
                                     Text {
                                         Layout.fillWidth: true
                                         Layout.preferredWidth: 1
-                                        text: root.showRawTokens
+                                        text: Theme.live(root.showRawTokens
                                               ? Fmt.revisionValue(modelData.old_value)
-                                              : Fmt.revisionFieldValue(modelData.field || "", modelData.old_value)
+                                              : Fmt.revisionFieldValue(modelData.field || "", modelData.old_value))
                                         textFormat: Text.PlainText
                                         color: Theme.textSecondary
                                         font.pixelSize: Theme.fs(11)
@@ -935,9 +937,9 @@ Rectangle {
                                     Text {
                                         Layout.fillWidth: true
                                         Layout.preferredWidth: 1
-                                        text: root.showRawTokens
+                                        text: Theme.live(root.showRawTokens
                                               ? Fmt.revisionValue(modelData.new_value)
-                                              : Fmt.revisionFieldValue(modelData.field || "", modelData.new_value)
+                                              : Fmt.revisionFieldValue(modelData.field || "", modelData.new_value))
                                         textFormat: Text.PlainText
                                         color: Theme.textPrimary
                                         font.pixelSize: Theme.fs(11)
@@ -949,8 +951,13 @@ Rectangle {
 
                             Text {
                                 Layout.fillWidth: true
+                                // A reason the program wrote is stored in its source text
+                                // and shown in the interface language; one a person typed
+                                // comes back from qsTranslate unchanged.
                                 text: qsTr("原因：%1 \u00b7 %2")
-                                      .arg(revisionBox.modelData.reason || qsTr("无原因"))
+                                      .arg(revisionBox.modelData.reason
+                                           ? qsTranslate("SystemReason", revisionBox.modelData.reason)
+                                           : qsTr("无原因"))
                                       .arg(root.showRawTokens
                                            ? (revisionBox.modelData.actor || "USER")
                                            : Fmt.revisionActorLabel(revisionBox.modelData.actor || ""))
@@ -974,7 +981,7 @@ Rectangle {
 
                                 Text {
                                     Layout.fillWidth: true
-                                    text: qsTr("回放原值并追加一条新修订")
+                                    text: qsTr("恢复修改前的值，并记下这次撤销")
                                     color: Theme.textSecondary
                                     font.pixelSize: Theme.fs(11)
                                     wrapMode: Text.WordWrap
@@ -991,7 +998,7 @@ Rectangle {
 
                     Text {
                         anchors.centerIn: parent
-                        text: qsTr("尚无修正记录。")
+                        text: qsTr("尚无修改记录。")
                         color: Theme.textSecondary
                         font.pixelSize: Theme.fs(12)
                     }

@@ -113,7 +113,7 @@ SettingsPanel {
     SettingsRow {
         label: qsTr("在线语音")
         labelIsKicker: true
-        description: qsTr("把要播报的这一句话交给你选的语音服务念出来。请求由后台的采集器发出，界面只播放取回的本机声音文件。")
+        description: qsTr("联网将播报文字发给所选服务，再播放返回的声音。修改后先点「保存」，再点「测试」。")
 
         Tag {
             objectName: "onlineSpeechStatusTag"
@@ -153,7 +153,7 @@ SettingsPanel {
     SettingsRow {
         visible: !panel.azureDraft
         label: qsTr("地址")
-        description: qsTr("以 https:// 开头，到 /v1 为止")
+        description: qsTr("填写服务提供的 https:// 接口地址，通常以 /v1 结尾")
 
         StyledTextField {
             id: urlField
@@ -190,7 +190,7 @@ SettingsPanel {
 
     SettingsRow {
         label: qsTr("密钥")
-        description: panel.keyStored ? qsTr("已保存密钥") : qsTr("未保存密钥")
+        description: panel.keyStored ? qsTr("已保存 API Key；点「清除」后在线语音将不可用。") : qsTr("请填写自己申请的 API Key。")
         descriptionColor: panel.keyStored ? Theme.textSecondary : Theme.orangeText
 
         StyledTextField {
@@ -219,7 +219,7 @@ SettingsPanel {
         Text {
             objectName: "onlineSpeechNote"
             Layout.fillWidth: true
-            text: qsTr("开启后播报文字会发送到 %1；密钥只保存在本机，并由 Windows 加密。")
+            text: qsTr("在线播报需要时会发送文字到 %1。对方能看到你的 IP，并按自己的隐私政策处理文字。密钥由 Windows 加密保存在本机。更改服务、区域或地址时，请重新填写密钥。要停用，在「语音引擎」选回本机语音；密钥会保留。")
                   .arg(panel.ready ? panel.speech.describeTarget(panel.draftProvider, regionField.text, urlField.text) : "")
             color: Theme.textSecondary
             font.pixelSize: Theme.fs(12)
@@ -230,7 +230,7 @@ SettingsPanel {
             objectName: "onlineSpeechRebindHint"
             Layout.fillWidth: true
             visible: panel.ready && panel.speech.hasKey && !panel.draftInForce
-            text: qsTr("换成另一个服务后，之前保存的密钥会被删除，需要为新服务重新填写。")
+            text: qsTr("改选服务后需填写对应的密钥。点「保存」时若未填新密钥，原密钥会被清除。")
             color: Theme.orangeText
             font.pixelSize: Theme.fs(12)
             wrapMode: Text.WordWrap

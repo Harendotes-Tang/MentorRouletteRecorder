@@ -193,10 +193,14 @@ add_test(NAME MentorRecorderReflections
 # RunDetailPanel: the history detail panel - player wording of 修正历史 / 事件摘要, clicks that stay in it.
 # MockBackend: the offline backend answers in the Collector's shapes (paging, sort, event types, timestamps).
 # QmlWarningCounter: the screenshot harness's own count of QML/JS runtime warnings.
+# GameNames: duty / job / roulette / category names in the interface language, Chinese in every value.
+# CollectorText: the Collector's sentences by key (contracts/collector-texts.md), Chinese as the fallback.
+# CollectorTextDisplay: the controllers that show those sentences, before and after a language switch.
 foreach(MR_REVIEW_SUITE WorkflowController RunFormValidator ExportFailure UiWorkflowRegression EditRunDialogBinding
                         ReflectionDialogBinding Calibration SharedCalibration SharedCalibrationCard Speech
-                        CapturePage Motion UpdateNotice UpdateInstall InstallerHold NoteImageStore SingleInstance ShellDialog
-                        RunDetailPanel MockBackend QmlWarningCounter RunListModel)
+                        CapturePage Motion UpdateNotice UpdateInstall ReleaseNotes EvidenceSubmission LanguageManager InstallerHold NoteImageStore SingleInstance ShellDialog
+                        RunDetailPanel MockBackend QmlWarningCounter RunListModel GameNames CollectorText
+                        CollectorTextDisplay)
     add_executable(MentorRecorder${MR_REVIEW_SUITE}Tests ${MR_REVIEW_SUITE}Tests.cpp)
     target_link_libraries(MentorRecorder${MR_REVIEW_SUITE}Tests PRIVATE
         MentorRecorderDesktopLib Qt6::Gui Qt6::Test)
@@ -318,7 +322,7 @@ add_test(NAME MentorRecorderQmlDetailPanel
         --theme dark
         --mock-open-detail
         --screenshot-delay 1500
-        --verify-text "修正历史")
+        --verify-text "修改记录")
 
 # Opens the manual-correction dialog on top of that panel.
 add_test(NAME MentorRecorderQmlEditDialog
@@ -370,8 +374,8 @@ add_test(NAME MentorRecorderQmlBaselineDialog
         --theme light
         --mock-first-run
         --screenshot-delay 1000
-        --verify-text "你已经完成了多少次导随？"
-        --verify-text "会加在基数之上")
+        --verify-text "开始记录前，你已完成多少次导随？"
+        --verify-text "总进度 = 起始次数")
 
 # CLI boundary. Each of these must exit with code 2 exactly *and* print the
 # refusal that names the option. WILL_FAIL would also accept a crash, a missing
@@ -442,7 +446,7 @@ add_test(NAME MentorRecorderQmlMidstreamBanner
         --screenshot-delay 1000
         --mock-midstream
         --mock-recording-state listening
-        --verify-text "当前连接")
+        --verify-text "一直读不到有效数据")
 
 # The pending-review banner on the dashboard reads the count the Collector
 # reported; it must not appear when there is nothing to review.
@@ -540,7 +544,7 @@ add_test(NAME MentorRecorderQmlCandidateDisclosure
 # and the sidebar label, each asserted through text the player actually reads.
 set(MR_CALIBRATION_TEXT_observing "正在重新校准")
 set(MR_CALIBRATION_TEXT_ready "核对并启用")
-set(MR_CALIBRATION_TEXT_blocked "本机校准无法继续")
+set(MR_CALIBRATION_TEXT_blocked "校准遇到了问题")
 set(MR_CALIBRATION_TEXT_done "本机校准")
 foreach(MR_CALIBRATION_STATE observing ready blocked done)
     add_test(NAME MentorRecorderQmlCalibration_${MR_CALIBRATION_STATE}
@@ -571,23 +575,26 @@ add_test(NAME MentorRecorderDesktopRejectsCalibrationMockWithIpc
 
 # 共享校准 on the capture page: the card's shared section in every state the
 # mock can take, each asserted through the sentence a player reads.
-set(MR_SHARED_TEXT_fetching "正在获取其他玩家的共享校准")
-set(MR_SHARED_TEXT_verifying "找到共享校准")
+set(MR_SHARED_TEXT_fetching "正在查找其他玩家分享的校准")
+set(MR_SHARED_TEXT_verifying "找到了共享校准")
 set(MR_SHARED_TEXT_consent "同意，开始记录")
-set(MR_SHARED_TEXT_verified "已使用其他玩家分享的校准")
+set(MR_SHARED_TEXT_verified "正在用其他玩家分享的校准")
 # 核实门槛按来源分级（plans/shared-calibration.md §18）：登录时核实通过即记录，
 # 排本与进本在记录中继续核对；未发布的导入码仍要全部判据通过才启用。
 set(MR_SHARED_TEXT_verified-auditing "排本和进本还在核对中")
-set(MR_SHARED_TEXT_imported-published "找到共享校准，登录时自动核实")
-set(MR_SHARED_TEXT_imported-unpublished "已导入校准码，登录并排一次本")
-set(MR_SHARED_TEXT_rejected "共享校准与本机流量对不上")
-set(MR_SHARED_TEXT_unavailable "没取到共享校准")
-set(MR_SHARED_TEXT_user-rejected "已按你的选择改为本机校准")
-set(MR_SHARED_TEXT_none-for-build "还没有人分享这个版本的校准")
+set(MR_SHARED_TEXT_imported-published "找到了共享校准，登录时会自动检查")
+set(MR_SHARED_TEXT_imported-unpublished "校准码已导入。登录后申请随机任务并进入副本")
+set(MR_SHARED_TEXT_rejected "这份共享校准不适用于你的游戏")
+set(MR_SHARED_TEXT_unavailable "暂时没能下载共享校准")
+set(MR_SHARED_TEXT_user-rejected "已改为本机校准")
+set(MR_SHARED_TEXT_none-for-build "暂时没有当前游戏版本的共享校准")
 set(MR_SHARED_TEXT_share "分享给其他玩家")
+# 共享档案已在本机完整记录过一次（plans/shared-calibration.md §20.6）：按钮改为告诉其他玩家它好用。
+set(MR_SHARED_TEXT_verified-proven "这份校准好用，告诉其他玩家")
 set(MR_SHARED_QML_TESTS)
-foreach(MR_SHARED_STATE fetching verifying consent verified verified-auditing imported-published
-                        imported-unpublished rejected unavailable user-rejected none-for-build share)
+foreach(MR_SHARED_STATE fetching verifying consent verified verified-auditing verified-proven
+                        imported-published imported-unpublished rejected unavailable user-rejected
+                        none-for-build share)
     add_test(NAME MentorRecorderQmlSharedCalibration_${MR_SHARED_STATE}
         COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
             --backend mock --mock-shared ${MR_SHARED_STATE}
@@ -609,6 +616,17 @@ add_test(NAME MentorRecorderQmlSharedCalibration_share_after_restart
         --verify-text "分享给其他玩家")
 list(APPEND MR_SHARED_QML_TESTS MentorRecorderQmlSharedCalibration_share_after_restart)
 
+# The same after a restart for a proven shared profile: the 协议档案 card carries the
+# longer button text beside its sentence.
+add_test(NAME MentorRecorderQmlSharedCalibration_verified_proven_after_restart
+    COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
+        --backend mock --mock-calibration idle --mock-shared verified-proven
+        --mock-live none --page 5 --theme dark
+        --screenshot "${CMAKE_CURRENT_BINARY_DIR}/shared-calibration-verified-proven-after-restart.png"
+        --screenshot-size 1280x900 --screenshot-delay 1200
+        --verify-text "这份校准好用，告诉其他玩家")
+list(APPEND MR_SHARED_QML_TESTS MentorRecorderQmlSharedCalibration_verified_proven_after_restart)
+
 add_test(NAME MentorRecorderDesktopRejectsSharedMockWithIpc
     COMMAND ${CMAKE_COMMAND}
         -DMR_COMMAND=$<TARGET_FILE:MentorRecorder.Desktop>
@@ -623,8 +641,8 @@ add_test(NAME MentorRecorderDesktopRejectsSharedMockWithIpc
 # alert-flow tests below.
 set(MR_SETTINGS_TEXT_general "游戏更新后获取其他玩家的共享校准")
 set(MR_SETTINGS_TEXT_tts "本地语音播报")
-set(MR_SETTINGS_TEXT_goal "修改后立即重算")
-set(MR_SETTINGS_TEXT_data "完整性校验")
+set(MR_SETTINGS_TEXT_goal "起始次数：")
+set(MR_SETTINGS_TEXT_data "检查数据")
 set(MR_SETTINGS_TEXT_about "版权与来源")
 set(MR_SETTINGS_QML_TESTS)
 foreach(MR_SETTINGS_TAB general tts goal data about)
@@ -695,7 +713,7 @@ add_test(NAME MentorRecorderDesktopSpeechSelfTestRejectsMissingFile
 set(MR_UPDATE_DOWNLOAD_ARGS_downloading --page 1)
 set(MR_UPDATE_DOWNLOAD_TEXT_downloading "已下载 45%（27.0 / 60.0 MB）")
 set(MR_UPDATE_DOWNLOAD_ARGS_verifying --page 1)
-set(MR_UPDATE_DOWNLOAD_TEXT_verifying "正在核对发布时公布的校验值")
+set(MR_UPDATE_DOWNLOAD_TEXT_verifying "正在校验安装包")
 set(MR_UPDATE_DOWNLOAD_ARGS_ready --page 6 --settings-tab general)
 set(MR_UPDATE_DOWNLOAD_TEXT_ready "立即安装")
 set(MR_UPDATE_DOWNLOAD_ARGS_failed --page 6 --settings-tab about)
@@ -752,7 +770,99 @@ foreach(MR_PERSONAL_THEME dark light)
     endforeach()
 endforeach()
 
+set(MR_RELEASE_NOTES_QML_TESTS)
+foreach(MR_NOTES_STYLE classic eorzea)
+    foreach(MR_NOTES_THEME dark light)
+        set(MR_NOTES_TEST MentorRecorderQmlReleaseNotes_${MR_NOTES_STYLE}_${MR_NOTES_THEME})
+        add_test(NAME ${MR_NOTES_TEST}
+            COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
+                --backend mock --mock-recording-state listening --mock-live none
+                --mock-ui-style ${MR_NOTES_STYLE} --theme ${MR_NOTES_THEME}
+                --show-release-notes --screenshot-size 1100x720 --screenshot-delay 900
+                --screenshot "${CMAKE_CURRENT_BINARY_DIR}/${MR_NOTES_TEST}.png"
+                --verify-text "本次更新" --verify-text "版本 ${MR_VERSION_FULL}")
+        list(APPEND MR_RELEASE_NOTES_QML_TESTS ${MR_NOTES_TEST})
+    endforeach()
+endforeach()
+
+# 界面语言: the compiled catalogues load (--ui-language) and the window shows
+# their text - the language card, the speech tab's 播报语言 row - and, in
+# English, a duty by its official English name (the record keeps the Chinese).
+set(MR_LANGUAGE_QML_TESTS)
+foreach(MR_LANG_CASE "en|en|Interface language|Announcement language"
+                     "ja|ja|表示言語|読み上げ言語"
+                     "zh-TW|zh_TW|介面語言|播報語言")
+    string(REPLACE "|" ";" MR_LANG_FIELDS "${MR_LANG_CASE}")
+    list(GET MR_LANG_FIELDS 0 MR_LANG_CODE)
+    list(GET MR_LANG_FIELDS 1 MR_LANG_NAME)
+    list(GET MR_LANG_FIELDS 2 MR_LANG_GENERAL_TEXT)
+    list(GET MR_LANG_FIELDS 3 MR_LANG_SPEECH_TEXT)
+    set(MR_LANG_TEST MentorRecorderQmlLanguage_${MR_LANG_NAME}_general)
+    add_test(NAME ${MR_LANG_TEST}
+        COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
+            --backend mock --mock-recording-state listening --mock-live none
+            --ui-language ${MR_LANG_CODE} --page 6 --settings-tab general
+            --screenshot-delay 900
+            --screenshot "${CMAKE_CURRENT_BINARY_DIR}/${MR_LANG_TEST}.png"
+            --verify-text "${MR_LANG_GENERAL_TEXT}" --verify-text "日本語")
+    list(APPEND MR_LANGUAGE_QML_TESTS ${MR_LANG_TEST})
+    set(MR_LANG_TEST MentorRecorderQmlLanguage_${MR_LANG_NAME}_speech)
+    add_test(NAME ${MR_LANG_TEST}
+        COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
+            --backend mock --mock-recording-state listening --mock-live none
+            --ui-language ${MR_LANG_CODE} --page 6 --settings-tab tts
+            --screenshot-delay 900
+            --screenshot "${CMAKE_CURRENT_BINARY_DIR}/${MR_LANG_TEST}.png"
+            --verify-text "${MR_LANG_SPEECH_TEXT}")
+    list(APPEND MR_LANGUAGE_QML_TESTS ${MR_LANG_TEST})
+endforeach()
+add_test(NAME MentorRecorderQmlLanguage_en_dutyName
+    COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
+        --backend mock --mock-recording-state listening --mock-live entered
+        --ui-language en --page 1 --screenshot-delay 900
+        --screenshot "${CMAKE_CURRENT_BINARY_DIR}/MentorRecorderQmlLanguage_en_dutyName.png"
+        --verify-text "Overview" --verify-text "Pharos Sirius")
+list(APPEND MR_LANGUAGE_QML_TESTS MentorRecorderQmlLanguage_en_dutyName)
+
+# The Collector's own sentences (contracts/collector-texts.md) in the interface
+# language: the mock backend sends them with their catalogue keys, exactly as
+# the Collector does, and the window must show the translation, not the Chinese.
+set(MR_COLLECTOR_TEXT_ARGS_midstream
+    --mock-midstream --mock-recording-state listening --page 5 --screenshot-size 1100x900)
+set(MR_COLLECTOR_TEXT_ARGS_blocked
+    --mock-calibration blocked --mock-live none --page 5 --screenshot-size 1280x900)
+set(MR_COLLECTOR_TEXT_ARGS_download
+    --mock-recording-state listening --mock-live none --mock-update-download failed
+    --page 6 --settings-tab about --screenshot-size 1280x800)
+set(MR_COLLECTOR_TEXT_en_midstream "but no valid data can be read")
+set(MR_COLLECTOR_TEXT_ja_midstream "有効なデータを読み取れない")
+set(MR_COLLECTOR_TEXT_zh_TW_midstream "一直讀不到有效資料")
+set(MR_COLLECTOR_TEXT_en_blocked "can't be recognized for this game version yet")
+set(MR_COLLECTOR_TEXT_ja_blocked "コンテンツへの出入りをまだ識別できません")
+set(MR_COLLECTOR_TEXT_zh_TW_blocked "還無法辨識目前遊戲版本的進出副本")
+set(MR_COLLECTOR_TEXT_en_download "The download made no progress for a long time")
+set(MR_COLLECTOR_TEXT_ja_download "ダウンロードが長時間進まない")
+set(MR_COLLECTOR_TEXT_zh_TW_download "下載長時間沒有進展")
+foreach(MR_LANG_CASE "en|en" "ja|ja" "zh-TW|zh_TW")
+    string(REPLACE "|" ";" MR_LANG_FIELDS "${MR_LANG_CASE}")
+    list(GET MR_LANG_FIELDS 0 MR_LANG_CODE)
+    list(GET MR_LANG_FIELDS 1 MR_LANG_NAME)
+    foreach(MR_COLLECTOR_TEXT_CASE midstream blocked download)
+        set(MR_LANG_TEST MentorRecorderQmlLanguage_${MR_LANG_NAME}_collector_${MR_COLLECTOR_TEXT_CASE})
+        add_test(NAME ${MR_LANG_TEST}
+            COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
+                --backend mock --theme dark --ui-language ${MR_LANG_CODE}
+                ${MR_COLLECTOR_TEXT_ARGS_${MR_COLLECTOR_TEXT_CASE}}
+                --screenshot-delay 1200
+                --screenshot "${CMAKE_CURRENT_BINARY_DIR}/${MR_LANG_TEST}.png"
+                --verify-text "${MR_COLLECTOR_TEXT_${MR_LANG_NAME}_${MR_COLLECTOR_TEXT_CASE}}")
+        list(APPEND MR_LANGUAGE_QML_TESTS ${MR_LANG_TEST})
+    endforeach()
+endforeach()
+
 set(MR_QML_TESTS
+    ${MR_LANGUAGE_QML_TESTS}
+    ${MR_RELEASE_NOTES_QML_TESTS}
     ${MR_PERSONAL_QML_TESTS}
     ${MR_SHARED_QML_TESTS}
     ${MR_SETTINGS_QML_TESTS}
@@ -814,9 +924,9 @@ endforeach()
 # 游戏未运行、但采集服务已从安装目录读出版本：捕获诊断页（第 5 页）的 链路 一行
 # 必须给出该版本的真实档案结论，而不是再让玩家等游戏启动。
 set(MR_CLOSED_GAME_TEXT_waiting-verified
-    "等待游戏启动 · 已安装版本的档案已就绪，启动游戏后会自动记录")
+    "等待游戏启动 · 已支持安装的游戏版本，启动后会自动记录")
 set(MR_CLOSED_GAME_TEXT_waiting-calibrating
-    "等待游戏启动 · 已安装的游戏版本还没有可用档案，启动游戏后需要重新校准")
+    "等待游戏启动 · 当前安装的游戏版本需要重新校准")
 foreach(MR_CLOSED_GAME_STATE waiting-verified waiting-calibrating)
     foreach(MR_CLOSED_GAME_THEME light dark)
         set(MR_CLOSED_GAME_TEST
@@ -833,14 +943,14 @@ foreach(MR_CLOSED_GAME_STATE waiting-verified waiting-calibrating)
     endforeach()
 endforeach()
 
-# 共享校准正在获取时，链路不另下「需要重新校准」的结论，而是指向上方的校准卡片。
+# 共享校准正在获取时，链路不另下「需要重新校准」的结论，而是指向下方的共享校准面板。
 add_test(NAME MentorRecorderQmlClosedGame_dark_shared-fetching
     COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
         --backend mock --mock-recording-state waiting-calibrating --mock-shared fetching
         --mock-live none --page 5 --theme dark
         --screenshot "${CMAKE_CURRENT_BINARY_DIR}/MentorRecorderQmlClosedGame_dark_shared-fetching.png"
         --screenshot-size 1280x900 --screenshot-delay 900
-        --verify-text "等待游戏启动 · 已安装的游戏版本还没有可用档案 · 见上方校准卡片")
+        --verify-text "等待游戏启动 · 请查看「共享校准」中的进度")
 list(APPEND MR_RECORDING_QML_TESTS MentorRecorderQmlClosedGame_dark_shared-fetching)
 
 # Regression: mock/screenshot preferences must never touch the user's Run key.
@@ -874,67 +984,6 @@ foreach(regression IN ITEMS ToggleSwitch ImportImageOrientation)
     mr_use_ascii_autogen_dir(MentorRecorder${regression}Tests)
     add_test(NAME MentorRecorder${regression} COMMAND MentorRecorder${regression}Tests)
 endforeach()
-set(MR_ALL_DESKTOP_TESTS
-    MentorRecorderDungeonComposition
-    MentorRecorderHistoryBatch
-    MentorRecorderAppSettingsIsolation
-    MentorRecorderToggleSwitch
-    MentorRecorderImportImageOrientation
-    MentorRecorderReflectionLibrary
-    MentorRecorderReflectionShare
-    MentorRecorderImportRecordsController
-    MentorRecorderScreenshotImportParser
-    MentorRecorderOfflineOcrEngine
-    MentorRecorderJobIconClassifier
-    MentorRecorderGameSelection
-    ${MR_RECORDING_QML_TESTS}
-    MentorRecorderAutomaticRecording
-    MentorRecorderDesktopTests
-    MentorRecorderCandidateReview
-    MentorRecorderIcons
-    MentorRecorderDateField
-    MentorRecorderTimeField
-    MentorRecorderStyledTextField
-    MentorRecorderStyledComboBox
-    MentorRecorderTtsService
-    MentorRecorderReflections
-    MentorRecorderWorkflowController
-    MentorRecorderRunFormValidator
-    MentorRecorderExportFailure
-    MentorRecorderUiWorkflowRegression
-    MentorRecorderEditRunDialogBinding
-    MentorRecorderReflectionDialogBinding
-    MentorRecorderCalibration
-    MentorRecorderSharedCalibration
-    MentorRecorderSharedCalibrationCard
-    MentorRecorderSpeech
-    MentorRecorderCapturePage
-    MentorRecorderMotion
-    MentorRecorderUpdateNotice
-    MentorRecorderUpdateInstall
-    MentorRecorderInstallerHold
-    MentorRecorderNoteImageStore
-    MentorRecorderSingleInstance
-    MentorRecorderShellDialog
-    MentorRecorderRunDetailPanel
-    MentorRecorderMockBackend
-    MentorRecorderRunListModel
-    MentorRecorderQmlWarningCounter
-    MentorRecorderIpcRequests
-    MentorRecorderLifecycle
-    MentorRecorderIpcIntegration
-    MentorRecorderDesktopRejectsInvalidBackend
-    MentorRecorderDesktopRejectsMockFlagsWithIpc
-    MentorRecorderDesktopRejectsValidationMockWithIpc
-    MentorRecorderDesktopRejectsCalibrationMockWithIpc
-    MentorRecorderDesktopRejectsSharedMockWithIpc
-    MentorRecorderDesktopRejectsSpeechMockWithIpc
-    MentorRecorderDesktopRejectsInvalidSpeechMock
-    MentorRecorderDesktopSpeechSelfTestRejectsMissingFile
-    MentorRecorderDesktopRejectsInvalidSettingsTab
-    MentorRecorderDesktopRejectsInvalidUpdateDownloadMock
-    ${MR_QML_TESTS})
-
 set(MR_VALIDATION_QML_TESTS
     MentorRecorderQmlMidstreamBanner
     MentorRecorderQmlPendingReviewBanner
@@ -947,10 +996,11 @@ set(MR_VALIDATION_QML_TESTS
     MentorRecorderQmlValidationDashboard
     MentorRecorderQmlValidationDashboardFormalRunning
     MentorRecorderQmlValidationKeyboard)
-list(APPEND MR_ALL_DESKTOP_TESTS ${MR_VALIDATION_QML_TESTS})
+# Derive the common runtime from registered tests so a new suite cannot miss it.
+get_property(MR_ALL_DESKTOP_TESTS DIRECTORY PROPERTY TESTS)
 
-set_tests_properties(${MR_ALL_DESKTOP_TESTS} PROPERTIES
-    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+set_property(TEST ${MR_ALL_DESKTOP_TESTS} APPEND PROPERTY ENVIRONMENT
+    "QT_QPA_PLATFORM=offscreen")
 
 # ---------------------------------------------------------------------------
 # Keep process-supervision tests away from the user's Collector and database.

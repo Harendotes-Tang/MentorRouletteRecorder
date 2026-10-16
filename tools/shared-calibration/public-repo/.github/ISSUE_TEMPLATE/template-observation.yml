@@ -1,0 +1,18 @@
+name: 新区服候选线索
+description: 提交无模板时的元数据采证摘要，自动归档候选草案与缺口。
+title: "[模板候选] "
+labels: [template-observation]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        仅接受软件预览的最小元数据摘要，不提交原始报文或个人数据。
+        候选线索不是正式协议；未知字段与通关语义保持未知。正式模板随软件发布，未完成前保持不支持。
+  - type: textarea
+    id: evidence
+    attributes:
+      label: 公开证据摘要
+      description: 从无模板采证预览复制完整 JSON。
+      render: json
+    validations:
+      required: true

@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.Data.Sqlite;
 using MentorRecorder.Collector.Contracts.Errors;
+using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Storage.Repositories;
 
 namespace MentorRecorder.Collector.Speech;
@@ -119,7 +120,7 @@ public static class SpeechSettingsStore
                 !SpeechValidation.TryNormalizeRegion(update.AzureRegion, out region))
             {
                 throw CollectorException.BadRequest(
-                    "Azure 区域只能是 2 到 32 个小写字母或数字，例如 eastasia。", "payload.azure_region");
+                    CollectorTexts.SpeechSettingsAzureRegionInvalid(), "payload.azure_region");
             }
 
             next = next with { AzureRegion = region };
@@ -133,7 +134,7 @@ public static class SpeechSettingsStore
                 if (!SpeechValidation.TryNormalizeBaseUrl(update.OpenAiBaseUrl, out var normalized, out _))
                 {
                     throw CollectorException.BadRequest(
-                        "接口地址必须以 https:// 开头（本机地址可用 http://），不能带用户名、密码、问号参数或 # 片段。",
+                        CollectorTexts.SpeechSettingsEndpointInvalid(),
                         "payload.openai_base_url");
                 }
 
@@ -149,7 +150,7 @@ public static class SpeechSettingsStore
             if (!string.IsNullOrEmpty(model) && !SpeechValidation.IsModel(model))
             {
                 throw CollectorException.BadRequest(
-                    "模型名只能包含字母、数字和 . _ : / -，最多 128 个字符。", "payload.openai_model");
+                    CollectorTexts.SpeechSettingsModelInvalid(), "payload.openai_model");
             }
 
             next = next with { OpenAiModel = string.IsNullOrEmpty(model) ? null : model };
@@ -161,7 +162,7 @@ public static class SpeechSettingsStore
             if (!string.IsNullOrEmpty(voice) && !SpeechValidation.IsVoice(SpeechProvider.OpenAiCompatible, voice))
             {
                 throw CollectorException.BadRequest(
-                    "音色名只能包含字母、数字和 . _ : / -，最多 128 个字符。", "payload.voice");
+                    CollectorTexts.SpeechSettingsVoiceInvalid(), "payload.voice");
             }
 
             next = next with { Voice = string.IsNullOrEmpty(voice) ? null : voice };
@@ -172,7 +173,7 @@ public static class SpeechSettingsStore
             (update.VoiceSpecified || update.Provider is not null))
         {
             throw CollectorException.BadRequest(
-                "Azure 音色名只能包含字母、数字和连字符，长度 3 到 64，例如 zh-CN-XiaoxiaoNeural。", "payload.voice");
+                CollectorTexts.SpeechSettingsAzureVoiceInvalid(), "payload.voice");
         }
 
         return next;

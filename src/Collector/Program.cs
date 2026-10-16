@@ -2,9 +2,13 @@ using System.Globalization;
 using System.Reflection;
 using System.Threading;
 using System.Text;
+using System.Text.Encodings.Web;
+using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.Json.Serialization.Metadata;
 using MentorRecorder.Collector.Contracts.Errors;
 using MentorRecorder.Collector.Capture;
+using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Diagnostics;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Ipc;
@@ -198,18 +202,18 @@ public static class Program
         }
         catch (UnresponsiveCollectorException ex)
         {
-            Console.Error.WriteLine($"{ErrorCodes.AlreadyRunning}: {ex.Message}");
+            WriteRefusal(Console.Error, $"{ErrorCodes.AlreadyRunning}: {ex.Message}", ex.Text);
             return ExitCodeAlreadyRunningUnresponsive;
         }
         catch (PipeHeldByAnotherAccountException ex)
         {
             // Nothing to reuse and nothing of ours to end: a refusal to start (audit 2026-10-03, OF-2).
-            Console.Error.WriteLine($"{ErrorCodes.AlreadyRunning}: {ex.Message}");
+            WriteRefusal(Console.Error, $"{ErrorCodes.AlreadyRunning}: {ex.Message}", ex.Text);
             return 3;
         }
         catch (CollectorException ex)
         {
-            Console.Error.WriteLine($"{ex.Code}: {ex.Message}");
+            WriteRefusal(Console.Error, $"{ex.Code}: {ex.Message}", ex.Text);
             return ex.Code == ErrorCodes.AlreadyRunning ? ExitCodeAlreadyRunning : 3;
         }
         catch (Microsoft.Data.Sqlite.SqliteException ex)
@@ -219,12 +223,12 @@ public static class Program
             // which tells a launcher nothing (audit 2026-10-03, OF-4).
             var refusal = SqliteDatabase.RefusalToOpen(
                 ex, Path.GetFullPath(options.DatabasePath ?? DatabasePaths.DefaultDatabasePath));
-            Console.Error.WriteLine($"{refusal.Code}: {refusal.Message}");
+            WriteRefusal(Console.Error, $"{refusal.Code}: {refusal.Message}", refusal.Text);
             return 3;
         }
         catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException)
         {
-            Console.Error.WriteLine("failed: " + ex.Message);
+            WriteRefusal(Console.Error, "failed: " + ex.Message, (ex as LogDirectoryUnwritableException)?.Text);
             return 3;
         }
         catch (TimeoutException ex)
@@ -235,6 +239,48 @@ public static class Program
             Console.Error.WriteLine("failed: " + ex.Message);
             return 3;
         }
+    }
+
+    /// <summary>The prefix of the stderr line that carries a refusal's catalogue reference.</summary>
+    public const string StartupTextPrefix = "MR-TEXT ";
+
+    private static readonly JsonSerializerOptions StartupTextJsonOptions = new()
+    {
+        WriteIndented = false,
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+        TypeInfoResolver = new DefaultJsonTypeInfoResolver(),
+    };
+
+    /// <summary>
+    /// Writes a refusal to start (contracts/collector-texts.md §2.2). The last line is the one every
+    /// Desktop reads, <c>ERR_XXX: 中文</c> or <c>failed: 中文</c>, exactly as before; when the sentence
+    /// comes from the catalogue it is preceded by <see cref="StartupTextLine"/>, so a Desktop that knows
+    /// the key can show it in its interface language.
+    /// </summary>
+    /// <param name="error">Standard error.</param>
+    /// <param name="lastLine">The refusal as every Desktop reads it.</param>
+    /// <param name="text">The sentence as a catalogue text, or null when it was worded outside the catalogue.</param>
+    internal static void WriteRefusal(TextWriter error, string lastLine, UserText? text)
+    {
+        ArgumentNullException.ThrowIfNull(error);
+        if (text is not null)
+        {
+            error.WriteLine(StartupTextLine(text));
+        }
+
+        error.WriteLine(lastLine);
+    }
+
+    /// <summary>
+    /// <see cref="StartupTextPrefix"/> and the <c>$defs/TextRef</c> of a sentence as compact JSON on one
+    /// line: control characters in an argument (a path, an operating-system message) are escaped, the
+    /// rest stays UTF-8.
+    /// </summary>
+    /// <param name="text">The refusal's sentence.</param>
+    internal static string StartupTextLine(UserText text)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        return StartupTextPrefix + text.ToJson().ToJsonString(StartupTextJsonOptions);
     }
 
     /// <summary>
@@ -617,9 +663,7 @@ public static class Program
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
             or NotSupportedException or ArgumentException)
         {
-            throw new IOException(
-                "无法写入日志目录，采集服务未启动。请检查 --log-dir 指向的位置是否存在、是否是文件、" +
-                "以及当前用户是否有写入权限。", ex);
+            throw new LogDirectoryUnwritableException(CollectorTexts.StartupLogDirUnwritable(), ex);
         }
     }
 
@@ -875,7 +919,7 @@ public static class Program
             logger.WriteError("startup", "serve_lease_failed", ex);
             throw new CollectorException(
                 ErrorCodes.Internal,
-                "无法建立 Collector 单实例锁，详情见本机日志。",
+                CollectorTexts.StartupLockFailed(),
                 inner: ex);
         }
     }
@@ -985,16 +1029,12 @@ public static class Program
         return holder switch
         {
             HolderAnswer.OtherAccount => new PipeHeldByAnotherAccountException(
-                "本机的通信管道已被另一个 Windows 账户（或以管理员身份运行）的程序占用，" +
-                "本软件不会连接它，采集服务因此无法启动。" +
-                "请先结束那个程序（例如在另一个账户中退出本软件）后重试。"),
+                CollectorTexts.StartupPipeOtherAccount()),
             HolderAnswer.Silent => new UnresponsiveCollectorException(
-                "本机已有一个 Collector 占用着通信管道，但它没有响应，无法复用。" +
-                "请在任务管理器中结束 MentorRecorder.Collector 后重试；" +
-                "它的进程号记录在日志目录下的 " + ServePidFileNameFor(pipeName) + "。"),
+                CollectorTexts.StartupCollectorUnresponsive(ServePidFileNameFor(pipeName))),
             _ => new CollectorException(
                 ErrorCodes.AlreadyRunning,
-                "Collector 已在本机运行。请复用现有实例，而不是再次启动。"),
+                CollectorTexts.StartupAlreadyRunning()),
         };
     }
 
@@ -1076,14 +1116,32 @@ public static class Program
     /// so <see cref="Main"/> can map it to <see cref="ExitCodeAlreadyRunningUnresponsive"/>
     /// without inspecting the message.
     /// </summary>
-    private sealed class UnresponsiveCollectorException(string message) : Exception(message);
+    private sealed class UnresponsiveCollectorException(UserText text) : Exception(text.Chinese)
+    {
+        /// <summary>The refusal as a catalogue text.</summary>
+        public UserText Text { get; } = text;
+    }
 
     /// <summary>
     /// The pipe name is held by a process of another account. Its own type so <see cref="Main"/>
     /// can map it to exit code 3 - nothing to reuse, nothing of ours to end - without inspecting
     /// the message.
     /// </summary>
-    private sealed class PipeHeldByAnotherAccountException(string message) : Exception(message);
+    private sealed class PipeHeldByAnotherAccountException(UserText text) : Exception(text.Chinese)
+    {
+        /// <summary>The refusal as a catalogue text.</summary>
+        public UserText Text { get; } = text;
+    }
+
+    /// <summary>
+    /// The log folder cannot be written. An <see cref="IOException"/>, so <see cref="Main"/> refuses with
+    /// <c>failed:</c> as it always did, carrying the sentence as a catalogue text.
+    /// </summary>
+    private sealed class LogDirectoryUnwritableException(UserText text, Exception inner) : IOException(text.Chinese, inner)
+    {
+        /// <summary>The refusal as a catalogue text.</summary>
+        public UserText Text { get; } = text;
+    }
 
     private static void PrintUsage() =>
         Console.Error.WriteLine(

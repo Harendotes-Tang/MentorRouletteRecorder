@@ -5,11 +5,12 @@
     python tools/shared-calibration/generate_index_sample.py --check   exit 1 when they differ
 
 The sample is a small repository state built only through ``index.add_submission`` and ``index.revoke``,
-with the conflict marks ``index.update_conflicts`` recomputes after each of them - the functions the
-public repository's Action publishes with - and never written by hand:
+with the marks (``conflicting``, ``shape_prior``) ``index.refresh_marks`` recomputes after each of them -
+the functions the public repository's Action publishes with - and never written by hand:
 
   tests/Fixtures/shared-calibration/index-sample.json            the index, as index.dump writes it
-  tests/Fixtures/shared-calibration/index-sample.expected.json   what index.select / revoked_codes pick per build
+  tests/Fixtures/shared-calibration/index-sample.expected.json   what index.select / revoked_codes pick per build,
+                                                                 with each pick's two marks
   tests/Fixtures/shared-calibration/index-sample-codes/<path>    every published code file
 
 tests/Collector.UnitTests/SharedCalibrationPublicRepoSampleTests.cs feeds these to the released
@@ -58,14 +59,35 @@ SCENARIO = (
     # The steps run in this order, not by time; the ones after this keep their earlier hours.
     ("CN", BUILD_B, 0, 1000, 222, repo_index.PUBLISHED),
     ("GLOBAL", BUILD_A, 1, 1001, 31, repo_index.PUBLISHED),
-    # Codes 5 and 1 share a match source and template, so both are marked conflicting (plan section 18.6);
-    # code 2 is the only one of its kind and stays unmarked. Code 5 then gains a second submitter: the
-    # client picks it first, then the unmarked code 2, then code 1, published before code 2.
+    # Codes 5 and 1 share a match source and template and disagree on every field. Code 2 is the only
+    # MARKER_OFFSET code, so the section-18.6 rule left it unmarked, but its zone differs from both, so
+    # the field-level rule marks it as well. Code 5 then gains a second submitter: the client picks it
+    # first, then code 1 and code 2 in the order they were published.
     ("GLOBAL", BUILD_A, 5, 3001, 32, repo_index.PUBLISHED),
     ("GLOBAL", BUILD_A, 5, 3002, 33, repo_index.ADDED),
     ("GLOBAL", BUILD_A, 2, 3003, 34, repo_index.PUBLISHED),
+    # Listed last so that every earlier code keeps the commit it had before plan section 20.3 added these.
+    # Build B's other codes (VARIANTS) agree on zone, territory and job, and build A is the build before it
+    # (plan section 20.3). 21 and 22 are both MARKER_OFFSET with another pop, so both are conflicting; 22
+    # has build A's MARKER_OFFSET shape (shape_prior true), 21 does not (false). 23 has build A's
+    # ANNOUNCEMENT shape and no rival (true, unmarked); 20 is QUEUE_REQUEST, which has no shape (absent).
+    # Code 0, revoked below, disputed every one of them on the zone until then. The client picks 23, then
+    # 20 (unmarked beats the prior), then 22 before 21 (the prior beats the earlier publication).
+    ("CN", BUILD_B, 20, 5020, 223, repo_index.PUBLISHED),
+    ("CN", BUILD_B, 21, 5021, 224, repo_index.PUBLISHED),
+    ("CN", BUILD_B, 22, 5022, 225, repo_index.PUBLISHED),
+    ("CN", BUILD_B, 23, 5023, 226, repo_index.PUBLISHED),
 )
 REVOKED = (("CN", BUILD_A, 4), ("CN", BUILD_B, 0))
+
+# Build B's codes after code 0: (match source, pop), all with VARIANT_FIELDS, so they differ only in the match.
+VARIANT_FIELDS = {"zone_opcode": 1100, "territory_opcode": 3100, "job_opcode": 4100}
+VARIANTS = {
+    20: ("QUEUE_REQUEST", {"opcode": 2020}),
+    21: ("MARKER_OFFSET", {"opcode": 2021, "length": 40, "roulette_offset": 8}),
+    22: ("MARKER_OFFSET", {"opcode": 2022, "length": 24, "roulette_offset": 8}),
+    23: ("ANNOUNCEMENT", {"opcode": 2023, "length": 40}),
+}
 
 
 class SampleError(Exception):
@@ -73,7 +95,16 @@ class SampleError(Exception):
 
 
 def payload_for(template: rebuild.Template, region: str, build: str, number: int) -> dict:
-    """A distinct, structurally valid payload per number, cycling through the four match sources."""
+    """A distinct, structurally valid payload per number: VARIANTS as listed, the rest cycling the match sources.
+
+    Outside VARIANTS every number has its own zone, territory and job, so two of them always disagree.
+    """
+    if number in VARIANTS:
+        source, pop = VARIANTS[number]
+        return {
+            "v": 1, "region": region, "game_build": build, "template_profile_id": template.profile_id,
+            "template_sha256": template.sha256, "match_source": source, "pop": dict(pop), **VARIANT_FIELDS,
+        }
     source = sharecode.MATCH_SOURCES[number % len(sharecode.MATCH_SOURCES)]
     pop = {"opcode": 2000 + number}
     if source == "REPLY_STATE":
@@ -100,7 +131,7 @@ def build_state() -> tuple:
     template = rebuild.load_template(TEMPLATE.read_bytes(), TEMPLATE.name)
     state = repo_index.empty_index()
     codes = {}
-    # The checkout update_conflicts reads the code files from, as publish.py's update-index and revoke do.
+    # The checkout refresh_marks reads the code files from, as publish.py's update-index and revoke do.
     with tempfile.TemporaryDirectory() as checkout:
         root = Path(checkout)
         for region, build, number, account, hours, expected in SCENARIO:
@@ -119,16 +150,26 @@ def build_state() -> tuple:
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes(code.encode("ascii"))
             if outcome.index is not None:
-                state = repo_index.update_conflicts(outcome.index, root, region, build, log=_missing_code_file)
+                state = repo_index.refresh_marks(outcome.index, root, region, build, log=_missing_code_file)
         for region, build, number in REVOKED:
             revoked = repo_index.revoke(state, sharecode.code_sha256(payload_for(template, region, build, number)))
-            state = repo_index.update_conflicts(revoked, root, region, build, log=_missing_code_file)
+            state = repo_index.refresh_marks(revoked, root, region, build, log=_missing_code_file)
     return state, codes
 
 
 def _missing_code_file(message: str) -> None:
-    """update_conflicts skips a code it cannot read; in the sample every code file is written, so that is a bug."""
+    """refresh_marks skips a code it cannot read; in the sample every code file is written, so that is a bug."""
     raise SampleError(message)
+
+
+def _pick(entry: dict) -> dict:
+    """One pick as the expected file lists it: what the client reads, then the two marks (null when absent)."""
+    pick = {name: entry[name] for name in ("code_sha256", "submitters", "commit", "path")}
+    # Keep the original compatibility sample byte-for-byte; new optional hints are represented only
+    # when explicitly present and have their own evidence-intake regression fixtures.
+    pick.update((name, entry.get(name)) for name in repo_index.OPTIONAL_FIELDS
+                if name in ("conflicting", "shape_prior") or name in entry)
+    return pick
 
 
 def _expected(state: repo_index.Index) -> dict:
@@ -138,12 +179,13 @@ def _expected(state: repo_index.Index) -> dict:
         builds.append({
             "region": region,
             "game_build": build,
-            "picks": [{name: entry[name] for name in ("code_sha256", "submitters", "commit", "path")} for entry in picks],
+            "picks": [_pick(entry) for entry in picks],
             "revoked": list(repo_index.revoked_codes(state.entries, region, build)),
         })
     return {
         "$comment": "Generated by tools/shared-calibration/generate_index_sample.py (index.select and "
-                    "index.revoked_codes over index-sample.json). Do not edit; regenerate.",
+                    "index.revoked_codes over index-sample.json; conflicting and shape_prior are null when "
+                    "the entry does not carry them). Do not edit; regenerate.",
         "entries": len(state.entries),
         "builds": builds,
     }

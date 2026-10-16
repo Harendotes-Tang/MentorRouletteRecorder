@@ -1,6 +1,10 @@
 #include "Formatters.h"
 
+#include "CollectorText.h"
+#include "GameNames.h"
+
 #include <QDateTime>
+#include <QJSValue>
 #include <QDir>
 #include <QHash>
 #include <QLocale>
@@ -54,13 +58,15 @@ QString Formatters::dateWithWeekday(const QVariant &utcIso)
     const QDateTime dt = parse(utcIso);
     if (!dt.isValid())
         return dash();
-    static const char *kWeekdays[] = {
-        "周一", "周二", "周三", "周四",
-        "周五", "周六", "周日"
+    // Translated at the point of use, so the weekday follows the interface
+    // language while the date itself stays yyyy-MM-dd in every language.
+    static const char *const kWeekdays[] = {
+        QT_TR_NOOP("周一"), QT_TR_NOOP("周二"), QT_TR_NOOP("周三"), QT_TR_NOOP("周四"),
+        QT_TR_NOOP("周五"), QT_TR_NOOP("周六"), QT_TR_NOOP("周日")
     };
     const int index = dt.date().dayOfWeek() - 1; // 1..7 -> 0..6
     const QString weekday = (index >= 0 && index < 7)
-                                ? QString::fromUtf8(kWeekdays[index])
+                                ? tr(kWeekdays[index])
                                 : QString();
     return dt.toString(QStringLiteral("yyyy-MM-dd")) + QLatin1Char(' ') + weekday;
 }
@@ -146,12 +152,12 @@ QString Formatters::npcapVersionLabel(const QVariant &version)
 
 QString Formatters::resultLabel(const QString &code)
 {
-    if (code == QLatin1String("COMPLETED"))              return QString::fromUtf8("通关");
-    if (code == QLatin1String("LEFT_OR_ABANDONED"))      return QString::fromUtf8("退出/放弃");
-    if (code == QLatin1String("CANCELLED_BEFORE_ENTRY")) return QString::fromUtf8("进本前取消");
-    if (code == QLatin1String("DISCONNECTED"))           return QString::fromUtf8("断线");
-    if (code == QLatin1String("INTERRUPTED"))            return QString::fromUtf8("中断");
-    return QString::fromUtf8("未知");
+    if (code == QLatin1String("COMPLETED"))              return tr("通关");
+    if (code == QLatin1String("LEFT_OR_ABANDONED"))      return tr("退出/放弃");
+    if (code == QLatin1String("CANCELLED_BEFORE_ENTRY")) return tr("进本前取消");
+    if (code == QLatin1String("DISCONNECTED"))           return tr("断线");
+    if (code == QLatin1String("INTERRUPTED"))            return tr("中断");
+    return tr("未知");
 }
 
 bool Formatters::runInProgress(const QVariantMap &run)
@@ -169,7 +175,7 @@ bool Formatters::runInProgress(const QVariantMap &run)
 QString Formatters::runResultLabel(const QVariantMap &run)
 {
     if (runInProgress(run))
-        return QString::fromUtf8("进行中");
+        return tr("进行中");
     return resultLabel(run.value(QStringLiteral("result"), QStringLiteral("UNKNOWN")).toString());
 }
 
@@ -193,18 +199,18 @@ QString Formatters::resultTagVariant(const QString &code)
 
 QString Formatters::sourceLabel(const QString &code)
 {
-    if (code == QLatin1String("MANUAL")) return QString::fromUtf8("手动");
-    if (code == QLatin1String("IMPORT")) return QString::fromUtf8("导入");
-    return QString::fromUtf8("自动");
+    if (code == QLatin1String("MANUAL")) return tr("手动");
+    if (code == QLatin1String("IMPORT")) return tr("导入");
+    return tr("自动");
 }
 
 QString Formatters::stateLabel(const QString &code)
 {
-    if (code == QLatin1String("IDLE"))           return QString::fromUtf8("空闲 · 等待匹配");
-    if (code == QLatin1String("MENTOR_MATCHED")) return QString::fromUtf8("已匹配导随");
-    if (code == QLatin1String("ENTERED_DUTY"))   return QString::fromUtf8("已进入副本");
+    if (code == QLatin1String("IDLE"))           return tr("空闲 · 等待匹配");
+    if (code == QLatin1String("MENTOR_MATCHED")) return tr("已匹配导随");
+    if (code == QLatin1String("ENTERED_DUTY"))   return tr("已进入副本");
     if (code == QLatin1String("INTERRUPTED_PENDING_REVIEW"))
-        return QString::fromUtf8("中断 · 待复核");
+        return tr("中断 · 待复核");
     // The final states share the RunResult vocabulary; UNKNOWN_FINAL_STATE and
     // anything newer read 未知 rather than the raw token.
     return resultLabel(code);
@@ -213,26 +219,26 @@ QString Formatters::stateLabel(const QString &code)
 QString Formatters::runConfidenceLabel(const QVariantMap &run)
 {
     if (runInProgress(run))
-        return QString::fromUtf8("结束时评定");
+        return tr("结束时评定");
     return confidenceLabel(run.value(QStringLiteral("detection_confidence")).toString());
 }
 
 QString Formatters::confidenceLabel(const QString &code)
 {
     if (code.isEmpty())                  return dash();
-    if (code == QLatin1String("HIGH"))   return QString::fromUtf8("高");
-    if (code == QLatin1String("MEDIUM")) return QString::fromUtf8("中");
-    if (code == QLatin1String("LOW"))    return QString::fromUtf8("低");
-    if (code == QLatin1String("NONE"))   return QString::fromUtf8("无");
-    return QString::fromUtf8("未知");
+    if (code == QLatin1String("HIGH"))   return tr("高");
+    if (code == QLatin1String("MEDIUM")) return tr("中");
+    if (code == QLatin1String("LOW"))    return tr("低");
+    if (code == QLatin1String("NONE"))   return tr("无");
+    return tr("未知");
 }
 
 QString Formatters::roleLabel(const QString &code)
 {
-    if (code == QLatin1String("TANK"))   return QString::fromUtf8("坦克");
-    if (code == QLatin1String("HEALER")) return QString::fromUtf8("治疗");
-    if (code == QLatin1String("DPS"))    return QString::fromUtf8("输出");
-    return QString::fromUtf8("未知");
+    if (code == QLatin1String("TANK"))   return tr("坦克");
+    if (code == QLatin1String("HEALER")) return tr("治疗");
+    if (code == QLatin1String("DPS"))    return tr("输出");
+    return tr("未知");
 }
 
 QString Formatters::roleColorToken(const QString &code)
@@ -247,32 +253,34 @@ namespace {
 /// The capture failures a player can actually do something about. Anything
 /// missing from this table is deliberately answered with a generic sentence
 /// rather than with the raw token: an ERR_ code is not an instruction.
-const QHash<QString, QString> &captureErrorTable()
+// Source texts only: Formatters::tr() translates them where they are read, so the
+// sentence follows the interface language.
+const QHash<QString, const char *> &captureErrorTable()
 {
-    static const QHash<QString, QString> kTable{
+    static const QHash<QString, const char *> kTable{
         {QStringLiteral("UNAVAILABLE"),
-         QString::fromUtf8("本机当前不具备开始监听的条件（通常是缺少 Npcap 驱动或网卡不可用）。")},
+         QT_TRANSLATE_NOOP("mr::Formatters", "自动记录暂时无法启动，请检查 Npcap 驱动和网卡是否正常。")},
         {QStringLiteral("ERR_NPCAP_MISSING"),
-         QString::fromUtf8("没有检测到 Npcap 驱动，装好之后回到捕获诊断页点“重新检测”。")},
+         QT_TRANSLATE_NOOP("mr::Formatters", "没有检测到 Npcap 驱动，装好之后回到捕获诊断页点“重新检测”。")},
         {QStringLiteral("ERR_FFXIV_NOT_RUNNING"),
-         QString::fromUtf8("没有检测到正在运行的游戏。")},
+         QT_TRANSLATE_NOOP("mr::Formatters", "没有检测到正在运行的游戏。")},
         {QStringLiteral("ERR_CAPTURE_ALREADY_RUNNING"),
-         QString::fromUtf8("已经有一路监听在跑，先停下再重新开始。")},
+         QT_TRANSLATE_NOOP("mr::Formatters", "游戏数据正在读取中，请先停止，再重新开始。")},
         {QStringLiteral("ERR_CAPTURE_NOT_RUNNING"),
-         QString::fromUtf8("监听没有在运行。")},
+         QT_TRANSLATE_NOOP("mr::Formatters", "监听没有在运行。")},
         {QStringLiteral("ERR_PROFILE_UNSUPPORTED"),
-         QString::fromUtf8("当前游戏版本还没有可用的协议档案。")},
+         QT_TRANSLATE_NOOP("mr::Formatters", "当前游戏版本暂不支持自动记录。")},
         {QStringLiteral("ERR_DB_BUSY"),
-         QString::fromUtf8("本地数据库正忙，稍等一下会自动重试。")},
+         QT_TRANSLATE_NOOP("mr::Formatters", "记录数据库正在使用中，软件会自动重试，请稍候。")},
         // 采集服务在启动时遇到这个码就拒绝启动，管道从不打开，这句话因而到不了界面；
         // 留着是为了防御，措辞必须仍然属实：此时设置里的备份也用不了，只能自己去复制
         // 数据库文件（审查 2026-09-21 第 15 条）。
         {QStringLiteral("ERR_DB_INTEGRITY"),
-         QString::fromUtf8("本地数据库校验没通过，采集服务无法启动。请先把数据库文件复制一份留底，再排查问题。")},
+         QT_TRANSLATE_NOOP("mr::Formatters", "记录数据库可能已损坏，后台服务无法启动。请先复制数据库文件保留一份，再联系维护者排查。")},
         // Also the answer to a capture start that failed for a reason other than
         // Npcap (review OA-7), so it must not claim a capture that never began.
         {QStringLiteral("ERR_INTERNAL"),
-         QString::fromUtf8("采集服务内部出错，本次监听没能开始或已经中止。")},
+         QT_TRANSLATE_NOOP("mr::Formatters", "自动记录服务出现错误，本次记录未开始或已经停止。")},
     };
     return kTable;
 }
@@ -285,8 +293,8 @@ bool Formatters::captureErrorKnown(const QString &code)
 
 QString Formatters::captureErrorLabel(const QString &code)
 {
-    return captureErrorTable().value(
-        code, QString::fromUtf8("采集服务报告了一个本版本还不认识的问题。"));
+    const char *source = captureErrorTable().value(code);
+    return source ? tr(source) : tr("自动记录服务遇到了暂时无法识别的问题，请导出诊断报告。");
 }
 
 QString Formatters::eventKindLabel(const QString &code)
@@ -298,33 +306,35 @@ QString Formatters::eventKindLabel(const QString &code)
     // CONTENT_FINDER_POP stands for, so it is named apart from it. Without a name
     // of its own the capture page would show the time alone (2026-09-21 audit,
     // finding 20).
-    static const QHash<QString, QString> kLabels{
-        {QStringLiteral("CONTENT_FINDER_POP"), QString::fromUtf8("匹配成功")},
-        {QStringLiteral("ZONE_INITIALIZATION"), QString::fromUtf8("进入区域")},
-        {QStringLiteral("ZONE_TERRITORY"), QString::fromUtf8("识别所在区域")},
-        {QStringLiteral("DUTY_RESULT"), QString::fromUtf8("副本结算")},
-        {QStringLiteral("PLAYER_JOB"), QString::fromUtf8("识别职业")},
-        {QStringLiteral("ZONE_LEFT"), QString::fromUtf8("离开副本区域")},
-        {QStringLiteral("INSTANCE_LEFT"), QString::fromUtf8("退出副本")},
-        {QStringLiteral("MATCH_CANCELLED"), QString::fromUtf8("匹配取消")},
-        {QStringLiteral("MATCH_ANNOUNCED"), QString::fromUtf8("匹配成功通知")},
+    static const QHash<QString, const char *> kLabels{
+        {QStringLiteral("CONTENT_FINDER_POP"), QT_TR_NOOP("匹配成功")},
+        {QStringLiteral("ZONE_INITIALIZATION"), QT_TR_NOOP("进入区域")},
+        {QStringLiteral("ZONE_TERRITORY"), QT_TR_NOOP("识别所在区域")},
+        {QStringLiteral("DUTY_RESULT"), QT_TR_NOOP("副本结算")},
+        {QStringLiteral("PLAYER_JOB"), QT_TR_NOOP("识别职业")},
+        {QStringLiteral("ZONE_LEFT"), QT_TR_NOOP("离开副本区域")},
+        {QStringLiteral("INSTANCE_LEFT"), QT_TR_NOOP("退出副本")},
+        {QStringLiteral("MATCH_CANCELLED"), QT_TR_NOOP("匹配取消")},
+        {QStringLiteral("MATCH_ANNOUNCED"), QT_TR_NOOP("匹配成功通知")},
     };
-    return kLabels.value(code);
+    const char *source = kLabels.value(code);
+    return source ? tr(source) : QString();
 }
 
 QString Formatters::parserErrorLabel(const QString &code)
 {
     // ipc-v1 $defs/ParserErrorEntry.code. Every refusal ends the same way for
     // the player: the message is dropped and nothing is recorded from it.
-    static const QHash<QString, QString> kLabels{
-        {QStringLiteral("E_UNKNOWN_OPCODE"), QString::fromUtf8("档案里没有这种报文，已忽略")},
-        {QStringLiteral("E_LEN_MISMATCH"), QString::fromUtf8("报文长度与档案不符，已忽略")},
-        {QStringLiteral("E_OFFSET_OOB"), QString::fromUtf8("字段位置超出报文范围，已忽略")},
-        {QStringLiteral("E_FIELD_CONSTRAINT"), QString::fromUtf8("字段取值超出档案允许的范围，已忽略")},
-        {QStringLiteral("E_PROFILE_UNSUPPORTED"), QString::fromUtf8("当前游戏版本没有可用档案，未解析")},
-        {QStringLiteral("E_INTERNAL"), QString::fromUtf8("解析时出现内部错误，已忽略")},
+    static const QHash<QString, const char *> kLabels{
+        {QStringLiteral("E_UNKNOWN_OPCODE"), QT_TR_NOOP("暂时无法识别这条游戏数据，已跳过")},
+        {QStringLiteral("E_LEN_MISMATCH"), QT_TR_NOOP("游戏数据的格式不符合预期，已跳过")},
+        {QStringLiteral("E_OFFSET_OOB"), QT_TR_NOOP("这条游戏数据不完整，已跳过")},
+        {QStringLiteral("E_FIELD_CONSTRAINT"), QT_TR_NOOP("这条游戏数据的内容不符合预期，已跳过")},
+        {QStringLiteral("E_PROFILE_UNSUPPORTED"), QT_TR_NOOP("当前游戏版本暂不支持，未读取")},
+        {QStringLiteral("E_INTERNAL"), QT_TR_NOOP("读取这条游戏数据时出错，已跳过")},
     };
-    return kLabels.value(code, QString::fromUtf8("这条游戏数据没能解析，已忽略"));
+    const char *source = kLabels.value(code);
+    return source ? tr(source) : tr("这条游戏数据没能解析，已忽略");
 }
 
 QString Formatters::foldUserPath(const QString &path)
@@ -351,37 +361,37 @@ QString Formatters::foldUserPath(const QString &path)
 
 QString Formatters::fieldLabel(const QString &field)
 {
-    static const QHash<QString, QString> kLabels{
-        {QStringLiteral("result"), QString::fromUtf8("结果")},
-        {QStringLiteral("duty_name"), QString::fromUtf8("副本")},
-        {QStringLiteral("duty_category"), QString::fromUtf8("类型")},
-        {QStringLiteral("content_id"), QStringLiteral("content_id")},
-        {QStringLiteral("job_id"), QString::fromUtf8("职业")},
-        {QStringLiteral("job_name"), QString::fromUtf8("职业")},
-        {QStringLiteral("role"), QString::fromUtf8("职能")},
-        {QStringLiteral("detection_confidence"), QString::fromUtf8("检测置信")},
-        {QStringLiteral("source"), QString::fromUtf8("来源")},
-        {QStringLiteral("matched_at_utc"), QString::fromUtf8("匹配时间")},
-        {QStringLiteral("entered_at_utc"), QString::fromUtf8("进本时间")},
-        {QStringLiteral("ended_at_utc"), QString::fromUtf8("结束时间")},
-        {QStringLiteral("duration_ms"), QString::fromUtf8("耗时")},
-        {QStringLiteral("contributes_to_goal"), QString::fromUtf8("计入进度")},
-        {QStringLiteral("note"), QString::fromUtf8("备注")},
-        {QStringLiteral("soft_deleted"), QString::fromUtf8("软删除")},
-        {QStringLiteral("pending_review"), QString::fromUtf8("待复核")},
+    static const QHash<QString, const char *> kLabels{
+        {QStringLiteral("result"), QT_TR_NOOP("结果")},
+        {QStringLiteral("duty_name"), QT_TR_NOOP("副本")},
+        {QStringLiteral("duty_category"), QT_TR_NOOP("类型")},
+        {QStringLiteral("job_id"), QT_TR_NOOP("职业")},
+        {QStringLiteral("job_name"), QT_TR_NOOP("职业")},
+        {QStringLiteral("role"), QT_TR_NOOP("职能")},
+        {QStringLiteral("detection_confidence"), QT_TR_NOOP("识别可信度")},
+        {QStringLiteral("source"), QT_TR_NOOP("来源")},
+        {QStringLiteral("matched_at_utc"), QT_TR_NOOP("匹配时间")},
+        {QStringLiteral("entered_at_utc"), QT_TR_NOOP("进本时间")},
+        {QStringLiteral("ended_at_utc"), QT_TR_NOOP("结束时间")},
+        {QStringLiteral("duration_ms"), QT_TR_NOOP("耗时")},
+        {QStringLiteral("contributes_to_goal"), QT_TR_NOOP("计入进度")},
+        {QStringLiteral("note"), QT_TR_NOOP("备注")},
+        {QStringLiteral("soft_deleted"), QT_TR_NOOP("删除状态")},
+        {QStringLiteral("pending_review"), QT_TR_NOOP("待复核")},
     };
-    return kLabels.value(field, field);
+    const char *source = kLabels.value(field);
+    return source ? tr(source) : field;
 }
 
 QString Formatters::revisionValue(const QVariant &value)
 {
     if (!value.isValid() || value.isNull())
-        return QString::fromUtf8("空");
+        return tr("空");
     if (value.typeId() == QMetaType::Bool)
-        return value.toBool() ? QString::fromUtf8("是") : QString::fromUtf8("否");
+        return value.toBool() ? tr("是") : tr("否");
     const QString text = value.toString();
     if (text.isEmpty())
-        return QString::fromUtf8("空");
+        return tr("空");
     // Timestamps are stored as UTC ISO-8601 and read in local time everywhere
     // else in this UI; the audit trail must not be the one exception.
     if (text.size() >= 20 && text.contains(QLatin1Char('T'))
@@ -426,27 +436,44 @@ QString Formatters::revisionFieldValue(const QString &field, const QVariant &val
         return confidenceLabel(value.toString());
     if (field == QLatin1String("duration_ms"))
         return duration(value);
+    // Game names are recorded in Chinese; the log shows them in the interface
+    // language, found by that recorded name. The Collector's placeholders for
+    // an unknown duty / job (DutyCatalog.UnknownDutyName, JobCatalog.UnknownJobName)
+    // are this program's words.
+    if (field == QLatin1String("duty_name")) {
+        const QString name = value.toString();
+        return name == QString::fromUtf8("未知副本") ? tr("未知副本")
+                                                     : GameNames::shared()->duty(QVariant(), name);
+    }
+    if (field == QLatin1String("job_name")) {
+        const QString name = value.toString();
+        return name == QString::fromUtf8("未知") ? tr("未知")
+                                                 : GameNames::shared()->job(QVariant(), name);
+    }
+    if (field == QLatin1String("duty_category"))
+        return GameNames::shared()->category(value.toString());
     return revisionValue(value);
 }
 
 QString Formatters::changeKindLabel(const QString &code)
 {
     // $defs/RunRevision.change_kind. An undo is written as a CORRECT revision.
-    static const QHash<QString, QString> kLabels{
-        {QStringLiteral("CREATE_AUTO"), QString::fromUtf8("自动记录")},
-        {QStringLiteral("CREATE_MANUAL"), QString::fromUtf8("手动新增")},
-        {QStringLiteral("CORRECT"), QString::fromUtf8("修正")},
-        {QStringLiteral("SOFT_DELETE"), QString::fromUtf8("软删除")},
-        {QStringLiteral("RESTORE"), QString::fromUtf8("恢复")},
-        {QStringLiteral("IMPORT"), QString::fromUtf8("导入")},
+    static const QHash<QString, const char *> kLabels{
+        {QStringLiteral("CREATE_AUTO"), QT_TR_NOOP("自动记录")},
+        {QStringLiteral("CREATE_MANUAL"), QT_TR_NOOP("手动新增")},
+        {QStringLiteral("CORRECT"), QT_TR_NOOP("修正")},
+        {QStringLiteral("SOFT_DELETE"), QT_TR_NOOP("删除记录")},
+        {QStringLiteral("RESTORE"), QT_TR_NOOP("恢复")},
+        {QStringLiteral("IMPORT"), QT_TR_NOOP("导入")},
     };
-    return kLabels.value(code, QString::fromUtf8("修改"));
+    const char *source = kLabels.value(code);
+    return source ? tr(source) : tr("修改");
 }
 
 QString Formatters::revisionActorLabel(const QString &code)
 {
-    return code == QLatin1String("SYSTEM") ? QString::fromUtf8("软件自动")
-                                           : QString::fromUtf8("用户操作");
+    return code == QLatin1String("SYSTEM") ? tr("软件自动")
+                                           : tr("用户操作");
 }
 
 QString Formatters::runEventLabel(const QString &code)
@@ -457,25 +484,36 @@ QString Formatters::runEventLabel(const QString &code)
     const QString shared = eventKindLabel(code);
     if (!shared.isEmpty())
         return shared;
-    static const QHash<QString, QString> kLabels{
-        {QStringLiteral("CONNECTION_LOST"), QString::fromUtf8("游戏连接中断")},
-        {QStringLiteral("CAPTURE_STOPPED"), QString::fromUtf8("监听停止")},
-        {QStringLiteral("EVENT_SEQUENCE_GAP"), QString::fromUtf8("部分游戏数据来不及处理")},
-        {QStringLiteral("TIMEOUT_TICK"), QString::fromUtf8("等待超时")},
-        {QStringLiteral("PROCESS_RESTART"), QString::fromUtf8("软件重启后收尾")},
-        {QStringLiteral("PROFILE_LOST"), QString::fromUtf8("协议档案不再可用")},
+    static const QHash<QString, const char *> kLabels{
+        {QStringLiteral("CONNECTION_LOST"), QT_TR_NOOP("游戏连接中断")},
+        {QStringLiteral("CAPTURE_STOPPED"), QT_TR_NOOP("监听停止")},
+        {QStringLiteral("EVENT_SEQUENCE_GAP"), QT_TR_NOOP("部分游戏数据来不及处理")},
+        {QStringLiteral("TIMEOUT_TICK"), QT_TR_NOOP("等待超时")},
+        {QStringLiteral("PROCESS_RESTART"), QT_TR_NOOP("软件重启后收尾")},
+        {QStringLiteral("PROFILE_LOST"), QT_TR_NOOP("当前游戏版本的支持文件已失效")},
     };
-    return kLabels.value(code, QString::fromUtf8("其他事件"));
+    const char *source = kLabels.value(code);
+    return source ? tr(source) : tr("其他事件");
 }
 
 QString Formatters::oodleModeLabel(const QString &code)
 {
     // ICaptureSource.OodleMode, sent by name (CaptureWire / CaptureDiagnostics).
     if (code == QLatin1String("FfxivTcp"))
-        return QString::fromUtf8("游戏自带的解压函数");
+        return tr("游戏自带的解压函数");
     if (code == QLatin1String("LibraryTcp"))
-        return QString::fromUtf8("用户提供的解压库");
-    return code.isEmpty() ? dash() : QString::fromUtf8("未知方式");
+        return tr("用户提供的解压库");
+    return code.isEmpty() ? dash() : tr("未知方式");
+}
+
+QString Formatters::collectorText(const QVariant &ref, const QString &chinese)
+{
+    // A reference read from a QML property can arrive as a JavaScript object:
+    // the renderer reads plain maps, nested ones included.
+    if (ref.metaType() == QMetaType::fromType<QJSValue>())
+        return collector_text::render(
+            ref.value<QJSValue>().toVariant(QJSValue::ConvertJSObjects), chinese);
+    return collector_text::render(ref, chinese);
 }
 
 QStringList Formatters::resultCodes()

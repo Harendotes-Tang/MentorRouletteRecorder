@@ -1,0 +1,7 @@
+key,0,1,2
+#,ShortCode,TerritoryType,Name
+int32,str,TerritoryType,str
+0,,0,
+1,,1039,樣例迷宮一
+2,,1040,樣例討伐二
+5,,172,樣例重製迷宮五

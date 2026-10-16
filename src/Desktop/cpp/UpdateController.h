@@ -41,6 +41,7 @@
 // ---------------------------------------------------------------------------
 
 #include "InstallerVerifier.h"
+#include "LiveText.h"
 
 #include <QObject>
 #include <QPointer>
@@ -195,7 +196,7 @@ public:
     bool downloadActionEnabled() const;
     QString downloadStatusText() const;
     qreal downloadProgress() const;
-    QString installProblem() const { return m_installProblem; }
+    QString installProblem() const { return m_installProblem.text(); }
     bool verifyingInstaller() const { return m_hasher != nullptr; }
     bool browserFallbackOffered() const;
     bool downloadEngaged() const;
@@ -263,6 +264,9 @@ private:
         QString sha256;
         QString failure;
         QString message;
+        /// message as a catalogue reference (contracts/collector-texts.md), or
+        /// an invalid QVariant from a Collector that sends none.
+        QVariant messageRef;
         qint64 receivedBytes = 0;
         /// -1 when the server declared no size.
         qint64 totalBytes = -1;
@@ -295,6 +299,8 @@ private:
     };
 
     static Download downloadFrom(const QVariant &raw);
+    /// The Collector's sentence for \a download in the interface language.
+    static QString downloadMessage(const Download &download);
     bool downloadRunning() const;
     /// "9.9.9 版的安装程序", or a version-less wording.
     QString installerName() const;
@@ -304,11 +310,14 @@ private:
     /// Arms or stops the status re-read for the state just adopted.
     void updatePolling(bool projectionAvailable);
     void stopPolling();
-    /// The sentence that holds 立即安装 back, or empty when it may proceed.
-    QString runRefusal(QString *code) const;
+    /// The code of what holds 立即安装 back (RUN_STATE_UNKNOWN / RUN_IN_PROGRESS), or
+    /// empty when it may proceed.
+    QString runRefusal() const;
+    /// The sentence for a runRefusal() code, in the language on screen.
+    static QString runRefusalSentence(const QString &code);
     /// 立即安装 started nothing: \a sentence for the reader, \a code for maintainers.
     /// Every attempt given up passes through here and lets go of the file.
-    void refuseInstall(const QString &sentence, const QString &code);
+    void refuseInstall(const LiveText &sentence, const QString &code);
     void onInstallerHashed(bool ok, const QString &sha256);
     /// Stops the re-read and the hashing and lets go of the installer: the
     /// application is quitting.
@@ -343,7 +352,8 @@ private:
     /// The application is quitting: nothing is re-read, hashed or started any more.
     bool m_quitting = false;
     QTimer m_pollTimer;
-    QString m_installProblem;
+    /// A recipe, so a language switch re-renders it (LiveText.h).
+    LiveText m_installProblem;
     /// The installer 立即安装 checks and starts, held from before its checks
     /// until it has started and the application quits, or until the attempt is
     /// given up (refuseInstall).

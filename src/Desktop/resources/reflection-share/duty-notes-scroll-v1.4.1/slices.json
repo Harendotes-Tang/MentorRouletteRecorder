@@ -1,0 +1,590 @@
+{
+  "kit": "duty-notes-scroll",
+  "version": "1.4.1",
+  "changelog": {
+    "1.4.1": "用语调整：「心得」统一改为「记录」，示例数据与 compose.py 的默认标题由「导随心得」改为「导随记录」。切图、坐标、样式都没有变化。",
+    "1.4.0": "新增单条版式 layout_single：只有 1 条记录时用，沿用现有切图，没有新增或改动任何 PNG。typography 新增 single_eyebrow / single_date / single_title 三个样式；compose.py 在只有 1 条时自动切换，也可用 --layout 指定。",
+    "1.3.0": "题头图的不透明度降到 45%（scroll_top、header_art 重出）；新增 header_art_full（同一张图的 100% 版，想自己调浓淡时用）；compose.py 支持 header_art_opacity。其余不变。",
+    "1.2.0": "题头图换成你提供的水晶图。",
+    "1.1.0": "新增 scroll_top_plain（换自己的题头图时用）和 icon_tile（没有职业图标时的字牌回退）。"
+  },
+  "units": "所有数值都是 1x 下的 px（画布宽 1140）；使用 png/2x 时全部乘 2。",
+  "scales": {
+    "1x": "png/1x",
+    "2x": "png/2x"
+  },
+  "at_note": "at 是切图左上角的贴放位置。from_right / from_bottom 表示左上角到画布右边 / 底边的距离，即 x = W - from_right、y = H - from_bottom。",
+  "slices": {
+    "paper_tile": {
+      "file": "paper_tile.png",
+      "w": 570,
+      "h": 570,
+      "use": "tile-xy",
+      "note": "不透明纸纹，X/Y 两个方向都无缝，从 (0,0) 起平铺整张画布。",
+      "alpha": false
+    },
+    "scroll_top": {
+      "file": "scroll_top.png",
+      "w": 1140,
+      "h": 280,
+      "use": "fixed",
+      "note": "透明叠加层：上边框 + 两个上角 + 题头图（你提供的水晶图，不透明度 45%，压在金线下面）+ 题头分隔线 + 两侧水晶。贴在 (0,0)。",
+      "alpha": true,
+      "at": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "scroll_top_plain": {
+      "file": "scroll_top_plain.png",
+      "w": 1140,
+      "h": 280,
+      "use": "fixed",
+      "note": "和 scroll_top 完全一样，只是不带题头图。想换成自己的题头图时用它代替 scroll_top，再把你的图贴到 header_art 的位置（378×215 的框，右上对齐）。",
+      "alpha": true,
+      "at": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "scroll_mid": {
+      "file": "scroll_mid.png",
+      "w": 1140,
+      "h": 64,
+      "use": "tile-y | stretch-y",
+      "note": "透明叠加层：左右边框与边缘压暗，每一行像素完全相同，可纵向平铺或拉伸，填满 y=280 到 y=H-200。",
+      "alpha": true,
+      "at": {
+        "x": 0,
+        "y": 280
+      },
+      "until": {
+        "from_bottom": 200
+      }
+    },
+    "scroll_bottom": {
+      "file": "scroll_bottom.png",
+      "w": 1140,
+      "h": 200,
+      "use": "fixed",
+      "note": "透明叠加层：下边框 + 两个下角 + 卷尾花饰。贴在 (0, H-200)。",
+      "alpha": true,
+      "at": {
+        "x": 0,
+        "from_bottom": 200
+      }
+    },
+    "frame_9slice": {
+      "file": "frame_9slice.png",
+      "w": 448,
+      "h": 448,
+      "use": "nine-slice",
+      "note": "九宫格版外框（不含水印/分隔线/卷尾花饰），任意宽高可用；中心格为空，可丢弃或 fill。",
+      "alpha": true,
+      "insets": {
+        "top": 192,
+        "right": 192,
+        "bottom": 192,
+        "left": 192
+      }
+    },
+    "header_art": {
+      "file": "header_art.png",
+      "w": 378,
+      "h": 215,
+      "use": "fixed",
+      "note": "题头图：你提供的水晶图，按原图裁边、等比缩小后放在这个 378×215 的槽位里（图本身约 200×196，在槽位内 x 121–321、y 13–209），不透明度已烘成 45%。九宫格路线、或搭配 scroll_top_plain 时单独贴，先贴它再贴外框。右上对齐：距右 56，距顶 20。",
+      "alpha": true,
+      "at": {
+        "from_right": 434,
+        "y": 20
+      },
+      "baked_opacity": 0.45
+    },
+    "header_art_full": {
+      "file": "header_art_full.png",
+      "w": 378,
+      "h": 215,
+      "use": "fixed",
+      "note": "同一张题头图的 100% 不透明版，位置和 header_art 完全相同。想自己调浓淡时：用 scroll_top_plain 代替 scroll_top，先以你要的透明度贴这张，再贴外框。",
+      "alpha": true,
+      "at": {
+        "from_right": 434,
+        "y": 20
+      }
+    },
+    "header_rule": {
+      "file": "header_rule.png",
+      "w": 972,
+      "h": 24,
+      "use": "fixed",
+      "note": "题头分隔线整条（九宫格路线、固定 1140 宽时用）。中心线 y=238。",
+      "alpha": true,
+      "at": {
+        "x": 84,
+        "y": 226
+      }
+    },
+    "rule_star": {
+      "file": "rule_star.png",
+      "w": 44,
+      "h": 24,
+      "use": "fixed",
+      "note": "分隔线中心星饰；宽度可变时自己画两段 1px 线（颜色 colors.gold_soft，从内容左缘到星饰、从星饰到内容右缘），星饰水平居中，中心线 y=238。",
+      "alpha": true
+    },
+    "end_ornament": {
+      "file": "end_ornament.png",
+      "w": 360,
+      "h": 48,
+      "use": "fixed",
+      "note": "卷尾花饰（九宫格路线单独贴）。水平居中，中心距底 140。",
+      "alpha": true,
+      "at": {
+        "cx": 570,
+        "cy_from_bottom": 140
+      }
+    },
+    "side_gem": {
+      "file": "side_gem.png",
+      "w": 34,
+      "h": 84,
+      "use": "fixed",
+      "note": "压在主边线上的小水晶（九宫格路线单独贴），左右各一个，y = 分隔线中心 - 42。",
+      "alpha": true,
+      "at": {
+        "left": {
+          "x": 0,
+          "y": 196
+        },
+        "right": {
+          "from_right": 34,
+          "y": 196
+        }
+      }
+    },
+    "rail_node": {
+      "file": "rail_node.png",
+      "w": 32,
+      "h": 32,
+      "use": "fixed",
+      "note": "时间轴节点，每条一个，中心 (224, y0+32)。",
+      "alpha": true
+    },
+    "rail_line": {
+      "file": "rail_line.png",
+      "w": 8,
+      "h": 8,
+      "use": "tile-y | stretch-y",
+      "note": "时间轴竖线，纵向平铺/拉伸，从第一个节点中心到最后一个节点中心，x=220。",
+      "alpha": true,
+      "at": {
+        "x": 220
+      }
+    },
+    "icon_plate": {
+      "file": "icon_plate.png",
+      "w": 88,
+      "h": 88,
+      "use": "fixed",
+      "note": "职业图标底托（投影 + 金线圈），先贴它，再把 64×64 的职业图标贴在上面。",
+      "alpha": true
+    },
+    "icon_tile": {
+      "file": "icon_tile.png",
+      "w": 64,
+      "h": 64,
+      "use": "fixed",
+      "note": "空白金边字牌 64×64。没有职业图标文件时贴它，再在上面写一个字（见 layout.entry.icon_mark）；位置和职业图标相同。",
+      "alpha": true
+    },
+    "icon_placeholder": {
+      "file": "icon_placeholder.png",
+      "w": 64,
+      "h": 64,
+      "use": "fixed",
+      "note": "既没有职业图标、也没有职业名时的通用占位图标 64×64。",
+      "alpha": true
+    },
+    "stamp_complete_1": {
+      "file": "stamp_complete_1.png",
+      "w": 208,
+      "h": 124,
+      "use": "fixed",
+      "note": "「通关」印章（两行紧凑版）。已带旋转、做旧和透明度，直接贴；先于文字绘制。",
+      "alpha": true
+    },
+    "stamp_complete_2": {
+      "file": "stamp_complete_2.png",
+      "w": 208,
+      "h": 124,
+      "use": "fixed",
+      "note": "同一枚印章的第 2 种盖法（角度、墨色不同）。",
+      "alpha": true
+    },
+    "stamp_complete_3": {
+      "file": "stamp_complete_3.png",
+      "w": 208,
+      "h": 124,
+      "use": "fixed",
+      "note": "同一枚印章的第 3 种盖法。按条目序号 i % 3 轮换，整列印章不会像复制粘贴。",
+      "alpha": true
+    },
+    "stamp_complete_wide": {
+      "file": "stamp_complete_wide.png",
+      "w": 304,
+      "h": 104,
+      "use": "fixed",
+      "note": "「通关」印章的单行宽版（备选，更接近原单条卡片）。同样右上对齐，但标题超过 10 个字会被压到。",
+      "alpha": true
+    },
+    "entry_rule": {
+      "file": "entry_rule.png",
+      "w": 794,
+      "h": 8,
+      "use": "fixed",
+      "note": "条目之间的点线，左端 x=262，中心线在上一条正文底部下方 38。最后一条之后不画。",
+      "alpha": true
+    },
+    "tag_9slice": {
+      "file": "tag_9slice.png",
+      "w": 48,
+      "h": 30,
+      "use": "nine-slice",
+      "note": "评价标签底（如「顺利」），九宫格横向拉伸，高度固定 30。",
+      "alpha": true,
+      "insets": {
+        "top": 10,
+        "right": 12,
+        "bottom": 10,
+        "left": 12
+      }
+    }
+  },
+  "draw_order": [
+    "paper_tile (平铺整张画布)",
+    "scroll_top → scroll_mid (平铺到 H-200) → scroll_bottom",
+    "rail_line (第一个节点中心 → 最后一个节点中心)",
+    "每条: rail_node → icon_plate → 职业图标（没有图标文件时: icon_tile + 单字）→ stamp_* → 文字 → tag → entry_rule",
+    "题头文字、卷尾文字"
+  ],
+  "draw_order_note": "上面的 draw_order 是长卷的绘制顺序；单条版式的顺序见 layout_single.draw_order。",
+  "layout": {
+    "width": 1140,
+    "content": {
+      "left": 84,
+      "right": 1056
+    },
+    "frame": {
+      "top_h": 280,
+      "mid_tile_h": 64,
+      "bottom_h": 200
+    },
+    "header": {
+      "title": {
+        "x": 84,
+        "baseline": 132,
+        "style": "collection_title"
+      },
+      "meta": {
+        "x": 86,
+        "baseline": 186,
+        "style": "collection_meta"
+      },
+      "rule_cy": 238
+    },
+    "entry": {
+      "note": "dy 均相对条目顶 y0（= 职业图标的顶边）。标题每多折一行，meta / tag / body 整体下移 title.line_pitch。",
+      "first_top": 292,
+      "gap_after_body": 76,
+      "rail_x": 224,
+      "node": {
+        "cx": 224,
+        "cy_dy": 32,
+        "size": 32
+      },
+      "icon": {
+        "x": 262,
+        "dy": 0,
+        "size": 64,
+        "note": "程序自己的职业图标贴在这里，缩放到 64×64。"
+      },
+      "icon_mark": {
+        "cx": 294,
+        "baseline_dy": 45,
+        "style": "icon_mark",
+        "note": "没有职业图标文件时：先贴 icon_tile，再把一个字水平居中写在上面。默认取职业名的第一个字；数据里给了 job_mark 就用它（例如 武士→侍、武僧→僧，避免撞字）。"
+      },
+      "icon_plate": {
+        "x": 250,
+        "dy": -12,
+        "size": 88
+      },
+      "date": {
+        "right": 190,
+        "baseline_dy": 28,
+        "style": "date",
+        "format": "MM.DD"
+      },
+      "time": {
+        "right": 190,
+        "baseline_dy": 54,
+        "style": "time",
+        "format": "HH:mm"
+      },
+      "title": {
+        "x": 346,
+        "right": 1056,
+        "right_with_stamp": 852,
+        "baseline_dy": 35,
+        "line_pitch": 48,
+        "style": "entry_title",
+        "note": "有印章的条目，标题折行宽度收到 right_with_stamp，文字不会压到印章。"
+      },
+      "meta": {
+        "x": 346,
+        "baseline_dy": 69,
+        "style": "entry_meta",
+        "format": "{职业} · {结果}"
+      },
+      "tag": {
+        "gap_after_meta": 14,
+        "top_dy": 47,
+        "h": 30,
+        "pad_x": 12,
+        "baseline_dy": 69,
+        "style": "tag"
+      },
+      "body": {
+        "x": 262,
+        "right": 1056,
+        "top_dy": 92,
+        "first_baseline_dy": 128,
+        "line_pitch": 48,
+        "style": "body"
+      },
+      "empty_body_bottom_dy": 76,
+      "stamp": {
+        "right": 1066,
+        "top_dy": -29
+      },
+      "entry_rule": {
+        "x": 262,
+        "cy_below_body": 38
+      }
+    },
+    "footer": {
+      "last_body_bottom_to_bottom": 190,
+      "end_ornament_cy_from_bottom": 140,
+      "text": {
+        "cx": 570,
+        "baseline_from_bottom": 88,
+        "style": "footer"
+      }
+    },
+    "height_rule": "body_bottom(i) = y0(i) + body.top_dy + 正文行数 * body.line_pitch；正文为空时 body_bottom(i) = y0(i) + empty_body_bottom_dy；标题每多折一行两种情况都再加 title.line_pitch。y0(i+1) = body_bottom(i) + gap_after_body；H = body_bottom(最后一条) + footer.last_body_bottom_to_bottom。"
+  },
+  "layout_pick": "记录数 == 1 → 用 layout_single；记录数 >= 2 → 用 layout（长卷）。两种版式用的是同一套外框切图。",
+  "layout_single": {
+    "note": "只有 1 条记录时的版式。外框和长卷完全一样（paper_tile + scroll_top + scroll_mid + scroll_bottom），不需要任何新图；区别只在内容怎么摆：题头区放这一条记录本身，分隔线下面通栏排正文，没有时间轴。这里所有 y 都是画布上的绝对坐标。",
+    "width": 1140,
+    "eyebrow": {
+      "x": 84,
+      "baseline": 94,
+      "style": "single_eyebrow",
+      "note": "小标题，写数据里的 title（例如「导随记录」）。"
+    },
+    "date": {
+      "gap": 14,
+      "baseline": 94,
+      "style": "single_date",
+      "separator": "·",
+      "format": "YYYY.MM.DD HH:mm",
+      "note": "游玩时间，跟在小标题后面同一行：小标题右端 + gap 处写分隔符「·」，分隔符右端 + gap 处写时间。没有小标题时，时间直接从 eyebrow.x 写起，不写分隔符。"
+    },
+    "icon_plate": {
+      "x": 72,
+      "y": 112,
+      "size": 88
+    },
+    "icon": {
+      "x": 84,
+      "y": 124,
+      "size": 64,
+      "note": "职业图标，规则同长卷：有图标文件贴图标；没有就贴 icon_tile 再写一个字；连职业名都没有用 icon_placeholder。"
+    },
+    "icon_mark": {
+      "cx": 116,
+      "baseline": 169,
+      "style": "icon_mark"
+    },
+    "title": {
+      "x": 168,
+      "right": 800,
+      "baseline": 156,
+      "style": "single_title",
+      "fit_sizes": [
+        48,
+        42,
+        36,
+        32
+      ],
+      "two_line": {
+        "size": 32,
+        "baselines": [
+          138,
+          178
+        ],
+        "meta_shift": 18
+      },
+      "note": "副本名，单行。宽度上限 = right - x（右边要让开题头图）。依次试 fit_sizes 里的字号，用第一个放得下的，基线不变。最小字号仍放不下时用 two_line：以 two_line.size 折成两行，基线为 two_line.baselines，meta 和标签整体下移 two_line.meta_shift；两行还放不下，第二行末尾截断加「…」。"
+    },
+    "meta": {
+      "x": 168,
+      "baseline": 192,
+      "style": "entry_meta",
+      "format": "{职业} · {结果}"
+    },
+    "tag": {
+      "gap_after_meta": 14,
+      "top": 170,
+      "h": 30,
+      "pad_x": 12,
+      "baseline": 192,
+      "style": "tag"
+    },
+    "rule_cy": 238,
+    "body": {
+      "x": 84,
+      "right": 1056,
+      "top": 268,
+      "first_baseline": 304,
+      "line_pitch": 48,
+      "style": "body",
+      "note": "正文通栏，就是一个普通的矩形文本框，不需要绕排。"
+    },
+    "empty_body_bottom": 290,
+    "stamp": {
+      "right": 1066,
+      "top_below_body": 0,
+      "note": "印章盖在卷尾右侧（落款的位置），不和正文抢地方：右边缘 x = right，顶边 y = body_bottom + top_below_body。用 stamps 表里该结果的第一枚；结果不在表里就不贴。先于文字绘制。"
+    },
+    "footer_note": "卷尾与 layout.footer 相同：卷尾花饰已在 scroll_bottom 里，「导出于」文字的位置不变。",
+    "height_rule": "body_bottom = body.top + 正文行数 * body.line_pitch；正文为空时 body_bottom = empty_body_bottom。H = body_bottom + layout.footer.last_body_bottom_to_bottom。（1 行正文 H=506；没有正文 H=480）",
+    "draw_order": [
+      "paper_tile (平铺整张画布)",
+      "scroll_top → scroll_mid (平铺到 H-200) → scroll_bottom",
+      "stamp_*（结果在 stamps 表里时）",
+      "icon_plate → 职业图标（没有图标文件时: icon_tile + 单字）",
+      "小标题 + 游玩时间 → 副本名 → meta → tag → 正文",
+      "卷尾文字"
+    ]
+  },
+  "typography": {
+    "family": "Noto Serif SC (思源宋体 / Source Han Serif SC)",
+    "note": "baseline 为文字基线的 y；letter_spacing 为字间距 px；weight 400=Regular 700=Bold。",
+    "styles": {
+      "collection_title": {
+        "size": 56,
+        "weight": 700,
+        "letter_spacing": 8,
+        "color": "#2E2118"
+      },
+      "collection_meta": {
+        "size": 24,
+        "weight": 400,
+        "letter_spacing": 1.5,
+        "color": "#6E5A44"
+      },
+      "date": {
+        "size": 30,
+        "weight": 700,
+        "letter_spacing": 0.5,
+        "color": "#45342A",
+        "align": "right"
+      },
+      "time": {
+        "size": 21,
+        "weight": 400,
+        "letter_spacing": 0.5,
+        "color": "#6E5A44",
+        "align": "right"
+      },
+      "icon_mark": {
+        "size": 34,
+        "weight": 700,
+        "letter_spacing": 0,
+        "color": "#E9CF98",
+        "align": "center"
+      },
+      "entry_title": {
+        "size": 38,
+        "weight": 700,
+        "letter_spacing": 1,
+        "color": "#2E2118"
+      },
+      "entry_meta": {
+        "size": 22,
+        "weight": 400,
+        "letter_spacing": 0.5,
+        "color": "#6E5A44"
+      },
+      "tag": {
+        "size": 20,
+        "weight": 400,
+        "letter_spacing": 1,
+        "color": "#6B4E2E"
+      },
+      "body": {
+        "size": 28,
+        "weight": 400,
+        "letter_spacing": 0,
+        "color": "#45342A"
+      },
+      "footer": {
+        "size": 20,
+        "weight": 400,
+        "letter_spacing": 3,
+        "color": "#6E5A44",
+        "align": "center"
+      },
+      "single_eyebrow": {
+        "size": 24,
+        "weight": 700,
+        "letter_spacing": 6,
+        "color": "#45342A"
+      },
+      "single_date": {
+        "size": 22,
+        "weight": 400,
+        "letter_spacing": 1,
+        "color": "#6E5A44"
+      },
+      "single_title": {
+        "size": 48,
+        "weight": 700,
+        "letter_spacing": 1,
+        "color": "#2E2118"
+      }
+    }
+  },
+  "colors": {
+    "paper": "#F1E9D9",
+    "ink_title": "#2E2118",
+    "ink_body": "#45342A",
+    "ink_meta": "#6E5A44",
+    "gold_line": "#9A7D52",
+    "gold_soft": "#BFA57C",
+    "gold_pale": "#DCC9A6",
+    "crystal": "#5A97CB",
+    "seal": "#B5503C"
+  },
+  "stamps": {
+    "通关": [
+      "stamp_complete_1",
+      "stamp_complete_2",
+      "stamp_complete_3"
+    ]
+  },
+  "stamps_note": "键是「结果」字段的取值，请按程序里的实际取值改。按结果取印章列表，第 i 条（从 0 数）用 list[i % len(list)]；结果不在表里就不贴印章。"
+}

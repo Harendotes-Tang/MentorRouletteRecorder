@@ -1,5 +1,7 @@
 #include "GameSelectionController.h"
+#include "CollectorText.h"
 #include <QDateTime>
+#include <QPointer>
 
 #ifdef Q_OS_WIN
 #define WIN32_LEAN_AND_MEAN
@@ -14,7 +16,7 @@ GameSelectionController::GameSelectionController(IBackend *backend, QObject *par
     connect(&m_picker, &QTimer::timeout, this, [this] {
         if (++m_ticks >= 100) {
             cancelPick();
-            m_message = tr("未选中游戏窗口，当前记录对象没有改变。可重试或从列表选择。");
+            m_message = [] { return tr("未选中游戏窗口，当前记录对象没有改变。可重试或从列表选择。"); };
             emit changed();
             return;
         }
@@ -40,6 +42,39 @@ GameSelectionController::GameSelectionController(IBackend *backend, QObject *par
         emit choicesChanged();
         emit changed();
     });
+    onLanguageChanged(this, [this] {
+        relabel();
+        emit choicesChanged();
+        emit changed();
+    });
+}
+
+QString GameSelectionController::choiceLabel(const QVariantMap &choice, int number)
+{
+    const auto started = QDateTime::fromString(
+        choice.value(QStringLiteral("started_at_utc")).toString(), Qt::ISODateWithMs);
+    return started.isValid()
+        ? tr("游戏 %1 · %2 启动").arg(number).arg(started.toLocalTime().toString(QStringLiteral("HH:mm:ss")))
+        : tr("游戏 %1 · 启动时间暂不可读").arg(number);
+}
+
+void GameSelectionController::relabel()
+{
+    const auto relabelList = [](QVariantList &list) {
+        for (int index = 0; index < list.size(); ++index) {
+            auto choice = list.at(index).toMap();
+            choice.insert(QStringLiteral("label"), choiceLabel(choice, index + 1));
+            list[index] = choice;
+        }
+    };
+    relabelList(m_choices);
+    relabelList(m_pickChoices);
+    m_currentLabel.clear();
+    for (const auto &value : std::as_const(m_choices)) {
+        const auto choice = value.toMap();
+        if (choice.value(QStringLiteral("process_id")).toInt() == m_observedPid)
+            m_currentLabel = choice.value(QStringLiteral("label")).toString();
+    }
 }
 
 bool GameSelectionController::predatesConfirmedChoice(const QVariantMap &capture) const
@@ -74,13 +109,15 @@ void GameSelectionController::observe(const QVariantMap &capture)
     m_selectionMessage.clear();
     if (m_required) {
         const auto reason = capture.value(QStringLiteral("game_selection_reason")).toString();
-        m_selectionMessage = reason == QLatin1String("EXITED")
-            ? tr("所选游戏已退出，记录已暂停。单开时重新启动同一游戏会自动接续；无法确认时请重新选择游戏窗口。")
-            : reason == QLatin1String("IDENTITY_UNAVAILABLE")
-            ? tr("暂时无法确认游戏的启动时间，记录已暂停。请重新检测后选择游戏窗口。")
-            : processes.size() > 1
-            ? tr("检测到多个游戏客户端，请选择要记录的游戏窗口。")
-            : tr("尚未确定要记录的游戏，请选择要记录的游戏窗口。");
+        m_selectionMessage = [reason, several = processes.size() > 1] {
+            return reason == QLatin1String("EXITED")
+                ? tr("所选游戏已退出，记录已暂停。单开时重新启动同一游戏会自动接续；无法确认时请重新选择游戏窗口。")
+                : reason == QLatin1String("IDENTITY_UNAVAILABLE")
+                ? tr("暂时无法确认游戏的启动时间，记录已暂停。请重新检测后选择游戏窗口。")
+                : several
+                ? tr("检测到多个游戏客户端，请选择要记录的游戏窗口。")
+                : tr("尚未确定要记录的游戏，请选择要记录的游戏窗口。");
+        };
     }
     m_currentLabel.clear();
     const int selectedPid = capture.value(QStringLiteral("ffxiv_process_id")).toInt();
@@ -91,11 +128,7 @@ void GameSelectionController::observe(const QVariantMap &capture)
     m_observedPid = selectedPid;
     for (const auto &value : processes) {
         auto choice = value.toMap();
-        const auto started = QDateTime::fromString(
-            choice.value(QStringLiteral("started_at_utc")).toString(), Qt::ISODateWithMs);
-        const QString label = started.isValid()
-            ? tr("游戏 %1 · %2 启动").arg(choices.size() + 1).arg(started.toLocalTime().toString(QStringLiteral("HH:mm:ss")))
-            : tr("游戏 %1 · 启动时间暂不可读").arg(choices.size() + 1);
+        const QString label = choiceLabel(choice, int(choices.size()) + 1);
         choice.insert(QStringLiteral("label"), label);
         choices.append(choice);
         if (choice.value(QStringLiteral("process_id")).toInt() == selectedPid)
@@ -115,19 +148,21 @@ void GameSelectionController::beginPick()
     m_message.clear();
     emit changed();
     const auto generation = m_generation;
-    m_backend->getCaptureStatus()->whenDone(this,
-        [this, generation](bool ok, const QVariantMap &capture, const QString &, const QString &error) {
+    BackendReply *reply = m_backend->getCaptureStatus();
+    const QPointer<BackendReply> guard(reply);
+    reply->whenDone(this,
+        [this, guard, generation](bool ok, const QVariantMap &capture, const QString &, const QString &error) {
         if (generation != m_generation) return;
         m_busy = false;
-        if (!ok) m_message = error;
+        if (!ok) m_message = collector_text::replyErrorText(guard, error);
         else {
             observe(capture);
             m_pickChoices = m_choices;
-            if (m_pickChoices.isEmpty()) m_message = tr("请先启动要记录的游戏。");
+            if (m_pickChoices.isEmpty()) m_message = [] { return tr("请先启动要记录的游戏。"); };
             else {
                 m_ticks = 0;
                 m_picker.start();
-                m_message = tr("请在 15 秒内点击要记录的 FF14 窗口；选中后会锁定它。");
+                m_message = [] { return tr("请在 15 秒内点击要记录的 FF14 窗口；选中后会锁定它。"); };
             }
         }
         emit changed();
@@ -166,18 +201,20 @@ void GameSelectionController::choose(const QVariantMap &choice)
     if (!m_backend || !m_backend->isConnected()) {
         // The player did pick; dropping it without a word reads as a dead
         // button (review S2-4).
-        m_message = tr("采集服务未连接，记录对象没有改变。连接恢复后请重新选择。");
+        m_message = [] { return tr("采集服务未连接，记录对象没有改变。连接恢复后请重新选择。"); };
         emit changed();
         return;
     }
     m_busy = true;
-    m_message = tr("正在切换记录对象…");
+    m_message = [] { return tr("正在切换记录对象…"); };
     emit changed();
     const auto generation = m_generation;
     const int processId = choice.value(QStringLiteral("process_id")).toInt();
     const QString token = choice.value(QStringLiteral("selection_token")).toString();
-    m_backend->selectGameProcess(processId, token)->whenDone(this,
-        [this, generation, processId, token](bool ok, const QVariantMap &capture, const QString &, const QString &error) {
+    BackendReply *reply = m_backend->selectGameProcess(processId, token);
+    const QPointer<BackendReply> guard(reply);
+    reply->whenDone(this,
+        [this, guard, generation, processId, token](bool ok, const QVariantMap &capture, const QString &, const QString &error) {
         if (generation != m_generation) return;
         m_busy = false;
         if (ok) {
@@ -186,7 +223,8 @@ void GameSelectionController::choose(const QVariantMap &choice)
             m_confirmedAt.start();
             observe(capture);
         }
-        m_message = ok ? tr("已锁定所选游戏。切换前台窗口不会改变记录对象。") : error;
+        m_message = ok ? LiveText([] { return tr("已锁定所选游戏。切换前台窗口不会改变记录对象。"); })
+                       : collector_text::replyErrorText(guard, error);
         if (ok) emit selected(capture);
         emit changed();
     });

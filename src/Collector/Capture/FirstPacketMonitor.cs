@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
 using Machina.FFXIV.Oodle;
 using Machina.Infrastructure;
+using MentorRecorder.Collector.Contracts.Texts;
 
 namespace MentorRecorder.Collector.Capture;
 
@@ -16,7 +17,7 @@ internal sealed class FirstPacketMonitor : IMachinaMonitor
     private readonly Action _initialize;
     private readonly CancellationTokenSource _cancel = new();
     private readonly ManualResetEventSlim _readerReady = new();
-    private Action<string>? _fault;
+    private Action<UserText>? _fault;
     private Action<TCPConnection, long, byte[], bool>? _message;
     private Action? _connectionClosed;
     private Action<TCPConnection, bool>? _directionDamaged;
@@ -48,7 +49,7 @@ internal sealed class FirstPacketMonitor : IMachinaMonitor
     private IOodleNative? _ownedNative;
 
     internal FirstPacketMonitor(CaptureStartOptions options,
-        Action<TCPConnection, long, byte[], bool> message, Action<string> fault,
+        Action<TCPConnection, long, byte[], bool> message, Action<UserText> fault,
         INpcapPacketReader? reader = null, Func<IReadOnlyCollection<TCPConnection>>? connections = null,
         Action? initialize = null, TimeSpan? joinTimeout = null, OodleTempCopyCleaner? cleaner = null,
         Action? connectionClosed = null, Action<TCPConnection, bool>? directionDamaged = null)
@@ -128,7 +129,7 @@ internal sealed class FirstPacketMonitor : IMachinaMonitor
                 if (!received) _cancel.Token.WaitHandle.WaitOne(5);
             }
         }
-        catch (Exception) { Fault("Npcap 读取失败，已停止采集。"); }
+        catch (Exception) { Fault(CollectorTexts.CaptureFaultNpcapRead()); }
         finally { _readerReady.Set(); }
     }
 
@@ -159,7 +160,7 @@ internal sealed class FirstPacketMonitor : IMachinaMonitor
                 _cancel.Token.WaitHandle.WaitOne(50);
             }
         }
-        catch (Exception) { Fault("连接归属确认或解码失败，已停止采集。"); }
+        catch (Exception) { Fault(CollectorTexts.CaptureFaultOwnershipDecode()); }
     }
 
     private static (uint, ushort, uint, ushort) Identify(TCPConnection connection) =>
@@ -196,7 +197,7 @@ internal sealed class FirstPacketMonitor : IMachinaMonitor
         Volatile.Read(ref _directionDamaged)?.Invoke(connection, inbound);
     }
 
-    private void Fault(string reason)
+    private void Fault(UserText reason)
     {
         _cancel.Cancel();
         _buffer.Fault(reason);

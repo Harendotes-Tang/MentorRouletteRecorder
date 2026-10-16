@@ -194,7 +194,7 @@ ColumnLayout {
         Text {
             Layout.fillWidth: true
             visible: App.captureAdapters.length === 0
-            text: qsTr("未枚举到网络适配器。点击链路面板上的“重扫适配器”重试。")
+            text: qsTr("未找到网卡。请点连接状态旁的“重新检测网卡”重试。")
             color: Theme.textSecondary
             font.pixelSize: Theme.fs(12)
         }

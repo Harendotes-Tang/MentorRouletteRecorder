@@ -6,12 +6,14 @@ import MentorRecorder
 // ---------------------------------------------------------------------------
 // 捕获诊断（docs/ui-design.md §4.4）
 //
-// One left-aligned column, at most 1040 px wide, 20 px between blocks:
-//   标题行 ............ player: listening status in words; maintainer: 开始 / 停止
-//   CaptureNpcapPanel .. 降级模式, only while Npcap is missing or unusable
-//   CaptureNotices ..... calibration card, 协议档案, no-traffic and adapter notices
-//   CaptureChainPanel .. 链路: FF14 进程 → Npcap → 适配器 → 协议档案
-//   解析 | 工具 ........ CaptureParsePanel (1.3) beside CaptureToolsPanel (1)
+// One left-aligned column, at most 1080 px wide, 12 px between cards:
+//   标题行 ............ player: the state as a badge; maintainer: 开始 / 停止
+//   CaptureHeroPanel ... what the capture is doing now (降级模式 included), then
+//                        链路: FF14 进程 → Npcap → 适配器 → 协议档案
+//   GameSelectionPanel . 记录对象, only while there is something to choose
+//   CaptureNotices ..... adapter and readiness notices, the calibration row
+//                        (本机校准 | 共享校准), 协议档案
+//   解析 | 工具 ........ CaptureParsePanel (2) beside CaptureToolsPanel (1)
 //   CaptureMaintainerSection  维护者工具, only with App.maintainerToolsVisible
 //
 // Every value is a contract field ($defs/CaptureStatus, GetStatus extras,
@@ -26,39 +28,9 @@ Item {
     // 校准对话框与其它模态一样挂在 Main.qml 的 Overlay 上，故此处仅发出信号。
     signal openCalibrationRequested()
 
-    readonly property int contentMaxWidth: 1040
+    readonly property int contentMaxWidth: 1080
     readonly property bool maintainerTools: App.maintainerToolsVisible
-    readonly property var npcap: App.npcapInfo
-    // Installed is not enough: NOT_WINPCAP_COMPATIBLE, NPCAP_ADMIN_ONLY and
-    // LOAD_FAILED are installed drivers this Collector still cannot open.
-    readonly property bool npcapProblem: !App.npcapInstalled
-                                         || (!!page.npcap.status && page.npcap.status !== "READY")
-
-    // The words the sidebar uses for the same state (Main.qml captureBadgeText),
-    // with 等待游戏启动 spelled out.
-    function listeningText() {
-        const state = App.recording.state
-        if (state === "choosing_game")
-            return qsTr("等待选择游戏")
-        if (state === "listening")
-            return qsTr("自动监听中")
-        if (App.recording.silent)
-            return qsTr("监听中 · 收不到游戏数据")
-        if (state === "waiting")
-            return qsTr("等待游戏启动")
-        if (state === "calibrating")
-            return qsTr("校准中")
-        if (state === "calibration_ready")
-            return qsTr("校准待核对")
-        if (state === "calibration_blocked" || App.recording.blocked)
-            return qsTr("无法自动记录")
-        return qsTr("检查中")
-    }
-
-    function listeningColor() {
-        return App.recording.attention ? Theme.orange
-             : App.recording.state === "listening" ? Theme.green : Theme.neutral400
-    }
+    property bool observationGuideExpanded: false
 
     Connections {
         target: App
@@ -82,36 +54,22 @@ Item {
         ColumnLayout {
             id: contentColumn
             width: Math.min(page.contentMaxWidth, scroll.width - Theme.scrollGutter)
-            spacing: 20
+            spacing: 12
 
             PageHeader {
                 title: qsTr("捕获诊断")
                 subtitle: qsTr("被动监听 · 不发包 · 不注入")
 
                 // Decision 2: a player has nothing to start or stop - the
-                // capture follows the game - so the corner says what it is doing.
-                RowLayout {
+                // capture follows the game - so the corner says what it is
+                // doing, in the words the hero card and the sidebar use.
+                StatusTag {
                     objectName: "captureHeaderStatus"
                     visible: !page.maintainerTools
                     Layout.bottomMargin: 4
-                    spacing: 8
-
-                    Rectangle {
-                        Layout.alignment: Qt.AlignVCenter
-                        implicitWidth: 8
-                        implicitHeight: 8
-                        radius: 4
-                        color: page.listeningColor()
-                    }
-
-                    Text {
-                        objectName: "captureHeaderStatusText"
-                        text: page.listeningText()
-                        textFormat: Text.PlainText
-                        color: App.recording.attention ? Theme.orangeText : Theme.textPrimary
-                        font.pixelSize: Theme.fs(13)
-                        font.weight: Theme.eorzea ? Font.Bold : Font.DemiBold
-                    }
+                    text: hero.badgeText
+                    tone: hero.badgeTone
+                    labelObjectName: "captureHeaderStatusText"
                 }
 
                 AppButton {
@@ -124,40 +82,50 @@ Item {
                 }
             }
 
-            CaptureNpcapPanel {
+            CaptureHeroPanel {
+                id: hero
                 Layout.fillWidth: true
-                visible: page.npcapProblem
+                Layout.topMargin: 4
             }
 
             GameSelectionPanel {}
 
             CaptureNotices {
                 Layout.fillWidth: true
+                // While the hero card talks about something else (Npcap, a game
+                // to choose, a silent capture, an error) the calibration row
+                // says its own sentence.
+                heroSpeaksCalibration: hero.copy.kind === "calibration"
                 onOpenCalibrationRequested: page.openCalibrationRequested()
             }
 
-            CaptureChainPanel {
-                Layout.fillWidth: true
-            }
-
-            // grid-template-columns:1.3fr 1fr; gap:16px; align-items:start
+            // dg-row: 解析 (flex 2) beside 工具 (flex 1), top-aligned. The two
+            // widths are set from the column's, so the split never follows the
+            // panels' own content.
             RowLayout {
+                id: lowerRow
                 Layout.fillWidth: true
-                spacing: 16
+                spacing: 12
+                readonly property int available: contentColumn.width - lowerRow.spacing
 
                 CaptureParsePanel {
                     Layout.fillWidth: true
-                    Layout.preferredWidth: 1
-                    Layout.horizontalStretchFactor: 13
+                    Layout.preferredWidth: Math.round(lowerRow.available * 2 / 3)
                     Layout.alignment: Qt.AlignTop
                 }
 
                 CaptureToolsPanel {
                     Layout.fillWidth: true
-                    Layout.preferredWidth: 1
-                    Layout.horizontalStretchFactor: 10
+                    Layout.preferredWidth: lowerRow.available - Math.round(lowerRow.available * 2 / 3)
                     Layout.alignment: Qt.AlignTop
+                    onToggleObservationGuideRequested: page.observationGuideExpanded = !page.observationGuideExpanded
                 }
+            }
+
+            CaptureValidationEvidenceCard {
+                Layout.fillWidth: true
+                guidedMode: true
+                visible: page.observationGuideExpanded
             }
 
             CaptureMaintainerSection {

@@ -111,6 +111,10 @@ public sealed record SharedCodeDiscard(string CodeSha256, string Reason, IReadOn
 /// <param name="Submitters">Distinct submitters according to the index.</param>
 /// <param name="FirstPublishedAtUtc">First publication according to the index.</param>
 /// <param name="Commit">Commit it was downloaded at.</param>
+/// <param name="Conflicting">The index's conflict mark (<see cref="SharedIndexEntry.Conflicting"/>).</param>
+/// <param name="ShapePrior">The index's shape prior (<see cref="SharedIndexEntry.ShapePrior"/>); null when it gave none.</param>
+/// <param name="Quarantined">Repository hint requiring full local verification, without withdrawing this candidate.</param>
+/// <param name="QuarantineEpoch">Quarantine generation associated with new session evidence.</param>
 public sealed record SharedCalibrationCandidate(
     string CodeSha256,
     string Code,
@@ -118,7 +122,10 @@ public sealed record SharedCalibrationCandidate(
     int Submitters,
     DateTimeOffset FirstPublishedAtUtc,
     string Commit,
-    bool Conflicting = false);
+    bool Conflicting = false,
+    bool? ShapePrior = null,
+    bool Quarantined = false,
+    int QuarantineEpoch = 0);
 
 /// <summary>Everything one fetch for a region and build produced, for the pipeline and for diagnostics.</summary>
 /// <param name="Status">How it ended.</param>
@@ -135,6 +142,13 @@ public sealed record SharedCalibrationFetchResult(
     IReadOnlyList<SharedIndexSkip> SkippedEntries,
     IReadOnlyList<string> RevokedCodeSha256s)
 {
+    /// <summary>
+    /// Non-revoked entries for the requested region and build, including codes whose download failed or
+    /// was outside the download limit. Only authoritative while <see cref="IndexWasRead"/> is true;
+    /// their restrictions do not depend on obtaining an immutable code file again.
+    /// </summary>
+    public IReadOnlyList<SharedIndexEntry> IndexEntries { get; init; } = Array.Empty<SharedIndexEntry>();
+
     /// <summary>A fetch that sent nothing.</summary>
     public static SharedCalibrationFetchResult Disabled { get; } = Empty(SharedFetchStatus.Disabled);
 

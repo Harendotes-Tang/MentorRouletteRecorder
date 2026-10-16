@@ -47,7 +47,7 @@ public sealed class RunImportSourceParserTests : IDisposable
     public void Csv_UnclosedQuoteProducesRowError()
     {
         var row = Assert.Single(RunImportSourceParser.Parse("CSV", text: "副本,心得\n合成,\"未闭合\n仍在同一格"));
-        Assert.Contains(row.Errors, error => error.Contains("未闭合", StringComparison.Ordinal));
+        Assert.Contains(row.Errors, error => error.Contains("缺少结尾引号", StringComparison.Ordinal));
     }
 
     [Fact]

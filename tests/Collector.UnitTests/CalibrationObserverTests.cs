@@ -196,15 +196,15 @@ public sealed class CalibrationObserverTests
 
         var kinds = draft.Events.Select(item => item.Kind).ToArray();
         Assert.Equal(new[] { "login", "finder_request", "pop", "duty_enter", "duty_exit" }, kinds);
-        Assert.Equal("排本：练级迷宫", draft.Events[1].Label);
-        Assert.Equal("匹配弹窗：练级迷宫", draft.Events[2].Label);
-        Assert.StartsWith("进入副本：", draft.Events[3].Label, StringComparison.Ordinal);
+        Assert.Equal("开始排队：练级迷宫", draft.Events[1].Label.Chinese);
+        Assert.Equal("匹配弹窗：练级迷宫", draft.Events[2].Label.Chinese);
+        Assert.StartsWith("进入副本：", draft.Events[3].Label.Chinese, StringComparison.Ordinal);
         Assert.Equal(DutyTerritory, draft.Events[3].TerritoryId);
         Assert.NotNull(draft.Events[3].DutyName);
         // The exit says which entry it closes: without that it reads as the end of whatever
         // line sits above it, which may be a queue made well inside the duty.
-        Assert.StartsWith("离开副本（结束的是 ", draft.Events[4].Label, StringComparison.Ordinal);
-        Assert.All(draft.Events, item => Assert.DoesNotContain("0x", item.Label, StringComparison.Ordinal));
+        Assert.StartsWith("离开副本（对应 ", draft.Events[4].Label.Chinese, StringComparison.Ordinal);
+        Assert.All(draft.Events, item => Assert.DoesNotContain("0x", item.Label.Chinese, StringComparison.Ordinal));
         Assert.Equal(4, draft.Events.Count(item => item.RequiresConfirmation));
         Assert.True(draft.Progress.FinderRequestSeen && draft.Progress.PopSeen && draft.Progress.DutyEntrySeen &&
             draft.Progress.DutyExitSeen);
@@ -250,8 +250,8 @@ public sealed class CalibrationObserverTests
         var (_, draft) = Run(Session1(popInsideEcho: true));
 
         Assert.Equal(CalibrationDraftStatus.Observing, draft.Status);
-        Assert.Contains(draft.Blockers, blocker => blocker.Contains("匹配成功", StringComparison.Ordinal));
-        Assert.DoesNotContain(draft.Blockers, blocker => blocker.Contains("分不出来", StringComparison.Ordinal));
+        Assert.Contains(draft.Blockers, blocker => blocker.Chinese.Contains("匹配弹窗", StringComparison.Ordinal));
+        Assert.DoesNotContain(draft.Blockers, blocker => blocker.Chinese.Contains("无法区分", StringComparison.Ordinal));
         Assert.Empty(draft.Messages);
     }
 
@@ -264,7 +264,7 @@ public sealed class CalibrationObserverTests
         var (_, draft) = Run(Session1(popState: 5));
 
         Assert.Equal(CalibrationDraftStatus.Blocked, draft.Status);
-        Assert.Contains(draft.Blockers, blocker => blocker.Contains("分不出来", StringComparison.Ordinal));
+        Assert.Contains(draft.Blockers, blocker => blocker.Chinese.Contains("无法区分", StringComparison.Ordinal));
         Assert.Empty(draft.Messages);
     }
 
@@ -326,7 +326,7 @@ public sealed class CalibrationObserverTests
         var (_, draft) = Run(traffic);
 
         Assert.Equal(CalibrationDraftStatus.Blocked, draft.Status);
-        Assert.Contains(draft.Blockers, blocker => blocker.Contains("好几种报文", StringComparison.Ordinal));
+        Assert.Contains(draft.Blockers, blocker => blocker.Chinese.Contains("暂时无法识别匹配成功的时间", StringComparison.Ordinal));
         Assert.Empty(draft.Messages);
     }
 
@@ -354,7 +354,7 @@ public sealed class CalibrationObserverTests
         var evidence = CalibrationEvidenceSummary.From(observer.Snapshot(), Template());
 
         Assert.Equal(CalibrationDraftStatus.Blocked, draft.Status);
-        Assert.Contains(draft.Blockers, blocker => blocker.Contains("长得不一样", StringComparison.Ordinal));
+        Assert.Contains(draft.Blockers, blocker => blocker.Chinese.Contains("还无法识别当前游戏版本的进出副本", StringComparison.Ordinal));
         Assert.Equal(0, evidence.ZoneCandidates);
         Assert.Contains(evidence.ZoneOnceOnly, text => text.Contains(":464@3", StringComparison.Ordinal));
     }
@@ -400,7 +400,7 @@ public sealed class CalibrationObserverTests
         var (_, draft) = Run(traffic);
 
         Assert.Equal(CalibrationDraftStatus.Observing, draft.Status);
-        Assert.Contains(draft.Blockers, blocker => blocker.Contains("打完这把副本", StringComparison.Ordinal));
+        Assert.Contains(draft.Blockers, blocker => blocker.Chinese.Contains("打完这把副本", StringComparison.Ordinal));
         Assert.Empty(draft.Messages);
         Assert.True(draft.Progress.DutyEntrySeen);
         Assert.False(draft.Progress.DutyExitSeen);
@@ -413,9 +413,9 @@ public sealed class CalibrationObserverTests
 
         Assert.Equal(CalibrationDraftStatus.Observing, draft.Status);
         // Blockers say what to do next; the card's four rows say what has been seen.
-        Assert.Contains(draft.Blockers, blocker => blocker.Contains("申请一次随机任务", StringComparison.Ordinal));
-        Assert.Contains(draft.Blockers, blocker => blocker.Contains("登录进入游戏", StringComparison.Ordinal));
-        Assert.DoesNotContain(draft.Blockers, blocker => blocker.Contains("还没见到", StringComparison.Ordinal));
+        Assert.Contains(draft.Blockers, blocker => blocker.Chinese.Contains("申请一次随机任务", StringComparison.Ordinal));
+        Assert.Contains(draft.Blockers, blocker => blocker.Chinese.Contains("登录进入游戏", StringComparison.Ordinal));
+        Assert.DoesNotContain(draft.Blockers, blocker => blocker.Chinese.Contains("还没见到", StringComparison.Ordinal));
         Assert.False(draft.Progress.FinderRequestSeen);
     }
 
@@ -510,7 +510,7 @@ public sealed class CalibrationObserverTests
         var (_, draft) = Run(Session1().Concat(second));
 
         Assert.Equal(CalibrationDraftStatus.Blocked, draft.Status);
-        Assert.Contains(draft.Blockers, blocker => blocker.Contains("分不清", StringComparison.Ordinal));
+        Assert.Contains(draft.Blockers, blocker => blocker.Chinese.Contains("分不清", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -635,7 +635,7 @@ public sealed class CalibrationObserverTests
 
         Assert.True(observer.Snapshot().OverflowCount > 0);
         Assert.Equal(CalibrationDraftStatus.Blocked, draft.Status);
-        Assert.Contains(draft.Blockers, blocker => blocker.Contains("上限", StringComparison.Ordinal));
+        Assert.Contains(draft.Blockers, blocker => blocker.Chinese.Contains("积累的信息太多", StringComparison.Ordinal));
     }
 
     /// <summary>

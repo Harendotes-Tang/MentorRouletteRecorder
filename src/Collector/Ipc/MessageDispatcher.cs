@@ -1,6 +1,7 @@
 using System.Text.Json.Nodes;
 using MentorRecorder.Collector.Contracts.Errors;
 using MentorRecorder.Collector.Capture;
+using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Domain.Mutations;
 using MentorRecorder.Collector.Domain.Queries;
@@ -58,6 +59,7 @@ public sealed class MessageDispatcher
         "QueryCandidateObservations", "ReviewCandidateObservation", "ExportCandidateEvidence",
         "ConfirmCalibration", "DiscardCalibration",
         "GetCalibrationShareCode", "CheckSharedCalibration", "ImportCalibrationCode", "AcceptSharedQueueInference",
+        "GetCalibrationEvidence", "GetTemplateObservation",
         "RejectSharedCalibration",
         "GetSpeechSettings", "UpdateSpeechSettings", "SynthesizeSpeech", "CheckDatabaseIntegrity",
         "CheckUpdateNow", "StartUpdateDownload", "CancelUpdateDownload",
@@ -136,6 +138,8 @@ public sealed class MessageDispatcher
             "ConfirmCalibration" => CalibrationHandlers.Confirm(_host, reader),
             "DiscardCalibration" => CalibrationHandlers.Discard(_host, reader),
             "GetCalibrationShareCode" => SharedCalibrationHandlers.GetShareCode(_host, reader),
+            "GetCalibrationEvidence" => CalibrationEvidenceHandlers.Get(_host, reader),
+            "GetTemplateObservation" => GetTemplateObservation(reader),
             "CheckSharedCalibration" => SharedCalibrationHandlers.Check(_host, reader),
             "ImportCalibrationCode" => SharedCalibrationHandlers.Import(_host, reader),
             "AcceptSharedQueueInference" => SharedCalibrationHandlers.AcceptQueueInference(_host, reader),
@@ -200,7 +204,7 @@ public sealed class MessageDispatcher
     {
         if (Interlocked.CompareExchange(ref _importInFlight, 1, 0) != 0)
             throw new CollectorException(ErrorCodes.DbBusy,
-                "记录导入正在进行，请稍后用相同的请求编号重试。", retryable: true);
+                CollectorTexts.ImportBusy(), retryable: true);
     }
 
     private JsonObject InvokeImport(IpcRequest request, CancellationToken cancellationToken) =>
@@ -228,7 +232,7 @@ public sealed class MessageDispatcher
         if (!TryBeginIntegrityCheck())
         {
             throw new CollectorException(
-                ErrorCodes.DbBusy, "数据库校验正在进行，请等待本次校验结束后再试。", retryable: true);
+                ErrorCodes.DbBusy, CollectorTexts.DatabaseIntegrityCheckBusy(), retryable: true);
         }
 
         // The token is checked inside the work rather than given to Task.Run: a task that is
@@ -265,7 +269,7 @@ public sealed class MessageDispatcher
     /// <param name="messageType">Message type received.</param>
     public static CollectorException UnknownMessageType(string messageType) => new(
         ErrorCodes.BadRequest,
-        "收到本版本不支持的消息类型，请确认两端版本一致。",
+        CollectorTexts.IpcUnknownMessageType(),
         new Dictionary<string, object?> { ["message_type"] = messageType },
         field: "message_type");
 
@@ -285,10 +289,10 @@ public sealed class MessageDispatcher
         reader.RequireEmpty();
 
         var snapshot = _host.Capture.Snapshot();
-        var messages = new List<string>(snapshot.Warnings);
+        var messages = new List<UserText>(snapshot.Warnings);
         if (_host.Recovery.RecoveredCount > 0)
         {
-            messages.Add($"启动时恢复了 {_host.Recovery.RecoveredCount} 条未完结记录，请在「待复核」中确认。");
+            messages.Add(CollectorTexts.StatusRecoveredRuns(_host.Recovery.RecoveredCount));
         }
 
         // Log losses are rare -- two processes appending at the same instant, an unwritable
@@ -296,7 +300,7 @@ public sealed class MessageDispatcher
         // that the diagnostic log has holes in it (review finding M7).
         if (_host.Logger.SuppressedWrites is > 0 and var suppressed)
         {
-            messages.Add($"有 {suppressed} 条诊断日志未能写入，本机日志可能不完整。");
+            messages.Add(CollectorTexts.StatusLogWritesLost(suppressed));
         }
 
         var status = new JsonObject
@@ -312,7 +316,8 @@ public sealed class MessageDispatcher
             ["database_path"] = _host.Database.Path,
             ["uptime_ms"] = _host.UptimeMs,
             ["capture"] = CaptureWire.CaptureStatus(snapshot),
-            ["warnings"] = Wire.Strings(messages),
+            ["warnings"] = Wire.Strings(messages.Select(message => message.Chinese)),
+            ["warning_refs"] = UserText.ToJsonArray(messages),
 
             // Poll-driven: reading the status is what makes a check fall due, and the answer comes
             // from the cache whether or not one was scheduled (docs/privacy-boundary.md §8.4). The
@@ -373,8 +378,17 @@ public sealed class MessageDispatcher
 
     private JsonObject StartCaptureValidation(PayloadReader reader)
     {
-        reader.RejectUnknown("adapter_id");
-        return _host.Validation.Start(reader.String("adapter_id", 400));
+        reader.RejectUnknown("adapter_id", "switch_from_unsupported");
+        var adapter = reader.String("adapter_id", 400);
+        return reader.Bool("switch_from_unsupported") == true
+            ? _host.Capture.SwitchToMetadataObservation(_host.Validation, adapter)
+            : _host.Validation.Start(adapter);
+    }
+
+    private JsonObject GetTemplateObservation(PayloadReader reader)
+    {
+        reader.RequireEmpty();
+        return _host.Validation.GetTemplateObservation();
     }
 
     private JsonObject ValidationStatus(PayloadReader reader, bool stop)
@@ -605,7 +619,7 @@ public sealed class MessageDispatcher
     private JsonObject AcknowledgeImageCleanup(PayloadReader reader)
     {
         reader.RejectUnknown("run_ids");
-        if (!reader.Has("run_ids")) throw CollectorException.BadRequest("缺少必填字段 run_ids。", "run_ids");
+        if (!reader.Has("run_ids")) throw CollectorException.BadRequest(CollectorTexts.IpcFieldMissing("run_ids"), "run_ids");
         return new JsonObject { ["acknowledged_count"] = _host.HistoryRetention.AcknowledgeImageCleanup(RequestParsers.RunIds(reader)) };
     }
 

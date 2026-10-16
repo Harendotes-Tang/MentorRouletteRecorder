@@ -1,0 +1,6 @@
+key,0,1,2
+#,Name,Abbreviation,Name{English}
+int32,str,str,str
+0,,,
+1,樣例劍士,GLA,Sample Gladiator
+19,樣例騎士,PLD,Sample Paladin

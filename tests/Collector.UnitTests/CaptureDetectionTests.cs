@@ -64,9 +64,9 @@ public sealed class CaptureDetectionTests
         // The guidance is the whole answer in this case: it must name the install option, say
         // that the running program downloads nothing, and not deny what the installer does -- it
         // fetches the official Npcap installer when Npcap is missing (audit 2026-10-03, CS-8).
-        Assert.Contains("WinPcap API-compatible Mode", detection.Guidance, StringComparison.Ordinal);
-        Assert.Contains("运行时不会替您下载", detection.Guidance, StringComparison.Ordinal);
-        Assert.Contains("安装程序", detection.Guidance, StringComparison.Ordinal);
+        Assert.Contains("WinPcap API-compatible Mode", detection.Guidance.Chinese, StringComparison.Ordinal);
+        Assert.Contains("运行时不会替您下载", detection.Guidance.Chinese, StringComparison.Ordinal);
+        Assert.Contains("安装程序", detection.Guidance.Chinese, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -124,7 +124,7 @@ public sealed class CaptureDetectionTests
         Assert.Equal(NpcapStatus.AdminOnly, detection.Status);
         Assert.False(detection.Usable);
         Assert.True(detection.AdminOnly);
-        Assert.Contains("管理员", detection.Guidance, StringComparison.Ordinal);
+        Assert.Contains("管理员", detection.Guidance.Chinese, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -189,7 +189,7 @@ public sealed class CaptureDetectionTests
 
         // Which marker wins would be a guess; the region stays unknown and the user is told why.
         Assert.Equal(Region.Unknown, detection.Region);
-        Assert.Contains(detection.Warnings, warning => warning.Contains("同时含有", StringComparison.Ordinal));
+        Assert.Contains(detection.Warnings, warning => warning.Chinese.Contains("同时含有", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -206,7 +206,7 @@ public sealed class CaptureDetectionTests
         // deterministic and the ambiguity reported so the user can override it.
         Assert.Equal(100, detection.ProcessId);
         Assert.Equal(2, detection.InstanceCount);
-        Assert.Contains(detection.Warnings, warning => warning.Contains("2 个", StringComparison.Ordinal));
+        Assert.Contains(detection.Warnings, warning => warning.Chinese.Contains("2 个", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -221,7 +221,7 @@ public sealed class CaptureDetectionTests
         Assert.Equal(55, detection.ProcessId);
         Assert.Equal(Region.Unknown, detection.Region);
         Assert.Null(detection.GameBuild);
-        Assert.Contains(detection.Warnings, warning => warning.Contains("权限", StringComparison.Ordinal));
+        Assert.Contains(detection.Warnings, warning => warning.Chinese.Contains("权限", StringComparison.Ordinal));
     }
 
     [Fact]

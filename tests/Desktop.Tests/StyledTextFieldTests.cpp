@@ -23,7 +23,7 @@ QString qmlRoot()
     return QString::fromUtf8(MR_DESKTOP_QML_DIR);
 }
 
-const char kExample[] = "补录安装前的历史完成数";
+const char kExample[] = "调整开始记录前已完成的导随次数";
 
 struct Scene
 {
@@ -49,8 +49,8 @@ Window {
         StyledTextField {
             objectName: "example"
             width: 300
-            exampleText: "补录安装前的历史完成数"
-            placeholderText: "例如：补录安装前的历史完成数" + exampleHint
+            exampleText: "调整开始记录前已完成的导随次数"
+            placeholderText: "例如：调整开始记录前已完成的导随次数" + exampleHint
             text: reason
             onTextChanged: { reason = text; reasonWrites += 1 }
         }
@@ -213,7 +213,7 @@ void StyledTextFieldTests::thePlaceholderEndsWithTheHint()
     QCOMPARE(scene.field("example")->property("exampleHint").toString(),
              QString::fromUtf8("（按 Tab 填入）"));
     QCOMPARE(scene.field("example")->property("placeholderText").toString(),
-             QString::fromUtf8("例如：补录安装前的历史完成数（按 Tab 填入）"));
+             QString::fromUtf8("例如：调整开始记录前已完成的导随次数（按 Tab 填入）"));
 }
 
 int main(int argc, char *argv[])

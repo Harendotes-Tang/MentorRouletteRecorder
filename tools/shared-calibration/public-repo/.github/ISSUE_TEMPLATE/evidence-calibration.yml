@@ -1,0 +1,18 @@
+name: 共享校准证据
+description: 提交软件预览的最小核实摘要，按固定规则自动等待、隔离或恢复。
+title: "[校准证据] "
+labels: [calibration-evidence]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        摘要随公开 Issue 保留。请只粘贴软件预览的白名单 JSON，不附原始报文、角色、IP、设备标识或精确游戏时间线。
+        账号及会话数量只是操作门槛，不能证明真实游戏行为；最终仍须本机完整核实。
+  - type: textarea
+    id: evidence
+    attributes:
+      label: 公开证据摘要
+      description: 从软件复制完整 JSON；不要改动字段或会话别名。
+      render: json
+    validations:
+      required: true

@@ -22,6 +22,8 @@
 #include <QTimer>
 #include <QVariantMap>
 
+#include "LiveText.h"
+
 namespace mr {
 
 class IBackend;
@@ -62,13 +64,15 @@ public:
     bool recording() const;
     bool saved() const;
     QString notice() const;
-    QString error() const { return m_error; }
-    QString feedback() const { return m_feedback; }
+    QString error() const { return m_error.text(); }
+    QString feedback() const { return m_feedback.text(); }
     bool commandBusy() const { return m_commandBusy; }
     bool markerBusy() const { return m_markerBusy; }
     bool markerEnabled() const;
     QString actionLabel() const;
     bool actionEnabled() const;
+    /// 元数据引导入口不切换正式捕获；已有正式监听时先保持原状态。
+    bool metadataActionEnabled() const;
     QString modeStatusText() const;
     QString modeCompactText() const;
     QString adapterId() const { return m_adapterId; }
@@ -94,22 +98,26 @@ public:
     /// Refresh GetCaptureValidationStatus.
     void refreshStatusSnapshot();
     void toggle();
+    void toggleMetadataObservation();
     void addMarker(const QString &marker);
     /// Drop every cached snapshot; called when the pipe goes down.
     void reset();
 
 Q_SIGNALS:
     void changed();
+    void metadataOwnershipChanged(bool owned);
     void mutationFailed(const QString &code, const QString &message);
 
 private:
-    void startValidation();
+    void startValidation(bool switchFromUnsupported = false);
     void stopValidation();
     void startFormalCapture();
     void applyStatus(const QVariantMap &payload, bool clearError = true);
-    void setFailure(const QString &code, const QString &message);
+    /// \a message empty: the code is what is shown.
+    void setFailure(const QString &code, const LiveText &message);
     void scheduleRetry();
     void clearRetry();
+    void setMetadataOwned(bool owned);
 
     Host *m_host = nullptr;
     /// A QPointer, for the same reason AppController holds one: a request
@@ -121,12 +129,16 @@ private:
     QJsonObject m_profile;
     QTimer m_pollTimer;
     QString m_adapterId;
-    QString m_error;
-    QString m_feedback;
+    // Recipes, so a language switch re-renders them (LiveText.h).
+    LiveText m_error;
+    LiveText m_feedback;
 
     bool m_statusLoaded = false;
+    /// 只在本进程显式开始时设置；断线后等新状态确认已结束才清除。
+    bool m_metadataOwned = false;
     bool m_available = false;
     bool m_statusInFlight = false;
+    bool m_statusRefreshQueued = false;
     bool m_commandBusy = false;
     bool m_markerBusy = false;
     bool m_errorFromStatus = false;

@@ -154,11 +154,11 @@ Dialog {
         ? qsTr("只有通关的指导者任务才会增加进度；当前结果为「%1」。").arg(resultLabel(resultCode))
         : !contributesToGoal ? qsTr("这条通关记录未选择计入导随成就。")
         : !importHasMentorQualification
-        ? qsTr("这条导入记录尚未确认导随资格，当前不计入成就进度。")
+        ? qsTr("这条导入记录还未确认是指导者任务，当前不计入成就进度。")
         : importAwaitingConfirmation && !confirmsImportedFacts
         ? qsTr("请确认这条导入记录的通关结果后保存；未知游戏时间可以留空。")
         : countedBefore ? qsTr("这条导随已经计入进度，修改其他信息不会重复计数。")
-        : qsTr("这条已通关的指导者任务将计入 %1 次成就。完成必填信息后保存生效。").arg(App.goalCount)
+        : qsTr("这条通关记录将计入 %1 次导随成就的进度。填完必填信息后保存生效。").arg(App.goalCount)
 
     property string matchedDate: ""
     property string matchedTime: ""
@@ -269,16 +269,19 @@ Dialog {
     readonly property bool showDifficultyFilter: partyFilter === "" || partyFilter === "8"
                                                  || partyFilter === "24"
 
-    /// Search by expansion name as well as by "7.x".
+    /// Search by expansion name as well as by "7.x": the Chinese client's names
+    /// here, the interface language's through Theme.expansionName.
     readonly property var versionNames: ({
-        "2.x": qsTr("重生之境"), "3.x": qsTr("苍穹之禁城"), "4.x": qsTr("红莲之狂潮"),
-        "5.x": qsTr("暗影之逆焰"), "6.x": qsTr("晓月之终途"), "7.x": qsTr("金曦之遗辉")
+        "2.x": "重生之境", "3.x": "苍穹之禁城", "4.x": "红莲之狂潮",
+        "5.x": "暗影之逆焰", "6.x": "晓月之终途", "7.x": "金曦之遗辉"
     })
 
     /// 随机任务可能派发的副本种类。金碟游乐场、深层迷宫、任务战斗、PVP、寻宝等
     /// 种类随机任务不会派发，列出只会增加翻找成本，故不纳入。
+    /// Compared with the catalogue's duty_category, so they stay its Chinese
+    /// words in every interface language.
     readonly property var dutyCategories: [
-        qsTr("四人迷宫"), qsTr("讨伐歼灭战"), qsTr("大型任务"), qsTr("团队任务"), qsTr("行会令")
+        "四人迷宫", "讨伐歼灭战", "大型任务", "团队任务", "行会令"
     ]
 
     readonly property string reasonLabel: editMode ? qsTr("修正原因") : qsTr("新增原因")
@@ -298,8 +301,12 @@ Dialog {
             ended_date: dialog.endedDate,
             ended: dialog.canonicalTime(dialog.endedTime),
             result: dialog.resultCode,
+            // duty_name / job_name decide whether the field changed; the
+            // *_label pair is what the 修改前后对比 table shows (RunFormValidator::diff).
             duty_name: dialog.selectedDutyName(),
             job_name: dialog.selectedJobName(),
+            duty_label: dialog.selectedDutyLabel(),
+            job_label: dialog.selectedJobLabel(),
             contributes: dialog.contributesToGoal,
             note: dialog.noteText,
             edit_mode: dialog.editMode,
@@ -316,8 +323,10 @@ Dialog {
         ended_date: dialog.dateOrEmpty(runData.ended_at_utc),
         ended: dialog.canonicalTime(dialog.timeOrEmpty(runData.ended_at_utc)),
         result: runData.result || "UNKNOWN",
-        duty_name: runData.duty_name || qsTr("未知副本"),
-        job_name: runData.job_name || qsTr("未知"),
+        duty_name: runData.duty_name || dialog.unknownDutyValue,
+        job_name: runData.job_name || dialog.unknownJobValue,
+        duty_label: Theme.dutyName(runData) || qsTr("未知副本"),
+        job_label: Theme.jobName(runData) || qsTr("未知"),
         contributes: !!runData.contributes_to_goal,
         note: runData.note || ""
     }) : ({})
@@ -328,8 +337,8 @@ Dialog {
     /// (rather than per cell) so a row can size itself to its own text.
     readonly property var diffTableRows: {
         const rows = [{
-            k: qsTr("字段"),
-            a: qsTr("修改前（自动识别原始值保留）"),
+            k: qsTr("内容"),
+            a: qsTr("修改前（保留自动识别的原始内容）"),
             b: qsTr("修改后"),
             head: true
         }]
@@ -344,9 +353,15 @@ Dialog {
     /// out. Each row carries option_index, its own position here, so a
     /// filtered view can still address it. The filters never change this list:
     /// dutyIndex keeps pointing at the same duty whatever is on screen.
+    // The Collector's own placeholders for a record without a duty / job. They are
+    // VALUES, compared with what is stored, so they stay in Simplified Chinese
+    // whatever the interface language; only their labels are translated.
+    readonly property string unknownDutyValue: "未知副本"
+    readonly property string unknownJobValue: "未知"
+
     readonly property var dutyOptionList: {
-        const unknown = qsTr("未知副本")
-        const out = [{ content_id: null, duty_name: unknown, duty_label: unknown, option_index: 0 }]
+        const unknown = dialog.unknownDutyValue
+        const out = [{ content_id: null, duty_name: unknown, duty_label: qsTr("未知副本"), option_index: 0 }]
         const source = dialog.dutyOptions || []
         const run = dialog.editMode ? dialog.runData : null
         // Territory-only and retired catalogue entries still describe a known run.
@@ -358,7 +373,7 @@ Dialog {
                 })) {
             out.push(Object.assign({}, run, {
                 preservesRunDuty: true,
-                duty_label: run.duty_name || unknown,
+                duty_label: run.duty_name || qsTr("未知副本"),
                 option_index: out.length
             }))
         }
@@ -377,7 +392,7 @@ Dialog {
     }
 
     readonly property var jobOptionList: {
-        const out = [{ job_id: null, job_name: qsTr("未知"), option_index: 0 }]
+        const out = [{ job_id: null, job_name: dialog.unknownJobValue, option_index: 0 }]
         const source = dialog.jobOptions || []
         for (let i = 0; i < source.length; ++i)
             out.push(Object.assign({}, source[i], { option_index: out.length }))
@@ -389,7 +404,7 @@ Dialog {
                 && !source.some(function(row) { return row.job_id === run.job_id })) {
             out.push({
                 job_id: run.job_id,
-                job_name: run.job_name || qsTr("未知"),
+                job_name: run.job_name || dialog.unknownJobValue,
                 role: run.role,
                 preservesRunJob: true,
                 option_index: out.length
@@ -476,14 +491,17 @@ Dialog {
             const job = list[i]
             const hasCatalog = typeof Jobs !== "undefined"
             const group = job.role_group || (hasCatalog ? Jobs.roleGroup(job.job_id) : "")
+            // label: the job as shown; job_name stays the record's.
             const entry = {
                 job_id: job.job_id,
                 job_name: job.job_name || "",
+                label: Theme.jobName(job) || job.job_name || "",
                 abbreviation: job.abbreviation || (hasCatalog ? Jobs.abbreviation(job.job_id) : "?"),
                 option_index: job.option_index
             }
             if (job.preservesRunJob) {
                 entry.job_name = qsTr("%1（保留）").arg(job.job_name)
+                entry.label = qsTr("%1（保留）").arg(entry.label)
                 retained.push(entry)
                 continue
             }
@@ -493,26 +511,28 @@ Dialog {
                 other.push(entry)
         }
         const out = []
+        // role: the group (the legend's Chinese key for a named one); label: as shown.
         if (retained.length > 0)
-            out.push({ role: qsTr("原记录"), token: "neutral400", jobs: retained })
+            out.push({ role: qsTr("原记录"), label: qsTr("原记录"), token: "neutral400", jobs: retained })
         for (let n = 0; n < named.length; ++n) {
             if (buckets[named[n]].length > 0) {
                 out.push({
                     role: named[n],
+                    label: Theme.roleGroupName(named[n]),
                     token: typeof Jobs !== "undefined" ? Jobs.tokenForRoleGroup(named[n]) : "",
                     jobs: buckets[named[n]]
                 })
             }
         }
         if (other.length > 0)
-            out.push({ role: qsTr("其他"), token: "neutral400", jobs: other })
-        return out
+            out.push({ role: qsTr("其他"), label: qsTr("其他"), token: "neutral400", jobs: other })
+        return Theme.live(out)
     }
 
     readonly property var stepItems: [
         { n: 1, label: qsTr("结果"), value: dialog.resultLabel(dialog.resultCode) },
         { n: 2, label: qsTr("副本与职业"),
-          value: dialog.selectedDutyName() + " · " + dialog.selectedJobName() },
+          value: dialog.selectedDutyLabel() + " · " + dialog.selectedJobLabel() },
         { n: 3, label: qsTr("时间与原因"),
           value: dialog.matchedTime.trim().length > 0
                  ? dialog.matchedDate + " " + dialog.matchedTime : dialog.matchedDate }
@@ -545,11 +565,13 @@ Dialog {
 
     /// Name, category, exact level ("90"), or version: "7", "7.x" and "7.2"
     /// all mean the 7.x expansion (the catalogue knows expansions, not
-    /// patches), and so does its Chinese name.
+    /// patches), and so does its name. Names match as recorded (Chinese) and
+    /// as shown in the interface language.
     function dutyMatchesQuery(row, query) {
-        if (String(row.duty_name || "").toLowerCase().indexOf(query) >= 0)
+        if (Theme.nameMatches([row.duty_name, Theme.dutyName(row)], query))
             return true
-        if (row.duty_category && String(row.duty_category).indexOf(query) >= 0)
+        if (row.duty_category
+                && Theme.nameMatches([row.duty_category, Theme.categoryName(row.duty_category)], query))
             return true
         if (typeof row.duty_level === "number" && String(row.duty_level) === query)
             return true
@@ -559,8 +581,17 @@ Dialog {
         const major = /^(\d)(?:\.(?:\d+|x)?)?$/i.exec(query)
         if (major && version.charAt(0) === major[1])
             return true
-        const name = dialog.versionNames[version] || ""
-        return name.length > 0 && name.indexOf(query) >= 0
+        return Theme.nameMatches([dialog.versionNames[version], Theme.expansionName(row.duty_expansion)],
+                                 query)
+    }
+
+    /// A catalogue difficulty (普通 / 极 / 零式, its Chinese value) as shown.
+    function difficultyLabel(value) {
+        for (let i = 1; i < difficultyOptions.length; ++i) {
+            if (difficultyOptions[i].value === value)
+                return difficultyOptions[i].label
+        }
+        return value || ""
     }
 
     function partyIcon(size) {
@@ -639,7 +670,7 @@ Dialog {
     function markCompleted() {
         selectResult("COMPLETED")
         contributesToGoal = true
-        reasonText = qsTr("实际已通关，修正识别结果")
+        reasonText = qsTranslate("SystemReason", "实际已通关，修正识别结果")
     }
 
     function estimateEntryFromMatch() {
@@ -739,9 +770,16 @@ Dialog {
         return index >= 0 && index < list.length ? list[index] : null
     }
 
+    /// The record's (Chinese) name of the chosen duty: a value, never shown as is.
     function selectedDutyName() {
         const duty = lookupByIndex(dutyOptionList, dutyIndex)
-        return duty ? (duty.duty_name || qsTr("未知副本")) : qsTr("未知副本")
+        return duty ? (duty.duty_name || dialog.unknownDutyValue) : dialog.unknownDutyValue
+    }
+
+    /// The chosen duty as shown, in the interface language.
+    function selectedDutyLabel() {
+        const duty = lookupByIndex(dutyOptionList, dutyIndex)
+        return duty && dutyIndex > 0 ? (Theme.dutyName(duty) || qsTr("未知副本")) : qsTr("未知副本")
     }
 
     /// 「伊弗利特讨伐战 · 20级 · 2.x」 for the step 2 header.
@@ -749,7 +787,7 @@ Dialog {
         const duty = lookupByIndex(dutyOptionList, dutyIndex)
         if (!duty || dutyIndex === 0)
             return ""
-        const parts = [duty.duty_name || qsTr("未知副本")]
+        const parts = [Theme.dutyName(duty) || qsTr("未知副本")]
         if (typeof duty.duty_level === "number" && duty.duty_level > 0)
             parts.push(qsTr("%1级").arg(duty.duty_level))
         if (duty.version)
@@ -757,9 +795,16 @@ Dialog {
         return parts.join(" · ")
     }
 
+    /// The record's (Chinese) name of the chosen job: a value, never shown as is.
     function selectedJobName() {
         const job = lookupByIndex(jobOptionList, jobIndex)
-        return job ? (job.job_name || qsTr("未知")) : qsTr("未知")
+        return job ? (job.job_name || dialog.unknownJobValue) : dialog.unknownJobValue
+    }
+
+    /// The chosen job as shown, in the interface language.
+    function selectedJobLabel() {
+        const job = lookupByIndex(jobOptionList, jobIndex)
+        return job && jobIndex > 0 ? (Theme.jobName(job) || qsTr("未知")) : qsTr("未知")
     }
 
     function buildUtc(dateText, timeText) {
@@ -805,7 +850,7 @@ Dialog {
         enteredTime = ""
         endedTime = ""
         resultCode = "COMPLETED"
-        reasonText = qsTr("补录遗漏的导随记录")
+        reasonText = qsTranslate("SystemReason", "补录遗漏的导随记录")
         noteText = ""
         resetNoteImages(null)
         contributesToGoal = true
@@ -844,7 +889,7 @@ Dialog {
         endedDate = dateOrEmpty(run.ended_at_utc) || matchedDate
         endedTime = timeOrEmpty(run.ended_at_utc)
         resultCode = run.result || "UNKNOWN"
-        reasonText = qsTr("手动核对并修正记录")
+        reasonText = qsTranslate("SystemReason", "手动核对并修正记录")
         noteText = run.note || ""
         resetNoteImages(run)
         contributesToGoal = !!run.contributes_to_goal
@@ -939,7 +984,7 @@ Dialog {
             return true
         if (!imageStore || !runId) {
             errorCode = "ERR_NOTE_IMAGE"
-            errorText = qsTr("图片没有保存：这条记录还没有可用的编号。")
+            errorText = qsTr("图片未保存，暂时无法关联到这条记录。")
             return false
         }
         const adds = pendingImageAdds.map(function(item) { return item.path })
@@ -1015,7 +1060,7 @@ Dialog {
             duty_expansion: preserveDuty ? runData.duty_expansion : duty && duty.duty_expansion !== undefined ? duty.duty_expansion : null,
             job_id: preserveJob ? runData.job_id : job && job.job_id !== undefined ? job.job_id : null,
             job_name: preserveJob ? runData.job_name : job && job.job_id !== null && job.job_name !== undefined
-                      ? job.job_name : qsTr("未知"),
+                      ? job.job_name : dialog.unknownJobValue,
             role: preserveJob ? runData.role : job && job.role !== undefined ? job.role : "UNKNOWN",
             matched_at_utc: matchedUtc,
             entered_at_utc: enteredUtc,
@@ -1070,8 +1115,9 @@ Dialog {
             // to land in this form, not only in a toast that replaces it.
             submitting = true
             submissionTicket = currentTicket
-            lastSubmission = { create: true, payload: fields, reason: reasonText.trim() }
-            createRequested(fields, reasonText.trim())
+            // A pre-filled reason left as it was is stored in its source text (Theme.storedReason).
+            lastSubmission = { create: true, payload: fields, reason: Theme.storedReason(reasonText) }
+            createRequested(fields, lastSubmission.reason)
             return
         }
 
@@ -1113,14 +1159,14 @@ Dialog {
                 return
             }
             errorCode = "ERR_NO_CHANGES"
-            errorText = qsTr("没有任何字段被修改。")
+            errorText = qsTr("还没有修改记录内容。")
             return
         }
 
         submitting = true
         submissionTicket = currentTicket
-        lastSubmission = { create: false, payload: changes, reason: reasonText.trim() }
-        correctRequested(changes, reasonText.trim())
+        lastSubmission = { create: false, payload: changes, reason: Theme.storedReason(reasonText) }
+        correctRequested(changes, lastSubmission.reason)
     }
 
     /// True when a reply that just arrived belongs to the submission this form
@@ -1187,12 +1233,12 @@ Dialog {
             awaitingRetry = code === "ERR_INTERNAL" && !!lastSubmission
         errorText = neverSent
                     ? text + "\n" + (awaitingRetry
-                                     ? qsTr("这次重试没有发给采集服务。之前那次提交可能已经保存，为免重复，"
+                                     ? qsTr("这次重试未能发给后台服务，上次提交可能已经保存。为避免重复，"
                                             + "只能原样重试或关闭窗口；关闭后请先在历史记录中确认，再决定是否重新填写。")
-                                     : qsTr("这次提交没有发给采集服务，记录没有保存。"))
+                                     : qsTr("这次提交未能发给后台服务，记录尚未保存。连接恢复后可重试。"))
                     : awaitingRetry
-                      ? text + "\n" + qsTr("这次提交已经发出，但没有收到能说明是否保存成功的回应，记录可能已经保存。"
-                                           + "为免重复，只能原样重试或关闭窗口；关闭后请先在历史记录中确认，再决定是否重新填写。")
+                      ? text + "\n" + qsTr("尚未确认保存结果，记录可能已经保存。"
+                                           + "为避免重复，只能原样重试或关闭窗口；关闭后请先在历史记录中确认，再决定是否重新填写。")
                       : text
         submitting = false
         submissionTicket = ""
@@ -1483,7 +1529,7 @@ Dialog {
                       ? qsTr("提交中…")
                       : dialog.recordSaved ? qsTr("重试图片")
                       : dialog.awaitingRetry ? qsTr("原样重试")
-                      : (dialog.editMode ? qsTr("保存为新修订") : qsTr("添加记录"))
+                      : (dialog.editMode ? qsTr("保存修正") : qsTr("添加记录"))
                 onClicked: dialog.submit()
             }
         }

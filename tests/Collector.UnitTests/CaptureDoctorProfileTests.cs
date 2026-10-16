@@ -1,4 +1,5 @@
 using MentorRecorder.Collector.Capture;
+using MentorRecorder.Collector.Contracts.Texts;
 
 namespace MentorRecorder.Collector.UnitTests;
 
@@ -36,7 +37,7 @@ public sealed class CaptureDoctorProfileTests : IDisposable
         Assert.Contains("协议档案", text, StringComparison.Ordinal);
         Assert.Contains(CaptureCli.ProfileNotLoadedMessage, text, StringComparison.Ordinal);
         Assert.Contains("捕获诊断", text, StringComparison.Ordinal);
-        Assert.DoesNotContain(NoProfileStatusProvider.Message, text, StringComparison.Ordinal);
+        Assert.DoesNotContain(NoProfileStatusProvider.Message.Chinese, text, StringComparison.Ordinal);
     }
 
     /// <summary>A provider the caller supplied is reported as it stands; only the no-profile default is replaced.</summary>
@@ -44,7 +45,7 @@ public sealed class CaptureDoctorProfileTests : IDisposable
     public void AProviderTheCallerSuppliedIsReportedAsItStands()
     {
         var provider = new FakeProfileStatusProvider(Domain.ProfileStatus.Verified);
-        provider.Current = provider.Current with { Message = "由调用方提供的档案说明" };
+        provider.Current = provider.Current with { Message = new UserText("test.profile_message", "由调用方提供的档案说明") };
 
         var text = Doctor(Services() with { Profile = provider });
 

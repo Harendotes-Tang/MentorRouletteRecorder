@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Security.Principal;
 using System.Text;
 using MentorRecorder.Collector.Contracts.Errors;
+using MentorRecorder.Collector.Contracts.Texts;
 
 namespace MentorRecorder.Collector.Ipc;
 
@@ -51,7 +52,7 @@ public static class PipeNaming
         return identity.User?.Value
             ?? throw new CollectorException(
                 ErrorCodes.Internal,
-                "无法读取当前用户的 SID，命名管道名称无法确定。");
+                CollectorTexts.StartupPipeSidUnknown());
     }
 
     /// <summary>The pipe name for the user this process runs as.</summary>

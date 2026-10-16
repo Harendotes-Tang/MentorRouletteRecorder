@@ -202,6 +202,8 @@ QJsonObject argsFor(const QString &messageType)
                 {QStringLiteral("verdict"), QStringLiteral("CORRECT")}});
         }
         args.insert(QStringLiteral("verdicts"), verdicts);
+    } else if (messageType == QLatin1String("GetCalibrationEvidence")) {
+        args.insert(QStringLiteral("code_sha256"), QString(64, QLatin1Char('a')));
     } else if (messageType == QLatin1String("ImportCalibrationCode")) {
         // tests/Fixtures/shared-calibration/vectors.json valid[0].code: the
         // sample the Collector side wrote first (contracts/CHANGELOG.md).
@@ -232,6 +234,8 @@ QStringList allMessageTypes()
         QStringLiteral("ConfirmCalibration"),
         QStringLiteral("DiscardCalibration"),
         QStringLiteral("GetCalibrationShareCode"),
+        QStringLiteral("GetCalibrationEvidence"),
+        QStringLiteral("GetTemplateObservation"),
         QStringLiteral("CheckSharedCalibration"),
         QStringLiteral("ImportCalibrationCode"),
         QStringLiteral("AcceptSharedQueueInference"),
