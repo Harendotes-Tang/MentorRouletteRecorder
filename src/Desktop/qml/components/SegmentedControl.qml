@@ -16,6 +16,17 @@ Rectangle {
     /// Option that emitted the last activated(); the theme reveal centres on it.
     property Item activatedOption: null
 
+    // 从其他页面定位设置时，只移动焦点，不改变当前选项。
+    function focusSelectedOption() {
+        for (let index = 0; index < optionRepeater.count; ++index) {
+            const option = optionRepeater.itemAt(index)
+            if (option && option.enabled && option.current) {
+                option.forceActiveFocus(Qt.TabFocusReason)
+                return
+            }
+        }
+    }
+
     // Qt Basic's own horizontal padding (padding 6 + 2); the chosen / resting
     // options move off it by +3 / -2 px.
     readonly property real optionPadding: 8
@@ -48,6 +59,7 @@ Rectangle {
         spacing: 2
 
         Repeater {
+            id: optionRepeater
             model: root.options
 
             delegate: Button {

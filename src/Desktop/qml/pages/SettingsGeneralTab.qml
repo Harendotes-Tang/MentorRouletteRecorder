@@ -23,6 +23,10 @@ ColumnLayout {
     // The application's LanguageManager; a test scene without one shows no card.
     readonly property var lang: typeof Lang !== "undefined" ? Lang : null
 
+    function focusLanguageControl() {
+        languageChoices.focusSelectedOption()
+    }
+
     // One place decides how an unsupported Collector reads, so a switch that can
     // do nothing never looks like one that can.
     function captureSettingDescription(text) {
@@ -45,6 +49,7 @@ ColumnLayout {
             description: qsTr("界面文字和播报语音一起切换")
 
             SegmentedControl {
+                id: languageChoices
                 objectName: "uiLanguageSettingControl"
                 Layout.preferredWidth: 340
                 options: tab.lang ? tab.lang.languages.map(function(language) {

@@ -14,6 +14,9 @@ Dialog {
     readonly property bool batch: runsData.length > 1
     readonly property bool collection: batch && outputMode.currentIndex === 1
     property string exportDate: ""
+    readonly property var preferences: typeof Settings !== "undefined" ? Settings : null
+    readonly property bool identityValid: identityInput.text.trim().length === 0
+        || /^[^@\s]+(?: [^@\s]+)*@[^@\s]+(?: [^@\s]+)*$/.test(identityInput.text.trim())
     modal: true
     width: Math.min(800, Overlay.overlay ? Overlay.overlay.width - 48 : 800)
     height: Math.min(850, Overlay.overlay ? Overlay.overlay.height - 48 : 850)
@@ -41,6 +44,8 @@ Dialog {
         runData = valid[0]
         outputMode.currentIndex = 0
         attribution.checked = true
+        identityOption.checked = true
+        identityInput.text = preferences ? preferences.shareGameIdentity : ""
         exportDate = Qt.formatDate(new Date(), "yyyy.MM.dd")
         if (controller) controller.resetFeedback()
         open()
@@ -52,19 +57,24 @@ Dialog {
         return entries
     }
     function saveSelected() {
-        if (!controller || busy) return
+        if (!controller || busy || (identityOption.checked && !identityValid)) return
+        rememberIdentity()
         if (batch && outputMode.currentIndex === 0)
             controller.saveBatchPicked(captureEntries())
         else
             controller.savePicked(batch ? combined : cards.itemAt(0))
     }
+    function rememberIdentity() {
+        if (preferences && identityValid) preferences.shareGameIdentity = identityInput.text.trim()
+    }
+    onClosed: rememberIdentity()
     onOpened: {
         preview.contentItem.contentY = 0
         if (batch) outputMode.forceActiveFocus()
         else saveButton.forceActiveFocus()
     }
     contentItem: ColumnLayout {
-        spacing: 12
+        spacing: 8
         HeadingLabel { text: qsTr("生成分享图片"); font.pixelSize: Theme.dialogTitleSize(20) }
         Text {
             Layout.fillWidth: true
@@ -87,6 +97,38 @@ Dialog {
                 enabled: !dialog.busy
                 onActivated: if (dialog.controller) dialog.controller.resetFeedback()
             }
+        }
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 8
+            SelectionCheckBox {
+                id: identityOption
+                objectName: "reflectionShareIdentityOption"
+                text: qsTr("显示游戏 ID")
+                checked: true
+                enabled: !dialog.busy
+                onToggled: if (dialog.controller) dialog.controller.resetFeedback()
+            }
+            StyledTextField {
+                id: identityInput
+                objectName: "reflectionShareIdentityInput"
+                Layout.fillWidth: true
+                placeholderText: qsTr("用户名@服务器名（仅保存在本机）")
+                Accessible.name: qsTr("游戏 ID")
+                maximumLength: 128
+                enabled: !dialog.busy
+                font.family: Theme.bodyFamily
+                onEditingFinished: dialog.rememberIdentity()
+                onTextEdited: if (dialog.controller) dialog.controller.resetFeedback()
+            }
+        }
+        Text {
+            Layout.fillWidth: true
+            visible: identityOption.checked && !dialog.identityValid
+            text: qsTr("请按“用户名@服务器名”填写，或关闭游戏 ID 显示。")
+            color: Theme.orangeText
+            font.pixelSize: Theme.fs(12)
+            wrapMode: Text.Wrap
         }
         SelectionCheckBox {
             id: attribution
@@ -122,6 +164,7 @@ Dialog {
                     visible: dialog.collection
                     runsData: dialog.runsData
                     showAttribution: attribution.checked
+                    gameIdentity: identityOption.checked ? identityInput.text.trim() : ""
                     exportDate: dialog.exportDate
                 }
                 Column {
@@ -138,6 +181,7 @@ Dialog {
                             width: stack.width
                             runData: modelData
                             showAttribution: attribution.checked
+                            gameIdentity: identityOption.checked ? identityInput.text.trim() : ""
                             exportDate: dialog.exportDate
                         }
                     }
@@ -159,6 +203,7 @@ Dialog {
             id: batchResultsView
             objectName: "reflectionBatchResults"
             Layout.fillWidth: true
+            Layout.minimumHeight: 32
             Layout.preferredHeight: Math.min(110, resultContents.implicitHeight)
             visible: !!dialog.controller && dialog.controller.batchResults.length > 0
             clip: true
@@ -203,7 +248,7 @@ Dialog {
                     : dialog.batch ? qsTr("保存合成长图") : qsTr("保存 PNG 图片")
                 iconName: "image-down"
                 variant: "primary"
-                enabled: !!dialog.controller && !dialog.busy
+                enabled: !!dialog.controller && !dialog.busy && (!identityOption.checked || dialog.identityValid)
                 onClicked: dialog.saveSelected()
             }
         }

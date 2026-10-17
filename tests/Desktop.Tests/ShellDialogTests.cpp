@@ -14,6 +14,7 @@
 #include "AppController.h"
 #include "AppSettings.h"
 #include "ReleaseNotesController.h"
+#include "LanguageManager.h"
 #include "Formatters.h"
 #include "IBackend.h"
 #include "JobCatalog.h"
@@ -187,6 +188,8 @@ struct Shell {
     bool firstStart = false;
     mr::ReleaseNotesController *releaseNotes = nullptr;
     bool suppressReleaseNotes = false;
+    bool enableLanguage = false;
+    std::unique_ptr<mr::LanguageManager> language;
 
     ~Shell()
     {
@@ -208,6 +211,12 @@ struct Shell {
         context->setContextProperty(QStringLiteral("Roles"), &roles);
         context->setContextProperty(QStringLiteral("RunForm"), &validator);
         context->setContextProperty(QStringLiteral("Settings"), &settings);
+        if (enableLanguage) {
+            language = std::make_unique<mr::LanguageManager>(&settings);
+            language->initialize(QStringLiteral("zh-CN"));
+            language->attachEngine(engine.get());
+            context->setContextProperty(QStringLiteral("Lang"), language.get());
+        }
         if (releaseNotes)
             context->setContextProperty(QStringLiteral("ReleaseNotes"), releaseNotes);
         context->setContextProperty(QStringLiteral("SuppressReleaseNotes"), suppressReleaseNotes);
@@ -509,6 +518,8 @@ private Q_SLOTS:
         QTest::newRow("classic-light") << "classic" << "light";
         QTest::newRow("eorzea-dark") << "eorzea" << "dark";
         QTest::newRow("eorzea-light") << "eorzea" << "light";
+        QTest::newRow("harendotes-dark") << "harendotes" << "dark";
+        QTest::newRow("harendotes-light") << "harendotes" << "light";
     }
 
     void releaseNotesLongTextAndKeyboard()
@@ -536,8 +547,10 @@ private Q_SLOTS:
         QTRY_VERIFY(dialog->property("opened").toBool());
         auto *scroll = shell.item(QStringLiteral("releaseNotesScroll"));
         auto *button = shell.item(QStringLiteral("releaseNotesAcknowledge"));
-        auto *text = shell.item(QStringLiteral("releaseNotesText"));
-        QVERIFY(scroll && button && text);
+        auto *detailButton = shell.item(QStringLiteral("releaseNotesDetails_0"));
+        auto *text = shell.item(QStringLiteral("releaseNotesDetail_0"));
+        auto *close = shell.item(QStringLiteral("releaseNotesClose"));
+        QVERIFY(scroll && button && text && detailButton && close);
         QTRY_VERIFY(scroll->property("contentHeight").toReal() > scroll->height());
         const auto buttonBottom = button->mapToScene(QPointF(button->width(), button->height()));
         QVERIFY(buttonBottom.y() < shell.window()->height());
@@ -545,8 +558,34 @@ private Q_SLOTS:
         QTRY_VERIFY(button->hasActiveFocus());
         QVERIFY(QTest::qWaitForWindowExposed(shell.window()));
         QTest::keyClick(shell.window(), Qt::Key_Tab);
+        QTRY_VERIFY(close->hasActiveFocus());
+        QTest::keyClick(shell.window(), Qt::Key_Tab);
+        QTRY_VERIFY(detailButton->hasActiveFocus());
+        QTest::keyClick(shell.window(), Qt::Key_Space);
+        QTRY_VERIFY(text->isVisible());
+        QCOMPARE(text->property("text").toString(), notes.entries().first().toMap().value("detail").toString());
+        QTest::keyClick(shell.window(), Qt::Key_Tab);
         QTRY_VERIFY(text->hasActiveFocus());
         QTest::keyClick(shell.window(), Qt::Key_Backtab);
+        QTRY_VERIFY(detailButton->hasActiveFocus());
+        QTest::keyClick(shell.window(), Qt::Key_Return);
+        QTRY_VERIFY(!text->isVisible());
+        QTest::keyClick(shell.window(), Qt::Key_Backtab);
+        QTRY_VERIFY(close->hasActiveFocus());
+        QTest::keyClick(shell.window(), Qt::Key_Backtab);
+        QTRY_VERIFY(button->hasActiveFocus());
+        auto *lastDetail = shell.item(QStringLiteral("releaseNotesDetails_64"));
+        QVERIFY(lastDetail);
+        for (int step = 0; step < 70 && !lastDetail->hasActiveFocus(); ++step) {
+            QTest::keyClick(shell.window(), Qt::Key_Tab);
+            QCoreApplication::processEvents();
+        }
+        QTRY_VERIFY(lastDetail->hasActiveFocus());
+        const auto focusTop = lastDetail->mapToItem(scroll, QPointF(0, 0));
+        QVERIFY2(focusTop.y() >= -1 && focusTop.y() + lastDetail->height() <= scroll->height() + 1,
+                 "Tab focus must scroll the final detail control into view");
+        QVERIFY(scroll->property("contentY").toReal() > 0);
+        QTest::keyClick(shell.window(), Qt::Key_Tab);
         QTRY_VERIFY(button->hasActiveFocus());
         scroll->setProperty("contentY", scroll->property("contentHeight").toReal() - scroll->height());
         QTest::qWait(100);
@@ -558,6 +597,129 @@ private Q_SLOTS:
         }
         QTest::keyClick(shell.window(), Qt::Key_Space);
         QTRY_VERIFY(!notes.pending());
+    }
+
+    void releaseNotesEntryTextSharesFirstBaseline_data()
+    {
+        releaseNotesLongTextAndKeyboard_data();
+    }
+
+    void releaseNotesEntryTextSharesFirstBaseline()
+    {
+        QFETCH(QString, style);
+        QFETCH(QString, theme);
+        Shell shell;
+        const QString oldSeen = shell.settings.releaseNotesSeenVersion();
+        const QString oldStyle = shell.settings.uiStyle();
+        const auto restore = qScopeGuard([&] {
+            shell.settings.setReleaseNotesSeenVersion(oldSeen);
+            shell.settings.setUiStyle(oldStyle);
+        });
+        shell.settings.setReleaseNotesSeenVersion(QString());
+        shell.settings.setUiStyle(style);
+        mr::ReleaseNotesController notes(&shell.settings);
+        shell.releaseNotes = &notes;
+        QVERIFY2(shell.create(), qPrintable(shell.errors));
+        shell.controller->setThemeMode(theme);
+        shell.window()->resize(1100, 720);
+        auto *dialog = shell.named(QStringLiteral("releaseNotesDialog"));
+        QVERIFY(dialog);
+        QTRY_VERIFY(dialog->property("opened").toBool());
+
+        const auto baseline = [](QQuickItem *item) {
+            return item->mapToScene(QPointF(0, item->baselineOffset())).y();
+        };
+        for (const QVariant &value : notes.entries()) {
+            const QVariantMap entry = value.toMap();
+            if (entry.value("highlight").toBool() || entry.value("tag").toString().isEmpty())
+                continue;
+            const QString id = entry.value("id").toString();
+            auto *tag = shell.item("releaseNotesTag_" + id);
+            auto *title = shell.item("releaseNotesTitle_" + id);
+            auto *details = shell.item("releaseNotesDetails_" + id);
+            QVERIFY(tag && title && details);
+            auto *buttonText = findItem(details, QStringLiteral("buttonLabel"));
+            QVERIFY(buttonText);
+            QTRY_VERIFY(qAbs(baseline(tag) - baseline(title)) <= 0.5);
+            QTRY_VERIFY(qAbs(baseline(buttonText) - baseline(title)) <= 0.5);
+        }
+
+        // A wrapped heading keeps the tag and action beside its first line.
+        auto *title = shell.item(QStringLiteral("releaseNotesTitle_0"));
+        auto *tag = shell.item(QStringLiteral("releaseNotesTag_0"));
+        auto *details = shell.item(QStringLiteral("releaseNotesDetails_0"));
+        QVERIFY(title && tag && details);
+        auto *buttonText = findItem(details, QStringLiteral("buttonLabel"));
+        QVERIFY(buttonText);
+        title->setProperty("text", QString::fromUtf8("较长的更新标题换行后，标签与详细按钮仍应对齐首行文字。").repeated(3));
+        QTRY_VERIFY(title->property("lineCount").toInt() > 1);
+        QTRY_VERIFY(qAbs(baseline(tag) - baseline(title)) <= 0.5);
+        QTRY_VERIFY(qAbs(baseline(buttonText) - baseline(title)) <= 0.5);
+        const QString evidence = qEnvironmentVariable("MR_RELEASE_NOTES_EVIDENCE_DIR");
+        if (!evidence.isEmpty()) {
+            QDir().mkpath(evidence);
+            QVERIFY(shell.window()->grabWindow().save(evidence + "/aligned-wrapped-" + style + "-" + theme + ".png"));
+        }
+    }
+
+    void aboutReopensReadNotesAndNavigatesToLanguageWithoutChangingIt()
+    {
+        Shell shell;
+        shell.enableLanguage = true;
+        const QString oldSeen = shell.settings.releaseNotesSeenVersion();
+        const auto restore = qScopeGuard([&] { shell.settings.setReleaseNotesSeenVersion(oldSeen); });
+        mr::ReleaseNotesController initial(&shell.settings);
+        shell.settings.setReleaseNotesSeenVersion(initial.version());
+        mr::ReleaseNotesController notes(&shell.settings);
+        QVERIFY(!notes.pending());
+        shell.releaseNotes = &notes;
+        QVERIFY2(shell.create(), qPrintable(shell.errors));
+        QVERIFY(QTest::qWaitForWindowExposed(shell.window()));
+        shell.controller->navigate(5);
+        QVERIFY(shell.click(QStringLiteral("settingsTab_about")));
+        QVERIFY(shell.click(QStringLiteral("aboutCurrentReleaseNotesButton")));
+        auto *dialog = shell.named(QStringLiteral("releaseNotesDialog"));
+        auto *scroll = shell.item(QStringLiteral("releaseNotesScroll"));
+        auto *detail = shell.item(QStringLiteral("releaseNotesDetail_1"));
+        QVERIFY(dialog && scroll && detail);
+        QTRY_VERIFY(dialog->property("opened").toBool());
+        QVERIFY(shell.click(QStringLiteral("releaseNotesDetails_1")));
+        QTRY_VERIFY(detail->isVisible());
+        const QString evidence = qEnvironmentVariable("MR_RELEASE_NOTES_EVIDENCE_DIR");
+        if (!evidence.isEmpty()) {
+            QTest::qWait(80);
+            QDir().mkpath(evidence);
+            QVERIFY(shell.window()->grabWindow().save(evidence + "/expanded-current-notes.png"));
+        }
+        scroll->setProperty("contentY", 120);
+        QTest::keyClick(shell.window(), Qt::Key_Escape);
+        QTRY_VERIFY(!dialog->property("visible").toBool());
+        QCOMPARE(shell.settings.releaseNotesSeenVersion(), initial.version());
+        QVERIFY(shell.click(QStringLiteral("aboutCurrentReleaseNotesButton")));
+        QTRY_VERIFY(dialog->property("opened").toBool());
+        QTRY_VERIFY(!detail->isVisible());
+        QTRY_COMPARE(scroll->property("contentY").toReal(), 0.0);
+        const QString languageBefore = shell.language->code();
+        QVERIFY(shell.click(QStringLiteral("releaseNotesLanguageSettings")));
+        QTRY_VERIFY(!dialog->property("visible").toBool());
+        auto *general = shell.item(QStringLiteral("settingsGeneralTab"));
+        auto *choices = shell.item(QStringLiteral("uiLanguageSettingControl"));
+        QVERIFY(general && choices);
+        QTRY_VERIFY(general->isVisible());
+        QTRY_VERIFY(choices->isAncestorOf(shell.window()->activeFocusItem()));
+        QCOMPARE(shell.language->code(), languageBefore);
+        QCOMPARE(shell.settings.releaseNotesSeenVersion(), initial.version());
+    }
+
+    void aboutHidesCurrentNotesWhenTheExactSectionIsMissing()
+    {
+        Shell shell;
+        mr::ReleaseNotesController notes(&shell.settings, "1.7.3", "## [1.7.2]\n- Old");
+        shell.releaseNotes = &notes;
+        QVERIFY2(shell.create(), qPrintable(shell.errors));
+        shell.controller->navigate(5);
+        QVERIFY(shell.click(QStringLiteral("settingsTab_about")));
+        QVERIFY(!shell.item(QStringLiteral("aboutCurrentReleaseNotesButton"))->isVisible());
     }
 
     void releaseNotesSuppressedInHarness()

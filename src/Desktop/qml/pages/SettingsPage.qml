@@ -21,6 +21,8 @@ Item {
     signal openBaselineRequested()
     signal openDisclosureRequested()
     signal openImportRequested()
+    signal openReleaseNotesRequested()
+    property bool releaseNotesAvailable: false
 
     // Remembered for the session: Main.qml creates the page once and only hides
     // it. --settings-tab opens a given tab for a screenshot.
@@ -47,6 +49,12 @@ Item {
     function editBaseline() {
         page.selectTab("goal")
         goalTab.focusBaselineField()
+    }
+
+    function openLanguageSettings() {
+        page.selectTab("general")
+        scroll.contentY = 0
+        Qt.callLater(function() { generalTab.focusLanguageControl() })
     }
 
     ColumnLayout {
@@ -108,6 +116,7 @@ Item {
                     spacing: 16
 
                     SettingsGeneralTab {
+                        id: generalTab
                         objectName: "settingsGeneralTab"
                         visible: page.currentTab === "general"
                     }
@@ -132,6 +141,8 @@ Item {
                         objectName: "settingsAboutTab"
                         visible: page.currentTab === "about"
                         onOpenDisclosureRequested: page.openDisclosureRequested()
+                        releaseNotesAvailable: page.releaseNotesAvailable
+                        onOpenReleaseNotesRequested: page.openReleaseNotesRequested()
                     }
                 }
             }

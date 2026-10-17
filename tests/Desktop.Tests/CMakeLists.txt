@@ -771,7 +771,7 @@ foreach(MR_PERSONAL_THEME dark light)
 endforeach()
 
 set(MR_RELEASE_NOTES_QML_TESTS)
-foreach(MR_NOTES_STYLE classic eorzea)
+foreach(MR_NOTES_STYLE classic eorzea harendotes)
     foreach(MR_NOTES_THEME dark light)
         set(MR_NOTES_TEST MentorRecorderQmlReleaseNotes_${MR_NOTES_STYLE}_${MR_NOTES_THEME})
         add_test(NAME ${MR_NOTES_TEST}
@@ -780,7 +780,7 @@ foreach(MR_NOTES_STYLE classic eorzea)
                 --mock-ui-style ${MR_NOTES_STYLE} --theme ${MR_NOTES_THEME}
                 --show-release-notes --screenshot-size 1100x720 --screenshot-delay 900
                 --screenshot "${CMAKE_CURRENT_BINARY_DIR}/${MR_NOTES_TEST}.png"
-                --verify-text "本次更新" --verify-text "版本 ${MR_VERSION_FULL}")
+                --verify-text "本次更新" --verify-text "${MR_VERSION_FULL}")
         list(APPEND MR_RELEASE_NOTES_QML_TESTS ${MR_NOTES_TEST})
     endforeach()
 endforeach()

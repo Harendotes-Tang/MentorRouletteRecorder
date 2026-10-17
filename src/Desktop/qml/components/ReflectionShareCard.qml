@@ -8,6 +8,7 @@ Item {
     property var runData: ({})
     property var runsData: []
     property bool showAttribution: true
+    property string gameIdentity: ""
     property string exportDate: Qt.formatDate(new Date(), "yyyy.MM.dd")
     readonly property bool opaquePaper: true
     readonly property var entries: runsData.length > 0 ? runsData : [runData]
@@ -43,7 +44,8 @@ Item {
     Item {
         id: paper
         width: 1140
-        height: Math.ceil(Math.max(480, (card.single ? singleEntry.height : timeline.y + timeline.height) + 190))
+        height: Math.ceil(Math.max(480, (card.single ? singleEntry.height : timeline.y + timeline.height) + 190)
+                          + (identityText.visible ? identityText.height + 44 : 0))
         scale: card.templateScale
         transformOrigin: Item.TopLeft
         readonly property real dividerY: card.single ? singleEntry.dividerY : Math.max(238, collectionMeta.y + collectionMeta.height + 38)
@@ -116,6 +118,16 @@ Item {
             visible: !paper.fixedHeader
         }
         Text {
+            id: identityText
+            objectName: "reflectionShareGameIdentity"
+            x: 295; y: paper.height - 184 - height; width: 550
+            visible: card.gameIdentity.trim().length > 0
+            text: card.gameIdentity.trim(); textFormat: Text.PlainText
+            horizontalAlignment: Text.AlignHCenter; wrapMode: Text.WrapAnywhere
+            color: "#59452F"
+            font { family: Theme.bodyFamily; pixelSize: 22; weight: Font.Medium }
+        }
+        Text {
             objectName: "reflectionShareCollectionTitle"
             visible: !card.single
             x: 84; y: 132 - baselineOffset; width: 610
@@ -172,14 +184,14 @@ Item {
             x: 84; y: paper.height - 88 - baselineOffset; width: 972
             text: qsTr("导出于 %1").arg(card.exportDate); textFormat: Text.PlainText
             horizontalAlignment: Text.AlignHCenter; color: "#6E5A44"
-            font { family: "Noto Serif SC"; pixelSize: 20; letterSpacing: 3 }
+            font { family: Theme.bodyFamily; pixelSize: 22; weight: Font.Medium }
         }
         Text {
             objectName: "reflectionShareBrand"
             x: 84; y: paper.height - 49 - baselineOffset; width: 972
             text: qsTr("Powered by 导随记录器"); textFormat: Text.PlainText
             horizontalAlignment: Text.AlignHCenter; color: "#6E5A44"
-            font { family: Theme.bodyFamily; pixelSize: 16 }
+            font { family: Theme.bodyFamily; pixelSize: 20 }
             visible: card.showAttribution
         }
     }

@@ -45,10 +45,13 @@ target_compile_definitions(MentorRecorderDesktopLib
     PRIVATE MR_APP_VERSION="${MR_VERSION_FULL}")
 
 # 唯一更新记录随程序嵌入；内容修改后由构建资源依赖重新编译。
+set_source_files_properties("${CMAKE_CURRENT_SOURCE_DIR}/resources/release-notes/presentation.json"
+    PROPERTIES QT_RESOURCE_ALIAS "presentation.json")
 qt_add_resources(MentorRecorderDesktopLib "mr_release_notes"
     PREFIX "/release-notes"
     BASE "${CMAKE_SOURCE_DIR}"
-    FILES "${CMAKE_SOURCE_DIR}/CHANGELOG.md")
+    FILES "${CMAKE_SOURCE_DIR}/CHANGELOG.md"
+          "${CMAKE_CURRENT_SOURCE_DIR}/resources/release-notes/presentation.json")
 
 # Developer Collector discovery (CollectorProcess::resolveDefaultExecutable): the
 # MR_COLLECTOR_PATH override and the walk up into a source checkout's C# build
@@ -238,6 +241,7 @@ set(MR_QML_FILES
     qml/components/ReflectionCard.qml
     qml/components/ReflectionShareCard.qml
     qml/components/ReflectionShareEntry.qml
+    qml/components/ReleaseNotesEntry.qml
     qml/components/RoleIcon.qml
     qml/components/SegmentedControl.qml
     qml/components/SelectionCheckBox.qml

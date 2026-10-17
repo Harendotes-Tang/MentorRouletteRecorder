@@ -10,6 +10,8 @@ ColumnLayout {
     id: tab
 
     signal openDisclosureRequested()
+    signal openReleaseNotesRequested()
+    property bool releaseNotesAvailable: false
 
     Layout.fillWidth: true
     spacing: 16
@@ -104,7 +106,7 @@ ColumnLayout {
             }
         }
 
-        RowLayout {
+        Flow {
             Layout.fillWidth: true
             spacing: 8
             // 这个软件做什么、不做什么：普通的说明窗口，只有「关闭」。
@@ -114,11 +116,18 @@ ColumnLayout {
                 onClicked: tab.openDisclosureRequested()
             }
             AppButton {
+                objectName: "aboutCurrentReleaseNotesButton"
+                visible: tab.releaseNotesAvailable
+                text: qsTr("查看本次更新")
+                onClicked: tab.openReleaseNotesRequested()
+                Keys.onReturnPressed: clicked()
+                Keys.onEnterPressed: clicked()
+            }
+            AppButton {
                 variant: "ghost"
                 text: qsTr("打开捕获诊断")
                 onClicked: App.navigate(4)
             }
-            Item { Layout.fillWidth: true }
         }
     }
 

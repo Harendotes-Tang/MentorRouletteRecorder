@@ -1,10 +1,12 @@
 #include "ReflectionShareController.h"
+#include "Formatters.h"
 
 #include <QDir>
 #include <QDate>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QImageWriter>
+#include <QJSValue>
 #include <QPainter>
 #include <QQuickItem>
 #include <QQuickItemGrabResult>
@@ -15,11 +17,26 @@
 #include <QStandardPaths>
 #include <QTimer>
 #include <QUrl>
-#include <QUuid>
 #include <cmath>
 #include <memory>
 
 namespace {
+QVariant shareProperty(QObject *object, const char *name)
+{
+    QVariant value = object ? object->property(name) : QVariant();
+    return value.metaType() == QMetaType::fromType<QJSValue>()
+        ? value.value<QJSValue>().toVariant() : value;
+}
+
+QString availablePngPath(const QString &directory, const QString &fileName)
+{
+    const QString stem = fileName.chopped(4);
+    QString path = QDir(directory).filePath(fileName);
+    for (int number = 2; QFileInfo::exists(path); ++number)
+        path = QDir(directory).filePath(stem + QStringLiteral(" (%1).png").arg(number));
+    return path;
+}
+
 QQuickItem *findShareVisual(QQuickItem *item, const QString &name)
 {
     if (item->objectName() == name)
@@ -151,14 +168,45 @@ void ReflectionShareController::savePicked(QObject *item)
 {
     if (m_busy)
         return;
-    QFileDialog chooser(nullptr, tr("保存心得分享图片"),
-        QStandardPaths::writableLocation(QStandardPaths::PicturesLocation), tr("PNG 图片 (*.png)"));
+    const QString directory = QStandardPaths::writableLocation(QStandardPaths::PicturesLocation);
+    QFileDialog chooser(nullptr, tr("保存心得分享图片"), directory, tr("PNG 图片 (*.png)"));
     chooser.setAcceptMode(QFileDialog::AcceptSave);
     chooser.setDefaultSuffix(QStringLiteral("png"));
-    chooser.selectFile(tr("导随心得.%1").arg(QStringLiteral("png")));
+    chooser.selectFile(availablePngPath(directory, suggestedFileName(item)));
     const QString path = chooser.exec() == QDialog::Accepted
         ? chooser.selectedFiles().value(0) : QString();
     saveTo(item, path);
+}
+
+QString ReflectionShareController::suggestedFileName(QObject *item, const QString &fallbackLabel) const
+{
+    const QVariantList entries = shareProperty(item, "entries").toList();
+    QString stem;
+    if (entries.size() > 1) {
+        stem = tr("导随心得合集_%1_%2条").arg(QDate::currentDate().toString(QStringLiteral("yyyy-MM-dd")))
+            .arg(entries.size());
+    } else {
+        const QVariantMap run = entries.isEmpty() ? shareProperty(item, "runData").toMap() : entries.first().toMap();
+        QString time = Formatters::localDateTime(run.value(QStringLiteral("matched_at_utc")));
+        if (time == Formatters::dash())
+            time = tr("时间未知");
+        else {
+            time.replace(QLatin1Char(' '), QLatin1Char('_'));
+            time.replace(QLatin1Char(':'), QLatin1Char('-'));
+        }
+        QString label = fallbackLabel;
+        if (auto *visual = qobject_cast<QQuickItem *>(item))
+            if (auto *title = findShareVisual(visual, QStringLiteral("reflectionShareDutyTitle")))
+                label = title->property("text").toString().remove(QLatin1Char('\n'));
+        if (label.isEmpty()) label = run.value(QStringLiteral("duty_name")).toString();
+        if (label.isEmpty()) label = tr("未知副本");
+        stem = tr("导随心得_%1_%2").arg(time, label);
+    }
+    stem.replace(QRegularExpression(QStringLiteral("[\\x00-\\x1f<>:\"/\\\\|?*]")), QStringLiteral("_"));
+    stem = stem.trimmed().left(120);
+    if (!stem.isEmpty() && stem.back().isHighSurrogate()) stem.chop(1);
+    while (stem.endsWith(QLatin1Char('.')) || stem.endsWith(QLatin1Char(' '))) stem.chop(1);
+    return stem + QStringLiteral(".png");
 }
 
 void ReflectionShareController::saveBatchPicked(const QVariantList &entries)
@@ -340,17 +388,7 @@ void ReflectionShareController::capturePrepared(QObject *object, const QString &
 
 QString ReflectionShareController::uniqueBatchPath(const BatchEntry &entry) const
 {
-    QString label = entry.label;
-    label.replace(QRegularExpression(QStringLiteral("[\\x00-\\x1f<>:\"/\\\\|?*]")), QStringLiteral("_"));
-    label = label.trimmed().left(48);
-    if (label.isEmpty())
-        label = tr("导随心得");
-    QString path;
-    do {
-        path = QDir(m_batchDirectory).filePath(label + QLatin1Char('-')
-            + QUuid::createUuid().toString(QUuid::WithoutBraces) + QStringLiteral(".png"));
-    } while (QFileInfo::exists(path));
-    return path;
+    return availablePngPath(m_batchDirectory, suggestedFileName(entry.item, entry.label));
 }
 
 void ReflectionShareController::saveBatchTo(const QVariantList &entries, const QString &directory)

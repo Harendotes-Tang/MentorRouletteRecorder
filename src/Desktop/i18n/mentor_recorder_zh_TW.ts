@@ -7165,6 +7165,22 @@ SHA256：%3</translation>
 <context>
     <name>ReflectionShareDialog</name>
     <message>
+        <source>显示游戏 ID</source>
+        <translation>顯示遊戲 ID</translation>
+    </message>
+    <message>
+        <source>用户名@服务器名（仅保存在本机）</source>
+        <translation>角色名稱@伺服器名稱（僅儲存在本機）</translation>
+    </message>
+    <message>
+        <source>游戏 ID</source>
+        <translation>遊戲 ID</translation>
+    </message>
+    <message>
+        <source>请按“用户名@服务器名”填写，或关闭游戏 ID 显示。</source>
+        <translation>請按「角色名稱@伺服器名稱」填寫，或關閉遊戲 ID 顯示。</translation>
+    </message>
+    <message>
         <source>未知副本</source>
         <translation>未知副本</translation>
     </message>
@@ -7397,6 +7413,42 @@ SHA256：%3</translation>
     <message>
         <source>我知道了</source>
         <translation>我知道了</translation>
+    </message>
+    <message>
+        <source>%1 %2 项</source>
+        <translation>%1 %2 項</translation>
+    </message>
+    <message>
+        <source>新增</source>
+        <translation>新增</translation>
+    </message>
+    <message>
+        <source>修复</source>
+        <translation>修正</translation>
+    </message>
+    <message>
+        <source>改进</source>
+        <translation>改善</translation>
+    </message>
+    <message>
+        <source>更新</source>
+        <translation>更新</translation>
+    </message>
+    <message>
+        <source>测试版</source>
+        <translation>測試版</translation>
+    </message>
+    <message>
+        <source>正式版</source>
+        <translation>正式版</translation>
+    </message>
+    <message>
+        <source>关闭</source>
+        <translation>關閉</translation>
+    </message>
+    <message>
+        <source>之后可以在 设置 › 关于 里再次查看。</source>
+        <translation>之後可以在 設定 › 關於 裡再次查看。</translation>
     </message>
 </context>
 <context>
@@ -7904,6 +7956,10 @@ SHA256：%3</translation>
     <message>
         <source>本软件按 GPL-3.0-or-later 开源，使用 Machina.FFXIV（GPL-3.0）与 Qt 6（LGPL-3.0；Qt Graphs 为 GPL-3.0）。Npcap 不随本软件分发，由用户自行安装并遵守其许可条款。完整清单见安装目录下的 THIRD_PARTY_NOTICES.md。</source>
         <translation>本軟體依 GPL-3.0-or-later 開放原始碼，使用 Machina.FFXIV（GPL-3.0）與 Qt 6（LGPL-3.0；Qt Graphs 為 GPL-3.0）。Npcap 不隨本軟體散布，由使用者自行安裝並遵守其授權條款。完整清單見安裝資料夾中的 THIRD_PARTY_NOTICES.md。</translation>
+    </message>
+    <message>
+        <source>查看本次更新</source>
+        <translation>查看本次更新</translation>
     </message>
 </context>
 <context>
@@ -10580,6 +10636,22 @@ SHA256：%3</translation>
 <context>
     <name>mr::ReflectionShareController</name>
     <message>
+        <source>导随心得合集_%1_%2条</source>
+        <translation>導隨心得合集_%1_%2條</translation>
+    </message>
+    <message>
+        <source>时间未知</source>
+        <translation>時間未知</translation>
+    </message>
+    <message>
+        <source>未知副本</source>
+        <translation>未知副本</translation>
+    </message>
+    <message>
+        <source>导随心得_%1_%2</source>
+        <translation>導隨心得_%1_%2</translation>
+    </message>
+    <message>
         <source>保存心得分享图片</source>
         <translation>儲存心得分享圖片</translation>
     </message>
@@ -11619,6 +11691,33 @@ SHA256：%3</translation>
     <message>
         <source>安装程序没有启动，可能是未通过 Windows 的安装确认。本软件继续运行，可再点「立即安装」，或点「在浏览器中下载」。</source>
         <translation>安裝程式沒有啟動，可能是未通過 Windows 的安裝確認。本軟體會繼續執行，可再點「立即安裝」，或點「在瀏覽器中下載」。</translation>
+    </message>
+</context>
+<context>
+    <name>ReleaseNotesEntry</name>
+    <message>
+        <source>重点</source>
+        <translation>重點</translation>
+    </message>
+    <message>
+        <source>收起</source>
+        <translation>收合</translation>
+    </message>
+    <message>
+        <source>详细</source>
+        <translation>詳細</translation>
+    </message>
+    <message>
+        <source>收起完整说明</source>
+        <translation>收合完整說明</translation>
+    </message>
+    <message>
+        <source>展开完整说明</source>
+        <translation>展開完整說明</translation>
+    </message>
+    <message>
+        <source>去设置</source>
+        <translation>前往設定</translation>
     </message>
 </context>
 </TS>

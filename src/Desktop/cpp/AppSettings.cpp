@@ -88,6 +88,21 @@ QString AppSettings::themeMode() const
     return QStringLiteral("system");
 }
 
+QString AppSettings::shareGameIdentity() const
+{
+    return m_settings.value(QStringLiteral("share/game_identity")).toString();
+}
+
+void AppSettings::setShareGameIdentity(const QString &identity)
+{
+    const QString trimmed = identity.trimmed();
+    if (shareGameIdentity() == trimmed)
+        return;
+    m_settings.setValue(QStringLiteral("share/game_identity"), trimmed);
+    m_settings.sync();
+    Q_EMIT sharingChanged();
+}
+
 void AppSettings::setThemeMode(const QString &mode)
 {
     m_settings.setValue(QStringLiteral("ui/theme"), mode);

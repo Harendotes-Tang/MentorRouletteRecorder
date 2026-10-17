@@ -17,8 +17,8 @@ Item {
         const shift = single ? dateShift + (dutyTitle.lineCount > 1 ? 18 + Math.max(0, dutyTitle.lineCount - 2) * 40 : 0)
             : Math.max(0, dutyTitle.lineCount - 1) * 48
         // 标注仅定义到两行；更长标题保留全文，并让属性离开整个 Qt 文本布局框。
-        return single && dutyTitle.lineCount > 2
-            ? Math.max(shift, dutyTitle.y + dutyTitle.height + 4 - 192 + resultText.baselineOffset) : shift
+        return (single ? dutyTitle.lineCount > 2 : dutyTitle.lineCount > 1)
+            ? Math.max(shift, dutyTitle.y + dutyTitle.height + 4 - (single ? 192 : 69) + resultText.baselineOffset) : shift
     }
     readonly property real dividerY: Math.max(238, metadataBottom + 20)
     readonly property real metadataBottom: Math.max((single ? 200 : 77) + titleShift, mood.y + mood.height)
@@ -39,11 +39,41 @@ Item {
             return qsTr("原站记录时间：%1 · 游玩时间未知").arg(source.source_recorded_at)
         return qsTr("游玩时间未知")
     }
+    // 常见地点词组和拉丁单词优先整体排版；未知中文回退到字，并平衡孤立尾字。
+    // 度量使用当前字号，换行只改变显示，不写回记录中的副本名。
+    function wrappedDutyTitle(value) {
+        const paragraphs = value.split("\n")
+        const lines = []
+        for (let p = 0; p < paragraphs.length; ++p) {
+            const words = paragraphs[p].match(/野营地|野營地|野営地|图书馆|圖書館|博物馆|博物館|实验室|實驗室|研究所|追忆馆|追憶館|王城|要塞|神殿|圣殿|聖殿|宫殿|宮殿|迷宫|迷宮|遗迹|遺跡|灵庙|靈廟|陵墓|教皇厅|教皇廳|修道院|讨伐战|討伐戰|歼灭战|殲滅戰|溶洞|溪谷|峡谷|峽谷|海域|庭园|庭園|水道|矿山|礦山|矿洞|礦洞|[A-Za-z0-9]+(?:['’._-][A-Za-z0-9]+)*|[\uD800-\uDBFF][\uDC00-\uDFFF]|./g) || [""]
+            const rows = []
+            let row = []
+            for (let i = 0; i < words.length; ++i) {
+                const word = words[i]
+                if (row.length && titleFontMetrics.advanceWidth(row.join("") + word) > dutyTitle.width) {
+                    rows.push(row)
+                    row = []
+                }
+                // 极长英文单词或窄窗口仍保留全文，由 Text.Wrap 处理单词内部回退。
+                row.push(word)
+            }
+            if (rows.length && /^[\u3400-\u9fff]$/.test(row.join(""))) {
+                const previous = rows[rows.length - 1]
+                while (previous.length > 1 && row.join("").length < 3
+                       && titleFontMetrics.advanceWidth(previous[previous.length - 1] + row.join("")) <= dutyTitle.width)
+                    row.unshift(previous.pop())
+            }
+            rows.push(row)
+            for (let i = 0; i < rows.length; ++i) lines.push(rows[i].join(""))
+        }
+        return lines.join("\n")
+    }
     TextMetrics {
         id: titleMetrics
-        text: dutyTitle.text
+        text: Theme.dutyName(entry.runData) || qsTr("未知副本")
         font { family: "Noto Serif SC"; pixelSize: 48; bold: true; letterSpacing: 1 }
     }
+    FontMetrics { id: titleFontMetrics; font: dutyTitle.font }
     Text {
         id: eyebrow
         objectName: "reflectionShareEyebrow"
@@ -135,7 +165,7 @@ Item {
         x: entry.single ? 168 : 346
         y: entry.single ? (lineCount > 1 ? 138 : 156) - baselineOffset + entry.dateShift : 35 - baselineOffset
         width: entry.single ? 632 : entry.completed ? 506 : 710
-        text: Theme.dutyName(entry.runData) || qsTr("未知副本")
+        text: entry.wrappedDutyTitle(titleMetrics.text)
         textFormat: Text.PlainText; wrapMode: Text.Wrap; color: "#2E2118"
         font.family: "Noto Serif SC"
         font.pixelSize: {

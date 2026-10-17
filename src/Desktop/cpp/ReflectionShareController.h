@@ -31,6 +31,8 @@ public:
     int failedCount() const;
     Q_INVOKABLE void resetFeedback();
     Q_INVOKABLE void savePicked(QObject *item);
+    /// 根据卡片的实际记录生成可读建议名；不创建文件，重名处理由选定目录负责。
+    Q_INVOKABLE QString suggestedFileName(QObject *item, const QString &fallbackLabel = {}) const;
     /// 空路径表示取消。capture 返回异步；只在 PNG 原子提交成功后发 saved。
     Q_INVOKABLE void saveTo(QObject *item, const QString &path);
     /// entries 为 {run_id, label, item}；借用显示中的完整卡片，只向用户选定目录写入。

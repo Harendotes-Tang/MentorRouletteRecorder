@@ -1,0 +1,43 @@
+{
+  "version": "1.7.3-beta.2",
+  "entries": [
+    {
+      "summary": "可选显示「用户名@服务器名」，仅保存在本机；单条和批量导出均支持。",
+      "tag": "心得分享",
+      "title": "心得图片可显示游戏 ID",
+      "bodySha256": "e5b5bd3d009dfc9552147afe70389fe1063406a1275cc8c6d31c0003c678fa4d"
+    },
+    {
+      "summary": "从重点卡片直接前往 设置 › 通用 › 语言 · Language，切换后立即生效。",
+      "bodySha256": "f1f2017236116c47ceecde54dd184ce703bc22d8b6306b3e2a860ee617fd6cb0",
+      "title": "界面语言：简体中文、繁體中文、English、日本語",
+      "highlight": true,
+      "action": "language-settings",
+      "tag": "语言"
+    },
+    {
+      "summary": "查看分类摘要、展开完整说明，也可在 设置 › 关于 中随时重看。",
+      "tag": "更新记录",
+      "title": "更新记录按重点与分类阅读",
+      "bodySha256": "f818e63e5754861bb117e00a9aaded1d83f71e02ba4d02768b27e8b31fb552d4"
+    },
+    {
+      "summary": "按时间和副本命名，合集包含日期与条数；同名文件自动追加序号。",
+      "tag": "心得分享",
+      "title": "导出图片使用可识别的文件名",
+      "bodySha256": "da2143fac22d1103326373a804d270e26f6d5a708507c3baf1f808ba4855b30d"
+    },
+    {
+      "summary": "按词组换行，避免时间轴信息重叠；增大导出日期和底部署名字体。",
+      "tag": "心得分享",
+      "title": "长副本名和导出文字更清晰",
+      "bodySha256": "dbc3f11de25bc7e800bea18fd15c644fc95c0eec82e27130bebcc7f523df472b"
+    },
+    {
+      "summary": "统一文字基线，长标题换行时仍保持首行对齐。",
+      "tag": "更新记录",
+      "title": "更新标签、标题与详细按钮对齐",
+      "bodySha256": "4a36e0f37596986c3eb6f3ac663f9b2b3eede13e7ae49c0acceb8a41ba713f37"
+    }
+  ]
+}

@@ -22,6 +22,8 @@ class AppSettings : public QObject
 {
     Q_OBJECT
 
+    Q_PROPERTY(QString shareGameIdentity READ shareGameIdentity WRITE setShareGameIdentity NOTIFY sharingChanged)
+
     // -- 通用 ---------------------------------------------------------------
     Q_PROPERTY(bool autostart READ autostart WRITE setAutostart NOTIFY generalChanged)
     Q_PROPERTY(bool followFfxiv READ followFfxiv WRITE setFollowFfxiv NOTIFY generalChanged)
@@ -60,6 +62,9 @@ class AppSettings : public QObject
     Q_PROPERTY(bool diagnosticsMode READ diagnosticsMode WRITE setDiagnosticsMode NOTIFY dataChanged)
 
 public:
+    /// 用户手填的本机分享署名，不代表历史记录或采集到的角色身份。
+    QString shareGameIdentity() const;
+    void setShareGameIdentity(const QString &identity);
     explicit AppSettings(QObject *parent = nullptr);
 
     /// Absolute path of the INI file.
@@ -178,6 +183,7 @@ public:
     void setValue(const QString &key, const QVariant &value);
 
 Q_SIGNALS:
+    void sharingChanged();
     void generalChanged();
     void appearanceChanged();
     void ttsChanged();

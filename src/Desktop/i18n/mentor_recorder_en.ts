@@ -7165,6 +7165,22 @@ Recorder</translation>
 <context>
     <name>ReflectionShareDialog</name>
     <message>
+        <source>显示游戏 ID</source>
+        <translation>Show game ID</translation>
+    </message>
+    <message>
+        <source>用户名@服务器名（仅保存在本机）</source>
+        <translation>Character@World (saved only on this device)</translation>
+    </message>
+    <message>
+        <source>游戏 ID</source>
+        <translation>Game ID</translation>
+    </message>
+    <message>
+        <source>请按“用户名@服务器名”填写，或关闭游戏 ID 显示。</source>
+        <translation>Enter Character@World, or turn off game ID display.</translation>
+    </message>
+    <message>
         <source>未知副本</source>
         <translation>Unknown duty</translation>
     </message>
@@ -7397,6 +7413,42 @@ Recorder</translation>
     <message>
         <source>我知道了</source>
         <translation>Got it</translation>
+    </message>
+    <message>
+        <source>%1 %2 项</source>
+        <translation>%1: %2</translation>
+    </message>
+    <message>
+        <source>新增</source>
+        <translation>Added</translation>
+    </message>
+    <message>
+        <source>修复</source>
+        <translation>Fixed</translation>
+    </message>
+    <message>
+        <source>改进</source>
+        <translation>Improved</translation>
+    </message>
+    <message>
+        <source>更新</source>
+        <translation>Updates</translation>
+    </message>
+    <message>
+        <source>测试版</source>
+        <translation>Beta</translation>
+    </message>
+    <message>
+        <source>正式版</source>
+        <translation>Stable</translation>
+    </message>
+    <message>
+        <source>关闭</source>
+        <translation>Close</translation>
+    </message>
+    <message>
+        <source>之后可以在 设置 › 关于 里再次查看。</source>
+        <translation>You can view this again in Settings › About.</translation>
     </message>
 </context>
 <context>
@@ -7904,6 +7956,10 @@ Recorder</translation>
     <message>
         <source>本软件按 GPL-3.0-or-later 开源，使用 Machina.FFXIV（GPL-3.0）与 Qt 6（LGPL-3.0；Qt Graphs 为 GPL-3.0）。Npcap 不随本软件分发，由用户自行安装并遵守其许可条款。完整清单见安装目录下的 THIRD_PARTY_NOTICES.md。</source>
         <translation>This software is open source under GPL-3.0-or-later and uses Machina.FFXIV (GPL-3.0) and Qt 6 (LGPL-3.0; Qt Graphs is GPL-3.0). Npcap is not distributed with this software; users install it themselves and follow its license terms. See THIRD_PARTY_NOTICES.md in the install folder for the full list.</translation>
+    </message>
+    <message>
+        <source>查看本次更新</source>
+        <translation>View this update</translation>
     </message>
 </context>
 <context>
@@ -10580,6 +10636,22 @@ Recorder</translation>
 <context>
     <name>mr::ReflectionShareController</name>
     <message>
+        <source>导随心得合集_%1_%2条</source>
+        <translation>Mentor notes collection_%1_%2 entries</translation>
+    </message>
+    <message>
+        <source>时间未知</source>
+        <translation>Time unknown</translation>
+    </message>
+    <message>
+        <source>未知副本</source>
+        <translation>Unknown duty</translation>
+    </message>
+    <message>
+        <source>导随心得_%1_%2</source>
+        <translation>Mentor note_%1_%2</translation>
+    </message>
+    <message>
         <source>保存心得分享图片</source>
         <translation>Save note share image</translation>
     </message>
@@ -11619,6 +11691,33 @@ Recorder</translation>
     <message>
         <source>安装程序没有启动，可能是未通过 Windows 的安装确认。本软件继续运行，可再点「立即安装」，或点「在浏览器中下载」。</source>
         <translation>The installer didn&apos;t start, possibly because the Windows install confirmation wasn&apos;t accepted. This app keeps running; click “Install now” again, or click “Download in browser”.</translation>
+    </message>
+</context>
+<context>
+    <name>ReleaseNotesEntry</name>
+    <message>
+        <source>重点</source>
+        <translation>Highlight</translation>
+    </message>
+    <message>
+        <source>收起</source>
+        <translation>Collapse</translation>
+    </message>
+    <message>
+        <source>详细</source>
+        <translation>Details</translation>
+    </message>
+    <message>
+        <source>收起完整说明</source>
+        <translation>Collapse full details</translation>
+    </message>
+    <message>
+        <source>展开完整说明</source>
+        <translation>Expand full details</translation>
+    </message>
+    <message>
+        <source>去设置</source>
+        <translation>Go to settings</translation>
     </message>
 </context>
 </TS>

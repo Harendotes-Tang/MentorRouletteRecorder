@@ -105,6 +105,12 @@ ApplicationWindow {
         releaseNotesWaiting = false
         releaseNotesDialog.open()
     }
+    function openCurrentReleaseNotes() {
+        if (!releaseNotesController || releaseNotesController.text.length === 0)
+            return
+        releaseNotesWaiting = false
+        releaseNotesDialog.open()
+    }
     Timer {
         interval: 250
         repeat: true
@@ -995,6 +1001,9 @@ ApplicationWindow {
                             onOpenBaselineRequested: baselineDialog.openDialog(true)
                             onOpenDisclosureRequested: disclosureDialog.openDialog()
                             onOpenImportRequested: window.openImportDialog()
+                            releaseNotesAvailable: window.releaseNotesController !== null
+                                && window.releaseNotesController.text.length > 0
+                            onOpenReleaseNotesRequested: window.openCurrentReleaseNotes()
                         }
                         }
                     }
@@ -1070,6 +1079,10 @@ ApplicationWindow {
     ReleaseNotesDialog {
         id: releaseNotesDialog
         notesController: window.releaseNotesController
+        onLanguageSettingsRequested: {
+            App.navigate(5)
+            settingsPage.openLanguageSettings()
+        }
     }
 
     CalibrationEvidenceDialog {

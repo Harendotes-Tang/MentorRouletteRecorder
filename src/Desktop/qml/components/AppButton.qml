@@ -196,6 +196,8 @@ Button {
 
         implicitWidth: iconSpan + gap + label.implicitWidth
         implicitHeight: Math.max(icon.visible ? icon.height : 0, label.implicitHeight)
+        // Let baseline-aligned rows use the rendered label, including its vertical centering.
+        baselineOffset: label.y + label.baselineOffset
 
         Image {
             id: icon
