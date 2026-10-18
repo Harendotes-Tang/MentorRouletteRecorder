@@ -383,6 +383,20 @@ class CurlTransportTests(unittest.TestCase):
                 self.assertIn("Native upload metrics:", output)
                 self.assertEqual(run.call_count, 1)
 
+    def test_large_upload_minimum_speed_can_finish_inside_its_budget(self):
+        size = 145032587
+        result = subprocess.CompletedProcess([], 0, f"200|{size}|2000000|75.000")
+        from types import SimpleNamespace
+        with patch.object(Path, "stat", return_value=SimpleNamespace(st_size=size)), \
+                patch.object(m.time, "monotonic", side_effect=[100.0, 105.0, 106.0]):
+            run, _, failure = self.invoke(result)
+        self.assertIsNone(failure)
+        config = run.call_args.kwargs["input"]
+        limit = int(config.split('speed-limit = "', 1)[1].split('"', 1)[0])
+        duration = float(config.split('max-time = "', 1)[1].split('"', 1)[0])
+        self.assertGreater(limit, 1)
+        self.assertGreaterEqual(limit * duration, size)
+
     def test_untrusted_diagnostics_and_exception_output_are_not_printed(self):
         for result, error in ((subprocess.CompletedProcess([], 1, self.url), None),
                               (None, subprocess.TimeoutExpired(["curl"], 1, output=self.url, stderr="CALLBACK-SECRET")),
