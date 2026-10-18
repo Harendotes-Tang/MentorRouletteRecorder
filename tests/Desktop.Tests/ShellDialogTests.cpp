@@ -639,19 +639,47 @@ private Q_SLOTS:
         });
         shell.settings.setReleaseNotesSeenVersion(QString());
         shell.settings.setUiStyle(style);
-        mr::ReleaseNotesController notes(&shell.settings);
+        const QString version = QStringLiteral("9.0.0-beta.1");
+        const QString changelog = QStringLiteral("## [9.0.0-beta.1]\n### 改进\n- 固定的排版示例。\n### 修复\n- 第二条排版示例。\n");
+        mr::ReleaseNotesController notes(&shell.settings, version, changelog);
         shell.releaseNotes = &notes;
         QVERIFY2(shell.create(), qPrintable(shell.errors));
         shell.controller->setThemeMode(theme);
         shell.window()->resize(1100, 720);
+        // 使用固定的可见标签，不让当前版本是否带展示注释影响布局覆盖。
+        QVariantList entries = notes.entries();
+        QCOMPARE(entries.size(), 2);
+        for (int i = 0; i < entries.size(); ++i) {
+            auto entry = entries[i].toMap();
+            entry.insert(QStringLiteral("tag"), i == 0 ? QStringLiteral("改进") : QStringLiteral("修复"));
+            entries[i] = entry;
+        }
+        QQmlComponent presentation(shell.engine.get());
+        presentation.setData(R"(import QtQml
+            QtObject {
+                required property var source
+                required property var entries
+                readonly property string version: source.version
+                readonly property bool prerelease: source.prerelease
+                readonly property var counts: source.counts
+                function acknowledge() { source.acknowledge() }
+            })", QUrl());
+        std::unique_ptr<QObject> fixture(presentation.createWithInitialProperties({
+            {QStringLiteral("source"), QVariant::fromValue(&notes)},
+            {QStringLiteral("entries"), entries}}));
+        QVERIFY2(fixture, qPrintable(presentation.errorString()));
         auto *dialog = shell.named(QStringLiteral("releaseNotesDialog"));
         QVERIFY(dialog);
+        const auto restoreController = qScopeGuard([&] {
+            dialog->setProperty("notesController", QVariant::fromValue(&notes));
+        });
+        QVERIFY(dialog->setProperty("notesController", QVariant::fromValue(fixture.get())));
         QTRY_VERIFY(dialog->property("opened").toBool());
 
         const auto baseline = [](QQuickItem *item) {
             return item->mapToScene(QPointF(0, item->baselineOffset())).y();
         };
-        for (const QVariant &value : notes.entries()) {
+        for (const QVariant &value : entries) {
             const QVariantMap entry = value.toMap();
             if (entry.value("highlight").toBool() || entry.value("tag").toString().isEmpty())
                 continue;
@@ -660,6 +688,7 @@ private Q_SLOTS:
             auto *title = shell.item("releaseNotesTitle_" + id);
             auto *details = shell.item("releaseNotesDetails_" + id);
             QVERIFY(tag && title && details);
+            QVERIFY(tag->isVisible());
             auto *buttonText = findItem(details, QStringLiteral("buttonLabel"));
             QVERIFY(buttonText);
             QTRY_VERIFY(qAbs(baseline(tag) - baseline(title)) <= 0.5);
