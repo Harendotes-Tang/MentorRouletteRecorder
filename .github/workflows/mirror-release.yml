@@ -29,7 +29,10 @@ concurrency:
 jobs:
   mirror:
     if: github.repository == 'Harendotes-Tang/MentorRouletteRecorder' && (github.event_name != 'release' || !github.event.release.draft)
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
     timeout-minutes: 85
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
