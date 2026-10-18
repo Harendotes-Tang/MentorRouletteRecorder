@@ -29,7 +29,7 @@ concurrency:
 jobs:
   mirror:
     if: github.repository == 'Harendotes-Tang/MentorRouletteRecorder' && (github.event_name != 'release' || !github.event.release.draft)
-    runs-on: windows-latest
+    runs-on: macos-latest
     defaults:
       run:
         shell: bash
