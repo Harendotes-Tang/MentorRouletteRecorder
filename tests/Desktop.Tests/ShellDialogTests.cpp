@@ -690,17 +690,46 @@ private Q_SLOTS:
         shell.enableLanguage = true;
         const QString oldSeen = shell.settings.releaseNotesSeenVersion();
         const auto restore = qScopeGuard([&] { shell.settings.setReleaseNotesSeenVersion(oldSeen); });
-        mr::ReleaseNotesController initial(&shell.settings);
-        shell.settings.setReleaseNotesSeenVersion(initial.version());
-        mr::ReleaseNotesController notes(&shell.settings);
+        const QString version = QStringLiteral("9.0.0-beta.1");
+        const QString changelog = QStringLiteral("## [9.0.0-beta.1]\n### 新增\n- 界面语言设置。\n### 修复\n- ")
+            + QStringLiteral("用于检查展开详情、滚动与重新打开的完整说明。").repeated(40);
+        shell.settings.setReleaseNotesSeenVersion(version);
+        mr::ReleaseNotesController notes(&shell.settings, version, changelog);
         QVERIFY(!notes.pending());
         shell.releaseNotes = &notes;
         QVERIFY2(shell.create(), qPrintable(shell.errors));
         QVERIFY(QTest::qWaitForWindowExposed(shell.window()));
+        // Exercise the language action even when the current release has no language entry.
+        // The proxy supplies fixture presentation only; acknowledgement still uses the real controller.
+        QVariantList entries = notes.entries();
+        QCOMPARE(entries.size(), 2);
+        auto languageEntry = entries[0].toMap();
+        languageEntry.insert(QStringLiteral("highlight"), true);
+        languageEntry.insert(QStringLiteral("action"), QStringLiteral("language-settings"));
+        entries[0] = languageEntry;
+        QQmlComponent presentation(shell.engine.get());
+        presentation.setData(R"(import QtQml
+            QtObject {
+                required property var source
+                required property var entries
+                readonly property string version: source.version
+                readonly property bool prerelease: source.prerelease
+                readonly property var counts: source.counts
+                function acknowledge() { source.acknowledge() }
+            })", QUrl());
+        std::unique_ptr<QObject> fixture(presentation.createWithInitialProperties({
+            {QStringLiteral("source"), QVariant::fromValue(&notes)},
+            {QStringLiteral("entries"), entries}}));
+        QVERIFY2(fixture, qPrintable(presentation.errorString()));
+        auto *dialog = shell.named(QStringLiteral("releaseNotesDialog"));
+        QVERIFY(dialog);
+        const auto restoreController = qScopeGuard([&] {
+            dialog->setProperty("notesController", QVariant::fromValue(&notes));
+        });
+        QVERIFY(dialog->setProperty("notesController", QVariant::fromValue(fixture.get())));
         shell.controller->navigate(5);
         QVERIFY(shell.click(QStringLiteral("settingsTab_about")));
         QVERIFY(shell.click(QStringLiteral("aboutCurrentReleaseNotesButton")));
-        auto *dialog = shell.named(QStringLiteral("releaseNotesDialog"));
         auto *scroll = shell.item(QStringLiteral("releaseNotesScroll"));
         auto *detail = shell.item(QStringLiteral("releaseNotesDetail_1"));
         QVERIFY(dialog && scroll && detail);
@@ -716,7 +745,7 @@ private Q_SLOTS:
         scroll->setProperty("contentY", 120);
         QTest::keyClick(shell.window(), Qt::Key_Escape);
         QTRY_VERIFY(!dialog->property("visible").toBool());
-        QCOMPARE(shell.settings.releaseNotesSeenVersion(), initial.version());
+        QCOMPARE(shell.settings.releaseNotesSeenVersion(), version);
         QVERIFY(shell.click(QStringLiteral("aboutCurrentReleaseNotesButton")));
         QTRY_VERIFY(dialog->property("opened").toBool());
         QTRY_VERIFY(!detail->isVisible());
@@ -730,7 +759,7 @@ private Q_SLOTS:
         QTRY_VERIFY(general->isVisible());
         QTRY_VERIFY(choices->isAncestorOf(shell.window()->activeFocusItem()));
         QCOMPARE(shell.language->code(), languageBefore);
-        QCOMPARE(shell.settings.releaseNotesSeenVersion(), initial.version());
+        QCOMPARE(shell.settings.releaseNotesSeenVersion(), version);
     }
 
     void aboutHidesCurrentNotesWhenTheExactSectionIsMissing()
