@@ -211,7 +211,7 @@ def analyze(evidence: Evidence, *, roulette_id=None, popup_hypothesis=None, fiel
     if direction is not None and direction not in ("S2C", "C2S"):
         raise EvidenceError("direction selection must be S2C or C2S")
     if field is not None and (not isinstance(field, tuple) or len(field) != 2 or
-                              type(field[0]) is not int or not 0 <= field[0] <= 255 or
+                              type(field[0]) is not int or not 0 <= field[0] < MAX_PAYLOAD_BYTES or
                               field[1] not in ("u8", "u16", "u32")):
         raise EvidenceError("field selection must be offset:u8, offset:u16 or offset:u32")
     grouped = defaultdict(list)
@@ -344,8 +344,9 @@ def write_outputs(result, output_dir):
 
 def _field_argument(value):
     match = re.fullmatch(r"([0-9]+):(u8|u16|u32)", value)
-    if match is None or int(match[1]) > 255:
-        raise argparse.ArgumentTypeError("expected offset:u8|u16|u32 with offset 0..255")
+    if match is None or int(match[1]) >= MAX_PAYLOAD_BYTES:
+        raise argparse.ArgumentTypeError(
+            f"expected offset:u8|u16|u32 with offset 0..{MAX_PAYLOAD_BYTES - 1}")
     return int(match[1]), match[2]
 
 

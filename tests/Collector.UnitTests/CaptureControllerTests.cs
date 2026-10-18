@@ -1,8 +1,11 @@
+using System.Buffers.Binary;
 using MentorRecorder.Collector.Capture;
 using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Domain;
+using MentorRecorder.Collector.Domain.Events;
 using MentorRecorder.Collector.Ipc;
 using MentorRecorder.Collector.Protocol.Decoded;
+using MentorRecorder.Collector.Protocol.Profiles;
 using LiveProtocolPipeline = MentorRecorder.Collector.Protocol.Pipeline.LiveProtocolPipeline;
 using MentorRecorder.Collector.Storage.Repositories;
 
@@ -48,6 +51,117 @@ public sealed class CaptureControllerTests : IDisposable
     private int StartCount => _sources.Sum(source => source.StartCount);
 
     private int StopCount => _sources.Sum(source => source.StopCount);
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task QueuedLossStillEndsTheRunBeforeALaterClearWhenStopDrainsTheQueue(bool directionDamaged, bool stopDuringDrain)
+    {
+        WithGame();
+        var selection = LossDrainSelection();
+        var pipeline = new LiveProtocolPipeline(_database.Database, _database.Clock,
+            new LiveEventBus(_database.Clock), _ => selection);
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        using var delivered = new ManualResetEventSlim();
+        var services = Services() with
+        {
+            Sink = new LossDrainSink(pipeline, entered, release, delivered),
+            Profile = pipeline,
+            Lifecycle = pipeline,
+            ParserStats = pipeline,
+            Health = pipeline,
+        };
+        using var controller = new CaptureController(services);
+        var session = controller.Start().CaptureSessionId!;
+        var key = ConnectionKey.From(session, 0, 1, 0, 0);
+        var origin = _database.Clock.UtcNow;
+        void Feed(ushort opcode, long milliseconds, byte[] body) => pipeline.Accept(new DecodedMessage(
+            session, MessageDirection.Inbound, origin.AddMilliseconds(milliseconds), TimeSpan.FromMilliseconds(milliseconds),
+            milliseconds, 3, opcode, body, key));
+        var pop = new byte[8];
+        BinaryPrimitives.WriteUInt16LittleEndian(pop, 42);
+        Feed(0xA001, 0, pop);
+        var territory = new byte[136];
+        BinaryPrimitives.WriteUInt16LittleEndian(territory.AsSpan(2), 1036);
+        Feed(0xA003, 1000, territory);
+        Feed(0xA002, 1100, new byte[8]);
+        Assert.Equal(RunState.EnteredDuty, pipeline.RunState);
+
+        Task? stop = null;
+        try
+        {
+            Source.PushOpcode(1);
+            Assert.True(entered.Wait(TimeSpan.FromSeconds(5)));
+            if (directionDamaged) Source.PushDirectionDamaged(1, MessageDirection.Inbound);
+            else Source.PushConnectionClosed();
+
+            var clear = FakeCaptureSource.BuildIpcMessage(0x0204, 40);
+            BinaryPrimitives.WriteUInt16LittleEndian(clear.AsSpan(32), 0x006D);
+            BinaryPrimitives.WriteUInt16LittleEndian(clear.AsSpan(36), 0xF00D);
+            BinaryPrimitives.WriteUInt16LittleEndian(clear.AsSpan(38), 0x8003);
+            BinaryPrimitives.WriteUInt32LittleEndian(clear.AsSpan(40), 0x40000003);
+            // A new connection may deliver a clear; the already damaged direction never resumes.
+            Source.PushRaw(clear, connectionSuffix: 2);
+            if (stopDuringDrain)
+            {
+                stop = Task.Run(() => controller.Stop());
+                Assert.True(SpinWait.SpinUntil(() => controller.State == CaptureControllerState.Stopping, TimeSpan.FromSeconds(5)));
+            }
+        }
+        finally
+        {
+            release.Set();
+            if (stop is not null) await stop.WaitAsync(TimeSpan.FromSeconds(10));
+        }
+
+        Assert.True(delivered.Wait(TimeSpan.FromSeconds(5)));
+        if (!stopDuringDrain) controller.Stop();
+        var run = Assert.Single(new RunRepository(_database.Database).Query(null, null, 1, 50).Items);
+        Assert.Equal(directionDamaged ? RunResult.Interrupted : RunResult.Disconnected, run.Result);
+        Assert.Equal(DetectionConfidence.Low, run.DetectionConfidence);
+        Assert.False(run.PendingReview);
+        Assert.Equal(0, pipeline.DutyClearCompletionCount);
+    }
+
+    private static ProfileSelection LossDrainSelection()
+    {
+        static ProfileField Field(string name, int offset) => new(name, offset, ProfileFieldType.U16, 0,
+            ProfileEndian.Little, new ProfileFieldConstraints(1, null, null));
+        var profile = new ProtocolProfile(
+            "cn-loss-drain-test", Region.Cn, "2024.06.18.0000.0000", DateTimeOffset.UnixEpoch, 42,
+            ProfileCompatibilityStatus.Verified, TimeSpan.FromSeconds(45),
+            new[]
+            {
+                new ProfileMessage("CONTENT_FINDER_POP", 0xA001, PacketDirection.ServerToClient, null, 8, null, null,
+                    Array.Empty<long>(), new[] { Field("roulette_id", 0) }),
+                new ProfileMessage("ZONE_INITIALIZATION", 0xA002, PacketDirection.ServerToClient, null, 8, null, null,
+                    Array.Empty<long>(), Array.Empty<ProfileField>()),
+                new ProfileMessage("ZONE_TERRITORY", 0xA003, PacketDirection.ServerToClient, null, 136, null, null,
+                    Array.Empty<long>(), new[] { Field("territory_id", 2) }),
+            }, Array.Empty<ProfileFixtureReference>(), "in-memory CN loss drain profile", new string('0', 64), "", false);
+        return new ProfileSelection(ProfileCompatibilityStatus.Verified, profile.ToBinding(), profile, Region.Cn,
+            profile.GameBuild, "in-memory CN loss drain profile");
+    }
+
+    private sealed class LossDrainSink(LiveProtocolPipeline pipeline, ManualResetEventSlim entered,
+        ManualResetEventSlim release, ManualResetEventSlim delivered) : IDecodedMessageSink
+    {
+        public void Accept(DecodedMessage message)
+        {
+            if (message.Opcode == 1)
+            {
+                entered.Set();
+                release.Wait();
+                return;
+            }
+
+            pipeline.Accept(message with { Mono = TimeSpan.FromSeconds(10) });
+            delivered.Set();
+        }
+    }
 
     [Fact]
     public void ReportsUnavailable_WhenNpcapIsMissing()

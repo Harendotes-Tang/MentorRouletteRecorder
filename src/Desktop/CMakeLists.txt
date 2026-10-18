@@ -241,6 +241,7 @@ set(MR_QML_FILES
     qml/components/ReflectionCard.qml
     qml/components/ReflectionShareCard.qml
     qml/components/ReflectionShareEntry.qml
+    qml/components/ReflectionShareHeading.qml
     qml/components/ReleaseNotesEntry.qml
     qml/components/RoleIcon.qml
     qml/components/SegmentedControl.qml

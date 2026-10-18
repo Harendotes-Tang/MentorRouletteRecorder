@@ -15,6 +15,11 @@ namespace MentorRecorder.Collector.Protocol.Sharing;
 // SharedCalibrationSession, continued: registering and claiming downloads, and importing a pasted code.
 internal sealed partial class SharedCalibrationSession
 {
+    // A read revocation remains authoritative even when state.json cannot be replaced. Keep it
+    // across capture/re-arm/build changes; the canonical code hash includes its region and build.
+    // Accessed under _gate, unlike the off-gate disk cache used by PrepareAll.
+    private readonly HashSet<string> _revoked = new(StringComparer.Ordinal);
+
     // ------------------------------------------------------------------ fetching
 
     private SharedCheckOutcome MaybeFetch(SharedContext context, bool manual)
@@ -269,6 +274,19 @@ internal sealed partial class SharedCalibrationSession
             return false;
         }
 
+        _revoked.UnionWith(result.RevokedCodeSha256s);
+        foreach (var candidate in _candidates.Where(item => _revoked.Contains(item.Sha)).ToArray())
+        {
+            Drop(candidate, rejected: true);
+        }
+
+        // Permanent revocation precedes reversible quarantine and also applies to settled profiles.
+        if (_bound is { Sha: { } inUse } && _revoked.Contains(inUse))
+        {
+            WithdrawRevoked(prepared);
+            return true;
+        }
+
         // The download/cache shortlist is bounded. A live candidate or binding can fall below that
         // limit after its ranking changes; the readable index still tightens its current gate.
         foreach (var candidate in _candidates.ToArray())
@@ -304,22 +322,7 @@ internal sealed partial class SharedCalibrationSession
             }
         }
 
-        var revoked = result.RevokedCodeSha256s.ToHashSet(StringComparer.Ordinal);
-        foreach (var candidate in _candidates.Where(item => revoked.Contains(item.Sha)).ToArray())
-        {
-            Drop(candidate, rejected: true);
-        }
-
-        // The whole point of reading the index beside a profile that records (plan §3): the machine still
-        // recording with a code the repository has withdrawn is the one that most needs to hear about it.
-        // Whether it is still watched or long settled makes no difference - a withdrawn code is withdrawn.
-        if (_bound is not { Sha: { } inUse } || !revoked.Contains(inUse))
-        {
-            return false;
-        }
-
-        WithdrawRevoked(prepared);
-        return true;
+        return false;
     }
 
     /// <summary>
@@ -386,6 +389,8 @@ internal sealed partial class SharedCalibrationSession
 
         if (result is { IndexWasRead: true })
         {
+            var revoked = result.RevokedCodeSha256s.ToHashSet(StringComparer.Ordinal);
+            codes.RemoveAll(code => revoked.Contains(code.CodeSha256));
             foreach (var entry in result.IndexEntries)
             {
                 var existing = codes.FindIndex(code => code.CodeSha256 == entry.CodeSha256);

@@ -9,19 +9,21 @@ Item {
     property bool single: false
     property int entryIndex: 0
     property bool showYear: false
+    property real headerExtraHeight: 0
     readonly property var reflection: runData.reflection || ({})
     readonly property bool completed: runData.result === "COMPLETED"
     readonly property string assetRoot: "qrc:/resources/reflection-share/duty-notes-scroll-v1.4.1/"
-    readonly property real dateShift: single ? Math.max(0, timeText.lineCount - 1) * 30 : 0
+    readonly property real dateShift: single ? headerExtraHeight : 0
     readonly property real titleShift: {
         const shift = single ? dateShift + (dutyTitle.lineCount > 1 ? 18 + Math.max(0, dutyTitle.lineCount - 2) * 40 : 0)
             : Math.max(0, dutyTitle.lineCount - 1) * 48
-        // 标注仅定义到两行；更长标题保留全文，并让属性离开整个 Qt 文本布局框。
-        return (single ? dutyTitle.lineCount > 2 : dutyTitle.lineCount > 1)
+        // 多行合集标题保留全文，让属性离开整个 Qt 文本布局框。
+        return dutyTitle.lineCount > 1
             ? Math.max(shift, dutyTitle.y + dutyTitle.height + 4 - (single ? 192 : 69) + resultText.baselineOffset) : shift
     }
     readonly property real dividerY: Math.max(238, metadataBottom + 20)
-    readonly property real metadataBottom: Math.max((single ? 200 : 77) + titleShift, mood.y + mood.height)
+    readonly property real metadataBottom: Math.max((single ? 200 : 77) + titleShift,
+        resultText.y + resultText.height, mood.visible ? mood.y + mood.height : 0)
     readonly property real bodyTop: single ? dividerY + 30
         : Math.max(92 + titleShift, metadataBottom + 15, !knownTime ? timeText.y + timeText.height + 16 : 0)
     readonly property string playedDate: runData.matched_at_utc ? Fmt.localDate(runData.matched_at_utc) : Fmt.dash()
@@ -73,33 +75,19 @@ Item {
         text: Theme.dutyName(entry.runData) || qsTr("未知副本")
         font { family: "Noto Serif SC"; pixelSize: 48; bold: true; letterSpacing: 1 }
     }
+    TextMetrics { id: title42; text: titleMetrics.text; font { family: "Noto Serif SC"; pixelSize: 42; bold: true; letterSpacing: 1 } }
+    TextMetrics { id: title36; text: titleMetrics.text; font { family: "Noto Serif SC"; pixelSize: 36; bold: true; letterSpacing: 1 } }
+    TextMetrics { id: title32; text: titleMetrics.text; font { family: "Noto Serif SC"; pixelSize: 32; bold: true; letterSpacing: 1 } }
     FontMetrics { id: titleFontMetrics; font: dutyTitle.font }
-    Text {
-        id: eyebrow
-        objectName: "reflectionShareEyebrow"
-        visible: entry.single
-        x: 84; y: 94 - baselineOffset
-        text: qsTr("导随记录"); textFormat: Text.PlainText; color: "#45342A"
-        font { family: "Noto Serif SC"; pixelSize: 24; bold: true; letterSpacing: 6 }
-    }
-    Text {
-        id: dateSeparator
-        visible: entry.single
-        x: eyebrow.x + eyebrow.width + 14; y: 94 - baselineOffset
-        text: "·"; color: "#6E5A44"
-        font { family: "Noto Serif SC"; pixelSize: 22 }
-    }
     Text {
         id: timeText
         objectName: "reflectionShareTimeText"
-        visible: entry.single || !entry.knownTime
-        x: entry.single ? dateSeparator.x + dateSeparator.width + 14 : 262
-        y: entry.single ? 94 - baselineOffset : entry.metadataBottom + 12
-        width: entry.single ? 800 - x : 794
+        visible: !entry.single && !entry.knownTime
+        x: 262; y: entry.metadataBottom + 12; width: 794
         text: entry.dateLabel()
         textFormat: Text.PlainText; wrapMode: Text.Wrap; color: "#6E5A44"
-        font { family: "Noto Serif SC"; pixelSize: entry.single ? 22 : 18; letterSpacing: 1 }
-        lineHeightMode: Text.FixedHeight; lineHeight: entry.single ? 30 : 28
+        font { family: "Noto Serif SC"; pixelSize: 18; letterSpacing: 1 }
+        lineHeightMode: Text.FixedHeight; lineHeight: 28
     }
     Text {
         visible: !entry.single
@@ -167,12 +155,15 @@ Item {
         width: entry.single ? 632 : entry.completed ? 506 : 710
         text: entry.wrappedDutyTitle(titleMetrics.text)
         textFormat: Text.PlainText; wrapMode: Text.Wrap; color: "#2E2118"
+        maximumLineCount: entry.single ? 2 : 2147483647
+        elide: entry.single ? Text.ElideRight : Text.ElideNone
         font.family: "Noto Serif SC"
         font.pixelSize: {
             if (!entry.single) return 38
             const sizes = [48, 42, 36, 32]
+            const measured = [titleMetrics.advanceWidth, title42.advanceWidth, title36.advanceWidth, title32.advanceWidth]
             for (let i = 0; i < sizes.length; ++i)
-                if (titleMetrics.advanceWidth * sizes[i] / 48 <= width) return sizes[i]
+                if (measured[i] <= width) return sizes[i]
             return 32
         }
         font.bold: true; font.letterSpacing: 1
@@ -192,6 +183,8 @@ Item {
     }
     Item {
         id: mood
+        objectName: "reflectionShareMoodTag"
+        visible: ["good", "ok", "bad"].indexOf(entry.reflection.mood) >= 0
         readonly property bool beside: resultText.implicitWidth + 14 + width <= resultText.width
         x: beside ? resultText.x + resultText.implicitWidth + 14 : resultText.x
         y: beside ? (entry.single ? 170 : 47) + entry.titleShift : resultText.y + resultText.height + 8

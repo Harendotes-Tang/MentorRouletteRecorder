@@ -10039,6 +10039,10 @@ SHA256：%3</translation>
         <translation>恢復和永久刪除只能用於「已刪除」中的記錄。</translation>
     </message>
     <message>
+        <source>%1 操作尚未发送。连接恢复后，请保留勾选和原因重试。</source>
+        <translation>%1 操作尚未傳送。連線恢復後，請保留勾選和原因重試。</translation>
+    </message>
+    <message>
         <source>%1 操作结果尚未确认。请保留勾选和原因后重试，同一请求不会重复修改记录。</source>
         <translation>%1 操作結果尚未確認。請保留勾選和原因後重試，同一個請求不會重複修改記錄。</translation>
     </message>

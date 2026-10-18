@@ -73,6 +73,11 @@ public:
     /// the pipe refused, a frame too large to send - so the Collector cannot
     /// have acted on it. \ref neverSent() says so to whoever handles the failure.
     void failUnsent(const QString &code, const QString &message);
+    /// A local timeout or lost connection left a sent request unanswered.
+    /// Keeps the existing error code; unlike fail(), this never represents a
+    /// Collector business refusal. Set before done(), including synchronous handlers.
+    void failTransport(const QString &code, const QString &message);
+    bool transportFailed() const { return m_transportFailed; }
     /// True only after \ref failUnsent(). Every other failure - a timeout, a
     /// dropped pipe, the Collector's own refusal - may come after the Collector
     /// received the request, and a mutation may then already be applied.
@@ -105,6 +110,7 @@ private:
     bool m_finished = false;
     bool m_ok = false;
     bool m_neverSent = false;
+    bool m_transportFailed = false;
     QJsonObject m_payload;
     QString m_errorCode;
     QString m_errorMessage;

@@ -52,6 +52,14 @@ void BackendReply::failUnsent(const QString &code, const QString &message)
     fail(code, message);
 }
 
+void BackendReply::failTransport(const QString &code, const QString &message)
+{
+    if (m_finished)
+        return;
+    m_transportFailed = true;
+    fail(code, message);
+}
+
 void BackendReply::finish()
 {
     m_finished = true;

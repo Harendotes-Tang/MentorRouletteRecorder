@@ -73,10 +73,11 @@ internal sealed partial class SharedCalibrationSession
 
         if (_stopped || _key != ticket.Key || !_candidates.Contains(candidate))
         {
-            // Disarmed, rebuilt, dropped or refused by the player meanwhile. The file, if written, is harmless:
-            // selection decides, and a refused build withdraws any shared profile it selects (ReconcileBound).
+            // Disarmed, rebuilt, dropped or refused by the player meanwhile. A revoked code's
+            // unfinished write must not leave a selectable document after its candidate was dropped.
             _lastRefusal = "STALE";
-            if (BindingRestrictionChanged(ticket)) DiscardUnadoptedWrite(ticket, writtenSha);
+            if (_revoked.Contains(candidate.Sha) || BindingRestrictionChanged(ticket))
+                DiscardUnadoptedWrite(ticket, writtenSha);
         }
         else if (refusal is not null || profileId is null || select is null)
         {
@@ -341,6 +342,13 @@ internal sealed partial class SharedCalibrationSession
 
     private string? Register(Prepared prepared, SharedCandidateSource source, SharedCandidateProvenance provenance)
     {
+        // Downloaded cache entries, deferred offers and manual imports share this gate. A failed
+        // disk write or a later re-arm must never make an already-read revocation disappear.
+        if (_revoked.Contains(prepared.Sha))
+        {
+            return "REVOKED";
+        }
+
         if (string.Equals(_bound?.Sha, prepared.Sha, StringComparison.Ordinal))
         {
             RegisterEvidenceCandidate(prepared.Declared, prepared.QuarantineEpoch);
@@ -579,7 +587,8 @@ internal sealed partial class SharedCalibrationSession
     /// </summary>
     private bool IsRevoked(BoundProfile bound) =>
         bound.Sha is { } sha && !_withdrawn.Contains(bound.ProfileId) &&
-        Attempt(() => _services.SharedCalibrations.Publication(bound.Region, bound.GameBuild, sha)) == SharedPublication.Revoked;
+        (_revoked.Contains(sha) ||
+         Attempt(() => _services.SharedCalibrations.Publication(bound.Region, bound.GameBuild, sha)) == SharedPublication.Revoked);
 
     /// <summary>The code the store recorded the profile document in use was bound from; null when nothing was kept (review 2026-10-15, L2).</summary>
     private string? RecordedCode(BoundProfile bound) =>

@@ -19,12 +19,17 @@ public sealed class IdempotencyRepository
     /// How long a stored response stays replayable.
     ///
     /// The window only has to outlast "send, lose the pipe, resend", which is seconds; a day is
-    /// generous. Response bodies are bounded; baseline requests retain a lightweight execution
-    /// marker because their visible audit history is capped at 100 entries.
+    /// generous. Requests without a permanent audit keyed by their original request id retain
+    /// a lightweight execution marker after the response body is removed.
     /// </summary>
     public static readonly TimeSpan RetentionWindow = TimeSpan.FromHours(24);
 
     private const string BaselineMessageType = "UpdateAchievementBaseline";
+
+    // Baseline audit history is bounded, reflections have no revision, and batch revisions
+    // carry derived child ids. None can prove the original request was applied after pruning.
+    private const string RetainedRequestPredicate =
+        "message_type IN ('" + BaselineMessageType + "', 'SetRunReflection', 'BatchMutateRuns')";
 
     private readonly SqliteDatabase _database;
     private readonly IClock _clock;
@@ -63,8 +68,7 @@ public sealed class IdempotencyRepository
         command.Transaction = transaction;
         command.CommandText =
             "SELECT response_json FROM ipc_idempotency WHERE request_id = $request_id " +
-            "AND NOT (message_type = $baseline_type AND response_json = 'null');";
-        command.Parameters.AddWithValue("$baseline_type", BaselineMessageType);
+            "AND NOT (" + RetainedRequestPredicate + " AND response_json = 'null');";
         command.Parameters.AddWithValue("$request_id", requestId);
         return command.ExecuteScalar() as string;
     }
@@ -76,7 +80,7 @@ public sealed class IdempotencyRepository
     /// <c>run_revisions.request_id</c> and <c>candidate_reviews.request_id</c> are UNIQUE, so a
     /// replay arriving after the retention window would otherwise die on the constraint and be
     /// reported as <c>ERR_INTERNAL</c> (review finding M-7). Audit rows or permanent-deletion tombstones retain
-    /// execution identity. Baselines retain a marker after their response expires; any
+    /// execution identity. Baselines, reflections and batch parents retain a marker after their response expires; any
     /// surviving legacy baseline audit also proves execution. A missing response therefore means
     /// a conflict rather than a replay. Runs in the caller's transaction so the
     /// answer cannot race the write.
@@ -100,10 +104,9 @@ public sealed class IdempotencyRepository
             "SELECT EXISTS(SELECT 1 FROM run_revisions WHERE request_id = $request_id) " +
             "OR EXISTS(SELECT 1 FROM candidate_reviews WHERE request_id = $request_id) " +
             "OR EXISTS(SELECT 1 FROM run_import_batches WHERE request_id = $request_id) " +
-            "OR EXISTS(SELECT 1 FROM ipc_idempotency WHERE request_id = $request_id AND message_type = $baseline_type) " +
+            "OR EXISTS(SELECT 1 FROM ipc_idempotency WHERE request_id = $request_id AND " + RetainedRequestPredicate + ") " +
             "OR EXISTS(SELECT 1 FROM ipc_request_tombstones WHERE request_id = $request_id);";
         command.Parameters.AddWithValue("$request_id", requestId);
-        command.Parameters.AddWithValue("$baseline_type", BaselineMessageType);
         if (Convert.ToInt64(command.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture) != 0)
             return true;
         // Older versions deleted the response even for baselines. The surviving display
@@ -204,8 +207,9 @@ public sealed class IdempotencyRepository
     }
 
     /// <summary>
-    /// Removes expired response bodies in the caller's transaction. Baseline rows become
-    /// JSON-null execution markers; other rows rely on durable audit or permanent-deletion tombstones.
+    /// Removes expired response bodies in the caller's transaction. Baseline, reflection and
+    /// batch-parent rows become JSON-null execution markers; other rows rely on durable audit
+    /// or permanent-deletion tombstones. Existing responses are converted without a migration.
     ///
     /// It runs here rather than on a timer because this is the only moment the table is known
     /// to be growing, and because a sweep in the same transaction as the insert cannot leave
@@ -221,9 +225,8 @@ public sealed class IdempotencyRepository
         command.Transaction = transaction;
         command.CommandText =
             "UPDATE ipc_idempotency SET response_json = 'null' " +
-            "WHERE created_at_utc < $cutoff AND message_type = $baseline_type AND response_json <> 'null'; " +
-            "DELETE FROM ipc_idempotency WHERE created_at_utc < $cutoff AND message_type <> $baseline_type;";
-        command.Parameters.AddWithValue("$baseline_type", BaselineMessageType);
+            "WHERE created_at_utc < $cutoff AND " + RetainedRequestPredicate + " AND response_json <> 'null'; " +
+            "DELETE FROM ipc_idempotency WHERE created_at_utc < $cutoff AND NOT (" + RetainedRequestPredicate + ");";
         command.Parameters.AddWithValue("$cutoff", UtcTimestamp.ToText(cutoff));
         command.ExecuteNonQuery();
     }

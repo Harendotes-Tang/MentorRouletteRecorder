@@ -10039,6 +10039,10 @@ SHA256：%3</translation>
         <translation>復元と完全削除は「削除済み」の記録にのみ使えます。</translation>
     </message>
     <message>
+        <source>%1 操作尚未发送。连接恢复后，请保留勾选和原因重试。</source>
+        <translation>%1 操作はまだ送信されていません。接続が復旧したら、選択した記録と理由をそのままにして再試行してください。</translation>
+    </message>
+    <message>
         <source>%1 操作结果尚未确认。请保留勾选和原因后重试，同一请求不会重复修改记录。</source>
         <translation>%1 操作の結果をまだ確認できていません。チェックと理由はそのままで再試行してください。同じリクエストで記録が二重に変更されることはありません。</translation>
     </message>

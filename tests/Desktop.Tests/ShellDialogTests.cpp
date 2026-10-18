@@ -32,6 +32,7 @@
 #include <QQmlComponent>
 #include <QQmlContext>
 #include <QQmlEngine>
+#include <QQmlExpression>
 #include <QQuickItem>
 #include <QQuickStyle>
 #include <QQuickWindow>
@@ -445,6 +446,27 @@ private Q_SLOTS:
                 qmlRegisterType(QUrl::fromLocalFile(qmlRoot + directory + QLatin1Char('/') + file),
                                 "MentorRecorder", 1, 0, name.constData());
             }
+        }
+    }
+
+    void reflectionDetailsNavigationKeepsTheSameRunSelected()
+    {
+        Shell shell;
+        QVERIFY2(shell.create(), qPrintable(shell.errors));
+        const auto run = selectedRun(QStringLiteral("00000000-0000-0000-0000-000000000001"));
+        shell.controller->selectRun(run);
+        auto *page = shell.named(QStringLiteral("reflectionsPage"));
+        QVERIFY(page);
+        // Exercise the shipping Main.qml signal handler, including a second
+        // visit from the library while history still has this run selected.
+        for (int visit = 0; visit < 2; ++visit) {
+            shell.controller->navigate(7);
+            QVERIFY(QMetaObject::invokeMethod(page, "openRunRequested", Q_ARG(QVariant, QVariant(run))));
+            QCOMPARE(shell.controller->currentPage(), 1);
+            QCOMPARE(shell.controller->selectedRun().value(QStringLiteral("run_id")), run.value(QStringLiteral("run_id")));
+            QQmlExpression tab(qmlContext(shell.root.get()), shell.root.get(), QStringLiteral("historyPage.detailTab"));
+            QCOMPARE(tab.evaluate().toString(), QStringLiteral("refl"));
+            QVERIFY2(!tab.hasError(), qPrintable(tab.error().toString()));
         }
     }
 

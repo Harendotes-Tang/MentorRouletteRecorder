@@ -252,6 +252,48 @@ private Q_SLOTS:
         QGuiApplication::clipboard()->clear();
     }
 
+    void longTextPasteAndKeyboardKeepCursorInViewport()
+    {
+        DialogFixture fixture;
+        QVERIFY2(fixture.create(), qPrintable(fixture.errors));
+        QVERIFY(fixture.openForRun(finishedRun(kImageRunId, QStringLiteral("水晶塔"), 3), QString()));
+        QVERIFY(QTest::qWaitForWindowExposed(fixture.window()));
+        QTRY_VERIFY(fixture.dialog()->property("opened").toBool());
+        auto *area = qobject_cast<QQuickItem *>(fixture.textArea());
+        QVERIFY(area);
+        QString text;
+        for (int line = 1; line <= 30; ++line)
+            text += QStringLiteral("Line %1: keep the complete reflection visible.\n").arg(line);
+        QVERIFY(text.size() < 2000);
+        QGuiApplication::clipboard()->setText(text);
+        fixture.pasteShortcut();
+        QTRY_COMPARE(fixture.note(), text);
+        QTRY_COMPARE(area->property("cursorPosition").toInt(), text.size());
+        const auto cursorVisible = [&] {
+            const QRectF cursor = area->mapRectToScene(area->property("cursorRectangle").toRectF());
+            for (auto *item = area; item; item = item->parentItem()) {
+                if (!item->clip()) continue;
+                const QRectF clip = item->mapRectToScene(item->boundingRect());
+                if (cursor.top() < clip.top() - 1 || cursor.bottom() > clip.bottom() + 1)
+                    return false;
+            }
+            return QRectF(QPointF(), fixture.window()->size()).contains(cursor);
+        };
+        QTRY_VERIFY(cursorVisible());
+        QTest::keyClick(fixture.window(), Qt::Key_Home, Qt::ControlModifier);
+        QTRY_COMPARE(area->property("cursorPosition").toInt(), 0);
+        QTRY_VERIFY(cursorVisible());
+        QTest::keyClick(fixture.window(), Qt::Key_End, Qt::ControlModifier);
+        QTRY_COMPARE(area->property("cursorPosition").toInt(), text.size());
+        QTRY_VERIFY(cursorVisible());
+        QTest::keyClick(fixture.window(), Qt::Key_X);
+        QTRY_COMPARE(fixture.note(), text + QStringLiteral("x"));
+        QTRY_VERIFY(cursorVisible());
+        const QString screenshot = qEnvironmentVariable("MR_LONG_REFLECTION_SCREENSHOT");
+        if (!screenshot.isEmpty())
+            QVERIFY(fixture.window()->grabWindow().save(screenshot));
+    }
+
     void completedDutyPopupAcceptsClipboardImagesByButtonAndKeyboard()
     {
         DialogFixture fixture;

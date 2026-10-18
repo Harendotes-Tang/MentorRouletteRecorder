@@ -103,7 +103,7 @@ IpcClient::IpcClient(QObject *parent)
                 continue;
             m_pending.remove(id);
             if (pending.reply) {
-                pending.reply->fail(
+                pending.reply->failTransport(
                     QStringLiteral("ERR_INTERNAL"),
                     tr("后台服务暂时没有响应，操作结果还未确认。请稍后检查结果。"));
             }
@@ -350,7 +350,13 @@ void IpcClient::failAllPending(const QString &code, const QString &message)
     m_pending.clear();
     m_timeoutTimer.stop();
     for (const Pending &entry : pending) {
-        if (entry.reply)
+        if (!entry.reply)
+            continue;
+        // Protocol rejection still requires repair/upgrade, not a same-request
+        // retry. Only a local connection failure has an uncertain outcome.
+        if (code == QLatin1String("ERR_INTERNAL"))
+            entry.reply->failTransport(code, message);
+        else
             entry.reply->fail(code, message);
     }
 }

@@ -25,30 +25,30 @@ Item {
     readonly property string assetRoot: "qrc:/resources/reflection-share/duty-notes-scroll-v1.4.1/"
     height: Math.ceil(paper.height * templateScale)
 
-    function collectionLabel() {
+    function collectionDates() {
         const dates = []
         for (let i = 0; i < entries.length; ++i) {
-            if (!entries[i].matched_at_utc) continue
-            const value = Fmt.localDate(entries[i].matched_at_utc)
-            if (value !== Fmt.dash()) dates.push(value.replace(/-/g, "."))
+            const date = Fmt.localDate(entries[i].matched_at_utc)
+            if (date !== Fmt.dash()) dates.push(date.replace(/-/g, "."))
         }
         dates.sort()
-        let label = qsTr("共 %1 条").arg(entries.length)
-        if (dates.length > 0)
-            label += " · " + dates[0] + (dates[0] === dates[dates.length - 1] ? "" : " – " + dates[dates.length - 1])
-        if (dates.length < entries.length)
-            label += " · " + qsTr("%1 条游玩时间未知").arg(entries.length - dates.length)
-        return label
+        let unknown = dates.length < entries.length ? qsTr("%1 条游玩时间未知").arg(entries.length - dates.length) : ""
+        if (!dates.length) return [unknown]
+        const first = dates[0], last = dates[dates.length - 1]
+        const suffix = unknown.length ? " · " + unknown : ""
+        if (first === last) return [first + suffix, first.slice(5) + suffix]
+        return [first + " – " + last + suffix,
+                first + " – " + last.slice(5) + suffix,
+                first.slice(5) + " – " + last.slice(5) + suffix]
     }
 
     Item {
         id: paper
         width: 1140
-        height: Math.ceil(Math.max(480, (card.single ? singleEntry.height : timeline.y + timeline.height) + 190)
-                          + (identityText.visible ? identityText.height + 44 : 0))
+        height: Math.ceil(Math.max(480, (card.single ? singleEntry.height : timeline.y + timeline.height) + 190))
         scale: card.templateScale
         transformOrigin: Item.TopLeft
-        readonly property real dividerY: card.single ? singleEntry.dividerY : Math.max(238, collectionMeta.y + collectionMeta.height + 38)
+        readonly property real dividerY: card.single ? singleEntry.dividerY : Math.max(238, shareHeading.y + shareHeading.height + 38)
         readonly property bool fixedHeader: dividerY === 238
 
         Item {
@@ -118,16 +118,6 @@ Item {
             visible: !paper.fixedHeader
         }
         Text {
-            id: identityText
-            objectName: "reflectionShareGameIdentity"
-            x: 295; y: paper.height - 184 - height; width: 550
-            visible: card.gameIdentity.trim().length > 0
-            text: card.gameIdentity.trim(); textFormat: Text.PlainText
-            horizontalAlignment: Text.AlignHCenter; wrapMode: Text.WrapAnywhere
-            color: "#59452F"
-            font { family: Theme.bodyFamily; pixelSize: 22; weight: Font.Medium }
-        }
-        Text {
             objectName: "reflectionShareCollectionTitle"
             visible: !card.single
             x: 84; y: 132 - baselineOffset; width: 610
@@ -135,20 +125,25 @@ Item {
             color: "#2E2118"
             font { family: "Noto Serif SC"; pixelSize: 56; bold: true; letterSpacing: 8 }
         }
-        Text {
-            id: collectionMeta
-            objectName: "reflectionShareCollectionMeta"
-            visible: !card.single
-            x: 86; y: 186 - baselineOffset; width: 610
-            text: card.collectionLabel(); textFormat: Text.PlainText
-            wrapMode: Text.Wrap; color: "#6E5A44"
-            font { family: "Noto Serif SC"; pixelSize: 24; letterSpacing: 1.5 }
+        ReflectionShareHeading {
+            id: shareHeading
+            objectName: card.single ? "reflectionShareSingleHeading" : "reflectionShareCollectionMeta"
+            single: card.single; gameIdentity: card.gameIdentity
+            x: card.single ? 84 : 86; y: (card.single ? 94 : 186) - textBaseline
+            width: card.single ? 716 : 726
+            countLabel: card.single ? "" : qsTr("共 %1 条").arg(card.entries.length)
+            dateOptions: {
+                if (!card.single) return card.collectionDates()
+                const date = singleEntry.dateLabel()
+                return singleEntry.knownTime ? [date, date.slice(5)] : [date]
+            }
         }
         ReflectionShareEntry {
             id: singleEntry
             visible: card.single
             runData: card.entries[0] || ({})
             single: true
+            headerExtraHeight: Math.max(0, shareHeading.height - 36)
         }
         Image {
             x: 220; y: timeline.y + 32; width: 8
@@ -179,20 +174,34 @@ Item {
                 }
             }
         }
-        Text {
-            objectName: "reflectionShareExportDate"
-            x: 84; y: paper.height - 88 - baselineOffset; width: 972
-            text: qsTr("导出于 %1").arg(card.exportDate); textFormat: Text.PlainText
-            horizontalAlignment: Text.AlignHCenter; color: "#6E5A44"
-            font { family: Theme.bodyFamily; pixelSize: 22; weight: Font.Medium }
-        }
-        Text {
-            objectName: "reflectionShareBrand"
-            x: 84; y: paper.height - 49 - baselineOffset; width: 972
-            text: qsTr("Powered by 导随记录器"); textFormat: Text.PlainText
-            horizontalAlignment: Text.AlignHCenter; color: "#6E5A44"
-            font { family: Theme.bodyFamily; pixelSize: 20 }
-            visible: card.showAttribution
+        Item {
+            id: footerLine
+            objectName: "reflectionShareFooterLine"
+            x: (1140 - width) / 2; y: paper.height - 88
+            width: footerDate.width + (card.showAttribution ? footerSeparator.width + footerBrand.width : 0)
+            Text {
+                id: footerDate
+                objectName: "reflectionShareExportDate"
+                y: -baselineOffset; width: implicitWidth
+                text: qsTr("导出于 %1").arg(card.exportDate); textFormat: Text.PlainText
+                color: "#6E5A44"
+                font { family: "Noto Serif SC"; pixelSize: 18; letterSpacing: 2 }
+            }
+            Text {
+                id: footerSeparator
+                x: footerDate.width; y: -baselineOffset; width: implicitWidth + 28
+                text: "·"; horizontalAlignment: Text.AlignHCenter; color: "#6E5A44"; font: footerDate.font
+                visible: card.showAttribution
+            }
+            Text {
+                id: footerBrand
+                objectName: "reflectionShareBrand"
+                x: footerDate.width + footerSeparator.width; y: -baselineOffset
+                width: Math.max(0, Math.min(implicitWidth, 520 - footerDate.width - footerSeparator.width))
+                text: qsTr("Powered by 导随记录器"); textFormat: Text.PlainText; elide: Text.ElideRight
+                color: "#6E5A44"; font: footerDate.font
+                visible: card.showAttribution
+            }
         }
     }
 }

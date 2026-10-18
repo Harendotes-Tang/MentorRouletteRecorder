@@ -19,6 +19,174 @@ public sealed class SharedCalibrationRecheckTests : IDisposable
 {
     private readonly Bed _bed = new();
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ARevocationDuringBindingRemovesTheUnadoptedProfileEvenWhenItsStateCannotBeWritten(bool blockStateWrite)
+    {
+        var code = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
+        _bed.Publish(code);
+        var pipeline = _bed.Pipeline(_bed.Services());
+        pipeline.Refresh(Bed.Game());
+        await Bed.Idle(pipeline);
+        using var stateLock = blockStateWrite ? new FileStream(Path.Combine(
+            SharedCalibrationStore.DirectoryFor(_bed.StoreRoot, Region.Cn, Bed.Build), SharedCalibrationStore.StateFileName),
+            FileMode.Open, FileAccess.Read, FileShare.Read) : null;
+        using var writing = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        _bed.BeforeReload = () =>
+        {
+            writing.Set();
+            Assert.True(release.Wait(TimeSpan.FromSeconds(30)));
+        };
+        var session = _bed.Start(pipeline);
+        try
+        {
+            Bed.Feed(pipeline, session, Bed.Before(Bed.Evening(), 30_000));
+            Assert.True(writing.Wait(TimeSpan.FromSeconds(30)));
+            Assert.True(File.Exists(_bed.SharedProfilePath));
+            _bed.PublishRevoked(code);
+            _bed.Db.Clock.UtcNow += TimeSpan.FromSeconds(6);
+            var claimedAt = _bed.Db.Clock.UtcNow;
+            Assert.Equal(SharedCheckOutcome.Started, pipeline.CheckSharedCalibrationNow());
+            Assert.True(SpinWait.SpinUntil(() => pipeline.CalibrationStatus().Shared.LastSentAtUtc == claimedAt,
+                TimeSpan.FromSeconds(30)), "revocation fetch was not claimed");
+        }
+        finally
+        {
+            release.Set();
+            await Bed.Idle(pipeline);
+            _bed.BeforeReload = null;
+            pipeline.OnCaptureStopped(session, CaptureEndReason.UserStop);
+        }
+
+        Assert.False(File.Exists(_bed.SharedProfilePath));
+        Assert.Equal(ProfileStatus.UnsupportedBuild, pipeline.Current.Status);
+        _bed.Transport.Unreachable = true;
+        pipeline.Refresh(Bed.Game(Bed.OtherBuild));
+        await Bed.Idle(pipeline);
+        pipeline.Refresh(Bed.Game());
+        await Bed.Idle(pipeline);
+        Assert.Equal(ProfileStatus.UnsupportedBuild, pipeline.Current.Status);
+        Assert.Equal("REVOKED", pipeline.ImportCalibrationCode(code.Code).Reason);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AReadRevocationAlsoRejectsADerivedProfileAdoptedAfterRearm(bool blockStateWrite)
+    {
+        var code = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
+        _bed.Publish(code);
+        var services = _bed.Services();
+        var initial = await services.FetchSharedCalibration(Region.Cn, Bed.Build, CancellationToken.None);
+        Assert.True(_bed.Store.RecordFetch(Region.Cn, Bed.Build, Bed.TemplateSha, initial, _bed.Db.Clock.UtcNow).Recorded);
+        using var stateLock = blockStateWrite ? new FileStream(Path.Combine(
+            SharedCalibrationStore.DirectoryFor(_bed.StoreRoot, Region.Cn, Bed.Build), SharedCalibrationStore.StateFileName),
+            FileMode.Open, FileAccess.Read, FileShare.Read) : null;
+        _bed.PublishRevoked(code);
+        _bed.Db.Clock.UtcNow += TimeSpan.FromHours(7);
+        // Re-read the catalogue on selection so a leftover derived profile is visible after re-arm.
+        var pipeline = new LiveProtocolPipeline(_bed.Db.Database, _bed.Db.Clock,
+            new MentorRecorder.Collector.Ipc.LiveEventBus(_bed.Db.Clock), game => _bed.DiskSelect()(game), null, services);
+        pipeline.Refresh(Bed.Game());
+        await Bed.Idle(pipeline);
+        Assert.Equal(SharedFetchStatus.NoneForBuild, pipeline.CalibrationStatus().Shared.LastSentStatus);
+        _bed.Transport.Unreachable = true;
+        pipeline.Refresh(Bed.Game(Bed.OtherBuild));
+        await Bed.Idle(pipeline);
+        SharedProfileFiles.Write(SharedProfileBuilder.Build(code.Payload, Bed.Template, Bed.Confirmed,
+            new Dictionary<string, int>()), _bed.SharedRoot);
+
+        pipeline.Refresh(Bed.Game());
+        await Bed.Idle(pipeline);
+
+        Assert.Equal(ProfileStatus.UnsupportedBuild, pipeline.Current.Status);
+        Assert.False(File.Exists(_bed.SharedProfilePath));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AReadRevocationCannotRestoreACachedCodeWhenItsStateCannotBeWritten(bool blockStateWrite)
+    {
+        var code = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
+        _bed.Publish(code);
+        var services = _bed.Services();
+        var initial = await services.FetchSharedCalibration(Region.Cn, Bed.Build, CancellationToken.None);
+        Assert.True(_bed.Store.RecordFetch(Region.Cn, Bed.Build, Bed.TemplateSha, initial, _bed.Db.Clock.UtcNow).Recorded);
+
+        _bed.PublishRevoked(code);
+        _bed.Db.Clock.UtcNow += TimeSpan.FromHours(7);
+        using var stateLock = blockStateWrite ? new FileStream(Path.Combine(
+            SharedCalibrationStore.DirectoryFor(_bed.StoreRoot, Region.Cn, Bed.Build), SharedCalibrationStore.StateFileName),
+            FileMode.Open, FileAccess.Read, FileShare.Read) : null;
+        // A fresh pipeline has cached code text but no candidate in memory for ApplyFetchResult to drop.
+        var pipeline = _bed.Pipeline(services);
+        pipeline.Refresh(Bed.Game());
+        await Bed.Idle(pipeline);
+        Assert.Equal(SharedFetchStatus.NoneForBuild, pipeline.CalibrationStatus().Shared.LastSentStatus);
+        Assert.DoesNotContain(pipeline.CalibrationStatus().Shared.Candidates, candidate => candidate.CodeSha256 == code.Sha);
+
+        var session = _bed.Start(pipeline);
+        try
+        {
+            Bed.Feed(pipeline, session, Bed.Before(Bed.Evening(), 30_000));
+            await Bed.Idle(pipeline);
+            Assert.Equal(ProfileStatus.UnsupportedBuild, pipeline.Current.Status);
+            Assert.Null(pipeline.Current.Origin);
+        }
+        finally
+        {
+            pipeline.OnCaptureStopped(session, CaptureEndReason.UserStop);
+            await Bed.Idle(pipeline);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AReadRevocationCannotBeBypassedByPastingTheCodeWhenItsStateCannotBeWritten(bool blockStateWrite)
+    {
+        var code = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
+        _bed.Publish(code);
+        var services = _bed.Services();
+        var initial = await services.FetchSharedCalibration(Region.Cn, Bed.Build, CancellationToken.None);
+        Assert.True(_bed.Store.RecordFetch(Region.Cn, Bed.Build, Bed.TemplateSha, initial, _bed.Db.Clock.UtcNow).Recorded);
+
+        _bed.PublishRevoked(code);
+        _bed.Db.Clock.UtcNow += TimeSpan.FromHours(7);
+        using var stateLock = blockStateWrite ? new FileStream(Path.Combine(
+            SharedCalibrationStore.DirectoryFor(_bed.StoreRoot, Region.Cn, Bed.Build), SharedCalibrationStore.StateFileName),
+            FileMode.Open, FileAccess.Read, FileShare.Read) : null;
+        var pipeline = _bed.Pipeline(services);
+        pipeline.Refresh(Bed.Game());
+        await Bed.Idle(pipeline);
+
+        var result = pipeline.ImportCalibrationCode(code.Code);
+
+        Assert.Equal(SharedImportOutcome.NotApplicable, result.Outcome);
+        Assert.Equal("REVOKED", result.Reason);
+        Assert.DoesNotContain(pipeline.CalibrationStatus().Shared.Candidates, candidate => candidate.CodeSha256 == code.Sha);
+        Assert.Equal(ProfileStatus.UnsupportedBuild, pipeline.Current.Status);
+
+        // Re-arm the same pipeline after another build, with only the stale disk state available.
+        _bed.Transport.Unreachable = true;
+        pipeline.Refresh(Bed.Game(Bed.OtherBuild));
+        await Bed.Idle(pipeline);
+        pipeline.Refresh(Bed.Game());
+        await Bed.Idle(pipeline);
+        pipeline.DiscardCalibration();
+        await Bed.Idle(pipeline);
+        Assert.DoesNotContain(pipeline.CalibrationStatus().Shared.Candidates, candidate => candidate.CodeSha256 == code.Sha);
+        Assert.Equal("REVOKED", pipeline.ImportCalibrationCode(code.Code).Reason);
+
+        // Revocation is code-specific; another applicable code still enters normal verification.
+        var other = Bed.Encode(code.Payload with { JobOpcode = null });
+        Assert.NotEqual(code.Sha, other.Sha);
+        Assert.Equal(SharedImportOutcome.Applied, pipeline.ImportCalibrationCode(other.Code).Outcome);
+    }
+
     public void Dispose() => _bed.Dispose();
 
     private static IEnumerable<DecodedMessage> TrueEvening => CalibrationTrafficCases.Traffic(CalibrationTrafficCases.ReplyState);

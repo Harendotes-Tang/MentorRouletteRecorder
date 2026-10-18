@@ -150,7 +150,7 @@ SharpPcap 与 PacketDotNet 使用未经修改的 NuGet 二进制。许可证全�
 
 ### 内置图标（ISC License）
 
-按钮上的线条图标来自 **Lucide**（<https://lucide.dev>），版本 1.55.0，许可证 ISC，
+按钮上的线条图标来自 **Lucide**（<https://lucide.dev>），版本 1.59.0，许可证 ISC，
 版权 Copyright (c) 2026 Lucide Icons and Contributors。其中 `calendar`、`chevron-left`、
 `chevron-right`、`clock`、`moon`、`plus`、`radio`、`server`、`x` 九个由 Lucide 从 **Feather** 项目派生，同时受
 **The MIT License (MIT)**，Copyright (c) 2013-present Cole Bemis 约束；该名单列于 Lucide 的

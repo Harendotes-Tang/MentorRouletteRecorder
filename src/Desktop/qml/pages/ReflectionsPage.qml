@@ -129,7 +129,7 @@ ColumnLayout {
             id: shareSelected
             objectName: "shareSelectedReflections"
             text: qsTr("生成分享图片")
-            iconName: "file-down"
+            iconName: "image"
             variant: "primary"
             enabled: !!page.controller && page.controller.selectedCount > 0
             onClicked: page.shareBatchRequested(page.controller.selectedRuns)
@@ -249,6 +249,10 @@ ColumnLayout {
                         text: entry.reflection.text || ""
                         textFormat: Text.PlainText
                         color: Theme.textPrimary
+                        font.family: Qt.fontFamilies().indexOf("Noto Sans SC") >= 0
+                                     ? "Noto Sans SC"
+                                     : (typeof Lang !== "undefined" && Lang
+                                        ? Lang.displayFamily(Lang.code) : Theme.bodyFamily)
                         font.pixelSize: Theme.fs(14)
                         wrapMode: Text.Wrap
                         lineHeight: 1.5

@@ -514,26 +514,32 @@ Dialog {
             Item { Layout.fillWidth: true }
         }
 
-        StyledTextArea {
-            id: textArea
-            objectName: "reflectionTextArea"
-
+        ScrollView {
+            id: textViewport
             Layout.fillWidth: true
-            readOnly: dialog.busy
             visible: !dialog.askingResult || dialog.promptEnabled
             Layout.preferredHeight: 132
-            placeholderText: qsTr("记下这次导随的感想：新人表现、机制提醒、想对自己说的话……")
-            // TextArea reserves Paste during ShortcutOverride. Route its
-            // focused key event before the editor so an image-only clipboard
-            // follows the same path as the button; text paste stays native.
-            Keys.priority: Keys.BeforeItem
-            Keys.onPressed: function(event) {
-                if (event.matches(StandardKey.Paste)
-                        && dialog.imageStore && dialog.imageStore.clipboardHasImage && !dialog.busy) {
-                    dialog.pasteNoteImage()
-                    event.accepted = true
-                } else {
-                    event.accepted = false
+            contentWidth: availableWidth
+            clip: true
+            ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+
+            StyledTextArea {
+                id: textArea
+                objectName: "reflectionTextArea"
+                width: textViewport.availableWidth
+                readOnly: dialog.busy
+                placeholderText: qsTr("记下这次导随的感想：新人表现、机制提醒、想对自己说的话……")
+                // ScrollView keeps the cursor visible; native text paste and
+                // the image-only shortcut retain their existing behavior.
+                Keys.priority: Keys.BeforeItem
+                Keys.onPressed: function(event) {
+                    if (event.matches(StandardKey.Paste)
+                            && dialog.imageStore && dialog.imageStore.clipboardHasImage && !dialog.busy) {
+                        dialog.pasteNoteImage()
+                        event.accepted = true
+                    } else {
+                        event.accepted = false
+                    }
                 }
             }
         }

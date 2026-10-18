@@ -10039,6 +10039,10 @@ Recorder</translation>
         <translation>Restore and permanent delete only work on records in “Deleted”.</translation>
     </message>
     <message>
+        <source>%1 操作尚未发送。连接恢复后，请保留勾选和原因重试。</source>
+        <translation>%1 The action has not been sent. Once the connection is restored, keep the selected records and reason and try again.</translation>
+    </message>
+    <message>
         <source>%1 操作结果尚未确认。请保留勾选和原因后重试，同一请求不会重复修改记录。</source>
         <translation>%1 The result isn&apos;t confirmed yet. Keep the checks and reason and try again; the same request won&apos;t change records twice.</translation>
     </message>

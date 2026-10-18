@@ -1,43 +1,65 @@
 {
-  "version": "1.7.3-beta.2",
+  "version": "1.7.3-beta.3",
   "entries": [
     {
-      "summary": "可选显示「用户名@服务器名」，仅保存在本机；单条和批量导出均支持。",
+      "summary": "统一预览与导出，改善长标题换行和心得列表字体。",
       "tag": "心得分享",
-      "title": "心得图片可显示游戏 ID",
-      "bodySha256": "e5b5bd3d009dfc9552147afe70389fe1063406a1275cc8c6d31c0003c678fa4d"
+      "title": "心得分享排版更清晰",
+      "bodySha256": "6e439594acf970090cb015170fd424efcbbe80701072752fc7ced3f8a1a061ef"
     },
     {
-      "summary": "从重点卡片直接前往 设置 › 通用 › 语言 · Language，切换后立即生效。",
-      "bodySha256": "f1f2017236116c47ceecde54dd184ce703bc22d8b6306b3e2a860ee617fd6cb0",
-      "title": "界面语言：简体中文、繁體中文、English、日本語",
-      "highlight": true,
-      "action": "language-settings",
-      "tag": "语言"
+      "summary": "替换本地图标资源并同步来源说明。",
+      "tag": "界面图标",
+      "title": "更新本地 Lucide 图标",
+      "bodySha256": "7d163c8a5468cd3de85d94ab0a20e6fea37c491a105fd33e11c9c79432f3680c"
     },
     {
-      "summary": "查看分类摘要、展开完整说明，也可在 设置 › 关于 中随时重看。",
-      "tag": "更新记录",
-      "title": "更新记录按重点与分类阅读",
-      "bodySha256": "f818e63e5754861bb117e00a9aaded1d83f71e02ba4d02768b27e8b31fb552d4"
+      "summary": "已知撤销约束候选、绑定、导入和在途写入，不依赖本次缓存落盘。",
+      "tag": "共享校准",
+      "title": "撤销校准不再因缓存写入失败而重新启用",
+      "bodySha256": "849c1af1842f1c9d77283d71ca0bce2c97f6755b97c1ba84103c7e46225a5366"
     },
     {
-      "summary": "按时间和副本命名，合集包含日期与条数；同名文件自动追加序号。",
-      "tag": "心得分享",
-      "title": "导出图片使用可识别的文件名",
-      "bodySha256": "da2143fac22d1103326373a804d270e26f6d5a708507c3baf1f808ba4855b30d"
+      "summary": "按队列顺序处理安全标记，避免把中断误计为通关。",
+      "tag": "自动采集",
+      "title": "停采时保留断线与损坏标记",
+      "bodySha256": "bb165425245a0b6303e64aa978383b103968ad87ae8f695f37bc37d5ac8ba866"
     },
     {
-      "summary": "按词组换行，避免时间轴信息重叠；增大导出日期和底部署名字体。",
-      "tag": "心得分享",
-      "title": "长副本名和导出文字更清晰",
-      "bodySha256": "dbc3f11de25bc7e800bea18fd15c644fc95c0eec82e27130bebcc7f523df472b"
+      "summary": "清理应答正文后仍识别已执行请求，保护后来保存的心得。",
+      "tag": "心得保存",
+      "title": "旧心得请求不再覆盖新内容",
+      "bodySha256": "b6270ff02199df06fbacc4dfdf200d811c715841cb9b5f0313d9d0852dcf0e4a"
     },
     {
-      "summary": "统一文字基线，长标题换行时仍保持首行对齐。",
-      "tag": "更新记录",
-      "title": "更新标签、标题与详细按钮对齐",
-      "bodySha256": "4a36e0f37596986c3eb6f3ac663f9b2b3eede13e7ae49c0acceb8a41ba713f37"
+      "summary": "保留批量父请求身份，导入也能识别过期请求。",
+      "tag": "批量操作",
+      "title": "批量请求过期后仍保持去重",
+      "bodySha256": "dd681718308588538afe368b49ba90759980421c54b3be3fe5a8a3b98e6a85df"
+    },
+    {
+      "summary": "保持已选记录的详情展开，并直接切换到心得页签。",
+      "tag": "记录详情",
+      "title": "再次打开同一记录仍显示详情",
+      "bodySha256": "9cee196ab58e0c011f28fa9376c012951321fd68913dca06e065737bd8b3755c"
+    },
+    {
+      "summary": "长文本后半段可见，继续支持原有粘贴操作。",
+      "tag": "心得编辑",
+      "title": "长心得可滚动并跟随光标",
+      "bodySha256": "345a9394c4f41a7755c871323f96dbfdb53aa8f5d45edd3b254649b379a63524"
+    },
+    {
+      "summary": "允许选择偏移超过 255 的字段，同时检查边界与证据。",
+      "tag": "离线工具",
+      "title": "字段推导支持完整负载范围",
+      "bodySha256": "ae9474f8fc90318c71c25209dc4b0816d0742e57ac6bc1ef76ba8a925bdd14ba"
+    },
+    {
+      "summary": "区分未发送、结果未知和业务拒绝，按实际情况给出恢复提示。",
+      "tag": "错误恢复",
+      "title": "批量失败提示与实际结果一致",
+      "bodySha256": "ee24fc3643d76c8b06e75c73a860e5eb4fd04f936d2d1cf6b9ac8c10322cc8f3"
     }
   ]
 }

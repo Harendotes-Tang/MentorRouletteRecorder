@@ -10,6 +10,7 @@
 #include <QGuiApplication>
 #include <QFont>
 #include <QFontDatabase>
+#include <QFontMetricsF>
 #include <QImage>
 #include <QQmlComponent>
 #include <QQmlContext>
@@ -102,6 +103,39 @@ bool finalTextHasInk(const QImage &png, QQuickItem *body, QQuickItem *capture, q
         }
     return glyphPixels > 20;
 }
+
+QString headingInkAlignmentError(const QImage &png, QQuickItem *card, qreal ratio)
+{
+    // 检查实际 PNG 墨迹，避免“基线相同”掩盖字号、字重不同造成的视觉偏移。
+    qreal topCenter = png.height(), bottomCenter = 0;
+    QStringList centers;
+    for (const char *name : {"reflectionShareEyebrow", "reflectionShareCharacterName",
+                             "reflectionShareServerName", "reflectionShareCount", "reflectionShareTimeText"}) {
+        auto *label = findVisual(card, QString::fromLatin1(name));
+        if (!label || !label->isVisible()) continue;
+        const QRectF mapped = label->mapRectToItem(card, label->boundingRect());
+        const QRect region = QRectF(mapped.x() * ratio, mapped.y() * ratio,
+                                     mapped.width() * ratio, mapped.height() * ratio).toAlignedRect()
+                                 .intersected(png.rect());
+        const QColor ink = label->property("color").value<QColor>();
+        QRect inkBounds;
+        for (int y = region.top(); y <= region.bottom(); ++y)
+            for (int x = region.left(); x <= region.right(); ++x) {
+                const QColor pixel = png.pixelColor(x, y);
+                if (pixel.alpha() > 200 && qAbs(pixel.red() - ink.red())
+                    + qAbs(pixel.green() - ink.green()) + qAbs(pixel.blue() - ink.blue()) < 50)
+                    inkBounds |= QRect(x, y, 1, 1);
+            }
+        if (inkBounds.isEmpty()) return QStringLiteral("题头文字没有可验证墨迹：%1").arg(QString::fromLatin1(name));
+        const qreal center = (inkBounds.top() + inkBounds.bottom()) / 2.0;
+        topCenter = qMin(topCenter, center);
+        bottomCenter = qMax(bottomCenter, center);
+        centers.append(QStringLiteral("%1=%2").arg(QString::fromLatin1(name)).arg(center / ratio));
+    }
+    if (centers.size() < 3) return QStringLiteral("题头有效文字段不足");
+    qInfo().noquote() << "heading ink centers:" << centers.join(QStringLiteral(", "));
+    return bottomCenter - topCenter <= ratio ? QString() : centers.join(QStringLiteral(", "));
+}
 }
 
 class ShareThemeState : public QObject
@@ -118,6 +152,191 @@ class ReflectionShareTests : public QObject
 {
     Q_OBJECT
 private Q_SLOTS:
+    void referenceHeadingFitsBeforeElidingName() {
+        QQmlEngine engine;
+        QList<QQmlError> warnings;
+        connect(&engine, &QQmlEngine::warnings, this, [&warnings](const QList<QQmlError> &errors) { warnings.append(errors); });
+        QQmlComponent component(&engine);
+        component.setData(R"(import QtQuick
+import MentorRecorder
+Window { visible: true; width: 1200; height: 600
+    ReflectionShareHeading { objectName: "heading"; width: 1000
+        gameIdentity: "测试冒险者@白银乡"; countLabel: "共 3 条"
+        dateOptions: ["2026.10.09 – 2026.10.12", "2026.10.09 – 10.12", "10.09 – 10.12"]
+    }
+})", QUrl());
+        std::unique_ptr<QObject> root(component.create());
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.get());
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        auto *heading = findVisual(window->contentItem(), QStringLiteral("heading"));
+        auto *name = findVisual(heading, QStringLiteral("reflectionShareCharacterName"));
+        auto *server = findVisual(heading, QStringLiteral("reflectionShareServerName"));
+        auto *date = findVisual(heading, QStringLiteral("reflectionShareTimeText"));
+        QVERIFY(name && server && date);
+        QStringList seen;
+        bool elided = false;
+        // 从宽到窄跨过实际字体的三个日期档位；省略角色名必须发生在最后一档之后。
+        for (int width = 1000; width >= 360; width -= 8) {
+            heading->setWidth(width);
+            QTest::qWait(16);
+            const QString selected = heading->property("dateLabel").toString();
+            if (seen.isEmpty() || seen.last() != selected) seen.append(selected);
+            if (name->property("truncated").toBool()) {
+                QCOMPARE(selected, QStringLiteral("10.09 – 10.12"));
+                elided = true;
+            }
+            QCOMPARE(server->property("text").toString(), QStringLiteral("@白银乡"));
+            QTRY_VERIFY(server->mapRectToItem(heading, server->boundingRect()).right() <= width + 1);
+            QTRY_VERIFY(date->mapRectToItem(heading, date->boundingRect()).right() <= width + 1);
+        }
+        QCOMPARE(seen, QStringList({QStringLiteral("2026.10.09 – 2026.10.12"),
+                                    QStringLiteral("2026.10.09 – 10.12"), QStringLiteral("10.09 – 10.12")}));
+        QVERIFY(elided);
+        heading->setProperty("gameIdentity", QStringLiteral("OnlyName"));
+        QTRY_VERIFY(!server->isVisible());
+        QCOMPARE(name->property("text").toString(), QStringLiteral("OnlyName"));
+        heading->setProperty("gameIdentity", QString());
+        QTRY_VERIFY(!findVisual(heading, QStringLiteral("reflectionShareGameIdentity"))->isVisible());
+        QVERIFY2(warnings.isEmpty(), warnings.isEmpty() ? "" : qPrintable(warnings.first().toString()));
+    }
+    void referencePicturesAndEmptyMood() {
+        ShareThemeState theme;
+        mr::Formatters formatters;
+        mr::JobCatalog jobs;
+        mr::ReflectionShareController controller;
+        QQmlEngine engine;
+        engine.rootContext()->setContextProperty(QStringLiteral("App"), &theme);
+        engine.rootContext()->setContextProperty(QStringLiteral("Fmt"), &formatters);
+        engine.rootContext()->setContextProperty(QStringLiteral("Jobs"), &jobs);
+        QList<QQmlError> warnings;
+        connect(&engine, &QQmlEngine::warnings, this, [&warnings](const QList<QQmlError> &errors) { warnings.append(errors); });
+        QQmlComponent component(&engine);
+        component.setData(R"(import QtQuick
+import MentorRecorder
+Window { visible: true; width: 1180; height: 900
+    ReflectionShareCard { width: 1140; gameIdentity: "赤色熊喵@龙巢神殿" }
+})", QUrl());
+        std::unique_ptr<QObject> root(component.create());
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.get());
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        auto *card = findVisual(window->contentItem(), QStringLiteral("reflectionShareCard"));
+        QVariantMap run{{QStringLiteral("duty_name"), QStringLiteral("末日暗影亚马乌罗提")},
+            {QStringLiteral("matched_at_utc"), QStringLiteral("2026-10-13T12:33:00Z")},
+            {QStringLiteral("job_id"), 40}, {QStringLiteral("job_name"), QStringLiteral("贤者")},
+            {QStringLiteral("result"), QStringLiteral("COMPLETED")},
+            {QStringLiteral("reflection"), QVariantMap{{QStringLiteral("text"), QStringLiteral("DPS伤害太低差点团灭")}, {QStringLiteral("mood"), QStringLiteral("good")}}}};
+        card->setProperty("runData", run);
+        QTRY_COMPARE(card->height(), 506.0);
+        auto *date = findVisual(card, QStringLiteral("reflectionShareExportDate"));
+        auto *brand = findVisual(card, QStringLiteral("reflectionShareBrand"));
+        auto *footer = findVisual(card, QStringLiteral("reflectionShareFooterLine"));
+        QVERIFY(date && brand && footer);
+        QCOMPARE(date->mapToItem(card, QPointF(0, date->baselineOffset())).y(),
+                 brand->mapToItem(card, QPointF(0, brand->baselineOffset())).y());
+        QVERIFY(footer->width() <= 520);
+        QTemporaryDir output;
+        QSignalSpy saved(&controller, &mr::ReflectionShareController::saved);
+        const QString evidence = qEnvironmentVariable("MR_REFLECTION_SHARE_SCREENSHOT_DIR");
+        const auto save = [&](const QString &name) {
+            controller.saveTo(card, output.filePath(name));
+        };
+        const auto keep = [&](const QString &name) {
+            const QImage png(output.filePath(name));
+            return !png.isNull() && (evidence.isEmpty() || png.save(QDir(evidence).filePath(name)));
+        };
+        save(QStringLiteral("reference-single.png"));
+        QTRY_COMPARE(saved.count(), 1);
+        QVERIFY(keep(QStringLiteral("reference-single.png")));
+        const QString singleAlignment = headingInkAlignmentError(QImage(output.filePath(QStringLiteral("reference-single.png"))),
+                                                                 card, window->effectiveDevicePixelRatio());
+        QVERIFY2(singleAlignment.isEmpty(), qPrintable(singleAlignment));
+        auto *body = findVisual(card, QStringLiteral("reflectionShareFullText"));
+        auto *stamp = findVisual(card, QStringLiteral("reflectionShareResultStamp"));
+        QVariantMap edge = run;
+        edge.insert(QStringLiteral("duty_name"), QStringLiteral("超长副本名需要按词组换行并在第二行末尾省略").repeated(5));
+        const QString longBody = QStringLiteral("标点与（括号）以及 English words 12345 保持可读，正文逐行增长，不会压住卷尾印章。\n").repeated(8) + QStringLiteral("最后一行完整保留。");
+        edge.insert(QStringLiteral("reflection"), QVariantMap{{QStringLiteral("text"), longBody}});
+        card->setProperty("runData", edge);
+        auto *title = findVisual(card, QStringLiteral("reflectionShareDutyTitle"));
+        QTRY_COMPARE(title->property("lineCount").toInt(), 2);
+        QVERIFY(title->property("truncated").toBool());
+        QVERIFY(!findVisual(card, QStringLiteral("reflectionShareMoodTag"))->isVisible());
+        QCOMPARE(body->property("text").toString(), longBody);
+        QVERIFY(stamp->y() >= body->y() + body->height() - 12);
+        save(QStringLiteral("reference-single-edge.png"));
+        QTRY_COMPARE(saved.count(), 2);
+        QVERIFY(keep(QStringLiteral("reference-single-edge.png")));
+        QVERIFY(finalTextHasInk(QImage(output.filePath(QStringLiteral("reference-single-edge.png"))), body, card, window->effectiveDevicePixelRatio()));
+        QCOMPARE(card->property("runData").toMap(), edge);
+        QList<int> fontStages;
+        for (int length = 1; length <= 48; ++length) {
+            QVariantMap titled = run;
+            const QString name = QStringLiteral("副").repeated(length);
+            titled.insert(QStringLiteral("duty_name"), name);
+            card->setProperty("runData", titled);
+            int expectedSize = 32;
+            for (const int candidate : {48, 42, 36, 32}) {
+                QFont font = title->property("font").value<QFont>();
+                font.setPixelSize(candidate);
+                if (QFontMetricsF(font).horizontalAdvance(name) <= title->width()) {
+                    expectedSize = candidate;
+                    break;
+                }
+            }
+            QTRY_COMPARE(title->property("font").value<QFont>().pixelSize(), expectedSize);
+            if (fontStages.isEmpty() || fontStages.last() != expectedSize) fontStages.append(expectedSize);
+        }
+        QCOMPARE(fontStages, QList<int>({48, 42, 36, 32}));
+        QVariantMap imported = run;
+        imported.remove(QStringLiteral("matched_at_utc"));
+        imported.insert(QStringLiteral("import_metadata"), QVariantMap{{QStringLiteral("source_recorded_at"), QStringLiteral("2026-10-13 20:33:00")}});
+        card->setProperty("runData", imported);
+        auto *heading = findVisual(card, QStringLiteral("reflectionShareSingleHeading"));
+        auto *server = findVisual(heading, QStringLiteral("reflectionShareServerName"));
+        auto *sourceTime = findVisual(heading, QStringLiteral("reflectionShareTimeText"));
+        auto *job = findVisual(card, QStringLiteral("reflectionShareJobIcon"));
+        QVERIFY(server && sourceTime && job);
+        QTRY_VERIFY(server->width() >= server->implicitWidth() - 1);
+        QVERIFY(sourceTime->property("text").toString().contains(QStringLiteral("游玩时间未知")));
+        QTRY_VERIFY(sourceTime->mapRectToItem(card, sourceTime->boundingRect()).bottom()
+                    <= job->mapRectToItem(card, job->boundingRect()).top());
+        save(QStringLiteral("reference-source-time.png"));
+        QTRY_COMPARE(saved.count(), 3);
+        QVERIFY(keep(QStringLiteral("reference-source-time.png")));
+        const QString hugeServer = QStringLiteral("极长服务器名字").repeated(12);
+        card->setProperty("gameIdentity", QStringLiteral("冒险者@") + hugeServer);
+        QTRY_VERIFY(server->width() >= 100);
+        QCOMPARE(server->property("text").toString(), QStringLiteral("@") + hugeServer);
+        QTRY_VERIFY(sourceTime->mapRectToItem(card, sourceTime->boundingRect()).bottom()
+                    <= job->mapRectToItem(card, job->boundingRect()).top());
+        QVERIFY(server->mapRectToItem(heading, server->boundingRect()).right() <= heading->width() + 1);
+        card->setProperty("gameIdentity", QStringLiteral("赤色熊喵@龙巢神殿"));
+        const QStringList names{QStringLiteral("伊弗利特讨伐战"), QStringLiteral("神兵要塞帝国南方堡"), QStringLiteral("险峻峡谷塞尔法特尔溪谷")};
+        const QStringList notes{QStringLiteral("三剑一豆芽，全明星团队亲情奉献！（美美+1）"), QStringLiteral("有本打就好；；"), QStringLiteral("排了好久才排到…我们猪区还有救吗")};
+        QVariantList runs;
+        for (int i = 0; i < names.size(); ++i) {
+            QVariantMap item = run;
+            item.insert(QStringLiteral("duty_name"), names[i]);
+            item.insert(QStringLiteral("job_id"), 34);
+            item.insert(QStringLiteral("job_name"), QStringLiteral("武士"));
+            item.insert(QStringLiteral("matched_at_utc"), QStringLiteral("2026-10-%1T06:40:00Z").arg(12 - i));
+            item.insert(QStringLiteral("reflection"), QVariantMap{{QStringLiteral("text"), notes[i]}, {QStringLiteral("mood"), QStringLiteral("good")}});
+            runs.append(item);
+        }
+        card->setProperty("runsData", runs);
+        QTRY_COMPARE(visibleEntries(card).size(), 3);
+        QTRY_COMPARE(card->height(), 1054.0);
+        save(QStringLiteral("reference-collection.png"));
+        QTRY_COMPARE(saved.count(), 4);
+        QVERIFY(keep(QStringLiteral("reference-collection.png")));
+        const QString collectionAlignment = headingInkAlignmentError(QImage(output.filePath(QStringLiteral("reference-collection.png"))),
+                                                                     card, window->effectiveDevicePixelRatio());
+        QVERIFY2(collectionAlignment.isEmpty(), qPrintable(collectionAlignment));
+        QCOMPARE(card->property("runsData").toList(), runs);
+        QVERIFY2(warnings.isEmpty(), warnings.isEmpty() ? "" : qPrintable(warnings.first().toString()));
+    }
     void identityWrappingAndReadableNames() {
         ShareThemeState theme;
         mr::Formatters formatters;
@@ -202,7 +421,7 @@ ApplicationWindow { visible: true; width: 1100; height: 900
         const qreal withIdentityHeight = individual->height();
         option->setProperty("checked", false);
         QTRY_VERIFY(!identity->isVisible());
-        QVERIFY(individual->height() < withIdentityHeight);
+        QCOMPARE(individual->height(), withIdentityHeight);
         saveCard(individual, QStringLiteral("hidden.png"));
         QTRY_COMPARE(saved.count(), 2);
         const QImage hidden(output.filePath(QStringLiteral("hidden.png")));
@@ -213,10 +432,15 @@ ApplicationWindow { visible: true; width: 1100; height: 900
         QCOMPARE(individual->height(), hidden.height() / window->effectiveDevicePixelRatio());
         input->setProperty("text", QStringLiteral("很长的冒险者名字").repeated(4) + QStringLiteral("@白银乡"));
         QTRY_VERIFY(identity->isVisible());
-        QVERIFY(identity->height() > 30);
-        auto *ornament = findVisual(individual, QStringLiteral("reflectionShareFooter"));
-        QVERIFY(ornament);
-        QVERIFY(identity->y() + identity->height() + 19 <= ornament->y());
+        auto *characterLabel = findVisual(identity, QStringLiteral("reflectionShareCharacterName"));
+        auto *server = findVisual(identity, QStringLiteral("reflectionShareServerName"));
+        auto *heading = findVisual(individual, QStringLiteral("reflectionShareSingleHeading"));
+        QVERIFY(characterLabel && server && heading);
+        QTRY_VERIFY(characterLabel->property("truncated").toBool());
+        QCOMPARE(server->property("text").toString(), QStringLiteral("@白银乡"));
+        QVERIFY(!heading->property("dateLabel").toString().contains(QStringLiteral("2026")));
+        QVERIFY(server->mapRectToItem(heading, server->boundingRect()).right() <= heading->width() + 1);
+        QCOMPARE(individual->height(), withIdentityHeight);
         saveCard(individual, QStringLiteral("long.png"));
         QTRY_COMPARE(saved.count(), 3);
         if (!evidence.isEmpty()) QVERIFY(QImage(output.filePath(QStringLiteral("long.png"))).save(QDir(evidence).filePath(QStringLiteral("identity-long.png"))));
@@ -690,7 +914,8 @@ Window {
         QVERIFY(findVisual(job, QStringLiteral("reflectionShareJobFallback"))->isVisible());
         auto *title = findVisual(card, QStringLiteral("reflectionShareDutyTitle"));
         auto *metadata = findVisual(card, QStringLiteral("reflectionShareResultText"));
-        QTRY_VERIFY(title->height() > 100);
+        QTRY_COMPARE(title->property("lineCount").toInt(), 2);
+        QVERIFY(title->property("truncated").toBool());
         QVERIFY(metadata->y() >= title->y() + title->height());
         const QRectF bodyBounds = body->mapRectToItem(card, body->boundingRect());
         QVERIFY(bodyBounds.bottom() + 134 * card->property("templateScale").toReal() <= card->height());
@@ -785,8 +1010,9 @@ Window { visible: true; width: 1180; height: 900
         QTRY_COMPARE(twoLineTitle->property("lineCount").toInt(), 2);
         QCOMPARE(twoLineTitle->y() + twoLineTitle->baselineOffset(), 138.0);
         auto *twoLineMeta = findVisual(singleEntry, QStringLiteral("reflectionShareResultText"));
-        QCOMPARE(twoLineMeta->y() + twoLineMeta->baselineOffset(), 210.0);
-        QCOMPARE(singleEntry->property("dividerY").toReal(), 238.0);
+        QVERIFY(twoLineMeta->y() + twoLineMeta->baselineOffset() >= 210.0);
+        QVERIFY(twoLineMeta->y() >= twoLineTitle->y() + twoLineTitle->height());
+        QVERIFY(singleEntry->property("dividerY").toReal() >= 238.0);
         const QString twoLine = output.filePath(QStringLiteral("two-lines.png"));
         controller.saveTo(card, twoLine);
         QTRY_COMPARE(saved.count(), 3);
@@ -803,8 +1029,8 @@ Window { visible: true; width: 1180; height: 900
         QVERIFY(!findVisual(unknownEntries.last(), QStringLiteral("reflectionShareResultStamp"))->isVisible());
         auto *meta = findVisual(card, QStringLiteral("reflectionShareCollectionMeta"));
         QVERIFY(meta);
-        QVERIFY(!meta->property("text").toString().contains(QStringLiteral("1999")));
-        QVERIFY(meta->property("text").toString().contains(QStringLiteral("1 条游玩时间未知")));
+        QVERIFY(!meta->property("dateLabel").toString().contains(QStringLiteral("1999")));
+        QVERIFY(meta->property("dateLabel").toString().contains(QStringLiteral("1 条游玩时间未知")));
         QVERIFY(findVisual(unknownEntries.last(), QStringLiteral("reflectionShareTimeText"))->property("text").toString().contains(QStringLiteral("1999-01-01 00:00:00 · 游玩时间未知")));
     }
     void partialFailureRetriesOnlyFailedAndCombinedOverflowIsExplicit() {

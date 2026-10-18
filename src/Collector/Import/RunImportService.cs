@@ -133,9 +133,18 @@ public sealed class RunImportService
                 replay["replayed"] = true;
                 return replay;
             }
-            if (_idempotency.TryGetResponse(requestId, transaction) is not null || _idempotency.WasAppliedBeforePrune(requestId, transaction))
+            if (_idempotency.TryGetResponse(requestId, transaction) is not null)
                 throw new CollectorException(ErrorCodes.IdempotencyConflict,
                     CollectorTexts.ImportCommitRequestReused(), field: "request_id");
+            if (_idempotency.WasAppliedBeforePrune(requestId, transaction))
+                throw new CollectorException(ErrorCodes.IdempotencyConflict,
+                    CollectorTexts.IdempotencyResponseExpired(),
+                    new Dictionary<string, object?>
+                    {
+                        ["conflict"] = "idempotency",
+                        ["request_id"] = requestId,
+                        ["reason"] = "RESPONSE_EXPIRED",
+                    }, field: "request_id");
             if (preview is null || _clock.UtcNow - preview.Created > PreviewLifetime)
                 throw CollectorException.BadRequest(CollectorTexts.ImportCommitPreviewExpired(), "preview_id");
             var candidates = selected.Select(number => preview.Candidates.SingleOrDefault(candidate => candidate.RowNumber == number)

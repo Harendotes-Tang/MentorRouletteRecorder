@@ -1701,8 +1701,10 @@ public sealed class CaptureController : IDisposable
         CaptureRun run;
         lock (_gate)
         {
+            // Stop drains accepted messages before closing this session; their loss markers must
+            // retain the same queue order while Stopping. Generation/session checks fence old queues.
             if (_disposed || generation != _generation ||
-                _state != CaptureControllerState.Running || _run is not { } current ||
+                _state is not (CaptureControllerState.Running or CaptureControllerState.Stopping) || _run is not { } current ||
                 !string.Equals(current.CaptureSessionId, captureSessionId, StringComparison.Ordinal))
             {
                 return;
@@ -1769,8 +1771,9 @@ public sealed class CaptureController : IDisposable
     {
         lock (_gate)
         {
+            // Like ordinary messages, accepted damage markers remain meaningful during stop's drain.
             if (_disposed || generation != _generation ||
-                _state != CaptureControllerState.Running || _run is not { } current ||
+                _state is not (CaptureControllerState.Running or CaptureControllerState.Stopping) || _run is not { } current ||
                 !string.Equals(current.CaptureSessionId, captureSessionId, StringComparison.Ordinal))
             {
                 return;

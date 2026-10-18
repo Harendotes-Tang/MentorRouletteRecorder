@@ -1,6 +1,7 @@
 """Synthetic evidence only; payload samples exist solely in individual temporary directories."""
 
 from contextlib import redirect_stderr, redirect_stdout
+import argparse
 import copy
 import hashlib
 import importlib.util
@@ -194,6 +195,44 @@ class DeriveFieldsTests(unittest.TestCase):
         rows = [self.row(bytes(512)), self.row(bytes(512)), self.row(b"")]
         result = derive.analyze(self.load(rows))
         self.assertEqual([0, 512], [len(group["offsets"]) for group in result["groups"]])
+
+    def test_explicit_selection_resolves_candidates_in_second_half_of_payload(self):
+        payload = bytearray(b"\xaa" * 512)
+        payload[300:302] = payload[400:402] = b"\x34\x12"
+        rows = [self.row(bytes(payload)), self.row(bytes(payload))]
+        self.assertEqual("AMBIGUOUS", self.analyze(rows)["status"])
+        selected = self.analyze(rows, field=(300, "u16"))
+        self.assertEqual("DRAFT_READY", selected["status"])
+        self.assertEqual(300, selected["messages"][0]["fields"][0]["offset"])
+
+    def test_cli_can_select_second_half_candidate(self):
+        payload = bytearray(b"\xaa" * 512)
+        payload[300:302] = payload[400:402] = b"\x34\x12"
+        self.load([self.row(bytes(payload)), self.row(bytes(payload))])
+        output = self.directory / "selected"
+        result = subprocess.run(
+            [sys.executable, str(HERE / "derive_fields.py"), str(self.path),
+             "--roulette-id", "4660", "--popup-hypothesis", "FINDER_STATE_NOTIFICATION",
+             "--field", "300:u16", "--output-dir", str(output)],
+            capture_output=True, text=True, encoding="utf-8")
+        self.assertEqual(0, result.returncode, result.stderr)
+        draft = json.loads((output / "candidate-messages.json").read_text(encoding="utf-8"))
+        self.assertEqual("DRAFT_READY", draft["status"])
+        self.assertEqual(300, draft["messages"][0]["fields"][0]["offset"])
+
+    def test_explicit_field_at_last_byte_and_width_boundary(self):
+        payload = b"\xaa" * 511 + b"\x25"
+        rows = [self.row(payload), self.row(payload)]
+        selected = self.analyze(rows, roulette_id=37, field=(511, "u8"))
+        self.assertEqual(511, selected["messages"][0]["fields"][0]["offset"])
+        with self.assertRaisesRegex(derive.EvidenceError, "lacks support"):
+            self.analyze(rows, roulette_id=37, field=(511, "u16"))
+        for offset in (-1, 512):
+            with self.subTest(offset=offset):
+                with self.assertRaises(derive.EvidenceError):
+                    self.analyze(rows, roulette_id=37, field=(offset, "u8"))
+                with self.assertRaises(argparse.ArgumentTypeError):
+                    derive._field_argument(f"{offset}:u8")
 
     def test_invalid_hex_length_hash_and_payload_types_are_rejected(self):
         mutations = [{"payload_hex": "3412AA"}, {"payload_hex": "3412gg"}, {"payload_hex": "a"},

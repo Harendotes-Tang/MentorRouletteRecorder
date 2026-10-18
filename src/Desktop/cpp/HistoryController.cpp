@@ -431,12 +431,16 @@ void HistoryController::mutateCheckedRuns(const QString &action, const QString &
             settle(m_unansweredBatch, requestId, ok, code);
             m_batchRunning = false;
             if (!ok) {
-                const bool uncertain = code == QLatin1String("ERR_PIPE_CLOSED") || code == QLatin1String("ERR_TIMEOUT")
+                const bool unsent = batchGuard && batchGuard->neverSent() && code == QLatin1String("ERR_INTERNAL");
+                const bool uncertain = (batchGuard && batchGuard->transportFailed())
+                    || code == QLatin1String("ERR_PIPE_CLOSED") || code == QLatin1String("ERR_TIMEOUT")
                     || code == QLatin1String("ERR_DISCONNECTED");
-                m_batchFeedback = [uncertain, code,
+                m_batchFeedback = [unsent, uncertain, code,
                                    refusal = collector_text::replyErrorText(batchGuard, message)] {
                     // %1 is the Collector's own sentence (or its code).
-                    return (uncertain
+                    return (unsent
+                        ? tr("%1 操作尚未发送。连接恢复后，请保留勾选和原因重试。")
+                        : uncertain
                         ? tr("%1 操作结果尚未确认。请保留勾选和原因后重试，同一请求不会重复修改记录。")
                         : tr("%1 请刷新列表查看当前记录；如需重试，请取消并重新勾选发生变化的记录。"))
                         .arg(refusal.isEmpty() ? code : refusal.text());

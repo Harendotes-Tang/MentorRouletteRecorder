@@ -9,7 +9,7 @@
 
 | 项 | 值 |
 |---|---|
-| 上游发布 | npm 包 `lucide-static@1.55.0` 的 `icons/<name>.svg`，原样未改（首行保留上游的许可证注释） |
+| 上游发布 | 官方仓库标签 [`1.59.0`](https://github.com/lucide-icons/lucide/tree/1.59.0/icons) 的 SVG；按同标签 `packages/lucide-static/scripts/copyIcons.mts` 添加版本许可证注释与 `class`，绘制元素原样保留 |
 | 取用方式 | 开发期下载一次；运行时不联网 |
 | 进入构建产物的形式 | 这些 SVG **本身不编入资源**。`tools/lucide-icons/generate.py` 将每个图标的绘制元素写入 `src/Desktop/qml/components/Lucide.js`（含 ISC 声明），QML 模块仅包含该文件 |
 | 着色 | Lucide 的 SVG 使用 `stroke="currentColor"`，Qt 的 SVG 渲染器不支持该取值。`Lucide.js` 在运行时将按钮当前的文字颜色写入 `stroke`，并生成 `data:` 地址供 `Image` 使用 |
@@ -19,37 +19,41 @@
 `python tools/lucide-icons/generate.py`，并将新的 SHA-256 补入下表。`tools/lucide-icons/test_generate.py`
 在 `Lucide.js` 与本目录的 SVG 不一致时失败，该测试由 `scripts/verify.ps1` 的工具自测执行。
 
+本次采用官方标签源码获取资源，并逐个核对 Git blob SHA。上游别名保持与 `lucide-static`
+发布流程一致：`file-json` 来自 `file-braces`，`filter-x` 来自 `funnel-x`，`history` 来自
+`rotate-ccw-clock`；别名关系由同标签的对应 `.json` 文件声明。
+
 | 文件 | SHA-256 |
 |------|---------|
-| `activity.svg` | `9cc7ea33e1c9f4f00b54c150807822a5ecceb178c5c7531ba31b3fbb84e94728` |
-| `book-open-text.svg` | `c0dec0992ceabed00881322fce45bca5d63a87c9818796574c4a37a22edaebb7` |
-| `calendar.svg` | `0fb29dc98bc17d84eadeba047341e9444edd2177604e80fce76f3f2f0663b80b` |
-| `chart-column.svg` | `3e68b1a9191034eaf19175a1bc16138e7cc8274249dba44048299774b040c74f` |
-| `chevron-left.svg` | `7cd7d32edf31996a69c66ba9515ed80a8ed1f6e69c2ef12672339f6fcaeb7041` |
-| `chevron-right.svg` | `5498d2d7e15efeafe7d536450801e979b97cfc3bf0f1a5872eb40e5153d4b5ba` |
-| `clipboard-check.svg` | `b2c9f28ddf01dbbf5042a3cc5c126a4c778de21209d3ae7ad7fdc83464bb0151` |
-| `clipboard-paste.svg` | `880af1bd9689fcb1fd189be647227cc486d3ff26c3a5764642abfcfa12b1208e` |
-| `clock.svg` | `3abefb4ed645ece77b115c5495693d8927328c3bd707a2dee3668a1adda4fb4c` |
-| `file-check.svg` | `15f0924a47b65712655916113c14d17180de682ae83837c4ee5bc49d0aa4a82b` |
-| `file-down.svg` | `381a423a1302d0bb757aa17ec8dd536a62330515c96d408f897df0aa322cea8c` |
-| `file-input.svg` | `e42eb88d7975ef2d8799e723bc111009ed3b52f49688dbd2565bffaeb171711f` |
-| `file-json.svg` | `6e6ae88e2d5ba4084d818e27d62d91bf3bf6cb82d81e3ebd5056dc46d8b5914c` |
-| `filter-x.svg` | `5c2a3830a460b98bb20aa3aa50fc82765868783330f6232b4bcda84db33f4231` |
-| `flag.svg` | `02edd5e48863749991b9698dfe31ffc224e1181aabf5976a1a71d9e7697d857f` |
-| `folder-open.svg` | `87cb21914e600ea214e758199adbd382b6808c521ffda282f9d68fb0de0ab00e` |
-| `gamepad-2.svg` | `4dd45a5a6f38fd24984a6dd5acd41882263f6b2e6cc393e8641b3538a8af1f11` |
-| `history.svg` | `b45d03620b1e0af1c34004979915a37d2a00566680adbaa7d0645d8dcb8d71d6` |
-| `image.svg` | `b357397c5bba97e1648bdd485a75bd6cfe7a14a2e277b13c8c270d33f7f0340b` |
-| `image-down.svg` | `d63aabe083e22032b3687e9ce29d585cc5bbb3e87c5878b1e9e488d5634a982b` |
-| `layout-dashboard.svg` | `f8e46ae1a32297a865eb4a96dbf60847030b3a2effa7657033a1401486c03cfd` |
-| `moon.svg` | `d74fd34ca96abb76cbe78ce726933b26f2e988a0f1a651d7e976a30fda5d8bd2` |
-| `network.svg` | `96e22e85e9d80a0de408c987b651be6e5ed94749c23b21e0da0c64b9210146fa` |
-| `notebook-pen.svg` | `597f5235b9893dd7c11ac9873effe63bc922d4954edfd877008bf05cf5cd4479` |
-| `plus.svg` | `573b8f5a3085beb0353f8c7b893fe1cecb9c0606a7be21fb473b93d75f84dc00` |
-| `radio.svg` | `ec2f0b85898e4e0483e6482589945527e1fcd82d831551ca706e2b6f8c9afb9a` |
-| `server.svg` | `f05702fe9ad28d8c6326c973673731386f5d0f4b75bc53e2f9291366078e1dde` |
-| `settings.svg` | `4d6c0b1031459994a9db34f3caed818d69e39b3459ec65b4b9d7048f229280a1` |
-| `sun.svg` | `b12898eac343189c8deccba77223aef1a5582ce69dba6e6b0c4bf8a9a24ae110` |
-| `swords.svg` | `958c2ccec20293ebeda326de6dea2e22bfae63aeda33d80d7bf37e213542b7e3` |
-| `users.svg` | `e9ff817cd8b9092f9fcce5267f4a1e779a536c17b3fa770f4aa8e5c1fb45c665` |
-| `x.svg` | `65b78d9fa306e2b6386fb9f3a9f10e1ba8067fa0d079046e1050db84f18f31f6` |
+| `activity.svg` | `bdd922ab19627b3e13fb147cc1d0de77c83de86fb6a27327990bbf4e44b399c4` |
+| `book-open-text.svg` | `74933dc151295d468ce3a8f7d074e3ff85255c0aeae329b483a21ba8c20ecfdb` |
+| `calendar.svg` | `7ce62f16c86c4af97e633f5073bb0c6082b5b52c3c0c7dfc64b2eb9a7ac5cd29` |
+| `chart-column.svg` | `850130cd64f610427bcadca0edce9513c49f4c520dbf7c05a90f0b8278d504d8` |
+| `chevron-left.svg` | `55855ba9ca6bd3f350d1f6e092f669518679d1c86a52607a1bd2640cbf5af31e` |
+| `chevron-right.svg` | `b9e4521dff43288a385af1421b625da8fd40cf28c272a508c933217002090776` |
+| `clipboard-check.svg` | `db363fb803050c9cd521a13bfe8754a57849c69ee98f8ac0bf748c0cd98caf50` |
+| `clipboard-paste.svg` | `174e08f71d4ea5e1941f4eb77a1918fe1d0a20e73ac8ac51a21e86afe99dd8f9` |
+| `clock.svg` | `5d880dd7871051fbed532ed729ee55726c9aee58f13a3218f9b6a92a19393ba3` |
+| `file-check.svg` | `deadd8b64349a21b8bc64bdb50ebfa7d75f145a142f6e6b0c163862e377afba3` |
+| `file-down.svg` | `b19aa9f0caf51abd0bddfe111072d1f77a1adb2ce53eed16b7f59027ec6a7187` |
+| `file-input.svg` | `bee6c9adb0f6d8e103356e7996c1fac2af22b2c1da0b4f8efdf404c6b097808d` |
+| `file-json.svg` | `105996f533ed96f4c3712e25640df239f439cd3da00c2adc1416700aaeb3a4c2` |
+| `filter-x.svg` | `4ffe09ec7010ef5dd9da60603f7cf2a8d6fd70381386d1d461ec94c29c9788a5` |
+| `flag.svg` | `2377c170cdcdcdc5ba897ffe3a67869634618637d2bd76d5c7ebc99e742dab81` |
+| `folder-open.svg` | `a2efa421fdf9310997f603008fc62ab4876da17a2acda74ae3707b938039090b` |
+| `gamepad-2.svg` | `1c1624bac10abf9f6feb2dc9d64f2c7b1fd2d906d4072ae165942db0464866bc` |
+| `history.svg` | `2cc779bfbb62de9870eaa619254329c4fccf5305f8a3582eded7b69a8ddfd0c9` |
+| `image.svg` | `bd33f9ce149098d4729669e62e2c3ceb042083a3f294f51deaa54f92ef01c7bc` |
+| `image-down.svg` | `77427911ac25af09e930d8fb74a3f57652ba8fee0e58e06734cfd739b95b32a5` |
+| `layout-dashboard.svg` | `3e8ff4747286e247f64c3395fc13bb1316f0d399300cee56c27be8d79fc778f0` |
+| `moon.svg` | `811e53fbfe9572174588012102712d6b9135a21cc19569afcef6d2e226958142` |
+| `network.svg` | `5bd826c6d762aedf3787a5d19a572630dda1c4cca7d832cae44e7efee41543a8` |
+| `notebook-pen.svg` | `b8f46e9b1444331b13ca2fbbffda2f67199d35ae3b50c8db631a7adc2964ff27` |
+| `plus.svg` | `faf0bab01219d720cdd3047f6b5755c78c8e5a6743008a8fcd1c48fec4879519` |
+| `radio.svg` | `ac08d9851e28e181432cd2ec342835fb8534fa3386a032cb0d45b16aa65ae17a` |
+| `server.svg` | `bd6b00a7b40f241c6c4026b8994a0b1575a8654ec061d965f506a9ceaf0195e6` |
+| `settings.svg` | `c23eb8c13e7ee68672cca78ff5176f6fa89238ae5c0eec960a2e1e161e8d25cc` |
+| `sun.svg` | `e00cbd74f9cf7b463d45f4980388d745095cea2188a1729d734b80fc5055187d` |
+| `swords.svg` | `676708455d756090e921f96d0a846abc54c4de49c887fd64b6161b6c04a3eaee` |
+| `users.svg` | `a005a3af8fa3d1a9f5ded9a62c5ecc6c070d16308cffc0c81fa5b40282b1a4f2` |
+| `x.svg` | `b22c83fd632ff4082021e34d64b1393591134e7ce2889a6dad5361eff2fcc716` |

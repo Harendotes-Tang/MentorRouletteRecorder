@@ -83,6 +83,20 @@ public sealed class RunReflectionService
                 return (Replay(stored, fingerprint), true);
             }
 
+            if (_idempotency.WasAppliedBeforePrune(command.RequestId, tx))
+            {
+                throw new CollectorException(
+                    ErrorCodes.IdempotencyConflict,
+                    CollectorTexts.IdempotencyResponseExpired(),
+                    new Dictionary<string, object?>
+                    {
+                        ["conflict"] = "idempotency",
+                        ["request_id"] = command.RequestId,
+                        ["reason"] = "RESPONSE_EXPIRED",
+                    },
+                    field: "request_id");
+            }
+
             var applied = Write(command, text, fingerprint, tx);
             _idempotency.Store(
                 command.RequestId,
