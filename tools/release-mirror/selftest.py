@@ -379,7 +379,9 @@ class CurlTransportTests(unittest.TestCase):
             with self.subTest(exit=exit_code, metrics=metrics):
                 run, output, failure = self.invoke(subprocess.CompletedProcess([], exit_code, metrics))
                 self.assertIsNotNone(failure)
-                self.assertIn("Native upload failed", failure)
+                self.assertIn("Native upload", failure)
+                if exit_code == 28:
+                    self.assertIn("timed out", failure)
                 self.assertIn("Native upload metrics:", output)
                 self.assertEqual(run.call_count, 1)
 

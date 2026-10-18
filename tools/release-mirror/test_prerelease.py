@@ -83,6 +83,40 @@ class PrereleaseTests(unittest.TestCase):
             with self.subTest(source=source), self.assertRaises(m.MirrorError):
                 m.synchronize(Api(), source["tag_name"], Path(self.temp.name))
 
+    def test_timeout_retry_reconciles_remote_and_is_bounded(self):
+        for registered in ("missing", "matching", "conflicting", "other_conflicting", "notes_conflicting", "always_timeout"):
+            with self.subTest(registered=registered):
+                mirror = BetaMirror({EXE: self.hashes[EXE], EXE + ".sha256": self.hashes[EXE + ".sha256"]})
+                original_upload = mirror.upload
+                attempts = []
+                def upload(name, path):
+                    attempts.append(name)
+                    if name == ZIP and (attempts.count(ZIP) == 1 or registered == "always_timeout"):
+                        if registered in ("matching", "conflicting"):
+                            mirror.contents[ZIP] = self.hashes[ZIP] if registered == "matching" else (1, "bad")
+                        if registered == "other_conflicting":
+                            mirror.contents[EXE] = (1, "bad")
+                        if registered == "notes_conflicting":
+                            mirror.notes = "changed"
+                        raise m.UploadInterrupted("timeout")
+                    original_upload(name, path)
+                mirror.upload = upload
+                if registered in ("missing", "matching"):
+                    m.publish(mirror, BETA, COMMIT, self.paths, self.hashes)
+                    self.assertEqual(mirror.contents, self.hashes)
+                else:
+                    with self.assertRaises(m.MirrorError):
+                        m.publish(mirror, BETA, COMMIT, self.paths, self.hashes)
+                    self.assertNotIn(ZIP + ".sha256", attempts)
+                self.assertEqual(attempts.count(ZIP), 2 if registered in ("missing", "always_timeout") else 1)
+
+    def test_validation_errors_do_not_retry_upload(self):
+        mirror = BetaMirror({EXE: self.hashes[EXE]})
+        with patch.object(mirror, "upload", side_effect=m.MirrorError("invalid headers")) as upload:
+            with self.assertRaises(m.MirrorError):
+                m.publish(mirror, BETA, COMMIT, self.paths, self.hashes)
+            self.assertEqual(upload.call_count, 1)
+
     def test_missing_digest_prevents_any_download_or_mutation(self):
         source = {**BETA, "assets": [{"name": name, "size": self.hashes[name][0]}
                                       for name in NAMES]}

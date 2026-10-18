@@ -48,6 +48,10 @@ class Missing(MirrorError):
     """The requested public resource returned HTTP 404."""
 
 
+class UploadInterrupted(MirrorError):
+    """A native upload timed out; the remote file may already be registered."""
+
+
 def require(condition: bool, message: str) -> None:
     if not condition:
         raise MirrorError(message)
@@ -127,6 +131,8 @@ def upload_with_curl(url: str, headers: dict, path: Path, deadline: float) -> No
     code, count = int(metrics[1]), int(metrics[2])
     print(f"Native upload metrics: HTTP {code}; bytes={count}/{total_bytes}; "
           f"average_bytes_per_second={metrics[3]}; seconds={metrics[4]}", flush=True)
+    if result.returncode == 28:
+        raise UploadInterrupted(f"Native upload timed out (HTTP {code})")
     require(result.returncode == 0 and 200 <= code < 300 and count == total_bytes,
             f"Native upload failed (exit {result.returncode}, HTTP {code})")
     require(time.monotonic() < deadline, "Release mirror time budget exhausted")
@@ -372,7 +378,23 @@ def publish(mirror, source: dict, commit: str, paths: dict, hashes: dict) -> Non
         mirror.create(source, commit)
     for name in names:  # Formal metadata is last; beta has both binary/checksum pairs.
         if name not in assets:
-            mirror.upload(name, paths[name])
+            try:
+                mirror.upload(name, paths[name])
+            except UploadInterrupted:
+                if not source["prerelease"]:
+                    raise
+                # A lost response can follow a completed PUT. Reconcile every
+                # registered original before requesting one fresh upload URL.
+                current = mirror.release()
+                validate_mirror_identity(current, source)
+                assets = asset_map(current)
+                for registered in names:
+                    if registered in assets:
+                        mirror.verify(registered, hashes[registered])
+                if name in assets:
+                    continue
+                print("Retrying interrupted prerelease upload with a fresh upload address", flush=True)
+                mirror.upload(name, paths[name])
             mirror.verify(name, hashes[name])
 
 
