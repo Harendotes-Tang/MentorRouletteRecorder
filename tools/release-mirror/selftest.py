@@ -196,7 +196,7 @@ class NetworkTests(unittest.TestCase):
             m.synchronize(SourceOnly(), TAG, Path("unused"))
         self.assertEqual(calls, [m.GH + "/releases/tags/" + TAG])
 
-    def test_prerelease_never_reaches_mirror(self):
+    def test_formal_tag_with_prerelease_identity_never_reaches_mirror(self):
         class SourceOnly:
             def api(self, url, **kwargs):
                 return {**SOURCE, "prerelease": True}
@@ -218,8 +218,8 @@ class NetworkTests(unittest.TestCase):
         with self.assertRaises(m.MirrorError):
             m.asset_map({"assets": [{"name": NAMES[0]}, {"name": NAMES[0]}]})
 
-    def test_nonformal_and_path_injection_tags_refused(self):
-        for tag in ("v1.2.3-beta", "v01.2.3", "../foo", "v1.2.3?x=y", "v1.2.3\n"):
+    def test_invalid_version_and_path_injection_tags_refused(self):
+        for tag in ("v1.2.3-beta..1", "v01.2.3", "../foo", "v1.2.3?x=y", "v1.2.3\n"):
             with self.assertRaises(m.MirrorError):
                 m.artifact_names(tag)
 
@@ -357,7 +357,10 @@ class CurlTransportTests(unittest.TestCase):
 
     def test_transfer_is_https_nonredirecting_and_deadline_bounded(self):
         result = subprocess.CompletedProcess([], 0, "201|8|8|1.000")
-        run, _, failure = self.invoke(result)
+        # Spend five seconds from an exact, fixed clock so deadline subtraction
+        # cannot intermittently round a live 120-second budget above 120.
+        with patch.object(m.time, "monotonic", side_effect=[100.0, 105.0, 106.0]):
+            run, _, failure = self.invoke(result)
         self.assertIsNone(failure)
         config = run.call_args.kwargs["input"]
         for expected in ('proto = "=https"', 'max-redirs = "0"', 'no-location\n', 'no-netrc\n',
@@ -365,6 +368,7 @@ class CurlTransportTests(unittest.TestCase):
                          'connect-timeout = "60"', 'max-filesize = "2097152"'):
             self.assertIn(expected, config)
         self.assertLessEqual(run.call_args.kwargs["timeout"], 120)
+        self.assertEqual(run.call_args.kwargs["timeout"], 115)
         native_limit = float(config.split('max-time = "', 1)[1].split('"', 1)[0])
         self.assertLess(native_limit, run.call_args.kwargs["timeout"])
         self.assertEqual(run.call_count, 1)
