@@ -28,6 +28,14 @@ foreach(workflow IN ITEMS ReflectionLibrary ReflectionShare ImportRecordsControl
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen;MR_DISABLE_SHARED_FETCH=1;MR_DISABLE_ONLINE_SPEECH=1;MR_DISABLE_UPDATE_CHECK=1")
 endforeach()
 
+if(WIN32)
+    add_test(NAME MentorRecorderReflectionShareSystemFonts
+        COMMAND MentorRecorderReflectionShareTests
+            -o "${CMAKE_CURRENT_BINARY_DIR}/MentorRecorderReflectionShareSystemFonts.qtlog.txt,txt")
+    set_tests_properties(MentorRecorderReflectionShareSystemFonts PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;MR_REFLECTION_SHARE_SYSTEM_FONTS_ONLY=1;MR_DISABLE_SHARED_FETCH=1;MR_DISABLE_ONLINE_SPEECH=1;MR_DISABLE_UPDATE_CHECK=1")
+endif()
+
 add_executable(MentorRecorderDesktopTests
     DesktopTests.cpp)
 

@@ -10,7 +10,6 @@
 #include <QGuiApplication>
 #include <QFont>
 #include <QFontDatabase>
-#include <QFontMetricsF>
 #include <QImage>
 #include <QQmlComponent>
 #include <QQmlContext>
@@ -271,6 +270,11 @@ Window { visible: true; width: 1180; height: 900
         QVERIFY(finalTextHasInk(QImage(output.filePath(QStringLiteral("reference-single-edge.png"))), body, card, window->effectiveDevicePixelRatio()));
         QCOMPARE(card->property("runData").toMap(), edge);
         QList<int> fontStages;
+        // 与实际绘制使用相同的 QML 字体回退；C++ 默认字体替代可能选到另一张字形表。
+        QQmlComponent metricComponent(&engine);
+        metricComponent.setData("import QtQuick\nTextMetrics {}", QUrl());
+        std::unique_ptr<QObject> measuredText(metricComponent.create());
+        QVERIFY2(measuredText, qPrintable(metricComponent.errorString()));
         for (int length = 1; length <= 48; ++length) {
             QVariantMap titled = run;
             const QString name = QStringLiteral("副").repeated(length);
@@ -280,7 +284,9 @@ Window { visible: true; width: 1180; height: 900
             for (const int candidate : {48, 42, 36, 32}) {
                 QFont font = title->property("font").value<QFont>();
                 font.setPixelSize(candidate);
-                if (QFontMetricsF(font).horizontalAdvance(name) <= title->width()) {
+                measuredText->setProperty("font", QVariant::fromValue(font));
+                measuredText->setProperty("text", name);
+                if (measuredText->property("advanceWidth").toReal() <= title->width()) {
                     expectedSize = candidate;
                     break;
                 }
@@ -327,7 +333,23 @@ Window { visible: true; width: 1180; height: 900
         }
         card->setProperty("runsData", runs);
         QTRY_COMPARE(visibleEntries(card).size(), 3);
-        QTRY_COMPARE(card->height(), 1054.0);
+        const auto collectionEntries = visibleEntries(card);
+        for (auto *entry : collectionEntries) {
+            QVERIFY(findVisual(entry, QStringLiteral("reflectionShareResultText")));
+            QVERIFY(findVisual(entry, QStringLiteral("reflectionShareMoodTag")));
+        }
+        const auto referenceHeightForFont = [&] {
+            qreal height = 1054.0;
+            for (auto *entry : collectionEntries) {
+                auto *metadata = findVisual(entry, QStringLiteral("reflectionShareResultText"));
+                auto *mood = findVisual(entry, QStringLiteral("reflectionShareMoodTag"));
+                const qreal bottom = qMax(metadata->y() + metadata->height(),
+                                           mood->isVisible() ? mood->y() + mood->height() : 0.0);
+                height += qMax(0.0, bottom - 77.0);
+            }
+            return height;
+        };
+        QTRY_COMPARE(card->height(), referenceHeightForFont());
         save(QStringLiteral("reference-collection.png"));
         QTRY_COMPARE(saved.count(), 4);
         QVERIFY(keep(QStringLiteral("reference-collection.png")));
@@ -973,7 +995,14 @@ Window { visible: true; width: 1180; height: 900
             QCOMPARE(title->y() + title->baselineOffset(), 35.0);
             auto *metadata = findVisual(entries[i], QStringLiteral("reflectionShareResultText"));
             QCOMPARE(metadata->y() + metadata->baselineOffset(), 69.0);
-            QCOMPARE(body->y() + body->baselineOffset(), 128.0);
+            // 系统回退字体的属性排版框可能更高，正文必须允许向下避让。
+            QVERIFY(body->y() + body->baselineOffset() >= 128.0);
+            auto *mood = findVisual(entries[i], QStringLiteral("reflectionShareMoodTag"));
+            QVERIFY(mood);
+            const qreal metadataBottom = qMax(metadata->y() + metadata->height(),
+                                               mood->isVisible() ? mood->y() + mood->height() : 0.0);
+            QCOMPARE(body->y() + body->baselineOffset(), qMax(128.0, metadataBottom + 51.0));
+            QVERIFY(body->y() + body->baselineOffset() - 36 >= metadata->y() + metadata->height() + 15);
             QVERIFY(title->x() + title->width() <= stamp->x());
             QVERIFY(body->y() + body->baselineOffset() - body->property("font").value<QFont>().pixelSize() >= stamp->y() + stamp->height());
         }
@@ -1169,6 +1198,16 @@ Window {
 };
 
 int main(int argc, char **argv) {
+#ifdef Q_OS_WIN
+    const bool systemFontsOnly = qEnvironmentVariableIsSet("MR_REFLECTION_SHARE_SYSTEM_FONTS_ONLY");
+    // 独立进程只暴露下方显式注册的系统字体，避免开发机 Noto 掩盖 CI 回退路径。
+    QTemporaryDir isolatedFontDirectory;
+    if (systemFontsOnly) {
+        if (!isolatedFontDirectory.isValid())
+            return 6;
+        qputenv("QT_QPA_FONTDIR", isolatedFontDirectory.path().toUtf8());
+    }
+#endif
     QGuiApplication app(argc, argv);
     QStandardPaths::setTestModeEnabled(true);
 #ifdef Q_OS_WIN
@@ -1186,13 +1225,18 @@ int main(int argc, char **argv) {
     }
     const QDir userFonts(QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation)
                          + QStringLiteral("/Microsoft/Windows/Fonts"));
-    for (const QDir &directory : {QDir(windowsDir.filePath(QStringLiteral("Fonts"))), userFonts})
-        for (const QString &file : directory.entryList({QStringLiteral("Noto*SC*.ttf")}, QDir::Files))
-            QFontDatabase::addApplicationFont(directory.filePath(file));
+    if (!systemFontsOnly)
+        for (const QDir &directory : {QDir(windowsDir.filePath(QStringLiteral("Fonts"))), userFonts})
+            for (const QString &file : directory.entryList({QStringLiteral("Noto*SC*.ttf")}, QDir::Files))
+                QFontDatabase::addApplicationFont(directory.filePath(file));
     QFont font = QGuiApplication::font();
     font.setFamilies(cjkFamilies);
     QGuiApplication::setFont(font);
     QFont::insertSubstitutions(QStringLiteral("Noto Serif SC"), {QStringLiteral("SimSun")});
+    if (systemFontsOnly && QFontDatabase::families().contains(QStringLiteral("Noto Serif SC"))) {
+        qCritical("System-font regression must not discover Noto Serif SC.");
+        return 6;
+    }
 #endif
     QQuickStyle::setStyle(QStringLiteral("Basic"));
     ReflectionShareTests tests;

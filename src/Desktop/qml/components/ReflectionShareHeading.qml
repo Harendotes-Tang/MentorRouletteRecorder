@@ -9,7 +9,8 @@ Item {
     property string countLabel: ""
     property var dateOptions: []
     readonly property real textBaseline: single ? 30 : 34
-    readonly property real firstLineCenter: textBaseline - prefix.baselineOffset + prefix.height / 2
+    readonly property real firstLineCenter: textBaseline
+        + prefixMetrics.tightBoundingRect.y + prefixMetrics.tightBoundingRect.height / 2
     readonly property string identity: gameIdentity.trim()
     readonly property int at: identity.lastIndexOf("@")
     readonly property string characterName: at >= 0 ? identity.slice(0, at).trim() : identity
@@ -58,19 +59,24 @@ Item {
     function fullWidth(date) {
         return otherWidth(date) + (identity.length ? identityNaturalWidth + separatorWidth : 0)
     }
-    // 用 Qt 实际排版的首行高度居中，兼容不同字号以及分数缩放下的字体取整。
-    // 多行服务器/时间继续向下增长，不能把整个多行文本框向上居中。
-    function centeredTextY(item) {
-        const firstLineHeight = item.height - Math.max(0, item.lineCount - 1) * 30
-        return firstLineCenter - firstLineHeight / 2
+    // 按字形墨迹而非排版框对齐；宋体回退的粗体和常规字形留白不同。
+    // baselineOffset 始终指向首行，多行服务器/时间继续向下增长。
+    function centeredTextY(item, metrics) {
+        const ink = metrics.tightBoundingRect
+        return firstLineCenter - item.baselineOffset - ink.y - ink.height / 2
     }
 
     // 用相同字体对象度量并绘制，字距不随缩略策略估算。
     TextMetrics { id: prefixMetrics; text: qsTr("导随记录"); font: prefix.font }
     TextMetrics { id: nameMetrics; text: heading.characterName; font: nameFont.font }
+    TextMetrics { id: nameElideMetrics; text: heading.characterName; font: nameFont.font
+        elide: Text.ElideRight; elideWidth: heading.nameWidth }
+    TextMetrics { id: nameInkMetrics; text: nameElideMetrics.elidedText.split("\n")[0]; font: nameFont.font }
     TextMetrics { id: worldMetrics; text: heading.serverName; font: world.font }
+    TextMetrics { id: worldInkMetrics; text: heading.serverName.split("\n")[0]; font: world.font }
     TextMetrics { id: countMetrics; text: heading.countLabel; font: count.font }
     TextMetrics { id: dateMetrics; text: heading.dateLabel; font: date.font }
+    TextMetrics { id: dateInkMetrics; text: heading.dateLabel.split("\n")[0]; font: date.font }
     FontMetrics { id: dateFontMetrics; font: date.font }
     TextMetrics { id: separatorMetrics; text: "·"; font: date.font }
     // 不参与布局，仅提供角色名的统一字体。
@@ -86,14 +92,14 @@ Item {
             objectName: "reflectionShareEyebrow"
             visible: heading.single
             width: heading.prefixWidth
-            y: heading.centeredTextY(prefix)
+            y: heading.centeredTextY(prefix, prefixMetrics)
             text: qsTr("导随记录"); textFormat: Text.PlainText; color: "#45342A"
             font { family: "Noto Serif SC"; pixelSize: 24; bold: true; letterSpacing: 6 }
         }
         Text {
             id: prefixSeparator
             visible: heading.single && heading.identity.length > 0
-            y: heading.centeredTextY(prefixSeparator); width: heading.separatorWidth
+            y: heading.centeredTextY(prefixSeparator, separatorMetrics); width: heading.separatorWidth
             text: "·"; horizontalAlignment: Text.AlignHCenter; color: "#6E5A44"; font: date.font
         }
         Item {
@@ -105,7 +111,7 @@ Item {
             Text {
                 id: name
                 objectName: "reflectionShareCharacterName"
-                y: heading.centeredTextY(name)
+                y: heading.centeredTextY(name, nameInkMetrics)
                 width: heading.nameWidth
                 text: heading.characterName; textFormat: Text.PlainText; elide: Text.ElideRight
                 color: "#45342A"; font: nameFont.font
@@ -113,7 +119,7 @@ Item {
             Text {
                 id: world
                 objectName: "reflectionShareServerName"
-                x: name.width + heading.identityGap; y: heading.centeredTextY(world)
+                x: name.width + heading.identityGap; y: heading.centeredTextY(world, worldInkMetrics)
                 width: heading.worldWidth; visible: heading.serverName.length > 0
                 text: heading.serverName; textFormat: Text.PlainText; wrapMode: Text.WrapAnywhere
                 color: "#6E5A44"
@@ -124,7 +130,7 @@ Item {
         Text {
             id: identitySeparator
             visible: heading.countLabel.length > 0 && heading.identity.length > 0
-            y: heading.centeredTextY(identitySeparator); width: heading.separatorWidth
+            y: heading.centeredTextY(identitySeparator, separatorMetrics); width: heading.separatorWidth
             text: "·"; horizontalAlignment: Text.AlignHCenter; color: "#6E5A44"; font: date.font
         }
         Text {
@@ -132,20 +138,20 @@ Item {
             objectName: "reflectionShareCount"
             visible: heading.countLabel.length > 0
             width: heading.countWidth
-            y: heading.centeredTextY(count)
+            y: heading.centeredTextY(count, countMetrics)
             text: heading.countLabel; textFormat: Text.PlainText; color: "#6E5A44"; font: date.font
         }
         Text {
             id: dateSeparator
             visible: heading.dateLabel.length > 0 && (heading.single || heading.identity.length > 0 || heading.countLabel.length > 0)
-            y: heading.centeredTextY(dateSeparator); width: heading.separatorWidth
+            y: heading.centeredTextY(dateSeparator, separatorMetrics); width: heading.separatorWidth
             text: "·"; horizontalAlignment: Text.AlignHCenter; color: "#6E5A44"; font: date.font
         }
         Text {
             id: date
             objectName: "reflectionShareTimeText"
             visible: heading.dateLabel.length > 0
-            y: heading.centeredTextY(date); width: heading.dateWidth
+            y: heading.centeredTextY(date, dateInkMetrics); width: heading.dateWidth
             text: heading.dateLabel; textFormat: Text.PlainText; wrapMode: Text.Wrap
             color: "#6E5A44"
             font { family: "Noto Serif SC"; pixelSize: heading.single ? 22 : 24; letterSpacing: heading.single ? 1 : 1.5 }
