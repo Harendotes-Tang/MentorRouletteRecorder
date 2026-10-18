@@ -84,7 +84,7 @@ Item {
                     Layout.alignment: Qt.AlignTop
                     padding: 20
 
-                    CardKicker { text: qsTr("职业占比") }
+                    CardKicker { text: qsTr("职能占比") }
 
                     Canvas {
                         id: donut
@@ -210,7 +210,7 @@ Item {
 
                         Text {
                             Layout.preferredWidth: 84
-                            text: qsTr("角色")
+                            text: qsTr("职能")
                             color: Theme.eorzea ? Theme.gold : Theme.textMuted
                             font.pixelSize: Theme.fs(11)
                             font.weight: Theme.eorzea ? Font.Bold : Font.Normal

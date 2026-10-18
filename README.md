@@ -23,10 +23,10 @@
 ---
 
 导随记录器以只读方式监听本机网卡上的游戏流量，识别指导者任务（俗称"导随"）的匹配、进入副本、
-离开副本三个事件并生成记录，按职业、副本、耗时与结果汇总为历史与统计。不注入、不读内存、不发包、
-无遥测；所有数据仅保存在本机。
+离开副本三个事件并生成记录，按职业、副本、耗时与结果汇总为历史与统计。不注入、不读游戏进程内存，
+监听过程不向游戏服务器发包；无遥测，游戏记录保存在本机。启用在线语音时会发送本次播报文字，见[隐私与网络边界](#隐私与网络边界)。
 
-**当前源码版本：** `1.7.2`（正式版，版本来源为 [Directory.Build.props](Directory.Build.props)）。
+**当前源码版本：** `1.7.3-beta.4`（测试版，版本来源为 [Directory.Build.props](Directory.Build.props)，不代表该版本安装包已发布）。
 下文包含本版本的记录导入、离线截图识别与心得库功能；正式版与测试版的区别见[安装](#安装)，
 本轮变更见 [CHANGELOG.md](CHANGELOG.md)。
 
@@ -39,16 +39,16 @@
 > a read-only download of shared calibrations from a public GitHub repository after a game patch
 > (enabled by default, can be disabled in Settings), optional online text-to-speech using the
 > user's own Azure or OpenAI-compatible key (disabled by default; only the sentence being announced
-> is sent), and an update check that reads the version number of the latest release at most once a
-> day (enabled by default, can be disabled). The installer of a newer version is downloaded only
-> when the user clicks 「下载并安装」, kept only if it matches the SHA-256 published beside it, and
+> is sent), and an update check at startup and periodically while running (enabled by default,
+> can be disabled). The installer of a newer version is downloaded only
+> when the user clicks 「下载安装包」, kept only if it matches the SHA-256 published beside it, and
 > started only when the user clicks 「立即安装」; nothing is downloaded or installed automatically.
 > Shared calibration and update requests try GitHub first and use the fixed GitCode mirrors when
 > GitHub fails. A network-interrupted installer download restarts the complete same-version file from
 > the mirror and keeps the original SHA-256 check.
 > Setting `MR_DISABLE_SHARED_FETCH=1`, `MR_DISABLE_ONLINE_SPEECH=1` and `MR_DISABLE_UPDATE_CHECK=1`
 > disables all three.
-> The current source version is `1.7.2`. It also supports local record imports from CSV,
+> The current source version is `1.7.3-beta.4` (a test build; this does not mean an installer has been published). It also supports local record imports from CSV,
 > XLS/XLSX, native JSON, database backups, pasted tables and screenshots. Screenshot OCR runs offline;
 > imports require preview and confirmation, and conflicts preserve local records. Reflection sharing
 > saves a PNG locally without uploading it.
@@ -79,9 +79,9 @@
 - **自动记录**：识别导随匹配（任务确认弹窗）、进入副本、离开副本三个事件，生成一条记录；
   副本内收到通关结算时自动记为通关。
 - **历史与统计**：按副本、职业、职能统计次数与耗时，提供成就进度与完成趋势。
-- **补录与更正**：支持手工补录、更正、软删除与撤销。所有修改以追加式修订链保存，历史不会丢失。
+- **补录与更正**：支持手工补录、更正、软删除与撤销。修改过程会保留记录；已删除记录可在保留期内恢复，到期后永久删除。
 - **记录导入**：支持 CSV、XLS/XLSX、原生 JSON、软件数据库备份、粘贴表格与截图。先预览、核对并勾选记录，
-  再确认导入；重复记录跳过，冲突保留本地。已计入成就基数的历史通关可在导入时从基数中扣除。
+  再确认导入；重复记录跳过，冲突保留本地。已计入成就起始次数的历史通关可在导入时从起始次数中扣除。
 - **离线截图识别**：支持 dlog 手机卡片与网页记录列表，使用随包 OCR 在本机识别，
   可对照原图修改副本、职业、时间、结果与心得；缺失的实际游戏时间保留未知。
   架构、同图测试对比及资源占用见[离线截图 OCR](#离线截图-ocr)。
@@ -90,7 +90,7 @@
 - **导出与备份**：支持导出 CSV / JSON；数据库每日自动备份，也可手动备份。
 - **语音播报（可选）**：默认使用系统语音，可在设置中更换音色或关闭；也可改用在线语音
   （Microsoft Azure 语音或 OpenAI 兼容接口，需自备密钥，默认关闭）。
-- **界面语言**：简体中文、繁體中文、English、日本語，可在设置中随时切换；副本、职业等名称显示所选语言的游戏官方译名，
+- **界面语言**：简体中文、繁體中文、English、日本語，可在设置中随时切换；副本、职业等名称优先使用所选语言的游戏文本，繁体中文缺少对应名称时，部分条目由简体转换补齐；
   语音播报随界面语言切换。
 - **版本更新后自动适配**：游戏更新后，软件在正常游玩中完成本机校准，或获取其他玩家分享的校准、经本机流量核实后启用，
   通常无需等待新版本发布。详见[常见问题](#常见问题)。
@@ -103,7 +103,7 @@
 
 **已知限制：** 副本内收到通关结算时，软件自动记为通关并计入进度。该结算目前只在一种副本的一局通关中实测过，
 其他类型的副本、中途退出、灭团与超时尚未观测。软件只在收到结算时记为通关，从不因没有收到结算而记为未通关：
-离开副本前没有收到结算时，软件弹出「本次导随结果」对话框，由用户选择「通关」或「未通关」；
+离开副本前没有收到结算时，软件弹出「本次导随结果」对话框，由用户选择「通关」或「退出 / 放弃」，其他情况可稍后到历史记录手动修正；
 也可稍后在总览页的「待复核」中确认。
 
 ## 系统要求
@@ -135,7 +135,7 @@
 ## 快速开始
 
 1. 首次启动时，按引导填写游戏成就面板显示的**安装前已完成次数**，或选择稍后填写。
-   软件已有计入进度的通关时，应先从面板完成数中减去这些次数，再填入基数；进度等于基数加上软件记录中计入进度的通关次数。
+   软件已有计入进度的通关时，应先从面板完成数中减去这些次数，再填入起始次数；进度等于起始次数加上软件记录中计入进度的通关次数。
 2. **先启动本软件，再启动游戏。** 游戏启动后软件自动开始监听，登录前无需任何操作。
 3. 若游戏已处于登录状态，请退回标题画面后重新登录，无需退出游戏。国服客户端登录后始终复用同一条连接，
    而流量解压必须从连接建立时开始跟踪，因此传送不能代替重新登录。
@@ -162,11 +162,11 @@
    来源没有提供结果时会按「通关」预填，应逐条核对；职业图标与副本名称的待确认候选也需核对。
 2. **勾选要保存的记录。** 可筛选与批量设置，并勾选「我确认这些是自己的记录」。
    「可能重复」的记录由用户核对后选择。
-3. **核对成就基数。** 勾选的记录中有计入进度的通关、且已保存基数大于 0 时，界面会询问这些通关是否已包含在基数中。
-   选「已包含」会在保存记录的同时，从基数中扣除实际新增且计入进度的通关数，最低扣到 0，并留下修改记录；
-   超过基数的部分仍增加进度。选「未包含」则照常加在基数之上。
+3. **核对成就起始次数。** 勾选的记录中有计入进度的通关、且已保存起始次数大于 0 时，界面会询问这些通关是否已包含在起始次数中。
+   选「已包含」会在保存记录的同时，从起始次数中扣除实际新增且计入进度的通关数，最低扣到 0，并留下修改记录；
+   超过起始次数的部分仍增加进度。选「未包含」则照常加在起始次数之上。
    表格、粘贴与截图默认「已包含」，数据库备份与原生 JSON 默认「未包含」，应按实际情况选择。
-4. **确认导入。** 点击「导入选中的 N 条」，核对保存结果与基数调整提示；重复记录跳过，冲突记录保留本地。
+4. **确认导入。** 点击「导入选中的 N 条」，核对保存结果与起始次数调整提示；重复记录跳过，冲突记录保留本地。
 
 **原站记录时间不等于实际游戏时间。** 在预览中确认本人导随及通关结果后，即使缺少进入或结束时间，
 通关仍计入统计与成就；未知游戏时间与耗时保持空值，只在历史记录显示「待补充」，不因此进入总览待复核提示。
@@ -327,7 +327,7 @@ OCR、解析器、分类器与导入控制器测试已通过。识别专项测�
 ## 隐私与网络边界
 
 - 不注入进程，不读取游戏内存，不安装钩子，抓包过程不发送任何数据包，不提供任何自动化操作。
-- 无遥测、无账号，不自动下载、不自动安装更新，不上传任何数据。Desktop 与 Collector 通过本机命名管道通信，
+- 无遥测、无账号，不自动下载或安装更新，不自动上传游戏记录、导入文件或截图；启用在线语音时，会将本次播报文字发送到所选服务。Desktop 与 Collector 通过本机命名管道通信，
   OCR 子进程读取本地临时图片并返回识别结果；这些本机通信不监听网络端口。
 - 界面进程不发起网络请求。后台采集服务仅在以下三种情况下联网：
   - **共享校准获取**（默认开启）：游戏更新后本机无可用协议档案时，优先从固定的公开 GitHub 仓库只读下载
@@ -339,9 +339,9 @@ OCR、解析器、分类器与导入控制器测试已通过。识别专项测�
   - **在线语音合成**（默认关闭）：仅当用户在"设置 → 播报"中选择在线语音并填写密钥后启用，
     播报时只将当前这句播报文本发送至所选语音服务。密钥仅保存在本机，并由 Windows 加密。
     详见[隐私边界](docs/privacy-boundary.md) §8.3。
-  - **检查新版本**（默认开启）：每次启动检查一次，之后每 24 小时最多一次，也可在"设置 → 通用 → 更新"中点「检查更新」；
+  - **检查新版本**（默认开启）：启动时检查（距上次检查不足 1 小时则跳过），持续运行时每隔 24 小时加少量随机延迟再检查，也可在"设置 → 通用 → 更新"中点「检查更新」；
     优先读取 GitHub 发布页上的版本号文件，获取失败时尝试固定的 GitCode 镜像；与当前版本比较，发现新版本时在总览页提示一句。
-    只有点击「下载并安装」后，后台采集服务才从本项目发布页下载该版本的安装程序，并与发布时公布的 SHA-256 核对，一致才保留；
+    只有点击「下载安装包」后，后台采集服务才从本项目发布页下载该版本的安装程序，并与发布时公布的 SHA-256 核对，一致才保留；
     下载遇到网络故障时，从镜像重新下载同一版本的完整安装程序，继续使用原 SHA-256 校验。
     只有再点击「立即安装」，界面进程才启动该安装程序（Windows 会请求管理员批准）并退出，由安装程序完成更新。
     不点击就不会下载，也不会安装；下载失败时可改由浏览器下载。可在同一处关闭「检查新版本并提示」，关闭后检查与下载都不再发生。

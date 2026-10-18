@@ -385,13 +385,13 @@ public static partial class CollectorTexts
     public static UserText CaptureNpcapReady() =>
         new("capture.npcap.ready", "Npcap 可用。抓包全程只读，从不发送任何数据包。");
 
-    /// <summary><c>capture.oodle.machina_incompatible</c>: 当前 Machina 版本与 Oodle 签名档案接线不兼容，抓包未开始。 请运行 tools/oodle-signature-finder 重新生成并核验签名档案。</summary>
+    /// <summary><c>capture.oodle.machina_incompatible</c>: 自动记录组件不兼容，本次监听未开始。请更新或重新安装完整的软件；仍失败时导出诊断报告。</summary>
     public static UserText CaptureOodleMachinaIncompatible() =>
-        new("capture.oodle.machina_incompatible", "当前 Machina 版本与 Oodle 签名档案接线不兼容，抓包未开始。 请运行 tools/oodle-signature-finder 重新生成并核验签名档案。");
+        new("capture.oodle.machina_incompatible", "自动记录组件不兼容，本次监听未开始。请更新或重新安装完整的软件；仍失败时导出诊断报告。");
 
-    /// <summary><c>capture.oodle.previous_not_released</c>: 上次 Oodle 资源尚未释放，抓包未开始。 请运行 tools/oodle-signature-finder 重新生成并核验签名档案。</summary>
+    /// <summary><c>capture.oodle.previous_not_released</c>: 上次自动记录尚未完全停止，本次监听未开始。请稍后重试；仍失败时重启软件并导出诊断报告。</summary>
     public static UserText CaptureOodlePreviousNotReleased() =>
-        new("capture.oodle.previous_not_released", "上次 Oodle 资源尚未释放，抓包未开始。 请运行 tools/oodle-signature-finder 重新生成并核验签名档案。");
+        new("capture.oodle.previous_not_released", "上次自动记录尚未完全停止，本次监听未开始。请稍后重试；仍失败时重启软件并导出诊断报告。");
 
     /// <summary><c>capture.oodle.profile_load_failed</c>: 匹配的 Oodle 签名档案无法加载，抓包未开始。 请运行 tools/oodle-signature-finder 重新生成并核验签名档案。</summary>
     public static UserText CaptureOodleProfileLoadFailed() =>
@@ -685,9 +685,9 @@ public static partial class CollectorTexts
     public static UserText ExportPathEmpty() =>
         new("export.path.empty", "导出路径不能为空。");
 
-    /// <summary><c>export.path.exists</c>: 目标文件已存在。请更换文件名，或勾选「覆盖」后重试。</summary>
+    /// <summary><c>export.path.exists</c>: 目标文件已存在，请更换文件名或保存位置后重试。</summary>
     public static UserText ExportPathExists() =>
-        new("export.path.exists", "目标文件已存在。请更换文件名，或勾选「覆盖」后重试。");
+        new("export.path.exists", "目标文件已存在，请更换文件名或保存位置后重试。");
 
     /// <summary><c>export.path.invalid</c>: 导出路径不是合法的本地路径。</summary>
     public static UserText ExportPathInvalid() =>
@@ -753,9 +753,9 @@ public static partial class CollectorTexts
     public static UserText IdempotencyRequestReused() =>
         new("idempotency.request_reused", "同一个 request_id 被用于内容不同的请求，已拒绝以免产生歧义的结果。");
 
-    /// <summary><c>idempotency.response_expired</c>: 该请求编号已经执行过，但可重放的结果已超出保留期，请用新的请求编号重试。</summary>
+    /// <summary><c>idempotency.response_expired</c>: 该操作此前已执行，但原结果已超出保留期。请先刷新并核对历史记录，确认是否还需要重新操作。</summary>
     public static UserText IdempotencyResponseExpired() =>
-        new("idempotency.response_expired", "该请求编号已经执行过，但可重放的结果已超出保留期，请用新的请求编号重试。");
+        new("idempotency.response_expired", "该操作此前已执行，但原结果已超出保留期。请先刷新并核对历史记录，确认是否还需要重新操作。");
 
     /// <summary><c>import.backup.metadata_incomplete</c>: 备份中的记录来源信息不完整，请重新创建备份后重试。</summary>
     public static UserText ImportBackupMetadataIncomplete() =>

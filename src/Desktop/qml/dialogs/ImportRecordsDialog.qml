@@ -889,12 +889,13 @@ Dialog {
                                 ImportCheckBox { objectName: "importShowGameFacts"; text: qsTr("补充已知的实际游戏时间"); checked: dialog.showGameFacts; onToggled: dialog.showGameFacts = checked }
                                 GridLayout {
                                     Layout.fillWidth: true; visible: dialog.showGameFacts; columns: 2; columnSpacing: 8; rowSpacing: 8
-                                    FieldLabel { text: qsTr("匹配时间 UTC") }
-                                    StyledTextField { Layout.fillWidth: true; text: dialog.value("matched_at_utc"); placeholderText: "2026-10-08T10:00:00.000Z"; onEditingFinished: dialog.edit("matched_at_utc", text.trim() || null) }
-                                    FieldLabel { text: qsTr("进本时间 UTC") }
-                                    StyledTextField { Layout.fillWidth: true; text: dialog.value("entered_at_utc"); placeholderText: qsTr("未知可留空"); onEditingFinished: dialog.edit("entered_at_utc", text.trim() || null) }
-                                    FieldLabel { text: qsTr("结束时间 UTC") }
-                                    StyledTextField { Layout.fillWidth: true; text: dialog.value("ended_at_utc"); placeholderText: qsTr("未知可留空"); onEditingFinished: dialog.edit("ended_at_utc", text.trim() || null) }
+                                    FieldLabel { text: qsTr("匹配时间") }
+                                    StyledTextField { Layout.fillWidth: true; text: dialog.value("matched_at_utc"); placeholderText: qsTr("例如 2026-10-08 18:00"); onEditingFinished: dialog.edit("matched_at_utc", text.trim() || null) }
+                                    FieldLabel { text: qsTr("进本时间") }
+                                    StyledTextField { Layout.fillWidth: true; text: dialog.value("entered_at_utc"); placeholderText: qsTr("例如 2026-10-08 18:00"); onEditingFinished: dialog.edit("entered_at_utc", text.trim() || null) }
+                                    FieldLabel { text: qsTr("结束时间") }
+                                    StyledTextField { Layout.fillWidth: true; text: dialog.value("ended_at_utc"); placeholderText: qsTr("例如 2026-10-08 18:00"); onEditingFinished: dialog.edit("ended_at_utc", text.trim() || null) }
+                                    Text { textFormat: Text.PlainText; Layout.columnSpan: 2; Layout.fillWidth: true; text: qsTr("未标注时区的时间按所选地区读取；也可填写带 Z 或 +08:00 的时间，例如 2026-10-08T18:00:00+08:00。不知道的时间可以留空。"); color: Theme.textSecondary; font.pixelSize: Theme.fs(11); wrapMode: Text.WordWrap }
                                     FieldLabel { text: qsTr("耗时（毫秒）") }
                                     StyledTextField { Layout.fillWidth: true; text: dialog.value("duration_ms"); placeholderText: qsTr("未知可留空"); onEditingFinished: dialog.edit("duration_ms", text.trim().length ? Number(text) : null) }
                                 }

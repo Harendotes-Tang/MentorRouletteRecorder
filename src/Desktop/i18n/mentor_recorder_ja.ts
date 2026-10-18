@@ -455,8 +455,8 @@
         <translation>エリア移動（突入／退出／テレポ／ログイン）</translation>
     </message>
     <message>
-        <source>排本窗口采样</source>
-        <translation>申請ウィンドウのサンプル</translation>
+        <source>排队期间的报文采样</source>
+        <translation>申請中のパケットサンプル</translation>
     </message>
     <message>
         <source>副本内采样（用于定位通关报文）</source>
@@ -1765,8 +1765,8 @@
         <translation>オフラインでテストサンプルを再生</translation>
     </message>
     <message>
-        <source>用采集器的 --replay 命令行，幂等、不产生新记录</source>
-        <translation>コレクターの --replay コマンドラインを使用。冪等で、新しい記録は作成しません</translation>
+        <source>使用 --replay 回放样本；默认写入独立临时数据库，重复回放同一样本不会重复新增。</source>
+        <translation>--replay でサンプルを再生します。既定では独立した一時データベースに記録を書き込み、同じサンプルを再生しても重複追加しません。</translation>
     </message>
     <message>
         <source>后台服务提示</source>
@@ -2505,16 +2505,6 @@ SHA256：%3</translation>
         <translation>Npcap を使用できます。キャプチャは常に読み取り専用で、パケットを送信することは一切ありません。</translation>
     </message>
     <message>
-        <source>当前 Machina 版本与 Oodle 签名档案接线不兼容，抓包未开始。 请运行 tools/oodle-signature-finder 重新生成并核验签名档案。</source>
-        <comment>capture.oodle.machina_incompatible</comment>
-        <translation>現在の Machina のバージョンは Oodle シグネチャプロファイルの接続方式と互換性がないため、キャプチャを開始していません。tools/oodle-signature-finder を実行して、シグネチャプロファイルを再生成・検証してください。</translation>
-    </message>
-    <message>
-        <source>上次 Oodle 资源尚未释放，抓包未开始。 请运行 tools/oodle-signature-finder 重新生成并核验签名档案。</source>
-        <comment>capture.oodle.previous_not_released</comment>
-        <translation>前回の Oodle のリソースがまだ解放されていないため、キャプチャを開始していません。tools/oodle-signature-finder を実行して、シグネチャプロファイルを再生成・検証してください。</translation>
-    </message>
-    <message>
         <source>匹配的 Oodle 签名档案无法加载，抓包未开始。 请运行 tools/oodle-signature-finder 重新生成并核验签名档案。</source>
         <comment>capture.oodle.profile_load_failed</comment>
         <translation>一致する Oodle シグネチャプロファイルを読み込めないため、キャプチャを開始していません。tools/oodle-signature-finder を実行して、シグネチャプロファイルを再生成・検証してください。</translation>
@@ -2882,11 +2872,6 @@ SHA256：%3</translation>
         <translation>書き出し先のパスを空にすることはできません。</translation>
     </message>
     <message>
-        <source>目标文件已存在。请更换文件名，或勾选「覆盖」后重试。</source>
-        <comment>export.path.exists</comment>
-        <translation>保存先のファイルがすでに存在します。ファイル名を変えるか、「上書き」にチェックを入れてから再試行してください。</translation>
-    </message>
-    <message>
         <source>导出路径不是合法的本地路径。</source>
         <comment>export.path.invalid</comment>
         <translation>書き出し先のパスが有効なローカルパスではありません。</translation>
@@ -2969,9 +2954,24 @@ SHA256：%3</translation>
         <translation>同じ request_id が内容の異なるリクエストに使われたため、結果があいまいにならないよう拒否しました。</translation>
     </message>
     <message>
-        <source>该请求编号已经执行过，但可重放的结果已超出保留期，请用新的请求编号重试。</source>
+        <source>自动记录组件不兼容，本次监听未开始。请更新或重新安装完整的软件；仍失败时导出诊断报告。</source>
+        <comment>capture.oodle.machina_incompatible</comment>
+        <translation>自動記録の構成要素に互換性がないため、監視を開始できませんでした。アプリ全体を更新するか再インストールしてください。解決しない場合は診断レポートを出力してください。</translation>
+    </message>
+    <message>
+        <source>上次自动记录尚未完全停止，本次监听未开始。请稍后重试；仍失败时重启软件并导出诊断报告。</source>
+        <comment>capture.oodle.previous_not_released</comment>
+        <translation>前回の自動記録が完全に停止していないため、監視を開始できませんでした。少し待ってから再試行してください。解決しない場合はアプリを再起動し、診断レポートを出力してください。</translation>
+    </message>
+    <message>
+        <source>目标文件已存在，请更换文件名或保存位置后重试。</source>
+        <comment>export.path.exists</comment>
+        <translation>保存先のファイルは既に存在します。ファイル名または保存場所を変更してから再試行してください。</translation>
+    </message>
+    <message>
+        <source>该操作此前已执行，但原结果已超出保留期。请先刷新并核对历史记录，确认是否还需要重新操作。</source>
         <comment>idempotency.response_expired</comment>
-        <translation>このリクエスト ID はすでに実行済みですが、再実行用の結果が保持期間を過ぎています。新しいリクエスト ID で再試行してください。</translation>
+        <translation>この操作は既に実行済みですが、保存された応答の保管期限が切れています。履歴を更新して内容を確認し、再度操作する必要があるか判断してください。</translation>
     </message>
     <message>
         <source>备份中的记录来源信息不完整，请重新创建备份后重试。</source>
@@ -4724,8 +4724,8 @@ SHA256：%3</translation>
         <translation>クリア</translation>
     </message>
     <message>
-        <source>未通关</source>
-        <translation>未クリア</translation>
+        <source>退出 / 放弃</source>
+        <translation>途中退出 / ギブアップ</translation>
     </message>
     <message>
         <source>去复核</source>
@@ -5046,8 +5046,8 @@ SHA256：%3</translation>
         <translation>通信 3：更新の確認と、操作に応じた新バージョンのダウンロード</translation>
     </message>
     <message>
-        <source>默认每天最多自动联网检查一次，从本项目公开发布页读取版本信息，有新版本时在总览提示。也可点「检查更新」主动检查。点「下载并安装」只下载安装包，并核对发布时公布的校验值；通过后还需点「立即安装」启动安装程序，本软件随后关闭，由安装程序完成更新。请求不含账号、安装编号或设备身份信息，发布平台及其下载服务能看到你的 IP 地址。软件不会自行下载或安装。可在「设置 → 通用 → 更新」关闭「检查新版本并提示」，关闭后「检查更新」也不可用，正在进行的下载会取消，已准备好的安装包会删除。</source>
-        <translation>既定では1日に最大1回自動で確認し、このプロジェクトの公開リリースページからバージョン情報を読み取って、新しいバージョンがあれば概要でお知らせします。「更新を確認」を押して手動で確認することもできます。「ダウンロードしてインストール」はインストーラーをダウンロードし、公開時に示されたチェックサムと照合するだけです。照合に通ったら「今すぐインストール」を押すとインストーラーが起動し、このアプリは終了して、インストーラーが更新を完了します。リクエストにはアカウント、インストール ID、デバイスを識別する情報は含まれませんが、リリース先のプラットフォームとそのダウンロードサービスにはあなたの IP アドレスがわかります。アプリが勝手にダウンロードやインストールをすることはありません。「設定 → 一般 → 更新」で「新しいバージョンを確認して通知」をオフにできます。オフにすると「更新を確認」も使えなくなり、進行中のダウンロードは取り消され、準備済みのインストーラーは削除されます。</translation>
+        <source>默认在启动软件时及持续运行期间定期检查更新，从本项目公开发布页读取版本信息，有新版本时在总览提示。也可点「检查更新」主动检查。点「下载安装包」只下载安装包，并核对发布时公布的校验值；通过后还需点「立即安装」启动安装程序，本软件随后关闭，由安装程序完成更新。请求不含账号、安装编号或设备身份信息，发布平台及其下载服务能看到你的 IP 地址。软件不会自行下载或安装。可在「设置 → 通用 → 更新」关闭「检查新版本并提示」，关闭后「检查更新」也不可用，正在进行的下载会取消，已准备好的安装包会删除。</source>
+        <translation>既定では、起動時と実行中に定期的に更新を確認します。本プロジェクトの公開リリースページからバージョン情報を読み取り、新しいバージョンがあれば概要に表示します。「更新を確認」から手動でも確認できます。「インストーラーをダウンロード」はダウンロードと公開チェックサムによる検証のみを行います。準備ができたら「今すぐインストール」で起動すると、このアプリは終了し、インストーラーが更新を行います。リクエストにアカウント、インストールID、端末識別情報は含まれません。配布先とダウンロードサービスにはIPアドレスが伝わります。アプリが勝手に更新をダウンロードまたはインストールすることはありません。設定 → 全般 → 更新で「新しいバージョンを確認して通知」をオフにすると、確認が無効になり、ダウンロードが中止され、準備済みのインストーラーも削除されます。</translation>
     </message>
     <message>
         <source>运行顺序</source>
@@ -6255,20 +6255,28 @@ SHA256：%3</translation>
         <translation>わかっている実際のプレイ時刻を入力</translation>
     </message>
     <message>
-        <source>匹配时间 UTC</source>
-        <translation>マッチ時刻 UTC</translation>
+        <source>匹配时间</source>
+        <translation>マッチング時刻</translation>
     </message>
     <message>
-        <source>进本时间 UTC</source>
-        <translation>突入時刻 UTC</translation>
+        <source>例如 2026-10-08 18:00</source>
+        <translation>例：2026-10-08 18:00</translation>
+    </message>
+    <message>
+        <source>进本时间</source>
+        <translation>突入時刻</translation>
+    </message>
+    <message>
+        <source>结束时间</source>
+        <translation>終了時刻</translation>
+    </message>
+    <message>
+        <source>未标注时区的时间按所选地区读取；也可填写带 Z 或 +08:00 的时间，例如 2026-10-08T18:00:00+08:00。不知道的时间可以留空。</source>
+        <translation>タイムゾーンのない日時は選択した地域の時刻として読み取ります。Z や +08:00 を付けた日時（例：2026-10-08T18:00:00+08:00）も入力できます。不明な時刻は空欄にしてください。</translation>
     </message>
     <message>
         <source>未知可留空</source>
         <translation>不明なら空欄で可</translation>
-    </message>
-    <message>
-        <source>结束时间 UTC</source>
-        <translation>終了時刻 UTC</translation>
     </message>
     <message>
         <source>耗时（毫秒）</source>
@@ -6527,8 +6535,12 @@ SHA256：%3</translation>
         <translation>ジョブ統計を読み込めなかったため、下に統計は表示されません：%1</translation>
     </message>
     <message>
-        <source>职业占比</source>
+        <source>职能占比</source>
         <translation>ロール比率</translation>
+    </message>
+    <message>
+        <source>职能</source>
+        <translation>ロール</translation>
     </message>
     <message>
         <source>未知</source>
@@ -6541,10 +6553,6 @@ SHA256：%3</translation>
     <message>
         <source>职业</source>
         <translation>ジョブ</translation>
-    </message>
-    <message>
-        <source>角色</source>
-        <translation>ロール</translation>
     </message>
     <message>
         <source>次数</source>
@@ -7047,8 +7055,8 @@ SHA256：%3</translation>
         <translation>クリア</translation>
     </message>
     <message>
-        <source>未通关 / 中途离开</source>
-        <translation>未クリア／途中退出</translation>
+        <source>退出 / 放弃</source>
+        <translation>途中退出 / ギブアップ</translation>
     </message>
     <message>
         <source>稍后再说</source>
@@ -7134,28 +7142,20 @@ SHA256：%3</translation>
 <context>
     <name>ReflectionShareCard</name>
     <message>
-        <source>游玩时间：%1</source>
-        <translation>プレイ日時：%1</translation>
+        <source>%1 条游玩时间未知</source>
+        <translation>プレイ日時不明：%1件</translation>
     </message>
     <message>
-        <source>原站记录时间：%1 · 游玩时间未知</source>
-        <translation>元サイトの記録時刻：%1 · プレイ日時不明</translation>
+        <source>导随记录</source>
+        <translation>メンタールーレット記録</translation>
     </message>
     <message>
-        <source>游玩时间未知</source>
-        <translation>プレイ日時不明</translation>
+        <source>共 %1 条</source>
+        <translation>全%1件</translation>
     </message>
     <message>
-        <source>导随心得</source>
-        <translation>メンターの感想</translation>
-    </message>
-    <message>
-        <source>未知副本</source>
-        <translation>不明なコンテンツ</translation>
-    </message>
-    <message>
-        <source>未知职业</source>
-        <translation>不明なジョブ</translation>
+        <source>导出于 %1</source>
+        <translation>出力日：%1</translation>
     </message>
     <message>
         <source>Powered by 导随记录器</source>
@@ -7251,6 +7251,36 @@ SHA256：%3</translation>
     <message>
         <source>保存 PNG 图片</source>
         <translation>PNG 画像を保存</translation>
+    </message>
+</context>
+<context>
+    <name>ReflectionShareEntry</name>
+    <message>
+        <source>原站记录时间：%1 · 游玩时间未知</source>
+        <translation>元サイトの記録日時：%1 · プレイ日時不明</translation>
+    </message>
+    <message>
+        <source>游玩时间未知</source>
+        <translation>プレイ日時不明</translation>
+    </message>
+    <message>
+        <source>未知副本</source>
+        <translation>コンテンツ不明</translation>
+    </message>
+    <message>
+        <source>时间未知</source>
+        <translation>日時不明</translation>
+    </message>
+    <message>
+        <source>未知职业</source>
+        <translation>ジョブ不明</translation>
+    </message>
+</context>
+<context>
+    <name>ReflectionShareHeading</name>
+    <message>
+        <source>导随记录</source>
+        <translation>メンタールーレット記録</translation>
     </message>
 </context>
 <context>
@@ -7407,10 +7437,6 @@ SHA256：%3</translation>
         <translation>今回の更新</translation>
     </message>
     <message>
-        <source>版本 %1</source>
-        <translation>バージョン %1</translation>
-    </message>
-    <message>
         <source>我知道了</source>
         <translation>OK</translation>
     </message>
@@ -7449,6 +7475,33 @@ SHA256：%3</translation>
     <message>
         <source>之后可以在 设置 › 关于 里再次查看。</source>
         <translation>後から 設定 › このアプリについて で再確認できます。</translation>
+    </message>
+</context>
+<context>
+    <name>ReleaseNotesEntry</name>
+    <message>
+        <source>重点</source>
+        <translation>注目</translation>
+    </message>
+    <message>
+        <source>收起</source>
+        <translation>折りたたむ</translation>
+    </message>
+    <message>
+        <source>详细</source>
+        <translation>詳細</translation>
+    </message>
+    <message>
+        <source>收起完整说明</source>
+        <translation>説明を折りたたむ</translation>
+    </message>
+    <message>
+        <source>展开完整说明</source>
+        <translation>説明をすべて表示</translation>
+    </message>
+    <message>
+        <source>去设置</source>
+        <translation>設定を開く</translation>
     </message>
 </context>
 <context>
@@ -7557,14 +7610,6 @@ SHA256：%3</translation>
         <translation>記録元</translation>
     </message>
     <message>
-        <source>计入进度</source>
-        <translation>進捗に加算</translation>
-    </message>
-    <message>
-        <source>是</source>
-        <translation>はい</translation>
-    </message>
-    <message>
         <source>识别可信度</source>
         <translation>識別の確度</translation>
     </message>
@@ -7617,8 +7662,20 @@ SHA256：%3</translation>
         <translation>手動で修正</translation>
     </message>
     <message>
-        <source>确认</source>
-        <translation>確認</translation>
+        <source>成就计数设置</source>
+        <translation>アチーブメント加算設定</translation>
+    </message>
+    <message>
+        <source>开启</source>
+        <translation>オン</translation>
+    </message>
+    <message>
+        <source>关闭</source>
+        <translation>オフ</translation>
+    </message>
+    <message>
+        <source>确认已复核</source>
+        <translation>確認済みにする</translation>
     </message>
     <message>
         <source>恢复记录</source>
@@ -7627,6 +7684,10 @@ SHA256：%3</translation>
     <message>
         <source>删除记录</source>
         <translation>記録を削除</translation>
+    </message>
+    <message>
+        <source>只有符合条件且未删除的通关记录，才会按成就计数设置计入进度。</source>
+        <translation>加算設定がオンの場合、条件を満たす未削除のクリア記録だけが進捗に加算されます。</translation>
     </message>
     <message>
         <source>备注</source>
@@ -7792,12 +7853,14 @@ SHA256：%3</translation>
         <translation>%1、%2</translation>
     </message>
     <message>
-        <source>这是指导者任务，计入成就进度</source>
-        <translation>メンタールーレットとしてアチーブメント進捗に加算</translation>
+        <source>计入导随成就进度</source>
+        <translation>メンターのアチーブメント進捗に加算</translation>
     </message>
     <message>
-        <source>不是通过指导者任务进入的副本，请关闭此项</source>
-        <translation>メンタールーレット以外で入ったコンテンツの場合はオフにしてください</translation>
+        <source>这里只补录指导者任务。
+关闭后不增加成就进度，仍计入次数、通关率等统计。</source>
+        <translation>ここではメンタールーレットの記録だけを追加してください。
+オフにするとアチーブメントの進捗には加算されませんが、回数やクリア率などの統計には含まれます。</translation>
     </message>
     <message>
         <source>已通关，计入进度</source>
@@ -8176,8 +8239,8 @@ SHA256：%3</translation>
         <translation>新しいバージョンを確認して通知</translation>
     </message>
     <message>
-        <source>默认开启，每天最多自动联网检查一次，有新版本时在总览提示；关闭后「检查更新」也不可用，并会取消下载、删除已准备好的安装包。请求不含账号或设备身份信息。点「下载并安装」只下载安装包并校验，准备好后还需点「立即安装」启动安装。软件不会自行下载或安装新版本。</source>
-        <translation>既定でオン。1日に最大1回自動で確認し、新しいバージョンがあれば概要でお知らせします。オフにすると「更新を確認」も使えなくなり、ダウンロードを取り消し、準備済みのインストーラーを削除します。リクエストにアカウントやデバイスを識別する情報は含まれません。「ダウンロードしてインストール」はインストーラーをダウンロードして検証するだけで、準備ができたら「今すぐインストール」を押してインストールを開始します。アプリが勝手に新しいバージョンをダウンロードしたりインストールしたりすることはありません。</translation>
+        <source>默认开启，启动软件时及持续运行期间会定期检查更新，有新版本时在总览提示；关闭后「检查更新」也不可用，并会取消下载、删除已准备好的安装包。请求不含账号或设备身份信息。点「下载安装包」只下载安装包并校验，准备好后还需点「立即安装」启动安装。软件不会自行下载或安装新版本。</source>
+        <translation>既定でオンです。起動時と実行中に定期的に更新を確認し、新しいバージョンを概要に表示します。オフにすると「更新を確認」も無効になり、ダウンロードが中止され、準備済みのインストーラーが削除されます。リクエストにアカウントや端末識別情報は含まれません。「インストーラーをダウンロード」はダウンロードと検証のみを行い、準備ができたら「今すぐインストール」で起動します。アプリが勝手に新しいバージョンをダウンロードまたはインストールすることはありません。</translation>
     </message>
     <message>
         <source>最近检查：%1 · 最新版本 %2</source>
@@ -8534,6 +8597,10 @@ SHA256：%3</translation>
         <translation>ユーザーがクリアと確認</translation>
     </message>
     <message>
+        <source>用户确认退出或放弃</source>
+        <translation>ユーザーが途中退出またはギブアップを確認</translation>
+    </message>
+    <message>
         <source>用户确认未通关</source>
         <translation>ユーザーが未クリアと確認</translation>
     </message>
@@ -8672,12 +8739,12 @@ SHA256：%3</translation>
 <context>
     <name>mr::AppController</name>
     <message>
-        <source>Collector 已退出，已自动重启（第 %1 次，退避 %2 秒）</source>
-        <translation>Collector が終了したため、自動で再起動しました（%1 回目、待機 %2 秒）</translation>
+        <source>后台服务已退出，已自动重启（第 %1 次）</source>
+        <translation>バックグラウンドサービスが終了したため、自動で再起動しました（%1回目）。</translation>
     </message>
     <message>
-        <source>Collector 无法启动：%1</source>
-        <translation>Collector を起動できません：%1</translation>
+        <source>后台服务无法启动：%1</source>
+        <translation>バックグラウンドサービスを開始できません：%1</translation>
     </message>
     <message>
         <source>界面缩放已设为 %1%，重启后生效。</source>
@@ -9834,8 +9901,8 @@ SHA256：%3</translation>
         <translation>所要時間</translation>
     </message>
     <message>
-        <source>计入进度</source>
-        <translation>進捗に加算</translation>
+        <source>成就计数设置</source>
+        <translation>アチーブメント加算設定</translation>
     </message>
     <message>
         <source>备注</source>
@@ -10664,10 +10731,6 @@ SHA256：%3</translation>
         <translation>PNG 画像 (*.png)</translation>
     </message>
     <message>
-        <source>导随心得.%1</source>
-        <translation>メンターの感想.%1</translation>
-    </message>
-    <message>
         <source>选择逐条 PNG 的保存文件夹</source>
         <translation>個別の PNG の保存先フォルダーを選択</translation>
     </message>
@@ -10738,10 +10801,6 @@ SHA256：%3</translation>
     <message>
         <source>生成图片超时，未保存。请重试。</source>
         <translation>画像の作成がタイムアウトしたため、保存していません。再試行してください。</translation>
-    </message>
-    <message>
-        <source>导随心得</source>
-        <translation>メンターの感想</translation>
     </message>
     <message>
         <source>保存文件夹不存在，请重新选择。</source>
@@ -11388,8 +11447,8 @@ SHA256：%3</translation>
 <context>
     <name>mr::StatisticsController</name>
     <message>
-        <source>已记录次数</source>
-        <translation>記録回数</translation>
+        <source>尝试次数</source>
+        <translation>挑戦回数</translation>
     </message>
     <message>
         <source>完成次数</source>
@@ -11424,12 +11483,12 @@ SHA256：%3</translation>
         <translation>保存済みの目標と記録開始前の回数をまだ読み込めていません。しばらくしてから保存してください。</translation>
     </message>
     <message>
-        <source>基数已设为 %1 · 目标 %2 · 进度 %3 · 已重算</source>
-        <translation>記録開始前の回数を %1 に設定 · 目標 %2 · 進捗 %3 · 再計算しました</translation>
+        <source>起始次数已设为 %1 · 目标 %2 · 总进度 %3</source>
+        <translation>開始前の達成回数を%1に設定 · 目標%2 · 合計進捗%3</translation>
     </message>
     <message>
-        <source>基数已设为 %1 · 目标 %2 · 已保存</source>
-        <translation>記録開始前の回数を %1 に設定 · 目標 %2 · 保存しました</translation>
+        <source>起始次数已设为 %1 · 目标 %2 · 已保存</source>
+        <translation>開始前の達成回数を%1に設定 · 目標%2 · 保存済み</translation>
     </message>
 </context>
 <context>
@@ -11537,10 +11596,6 @@ SHA256：%3</translation>
         <translation>現在は %1 です。「新しいバージョンをダウンロード」を押すとブラウザでインストーラーをダウンロードするので、ご自身で実行してインストールしてください。</translation>
     </message>
     <message>
-        <source>当前 %1。点「下载并安装」只下载安装包并校验；准备好后，再点「立即安装」启动安装程序。</source>
-        <translation>現在は %1 です。「ダウンロードしてインストール」はインストーラーのダウンロードと検証だけを行います。準備ができたら「今すぐインストール」を押してインストーラーを起動してください。</translation>
-    </message>
-    <message>
         <source>后台服务未提供可用的发布页地址，无法打开更新说明。</source>
         <translation>バックグラウンドサービスから有効なリリースページのアドレスが提供されていないため、更新内容を開けません。</translation>
     </message>
@@ -11565,10 +11620,6 @@ SHA256：%3</translation>
         <translation>この PC では更新の確認が無効になっています。</translation>
     </message>
     <message>
-        <source>有新版本 %1，可以点「下载并安装」。</source>
-        <translation>新しいバージョン %1 があります。「ダウンロードしてインストール」を押せます。</translation>
-    </message>
-    <message>
         <source>有新版本 %1，可以点「下载新版本」下载。</source>
         <translation>新しいバージョン %1 があります。「新しいバージョンをダウンロード」を押してダウンロードできます。</translation>
     </message>
@@ -11587,10 +11638,6 @@ SHA256：%3</translation>
     <message>
         <source>下载新版本</source>
         <translation>新しいバージョンをダウンロード</translation>
-    </message>
-    <message>
-        <source>下载并安装</source>
-        <translation>ダウンロードしてインストール</translation>
     </message>
     <message>
         <source>取消</source>
@@ -11665,12 +11712,24 @@ SHA256：%3</translation>
         <translation>メンターの最中です（マッチ済みまたはコンテンツ内）。今インストールすると今回の記録が中断されます。今回のメンターが終わってから「今すぐインストール」を押してください。</translation>
     </message>
     <message>
+        <source>当前 %1。点「下载安装包」只下载安装包并校验；准备好后，再点「立即安装」启动安装程序。</source>
+        <translation>現在のバージョン：%1。「インストーラーをダウンロード」はダウンロードと検証のみを行います。準備ができたら「今すぐインストール」で起動してください。</translation>
+    </message>
+    <message>
         <source>已向浏览器发送新版本的安装包下载请求。请在浏览器中确认下载结果，下载后自行运行安装包。</source>
         <translation>新しいバージョンのインストーラーのダウンロードをブラウザに依頼しました。ブラウザでダウンロード結果を確認し、ダウンロード後にご自身でインストーラーを実行してください。</translation>
     </message>
     <message>
         <source>已向浏览器发送 %1 版的安装包下载请求。请在浏览器中确认下载结果，下载后自行运行安装包。</source>
         <translation>バージョン %1 のインストーラーのダウンロードをブラウザに依頼しました。ブラウザでダウンロード結果を確認し、ダウンロード後にご自身でインストーラーを実行してください。</translation>
+    </message>
+    <message>
+        <source>有新版本 %1，可以点「下载安装包」。</source>
+        <translation>新しいバージョン%1があります。「インストーラーをダウンロード」を押してください。</translation>
+    </message>
+    <message>
+        <source>下载安装包</source>
+        <translation>インストーラーをダウンロード</translation>
     </message>
     <message>
         <source>安装包不在软件的下载目录中，没有启动安装程序。请点「在浏览器中下载」。</source>
@@ -11695,33 +11754,6 @@ SHA256：%3</translation>
     <message>
         <source>安装程序没有启动，可能是未通过 Windows 的安装确认。本软件继续运行，可再点「立即安装」，或点「在浏览器中下载」。</source>
         <translation>インストーラーが起動しませんでした。Windows のインストール確認で許可されなかった可能性があります。このアプリは実行を続けます。もう一度「今すぐインストール」を押すか、「ブラウザでダウンロード」を押してください。</translation>
-    </message>
-</context>
-<context>
-    <name>ReleaseNotesEntry</name>
-    <message>
-        <source>重点</source>
-        <translation>注目</translation>
-    </message>
-    <message>
-        <source>收起</source>
-        <translation>折りたたむ</translation>
-    </message>
-    <message>
-        <source>详细</source>
-        <translation>詳細</translation>
-    </message>
-    <message>
-        <source>收起完整说明</source>
-        <translation>説明を折りたたむ</translation>
-    </message>
-    <message>
-        <source>展开完整说明</source>
-        <translation>説明をすべて表示</translation>
-    </message>
-    <message>
-        <source>去设置</source>
-        <translation>設定を開く</translation>
     </message>
 </context>
 </TS>

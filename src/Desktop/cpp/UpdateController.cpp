@@ -158,7 +158,7 @@ QString UpdateController::detail() const
         return tr("当前 %1。点「下载新版本」用浏览器下载安装包，再自行运行安装。")
             .arg(currentVersion());
     }
-    return tr("当前 %1。点「下载并安装」只下载安装包并校验；"
+    return tr("当前 %1。点「下载安装包」只下载安装包并校验；"
               "准备好后，再点「立即安装」启动安装程序。")
         .arg(currentVersion());
 }
@@ -393,7 +393,7 @@ QString UpdateController::checkSentence(const QVariantMap &payload) const
     // was just adopted into, so the sentence and the version row cannot
     // disagree.
     if (updateAvailable() && !m_state.latestVersion.isEmpty() && downloadSupported())
-        return tr("有新版本 %1，可以点「下载并安装」。").arg(m_state.latestVersion);
+        return tr("有新版本 %1，可以点「下载安装包」。").arg(m_state.latestVersion);
     if (updateAvailable() && !m_state.latestVersion.isEmpty())
         return tr("有新版本 %1，可以点「下载新版本」下载。").arg(m_state.latestVersion);
     const QVariantMap update = payload.value(QStringLiteral("update")).toMap();
@@ -435,7 +435,7 @@ void UpdateController::checkNow()
 }
 
 // ---------------------------------------------------------------------------
-// 下载并安装
+// 下载安装包
 // ---------------------------------------------------------------------------
 
 QString UpdateController::downloadPhase() const
@@ -465,7 +465,7 @@ QString UpdateController::downloadActionText() const
     if (phase == QLatin1String("browser"))
         return tr("下载新版本");
     if (phase == QLatin1String("offer"))
-        return tr("下载并安装");
+        return tr("下载安装包");
     if (phase == QLatin1String("downloading") || phase == QLatin1String("verifying"))
         return tr("取消");
     if (phase == QLatin1String("ready"))

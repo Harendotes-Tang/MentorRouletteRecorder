@@ -218,10 +218,15 @@ OFL 1.1 明确允许再分发与内嵌，条件为：随附许可证全文、不
 
 OFL 条件同 §3.2。IBM Plex 的保留字体名为 “Plex”；本项目只做原样内嵌，不修改字体，**满足条件**。
 
-中文标题使用 `Noto Serif SC`，该字体不内置。`main.cpp` 通过
-`QFont::insertSubstitutions("Noto Serif SC", {...})` 登记
-`Noto Serif CJK SC`、`Songti SC`、`SimSun`、`NSimSun` 作为兜底字体。
-这些均为系统字体，**不随本软件分发**。
+中文标题和分享图片使用的 **Noto Serif SC 2.003**（Regular、Bold），以及心得列表使用的
+**Noto Sans SC 2.004**（Regular），现均原样内置官方地区版静态 OTF，避免换电脑后依赖系统字体。
+上游为 [notofonts/noto-cjk 的固定提交](https://github.com/notofonts/noto-cjk/tree/f8d157532fbfaeda587e826d4cd5b21a49186f7c)，
+分别取 `Serif/SubsetOTF/SC/` 与 `Sans/SubsetOTF/SC/`。字体版权为 © 2017-2024 Adobe（Serif）
+和 © 2014-2021 Adobe（Sans），均按 **SIL Open Font License 1.1** 分发。
+上游 `Serif/LICENSE`、`Sans/LICENSE` 原文分别保存在字体目录的 `NotoSerifSC-OFL.txt`、
+`NotoSansSC-OFL.txt`，与字体一并编入 `mr_fonts` 资源；文件 SHA256 见该目录 `README.md`。
+程序启动时由 `registerBundledFonts()` 注册，运行时不联网、不安装系统字体。
+原有 `Songti SC`、`SimSun` 等只作资源异常或未覆盖字形的回退，未随软件分发这些系统字体。
 
 ### 3.4 Lucide（内置图标，可随本软件分发）
 

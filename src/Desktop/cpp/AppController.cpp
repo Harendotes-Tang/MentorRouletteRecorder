@@ -377,14 +377,12 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
         connect(m_collector, &CollectorProcess::leaseTakeover, this,
                 [this](bool, const QString &message) { showToast(message); });
         connect(m_collector, &CollectorProcess::stateChanged, this, &AppController::backendChanged);
-        connect(m_collector, &CollectorProcess::restarted, this, [this](int attempt, int delayMs) {
-            showToast(tr("Collector 已退出，已自动重启（第 %1 次，退避 %2 秒）")
-                          .arg(attempt)
-                          .arg(double(delayMs) / 1000.0, 0, 'f', 1));
+        connect(m_collector, &CollectorProcess::restarted, this, [this](int attempt, int) {
+            showToast(tr("后台服务已退出，已自动重启（第 %1 次）").arg(attempt));
         });
         // The Collector's own explanation, once, in place of a restart loop.
         connect(m_collector, &CollectorProcess::startRefused, this, [this](const QString &reason) {
-            showToast(tr("Collector 无法启动：%1").arg(reason));
+            showToast(tr("后台服务无法启动：%1").arg(reason));
         });
     }
 

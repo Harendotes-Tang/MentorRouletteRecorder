@@ -28,12 +28,24 @@ foreach(workflow IN ITEMS ReflectionLibrary ReflectionShare ImportRecordsControl
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen;MR_DISABLE_SHARED_FETCH=1;MR_DISABLE_ONLINE_SPEECH=1;MR_DISABLE_UPDATE_CHECK=1")
 endforeach()
 
+qt_add_lrelease(
+    TS_FILES
+        "${PROJECT_SOURCE_DIR}/src/Desktop/i18n/mentor_recorder_en.ts"
+        "${PROJECT_SOURCE_DIR}/src/Desktop/i18n/mentor_recorder_ja.ts"
+    LRELEASE_TARGET MentorRecorderShareTestTranslations
+    QM_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/share-i18n"
+    QM_FILES_OUTPUT_VARIABLE MR_SHARE_TEST_QM)
+qt_add_resources(MentorRecorderReflectionShareTests reflection_share_test_i18n
+    PREFIX "/i18n"
+    BASE "${CMAKE_CURRENT_BINARY_DIR}/share-i18n"
+    FILES ${MR_SHARE_TEST_QM})
+
 if(WIN32)
-    add_test(NAME MentorRecorderReflectionShareSystemFonts
+    add_test(NAME MentorRecorderReflectionShareBundledFonts
         COMMAND MentorRecorderReflectionShareTests
-            -o "${CMAKE_CURRENT_BINARY_DIR}/MentorRecorderReflectionShareSystemFonts.qtlog.txt,txt")
-    set_tests_properties(MentorRecorderReflectionShareSystemFonts PROPERTIES
-        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;MR_REFLECTION_SHARE_SYSTEM_FONTS_ONLY=1;MR_DISABLE_SHARED_FETCH=1;MR_DISABLE_ONLINE_SPEECH=1;MR_DISABLE_UPDATE_CHECK=1")
+            -o "${CMAKE_CURRENT_BINARY_DIR}/MentorRecorderReflectionShareBundledFonts.qtlog.txt,txt")
+    set_tests_properties(MentorRecorderReflectionShareBundledFonts PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;MR_REFLECTION_SHARE_BUNDLED_FONTS_ONLY=1;MR_DISABLE_SHARED_FETCH=1;MR_DISABLE_ONLINE_SPEECH=1;MR_DISABLE_UPDATE_CHECK=1")
 endif()
 
 add_executable(MentorRecorderDesktopTests

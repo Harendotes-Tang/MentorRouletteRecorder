@@ -491,6 +491,65 @@ private Q_SLOTS:
         // positive control verifies detection without a loopback or external connection.
     }
 
+    void longPendingActionLabelsFitNarrowPanel_data()
+    {
+        QTest::addColumn<int>("panelWidth");
+        QTest::newRow("narrow") << 340;
+        QTest::newRow("normal") << 380;
+    }
+
+    void longPendingActionLabelsFitNarrowPanel()
+    {
+        QFETCH(int, panelWidth);
+        HistoryScene scene;
+        QVERIFY2(scene.create(), qPrintable(scene.errors));
+        QVERIFY(QTest::qWaitForWindowExposed(scene.window()));
+        QJsonObject pending = run();
+        pending.insert(QStringLiteral("pending_review"), true);
+        scene.controller->selectRun(pending.toVariantMap());
+        QTRY_VERIFY(scene.panel() && scene.panel()->isVisible());
+        scene.panel()->setWidth(panelWidth);
+        auto *actions = scene.item(QStringLiteral("runDetailActions"));
+        QVERIFY(actions);
+
+        QList<QQuickItem *> buttons;
+        const QStringList labels{QStringLiteral("Correct manually"),
+                                 QStringLiteral("Mark as reviewed"),
+                                 QStringLiteral("Delete record")};
+        for (auto *child : actions->childItems()) {
+            if (!child->isVisible() || !child->property("text").isValid())
+                continue;
+            QVERIFY(buttons.size() < labels.size());
+            child->setProperty("text", labels.at(buttons.size()));
+            buttons.append(child);
+        }
+        QCOMPARE(buttons.size(), 3);
+        QTRY_VERIFY(actions->width() > 0);
+        QTest::qWait(50);
+        const QRectF actionBounds = actions->mapRectToItem(scene.panel(), actions->boundingRect());
+        QVERIFY(actionBounds.left() >= 0 && actionBounds.right() <= scene.panel()->width() + 0.5);
+        qreal requiredWidth = 8 * (buttons.size() - 1);
+        for (auto *button : buttons)
+            requiredWidth += button->width();
+        if (requiredWidth > actions->width() + 0.5)
+            QTRY_VERIFY(actions->height() > buttons.first()->height());
+        for (auto *button : buttons) {
+            QVERIFY(button->x() >= 0 && button->x() + button->width() <= actions->width() + 0.5);
+            QVERIFY(button->y() >= 0 && button->y() + button->height() <= actions->height() + 0.5);
+            auto *label = findItem(button, QStringLiteral("buttonLabel"));
+            QVERIFY(label);
+            QVERIFY(!label->property("truncated").toBool());
+        }
+        for (int i = 0; i < buttons.size(); ++i)
+            for (int j = i + 1; j < buttons.size(); ++j)
+                QVERIFY(!QRectF(buttons[i]->position(), buttons[i]->size())
+                             .intersects(QRectF(buttons[j]->position(), buttons[j]->size())));
+        const QString evidence = qEnvironmentVariable("MR_DETAIL_COPY_SCREENSHOT_DIR");
+        if (!evidence.isEmpty())
+            QVERIFY(scene.window()->grabWindow().save(QDir(evidence).filePath(
+                QStringLiteral("detail-actions-%1.png").arg(panelWidth))));
+    }
+
     void storedAndImportedRecordTextStaysLiteralWithoutResourceRequests_data()
     {
         QTest::addColumn<QString>("view");

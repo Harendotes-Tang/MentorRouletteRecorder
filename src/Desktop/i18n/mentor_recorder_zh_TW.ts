@@ -455,8 +455,8 @@
         <translation>換區（進本／離開／傳送／登入）</translation>
     </message>
     <message>
-        <source>排本窗口采样</source>
-        <translation>排本時段取樣</translation>
+        <source>排队期间的报文采样</source>
+        <translation>排隊期間的封包取樣</translation>
     </message>
     <message>
         <source>副本内采样（用于定位通关报文）</source>
@@ -1765,8 +1765,8 @@
         <translation>離線重播測試樣本</translation>
     </message>
     <message>
-        <source>用采集器的 --replay 命令行，幂等、不产生新记录</source>
-        <translation>使用採集器的 --replay 命令列，具冪等性，不產生新記錄</translation>
+        <source>使用 --replay 回放样本；默认写入独立临时数据库，重复回放同一样本不会重复新增。</source>
+        <translation>使用 --replay 重播樣本；預設寫入獨立的暫存資料庫，重播同一樣本不會重複新增。</translation>
     </message>
     <message>
         <source>后台服务提示</source>
@@ -2505,16 +2505,6 @@ SHA256：%3</translation>
         <translation>Npcap 可用。封包擷取全程唯讀，從不傳送任何封包。</translation>
     </message>
     <message>
-        <source>当前 Machina 版本与 Oodle 签名档案接线不兼容，抓包未开始。 请运行 tools/oodle-signature-finder 重新生成并核验签名档案。</source>
-        <comment>capture.oodle.machina_incompatible</comment>
-        <translation>目前的 Machina 版本與 Oodle 簽章設定檔的介接不相容，封包擷取未開始。 請執行 tools/oodle-signature-finder 重新產生並核驗簽章設定檔。</translation>
-    </message>
-    <message>
-        <source>上次 Oodle 资源尚未释放，抓包未开始。 请运行 tools/oodle-signature-finder 重新生成并核验签名档案。</source>
-        <comment>capture.oodle.previous_not_released</comment>
-        <translation>上次的 Oodle 資源尚未釋放，封包擷取未開始。 請執行 tools/oodle-signature-finder 重新產生並核驗簽章設定檔。</translation>
-    </message>
-    <message>
         <source>匹配的 Oodle 签名档案无法加载，抓包未开始。 请运行 tools/oodle-signature-finder 重新生成并核验签名档案。</source>
         <comment>capture.oodle.profile_load_failed</comment>
         <translation>相符的 Oodle 簽章設定檔無法載入，封包擷取未開始。 請執行 tools/oodle-signature-finder 重新產生並核驗簽章設定檔。</translation>
@@ -2882,11 +2872,6 @@ SHA256：%3</translation>
         <translation>匯出路徑不能為空。</translation>
     </message>
     <message>
-        <source>目标文件已存在。请更换文件名，或勾选「覆盖」后重试。</source>
-        <comment>export.path.exists</comment>
-        <translation>目標檔案已存在。請更換檔名，或勾選「覆寫」後重試。</translation>
-    </message>
-    <message>
         <source>导出路径不是合法的本地路径。</source>
         <comment>export.path.invalid</comment>
         <translation>匯出路徑不是有效的本機路徑。</translation>
@@ -2969,9 +2954,24 @@ SHA256：%3</translation>
         <translation>同一個 request_id 被用於內容不同的請求，已拒絕以免產生有歧義的結果。</translation>
     </message>
     <message>
-        <source>该请求编号已经执行过，但可重放的结果已超出保留期，请用新的请求编号重试。</source>
+        <source>自动记录组件不兼容，本次监听未开始。请更新或重新安装完整的软件；仍失败时导出诊断报告。</source>
+        <comment>capture.oodle.machina_incompatible</comment>
+        <translation>自動記錄元件不相容，本次監聽尚未開始。請更新或重新安裝完整的軟體；仍失敗時請匯出診斷報告。</translation>
+    </message>
+    <message>
+        <source>上次自动记录尚未完全停止，本次监听未开始。请稍后重试；仍失败时重启软件并导出诊断报告。</source>
+        <comment>capture.oodle.previous_not_released</comment>
+        <translation>上次自動記錄尚未完全停止，本次監聽尚未開始。請稍後再試；仍失敗時請重新啟動軟體並匯出診斷報告。</translation>
+    </message>
+    <message>
+        <source>目标文件已存在，请更换文件名或保存位置后重试。</source>
+        <comment>export.path.exists</comment>
+        <translation>目標檔案已存在，請更換檔名或儲存位置後再試。</translation>
+    </message>
+    <message>
+        <source>该操作此前已执行，但原结果已超出保留期。请先刷新并核对历史记录，确认是否还需要重新操作。</source>
         <comment>idempotency.response_expired</comment>
-        <translation>該請求編號已經執行過，但可重播的結果已超出保留期限，請用新的請求編號重試。</translation>
+        <translation>此操作先前已執行，但原結果已超過保留期限。請先重新整理並核對歷史記錄，確認是否還需要再次操作。</translation>
     </message>
     <message>
         <source>备份中的记录来源信息不完整，请重新创建备份后重试。</source>
@@ -4724,8 +4724,8 @@ SHA256：%3</translation>
         <translation>通關</translation>
     </message>
     <message>
-        <source>未通关</source>
-        <translation>未通關</translation>
+        <source>退出 / 放弃</source>
+        <translation>退出 / 放棄</translation>
     </message>
     <message>
         <source>去复核</source>
@@ -5046,8 +5046,8 @@ SHA256：%3</translation>
         <translation>連網三：檢查更新，以及依你的操作下載新版本</translation>
     </message>
     <message>
-        <source>默认每天最多自动联网检查一次，从本项目公开发布页读取版本信息，有新版本时在总览提示。也可点「检查更新」主动检查。点「下载并安装」只下载安装包，并核对发布时公布的校验值；通过后还需点「立即安装」启动安装程序，本软件随后关闭，由安装程序完成更新。请求不含账号、安装编号或设备身份信息，发布平台及其下载服务能看到你的 IP 地址。软件不会自行下载或安装。可在「设置 → 通用 → 更新」关闭「检查新版本并提示」，关闭后「检查更新」也不可用，正在进行的下载会取消，已准备好的安装包会删除。</source>
-        <translation>預設每天最多自動連網檢查一次，從本專案的公開發布頁面讀取版本資訊，有新版本時在總覽提示。也可點「檢查更新」主動檢查。點「下載並安裝」只會下載安裝檔，並核對發布時公布的檢查碼；通過後還需點「立即安裝」啟動安裝程式，本軟體隨後關閉，由安裝程式完成更新。請求不含帳號、安裝編號或裝置身分資訊，發布平台及其下載服務能看到你的 IP 位址。軟體不會自行下載或安裝。可在「設定 → 一般 → 更新」關閉「檢查新版本並提示」，關閉後「檢查更新」也無法使用，進行中的下載會取消，已準備好的安裝檔會刪除。</translation>
+        <source>默认在启动软件时及持续运行期间定期检查更新，从本项目公开发布页读取版本信息，有新版本时在总览提示。也可点「检查更新」主动检查。点「下载安装包」只下载安装包，并核对发布时公布的校验值；通过后还需点「立即安装」启动安装程序，本软件随后关闭，由安装程序完成更新。请求不含账号、安装编号或设备身份信息，发布平台及其下载服务能看到你的 IP 地址。软件不会自行下载或安装。可在「设置 → 通用 → 更新」关闭「检查新版本并提示」，关闭后「检查更新」也不可用，正在进行的下载会取消，已准备好的安装包会删除。</source>
+        <translation>預設在啟動軟體時及持續執行期間定期檢查更新，從本專案公開發布頁讀取版本資訊，有新版本時在總覽提示。也可點「檢查更新」主動檢查。點「下載安裝程式」只下載安裝程式，並核對發布時公布的校驗值；通過後還需點「立即安裝」啟動安裝程式，本軟體隨後關閉，由安裝程式完成更新。請求不含帳號、安裝編號或裝置身分資訊，發布平台及其下載服務能看到你的 IP 位址。軟體不會自行下載或安裝。可在「設定 → 一般 → 更新」關閉「檢查新版本並提示」，關閉後「檢查更新」也無法使用，進行中的下載會取消，已準備好的安裝程式會刪除。</translation>
     </message>
     <message>
         <source>运行顺序</source>
@@ -6255,20 +6255,28 @@ SHA256：%3</translation>
         <translation>補充已知的實際遊戲時間</translation>
     </message>
     <message>
-        <source>匹配时间 UTC</source>
-        <translation>配對時間 UTC</translation>
+        <source>匹配时间</source>
+        <translation>配對時間</translation>
     </message>
     <message>
-        <source>进本时间 UTC</source>
-        <translation>進本時間 UTC</translation>
+        <source>例如 2026-10-08 18:00</source>
+        <translation>例如 2026-10-08 18:00</translation>
+    </message>
+    <message>
+        <source>进本时间</source>
+        <translation>進本時間</translation>
+    </message>
+    <message>
+        <source>结束时间</source>
+        <translation>結束時間</translation>
+    </message>
+    <message>
+        <source>未标注时区的时间按所选地区读取；也可填写带 Z 或 +08:00 的时间，例如 2026-10-08T18:00:00+08:00。不知道的时间可以留空。</source>
+        <translation>未標註時區的時間按所選地區讀取；也可填寫帶 Z 或 +08:00 的時間，例如 2026-10-08T18:00:00+08:00。不知道的時間可以留空。</translation>
     </message>
     <message>
         <source>未知可留空</source>
         <translation>未知可留空</translation>
-    </message>
-    <message>
-        <source>结束时间 UTC</source>
-        <translation>結束時間 UTC</translation>
     </message>
     <message>
         <source>耗时（毫秒）</source>
@@ -6527,8 +6535,12 @@ SHA256：%3</translation>
         <translation>職業統計讀取失敗，下方沒有統計結果：%1</translation>
     </message>
     <message>
-        <source>职业占比</source>
-        <translation>職業佔比</translation>
+        <source>职能占比</source>
+        <translation>職能佔比</translation>
+    </message>
+    <message>
+        <source>职能</source>
+        <translation>職能</translation>
     </message>
     <message>
         <source>未知</source>
@@ -6541,10 +6553,6 @@ SHA256：%3</translation>
     <message>
         <source>职业</source>
         <translation>職業</translation>
-    </message>
-    <message>
-        <source>角色</source>
-        <translation>角色</translation>
     </message>
     <message>
         <source>次数</source>
@@ -7047,8 +7055,8 @@ SHA256：%3</translation>
         <translation>通關</translation>
     </message>
     <message>
-        <source>未通关 / 中途离开</source>
-        <translation>未通關 / 中途離開</translation>
+        <source>退出 / 放弃</source>
+        <translation>退出 / 放棄</translation>
     </message>
     <message>
         <source>稍后再说</source>
@@ -7134,28 +7142,20 @@ SHA256：%3</translation>
 <context>
     <name>ReflectionShareCard</name>
     <message>
-        <source>游玩时间：%1</source>
-        <translation>遊玩時間：%1</translation>
+        <source>%1 条游玩时间未知</source>
+        <translation>%1 筆遊玩時間不明</translation>
     </message>
     <message>
-        <source>原站记录时间：%1 · 游玩时间未知</source>
-        <translation>原網站記錄時間：%1 · 遊玩時間未知</translation>
+        <source>导随记录</source>
+        <translation>導隨記錄</translation>
     </message>
     <message>
-        <source>游玩时间未知</source>
-        <translation>遊玩時間未知</translation>
+        <source>共 %1 条</source>
+        <translation>共 %1 筆</translation>
     </message>
     <message>
-        <source>导随心得</source>
-        <translation>導隨心得</translation>
-    </message>
-    <message>
-        <source>未知副本</source>
-        <translation>未知副本</translation>
-    </message>
-    <message>
-        <source>未知职业</source>
-        <translation>未知職業</translation>
+        <source>导出于 %1</source>
+        <translation>匯出於 %1</translation>
     </message>
     <message>
         <source>Powered by 导随记录器</source>
@@ -7251,6 +7251,36 @@ SHA256：%3</translation>
     <message>
         <source>保存 PNG 图片</source>
         <translation>儲存 PNG 圖片</translation>
+    </message>
+</context>
+<context>
+    <name>ReflectionShareEntry</name>
+    <message>
+        <source>原站记录时间：%1 · 游玩时间未知</source>
+        <translation>原站記錄時間：%1 · 遊玩時間不明</translation>
+    </message>
+    <message>
+        <source>游玩时间未知</source>
+        <translation>遊玩時間不明</translation>
+    </message>
+    <message>
+        <source>未知副本</source>
+        <translation>未知副本</translation>
+    </message>
+    <message>
+        <source>时间未知</source>
+        <translation>時間不明</translation>
+    </message>
+    <message>
+        <source>未知职业</source>
+        <translation>未知職業</translation>
+    </message>
+</context>
+<context>
+    <name>ReflectionShareHeading</name>
+    <message>
+        <source>导随记录</source>
+        <translation>導隨記錄</translation>
     </message>
 </context>
 <context>
@@ -7407,10 +7437,6 @@ SHA256：%3</translation>
         <translation>本次更新</translation>
     </message>
     <message>
-        <source>版本 %1</source>
-        <translation>版本 %1</translation>
-    </message>
-    <message>
         <source>我知道了</source>
         <translation>我知道了</translation>
     </message>
@@ -7449,6 +7475,33 @@ SHA256：%3</translation>
     <message>
         <source>之后可以在 设置 › 关于 里再次查看。</source>
         <translation>之後可以在 設定 › 關於 裡再次查看。</translation>
+    </message>
+</context>
+<context>
+    <name>ReleaseNotesEntry</name>
+    <message>
+        <source>重点</source>
+        <translation>重點</translation>
+    </message>
+    <message>
+        <source>收起</source>
+        <translation>收合</translation>
+    </message>
+    <message>
+        <source>详细</source>
+        <translation>詳細</translation>
+    </message>
+    <message>
+        <source>收起完整说明</source>
+        <translation>收合完整說明</translation>
+    </message>
+    <message>
+        <source>展开完整说明</source>
+        <translation>展開完整說明</translation>
+    </message>
+    <message>
+        <source>去设置</source>
+        <translation>前往設定</translation>
     </message>
 </context>
 <context>
@@ -7557,14 +7610,6 @@ SHA256：%3</translation>
         <translation>來源</translation>
     </message>
     <message>
-        <source>计入进度</source>
-        <translation>計入進度</translation>
-    </message>
-    <message>
-        <source>是</source>
-        <translation>是</translation>
-    </message>
-    <message>
         <source>识别可信度</source>
         <translation>辨識可信度</translation>
     </message>
@@ -7617,8 +7662,20 @@ SHA256：%3</translation>
         <translation>手動修正</translation>
     </message>
     <message>
-        <source>确认</source>
-        <translation>確認</translation>
+        <source>成就计数设置</source>
+        <translation>成就計數設定</translation>
+    </message>
+    <message>
+        <source>开启</source>
+        <translation>開啟</translation>
+    </message>
+    <message>
+        <source>关闭</source>
+        <translation>關閉</translation>
+    </message>
+    <message>
+        <source>确认已复核</source>
+        <translation>確認已複核</translation>
     </message>
     <message>
         <source>恢复记录</source>
@@ -7627,6 +7684,10 @@ SHA256：%3</translation>
     <message>
         <source>删除记录</source>
         <translation>刪除記錄</translation>
+    </message>
+    <message>
+        <source>只有符合条件且未删除的通关记录，才会按成就计数设置计入进度。</source>
+        <translation>只有符合條件且未刪除的通關記錄，才會按成就計數設定計入進度。</translation>
     </message>
     <message>
         <source>备注</source>
@@ -7792,12 +7853,14 @@ SHA256：%3</translation>
         <translation>%1，%2</translation>
     </message>
     <message>
-        <source>这是指导者任务，计入成就进度</source>
-        <translation>這是指導者任務，計入成就進度</translation>
+        <source>计入导随成就进度</source>
+        <translation>計入導隨成就進度</translation>
     </message>
     <message>
-        <source>不是通过指导者任务进入的副本，请关闭此项</source>
-        <translation>不是透過指導者任務進入的副本，請關閉此項</translation>
+        <source>这里只补录指导者任务。
+关闭后不增加成就进度，仍计入次数、通关率等统计。</source>
+        <translation>這裡只補登指導者任務。
+關閉後不增加成就進度，仍計入次數、通關率等統計。</translation>
     </message>
     <message>
         <source>已通关，计入进度</source>
@@ -8176,8 +8239,8 @@ SHA256：%3</translation>
         <translation>檢查新版本並提示</translation>
     </message>
     <message>
-        <source>默认开启，每天最多自动联网检查一次，有新版本时在总览提示；关闭后「检查更新」也不可用，并会取消下载、删除已准备好的安装包。请求不含账号或设备身份信息。点「下载并安装」只下载安装包并校验，准备好后还需点「立即安装」启动安装。软件不会自行下载或安装新版本。</source>
-        <translation>預設開啟，每天最多自動連網檢查一次，有新版本時在總覽提示；關閉後「檢查更新」也無法使用，並會取消下載、刪除已準備好的安裝檔。請求不含帳號或裝置身分資訊。點「下載並安裝」只會下載安裝檔並驗證，準備好後還需點「立即安裝」啟動安裝。軟體不會自行下載或安裝新版本。</translation>
+        <source>默认开启，启动软件时及持续运行期间会定期检查更新，有新版本时在总览提示；关闭后「检查更新」也不可用，并会取消下载、删除已准备好的安装包。请求不含账号或设备身份信息。点「下载安装包」只下载安装包并校验，准备好后还需点「立即安装」启动安装。软件不会自行下载或安装新版本。</source>
+        <translation>預設開啟，啟動軟體時及持續執行期間會定期檢查更新，有新版本時在總覽提示；關閉後「檢查更新」也無法使用，並會取消下載、刪除已準備好的安裝程式。請求不含帳號或裝置身分資訊。點「下載安裝程式」只下載並驗證安裝程式，準備好後還需點「立即安裝」啟動安裝。軟體不會自行下載或安裝新版本。</translation>
     </message>
     <message>
         <source>最近检查：%1 · 最新版本 %2</source>
@@ -8534,6 +8597,10 @@ SHA256：%3</translation>
         <translation>使用者確認通關</translation>
     </message>
     <message>
+        <source>用户确认退出或放弃</source>
+        <translation>使用者確認退出或放棄</translation>
+    </message>
+    <message>
         <source>用户确认未通关</source>
         <translation>使用者確認未通關</translation>
     </message>
@@ -8672,12 +8739,12 @@ SHA256：%3</translation>
 <context>
     <name>mr::AppController</name>
     <message>
-        <source>Collector 已退出，已自动重启（第 %1 次，退避 %2 秒）</source>
-        <translation>Collector 已結束，已自動重新啟動（第 %1 次，延遲 %2 秒）</translation>
+        <source>后台服务已退出，已自动重启（第 %1 次）</source>
+        <translation>背景服務已結束，已自動重新啟動（第 %1 次）。</translation>
     </message>
     <message>
-        <source>Collector 无法启动：%1</source>
-        <translation>Collector 無法啟動：%1</translation>
+        <source>后台服务无法启动：%1</source>
+        <translation>背景服務無法啟動：%1</translation>
     </message>
     <message>
         <source>界面缩放已设为 %1%，重启后生效。</source>
@@ -9834,8 +9901,8 @@ SHA256：%3</translation>
         <translation>耗時</translation>
     </message>
     <message>
-        <source>计入进度</source>
-        <translation>計入進度</translation>
+        <source>成就计数设置</source>
+        <translation>成就計數設定</translation>
     </message>
     <message>
         <source>备注</source>
@@ -10664,10 +10731,6 @@ SHA256：%3</translation>
         <translation>PNG 圖片 (*.png)</translation>
     </message>
     <message>
-        <source>导随心得.%1</source>
-        <translation>導隨心得.%1</translation>
-    </message>
-    <message>
         <source>选择逐条 PNG 的保存文件夹</source>
         <translation>選擇逐則 PNG 的儲存資料夾</translation>
     </message>
@@ -10738,10 +10801,6 @@ SHA256：%3</translation>
     <message>
         <source>生成图片超时，未保存。请重试。</source>
         <translation>產生圖片逾時，未儲存。請重試。</translation>
-    </message>
-    <message>
-        <source>导随心得</source>
-        <translation>導隨心得</translation>
     </message>
     <message>
         <source>保存文件夹不存在，请重新选择。</source>
@@ -11388,8 +11447,8 @@ SHA256：%3</translation>
 <context>
     <name>mr::StatisticsController</name>
     <message>
-        <source>已记录次数</source>
-        <translation>已記錄次數</translation>
+        <source>尝试次数</source>
+        <translation>嘗試次數</translation>
     </message>
     <message>
         <source>完成次数</source>
@@ -11424,12 +11483,12 @@ SHA256：%3</translation>
         <translation>還沒讀取到你儲存的目標和起始次數，請稍後再儲存。</translation>
     </message>
     <message>
-        <source>基数已设为 %1 · 目标 %2 · 进度 %3 · 已重算</source>
-        <translation>基數已設為 %1 · 目標 %2 · 進度 %3 · 已重算</translation>
+        <source>起始次数已设为 %1 · 目标 %2 · 总进度 %3</source>
+        <translation>起始次數已設為 %1 · 目標 %2 · 總進度 %3</translation>
     </message>
     <message>
-        <source>基数已设为 %1 · 目标 %2 · 已保存</source>
-        <translation>基數已設為 %1 · 目標 %2 · 已儲存</translation>
+        <source>起始次数已设为 %1 · 目标 %2 · 已保存</source>
+        <translation>起始次數已設為 %1 · 目標 %2 · 已儲存</translation>
     </message>
 </context>
 <context>
@@ -11537,10 +11596,6 @@ SHA256：%3</translation>
         <translation>目前為 %1。點「下載新版本」以瀏覽器下載安裝檔，再自行執行安裝。</translation>
     </message>
     <message>
-        <source>当前 %1。点「下载并安装」只下载安装包并校验；准备好后，再点「立即安装」启动安装程序。</source>
-        <translation>目前為 %1。點「下載並安裝」只會下載安裝檔並驗證；準備好後，再點「立即安裝」啟動安裝程式。</translation>
-    </message>
-    <message>
         <source>后台服务未提供可用的发布页地址，无法打开更新说明。</source>
         <translation>背景服務未提供可用的發布頁面網址，無法開啟更新說明。</translation>
     </message>
@@ -11565,10 +11620,6 @@ SHA256：%3</translation>
         <translation>此電腦已停用更新檢查。</translation>
     </message>
     <message>
-        <source>有新版本 %1，可以点「下载并安装」。</source>
-        <translation>有新版本 %1，可以點「下載並安裝」。</translation>
-    </message>
-    <message>
         <source>有新版本 %1，可以点「下载新版本」下载。</source>
         <translation>有新版本 %1，可以點「下載新版本」下載。</translation>
     </message>
@@ -11587,10 +11638,6 @@ SHA256：%3</translation>
     <message>
         <source>下载新版本</source>
         <translation>下載新版本</translation>
-    </message>
-    <message>
-        <source>下载并安装</source>
-        <translation>下載並安裝</translation>
     </message>
     <message>
         <source>取消</source>
@@ -11665,12 +11712,24 @@ SHA256：%3</translation>
         <translation>正在導隨（已配對或已在副本中），現在安裝會中斷這次記錄。請在這次導隨結束後再點「立即安裝」。</translation>
     </message>
     <message>
+        <source>当前 %1。点「下载安装包」只下载安装包并校验；准备好后，再点「立即安装」启动安装程序。</source>
+        <translation>目前 %1。點「下載安裝程式」只下載並驗證安裝程式；準備好後，再點「立即安裝」啟動安裝程式。</translation>
+    </message>
+    <message>
         <source>已向浏览器发送新版本的安装包下载请求。请在浏览器中确认下载结果，下载后自行运行安装包。</source>
         <translation>已向瀏覽器傳送新版本安裝檔的下載請求。請在瀏覽器中確認下載結果，下載後自行執行安裝檔。</translation>
     </message>
     <message>
         <source>已向浏览器发送 %1 版的安装包下载请求。请在浏览器中确认下载结果，下载后自行运行安装包。</source>
         <translation>已向瀏覽器傳送 %1 版安裝檔的下載請求。請在瀏覽器中確認下載結果，下載後自行執行安裝檔。</translation>
+    </message>
+    <message>
+        <source>有新版本 %1，可以点「下载安装包」。</source>
+        <translation>有新版本 %1，可以點「下載安裝程式」。</translation>
+    </message>
+    <message>
+        <source>下载安装包</source>
+        <translation>下載安裝程式</translation>
     </message>
     <message>
         <source>安装包不在软件的下载目录中，没有启动安装程序。请点「在浏览器中下载」。</source>
@@ -11695,33 +11754,6 @@ SHA256：%3</translation>
     <message>
         <source>安装程序没有启动，可能是未通过 Windows 的安装确认。本软件继续运行，可再点「立即安装」，或点「在浏览器中下载」。</source>
         <translation>安裝程式沒有啟動，可能是未通過 Windows 的安裝確認。本軟體會繼續執行，可再點「立即安裝」，或點「在瀏覽器中下載」。</translation>
-    </message>
-</context>
-<context>
-    <name>ReleaseNotesEntry</name>
-    <message>
-        <source>重点</source>
-        <translation>重點</translation>
-    </message>
-    <message>
-        <source>收起</source>
-        <translation>收合</translation>
-    </message>
-    <message>
-        <source>详细</source>
-        <translation>詳細</translation>
-    </message>
-    <message>
-        <source>收起完整说明</source>
-        <translation>收合完整說明</translation>
-    </message>
-    <message>
-        <source>展开完整说明</source>
-        <translation>展開完整說明</translation>
-    </message>
-    <message>
-        <source>去设置</source>
-        <translation>前往設定</translation>
     </message>
 </context>
 </TS>

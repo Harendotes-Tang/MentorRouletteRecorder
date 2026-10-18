@@ -714,6 +714,7 @@ QtObject {
     readonly property var systemReasons: [
         QT_TRANSLATE_NOOP("SystemReason", "用户确认通关"),
         QT_TRANSLATE_NOOP("SystemReason", "用户确认未通关"),
+        QT_TRANSLATE_NOOP("SystemReason", "用户确认退出或放弃"),
         QT_TRANSLATE_NOOP("SystemReason", "补录本次导随职业"),
         QT_TRANSLATE_NOOP("SystemReason", "实际已通关，修正识别结果"),
         QT_TRANSLATE_NOOP("SystemReason", "补录遗漏的导随记录"),

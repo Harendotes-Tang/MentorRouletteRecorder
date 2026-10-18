@@ -118,10 +118,12 @@ Item {
             visible: !paper.fixedHeader
         }
         Text {
+            id: collectionTitle
             objectName: "reflectionShareCollectionTitle"
             visible: !card.single
             x: 84; y: 132 - baselineOffset; width: 610
             text: qsTr("导随记录"); textFormat: Text.PlainText
+            wrapMode: Text.Wrap
             color: "#2E2118"
             font { family: "Noto Serif SC"; pixelSize: 56; bold: true; letterSpacing: 8 }
         }
@@ -129,7 +131,10 @@ Item {
             id: shareHeading
             objectName: card.single ? "reflectionShareSingleHeading" : "reflectionShareCollectionMeta"
             single: card.single; gameIdentity: card.gameIdentity
-            x: card.single ? 84 : 86; y: (card.single ? 94 : 186) - textBaseline
+            x: card.single ? 84 : 86
+            y: !card.single && collectionTitle.lineCount > 1
+                ? Math.max(186 - textBaseline, collectionTitle.y + collectionTitle.height + 16)
+                : (card.single ? 94 : 186) - textBaseline
             width: card.single ? 716 : 726
             countLabel: card.single ? "" : qsTr("共 %1 条").arg(card.entries.length)
             dateOptions: {
@@ -177,11 +182,15 @@ Item {
         Item {
             id: footerLine
             objectName: "reflectionShareFooterLine"
+            readonly property bool stacked: card.showAttribution
+                && footerDate.width + footerSeparator.width + footerBrand.implicitWidth > 520
             x: (1140 - width) / 2; y: paper.height - 88
-            width: footerDate.width + (card.showAttribution ? footerSeparator.width + footerBrand.width : 0)
+            width: stacked ? Math.max(footerDate.width, footerBrand.width)
+                : footerDate.width + (card.showAttribution ? footerSeparator.width + footerBrand.width : 0)
             Text {
                 id: footerDate
                 objectName: "reflectionShareExportDate"
+                x: footerLine.stacked ? (footerLine.width - width) / 2 : 0
                 y: -baselineOffset; width: implicitWidth
                 text: qsTr("导出于 %1").arg(card.exportDate); textFormat: Text.PlainText
                 color: "#6E5A44"
@@ -191,14 +200,15 @@ Item {
                 id: footerSeparator
                 x: footerDate.width; y: -baselineOffset; width: implicitWidth + 28
                 text: "·"; horizontalAlignment: Text.AlignHCenter; color: "#6E5A44"; font: footerDate.font
-                visible: card.showAttribution
+                visible: card.showAttribution && !footerLine.stacked
             }
             Text {
                 id: footerBrand
                 objectName: "reflectionShareBrand"
-                x: footerDate.width + footerSeparator.width; y: -baselineOffset
-                width: Math.max(0, Math.min(implicitWidth, 520 - footerDate.width - footerSeparator.width))
-                text: qsTr("Powered by 导随记录器"); textFormat: Text.PlainText; elide: Text.ElideRight
+                x: footerLine.stacked ? (footerLine.width - width) / 2 : footerDate.width + footerSeparator.width
+                y: (footerLine.stacked ? 28 : 0) - baselineOffset
+                width: Math.min(implicitWidth, 520)
+                text: qsTr("Powered by 导随记录器"); textFormat: Text.PlainText; wrapMode: Text.Wrap
                 color: "#6E5A44"; font: footerDate.font
                 visible: card.showAttribution
             }

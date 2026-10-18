@@ -107,7 +107,7 @@ ColumnLayout {
                 objectName: "goalToggle"
                 checked: step.wizard.contributesToGoal
                 enabled: step.wizard.resultCode === "COMPLETED"
-                accessibleName: qsTr("这是指导者任务，计入成就进度")
+                accessibleName: qsTr("计入导随成就进度")
                 onToggled: function(value) { step.wizard.contributesToGoal = value }
             }
 
@@ -116,7 +116,7 @@ ColumnLayout {
                 spacing: 2
                 Text {
                     Layout.fillWidth: true
-                    text: qsTr("这是指导者任务，计入成就进度")
+                    text: qsTr("计入导随成就进度")
                     color: Theme.textPrimary
                     font.pixelSize: Theme.fs(13)
                     font.weight: Font.DemiBold
@@ -124,7 +124,7 @@ ColumnLayout {
                 }
                 Text {
                     Layout.fillWidth: true
-                    text: qsTr("不是通过指导者任务进入的副本，请关闭此项")
+                    text: qsTr("这里只补录指导者任务。\n关闭后不增加成就进度，仍计入次数、通关率等统计。")
                     color: Theme.textSecondary
                     font.pixelSize: Theme.fs(12)
                     wrapMode: Text.WordWrap

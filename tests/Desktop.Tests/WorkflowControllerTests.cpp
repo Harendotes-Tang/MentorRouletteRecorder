@@ -587,7 +587,7 @@ private Q_SLOTS:
         QVERIFY2(toasts.isEmpty(), qPrintable(toasts.join(QLatin1Char('\n'))));
         QCOMPARE(backend.count(QStringLiteral("GetDashboardStats")), 2);
         backend.last(QStringLiteral("GetDashboardStats")).reply->succeed(achievement(2000, 120, 131));
-        QCOMPARE(toasts, QStringList{QString::fromUtf8("基数已设为 120 · 目标 2000 · 进度 131 · 已重算")});
+        QCOMPARE(toasts, QStringList{QString::fromUtf8("起始次数已设为 120 · 目标 2000 · 总进度 131")});
 
         // The re-read fails: the save stands, and no figure is made up for it.
         toasts.clear();
@@ -596,7 +596,7 @@ private Q_SLOTS:
         QCOMPARE(backend.count(QStringLiteral("GetDashboardStats")), 3);
         backend.last(QStringLiteral("GetDashboardStats")).reply->fail(QStringLiteral("ERR_INTERNAL"),
                                                                       QStringLiteral("gone"));
-        QCOMPARE(toasts, QStringList{QString::fromUtf8("基数已设为 120 · 目标 1800 · 已保存")});
+        QCOMPARE(toasts, QStringList{QString::fromUtf8("起始次数已设为 120 · 目标 1800 · 已保存")});
     }
 
     // CS7-D3：第一份统计读回之前，目标与基数只是默认值；这时的保存会把基数写成 0。

@@ -1,10 +1,10 @@
 // ---------------------------------------------------------------------------
-// tst_updateinstall - 下载并安装 (docs/privacy-boundary.md §8.6), desktop half.
+// tst_updateinstall - 下载安装包 (docs/privacy-boundary.md §8.6), desktop half.
 //
 // What it pins:
 //   * a Collector without update.download, or one that refuses
 //     StartUpdateDownload as unknown, leaves 下载新版本 to the browser;
-//   * 下载并安装 sends StartUpdateDownload with {} and the maintainer tools'
+//   * 下载安装包 sends StartUpdateDownload with {} and the maintainer tools'
 //     重新下载最新正式版 sends {reinstall: true}; 取消 sends CancelUpdateDownload;
 //   * while the download is DOWNLOADING or VERIFYING the status is re-read through
 //     the application's own status read, and that stops when the state moves on,
@@ -23,7 +23,7 @@
 //     go of it, and a started one is let go of when the application quits;
 //   * a shipping (IPC) build hands the file to the shell, a mock run starts
 //     nothing - both as the library composes them, not as a test replaces them;
-//   * a 下载并安装 / 重试 the Collector answers with the download unchanged
+//   * a 下载安装包 / 重试 the Collector answers with the download unchanged
 //     (it starts at most one every few seconds) says so, without an error;
 //   * a refusal shows a player its sentence only and a maintainer the code too;
 //   * the mock backend simulates the whole download offline, and the three
@@ -501,7 +501,7 @@ private Q_SLOTS:
         auto *update = scene.update();
         QTRY_VERIFY(update->downloadSupported());
         QCOMPARE(update->downloadPhase(), QStringLiteral("offer"));
-        QCOMPARE(update->downloadActionText(), QString::fromUtf8("下载并安装"));
+        QCOMPARE(update->downloadActionText(), QString::fromUtf8("下载安装包"));
         QVERIFY(update->downloadActionEnabled());
 
         scene.backend->startAnswer = updateStatus(download(QStringLiteral("DOWNLOADING"),
@@ -1173,7 +1173,7 @@ private Q_SLOTS:
         QTRY_COMPARE(update->downloadPhase(), QStringLiteral("offer"));
         QCOMPARE(backend.cancelUpdateDownloadCount(), 1);
 
-        // Nothing newer known: 下载并安装 is not offered, and the maintainer's
+        // Nothing newer known: 下载安装包 is not offered, and the maintainer's
         // reinstall is answered NO_UPDATE, with a sentence for the player.
         backend.setUpdateAvailable(false);
         app.refreshStatus();
@@ -1210,7 +1210,7 @@ private Q_SLOTS:
         QVERIFY(scene.open(QStringLiteral("DashboardPage")));
         QTRY_VERIFY(scene.shows(QStringLiteral("updateNotice")));
         QTRY_COMPARE(scene.textOf(QStringLiteral("downloadInstallerButton")),
-                     QString::fromUtf8("下载并安装"));
+                     QString::fromUtf8("下载安装包"));
         QVERIFY(scene.press(QStringLiteral("downloadInstallerButton")));
         QTRY_COMPARE(scene.textOf(QStringLiteral("downloadInstallerButton")),
                      QString::fromUtf8("立即安装"));
@@ -1250,7 +1250,7 @@ private Q_SLOTS:
                     .contains(QStringLiteral("45%")));
         QVERIFY(scene.press(QStringLiteral("checkUpdateNowButton")));
         QTRY_COMPARE(scene.textOf(QStringLiteral("checkUpdateNowButton")),
-                     QString::fromUtf8("下载并安装"));
+                     QString::fromUtf8("下载安装包"));
         QCOMPARE(scene.backend->cancelUpdateDownloadCount(), 1);
         QVERIFY(!scene.shows(QStringLiteral("settingsUpdateDownloadProgress")));
     }

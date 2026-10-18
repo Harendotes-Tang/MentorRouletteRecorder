@@ -73,7 +73,7 @@ Card {
         objectName: "offlineReplayRow"
         visible: tools.maintainer
         label: qsTr("离线回放测试样本")
-        description: qsTr("用采集器的 --replay 命令行，幂等、不产生新记录")
+        description: qsTr("使用 --replay 回放样本；默认写入独立临时数据库，重复回放同一样本不会重复新增。")
         showDivider: tools.warnings.length > 0
     }
 

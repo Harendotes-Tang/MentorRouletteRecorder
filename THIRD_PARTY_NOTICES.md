@@ -137,14 +137,16 @@ SharpPcap 与 PacketDotNet 使用未经修改的 NuGet 二进制。许可证全�
 
 ### 内置字体（SIL Open Font License 1.1）
 
-两款字体原样编入 `MentorRecorder.Desktop.exe` 的 Qt 资源，各自的许可证全文一并编入
-（`:/resources/fonts/OFL.txt`、`:/resources/fonts/IBMPlexMono-OFL.txt`），源文件位于
+四款字体原样编入 `MentorRecorder.Desktop.exe` 的 Qt 资源，各自的许可证全文一并编入
+（Cinzel、IBM Plex Mono、Noto Serif SC、Noto Sans SC 的 OFL 文本），源文件位于
 `src/Desktop/resources/fonts/`。逐项说明见 [`docs/third-party-licenses.md`](docs/third-party-licenses.md) §3.2–3.3。
 
 | 字体 | 字重 | 版权 | 许可证全文 | 来源 |
 |---|---|---|---|---|
 | Cinzel | Regular、Bold | Copyright 2020 The Cinzel Project Authors | `src/Desktop/resources/fonts/OFL.txt` | https://github.com/NDISCOVER/Cinzel |
 | IBM Plex Mono 2.005 | Medium、SemiBold | Copyright © 2017 IBM Corp. with Reserved Font Name "Plex" | `src/Desktop/resources/fonts/IBMPlexMono-OFL.txt` | https://github.com/IBM/plex（`@ibm/plex-mono@2.5.0`） |
+| Noto Serif SC 2.003 | Regular、Bold | © 2017-2024 Adobe | `src/Desktop/resources/fonts/NotoSerifSC-OFL.txt` | https://github.com/notofonts/noto-cjk（固定提交和 SHA256 见字体目录 README） |
+| Noto Sans SC 2.004 | Regular | © 2014-2021 Adobe | `src/Desktop/resources/fonts/NotoSansSC-OFL.txt` | 同上 |
 
 ---
 

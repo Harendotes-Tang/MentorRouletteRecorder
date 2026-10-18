@@ -149,7 +149,7 @@ Rectangle {
                       v: root.showRawTokens
                          ? (runData.source || "AUTO_NETWORK")
                          : Fmt.sourceLabel(runData.source || "AUTO_NETWORK") })
-        fields.push({ k: qsTr("计入进度"), v: runData.contributes_to_goal ? qsTr("是") : qsTr("否") })
+        fields.push({ k: qsTr("成就计数设置"), v: runData.contributes_to_goal ? qsTr("开启") : qsTr("关闭") })
         fields.push({ k: qsTr("识别可信度"),
                       v: root.showRawTokens
                          ? (runData.detection_confidence || Fmt.dash())
@@ -349,7 +349,8 @@ Rectangle {
         Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.border }
 
         // ------------------------------------------------------- actions --
-        RowLayout {
+        Flow {
+            objectName: "runDetailActions"
             Layout.fillWidth: true
             Layout.margins: 16
             spacing: 8
@@ -364,7 +365,7 @@ Rectangle {
                 objectName: "confirmReviewButton"
                 visible: root.pendingReview
                 variant: "primary"
-                text: qsTr("确认")
+                text: qsTr("确认已复核")
                 onClicked: root.reviewRequested()
             }
 
@@ -380,7 +381,6 @@ Rectangle {
                 onClicked: root.deleteRequested()
             }
 
-            Item { Layout.fillWidth: true }
         }
     }
 
@@ -473,6 +473,17 @@ Rectangle {
                         }
                     }
                 }
+            }
+
+            Text {
+                Layout.fillWidth: true
+                Layout.leftMargin: 16
+                Layout.rightMargin: 16
+                text: qsTr("只有符合条件且未删除的通关记录，才会按成就计数设置计入进度。")
+                textFormat: Text.PlainText
+                color: Theme.textSecondary
+                font.pixelSize: Theme.fs(11)
+                wrapMode: Text.WordWrap
             }
 
             // 备注: the text (edited through 手动修正) and the images, which are

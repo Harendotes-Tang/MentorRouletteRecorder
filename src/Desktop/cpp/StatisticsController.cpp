@@ -286,7 +286,7 @@ QVariantList StatisticsController::statCards() const
     return {
         // Counts only what this software recorded; the 已有基数 typed in by hand is not in it,
         // so the card must not read as a lifetime total.
-        statCard(tr("已记录次数"),
+        statCard(tr("尝试次数"),
                  QString::number(m_dashboard.value(QStringLiteral("attempt_count")).toInt())),
         statCard(tr("完成次数"),
                  QString::number(m_dashboard.value(QStringLiteral("completed_count")).toInt())),
@@ -388,12 +388,12 @@ void StatisticsController::updateAchievementBaseline(int goal, int baseline, con
                     m_dashboard.value(QStringLiteral("achievement_progress"));
                 if (reread && progress.isDouble()) {
                     Q_EMIT toastRequested(
-                        tr("基数已设为 %1 · 目标 %2 · 进度 %3 · 已重算")
+                        tr("起始次数已设为 %1 · 目标 %2 · 总进度 %3")
                             .arg(savedBaseline)
                             .arg(savedGoal)
                             .arg(progress.toInt()));
                 } else {
-                    Q_EMIT toastRequested(tr("基数已设为 %1 · 目标 %2 · 已保存")
+                    Q_EMIT toastRequested(tr("起始次数已设为 %1 · 目标 %2 · 已保存")
                                               .arg(savedBaseline)
                                               .arg(savedGoal));
                 }

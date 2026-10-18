@@ -66,24 +66,25 @@ Item {
         return firstLineCenter - item.baselineOffset - ink.y - ink.height / 2
     }
 
-    // 用相同字体对象度量并绘制，字距不随缩略策略估算。
-    TextMetrics { id: prefixMetrics; text: qsTr("导随记录"); font: prefix.font }
-    TextMetrics { id: nameMetrics; text: heading.characterName; font: nameFont.font }
+    // 度量与文字使用相同字体和渲染方式，字距不随缩略策略估算。
+    TextMetrics { id: prefixMetrics; text: qsTr("导随记录"); font: prefix.font; renderType: prefix.renderType }
+    TextMetrics { id: nameMetrics; text: heading.characterName; font: nameFont.font; renderType: name.renderType }
     TextMetrics { id: nameElideMetrics; text: heading.characterName; font: nameFont.font
-        elide: Text.ElideRight; elideWidth: heading.nameWidth }
-    TextMetrics { id: nameInkMetrics; text: nameElideMetrics.elidedText.split("\n")[0]; font: nameFont.font }
-    TextMetrics { id: worldMetrics; text: heading.serverName; font: world.font }
-    TextMetrics { id: worldInkMetrics; text: heading.serverName.split("\n")[0]; font: world.font }
-    TextMetrics { id: countMetrics; text: heading.countLabel; font: count.font }
-    TextMetrics { id: dateMetrics; text: heading.dateLabel; font: date.font }
-    TextMetrics { id: dateInkMetrics; text: heading.dateLabel.split("\n")[0]; font: date.font }
+        elide: Text.ElideRight; elideWidth: heading.nameWidth; renderType: name.renderType }
+    TextMetrics { id: nameInkMetrics; text: nameElideMetrics.elidedText.split("\n")[0]; font: nameFont.font; renderType: name.renderType }
+    TextMetrics { id: worldMetrics; text: heading.serverName; font: world.font; renderType: world.renderType }
+    TextMetrics { id: worldInkMetrics; text: heading.serverName.split("\n")[0]; font: world.font; renderType: world.renderType }
+    TextMetrics { id: countMetrics; text: heading.countLabel; font: count.font; renderType: count.renderType }
+    TextMetrics { id: dateMetrics; text: heading.dateLabel; font: date.font; renderType: date.renderType }
+    TextMetrics { id: dateInkMetrics; text: heading.dateLabel.split("\n")[0]; font: date.font; renderType: date.renderType }
     FontMetrics { id: dateFontMetrics; font: date.font }
-    TextMetrics { id: separatorMetrics; text: "·"; font: date.font }
+    TextMetrics { id: separatorMetrics; text: "·"; font: date.font; renderType: date.renderType }
+    // 题头不做像素网格校正，避免不同字号的 hinting 拉开墨迹中心。
     // 不参与布局，仅提供角色名的统一字体。
     Text {
         id: nameFont
         visible: false
-        font { family: "Noto Serif SC"; pixelSize: heading.single ? 22 : 24; bold: true; letterSpacing: heading.single ? 1 : 1.5 }
+        font { family: "Noto Serif SC"; pixelSize: heading.single ? 22 : 24; bold: true; letterSpacing: heading.single ? 1 : 1.5; hintingPreference: Font.PreferNoHinting }
     }
     Row {
         id: row
@@ -94,7 +95,7 @@ Item {
             width: heading.prefixWidth
             y: heading.centeredTextY(prefix, prefixMetrics)
             text: qsTr("导随记录"); textFormat: Text.PlainText; color: "#45342A"
-            font { family: "Noto Serif SC"; pixelSize: 24; bold: true; letterSpacing: 6 }
+            font { family: "Noto Serif SC"; pixelSize: 24; bold: true; letterSpacing: 6; hintingPreference: Font.PreferNoHinting }
         }
         Text {
             id: prefixSeparator
@@ -123,7 +124,7 @@ Item {
                 width: heading.worldWidth; visible: heading.serverName.length > 0
                 text: heading.serverName; textFormat: Text.PlainText; wrapMode: Text.WrapAnywhere
                 color: "#6E5A44"
-                font { family: "Noto Serif SC"; pixelSize: heading.single ? 20 : 22; letterSpacing: 1 }
+                font { family: "Noto Serif SC"; pixelSize: heading.single ? 20 : 22; letterSpacing: 1; hintingPreference: Font.PreferNoHinting }
                 lineHeightMode: Text.FixedHeight; lineHeight: 30
             }
         }
@@ -154,7 +155,7 @@ Item {
             y: heading.centeredTextY(date, dateInkMetrics); width: heading.dateWidth
             text: heading.dateLabel; textFormat: Text.PlainText; wrapMode: Text.Wrap
             color: "#6E5A44"
-            font { family: "Noto Serif SC"; pixelSize: heading.single ? 22 : 24; letterSpacing: heading.single ? 1 : 1.5 }
+            font { family: "Noto Serif SC"; pixelSize: heading.single ? 22 : 24; letterSpacing: heading.single ? 1 : 1.5; hintingPreference: Font.PreferNoHinting }
             lineHeightMode: Text.FixedHeight; lineHeight: 30
         }
     }

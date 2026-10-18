@@ -455,8 +455,8 @@
         <translation>Zone change (enter / leave / teleport / login)</translation>
     </message>
     <message>
-        <source>排本窗口采样</source>
-        <translation>Queue window sample</translation>
+        <source>排队期间的报文采样</source>
+        <translation>Queue-period packet samples</translation>
     </message>
     <message>
         <source>副本内采样（用于定位通关报文）</source>
@@ -1765,8 +1765,8 @@ Turn on candidate validation on the Capture diagnostics page, start this app bef
         <translation>Offline replay test samples</translation>
     </message>
     <message>
-        <source>用采集器的 --replay 命令行，幂等、不产生新记录</source>
-        <translation>Uses the Collector&apos;s --replay command line; idempotent, creates no new records</translation>
+        <source>使用 --replay 回放样本；默认写入独立临时数据库，重复回放同一样本不会重复新增。</source>
+        <translation>Use --replay to replay samples. By default, records are written to a separate temporary database; replaying the same sample again does not add duplicates.</translation>
     </message>
     <message>
         <source>后台服务提示</source>
@@ -2505,16 +2505,6 @@ SHA256: %3</translation>
         <translation>Npcap is available. Capture is read-only throughout and never sends any packets.</translation>
     </message>
     <message>
-        <source>当前 Machina 版本与 Oodle 签名档案接线不兼容，抓包未开始。 请运行 tools/oodle-signature-finder 重新生成并核验签名档案。</source>
-        <comment>capture.oodle.machina_incompatible</comment>
-        <translation>The current Machina version is incompatible with the Oodle signature profile wiring, so capture didn&apos;t start. Run tools/oodle-signature-finder to regenerate and verify the signature profile.</translation>
-    </message>
-    <message>
-        <source>上次 Oodle 资源尚未释放，抓包未开始。 请运行 tools/oodle-signature-finder 重新生成并核验签名档案。</source>
-        <comment>capture.oodle.previous_not_released</comment>
-        <translation>The previous Oodle resources haven&apos;t been released yet, so capture didn&apos;t start. Run tools/oodle-signature-finder to regenerate and verify the signature profile.</translation>
-    </message>
-    <message>
         <source>匹配的 Oodle 签名档案无法加载，抓包未开始。 请运行 tools/oodle-signature-finder 重新生成并核验签名档案。</source>
         <comment>capture.oodle.profile_load_failed</comment>
         <translation>The matching Oodle signature profile can&apos;t be loaded, so capture didn&apos;t start. Run tools/oodle-signature-finder to regenerate and verify the signature profile.</translation>
@@ -2882,11 +2872,6 @@ SHA256: %3</translation>
         <translation>The export path can&apos;t be empty.</translation>
     </message>
     <message>
-        <source>目标文件已存在。请更换文件名，或勾选「覆盖」后重试。</source>
-        <comment>export.path.exists</comment>
-        <translation>The target file already exists. Change the file name, or check “Overwrite” and try again.</translation>
-    </message>
-    <message>
         <source>导出路径不是合法的本地路径。</source>
         <comment>export.path.invalid</comment>
         <translation>The export path isn&apos;t a valid local path.</translation>
@@ -2969,9 +2954,24 @@ SHA256: %3</translation>
         <translation>The same request_id was used for requests with different content, so it was refused to avoid an ambiguous result.</translation>
     </message>
     <message>
-        <source>该请求编号已经执行过，但可重放的结果已超出保留期，请用新的请求编号重试。</source>
+        <source>自动记录组件不兼容，本次监听未开始。请更新或重新安装完整的软件；仍失败时导出诊断报告。</source>
+        <comment>capture.oodle.machina_incompatible</comment>
+        <translation>Automatic recording components are incompatible, so monitoring has not started. Update or reinstall the complete app. If it still fails, export a diagnostic report.</translation>
+    </message>
+    <message>
+        <source>上次自动记录尚未完全停止，本次监听未开始。请稍后重试；仍失败时重启软件并导出诊断报告。</source>
+        <comment>capture.oodle.previous_not_released</comment>
+        <translation>The previous recording session has not fully stopped, so monitoring has not started. Try again shortly. If it still fails, restart the app and export a diagnostic report.</translation>
+    </message>
+    <message>
+        <source>目标文件已存在，请更换文件名或保存位置后重试。</source>
+        <comment>export.path.exists</comment>
+        <translation>The target file already exists. Choose another filename or save location and try again.</translation>
+    </message>
+    <message>
+        <source>该操作此前已执行，但原结果已超出保留期。请先刷新并核对历史记录，确认是否还需要重新操作。</source>
         <comment>idempotency.response_expired</comment>
-        <translation>This request ID has already been processed, but its replayable result is past the retention period. Retry with a new request ID.</translation>
+        <translation>This operation was already completed, but its saved response has expired. Refresh and check your history before deciding whether another operation is needed.</translation>
     </message>
     <message>
         <source>备份中的记录来源信息不完整，请重新创建备份后重试。</source>
@@ -3232,7 +3232,7 @@ SHA256: %3</translation>
     <message>
         <source>这条记录没有可读取的内容。请在「列映射」中指定列名，或补充副本、职业、时间、心得或备注中的至少一项。</source>
         <comment>import.row.empty</comment>
-        <translation>This record has no readable content. Name the columns in “Column mapping”, or add at least one of duty, job, time, note or record note.</translation>
+        <translation>This record has no readable content. Name the columns in “Column mapping”, or add at least one of duty, job, time, run notes or remarks.</translation>
     </message>
     <message>
         <source>{field} 不是支持范围内的非负整数。请检查数值；耗时须换算为毫秒，不能直接填写含冒号的时长。</source>
@@ -4724,8 +4724,8 @@ SHA256: %3</translation>
         <translation>Cleared</translation>
     </message>
     <message>
-        <source>未通关</source>
-        <translation>Not cleared</translation>
+        <source>退出 / 放弃</source>
+        <translation>Left / abandoned</translation>
     </message>
     <message>
         <source>去复核</source>
@@ -5046,8 +5046,8 @@ SHA256: %3</translation>
         <translation>Online use 3: checking for updates, and downloading a new version when you ask</translation>
     </message>
     <message>
-        <source>默认每天最多自动联网检查一次，从本项目公开发布页读取版本信息，有新版本时在总览提示。也可点「检查更新」主动检查。点「下载并安装」只下载安装包，并核对发布时公布的校验值；通过后还需点「立即安装」启动安装程序，本软件随后关闭，由安装程序完成更新。请求不含账号、安装编号或设备身份信息，发布平台及其下载服务能看到你的 IP 地址。软件不会自行下载或安装。可在「设置 → 通用 → 更新」关闭「检查新版本并提示」，关闭后「检查更新」也不可用，正在进行的下载会取消，已准备好的安装包会删除。</source>
-        <translation>By default, the app checks online at most once a day, reading version information from this project&apos;s public release page, and shows a notice on Overview when a new version is out. You can also click “Check for updates” to check yourself. “Download and install” only downloads the installer and verifies the checksum published with the release; once that passes, you still click “Install now” to start the installer, after which this app closes and the installer completes the update. Requests contain no account, install ID or device identity; the release platform and its download service can see your IP address. The app never downloads or installs anything on its own. You can turn off “Check for new versions and notify me” in “Settings → General → Updates”; with it off, “Check for updates” is unavailable too, any download in progress is canceled and a prepared installer is deleted.</translation>
+        <source>默认在启动软件时及持续运行期间定期检查更新，从本项目公开发布页读取版本信息，有新版本时在总览提示。也可点「检查更新」主动检查。点「下载安装包」只下载安装包，并核对发布时公布的校验值；通过后还需点「立即安装」启动安装程序，本软件随后关闭，由安装程序完成更新。请求不含账号、安装编号或设备身份信息，发布平台及其下载服务能看到你的 IP 地址。软件不会自行下载或安装。可在「设置 → 通用 → 更新」关闭「检查新版本并提示」，关闭后「检查更新」也不可用，正在进行的下载会取消，已准备好的安装包会删除。</source>
+        <translation>By default, the app checks for updates at startup and periodically while running. It reads version information from this project’s public release page and shows new versions on Overview. You can also click “Check for updates”. “Download installer” only downloads the installer and verifies the published checksum. Once ready, click “Install now” to launch it; this app then closes and the installer completes the update. Requests contain no account, installation ID or device identity. The release platform and download services can see your IP address. The app does not download or install updates on its own. Turn off “Check for new versions and notify me” in Settings → General → Updates to disable checks, cancel any download and remove the prepared installer.</translation>
     </message>
     <message>
         <source>运行顺序</source>
@@ -5616,7 +5616,7 @@ SHA256: %3</translation>
     </message>
     <message>
         <source>搜索 副本 / 职业 / 备注</source>
-        <translation>Search duty / job / note</translation>
+        <translation>Search duty / job / remarks</translation>
     </message>
     <message>
         <source>历史日期范围</source>
@@ -6255,20 +6255,28 @@ The image text was read as “%2”; confirm against the original image.</transl
         <translation>Add the actual play time, if known</translation>
     </message>
     <message>
-        <source>匹配时间 UTC</source>
-        <translation>Matched at (UTC)</translation>
+        <source>匹配时间</source>
+        <translation>Matched at</translation>
     </message>
     <message>
-        <source>进本时间 UTC</source>
-        <translation>Entered at (UTC)</translation>
+        <source>例如 2026-10-08 18:00</source>
+        <translation>e.g. 2026-10-08 18:00</translation>
+    </message>
+    <message>
+        <source>进本时间</source>
+        <translation>Entered at</translation>
+    </message>
+    <message>
+        <source>结束时间</source>
+        <translation>Ended at</translation>
+    </message>
+    <message>
+        <source>未标注时区的时间按所选地区读取；也可填写带 Z 或 +08:00 的时间，例如 2026-10-08T18:00:00+08:00。不知道的时间可以留空。</source>
+        <translation>Times without a timezone use the selected region. You can also include Z or an offset such as +08:00, for example 2026-10-08T18:00:00+08:00. Leave unknown times blank.</translation>
     </message>
     <message>
         <source>未知可留空</source>
         <translation>Leave blank if unknown</translation>
-    </message>
-    <message>
-        <source>结束时间 UTC</source>
-        <translation>Ended at (UTC)</translation>
     </message>
     <message>
         <source>耗时（毫秒）</source>
@@ -6527,8 +6535,12 @@ The image text was read as “%2”; confirm against the original image.</transl
         <translation>Couldn&apos;t load job stats, so there are no results below: %1</translation>
     </message>
     <message>
-        <source>职业占比</source>
+        <source>职能占比</source>
         <translation>Role share</translation>
+    </message>
+    <message>
+        <source>职能</source>
+        <translation>Role</translation>
     </message>
     <message>
         <source>未知</source>
@@ -6541,10 +6553,6 @@ The image text was read as “%2”; confirm against the original image.</transl
     <message>
         <source>职业</source>
         <translation>Job</translation>
-    </message>
-    <message>
-        <source>角色</source>
-        <translation>Role</translation>
     </message>
     <message>
         <source>次数</source>
@@ -7047,8 +7055,8 @@ Recorder</translation>
         <translation>Cleared</translation>
     </message>
     <message>
-        <source>未通关 / 中途离开</source>
-        <translation>Not cleared / left midway</translation>
+        <source>退出 / 放弃</source>
+        <translation>Left / abandoned</translation>
     </message>
     <message>
         <source>稍后再说</source>
@@ -7134,28 +7142,20 @@ Recorder</translation>
 <context>
     <name>ReflectionShareCard</name>
     <message>
-        <source>游玩时间：%1</source>
-        <translation>Played: %1</translation>
+        <source>%1 条游玩时间未知</source>
+        <translation>%1 with unknown play time</translation>
     </message>
     <message>
-        <source>原站记录时间：%1 · 游玩时间未知</source>
-        <translation>Source timestamp: %1 · play time unknown</translation>
+        <source>导随记录</source>
+        <translation>Mentor Roulette Records</translation>
     </message>
     <message>
-        <source>游玩时间未知</source>
-        <translation>Play time unknown</translation>
+        <source>共 %1 条</source>
+        <translation>Records: %1</translation>
     </message>
     <message>
-        <source>导随心得</source>
-        <translation>Mentor run notes</translation>
-    </message>
-    <message>
-        <source>未知副本</source>
-        <translation>Unknown duty</translation>
-    </message>
-    <message>
-        <source>未知职业</source>
-        <translation>Unknown job</translation>
+        <source>导出于 %1</source>
+        <translation>Exported on %1</translation>
     </message>
     <message>
         <source>Powered by 导随记录器</source>
@@ -7254,6 +7254,36 @@ Recorder</translation>
     </message>
 </context>
 <context>
+    <name>ReflectionShareEntry</name>
+    <message>
+        <source>原站记录时间：%1 · 游玩时间未知</source>
+        <translation>Source timestamp: %1 · play time unknown</translation>
+    </message>
+    <message>
+        <source>游玩时间未知</source>
+        <translation>Play time unknown</translation>
+    </message>
+    <message>
+        <source>未知副本</source>
+        <translation>Unknown duty</translation>
+    </message>
+    <message>
+        <source>时间未知</source>
+        <translation>Time unknown</translation>
+    </message>
+    <message>
+        <source>未知职业</source>
+        <translation>Unknown job</translation>
+    </message>
+</context>
+<context>
+    <name>ReflectionShareHeading</name>
+    <message>
+        <source>导随记录</source>
+        <translation>Mentor Roulette Records</translation>
+    </message>
+</context>
+<context>
     <name>ReflectionsPage</name>
     <message>
         <source>原站记录时间：%1</source>
@@ -7293,7 +7323,7 @@ Recorder</translation>
     </message>
     <message>
         <source>搜索副本 / 职业 / 记录备注</source>
-        <translation>Search duty / job / record note</translation>
+        <translation>Search duty / job / record remarks</translation>
     </message>
     <message>
         <source>全部职业</source>
@@ -7407,10 +7437,6 @@ Recorder</translation>
         <translation>What&apos;s new</translation>
     </message>
     <message>
-        <source>版本 %1</source>
-        <translation>Version %1</translation>
-    </message>
-    <message>
         <source>我知道了</source>
         <translation>Got it</translation>
     </message>
@@ -7449,6 +7475,33 @@ Recorder</translation>
     <message>
         <source>之后可以在 设置 › 关于 里再次查看。</source>
         <translation>You can view this again in Settings › About.</translation>
+    </message>
+</context>
+<context>
+    <name>ReleaseNotesEntry</name>
+    <message>
+        <source>重点</source>
+        <translation>Highlight</translation>
+    </message>
+    <message>
+        <source>收起</source>
+        <translation>Collapse</translation>
+    </message>
+    <message>
+        <source>详细</source>
+        <translation>Details</translation>
+    </message>
+    <message>
+        <source>收起完整说明</source>
+        <translation>Collapse full details</translation>
+    </message>
+    <message>
+        <source>展开完整说明</source>
+        <translation>Expand full details</translation>
+    </message>
+    <message>
+        <source>去设置</source>
+        <translation>Go to settings</translation>
     </message>
 </context>
 <context>
@@ -7557,14 +7610,6 @@ Recorder</translation>
         <translation>Source</translation>
     </message>
     <message>
-        <source>计入进度</source>
-        <translation>Counts toward progress</translation>
-    </message>
-    <message>
-        <source>是</source>
-        <translation>Yes</translation>
-    </message>
-    <message>
         <source>识别可信度</source>
         <translation>Detection confidence</translation>
     </message>
@@ -7617,8 +7662,20 @@ Recorder</translation>
         <translation>Correct manually</translation>
     </message>
     <message>
-        <source>确认</source>
-        <translation>Confirm</translation>
+        <source>成就计数设置</source>
+        <translation>Achievement counting</translation>
+    </message>
+    <message>
+        <source>开启</source>
+        <translation>On</translation>
+    </message>
+    <message>
+        <source>关闭</source>
+        <translation>Off</translation>
+    </message>
+    <message>
+        <source>确认已复核</source>
+        <translation>Mark as reviewed</translation>
     </message>
     <message>
         <source>恢复记录</source>
@@ -7629,8 +7686,12 @@ Recorder</translation>
         <translation>Delete record</translation>
     </message>
     <message>
+        <source>只有符合条件且未删除的通关记录，才会按成就计数设置计入进度。</source>
+        <translation>Only eligible, undeleted clears count toward progress when achievement counting is on.</translation>
+    </message>
+    <message>
         <source>备注</source>
-        <translation>Note</translation>
+        <translation>Remarks</translation>
     </message>
     <message>
         <source>原始事件摘要</source>
@@ -7792,12 +7853,14 @@ Recorder</translation>
         <translation>%1, %2</translation>
     </message>
     <message>
-        <source>这是指导者任务，计入成就进度</source>
-        <translation>This was Mentor Roulette — count toward the achievement</translation>
+        <source>计入导随成就进度</source>
+        <translation>Count toward mentor achievement progress</translation>
     </message>
     <message>
-        <source>不是通过指导者任务进入的副本，请关闭此项</source>
-        <translation>Turn this off for duties not entered via Mentor Roulette</translation>
+        <source>这里只补录指导者任务。
+关闭后不增加成就进度，仍计入次数、通关率等统计。</source>
+        <translation>Only add Mentor Roulette runs here.
+Turning this off excludes the clear from achievement progress, but the run still contributes to counts, clear rates and other statistics.</translation>
     </message>
     <message>
         <source>已通关，计入进度</source>
@@ -7852,7 +7915,7 @@ Recorder</translation>
     </message>
     <message>
         <source>还没填进本时间。记得就填在上面；不记得可点「估算进本」，按匹配时间填写并自动加备注。这类记录不计入平均耗时。</source>
-        <translation>No entry time yet. If you remember it, enter it above; if not, click “Estimate entry” to use the match time and add a note automatically. Such records are left out of the average duration.</translation>
+        <translation>No entry time yet. If you remember it, enter it above; if not, click “Estimate entry” to use the match time and add explanatory remarks automatically. Such records are left out of the average duration.</translation>
     </message>
     <message>
         <source>估算进本</source>
@@ -7868,7 +7931,7 @@ Recorder</translation>
     </message>
     <message>
         <source>备注</source>
-        <translation>Note</translation>
+        <translation>Remarks</translation>
     </message>
     <message>
         <source>例如：程序未运行时手动补录</source>
@@ -8176,8 +8239,8 @@ Recorder</translation>
         <translation>Check for new versions and notify me</translation>
     </message>
     <message>
-        <source>默认开启，每天最多自动联网检查一次，有新版本时在总览提示；关闭后「检查更新」也不可用，并会取消下载、删除已准备好的安装包。请求不含账号或设备身份信息。点「下载并安装」只下载安装包并校验，准备好后还需点「立即安装」启动安装。软件不会自行下载或安装新版本。</source>
-        <translation>On by default. Checks online at most once a day and shows a notice on Overview when a new version is out. With it off, “Check for updates” is unavailable too, downloads are canceled and a prepared installer is deleted. Requests contain no account or device identity. “Download and install” only downloads and verifies the installer; once it&apos;s ready, click “Install now” to start installing. The app never downloads or installs a new version on its own.</translation>
+        <source>默认开启，启动软件时及持续运行期间会定期检查更新，有新版本时在总览提示；关闭后「检查更新」也不可用，并会取消下载、删除已准备好的安装包。请求不含账号或设备身份信息。点「下载安装包」只下载安装包并校验，准备好后还需点「立即安装」启动安装。软件不会自行下载或安装新版本。</source>
+        <translation>On by default. Checks at startup and periodically while running; new versions appear on Overview. Turning this off also disables “Check for updates”, cancels downloads and removes the prepared installer. Requests contain no account or device identity. “Download installer” only downloads and verifies the installer; click “Install now” once ready to launch it. The app does not download or install new versions on its own.</translation>
     </message>
     <message>
         <source>最近检查：%1 · 最新版本 %2</source>
@@ -8534,6 +8597,10 @@ Recorder</translation>
         <translation>Confirmed as cleared by user</translation>
     </message>
     <message>
+        <source>用户确认退出或放弃</source>
+        <translation>User confirmed leaving or abandoning</translation>
+    </message>
+    <message>
         <source>用户确认未通关</source>
         <translation>Confirmed as not cleared by user</translation>
     </message>
@@ -8672,12 +8739,12 @@ Recorder</translation>
 <context>
     <name>mr::AppController</name>
     <message>
-        <source>Collector 已退出，已自动重启（第 %1 次，退避 %2 秒）</source>
-        <translation>The Collector exited and was restarted automatically (attempt %1, backoff %2 s)</translation>
+        <source>后台服务已退出，已自动重启（第 %1 次）</source>
+        <translation>The background service exited and was restarted automatically (attempt %1).</translation>
     </message>
     <message>
-        <source>Collector 无法启动：%1</source>
-        <translation>The Collector can&apos;t start: %1</translation>
+        <source>后台服务无法启动：%1</source>
+        <translation>Background service can&apos;t start: %1</translation>
     </message>
     <message>
         <source>界面缩放已设为 %1%，重启后生效。</source>
@@ -9834,12 +9901,12 @@ Recorder</translation>
         <translation>Duration</translation>
     </message>
     <message>
-        <source>计入进度</source>
-        <translation>Counted</translation>
+        <source>成就计数设置</source>
+        <translation>Achievement counting</translation>
     </message>
     <message>
         <source>备注</source>
-        <translation>Note</translation>
+        <translation>Remarks</translation>
     </message>
     <message>
         <source>删除状态</source>
@@ -10664,10 +10731,6 @@ Recorder</translation>
         <translation>PNG image (*.png)</translation>
     </message>
     <message>
-        <source>导随心得.%1</source>
-        <translation>Mentor run note.%1</translation>
-    </message>
-    <message>
         <source>选择逐条 PNG 的保存文件夹</source>
         <translation>Choose a folder for the separate PNGs</translation>
     </message>
@@ -10740,10 +10803,6 @@ Recorder</translation>
         <translation>Rendering the image timed out and it wasn&apos;t saved. Try again.</translation>
     </message>
     <message>
-        <source>导随心得</source>
-        <translation>Mentor run note</translation>
-    </message>
-    <message>
         <source>保存文件夹不存在，请重新选择。</source>
         <translation>The save folder doesn&apos;t exist. Choose again.</translation>
     </message>
@@ -10780,7 +10839,7 @@ Recorder</translation>
     </message>
     <message>
         <source>备注最多 %1 个字，当前 %2 个字。</source>
-        <translation>The note can be at most %1 characters; it&apos;s %2 now.</translation>
+        <translation>Remarks can be at most %1 characters; they contain %2 now.</translation>
     </message>
     <message>
         <source>请按“年-月-日”填写日期，例如 2026-10-15。</source>
@@ -10884,7 +10943,7 @@ Recorder</translation>
     </message>
     <message>
         <source>备注</source>
-        <translation>Note</translation>
+        <translation>Remarks</translation>
     </message>
 </context>
 <context>
@@ -11388,8 +11447,8 @@ Recorder</translation>
 <context>
     <name>mr::StatisticsController</name>
     <message>
-        <source>已记录次数</source>
-        <translation>Runs recorded</translation>
+        <source>尝试次数</source>
+        <translation>Attempts</translation>
     </message>
     <message>
         <source>完成次数</source>
@@ -11424,12 +11483,12 @@ Recorder</translation>
         <translation>Your saved goal and starting count haven&apos;t loaded yet. Save again shortly.</translation>
     </message>
     <message>
-        <source>基数已设为 %1 · 目标 %2 · 进度 %3 · 已重算</source>
-        <translation>Starting count set to %1 · goal %2 · progress %3 · recalculated</translation>
+        <source>起始次数已设为 %1 · 目标 %2 · 总进度 %3</source>
+        <translation>Starting count set to %1 · Goal %2 · Total progress %3</translation>
     </message>
     <message>
-        <source>基数已设为 %1 · 目标 %2 · 已保存</source>
-        <translation>Starting count set to %1 · goal %2 · saved</translation>
+        <source>起始次数已设为 %1 · 目标 %2 · 已保存</source>
+        <translation>Starting count set to %1 · Goal %2 · Saved</translation>
     </message>
 </context>
 <context>
@@ -11537,10 +11596,6 @@ Recorder</translation>
         <translation>Current version: %1. Click “Download new version” to download the installer in your browser, then run it yourself.</translation>
     </message>
     <message>
-        <source>当前 %1。点「下载并安装」只下载安装包并校验；准备好后，再点「立即安装」启动安装程序。</source>
-        <translation>Current version: %1. “Download and install” only downloads and verifies the installer; once it&apos;s ready, click “Install now” to start the installer.</translation>
-    </message>
-    <message>
         <source>后台服务未提供可用的发布页地址，无法打开更新说明。</source>
         <translation>The background service didn&apos;t provide a usable release page address, so the release notes can&apos;t be opened.</translation>
     </message>
@@ -11565,10 +11620,6 @@ Recorder</translation>
         <translation>Update checks are disabled on this PC.</translation>
     </message>
     <message>
-        <source>有新版本 %1，可以点「下载并安装」。</source>
-        <translation>New version %1 is available. You can click “Download and install”.</translation>
-    </message>
-    <message>
         <source>有新版本 %1，可以点「下载新版本」下载。</source>
         <translation>New version %1 is available. You can click “Download new version” to get it.</translation>
     </message>
@@ -11587,10 +11638,6 @@ Recorder</translation>
     <message>
         <source>下载新版本</source>
         <translation>Download new version</translation>
-    </message>
-    <message>
-        <source>下载并安装</source>
-        <translation>Download and install</translation>
     </message>
     <message>
         <source>取消</source>
@@ -11665,12 +11712,24 @@ Recorder</translation>
         <translation>A run is in progress (matched or in a duty); installing now would interrupt its record. Click “Install now” after this run ends.</translation>
     </message>
     <message>
+        <source>当前 %1。点「下载安装包」只下载安装包并校验；准备好后，再点「立即安装」启动安装程序。</source>
+        <translation>Current: %1. “Download installer” only downloads and verifies the installer. Once ready, click “Install now” to launch it.</translation>
+    </message>
+    <message>
         <source>已向浏览器发送新版本的安装包下载请求。请在浏览器中确认下载结果，下载后自行运行安装包。</source>
         <translation>Sent the download request for the new version&apos;s installer to your browser. Check the download in your browser, then run the installer yourself.</translation>
     </message>
     <message>
         <source>已向浏览器发送 %1 版的安装包下载请求。请在浏览器中确认下载结果，下载后自行运行安装包。</source>
         <translation>Sent the download request for the version %1 installer to your browser. Check the download in your browser, then run the installer yourself.</translation>
+    </message>
+    <message>
+        <source>有新版本 %1，可以点「下载安装包」。</source>
+        <translation>Version %1 is available. Click “Download installer”.</translation>
+    </message>
+    <message>
+        <source>下载安装包</source>
+        <translation>Download installer</translation>
     </message>
     <message>
         <source>安装包不在软件的下载目录中，没有启动安装程序。请点「在浏览器中下载」。</source>
@@ -11695,33 +11754,6 @@ Recorder</translation>
     <message>
         <source>安装程序没有启动，可能是未通过 Windows 的安装确认。本软件继续运行，可再点「立即安装」，或点「在浏览器中下载」。</source>
         <translation>The installer didn&apos;t start, possibly because the Windows install confirmation wasn&apos;t accepted. This app keeps running; click “Install now” again, or click “Download in browser”.</translation>
-    </message>
-</context>
-<context>
-    <name>ReleaseNotesEntry</name>
-    <message>
-        <source>重点</source>
-        <translation>Highlight</translation>
-    </message>
-    <message>
-        <source>收起</source>
-        <translation>Collapse</translation>
-    </message>
-    <message>
-        <source>详细</source>
-        <translation>Details</translation>
-    </message>
-    <message>
-        <source>收起完整说明</source>
-        <translation>Collapse full details</translation>
-    </message>
-    <message>
-        <source>展开完整说明</source>
-        <translation>Expand full details</translation>
-    </message>
-    <message>
-        <source>去设置</source>
-        <translation>Go to settings</translation>
     </message>
 </context>
 </TS>

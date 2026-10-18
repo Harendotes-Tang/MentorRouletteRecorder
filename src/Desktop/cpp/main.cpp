@@ -36,6 +36,7 @@
 // ---------------------------------------------------------------------------
 
 #include "AppController.h"
+#include "BundledFonts.h"
 #include "CollectorProcess.h"
 #include <memory>
 #include "AppSettings.h"
@@ -128,9 +129,9 @@ bool hasRawArgument(int argc, char **argv, const char *name)
 /// Application font stack.
 ///
 /// Normal runs ask for the prototype's stack; Qt falls through the list until
-/// a family exists on the machine. Under the offscreen platform Qt discovers no
-/// system fonts at all, so one installed CJK file is registered as a fallback -
-/// it stays a Windows system asset and is never redistributed.
+/// a family exists on the machine. Bundled static Noto faces also cover sharing
+/// and offscreen rendering; installed Windows faces remain optional fallbacks
+/// and are never redistributed.
 void installApplicationFont(bool screenshotMode)
 {
     // On Windows the hinted static faces of Microsoft YaHei UI lead. Windows 11
@@ -154,21 +155,10 @@ void installApplicationFont(bool screenshotMode)
     };
     QStringList families = families0;
 
-    // Cinzel (SIL OFL 1.1, resources/fonts/OFL.txt) carries the eorzea style's
-    // Latin headings and figures; IBM Plex Mono (SIL OFL 1.1,
-    // resources/fonts/IBMPlexMono-OFL.txt) the classic style's figures. Both ship
-    // inside the binary, so neither depends on what the machine happens to have.
-    for (const char *font : {":/resources/fonts/Cinzel-Regular.ttf",
-                             ":/resources/fonts/Cinzel-Bold.ttf",
-                             ":/resources/fonts/IBMPlexMono-Medium.ttf",
-                             ":/resources/fonts/IBMPlexMono-SemiBold.ttf"}) {
-        if (QFontDatabase::addApplicationFont(QString::fromLatin1(font)) < 0)
-            qWarning("Cannot register bundled font %s", font);
-    }
+    // 中文分享图片也使用内置静态字重，不再依赖另一台电脑是否安装 Noto。
+    mr::registerBundledFonts();
 
-    // Chinese headings ask for "Noto Serif SC"; on a machine without it Qt
-    // falls through to another serif CJK face instead of silently dropping
-    // back to the sans body font.
+    // 内置字体异常时仍保留原有宋体回退，避免标题静默变成无衬线字体。
     QFont::insertSubstitutions(QStringLiteral("Noto Serif SC"),
                                {QStringLiteral("Noto Serif CJK SC"),
                                 QStringLiteral("Songti SC"),
@@ -177,7 +167,7 @@ void installApplicationFont(bool screenshotMode)
 
 #ifdef Q_OS_WIN
     if (screenshotMode) {
-        bool loadedCjkFont = false;
+        bool loadedCjkFont = QFontDatabase::hasFamily(QStringLiteral("Noto Sans SC"));
         const QString windowsDir = qEnvironmentVariable("WINDIR", QStringLiteral("C:/Windows"));
         for (const char *file : {"Fonts/msyh.ttc", "Fonts/simhei.ttf"}) {
             const QString path = QDir(windowsDir).filePath(QString::fromLatin1(file));
@@ -190,7 +180,7 @@ void installApplicationFont(bool screenshotMode)
             }
         }
         if (!loadedCjkFont) {
-            qCritical("Cannot load a system CJK font for screenshot verification.");
+            qCritical("Cannot load a CJK font for screenshot verification.");
             std::exit(6);
         }
         // Theme.monoFamily picks Consolas in the eorzea style; without it the

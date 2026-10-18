@@ -399,9 +399,9 @@ Dialog {
                 AppButton {
                     objectName: "confirmLeftButton"
                     enabled: !dialog.resolving
-                    text: qsTr("未通关 / 中途离开")
+                    text: qsTr("退出 / 放弃")
                     onClicked: dialog.resolveWith("LEFT_OR_ABANDONED",
-                                                  QT_TRANSLATE_NOOP("SystemReason", "用户确认未通关"))
+                                                  QT_TRANSLATE_NOOP("SystemReason", "用户确认退出或放弃"))
                 }
 
                 Item { Layout.fillWidth: true }

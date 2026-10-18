@@ -94,6 +94,8 @@ if(WIN32)
 endif()
 
 set(MR_CPP_SOURCES
+    cpp/BundledFonts.cpp
+    cpp/BundledFonts.h
     cpp/AutomaticRecordingController.cpp
     cpp/AutomaticRecordingController.h
     cpp/GameSelectionController.cpp
@@ -417,11 +419,10 @@ qt_add_resources(MentorRecorderDesktopLib "mr_reflection_share"
 # ---------------------------------------------------------------------------
 # Bundled fonts.
 #
-# Cinzel is the eorzea style's Latin heading face; IBM Plex Mono carries the
-# classic (workbench) style's figures. Both are licensed under the SIL Open Font
-# License 1.1 (resources/fonts/OFL.txt, resources/fonts/IBMPlexMono-OFL.txt), so -
-# unlike the icons above - they may be redistributed with this software.
-# main.cpp registers every weight through QFontDatabase::addApplicationFont().
+# Cinzel and IBM Plex Mono carry Latin headings and figures; static Noto SC
+# faces keep Chinese share typography independent of installed system fonts.
+# Each family's SIL OFL 1.1 text is embedded alongside the original font files.
+# registerBundledFonts() registers these resources before QML is loaded.
 # ---------------------------------------------------------------------------
 qt_add_resources(MentorRecorderDesktopLib "mr_fonts"
     PREFIX "/"
@@ -432,7 +433,12 @@ qt_add_resources(MentorRecorderDesktopLib "mr_fonts"
         resources/fonts/OFL.txt
         resources/fonts/IBMPlexMono-Medium.ttf
         resources/fonts/IBMPlexMono-SemiBold.ttf
-        resources/fonts/IBMPlexMono-OFL.txt)
+        resources/fonts/IBMPlexMono-OFL.txt
+        resources/fonts/NotoSerifSC-Regular.otf
+        resources/fonts/NotoSerifSC-Bold.otf
+        resources/fonts/NotoSerifSC-OFL.txt
+        resources/fonts/NotoSansSC-Regular.otf
+        resources/fonts/NotoSansSC-OFL.txt)
 
 # ---------------------------------------------------------------------------
 # Executable

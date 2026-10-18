@@ -1,7 +1,10 @@
 #include "ReflectionShareController.h"
+#include "BundledFonts.h"
 #include "AppSettings.h"
 #include "Formatters.h"
 #include "JobCatalog.h"
+#include "GameNames.h"
+#include "LanguageManager.h"
 
 #include <QDir>
 #include <QDate>
@@ -10,12 +13,16 @@
 #include <QGuiApplication>
 #include <QFont>
 #include <QFontDatabase>
+#include <QFontInfo>
+#include <QFontMetricsF>
 #include <QImage>
+#include <QLocale>
 #include <QQmlComponent>
 #include <QQmlContext>
 #include <QQmlEngine>
 #include <QQuickItem>
 #include <QQuickWindow>
+#include <QRawFont>
 #include <QQuickStyle>
 #include <QSignalSpy>
 #include <QStandardPaths>
@@ -106,12 +113,26 @@ bool finalTextHasInk(const QImage &png, QQuickItem *body, QQuickItem *capture, q
 QString headingInkAlignmentError(const QImage &png, QQuickItem *card, qreal ratio)
 {
     // 检查实际 PNG 墨迹，避免“基线相同”掩盖字号、字重不同造成的视觉偏移。
+    auto *heading = findVisual(card, card->property("single").toBool()
+        ? QStringLiteral("reflectionShareSingleHeading") : QStringLiteral("reflectionShareCollectionMeta"));
+    if (!heading) return QStringLiteral("缺少可验证题头");
+    const qreal targetCenter = heading->property("firstLineCenter").toReal();
     qreal topCenter = png.height(), bottomCenter = 0;
     QStringList centers;
     for (const char *name : {"reflectionShareEyebrow", "reflectionShareCharacterName",
                              "reflectionShareServerName", "reflectionShareCount", "reflectionShareTimeText"}) {
         auto *label = findVisual(card, QString::fromLatin1(name));
         if (!label || !label->isVisible()) continue;
+        // 数学布局严格对齐；独立于下方抗锯齿栅格化的像素容差。
+        const QFontMetricsF metrics(label->property("font").value<QFont>());
+        QString firstLine = label->property("text").toString().section(QLatin1Char('\n'), 0, 0);
+        if (label->objectName() == QStringLiteral("reflectionShareCharacterName"))
+            firstLine = metrics.elidedText(firstLine, Qt::ElideRight, label->width());
+        const QRectF glyphs = metrics.tightBoundingRect(firstLine);
+        const qreal layoutCenter = label->mapToItem(heading,
+            QPointF(0, label->baselineOffset() + glyphs.center().y())).y();
+        if (qAbs(layoutCenter - targetCenter) > 0.02)
+            return QStringLiteral("题头轮廓中心未对齐：%1，偏差 %2").arg(QString::fromLatin1(name)).arg(layoutCenter - targetCenter);
         const QRectF mapped = label->mapRectToItem(card, label->boundingRect());
         const QRect region = QRectF(mapped.x() * ratio, mapped.y() * ratio,
                                      mapped.width() * ratio, mapped.height() * ratio).toAlignedRect()
@@ -133,7 +154,9 @@ QString headingInkAlignmentError(const QImage &png, QQuickItem *card, qreal rati
     }
     if (centers.size() < 3) return QStringLiteral("题头有效文字段不足");
     qInfo().noquote() << "heading ink centers:" << centers.join(QStringLiteral(", "));
-    return bottomCenter - topCenter <= ratio ? QString() : centers.join(QStringLiteral(", "));
+    // 色差阈值会排除细笔画的抗锯齿端点；允许两个物理像素或一个逻辑像素的栅格偏差。
+    // 这是 Windows / FreeType、1x–2x 验证矩阵的经验容差，不替代上方严格的轮廓中心断言。
+    return bottomCenter - topCenter <= qMax(qreal(2), ratio) ? QString() : centers.join(QStringLiteral(", "));
 }
 }
 
@@ -151,6 +174,38 @@ class ReflectionShareTests : public QObject
 {
     Q_OBJECT
 private Q_SLOTS:
+    void bundledFontsUseOriginalStaticGlyphs_data() {
+        QTest::addColumn<QString>("family");
+        QTest::addColumn<QString>("resource");
+        QTest::addColumn<bool>("bold");
+        QTest::newRow("serif-regular") << QStringLiteral("Noto Serif SC")
+            << QStringLiteral(":/resources/fonts/NotoSerifSC-Regular.otf") << false;
+        QTest::newRow("serif-bold") << QStringLiteral("Noto Serif SC")
+            << QStringLiteral(":/resources/fonts/NotoSerifSC-Bold.otf") << true;
+        QTest::newRow("sans-regular") << QStringLiteral("Noto Sans SC")
+            << QStringLiteral(":/resources/fonts/NotoSansSC-Regular.otf") << false;
+    }
+
+    void bundledFontsUseOriginalStaticGlyphs() {
+        QFETCH(QString, family);
+        QFETCH(QString, resource);
+        QFETCH(bool, bold);
+        QFont requested(family);
+        requested.setPixelSize(40);
+        requested.setBold(bold);
+        QCOMPARE(QFontInfo(requested).family(), family);
+        const QRawFont actual = QRawFont::fromFont(requested);
+        const QRawFont expected(resource, 40);
+        QVERIFY(actual.isValid());
+        QVERIFY(expected.isValid());
+        // 比较实际字体轮廓表，既防止系统字体替换，也防止变量字体或伪粗体冒充静态字重。
+        const QByteArray outlines = expected.fontTable("CFF ");
+        QVERIFY(!outlines.isEmpty());
+        QCOMPARE(actual.fontTable("CFF "), outlines);
+        for (QChar character : QStringLiteral("末日暗影亚马乌罗提赤色熊喵龙巢神殿导随记录心得"))
+            QVERIFY2(actual.supportsCharacter(character), qPrintable(QString(character)));
+    }
+
     void referenceHeadingFitsBeforeElidingName() {
         QQmlEngine engine;
         QList<QQmlError> warnings;
@@ -254,13 +309,13 @@ Window { visible: true; width: 1180; height: 900
         auto *body = findVisual(card, QStringLiteral("reflectionShareFullText"));
         auto *stamp = findVisual(card, QStringLiteral("reflectionShareResultStamp"));
         QVariantMap edge = run;
-        edge.insert(QStringLiteral("duty_name"), QStringLiteral("超长副本名需要按词组换行并在第二行末尾省略").repeated(5));
+        edge.insert(QStringLiteral("duty_name"), QStringLiteral("超长副本名需要按词组换行并完整保留").repeated(5));
         const QString longBody = QStringLiteral("标点与（括号）以及 English words 12345 保持可读，正文逐行增长，不会压住卷尾印章。\n").repeated(8) + QStringLiteral("最后一行完整保留。");
         edge.insert(QStringLiteral("reflection"), QVariantMap{{QStringLiteral("text"), longBody}});
         card->setProperty("runData", edge);
         auto *title = findVisual(card, QStringLiteral("reflectionShareDutyTitle"));
-        QTRY_COMPARE(title->property("lineCount").toInt(), 2);
-        QVERIFY(title->property("truncated").toBool());
+        QTRY_VERIFY(title->property("lineCount").toInt() > 2);
+        QVERIFY(!title->property("truncated").toBool());
         QVERIFY(!findVisual(card, QStringLiteral("reflectionShareMoodTag"))->isVisible());
         QCOMPARE(body->property("text").toString(), longBody);
         QVERIFY(stamp->y() >= body->y() + body->height() - 12);
@@ -558,6 +613,134 @@ ApplicationWindow { visible: true; width: 1100; height: 900
                 qmlRegisterType(QUrl::fromLocalFile(root + directory + QLatin1Char('/') + file),
                                 "MentorRecorder", 1, 0, name.constData());
             }
+    }
+    void localizedExportTitlesRemainComplete_data() {
+        QTest::addColumn<QString>("language");
+        QTest::addColumn<bool>("single");
+        QTest::addColumn<int>("contentId");
+        for (const QString &language : {QStringLiteral("en"), QStringLiteral("ja")}) {
+            QTest::newRow(qPrintable(language + QStringLiteral("-single"))) << language << true << 1057;
+            QTest::newRow(qPrintable(language + QStringLiteral("-collection"))) << language << false << 1057;
+        }
+        QTest::newRow("en-single-closing-parenthesis") << QStringLiteral("en") << true << 175;
+        QTest::newRow("ja-single-closing-parenthesis") << QStringLiteral("ja") << true << 863;
+        QTest::newRow("ja-collection-closing-quote") << QStringLiteral("ja") << false << 620;
+    }
+    void localizedExportTitlesRemainComplete() {
+        QFETCH(QString, language);
+        QFETCH(bool, single);
+        QFETCH(int, contentId);
+        const QString previousLanguage = mr::LanguageManager::currentCode();
+        const QLocale previousLocale;
+        const QFont previousFont = QGuiApplication::font();
+        mr::LanguageManager lang(nullptr);
+        mr::GameNames names;
+        mr::Formatters formatters;
+        mr::JobCatalog jobs;
+        mr::ReflectionShareController controller;
+        QQmlEngine engine;
+        const auto restoreLanguage = qScopeGuard([&] {
+            lang.attachEngine(nullptr);
+            lang.setLanguage(previousLanguage);
+            QLocale::setDefault(previousLocale);
+            QGuiApplication::setFont(previousFont);
+        });
+        lang.initialize(language);
+        QVERIFY(QCoreApplication::translate("ReflectionShareCard", "导随记录") != QStringLiteral("导随记录"));
+        lang.attachEngine(&engine);
+        engine.rootContext()->setContextProperty(QStringLiteral("Fmt"), &formatters);
+        engine.rootContext()->setContextProperty(QStringLiteral("Jobs"), &jobs);
+        engine.rootContext()->setContextProperty(QStringLiteral("Names"), &names);
+        engine.rootContext()->setContextProperty(QStringLiteral("Lang"), &lang);
+        QQmlComponent component(&engine);
+        component.setData(R"(import QtQuick
+import MentorRecorder
+Window { visible: true; width: 1180; height: 1000
+    ReflectionShareCard { width: 1140 }
+})", QUrl());
+        std::unique_ptr<QObject> root(component.create());
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.get());
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        auto *card = findVisual(window->contentItem(), QStringLiteral("reflectionShareCard"));
+        QVERIFY(card);
+        QVariantMap run{{QStringLiteral("content_id"), contentId},
+                        {QStringLiteral("duty_name"), QStringLiteral("记录中的中文名")},
+                        {QStringLiteral("job_id"), 19}, {QStringLiteral("result"), QStringLiteral("COMPLETED")},
+                        {QStringLiteral("matched_at_utc"), QStringLiteral("2026-10-18T12:00:00Z")},
+                        {QStringLiteral("reflection"), QVariantMap{{QStringLiteral("text"), QStringLiteral("Full exported reflection.")}}}};
+        if (single) card->setProperty("runData", run);
+        else card->setProperty("runsData", QVariantList{run, run});
+        QTRY_COMPARE(visibleEntries(card).size(), single ? 1 : 2);
+        auto *entry = visibleEntries(card).first();
+        auto *title = findVisual(entry, QStringLiteral("reflectionShareDutyTitle"));
+        auto *metadata = findVisual(entry, QStringLiteral("reflectionShareResultText"));
+        QVERIFY(title && metadata);
+        const QString expected = names.duty(contentId, run.value(QStringLiteral("duty_name")).toString());
+        QVERIFY(!expected.isEmpty());
+        QVERIFY(expected != run.value(QStringLiteral("duty_name")).toString());
+        QTRY_COMPARE(QString(title->property("text").toString()).remove(QLatin1Char('\n')), expected);
+        title->ensurePolished();
+        QVERIFY(!title->property("truncated").toBool());
+        QVERIFY(metadata->y() >= title->y() + title->height());
+        if (single) {
+            QVERIFY(title->property("lineCount").toInt() >= 2);
+            const QString wrapped = title->property("text").toString();
+            if (contentId == 1057 && language == QLatin1String("en")) {
+                QVERIFY(wrapped.section(QLatin1Char('\n'), 0, 0).contains(QStringLiteral("Custom Match")));
+            } else if (contentId == 1057) {
+                for (const QString &word : {QStringLiteral("ベイサイド"), QStringLiteral("バトルグラウンド"), QStringLiteral("カスタムマッチ")})
+                    QVERIFY2(wrapped.contains(word), qPrintable(wrapped));
+                QVERIFY(!wrapped.contains(QStringLiteral("\n・")));
+            } else if (language == QLatin1String("ja") && contentId == 863) {
+                QVERIFY2(wrapped.section(QLatin1Char('\n'), 0, 0).contains(QStringLiteral("ヴォルカニック・")), qPrintable(wrapped));
+            }
+        } else {
+            auto *heading = findVisual(card, QStringLiteral("reflectionShareCollectionTitle"));
+            auto *details = findVisual(card, QStringLiteral("reflectionShareCollectionMeta"));
+            QVERIFY(heading && details);
+            heading->ensurePolished();
+            QVERIFY(heading->property("paintedWidth").toReal() <= heading->width() + 0.5);
+            QVERIFY(heading->x() + heading->width() <= 706);
+            QVERIFY(details->y() >= heading->y() + heading->height());
+            QVERIFY(!heading->property("truncated").toBool());
+        }
+        const QString closingPunctuation = QStringLiteral(")）]】」』・：");
+        for (const QString &line : title->property("text").toString().split(QLatin1Char('\n'))) {
+            const QString trimmed = line.trimmed();
+            QVERIFY2(trimmed.isEmpty() || !closingPunctuation.contains(trimmed.front()), qPrintable(title->property("text").toString()));
+        }
+        auto *date = findVisual(card, QStringLiteral("reflectionShareExportDate"));
+        auto *brand = findVisual(card, QStringLiteral("reflectionShareBrand"));
+        auto *footer = findVisual(card, QStringLiteral("reflectionShareFooterLine"));
+        QVERIFY(date && brand && footer);
+        QCOMPARE(brand->property("text").toString(), language == QLatin1String("en")
+            ? QStringLiteral("Powered by Mentor Recorder") : QStringLiteral("Powered by メンターレコーダー"));
+        QVERIFY(footer->property("stacked").toBool());
+        QVERIFY(brand->y() + brand->baselineOffset() >= date->y() + date->baselineOffset() + 28);
+        QVERIFY(qAbs(brand->x() + brand->width() / 2 - footer->width() / 2) < 0.5);
+        QVERIFY(!date->property("truncated").toBool());
+        QVERIFY(!brand->property("truncated").toBool());
+        QVERIFY(brand->property("implicitWidth").toReal() <= brand->width() + 0.5);
+        QVERIFY(footer->width() <= 520);
+        const qreal scale = card->property("templateScale").toReal();
+        const QRectF brandBounds = brand->mapRectToItem(card, brand->boundingRect());
+        QVERIFY(brandBounds.bottom() <= card->height() - 36 * scale);
+        QTemporaryDir output;
+        QSignalSpy saved(&controller, &mr::ReflectionShareController::saved);
+        const QString filename = QStringLiteral("localized-%1-%2%3.png")
+            .arg(language, single ? QStringLiteral("single") : QStringLiteral("collection"),
+                 contentId == 1057 ? QString() : QStringLiteral("-%1").arg(contentId));
+        const QString path = output.filePath(filename);
+        controller.saveTo(card, path);
+        QTRY_COMPARE(saved.count(), 1);
+        QVERIFY(!QImage(path).isNull());
+        const QString evidence = qEnvironmentVariable("MR_REFLECTION_SHARE_SCREENSHOT_DIR");
+        if (!evidence.isEmpty()) {
+            QVERIFY(QDir().mkpath(evidence));
+            QVERIFY(QImage(path).save(QDir(evidence).filePath(filename)));
+        }
+        lang.attachEngine(nullptr);
     }
     void actualShareDialogAtSmallAndLargeSizes_data() {
         QTest::addColumn<QSize>("size");
@@ -936,8 +1119,8 @@ Window {
         QVERIFY(findVisual(job, QStringLiteral("reflectionShareJobFallback"))->isVisible());
         auto *title = findVisual(card, QStringLiteral("reflectionShareDutyTitle"));
         auto *metadata = findVisual(card, QStringLiteral("reflectionShareResultText"));
-        QTRY_COMPARE(title->property("lineCount").toInt(), 2);
-        QVERIFY(title->property("truncated").toBool());
+        QTRY_VERIFY(title->property("lineCount").toInt() > 2);
+        QVERIFY(!title->property("truncated").toBool());
         QVERIFY(metadata->y() >= title->y() + title->height());
         const QRectF bodyBounds = body->mapRectToItem(card, body->boundingRect());
         QVERIFY(bodyBounds.bottom() + 134 * card->property("templateScale").toReal() <= card->height());
@@ -1199,45 +1382,42 @@ Window {
 
 int main(int argc, char **argv) {
 #ifdef Q_OS_WIN
-    const bool systemFontsOnly = qEnvironmentVariableIsSet("MR_REFLECTION_SHARE_SYSTEM_FONTS_ONLY");
-    // 独立进程只暴露下方显式注册的系统字体，避免开发机 Noto 掩盖 CI 回退路径。
+    const bool bundledFontsOnly = qEnvironmentVariableIsSet("MR_REFLECTION_SHARE_BUNDLED_FONTS_ONLY");
+    // 独立离屏进程从空字体目录启动，验证另一台电脑没有系统 Noto 时的真实内置资源。
     QTemporaryDir isolatedFontDirectory;
-    if (systemFontsOnly) {
+    if (bundledFontsOnly) {
         if (!isolatedFontDirectory.isValid())
             return 6;
         qputenv("QT_QPA_FONTDIR", isolatedFontDirectory.path().toUtf8());
     }
 #endif
     QGuiApplication app(argc, argv);
-    QStandardPaths::setTestModeEnabled(true);
+    // 与生产 main.cpp 保持相同的字形栅格化方式，度量和 PNG 使用同一组提示信息。
+    QQuickWindow::setTextRenderType(QQuickWindow::NativeTextRendering);
 #ifdef Q_OS_WIN
-    // offscreen 平台不枚举系统字体；测试截图显式注册中文字体，生产字体配置保持不变。
-    const QDir windowsDir(qEnvironmentVariable("WINDIR", QStringLiteral("C:/Windows")));
-    QStringList cjkFamilies;
-    for (const char *file : {"Fonts/msyh.ttc", "Fonts/simhei.ttf", "Fonts/simsun.ttc"}) {
-        const int id = QFontDatabase::addApplicationFont(windowsDir.filePath(QString::fromLatin1(file)));
-        if (id >= 0)
-            cjkFamilies.append(QFontDatabase::applicationFontFamilies(id));
-    }
-    if (cjkFamilies.isEmpty()) {
-        qCritical("Cannot load a system CJK font for UI screenshot verification.");
+    if (bundledFontsOnly && (QFontDatabase::hasFamily(QStringLiteral("Noto Serif SC"))
+                             || QFontDatabase::hasFamily(QStringLiteral("Noto Sans SC")))) {
+        qCritical("Bundled-font regression must start without system Noto fonts.");
         return 6;
     }
+    // 普通模式先加载开发机的系统 Noto，再注册内置版本，覆盖同名字体已安装的情况。
+    const QDir windowsDir(qEnvironmentVariable("WINDIR", QStringLiteral("C:/Windows")));
     const QDir userFonts(QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation)
                          + QStringLiteral("/Microsoft/Windows/Fonts"));
-    if (!systemFontsOnly)
+    int preloadedNotoCount = 0;
+    if (!bundledFontsOnly)
         for (const QDir &directory : {QDir(windowsDir.filePath(QStringLiteral("Fonts"))), userFonts})
             for (const QString &file : directory.entryList({QStringLiteral("Noto*SC*.ttf")}, QDir::Files))
-                QFontDatabase::addApplicationFont(directory.filePath(file));
-    QFont font = QGuiApplication::font();
-    font.setFamilies(cjkFamilies);
-    QGuiApplication::setFont(font);
-    QFont::insertSubstitutions(QStringLiteral("Noto Serif SC"), {QStringLiteral("SimSun")});
-    if (systemFontsOnly && QFontDatabase::families().contains(QStringLiteral("Noto Serif SC"))) {
-        qCritical("System-font regression must not discover Noto Serif SC.");
-        return 6;
-    }
+                if (QFontDatabase::addApplicationFont(directory.filePath(file)) >= 0)
+                    ++preloadedNotoCount;
+    qInfo() << "Preloaded system Noto files:" << preloadedNotoCount;
 #endif
+    if (!mr::registerBundledFonts())
+        return 6;
+    QFont font = QGuiApplication::font();
+    font.setFamilies({QStringLiteral("Noto Sans SC")});
+    QGuiApplication::setFont(font);
+    QStandardPaths::setTestModeEnabled(true);
     QQuickStyle::setStyle(QStringLiteral("Basic"));
     ReflectionShareTests tests;
     return QTest::qExec(&tests, argc, argv);

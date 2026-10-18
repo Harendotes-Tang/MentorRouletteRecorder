@@ -35,7 +35,7 @@ Item {
     }
     function hypothesisLabel(name) {
         if (name === "ZONE_LOAD") return qsTr("换区（进本／离开／传送／登录）")
-        if (name === "QUEUE_WINDOW_SAMPLE") return qsTr("排本窗口采样")
+        if (name === "QUEUE_WINDOW_SAMPLE") return qsTr("排队期间的报文采样")
         if (name === "DUTY_WINDOW_SAMPLE") return qsTr("副本内采样（用于定位通关报文）")
         if (name === "QUEUE_CANCELLATION") return qsTr("副本查找器操作（旧名）")
         for (const h of page.hypotheses)

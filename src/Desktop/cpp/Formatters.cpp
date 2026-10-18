@@ -374,7 +374,7 @@ QString Formatters::fieldLabel(const QString &field)
         {QStringLiteral("entered_at_utc"), QT_TR_NOOP("进本时间")},
         {QStringLiteral("ended_at_utc"), QT_TR_NOOP("结束时间")},
         {QStringLiteral("duration_ms"), QT_TR_NOOP("耗时")},
-        {QStringLiteral("contributes_to_goal"), QT_TR_NOOP("计入进度")},
+        {QStringLiteral("contributes_to_goal"), QT_TR_NOOP("成就计数设置")},
         {QStringLiteral("note"), QT_TR_NOOP("备注")},
         {QStringLiteral("soft_deleted"), QT_TR_NOOP("删除状态")},
         {QStringLiteral("pending_review"), QT_TR_NOOP("待复核")},

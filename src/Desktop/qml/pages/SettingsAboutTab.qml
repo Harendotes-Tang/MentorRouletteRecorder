@@ -42,7 +42,7 @@ ColumnLayout {
             }
 
             // 有新版本时：「查看更新说明」打开发布页；旁边的按钮随下载的状态变成
-            // 「下载并安装」「取消」「立即安装」或「重试」（privacy-boundary.md §8.6）。
+            // 「下载安装包」「取消」「立即安装」或「重试」（privacy-boundary.md §8.6）。
             // 不支持软件内下载的后台进程仍是「下载新版本」，由系统浏览器下载。
             AppButton {
                 objectName: "aboutOpenReleasePageButton"

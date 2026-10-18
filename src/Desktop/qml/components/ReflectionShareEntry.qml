@@ -17,7 +17,7 @@ Item {
     readonly property real titleShift: {
         const shift = single ? dateShift + (dutyTitle.lineCount > 1 ? 18 + Math.max(0, dutyTitle.lineCount - 2) * 40 : 0)
             : Math.max(0, dutyTitle.lineCount - 1) * 48
-        // 多行合集标题保留全文，让属性离开整个 Qt 文本布局框。
+        // 单条与合集都保留多行标题全文，让属性离开整个 Qt 文本布局框。
         return dutyTitle.lineCount > 1
             ? Math.max(shift, dutyTitle.y + dutyTitle.height + 4 - (single ? 192 : 69) + resultText.baselineOffset) : shift
     }
@@ -44,10 +44,22 @@ Item {
     // 常见地点词组和拉丁单词优先整体排版；未知中文回退到字，并平衡孤立尾字。
     // 度量使用当前字号，换行只改变显示，不写回记录中的副本名。
     function wrappedDutyTitle(value) {
+        // advanceWidth() 不会登记字体依赖；字号适配后必须按更新的字体重新换行。
+        void titleFontMetrics.font
         const paragraphs = value.split("\n")
         const lines = []
         for (let p = 0; p < paragraphs.length; ++p) {
-            const words = paragraphs[p].match(/野营地|野營地|野営地|图书馆|圖書館|博物馆|博物館|实验室|實驗室|研究所|追忆馆|追憶館|王城|要塞|神殿|圣殿|聖殿|宫殿|宮殿|迷宫|迷宮|遗迹|遺跡|灵庙|靈廟|陵墓|教皇厅|教皇廳|修道院|讨伐战|討伐戰|歼灭战|殲滅戰|溶洞|溪谷|峡谷|峽谷|海域|庭园|庭園|水道|矿山|礦山|矿洞|礦洞|[A-Za-z0-9]+(?:['’._-][A-Za-z0-9]+)*|[\uD800-\uDBFF][\uDC00-\uDFFF]|./g) || [""]
+            const tokens = paragraphs[p].match(/野营地|野營地|野営地|图书馆|圖書館|博物馆|博物館|实验室|實驗室|研究所|追忆馆|追憶館|王城|要塞|神殿|圣殿|聖殿|宫殿|宮殿|迷宫|迷宮|遗迹|遺跡|灵庙|靈廟|陵墓|教皇厅|教皇廳|修道院|讨伐战|討伐戰|歼灭战|殲滅戰|溶洞|溪谷|峡谷|峽谷|海域|庭园|庭園|水道|矿山|礦山|矿洞|礦洞|[ァ-ヺー]+[・：]?|[A-Za-z0-9]+(?:['’._-][A-Za-z0-9]+)*|[\uD800-\uDBFF][\uDC00-\uDFFF]|./g) || [""]
+            const words = []
+            for (let i = 0; i < tokens.length; ++i) {
+                if (/^[)）\]】」』、。，．！？!?；;：・]$/.test(tokens[i]) && words.length) {
+                    // 闭合标点随前一词换行，避免单独留下括号或行首中点；保留原始空格。
+                    let suffix = tokens[i]
+                    while (words.length && /^\s+$/.test(words[words.length - 1])) suffix = words.pop() + suffix
+                    if (words.length) words[words.length - 1] += suffix
+                    else words.push(suffix)
+                } else words.push(tokens[i])
+            }
             const rows = []
             let row = []
             for (let i = 0; i < words.length; ++i) {
@@ -152,11 +164,11 @@ Item {
         objectName: "reflectionShareDutyTitle"
         x: entry.single ? 168 : 346
         y: entry.single ? (lineCount > 1 ? 138 : 156) - baselineOffset + entry.dateShift : 35 - baselineOffset
-        width: entry.single ? 632 : entry.completed ? 506 : 710
+        // 单条标题右沿 808，距装饰最左墨迹仍有 18px；避免中点多出几像素便整词换行。
+        width: entry.single ? 640 : entry.completed ? 506 : 710
         text: entry.wrappedDutyTitle(titleMetrics.text)
         textFormat: Text.PlainText; wrapMode: Text.Wrap; color: "#2E2118"
-        maximumLineCount: entry.single ? 2 : 2147483647
-        elide: entry.single ? Text.ElideRight : Text.ElideNone
+        elide: Text.ElideNone
         font.family: "Noto Serif SC"
         font.pixelSize: {
             if (!entry.single) return 38
