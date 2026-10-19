@@ -21,7 +21,9 @@
 [`licenses/xls/dependency-manifest.json`](licenses/xls/dependency-manifest.json)。
 它以 NPOI 2.7.6 的实际 NuGet 包及新 Release 发布资产为准；登记包括 NSax 的
 LGPL-3.0-only、保留的 SixLabors.Fonts 1.0.1、修复版 System.Security.Cryptography.Xml
-8.0.5 和 ImageSharp 的编译资产排除，不将主库 Apache-2.0 误当全部传递依赖的许可。
+8.0.5 和修复版 ImageSharp 4.1.3 的编译资产限制，不将主库 Apache-2.0 误当全部传递
+依赖的许可。ImageSharp 原始 Split License 第 2 节对本 GPL-3.0-or-later 开源项目授予
+Apache-2.0；原始许可全文和适用条件一并保留。
 
 ## 1. 结论摘要
 
@@ -276,10 +278,11 @@ ISC 与 MIT 的条件均只有一条：在所有副本中保留版权声明与�
 | `Machina` | 2.3.1.3 | **GPL-3.0** | 传递依赖 |
 | `Microsoft.Data.Sqlite` | 8.0.11 | MIT | 直接依赖 |
 | `Microsoft.Data.Sqlite.Core` | 8.0.11 | MIT | 传递依赖 |
-| `SQLitePCLRaw.core` | 2.1.6 | Apache-2.0 | 传递依赖 |
-| `SQLitePCLRaw.bundle_e_sqlite3` | 2.1.6 | Apache-2.0 | 传递依赖 |
-| `SQLitePCLRaw.lib.e_sqlite3` | 2.1.6 | Apache-2.0 | 传递依赖（内含 SQLite 本体，**SQLite 本身是 public domain**） |
-| `SQLitePCLRaw.provider.e_sqlite3` | 2.1.6 | Apache-2.0 | 传递依赖 |
+| `SQLitePCLRaw.core` | 2.1.14 | Apache-2.0 | 传递依赖 |
+| `SQLitePCLRaw.bundle_e_sqlite3` | 2.1.14 | Apache-2.0 | 直接固定安全修复版本 |
+| `SQLitePCLRaw.lib.e_sqlite3` | 2.1.14 | Apache-2.0 | 传递依赖（内含 SQLite 3.54.0，**SQLite 本身是 public domain**） |
+| `SQLitePCLRaw.provider.e_sqlite3` | 2.1.14 | Apache-2.0 | 传递依赖 |
+| `System.IO.Hashing` | 8.0.0 | MIT | ImageSharp 的传递依赖，保留运行资产 |
 | `SharpPcap` | 6.3.1 | MIT | 直接依赖 |
 | `PacketDotNet` | 1.4.8 | MPL-2.0 | 传递依赖（SharpPcap） |
 | `System.Memory` | 4.6.3 | MIT | 传递依赖 |
@@ -297,15 +300,18 @@ ISC 与 MIT 的条件均只有一条：在所有副本中保留版权声明与�
 或 `<license type="file">LICENSE.md`（Machina 系列，内容为 GPL v3 全文）。
 .NET 运行时与 SDK 本身为 MIT。
 
+SQLitePCLRaw 2.1.14 的四个原始包声明、包 SHA256/内容 SHA512、实际发布 DLL 哈希和
+Apache-2.0 全文保存在 [`licenses/sqlite/`](licenses/sqlite/)。本机实际发布的原生库查询
+结果为 SQLite 3.54.0，超过 CVE-2025-6965 修复所需的 3.50.2；这不改变现有数据库结构。
+
 MIT 与 Apache-2.0 均与 GPL-3.0 兼容，因此不构成障碍。
 Apache-2.0 与 **GPLv2** 不兼容，但与 GPLv3 兼容。
 
 ### 5.1 `JsonSchema.Net` 及其依赖链
 
 `tests/Collector.IntegrationTests/MentorRecorder.Collector.IntegrationTests.csproj` 是
-**唯一**引用该包的工程。`src/Collector/MentorRecorder.Collector.csproj` 只有
-`Machina.FFXIV`、`Microsoft.Data.Sqlite` 与 `SharpPcap` 三个 `PackageReference`，
-因此这条依赖链**不进入任何发布产物**。
+**唯一**引用该包的工程。Collector 不引用该包，因此这条依赖链
+**不进入任何发布产物**。
 
 | 包 | 版本 | 作者 | 项目主页 | `.nuspec` 声明 |
 |---|---|---|---|---|

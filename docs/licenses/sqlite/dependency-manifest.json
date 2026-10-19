@@ -1,0 +1,96 @@
+{
+  "schema": 1,
+  "scope": "Existing Microsoft.Data.Sqlite 8.0.11 API with patched SQLitePCLRaw 2.1.14 native bundle",
+  "target": "net8.0-windows7.0/win-x64",
+  "verified_date": "2026-10-19",
+  "packages": [
+    {
+      "runtime_assets": [
+        {
+          "sha256": "29c9cf3060789066682ba5fbf81dea584563e6ab60b5d9861c73ba8b29ed1142",
+          "file": "SQLitePCLRaw.batteries_v2.dll"
+        }
+      ],
+      "compile_only": false,
+      "copyright": "Copyright 2014-2024 SourceGear, LLC",
+      "license": "Apache-2.0",
+      "repository_commit": "",
+      "authors": "Eric Sink",
+      "nuspec_file": "SQLitePCLRaw.bundle_e_sqlite3-2.1.14.nuspec.txt",
+      "package_sha256": "68b2e8062a383bdce8a0bccac87d19493d2797fd5f8d2745b464644bbc076a3b",
+      "nuget_content_sha512": "j/g9F8XbcmnNbrllJ9wTj3+CP2PjwKWFASgtrO8ClSPT3qQrAAwbhjUhHef3s4i4L4baIrJH5EPfbn1sRx/KHg==",
+      "license_file": "Apache-2.0.txt",
+      "nuget_url": "https://www.nuget.org/packages/SQLitePCLRaw.bundle_e_sqlite3/2.1.14",
+      "version": "2.1.14",
+      "id": "SQLitePCLRaw.bundle_e_sqlite3",
+      "repository_url": "https://github.com/ericsink/SQLitePCL.raw",
+      "license_source": "NuGet package declares Apache-2.0; full text from https://www.apache.org/licenses/LICENSE-2.0.txt"
+    },
+    {
+      "runtime_assets": [
+        {
+          "sha256": "e60e22452ba79c306a59ecc01a97c29bafe69d9fa612f40253852ed450ad27e8",
+          "file": "SQLitePCLRaw.core.dll"
+        }
+      ],
+      "compile_only": false,
+      "copyright": "Copyright 2014-2024 SourceGear, LLC",
+      "license": "Apache-2.0",
+      "repository_commit": "",
+      "authors": "Eric Sink",
+      "nuspec_file": "SQLitePCLRaw.core-2.1.14.nuspec.txt",
+      "package_sha256": "699d899a12951f8a790cff8cfd03bc4bb4ca5b8b069f8fa3ca1e8d6a5c19360b",
+      "nuget_content_sha512": "vxQqUv9cJrqFcFTzufoRAG3eumjsyO/FEVcFlSRxp/Bf8D7Y7TTC2aFi0gPQJcccstNo4sliSN9/THCHDgIWuw==",
+      "license_file": "Apache-2.0.txt",
+      "nuget_url": "https://www.nuget.org/packages/SQLitePCLRaw.core/2.1.14",
+      "version": "2.1.14",
+      "id": "SQLitePCLRaw.core",
+      "repository_url": "https://github.com/ericsink/SQLitePCL.raw",
+      "license_source": "NuGet package declares Apache-2.0; full text from https://www.apache.org/licenses/LICENSE-2.0.txt"
+    },
+    {
+      "runtime_assets": [
+        {
+          "sha256": "b082e8a72ad4ce908234eac970b09b7d328d16157cec34a3ebccfd9dfe2221c6",
+          "file": "e_sqlite3.dll"
+        }
+      ],
+      "compile_only": false,
+      "copyright": "Copyright 2014-2024 SourceGear, LLC",
+      "license": "Apache-2.0",
+      "repository_commit": "",
+      "authors": "Eric Sink",
+      "nuspec_file": "SQLitePCLRaw.lib.e_sqlite3-2.1.14.nuspec.txt",
+      "package_sha256": "b7e9e18df72c812df2c4769b6ab685de0447f8080f39c5a28ab11145d79a36f0",
+      "nuget_content_sha512": "6oIc2tLdN5JFjHgm6Csa/NbKMfy2U0yww0VN5lO7u5K0dPC8Eo5MwPjZKpF4QHLrhAFpy67CBx1LuXArlQgDJw==",
+      "license_file": "Apache-2.0.txt",
+      "nuget_url": "https://www.nuget.org/packages/SQLitePCLRaw.lib.e_sqlite3/2.1.14",
+      "version": "2.1.14",
+      "id": "SQLitePCLRaw.lib.e_sqlite3",
+      "repository_url": "https://github.com/ericsink/SQLitePCL.raw",
+      "license_source": "NuGet package declares Apache-2.0; full text from https://www.apache.org/licenses/LICENSE-2.0.txt"
+    },
+    {
+      "runtime_assets": [
+        {
+          "sha256": "04d57c32e7f780a9040776b8b0dc6ba59d42dfcc9363521ac4fd6b800b6de500",
+          "file": "SQLitePCLRaw.provider.e_sqlite3.dll"
+        }
+      ],
+      "compile_only": false,
+      "copyright": "Copyright 2014-2024 SourceGear, LLC",
+      "license": "Apache-2.0",
+      "repository_commit": "",
+      "authors": "Eric Sink",
+      "nuspec_file": "SQLitePCLRaw.provider.e_sqlite3-2.1.14.nuspec.txt",
+      "package_sha256": "d870df546696a372330d592e462fa48d81dccd21ba38277495112905f2147869",
+      "nuget_content_sha512": "EERldz5SfCg2vJf/yaHstvuGSM9CD5rHSWq34fn3oyADLMInrlQ5qwkemmy2Cp0eEGvpl2awYFsfWhPS7PtLlA==",
+      "license_file": "Apache-2.0.txt",
+      "nuget_url": "https://www.nuget.org/packages/SQLitePCLRaw.provider.e_sqlite3/2.1.14",
+      "version": "2.1.14",
+      "id": "SQLitePCLRaw.provider.e_sqlite3",
+      "repository_url": "https://github.com/ericsink/SQLitePCL.raw",
+      "license_source": "NuGet package declares Apache-2.0; full text from https://www.apache.org/licenses/LICENSE-2.0.txt"
+    }
+  ]
+}

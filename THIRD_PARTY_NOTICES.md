@@ -67,11 +67,13 @@ GCC Runtime Library Exception 3.1 分发（`docs/licenses/GCC-RUNTIME-LIBRARY-EX
 | SixLabors.Fonts | 1.0.1 | Apache-2.0 |
 | System.Security.Cryptography.Pkcs | 8.0.2 | MIT |
 | System.Security.Cryptography.Xml | 8.0.5 | MIT |
+| System.IO.Hashing | 8.0.0 | MIT |
 | ZString | 2.6.0 | MIT |
 
 字体库由 NPOI 公式解析内部引用，保留其未经修改的 Apache-2.0 二进制。
-**SixLabors.ImageSharp 2.1.11 仅用于编译，不进入运行或发布资产**；它的已知图片
-漏洞按精确 advisory 登记，项目没有关闭 NuGet 全局审计，也没有采用 SixLabors 新版许可。
+**SixLabors.ImageSharp 4.1.3 仅用于编译，不进入运行或发布资产**；三个项目只取
+`compile` 资产，旧版本的五项告警抑制已删除。其原始 Split License 第 2 节对本项目的
+GPL-3.0-or-later 开源使用授予 Apache-2.0，适用说明和原始全文均保留在下述目录。
 实际还原包、版本、源码提交、版权、包 SHA256/内容 SHA512、运行 DLL 哈希与许可证全文
 在 [`docs/licenses/xls/`](docs/licenses/xls/)；其中 NSax 保留 LGPL-3.0 全文和确切源码地址。
 审核说明见 [`docs/licenses/xls/README.md`](docs/licenses/xls/README.md)。
@@ -105,8 +107,8 @@ OpenSSL、Expat、XZ liblzma 和 zlib。构建来源记录还保留 PyInstaller 
 | 组件 | 版本 | 许可证 |
 |---|---|---|
 | Microsoft.Data.Sqlite / .Core | 8.0.11 | MIT |
-| SQLitePCLRaw.core / .bundle_e_sqlite3 / .lib_e_sqlite3 / .provider.e_sqlite3 | 2.1.6 | Apache-2.0 |
-| SQLite（`e_sqlite3`，经由 SQLitePCLRaw 附带） | — | Public Domain |
+| SQLitePCLRaw.core / .bundle_e_sqlite3 / .lib_e_sqlite3 / .provider.e_sqlite3 | 2.1.14 | Apache-2.0 |
+| SQLite（`e_sqlite3`，经由 SQLitePCLRaw 附带） | 3.54.0 | Public Domain |
 | SharpPcap | 6.3.1 | MIT |
 | PacketDotNet（SharpPcap 的传递依赖） | 1.4.8 | MPL-2.0 |
 | System.Memory | 4.6.3 | MIT |
@@ -126,6 +128,9 @@ SharpPcap 与 PacketDotNet 使用未经修改的 NuGet 二进制。许可证全�
 `docs/licenses/SharpPcap-MIT.txt`、`docs/licenses/PacketDotNet-MPL-2.0.txt`。
 对应源码：[SharpPcap 6.3.1](https://github.com/dotpcap/sharppcap/tree/bfedf297e7410ffcf44e05d14f7fbef304f20895)、
 [PacketDotNet 1.4.8](https://github.com/dotpcap/packetnet/tree/690707ce56d6e9c266daf6236c4f76ac5035334c)。
+SQLitePCLRaw 的原始包声明、包哈希、实际发布 DLL 哈希及 Apache-2.0 全文见
+[`docs/licenses/sqlite/`](docs/licenses/sqlite/)；SQLite 本体的 public domain 声明见
+[SQLite 官方版权说明](https://www.sqlite.org/copyright.html)。
 新增 .NET 组件的 MIT 文本与 CodePages 附带声明见 `docs/licenses/dotnet-MIT.txt`、
 `docs/licenses/System.Text.Encoding.CodePages-NOTICES.txt`。
 
