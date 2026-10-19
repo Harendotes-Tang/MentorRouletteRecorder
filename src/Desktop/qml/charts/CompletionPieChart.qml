@@ -10,6 +10,8 @@ Card {
     property string title: ""
     property string detail: ""
     property var buckets: []
+    readonly property var visibleBuckets: buckets.filter(bucket =>
+        !bucket.is_unknown || Number(bucket.completed_count || 0) !== 0)
     readonly property real completedTotal: {
         let total = 0
         for (const bucket of buckets)
@@ -129,7 +131,7 @@ Card {
             spacing: 6
 
             Repeater {
-                model: root.buckets
+                model: root.visibleBuckets
                 delegate: RowLayout {
                     required property var modelData
                     required property int index

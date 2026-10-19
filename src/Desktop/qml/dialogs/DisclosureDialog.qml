@@ -19,8 +19,8 @@ import MentorRecorder
 // The live values (oodle_mode, reads_game_executable) come from GetStatus, so
 // the page states what this machine does rather than what the default is.
 //
-// Only the notes scroll; 关闭 stays put, because the page is taller than a
-// 720 px window and a button below the edge cannot be pressed.
+// Only the notes scroll; the title and upper-right close button stay put,
+// because the page is taller than a 720 px window.
 // ---------------------------------------------------------------------------
 Dialog {
     id: dialog
@@ -52,6 +52,40 @@ Dialog {
     contentItem: ColumnLayout {
         spacing: 12
 
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 12
+
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 12
+
+                CardKicker { text: qsTr("隐私说明") }
+
+                HeadingLabel {
+                    Layout.fillWidth: true
+                    text: qsTr("这个软件做什么、不做什么")
+                    font.pixelSize: Theme.dialogTitleSize(24)
+                    wrapMode: Text.WordWrap
+                }
+            }
+
+            AppButton {
+                objectName: "disclosureCloseButton"
+                Layout.alignment: Qt.AlignTop
+                Layout.preferredWidth: 28
+                Layout.preferredHeight: 28
+                text: ""
+                iconName: "x"
+                compact: true
+                variant: "ghost"
+                Accessible.name: qsTr("关闭")
+                onClicked: dialog.close()
+                Keys.onReturnPressed: clicked()
+                Keys.onEnterPressed: clicked()
+            }
+        }
+
         Flickable {
             id: notesView
             objectName: "disclosureNotes"
@@ -73,15 +107,6 @@ Dialog {
                 // contentHeight would make the width depend on the height it produces.
                 width: notesView.width - Theme.scrollGutter
                 spacing: 12
-
-                CardKicker { text: qsTr("隐私说明") }
-
-                HeadingLabel {
-                    Layout.fillWidth: true
-                    text: qsTr("这个软件做什么、不做什么")
-                    font.pixelSize: Theme.dialogTitleSize(24)
-                    wrapMode: Text.WordWrap
-                }
 
                 Component {
                     id: noteDelegate
@@ -211,24 +236,12 @@ Dialog {
             color: Theme.border
         }
 
-        RowLayout {
+        Text {
             Layout.fillWidth: true
-            spacing: 10
-
-            Text {
-                Layout.fillWidth: true
-                text: qsTr("此说明可随时在「设置 → 关于」中点「查看软件说明」重新打开。")
-                color: Theme.textSecondary
-                font.pixelSize: Theme.fs(11)
-                wrapMode: Text.WordWrap
-            }
-
-            AppButton {
-                objectName: "disclosureCloseButton"
-                variant: "primary"
-                text: qsTr("关闭")
-                onClicked: dialog.close()
-            }
+            text: qsTr("此说明可随时在「设置 → 关于」中点「查看软件说明」重新打开。")
+            color: Theme.textSecondary
+            font.pixelSize: Theme.fs(11)
+            wrapMode: Text.WordWrap
         }
     }
 }

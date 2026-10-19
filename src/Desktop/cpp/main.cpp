@@ -160,6 +160,12 @@ void installApplicationFont(bool screenshotMode)
 
     // 内置字体异常时仍保留原有宋体回退，避免标题静默变成无衬线字体。
     QFont::insertSubstitutions(QStringLiteral("Noto Serif SC"),
+                               {QStringLiteral("MR Reflection Serif"),
+                                QStringLiteral("Noto Serif CJK SC"),
+                                QStringLiteral("Songti SC"),
+                                QStringLiteral("SimSun"),
+                                QStringLiteral("NSimSun")});
+    QFont::insertSubstitutions(QStringLiteral("MR Reflection Serif"),
                                {QStringLiteral("Noto Serif CJK SC"),
                                 QStringLiteral("Songti SC"),
                                 QStringLiteral("SimSun"),

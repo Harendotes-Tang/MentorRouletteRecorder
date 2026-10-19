@@ -140,6 +140,7 @@ public:
 
 protected:
     QString messageType() const override { return QStringLiteral("GetJobStats"); }
+    QJsonObject decorate(const QJsonObject &row) const override;
 };
 
 } // namespace mr

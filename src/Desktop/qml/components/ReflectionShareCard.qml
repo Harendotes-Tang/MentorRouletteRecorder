@@ -42,6 +42,9 @@ Item {
                 first.slice(5) + " – " + last.slice(5) + suffix]
     }
 
+    // 缩放后的纸张高度会向上取整；补满最后不足一像素的画布，防止 GPU 抓图留透明边。
+    Rectangle { anchors.fill: parent; color: "#EFE5CF" }
+
     Item {
         id: paper
         width: 1140
@@ -119,13 +122,15 @@ Item {
         }
         Text {
             id: collectionTitle
+            // 卷轴整体缩放；按轮廓绘制，避免原生字形位图缩放后出现断笔。
+            renderType: Text.CurveRendering
             objectName: "reflectionShareCollectionTitle"
             visible: !card.single
             x: 84; y: 132 - baselineOffset; width: 610
             text: qsTr("导随记录"); textFormat: Text.PlainText
             wrapMode: Text.Wrap
             color: "#2E2118"
-            font { family: "Noto Serif SC"; pixelSize: 56; bold: true; letterSpacing: 8 }
+            font { family: "MR Reflection Serif"; pixelSize: 56; bold: true; letterSpacing: 8 }
         }
         ReflectionShareHeading {
             id: shareHeading
@@ -189,21 +194,24 @@ Item {
                 : footerDate.width + (card.showAttribution ? footerSeparator.width + footerBrand.width : 0)
             Text {
                 id: footerDate
+                renderType: Text.CurveRendering
                 objectName: "reflectionShareExportDate"
                 x: footerLine.stacked ? (footerLine.width - width) / 2 : 0
                 y: -baselineOffset; width: implicitWidth
                 text: qsTr("导出于 %1").arg(card.exportDate); textFormat: Text.PlainText
                 color: "#6E5A44"
-                font { family: "Noto Serif SC"; pixelSize: 18; letterSpacing: 2 }
+                font { family: "MR Reflection Serif"; pixelSize: 18; letterSpacing: 2 }
             }
             Text {
                 id: footerSeparator
+                renderType: Text.CurveRendering
                 x: footerDate.width; y: -baselineOffset; width: implicitWidth + 28
                 text: "·"; horizontalAlignment: Text.AlignHCenter; color: "#6E5A44"; font: footerDate.font
                 visible: card.showAttribution && !footerLine.stacked
             }
             Text {
                 id: footerBrand
+                renderType: Text.CurveRendering
                 objectName: "reflectionShareBrand"
                 x: footerLine.stacked ? (footerLine.width - width) / 2 : footerDate.width + footerSeparator.width
                 y: (footerLine.stacked ? 28 : 0) - baselineOffset

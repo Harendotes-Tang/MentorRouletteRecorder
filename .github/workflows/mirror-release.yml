@@ -8,14 +8,14 @@ on:
       - '.github/workflows/mirror-release.yml'
       - 'tools/release-mirror/**'
   release:
-    types: [published]
+    types: [published, edited]
   workflow_dispatch:
     inputs:
       tag:
-        description: '正式版本标签（如 v1.7.1）；留空同步 GitHub 最新正式版'
+        description: '已发布版本标签（如 v1.7.3-beta.3）；留空补齐最新正式版和测试版'
         required: false
         type: string
-  # Release publication can precede attachment uploads; bounded catch-up retries latest only.
+  # Attachment uploads and GITHUB_TOKEN publication may miss events; retry both channels.
   schedule:
     - cron: '23 */6 * * *'
 
@@ -28,8 +28,11 @@ concurrency:
 
 jobs:
   mirror:
-    if: github.repository == 'Harendotes-Tang/MentorRouletteRecorder' && (github.event_name != 'release' || !github.event.release.prerelease)
-    runs-on: ubuntu-latest
+    if: github.repository == 'Harendotes-Tang/MentorRouletteRecorder' && (github.event_name != 'release' || !github.event.release.draft)
+    runs-on: macos-latest
+    defaults:
+      run:
+        shell: bash
     timeout-minutes: 85
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -40,7 +43,9 @@ jobs:
         with:
           python-version: '3.12'
       - name: Test release ordering and validation
-        run: python tools/release-mirror/selftest.py
+        run: |
+          python tools/release-mirror/selftest.py
+          python tools/release-mirror/test_prerelease.py
       - name: Verify native upload transport is available
         run: command -v curl
       - name: Synchronize release tags before publishing attachments

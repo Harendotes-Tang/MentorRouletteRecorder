@@ -9,6 +9,7 @@ API contracts: https://docs.gitcode.com/docs/apis/ (Release and Tag sections).
 from __future__ import annotations
 
 import argparse
+from datetime import datetime
 import hashlib
 import json
 import os
@@ -27,6 +28,9 @@ REPO = "MentorRouletteRecorder"
 GH = f"https://api.github.com/repos/{OWNER}/{REPO}"
 GC = f"https://api.gitcode.com/api/v5/repos/{OWNER}/{REPO}"
 TAG = re.compile(r"v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\Z")
+PRERELEASE_TAG = re.compile(
+    r"v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-"
+    r"([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)\Z")
 SHA = re.compile(r"[0-9a-f]{40}\Z")
 MAX_INSTALLER = 2 * 1024**3
 MAX_JSON = 2 * 1024**2
@@ -42,6 +46,10 @@ class MirrorError(Exception):
 
 class Missing(MirrorError):
     """The requested public resource returned HTTP 404."""
+
+
+class UploadInterrupted(MirrorError):
+    """A native upload timed out; the remote file may already be registered."""
 
 
 def require(condition: bool, message: str) -> None:
@@ -86,12 +94,15 @@ def upload_with_curl(url: str, headers: dict, path: Path, deadline: float) -> No
     require(remaining > 0, "Release mirror time budget exhausted")
     # Let curl emit its numeric timeout metrics before the parent hard deadline.
     transfer_seconds = max(remaining - 2.0, remaining / 2.0)
+    # Abort a route that cannot finish within the remaining budget instead of
+    # accepting a trickle until the hard deadline. Small control files keep 1 B/s.
+    minimum_speed = max(1, int(total_bytes / transfer_seconds) + 1)
     # -q is first on argv, so a user curlrc cannot enable traces, netrc or redirects.
     # Signed URL/header values are never argv, persisted files, stdout or stderr.
     options = [
         ("url", url), ("upload-file", str(path.resolve())), ("request", "PUT"),
         ("proto", "=https"), ("max-redirs", "0"), ("max-time", f"{transfer_seconds:.6f}"),
-        ("connect-timeout", str(min(60, remaining))), ("speed-limit", "1"), ("speed-time", "60"),
+        ("connect-timeout", str(min(60, remaining))), ("speed-limit", str(minimum_speed)), ("speed-time", "60"),
         ("expect100-timeout", "1"), ("output", os.devnull), ("max-filesize", str(MAX_JSON)),
         ("user-agent", "MentorRecorder-Release-Mirror"),
         ("write-out", "%{http_code}|%{size_upload}|%{speed_upload}|%{time_total}"),
@@ -120,6 +131,8 @@ def upload_with_curl(url: str, headers: dict, path: Path, deadline: float) -> No
     code, count = int(metrics[1]), int(metrics[2])
     print(f"Native upload metrics: HTTP {code}; bytes={count}/{total_bytes}; "
           f"average_bytes_per_second={metrics[3]}; seconds={metrics[4]}", flush=True)
+    if result.returncode == 28:
+        raise UploadInterrupted(f"Native upload timed out (HTTP {code})")
     require(result.returncode == 0 and 200 <= code < 300 and count == total_bytes,
             f"Native upload failed (exit {result.returncode}, HTTP {code})")
     require(time.monotonic() < deadline, "Release mirror time budget exhausted")
@@ -207,9 +220,22 @@ class Http:
         return size, digest
 
 
-def artifact_names(tag: str) -> tuple[str, str, str]:
-    require(bool(TAG.fullmatch(tag)), "Only formal vMAJOR.MINOR.PATCH tags are supported")
+def is_prerelease(tag: str) -> bool:
+    require(isinstance(tag, str), "Invalid release tag")
+    if TAG.fullmatch(tag):
+        return False
+    match = PRERELEASE_TAG.fullmatch(tag)
+    require(match is not None and all(not part.isdigit() or part == "0" or not part.startswith("0")
+                                    for part in match[4].split(".")), "Invalid release tag")
+    return True
+
+
+def artifact_names(tag: str) -> tuple[str, ...]:
+    prerelease = is_prerelease(tag)
     exe = f"MentorRecorder-{tag[1:]}-setup.exe"
+    if prerelease:
+        portable = f"MentorRecorder-{tag[1:]}-win-x64.zip"
+        return exe, exe + ".sha256", portable, portable + ".sha256"
     return exe, exe + ".sha256", "BUILD-METADATA.json"
 
 
@@ -257,10 +283,14 @@ def download_url(host: str, tag: str, name: str) -> str:
 
 
 def validate_source(tag: str, commit: str, paths: dict[str, Path], hashes: dict) -> None:
-    exe, checksum, metadata = artifact_names(tag)
-    line = paths[checksum].read_text(encoding="utf-8-sig").strip()
-    match = re.fullmatch(r"([0-9a-fA-F]{64})[ \t]+\*?" + re.escape(exe), line)
-    require(match is not None and match[1].lower() == hashes[exe][1], "Source installer checksum mismatch")
+    names = artifact_names(tag)
+    for binary, checksum in zip(names[::2], names[1::2]):
+        line = paths[checksum].read_text(encoding="utf-8-sig").strip()
+        match = re.fullmatch(r"([0-9a-fA-F]{64})[ \t]+\*?" + re.escape(binary), line)
+        require(match is not None and match[1].lower() == hashes[binary][1], "Source binary checksum mismatch")
+    if is_prerelease(tag):
+        return
+    metadata = names[2]
     doc = json.loads(paths[metadata].read_text(encoding="utf-8-sig"))
     require(doc.get("product") == "MentorRecorder" and doc.get("version") == tag[1:]
             and doc.get("prerelease") is False and doc.get("source_commit") == commit
@@ -287,14 +317,16 @@ class RemoteMirror:
             return None
 
     def create(self, source, commit):
-        # A manually requested historical tag must never replace the current latest.
-        # GitCode represents a formal, non-latest release as release_status="none".
-        latest = self.http.api(GH + "/releases/latest", auth=True)
-        require(isinstance(latest, dict) and latest.get("draft") is False
-                and latest.get("prerelease") is False and isinstance(latest.get("tag_name"), str),
-                "Cannot establish the current formal GitHub release")
-        artifact_names(latest["tag_name"])
-        status = "latest" if self.tag == latest["tag_name"] else "none"
+        if source["prerelease"]:
+            status = "pre"
+        else:
+            # Historical formal releases and prereleases must not replace latest.
+            latest = self.http.api(GH + "/releases/latest", auth=True)
+            require(isinstance(latest, dict) and latest.get("draft") is False
+                    and latest.get("prerelease") is False and isinstance(latest.get("tag_name"), str)
+                    and not is_prerelease(latest["tag_name"]),
+                    "Cannot establish the current formal GitHub release")
+            status = "latest" if self.tag == latest["tag_name"] else "none"
         # Recheck immediately before POST: no tool-driven creation of missing tags.
         verify_mirror_tag(self.http, self.tag, commit)
         self.http.api(GC + "/releases", auth=True, method="POST", payload={
@@ -307,6 +339,12 @@ class RemoteMirror:
                                     expected[0], {CDN_HOST})
         require(actual == expected, "Mirror asset content conflicts with GitHub: " + name)
 
+    def verify_release(self, source):
+        current = self.release()
+        validate_mirror_identity(current, source)
+        require(all(name in asset_map(current) for name in artifact_names(self.tag)),
+                "Mirror release is missing required attachments")
+
     def upload(self, name, path):
         response = self.http.api(GC + "/releases/" + self.tag + "/upload_url?" +
                                  urllib.parse.urlencode({"file_name": name}), auth=True)
@@ -315,26 +353,48 @@ class RemoteMirror:
         upload_with_curl(response["url"], headers, path, self.http.deadline)
 
 
+def validate_mirror_identity(existing, source):
+    require(isinstance(existing, dict) and existing.get("tag_name") == source["tag_name"]
+            and existing.get("prerelease") is source["prerelease"]
+            and existing.get("name") == source["name"] and notes_equal(source["body"], existing.get("body"))
+            and (not source["prerelease"] or existing.get("release_status") == "pre"),
+            "Existing mirror release identity or notes conflict with GitHub")
+
+
 def publish(mirror, source: dict, commit: str, paths: dict, hashes: dict) -> None:
     """Validate every preexisting asset before mutating; commit metadata last."""
     names = artifact_names(source["tag_name"])
     existing = mirror.release()
     assets = {}
     if existing is not None:
-        require(existing.get("tag_name") == source["tag_name"] and not existing.get("prerelease")
-                and existing.get("name") == source["name"] and notes_equal(source["body"], existing.get("body")),
-                "Existing mirror release identity or notes conflict with GitHub")
+        validate_mirror_identity(existing, source)
         assets = asset_map(existing)
-        require(names[2] not in assets or all(n in assets for n in names),
+        require(source["prerelease"] or names[2] not in assets or all(n in assets for n in names),
                 "Existing completion metadata has missing attachments; refusing repair in place")
         for name in names:
             if name in assets:
                 mirror.verify(name, hashes[name])
     else:
         mirror.create(source, commit)
-    for name in names:  # EXE -> checksum -> unchanged metadata (completion marker)
+    for name in names:  # Formal metadata is last; beta has both binary/checksum pairs.
         if name not in assets:
-            mirror.upload(name, paths[name])
+            try:
+                mirror.upload(name, paths[name])
+            except UploadInterrupted:
+                if not source["prerelease"]:
+                    raise
+                # A lost response can follow a completed PUT. Reconcile every
+                # registered original before requesting one fresh upload URL.
+                current = mirror.release()
+                validate_mirror_identity(current, source)
+                assets = asset_map(current)
+                for registered in names:
+                    if registered in assets:
+                        mirror.verify(registered, hashes[registered])
+                if name in assets:
+                    continue
+                print("Retrying interrupted prerelease upload with a fresh upload address", flush=True)
+                mirror.upload(name, paths[name])
             mirror.verify(name, hashes[name])
 
 
@@ -342,17 +402,25 @@ def synchronize(http: Http, tag: str | None, directory: Path) -> str:
     if tag is not None:
         artifact_names(tag)
     source = http.api(GH + ("/releases/tags/" + tag if tag else "/releases/latest"), auth=True)
-    require(isinstance(source, dict) and source.get("draft") is False and source.get("prerelease") is False,
-            "Only published formal releases can be mirrored")
+    require(isinstance(source, dict) and source.get("draft") is False
+            and type(source.get("prerelease")) is bool,
+            "Only published releases can be mirrored")
+    require(tag is None or source.get("tag_name") == tag, "Source release tag differs from request")
     tag = source["tag_name"]
     names = artifact_names(tag)
+    require(source["prerelease"] == is_prerelease(tag), "Release identity disagrees with tag")
     require(isinstance(source.get("name"), str) and isinstance(source.get("body"), str), "Missing release notes")
     assets = asset_map(source)
     require(all(n in assets for n in names), "Source release assets incomplete; retry after publishing finishes")
+    if source["prerelease"]:
+        require(all(isinstance(assets[n].get("digest"), str)
+                    and re.fullmatch(r"sha256:[0-9a-f]{64}", assets[n]["digest"]) for n in names),
+                "Source prerelease asset digest missing or invalid")
     commit = tag_commit(http, tag)
     verify_mirror_tag(http, tag, commit)
     paths, hashes = {}, {}
-    for name, limit in zip(names, (MAX_INSTALLER, 1024, 16 * 1024)):
+    limits = (MAX_INSTALLER, 1024, MAX_INSTALLER, 1024) if source["prerelease"] else (MAX_INSTALLER, 1024, 16 * 1024)
+    for name, limit in zip(names, limits):
         asset = assets[name]
         require(type(asset.get("size")) is int and 0 < asset["size"] <= limit,
                 "Invalid source asset size")
@@ -364,20 +432,82 @@ def synchronize(http: Http, tag: str | None, directory: Path) -> str:
         if asset.get("digest"):
             require(asset["digest"] == "sha256:" + hashes[name][1], "GitHub asset digest mismatch")
     validate_source(tag, commit, paths, hashes)
-    publish(RemoteMirror(http, tag, directory), source, commit, paths, hashes)
+    mirror = RemoteMirror(http, tag, directory)
+    publish(mirror, source, commit, paths, hashes)
+    mirror.verify_release(source)
     return tag
+
+
+def catch_up(http: Http, directory: Path) -> list[str]:
+    """Bounded catch-up for the two channels, with neither starving the other."""
+    total_deadline = getattr(http, "deadline", None)
+    tags = []
+    failures = []
+    for channel in ("formal", "prerelease"):
+        if total_deadline is not None:
+            # Discovery is a small JSON request, not an artifact transfer. A
+            # slow stream must leave time for the other channel and uploads.
+            http.deadline = min(total_deadline, time.monotonic() + 60)
+        try:
+            if channel == "formal":
+                latest = http.api(GH + "/releases/latest", auth=True)
+                require(isinstance(latest, dict) and latest.get("draft") is False
+                        and latest.get("prerelease") is False and not is_prerelease(latest.get("tag_name")),
+                        "Cannot establish the latest formal release")
+                tags.append(latest["tag_name"])
+            else:
+                releases = http.api(GH + "/releases?per_page=20&page=1", auth=True)
+                require(isinstance(releases, list) and len(releases) <= 20, "Invalid bounded source release listing")
+                candidates = []
+                for release in releases:
+                    require(isinstance(release, dict), "Invalid source release")
+                    if release.get("draft") is False and release.get("prerelease") is True:
+                        require(is_prerelease(release.get("tag_name")), "Prerelease tag identity mismatch")
+                        published = datetime.fromisoformat(release["published_at"])
+                        require(published.tzinfo is not None, "Source publication time has no timezone")
+                        candidates.append((published, release["tag_name"]))
+                if candidates:
+                    tags.append(max(candidates)[1])
+        except MirrorError as error:
+            failures.append(channel + ": " + str(error))
+        except Exception:
+            # Do not expose raw parsing/transport errors or skip the other channel.
+            failures.append(channel + ": invalid response, interrupted transfer, or local I/O error")
+        finally:
+            if total_deadline is not None:
+                http.deadline = total_deadline
+    for index, tag in enumerate(tags):
+        if total_deadline is not None:
+            now = time.monotonic()
+            http.deadline = now + max(0, total_deadline - now) / (len(tags) - index)
+        try:
+            synchronize(http, tag, directory)
+            print("Verified complete GitCode mirror: " + tag, flush=True)
+        except MirrorError as error:
+            failures.append(tag + ": " + str(error))
+        except Exception:
+            failures.append(tag + ": invalid response, interrupted transfer, or local I/O error")
+        finally:
+            if total_deadline is not None:
+                http.deadline = total_deadline
+    require(not failures, "; ".join(failures))
+    return tags
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--tag", default=None, help="Formal tag; omitted means GitHub latest formal release")
+    parser.add_argument("--tag", default=None, help="Published tag; omitted catches up latest formal and prerelease")
     args = parser.parse_args()
     try:
         token = os.environ.get("GITCODE_MIRROR_TOKEN", "")
         require(bool(token), "Configure the repository Actions secret GITCODE_MIRROR_TOKEN first")
         with tempfile.TemporaryDirectory(prefix="mentor-release-mirror-") as directory:
-            tag = synchronize(Http(token, os.environ.get("GITHUB_TOKEN", "")), args.tag, Path(directory))
-        print(f"Verified complete GitCode mirror: {tag}")
+            http = Http(token, os.environ.get("GITHUB_TOKEN", ""))
+            if args.tag:
+                tag = synchronize(http, args.tag, Path(directory))
+                print(f"Verified complete GitCode mirror: {tag}")
+            else:
+                catch_up(http, Path(directory))
         return 0
     except MirrorError as error:
         print("Release mirror failed: " + str(error), file=sys.stderr)

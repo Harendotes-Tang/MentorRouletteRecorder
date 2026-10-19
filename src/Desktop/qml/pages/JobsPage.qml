@@ -10,16 +10,21 @@ Item {
     property var rolesCache: []
 
     readonly property int unknownCount: {
+        const unknown = Theme.jobLabel(null, "未知")
+        let count = 0
         for (let index = 0; index < rowsCache.length; ++index) {
-            if (rowsCache[index].job_id === null || rowsCache[index].job_id === undefined)
-                return Number(rowsCache[index].attempt_count || 0)
+            if ((Theme.jobName(rowsCache[index]) || unknown) === unknown)
+                count += Number(rowsCache[index].attempt_count || 0)
         }
-        return 0
+        return count
     }
 
     function reloadRows() {
-        rowsCache = App.jobs.topRows(0)
-        rolesCache = App.jobs.roleBreakdown()
+        const unknown = Theme.jobLabel(null, "未知")
+        rowsCache = App.jobs.topRows(0).filter(row => Number(row.attempt_count || 0) !== 0
+            || (Theme.jobName(row) || unknown) !== unknown)
+        rolesCache = App.jobs.roleBreakdown().filter(row => row.role_group !== "未知"
+            || Number(row.attempt_count || 0) !== 0)
         donut.requestPaint()
     }
 
@@ -59,7 +64,7 @@ Item {
                 title: qsTr("职业统计")
                 subtitle: App.jobs.loadError.length > 0
                           ? qsTr("读取失败")
-                          : qsTr("未知职业 %1 次").arg(page.unknownCount)
+                          : page.unknownCount !== 0 ? qsTr("未知职业 %1 次").arg(page.unknownCount) : ""
             }
 
             Text {
@@ -124,10 +129,13 @@ Item {
                         spacing: 6
 
                         Repeater {
+                            objectName: "jobsRoleLegend"
                             model: page.rolesCache
 
                             delegate: RowLayout {
                                 required property var modelData
+                                required property int index
+                                objectName: "jobsRoleLegendRow" + index
 
                                 Layout.fillWidth: true
                                 Layout.preferredHeight: 22
@@ -254,10 +262,13 @@ Item {
                     }
 
                     Repeater {
+                        objectName: "jobsTableRows"
                         model: page.rowsCache
 
                         delegate: Rectangle {
                             required property var modelData
+                            required property int index
+                            objectName: "jobsTableRow" + index
 
                             Layout.fillWidth: true
                             Layout.preferredHeight: 58
@@ -296,11 +307,12 @@ Item {
                                 }
 
                                 RoleIcon {
+                                    objectName: "jobRowRole"
                                     Layout.preferredWidth: 84
                                     // The fine-grained group of the legend
                                     // (坦克 / 治疗 / 近战 / 远程物理 / 魔法 /
                                     // 未知), never the coarse DPS bucket.
-                                    role: Jobs.roleGroup(modelData.job_id)
+                                    role: modelData.role_group || "未知"
                                     size: 20
                                     showLabel: true
                                     labelPixelSize: 11

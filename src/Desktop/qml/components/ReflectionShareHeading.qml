@@ -83,22 +83,25 @@ Item {
     // 不参与布局，仅提供角色名的统一字体。
     Text {
         id: nameFont
+        renderType: Text.CurveRendering
         visible: false
-        font { family: "Noto Serif SC"; pixelSize: heading.single ? 22 : 24; bold: true; letterSpacing: heading.single ? 1 : 1.5; hintingPreference: Font.PreferNoHinting }
+        font { family: "MR Reflection Serif"; pixelSize: heading.single ? 22 : 24; bold: true; letterSpacing: heading.single ? 1 : 1.5; hintingPreference: Font.PreferNoHinting }
     }
     Row {
         id: row
         Text {
             id: prefix
+            renderType: Text.CurveRendering
             objectName: "reflectionShareEyebrow"
             visible: heading.single
             width: heading.prefixWidth
             y: heading.centeredTextY(prefix, prefixMetrics)
             text: qsTr("导随记录"); textFormat: Text.PlainText; color: "#45342A"
-            font { family: "Noto Serif SC"; pixelSize: 24; bold: true; letterSpacing: 6; hintingPreference: Font.PreferNoHinting }
+            font { family: "MR Reflection Serif"; pixelSize: 24; bold: true; letterSpacing: 6; hintingPreference: Font.PreferNoHinting }
         }
         Text {
             id: prefixSeparator
+            renderType: Text.CurveRendering
             visible: heading.single && heading.identity.length > 0
             y: heading.centeredTextY(prefixSeparator, separatorMetrics); width: heading.separatorWidth
             text: "·"; horizontalAlignment: Text.AlignHCenter; color: "#6E5A44"; font: date.font
@@ -111,6 +114,7 @@ Item {
             height: Math.max(name.y + name.height, world.visible ? world.y + world.height : 0)
             Text {
                 id: name
+                renderType: Text.CurveRendering
                 objectName: "reflectionShareCharacterName"
                 y: heading.centeredTextY(name, nameInkMetrics)
                 width: heading.nameWidth
@@ -119,23 +123,26 @@ Item {
             }
             Text {
                 id: world
+                renderType: Text.CurveRendering
                 objectName: "reflectionShareServerName"
                 x: name.width + heading.identityGap; y: heading.centeredTextY(world, worldInkMetrics)
                 width: heading.worldWidth; visible: heading.serverName.length > 0
                 text: heading.serverName; textFormat: Text.PlainText; wrapMode: Text.WrapAnywhere
                 color: "#6E5A44"
-                font { family: "Noto Serif SC"; pixelSize: heading.single ? 20 : 22; letterSpacing: 1; hintingPreference: Font.PreferNoHinting }
+                font { family: "MR Reflection Serif"; pixelSize: heading.single ? 20 : 22; letterSpacing: 1; hintingPreference: Font.PreferNoHinting }
                 lineHeightMode: Text.FixedHeight; lineHeight: 30
             }
         }
         Text {
             id: identitySeparator
+            renderType: Text.CurveRendering
             visible: heading.countLabel.length > 0 && heading.identity.length > 0
             y: heading.centeredTextY(identitySeparator, separatorMetrics); width: heading.separatorWidth
             text: "·"; horizontalAlignment: Text.AlignHCenter; color: "#6E5A44"; font: date.font
         }
         Text {
             id: count
+            renderType: Text.CurveRendering
             objectName: "reflectionShareCount"
             visible: heading.countLabel.length > 0
             width: heading.countWidth
@@ -144,18 +151,20 @@ Item {
         }
         Text {
             id: dateSeparator
+            renderType: Text.CurveRendering
             visible: heading.dateLabel.length > 0 && (heading.single || heading.identity.length > 0 || heading.countLabel.length > 0)
             y: heading.centeredTextY(dateSeparator, separatorMetrics); width: heading.separatorWidth
             text: "·"; horizontalAlignment: Text.AlignHCenter; color: "#6E5A44"; font: date.font
         }
         Text {
             id: date
+            renderType: Text.CurveRendering
             objectName: "reflectionShareTimeText"
             visible: heading.dateLabel.length > 0
             y: heading.centeredTextY(date, dateInkMetrics); width: heading.dateWidth
             text: heading.dateLabel; textFormat: Text.PlainText; wrapMode: Text.Wrap
             color: "#6E5A44"
-            font { family: "Noto Serif SC"; pixelSize: heading.single ? 22 : 24; letterSpacing: heading.single ? 1 : 1.5; hintingPreference: Font.PreferNoHinting }
+            font { family: "MR Reflection Serif"; pixelSize: heading.single ? 22 : 24; letterSpacing: heading.single ? 1 : 1.5; hintingPreference: Font.PreferNoHinting }
             lineHeightMode: Text.FixedHeight; lineHeight: 30
         }
     }

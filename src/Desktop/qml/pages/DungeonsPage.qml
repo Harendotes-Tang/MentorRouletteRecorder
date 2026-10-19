@@ -39,7 +39,10 @@ Item {
     }
 
     function reloadRows() {
+        const unknown = Theme.dutyLabel(null, "未知副本")
         rowsCache = App.dungeons.topRows(topLimit === 0 ? 0 : topLimit)
+            .filter(row => Number(row.attempt_count || 0) !== 0
+                           || (Theme.dutyName(row) || unknown) !== unknown)
     }
 
     function reloadCompositions() {

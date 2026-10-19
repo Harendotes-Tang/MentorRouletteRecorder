@@ -1901,9 +1901,27 @@ private Q_SLOTS:
         QVERIFY2(!window.contains(QString::fromUtf8("设置 → 隐私与边界")), qPrintable(window));
         QQuickItem *close = shell.item(QStringLiteral("disclosureCloseButton"));
         QVERIFY(close);
-        QCOMPARE(close->property("text").toString(), QString::fromUtf8("关闭"));
+        QVERIFY(close->property("text").toString().isEmpty());
+        QCOMPARE(close->property("iconName").toString(), QStringLiteral("x"));
+        auto *content = explanation->property("contentItem").value<QQuickItem *>();
+        QVERIFY(content);
+        const QRectF closeRect = close->mapRectToItem(content, close->boundingRect());
+        QVERIFY(qAbs(closeRect.top()) < 1);
+        QVERIFY(qAbs(closeRect.right() - content->width()) < 1);
         QVERIFY(close->isEnabled());
         QVERIFY(shell.click(QStringLiteral("disclosureCloseButton")));
+        QTRY_VERIFY(!explanation->property("visible").toBool());
+        QVERIFY(shell.click(QStringLiteral("aboutExplanationButton")));
+        QTRY_VERIFY(explanation->property("visible").toBool());
+        QTest::keyClick(shell.window(), Qt::Key_Tab);
+        for (int step = 0; step < 20 && !close->hasActiveFocus(); ++step)
+            QTest::keyClick(shell.window(), Qt::Key_Tab);
+        QTRY_VERIFY(close->hasActiveFocus());
+        QTest::keyClick(shell.window(), Qt::Key_Return);
+        QTRY_VERIFY(!explanation->property("visible").toBool());
+        QVERIFY(shell.click(QStringLiteral("aboutExplanationButton")));
+        QTRY_VERIFY(explanation->property("visible").toBool());
+        QTest::keyClick(shell.window(), Qt::Key_Escape);
         QTRY_VERIFY(!explanation->property("visible").toBool());
     }
 

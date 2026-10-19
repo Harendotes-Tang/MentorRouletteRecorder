@@ -6,6 +6,8 @@ import MentorRecorder
 ScrollView {
     id: page
     objectName: "dashboardPage"
+    readonly property var visibleResultBuckets: App.resultBuckets.filter(bucket =>
+        bucket.result !== "UNKNOWN" || Number(bucket.count || 0) !== 0)
 
     readonly property int resultTotal: {
         let total = 0
@@ -507,10 +509,13 @@ ScrollView {
                     rowSpacing: 12
 
                     Repeater {
+                        objectName: "dashboardStatCards"
                         model: App.statCards
 
                         delegate: StatCard {
                             required property var modelData
+                            required property int index
+                            objectName: "dashboardStatCard" + index
 
                             Layout.fillWidth: true
                             Layout.preferredHeight: 96
@@ -750,10 +755,13 @@ ScrollView {
                     spacing: 5
 
                     Repeater {
-                        model: App.resultBuckets
+                        objectName: "dashboardResultLegend"
+                        model: page.visibleResultBuckets
 
                         delegate: RowLayout {
                             required property var modelData
+                            required property int index
+                            objectName: "dashboardResultLegendRow" + index
                             Layout.fillWidth: true
                             spacing: 8
 

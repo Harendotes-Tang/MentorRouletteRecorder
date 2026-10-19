@@ -196,7 +196,7 @@ class NetworkTests(unittest.TestCase):
             m.synchronize(SourceOnly(), TAG, Path("unused"))
         self.assertEqual(calls, [m.GH + "/releases/tags/" + TAG])
 
-    def test_prerelease_never_reaches_mirror(self):
+    def test_formal_tag_with_prerelease_identity_never_reaches_mirror(self):
         class SourceOnly:
             def api(self, url, **kwargs):
                 return {**SOURCE, "prerelease": True}
@@ -218,8 +218,8 @@ class NetworkTests(unittest.TestCase):
         with self.assertRaises(m.MirrorError):
             m.asset_map({"assets": [{"name": NAMES[0]}, {"name": NAMES[0]}]})
 
-    def test_nonformal_and_path_injection_tags_refused(self):
-        for tag in ("v1.2.3-beta", "v01.2.3", "../foo", "v1.2.3?x=y", "v1.2.3\n"):
+    def test_invalid_version_and_path_injection_tags_refused(self):
+        for tag in ("v1.2.3-beta..1", "v01.2.3", "../foo", "v1.2.3?x=y", "v1.2.3\n"):
             with self.assertRaises(m.MirrorError):
                 m.artifact_names(tag)
 
@@ -379,9 +379,25 @@ class CurlTransportTests(unittest.TestCase):
             with self.subTest(exit=exit_code, metrics=metrics):
                 run, output, failure = self.invoke(subprocess.CompletedProcess([], exit_code, metrics))
                 self.assertIsNotNone(failure)
-                self.assertIn("Native upload failed", failure)
+                self.assertIn("Native upload", failure)
+                if exit_code == 28:
+                    self.assertIn("timed out", failure)
                 self.assertIn("Native upload metrics:", output)
                 self.assertEqual(run.call_count, 1)
+
+    def test_large_upload_minimum_speed_can_finish_inside_its_budget(self):
+        size = 145032587
+        result = subprocess.CompletedProcess([], 0, f"200|{size}|2000000|75.000")
+        from types import SimpleNamespace
+        with patch.object(Path, "stat", return_value=SimpleNamespace(st_size=size)), \
+                patch.object(m.time, "monotonic", side_effect=[100.0, 105.0, 106.0]):
+            run, _, failure = self.invoke(result)
+        self.assertIsNone(failure)
+        config = run.call_args.kwargs["input"]
+        limit = int(config.split('speed-limit = "', 1)[1].split('"', 1)[0])
+        duration = float(config.split('max-time = "', 1)[1].split('"', 1)[0])
+        self.assertGreater(limit, 1)
+        self.assertGreaterEqual(limit * duration, size)
 
     def test_untrusted_diagnostics_and_exception_output_are_not_printed(self):
         for result, error in ((subprocess.CompletedProcess([], 1, self.url), None),

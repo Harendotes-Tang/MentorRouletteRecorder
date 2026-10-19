@@ -40,8 +40,10 @@ public:
     Q_INVOKABLE QString abbreviation(const QVariant &jobId) const;
     /// TANK / HEALER / DPS / UNKNOWN, matching $defs/Role.
     Q_INVOKABLE QString role(const QVariant &jobId) const;
-    /// Fine-grained Chinese role group used by the prototype's colour legend.
-    Q_INVOKABLE QString roleGroup(const QVariant &jobId) const;
+    /// Fine-grained Chinese role group. A mapped ID wins; otherwise an exact,
+    /// unambiguous complete recorded name in the bundled languages may resolve
+    /// the display category. Unknown/ambiguous names return 未知; no ID is stored.
+    Q_INVOKABLE QString roleGroup(const QVariant &jobId, const QString &recordedName = QString()) const;
     /// Palette token for the role group, resolved by Theme.token().
     Q_INVOKABLE QString roleGroupToken(const QVariant &jobId) const;
     /// Palette token for an arbitrary role-group name.

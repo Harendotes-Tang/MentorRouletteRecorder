@@ -75,7 +75,30 @@ Dialog {
     }
     contentItem: ColumnLayout {
         spacing: 8
-        HeadingLabel { text: qsTr("生成分享图片"); font.pixelSize: Theme.dialogTitleSize(20) }
+        RowLayout {
+            Layout.fillWidth: true
+            HeadingLabel {
+                Layout.fillWidth: true
+                text: qsTr("生成分享图片")
+                font.pixelSize: Theme.dialogTitleSize(20)
+                wrapMode: Text.WordWrap
+            }
+            AppButton {
+                objectName: "reflectionShareCloseButton"
+                Layout.alignment: Qt.AlignTop
+                Layout.preferredWidth: 28
+                Layout.preferredHeight: 28
+                text: ""
+                iconName: "x"
+                compact: true
+                variant: "ghost"
+                enabled: !dialog.busy
+                Accessible.name: qsTr("关闭")
+                onClicked: dialog.close()
+                Keys.onReturnPressed: clicked()
+                Keys.onEnterPressed: clicked()
+            }
+        }
         Text {
             Layout.fillWidth: true
             text: dialog.batch ? qsTr("已选 %1 条。下方按选择顺序预览完整心得及副本、职业等信息。点击保存后，图片会保存到你选择的位置；如需分享，请自行发送图片。").arg(dialog.runsData.length)
@@ -231,7 +254,6 @@ Dialog {
         }
         RowLayout {
             Layout.fillWidth: true
-            AppButton { text: qsTr("关闭"); enabled: !dialog.busy; onClicked: dialog.close() }
             Item { Layout.fillWidth: true }
             AppButton {
                 objectName: "retryFailedReflectionImagesButton"

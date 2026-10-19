@@ -16,6 +16,7 @@
 #include <QFontInfo>
 #include <QFontMetricsF>
 #include <QImage>
+#include <QPainterPath>
 #include <QLocale>
 #include <QQmlComponent>
 #include <QQmlContext>
@@ -178,9 +179,9 @@ private Q_SLOTS:
         QTest::addColumn<QString>("family");
         QTest::addColumn<QString>("resource");
         QTest::addColumn<bool>("bold");
-        QTest::newRow("serif-regular") << QStringLiteral("Noto Serif SC")
+        QTest::newRow("serif-regular") << QStringLiteral("MR Reflection Serif")
             << QStringLiteral(":/resources/fonts/NotoSerifSC-Regular.otf") << false;
-        QTest::newRow("serif-bold") << QStringLiteral("Noto Serif SC")
+        QTest::newRow("serif-bold") << QStringLiteral("MR Reflection Serif")
             << QStringLiteral(":/resources/fonts/NotoSerifSC-Bold.otf") << true;
         QTest::newRow("sans-regular") << QStringLiteral("Noto Sans SC")
             << QStringLiteral(":/resources/fonts/NotoSansSC-Regular.otf") << false;
@@ -204,6 +205,24 @@ private Q_SLOTS:
         QCOMPARE(actual.fontTable("CFF "), outlines);
         for (QChar character : QStringLiteral("末日暗影亚马乌罗提赤色熊喵龙巢神殿导随记录心得"))
             QVERIFY2(actual.supportsCharacter(character), qPrintable(QString(character)));
+        if (resource.contains(QStringLiteral("NotoSerifSC"))) {
+            // Curve 的字形缓存会把字体复制到64px；Windows按同名字体重新选脸时，
+            // cmap/CFF读对也可能取错轮廓，所以必须检查缩放后的实际路径。
+            QRawFont resized = actual;
+            resized.setPixelSize(64);
+            const QRawFont expected64(resource, 64);
+            for (QChar character : QStringLiteral("日马提ヴォルカニック・ハートABC")) {
+                const QString sample(character);
+                const auto glyphs = resized.glyphIndexesForString(sample);
+                const auto expectedGlyphs = expected64.glyphIndexesForString(sample);
+                QCOMPARE(glyphs, expectedGlyphs);
+                QVERIFY(!glyphs.isEmpty() && glyphs.first() != 0);
+                const QPainterPath path = resized.pathForGlyph(glyphs.first());
+                const QPainterPath reference = expected64.pathForGlyph(expectedGlyphs.first());
+                QVERIFY2(!path.isEmpty() && !reference.isEmpty(), qPrintable(sample));
+                QCOMPARE(path, reference);
+            }
+        }
     }
 
     void referenceHeadingFitsBeforeElidingName() {
@@ -676,6 +695,10 @@ Window { visible: true; width: 1180; height: 1000
         auto *title = findVisual(entry, QStringLiteral("reflectionShareDutyTitle"));
         auto *metadata = findVisual(entry, QStringLiteral("reflectionShareResultText"));
         QVERIFY(title && metadata);
+        // 这一条专测行尾右括号；轮廓度量准确后，原来的640宽可容纳整行。
+        // 显式收窄此测试样本，继续覆盖真实换行后的括号归属。
+        if (single && language == QLatin1String("en") && contentId == 175)
+            title->setWidth(320);
         const QString expected = names.duty(contentId, run.value(QStringLiteral("duty_name")).toString());
         QVERIFY(!expected.isEmpty());
         QVERIFY(expected != run.value(QStringLiteral("duty_name")).toString());
@@ -786,6 +809,13 @@ ApplicationWindow {
         QVERIFY(dialog);
         QVERIFY(QMetaObject::invokeMethod(dialog, "openForRun", Q_ARG(QVariant, QVariant(run))));
         QTRY_VERIFY(dialog->property("visible").toBool());
+        auto *closeButton = findVisual(window->contentItem(), QStringLiteral("reflectionShareCloseButton"));
+        auto *dialogContent = dialog->property("contentItem").value<QQuickItem *>();
+        QVERIFY(closeButton && dialogContent);
+        QTRY_VERIFY(qAbs(closeButton->mapRectToItem(dialogContent, closeButton->boundingRect()).top()) < 1);
+        QTRY_VERIFY(qAbs(closeButton->mapRectToItem(dialogContent, closeButton->boundingRect()).right()
+                        - dialogContent->width()) < 1);
+        QCOMPARE(closeButton->property("iconName").toString(), QStringLiteral("x"));
         auto *card = findVisual(window->contentItem(), QStringLiteral("reflectionShareCard"));
         auto *body = findVisual(window->contentItem(), QStringLiteral("reflectionShareFullText"));
         QVERIFY(card && body);
@@ -820,12 +850,24 @@ ApplicationWindow {
         // ScrollView 的视口优化也不能省略图片底部的文字节点。
         QVERIFY2(finalTextHasInk(png, body, card, ratio), "PNG 最后一段文字缺失或不可读");
         QCOMPARE(dialog->property("runData").toMap(), run);
-        QVERIFY(QMetaObject::invokeMethod(dialog, "close"));
+        // 从当前保存按钮经真实 Tab 遍历到右上角关闭，再用 Enter 激活。
+        QTest::keyClick(window, Qt::Key_Tab);
+        for (int step = 0; step < 20 && !closeButton->hasActiveFocus(); ++step)
+            QTest::keyClick(window, Qt::Key_Tab);
+        QTRY_VERIFY(closeButton->hasActiveFocus());
+        QTest::keyClick(window, Qt::Key_Return);
         QTRY_VERIFY(!dialog->property("visible").toBool());
         QVERIFY(QMetaObject::invokeMethod(dialog, "openForRun", Q_ARG(QVariant, QVariant(run))));
         QTRY_VERIFY(dialog->property("visible").toBool());
         QTRY_VERIFY(attribution->property("checked").toBool());
         QTRY_VERIFY(findVisual(window->contentItem(), QStringLiteral("reflectionShareCard"))->property("showAttribution").toBool());
+        QTest::keyClick(window, Qt::Key_Escape);
+        QTRY_VERIFY(!dialog->property("visible").toBool());
+        QVERIFY(QMetaObject::invokeMethod(dialog, "openForRun", Q_ARG(QVariant, QVariant(run))));
+        QTRY_VERIFY(dialog->property("visible").toBool());
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
+                          closeButton->mapToScene(closeButton->boundingRect().center()).toPoint());
+        QTRY_VERIFY(!dialog->property("visible").toBool());
     }
     void selectedBatchIndividualAndCombinedCompletePng_data() {
         actualShareDialogAtSmallAndLargeSizes_data();

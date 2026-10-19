@@ -84,43 +84,48 @@ Item {
     }
     TextMetrics {
         id: titleMetrics
+        renderType: dutyTitle.renderType
         text: Theme.dutyName(entry.runData) || qsTr("未知副本")
-        font { family: "Noto Serif SC"; pixelSize: 48; bold: true; letterSpacing: 1 }
+        font { family: "MR Reflection Serif"; pixelSize: 48; bold: true; letterSpacing: 1 }
     }
-    TextMetrics { id: title42; text: titleMetrics.text; font { family: "Noto Serif SC"; pixelSize: 42; bold: true; letterSpacing: 1 } }
-    TextMetrics { id: title36; text: titleMetrics.text; font { family: "Noto Serif SC"; pixelSize: 36; bold: true; letterSpacing: 1 } }
-    TextMetrics { id: title32; text: titleMetrics.text; font { family: "Noto Serif SC"; pixelSize: 32; bold: true; letterSpacing: 1 } }
+    TextMetrics { id: title42; text: titleMetrics.text; renderType: dutyTitle.renderType; font { family: "MR Reflection Serif"; pixelSize: 42; bold: true; letterSpacing: 1 } }
+    TextMetrics { id: title36; text: titleMetrics.text; renderType: dutyTitle.renderType; font { family: "MR Reflection Serif"; pixelSize: 36; bold: true; letterSpacing: 1 } }
+    TextMetrics { id: title32; text: titleMetrics.text; renderType: dutyTitle.renderType; font { family: "MR Reflection Serif"; pixelSize: 32; bold: true; letterSpacing: 1 } }
     FontMetrics { id: titleFontMetrics; font: dutyTitle.font }
     Text {
         id: timeText
+        renderType: Text.CurveRendering
         objectName: "reflectionShareTimeText"
         visible: !entry.single && !entry.knownTime
         x: 262; y: entry.metadataBottom + 12; width: 794
         text: entry.dateLabel()
         textFormat: Text.PlainText; wrapMode: Text.Wrap; color: "#6E5A44"
-        font { family: "Noto Serif SC"; pixelSize: 18; letterSpacing: 1 }
+        font { family: "MR Reflection Serif"; pixelSize: 18; letterSpacing: 1 }
         lineHeightMode: Text.FixedHeight; lineHeight: 28
     }
     Text {
+        renderType: Text.CurveRendering
         visible: !entry.single
         x: 84; y: 28 - baselineOffset; width: 106
         text: entry.knownTime ? entry.playedDate.slice(5).replace("-", ".") : qsTr("时间未知")
         textFormat: Text.PlainText; horizontalAlignment: Text.AlignRight; wrapMode: Text.Wrap; color: "#45342A"
-        font { family: "Noto Serif SC"; pixelSize: entry.knownTime ? 30 : 20; bold: true; letterSpacing: 0.5 }
+        font { family: "MR Reflection Serif"; pixelSize: entry.knownTime ? 30 : 20; bold: true; letterSpacing: 0.5 }
     }
     Text {
+        renderType: Text.CurveRendering
         visible: !entry.single && entry.knownTime
         x: 84; y: 54 - baselineOffset; width: 106
         text: entry.knownTime ? Fmt.localTime(entry.runData.matched_at_utc).slice(0, 5) : ""
         textFormat: Text.PlainText; horizontalAlignment: Text.AlignRight; color: "#6E5A44"
-        font { family: "Noto Serif SC"; pixelSize: 21; letterSpacing: 0.5 }
+        font { family: "MR Reflection Serif"; pixelSize: 21; letterSpacing: 0.5 }
     }
     Text {
+        renderType: Text.CurveRendering
         visible: !entry.single && entry.knownTime && entry.showYear
         x: 84; y: 79 - baselineOffset; width: 106
         text: entry.knownTime ? entry.playedDate.slice(0, 4) : ""
         textFormat: Text.PlainText; horizontalAlignment: Text.AlignRight; color: "#6E5A44"
-        font { family: "Noto Serif SC"; pixelSize: 17 }
+        font { family: "MR Reflection Serif"; pixelSize: 17 }
     }
     Image {
         visible: !entry.single
@@ -153,14 +158,16 @@ Item {
             source: entry.assetRoot + (Theme.jobName(entry.runData) ? "icon_tile.png" : "icon_placeholder.png")
         }
         Text {
+            renderType: Text.CurveRendering
             anchors.centerIn: parent
             visible: !jobImage.visible && !!Theme.jobName(entry.runData)
             text: Theme.jobName(entry.runData).slice(0, 1); textFormat: Text.PlainText; color: "#E9CF98"
-            font { family: "Noto Serif SC"; pixelSize: 34; bold: true }
+            font { family: "MR Reflection Serif"; pixelSize: 34; bold: true }
         }
     }
     Text {
         id: dutyTitle
+        renderType: Text.CurveRendering
         objectName: "reflectionShareDutyTitle"
         x: entry.single ? 168 : 346
         y: entry.single ? (lineCount > 1 ? 138 : 156) - baselineOffset + entry.dateShift : 35 - baselineOffset
@@ -169,7 +176,7 @@ Item {
         text: entry.wrappedDutyTitle(titleMetrics.text)
         textFormat: Text.PlainText; wrapMode: Text.Wrap; color: "#2E2118"
         elide: Text.ElideNone
-        font.family: "Noto Serif SC"
+        font.family: "MR Reflection Serif"
         font.pixelSize: {
             if (!entry.single) return 38
             const sizes = [48, 42, 36, 32]
@@ -184,13 +191,14 @@ Item {
     }
     Text {
         id: resultText
+        renderType: Text.CurveRendering
         objectName: "reflectionShareResultText"
         x: dutyTitle.x
         y: (entry.single ? 192 : 69) + entry.titleShift - baselineOffset
         width: dutyTitle.width
         text: Theme.live((Theme.jobName(entry.runData) || qsTr("未知职业")) + " · " + Fmt.resultLabel(entry.runData.result || "UNKNOWN"))
         textFormat: Text.PlainText; wrapMode: Text.Wrap; color: "#6E5A44"
-        font { family: "Noto Serif SC"; pixelSize: 22; letterSpacing: 0.5 }
+        font { family: "MR Reflection Serif"; pixelSize: 22; letterSpacing: 0.5 }
         lineHeightMode: Text.FixedHeight; lineHeight: 30
     }
     Item {
@@ -208,10 +216,11 @@ Item {
         }
         Text {
             id: moodText
+            renderType: Text.CurveRendering
             objectName: "reflectionShareMoodText"
             x: 12; y: 22 - baselineOffset
             text: Theme.moodLabel(entry.reflection.mood); textFormat: Text.PlainText; color: "#6B4E2E"
-            font { family: "Noto Serif SC"; pixelSize: 20; letterSpacing: 1 }
+            font { family: "MR Reflection Serif"; pixelSize: 20; letterSpacing: 1 }
         }
     }
     Image {
@@ -222,6 +231,7 @@ Item {
     }
     Text {
         id: body
+        renderType: Text.CurveRendering
         objectName: "reflectionShareFullText"
         x: entry.single ? 84 : 262
         // 标注以首行基线（单条 304、长卷 y0+128）定义，消除字体引擎留白差异。
@@ -229,7 +239,7 @@ Item {
         width: entry.single ? 972 : 794
         text: entry.reflection.text || ""
         textFormat: Text.PlainText; wrapMode: Text.Wrap; color: "#45342A"
-        font { family: "Noto Serif SC"; pixelSize: 28 }
+        font { family: "MR Reflection Serif"; pixelSize: 28 }
         lineHeightMode: Text.FixedHeight; lineHeight: 48
     }
 }

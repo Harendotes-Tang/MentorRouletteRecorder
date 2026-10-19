@@ -2,6 +2,7 @@
 #include <QFile>
 #include <QUrl>
 #include "JobCatalog.h"
+#include "GameNames.h"
 
 #include <QFile>
 #include <QJsonArray>
@@ -176,10 +177,29 @@ QString JobCatalog::role(const QVariant &jobId) const
     return job ? job->role : QStringLiteral("UNKNOWN");
 }
 
-QString JobCatalog::roleGroup(const QVariant &jobId) const
+QString JobCatalog::roleGroup(const QVariant &jobId, const QString &recordedName) const
 {
-    const Job *job = find(jobId);
-    return job ? job->roleGroup : QString::fromUtf8("未知");
+    if (const Job *job = find(jobId))
+        return job->roleGroup;
+    const QString name = recordedName.trimmed();
+    const Job *matched = nullptr;
+    if (!name.isEmpty()) {
+        for (const Job &job : m_jobs) {
+            bool same = name.compare(job.name, Qt::CaseInsensitive) == 0;
+            for (const char *code : {"zh-TW", "en", "ja"}) {
+                if (same)
+                    break;
+                same = name.compare(GameNames::shared()->jobIn(QString::fromLatin1(code), job.id, job.name),
+                                    Qt::CaseInsensitive) == 0;
+            }
+            if (same) {
+                if (matched)
+                    return QString::fromUtf8("未知");
+                matched = &job;
+            }
+        }
+    }
+    return matched ? matched->roleGroup : QString::fromUtf8("未知");
 }
 
 QString JobCatalog::tokenForRoleGroup(const QString &group)

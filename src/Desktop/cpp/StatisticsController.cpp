@@ -283,7 +283,7 @@ QVariantList StatisticsController::statCards() const
     const QVariant leaveRate = m_dashboard.value(QStringLiteral("leave_rate")).toVariant();
     const QVariant avgDuration =
         m_dashboard.value(QStringLiteral("avg_duration_ms")).toVariant();
-    return {
+    QVariantList cards{
         // Counts only what this software recorded; the 已有基数 typed in by hand is not in it,
         // so the card must not read as a lifetime total.
         statCard(tr("尝试次数"),
@@ -298,9 +298,11 @@ QVariantList StatisticsController::statCards() const
                  QStringLiteral("%1 / %2")
                      .arg(counts.value(QStringLiteral("DISCONNECTED")))
                      .arg(counts.value(QStringLiteral("INTERRUPTED")))),
-        statCard(tr("未知结果"),
-                 QString::number(counts.value(QStringLiteral("UNKNOWN")))),
     };
+    const int unknown = counts.value(QStringLiteral("UNKNOWN"));
+    if (unknown != 0)
+        cards.append(statCard(tr("未知结果"), QString::number(unknown)));
+    return cards;
 }
 
 int StatisticsController::goalCount() const

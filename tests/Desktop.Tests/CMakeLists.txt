@@ -28,6 +28,18 @@ foreach(workflow IN ITEMS ReflectionLibrary ReflectionShare ImportRecordsControl
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen;MR_DISABLE_SHARED_FETCH=1;MR_DISABLE_ONLINE_SPEECH=1;MR_DISABLE_UPDATE_CHECK=1")
 endforeach()
 
+# The visibility suite switches the real interface language in place.
+# Compile the shipping catalogue into this test instead of silently falling
+# back to Chinese when LanguageManager cannot find the application's resource.
+qt_add_lrelease(
+    TS_FILES "${PROJECT_SOURCE_DIR}/src/Desktop/i18n/mentor_recorder_en.ts"
+    LRELEASE_TARGET MentorRecorderStatisticsTestTranslations
+    QM_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/statistics-i18n"
+    QM_FILES_OUTPUT_VARIABLE MR_STATISTICS_TEST_QM)
+qt_add_resources(MentorRecorderDungeonCompositionTests statistics_test_i18n
+    PREFIX "/i18n"
+    BASE "${CMAKE_CURRENT_BINARY_DIR}/statistics-i18n"
+    FILES ${MR_STATISTICS_TEST_QM})
 qt_add_lrelease(
     TS_FILES
         "${PROJECT_SOURCE_DIR}/src/Desktop/i18n/mentor_recorder_en.ts"

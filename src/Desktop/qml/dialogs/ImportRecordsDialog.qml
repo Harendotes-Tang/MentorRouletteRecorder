@@ -1176,7 +1176,19 @@ Dialog {
                 Text { textFormat: Text.PlainText; text: Math.round(imageDialog.zoom * 100) + "%"; color: Theme.textSecondary; font.pixelSize: Theme.fs(12) }
                 AppButton { objectName: "importImageZoomIn"; text: qsTr("放大"); compact: true; enabled: imageDialog.zoom < 3; onClicked: imageDialog.zoom = Math.min(3, imageDialog.zoom + 0.25) }
                 AppButton { text: qsTr("100%"); compact: true; onClicked: imageDialog.zoom = 1 }
-                AppButton { text: qsTr("关闭"); compact: true; onClicked: imageDialog.close() }
+                AppButton {
+                    objectName: "importWholeImageCloseButton"
+                    Layout.preferredWidth: 28
+                    Layout.preferredHeight: 28
+                    text: ""
+                    iconName: "x"
+                    compact: true
+                    variant: "ghost"
+                    Accessible.name: qsTr("关闭")
+                    onClicked: imageDialog.close()
+                    Keys.onReturnPressed: clicked()
+                    Keys.onEnterPressed: clicked()
+                }
             }
             Flickable {
                 id: fullImageViewport

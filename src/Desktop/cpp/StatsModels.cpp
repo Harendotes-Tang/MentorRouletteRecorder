@@ -66,12 +66,13 @@ const MainScenarioMembership &mainScenarioMembership()
 }
 
 QVariantMap completionBucket(const QString &label, qint64 count, qint64 total,
-                             const QString &token)
+                             const QString &token, bool unknown = false)
 {
     return {{QStringLiteral("label"), label},
             {QStringLiteral("completed_count"), count},
             {QStringLiteral("share"), total > 0 ? QVariant(double(count) / double(total)) : QVariant()},
-            {QStringLiteral("color_token"), token}};
+            {QStringLiteral("color_token"), token},
+            {QStringLiteral("is_unknown"), unknown}};
 }
 
 QString dutyCategory(const QJsonObject &row)
@@ -346,7 +347,7 @@ qint64 DungeonStatsModel::totalCompletedCount() const
 QVariantList DungeonStatsModel::categoryBreakdown() const
 {
     // Keep ordinary categories stable, retain any additional canonical category,
-    // and always make the unknown bucket visible, including an explicit zero.
+    // and retain the raw unknown bucket at zero; the legend controls visibility.
     const QStringList order{QString::fromUtf8("四人迷宫"), QString::fromUtf8("讨伐歼灭战"),
                             QString::fromUtf8("大型任务"), QString::fromUtf8("团队任务"),
                             QString::fromUtf8("行会令")};
@@ -377,7 +378,8 @@ QVariantList DungeonStatsModel::categoryBreakdown() const
         out.append(completionBucket(category == unknown ? tr("未识别")
                                                         : GameNames::shared()->category(category),
                    counts.value(category), total,
-                   category == unknown ? QStringLiteral("neutral500") : tokens.at(i % tokens.size())));
+                   category == unknown ? QStringLiteral("neutral500") : tokens.at(i % tokens.size()),
+                   category == unknown));
     }
     return out;
 }
@@ -403,7 +405,16 @@ QVariantList DungeonStatsModel::specialDutyBreakdown() const
     return {completionBucket(tr("主线副本"), counts[0], total, QStringLiteral("blue")),
             completionBucket(tr("行会令"), counts[1], total, QStringLiteral("green")),
             completionBucket(tr("其他副本"), counts[2], total, QStringLiteral("orange")),
-            completionBucket(tr("未识别"), counts[3], total, QStringLiteral("neutral500"))};
+            completionBucket(tr("未识别"), counts[3], total, QStringLiteral("neutral500"), true)};
+}
+
+QJsonObject JobStatsModel::decorate(const QJsonObject &row) const
+{
+    QJsonObject out = row;
+    // Presentation metadata shared by the table and the role distribution.
+    // Keep the received job_id and row grouping, including name-only records.
+    out.insert(QStringLiteral("role_group"), roleGroupOf(row));
+    return out;
 }
 
 QString JobStatsModel::roleGroupOf(const QJsonObject &row)
@@ -411,20 +422,18 @@ QString JobStatsModel::roleGroupOf(const QJsonObject &row)
     // 1. A backend that already speaks the prototype's fine-grained groups
     //    (the mock does) wins.
     const QString supplied = row.value(QStringLiteral("role_group")).toString();
-    if (!supplied.isEmpty())
+    if (!supplied.isEmpty() && supplied != QString::fromUtf8("未知"))
         return supplied;
 
     // 2. ipc-v1's $defs/JobStatsRow has no role_group: it carries job_id and the
     //    coarse $defs/Role (TANK / HEALER / DPS / UNKNOWN). The fine group is
-    //    derived from job_id through the shipping catalogue, which is the same
-    //    mapping the table's icons use.
+    //    derived from job_id, or an exact recognized name when the ID is not
+    //    available. Both the table and the legend use this display projection.
     const QJsonValue jobId = row.value(QStringLiteral("job_id"));
-    if (jobId.isDouble()) {
-        static const JobCatalog catalog;
-        const QString derived = catalog.roleGroup(jobId.toVariant());
-        if (!derived.isEmpty() && derived != QString::fromUtf8("未知"))
-            return derived;
-    }
+    static const JobCatalog catalog;
+    const QString derived = catalog.roleGroup(jobId.toVariant(), row.value(QStringLiteral("job_name")).toString());
+    if (!derived.isEmpty() && derived != QString::fromUtf8("未知"))
+        return derived;
 
     // 3. Only the coarse role is known. TANK and HEALER map one-to-one; a DPS
     //    whose job the catalogue does not know stays 未知 rather than being
@@ -439,13 +448,20 @@ QString JobStatsModel::roleGroupOf(const QJsonObject &row)
 
 QVariantList JobStatsModel::roleBreakdown() const
 {
-    // Fixed order so the legend never reshuffles between refreshes, and so the
-    // "未知" group is always present rather than hidden.
-    static const char *kOrder[] = {"坦克", "治疗", "近战", "远程物理", "魔法", "未知"};
+    // Stable ordinary groups and a raw unknown bucket even at zero. Imported
+    // crafting/gathering names can resolve to 其他; retain that group's counts
+    // when present instead of dropping them from the distribution.
+    QStringList order{QString::fromUtf8("坦克"), QString::fromUtf8("治疗"), QString::fromUtf8("近战"),
+                      QString::fromUtf8("远程物理"), QString::fromUtf8("魔法"), QString::fromUtf8("未知")};
+    for (const QJsonObject &row : m_rows) {
+        if (roleGroupOf(row) == QString::fromUtf8("其他")) {
+            order.insert(order.size() - 1, QString::fromUtf8("其他"));
+            break;
+        }
+    }
 
     QVariantList out;
-    for (const char *name : kOrder) {
-        const QString group = QString::fromUtf8(name);
+    for (const QString &group : order) {
         int attempts = 0;
         for (const QJsonObject &row : m_rows) {
             if (roleGroupOf(row) == group)

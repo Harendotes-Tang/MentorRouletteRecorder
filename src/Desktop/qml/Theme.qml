@@ -83,8 +83,8 @@ QtObject {
     // Harendotes sets headings and big figures in Song (Noto Serif SC), Latin
     // included; eorzea keeps Cinzel for Latin and figures.
     readonly property string headingFamily: eorzea
-        ? (harendotes ? "Noto Serif SC" : "Cinzel") : bodyFamily
-    readonly property string headingFamilyCjk: eorzea ? "Noto Serif SC" : bodyFamily
+        ? (harendotes ? "MR Reflection Serif" : "Cinzel") : bodyFamily
+    readonly property string headingFamilyCjk: eorzea ? "MR Reflection Serif" : bodyFamily
     // The QML font value type has no `families` list, so a heading picks the
     // face by its own content: Cinzel covers Latin and figures, Noto Serif SC
     // the Chinese (main.cpp registers substitutions for machines without it).
