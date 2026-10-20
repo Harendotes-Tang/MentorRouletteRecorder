@@ -507,6 +507,12 @@ Machina 在自身线程内将失败写入 `Trace`，而不向调用方抛出异�
   抓包停止，或解析器被替换（重新绑定、换用或撤下档案）。两条都不含负载、哈希、opcode 或副本编号。
   抓包会话结束时的 `capture/session_closed` 另带 `duty_clear_signals` 与 `duty_clear_completions`，
   即整个会话的总数。
+- 国服副本的开始宣布与剩余时间（[protocol-profile-format.md](protocol-profile-format.md) §13）在副本内遇到导随记录、
+  并决定了这一场是中途加入还是开局进入时，记一条 `protocol/duty_start_signal`（Info）：`kind`（`commenced` / `time_remaining`）、
+  `run_id`、`seconds`（时限或剩余秒数）、`decided = true` 与 `joined_in_progress`（判定结果）。已判定之后再收到开始宣布时
+  同样记一条（`decided = false`，`joined_in_progress` 为已有判定）——这是与「中途加入的玩家收不到开始宣布」相反的形状，
+  真机核对要看的正是它（[state-machine.md](state-machine.md) §3.14）。副本外的报文与已判定后的剩余时间不记。
+  不含负载、哈希、opcode 或副本编号。
 
 ## 9. 脱敏诊断报告
 

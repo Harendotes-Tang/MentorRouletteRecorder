@@ -42,7 +42,17 @@ public sealed class RunExporter
         // Appended, never inserted: a spreadsheet or script written against the original
         // fourteen columns keeps working, because every one of them kept its position.
         "reflection_mood", "reflection_text",
+
+        // 1 joined in progress, 0 entered at the start, empty when the software did not see.
+        "joined_in_progress",
     };
+
+    /// <summary>
+    /// The header every export before <c>joined_in_progress</c> was appended carried: the first
+    /// sixteen columns. An import still reads a file with exactly this header as a native export,
+    /// so the formula-protection apostrophe is reversed for it as it is for a current one.
+    /// </summary>
+    public static IReadOnlyList<string> LegacyCsvHeader { get; } = CsvHeader.Take(16).ToArray();
 
     private const int BatchSize = 200;
 
@@ -227,6 +237,7 @@ public sealed class RunExporter
             run.JobId?.ToString(CultureInfo.InvariantCulture) ?? string.Empty,
             run.Reflection is null ? string.Empty : ReflectionText.Format(run.Reflection.Mood),
             run.Reflection?.Text ?? string.Empty,
+            run.JoinedInProgress is { } joined ? (joined ? "1" : "0") : string.Empty,
         };
 
         for (var i = 0; i < cells.Length; i++)

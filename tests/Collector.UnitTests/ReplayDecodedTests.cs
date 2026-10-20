@@ -61,6 +61,7 @@ public sealed class ReplayDecodedTests
                 "synthetic_territory_duty.decoded.json",
                 "synthetic_duty_clear.decoded.json",
                 "synthetic_duty_no_clear.decoded.json",
+                "synthetic_duty_joined.decoded.json",
             },
             names);
     }

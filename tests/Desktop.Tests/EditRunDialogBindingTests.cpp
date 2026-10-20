@@ -451,6 +451,38 @@ private Q_SLOTS:
         QVERIFY(fixture.item(QStringLiteral("selectedDutyTag"))->isVisible());
     }
 
+    // 进入方式: a run from an older Collector carries no joined_in_progress at all, and one
+    // recorded as entered at the start carries false. Both must land on the matching chip, a
+    // pick must reach the form, and "not known" must stay null rather than becoming false.
+    void theEntryChipsFollowTheRunAndAPickReachesTheForm()
+    {
+        DialogFixture fixture;
+        QVERIFY2(fixture.create(), qPrintable(fixture.errors));
+
+        QVERIFY(fixture.openForRun(run(QStringLiteral("run-a"), 70, 19, QStringLiteral("COMPLETED"))));
+        QVERIFY(fixture.goToStep(1));
+        QVERIFY(fixture.dialog()->property("joinedInProgress").isNull());
+        QVERIFY(asMap(fixture.dialog()->property("formState")).value(QStringLiteral("entry")).isNull());
+        QVERIFY(fixture.item(QStringLiteral("entryPick_unknown"))->property("checked").toBool());
+        QVERIFY(!fixture.item(QStringLiteral("entryPick_joined"))->property("checked").toBool());
+
+        QVERIFY(fixture.click(QStringLiteral("entryPick_joined")));
+        QVERIFY(QTest::qWaitFor([&] {
+            return fixture.dialog()->property("joinedInProgress").toBool();
+        }, 2000));
+        QVERIFY(fixture.item(QStringLiteral("entryPick_joined"))->property("checked").toBool());
+        QVERIFY(!fixture.item(QStringLiteral("entryPick_unknown"))->property("checked").toBool());
+        QCOMPARE(asMap(fixture.dialog()->property("formState")).value(QStringLiteral("entry")), QVariant(true));
+
+        QVariantMap fresh = run(QStringLiteral("run-b"), 70, 19, QStringLiteral("COMPLETED"));
+        fresh.insert(QStringLiteral("joined_in_progress"), false);
+        QVERIFY(fixture.openForRun(fresh));
+        QVERIFY(fixture.goToStep(1));
+        QCOMPARE(fixture.dialog()->property("joinedInProgress"), QVariant(false));
+        QVERIFY(fixture.item(QStringLiteral("entryPick_fresh"))->property("checked").toBool());
+        QVERIFY(!fixture.item(QStringLiteral("entryPick_joined"))->property("checked").toBool());
+    }
+
     void resultCorrectionPreservesAnIdentifiedDutyWithoutACatalogueMatch_data()
     {
         QTest::addColumn<QVariant>("contentId");

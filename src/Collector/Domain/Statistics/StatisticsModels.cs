@@ -48,7 +48,9 @@ public sealed record DashboardStatistics(
     [property: JsonPropertyName("avg_duration_ms")] double? AverageDurationMs,
     ResultStatistics ResultBreakdown,
     int UnfinishedPendingReview,
-    TrendSeries Trend);
+    TrendSeries Trend,
+    int JoinedInProgressCount,
+    double? JoinedInProgressRate);
 
 /// <summary>
 /// Statistics aggregated by duty identity: the observed content id when there is one, and
@@ -67,7 +69,8 @@ public sealed record DungeonStatisticsRow(
     int CompletedCount,
     double? CompletionRate,
     [property: JsonPropertyName("avg_duration_ms")] double? AverageDurationMs,
-    [property: JsonPropertyName("last_seen_utc")] DateTimeOffset? LastSeenUtc = null);
+    [property: JsonPropertyName("last_seen_utc")] DateTimeOffset? LastSeenUtc = null,
+    [property: JsonPropertyName("joined_in_progress_count")] int JoinedInProgressCount = 0);
 
 /// <summary>Statistics aggregated by job id.</summary>
 public sealed record JobStatisticsRow(
@@ -77,4 +80,5 @@ public sealed record JobStatisticsRow(
     int AttemptCount,
     int CompletedCount,
     double? CompletionRate,
-    [property: JsonPropertyName("avg_duration_ms")] double? AverageDurationMs);
+    [property: JsonPropertyName("avg_duration_ms")] double? AverageDurationMs,
+    [property: JsonPropertyName("joined_in_progress_count")] int JoinedInProgressCount = 0);

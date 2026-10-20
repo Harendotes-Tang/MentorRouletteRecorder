@@ -76,6 +76,7 @@ public sealed partial class MentorRunStateMachine
                 AnnouncedRequest = _announcedRequest,
                 AnnouncedRefreshes = _announcedRefreshes,
                 MatchOffers = _matchOffers,
+                JoinedInProgress = _joinedInProgress,
             };
 
     /// <summary>Restores a snapshot captured by <see cref="Checkpoint"/>.</summary>
@@ -96,6 +97,7 @@ public sealed partial class MentorRunStateMachine
         _announcedRequest = checkpoint.AnnouncedRequest;
         _announcedRefreshes = checkpoint.AnnouncedRefreshes;
         _matchOffers = checkpoint.MatchOffers;
+        _joinedInProgress = checkpoint.JoinedInProgress;
         _lastKnownJobId = checkpoint.LastKnownJobId;
         _lastTerritory = checkpoint.LastTerritory;
         _profileLost = checkpoint.ProfileLost;

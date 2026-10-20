@@ -162,6 +162,7 @@ QJsonObject creationRevision(const QJsonObject &run)
         {"detection_confidence", QStringLiteral("MEDIUM")},
         {"source", QStringLiteral("AUTO_NETWORK")},
         {"contributes_to_goal", true},
+        {"joined_in_progress", null},
         {"manually_created", false},
         {"manually_corrected", false},
         {"soft_deleted", false},
@@ -212,6 +213,7 @@ QJsonArray manualCreationChanges(const QJsonObject &run)
         {"result", value("result")},
         {"contributes_to_goal", flag("contributes_to_goal", true)},
         {"note", value("note")},
+        {"joined_in_progress", value("joined_in_progress")},
         {"soft_deleted", flag("soft_deleted", false)},
         {"pending_review", flag("pending_review", false)},
         {"manually_corrected", flag("manually_corrected", false)},
@@ -263,7 +265,7 @@ bool overrulesTheRecord(bool wasPendingReview, const QJsonArray &changes)
     static const QSet<QString> fillable{
         QStringLiteral("job_id"),      QStringLiteral("job_name"),     QStringLiteral("role"),
         QStringLiteral("role_group"),  QStringLiteral("content_id"),   QStringLiteral("duty_name"),
-        QStringLiteral("duty_category")};
+        QStringLiteral("duty_category"), QStringLiteral("joined_in_progress")};
     static const QSet<QString> neverACorrection{QStringLiteral("manually_corrected"),
                                                 QStringLiteral("note"),
                                                 QStringLiteral("territory_id")};
@@ -650,6 +652,13 @@ void MockBackend::generateRuns()
         run.insert(QStringLiteral("soft_deleted"), false);
         run.insert(QStringLiteral("pending_review"), false);
         run.insert(QStringLiteral("note"), QString());
+        // How the duty was entered ($defs/Run.joined_in_progress): most runs at the start, a
+        // few joined in progress, and some recorded before the signal existed (null). Taken
+        // from the index, so the prototype's random stream is untouched.
+        run.insert(QStringLiteral("joined_in_progress"),
+                   draft.result == QLatin1String("CANCELLED_BEFORE_ENTRY") || i % 3 == 1
+                       ? QJsonValue(QJsonValue::Null)
+                       : QJsonValue(i % 7 == 4));
         // Every serialised Run carries the field, null when there is no
         // reflection; seedReflections() fills the prototype's six in below.
         run.insert(QStringLiteral("reflection"), QJsonValue(QJsonValue::Null));
@@ -1634,6 +1643,8 @@ QJsonObject MockBackend::applyMutation(const QString &messageType,
         run.insert(QStringLiteral("updated_at_utc"), isoUtc(QDateTime::currentDateTimeUtc()));
         if (!run.contains(QStringLiteral("contributes_to_goal")))
             run.insert(QStringLiteral("contributes_to_goal"), true);
+        if (!run.contains(QStringLiteral("joined_in_progress")))
+            run.insert(QStringLiteral("joined_in_progress"), QJsonValue(QJsonValue::Null));
         // RunMutationService.CreateManualRun (review DT4-X4): the duty catalogue
         // supplies the zone, and the duty's name and category the request left out;
         // the job catalogue the job's name and role. An omitted duration is derived
@@ -1742,7 +1753,8 @@ QJsonObject MockBackend::applyMutation(const QString &messageType,
             QStringLiteral("matched_at_utc"),  QStringLiteral("entered_at_utc"),
             QStringLiteral("ended_at_utc"),    QStringLiteral("duration_ms"),
             QStringLiteral("result"),          QStringLiteral("contributes_to_goal"),
-            QStringLiteral("note"),            QStringLiteral("pending_review")};
+            QStringLiteral("note"),            QStringLiteral("pending_review"),
+            QStringLiteral("joined_in_progress")};
         const QString reviewKey = QStringLiteral("pending_review");
         const bool explicitAcknowledgement = changes.contains(reviewKey);
         if (explicitAcknowledgement
@@ -2235,7 +2247,8 @@ BackendReply *MockBackend::request(const QString &messageType, const QJsonObject
             QStringLiteral("job_id"), QStringLiteral("result"), QStringLiteral("source"),
             QStringLiteral("corrected_only"), QStringLiteral("include_deleted"), QStringLiteral("deleted_only"),
             QStringLiteral("with_reflection"), QStringLiteral("pending_review"), QStringLiteral("text"), QStringLiteral("name_text"),
-            QStringLiteral("run_id"), QStringLiteral("history_from_day"), QStringLiteral("history_to_day")};
+            QStringLiteral("run_id"), QStringLiteral("history_from_day"), QStringLiteral("history_to_day"),
+            QStringLiteral("joined_in_progress")};
         const QJsonObject filter = payload.value(QStringLiteral("filter")).toObject();
         for (auto it = filter.constBegin(); it != filter.constEnd(); ++it)
             if (!filterKeys.contains(it.key())) valid = false;

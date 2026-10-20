@@ -199,6 +199,15 @@ public static class RunFilterSql
                 clauses.Add($"NOT {ImportedHistoryPredicate}");
         }
 
+        if (filter.JoinedInProgress is { } joinedInProgress)
+        {
+            // NULL is "not seen", which is neither value: an unqualified comparison would
+            // already leave it out, but say so explicitly.
+            clauses.Add(joinedInProgress
+                ? "joined_in_progress = 1"
+                : "joined_in_progress = 0");
+        }
+
         var textMatches = new List<string>();
         if (!string.IsNullOrWhiteSpace(filter.Text))
         {

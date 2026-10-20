@@ -229,6 +229,14 @@ QList<QJsonObject> MockBackend::selectRuns(const QJsonObject &filter,
         // never widens it, so a false value is simply no filter at all.
         if (withReflection && !run.value(QStringLiteral("reflection")).isObject())
             continue;
+        // 中途加入: true lists the runs recorded as joined in progress, false the ones
+        // recorded as entered at the start; a run that says nothing matches neither.
+        const QJsonValue joinedFilter = filter.value(QStringLiteral("joined_in_progress"));
+        if (joinedFilter.isBool()) {
+            const QJsonValue joined = run.value(QStringLiteral("joined_in_progress"));
+            if (!joined.isBool() || joined.toBool() != joinedFilter.toBool())
+                continue;
+        }
 
         if (from.isValid() || to.isValid()) {
             const QDateTime moment = fromIso(fieldForSort(run, dateField));
@@ -463,13 +471,24 @@ QJsonObject MockBackend::dashboardStats(const QJsonObject &filter,
     int completed = 0;
     int left = 0;
     int pendingReview = 0;
+    int joinedInProgress = 0;
+    int entryKnown = 0;
     double durationSum = 0.0;
     int durationCount = 0;
 
     for (const QJsonObject &run : rows) {
         const QString result = run.value(QStringLiteral("result")).toString();
-        if (hasEntered(run))
+        if (hasEntered(run)) {
             ++attempts;
+            // Joined in progress over the attempts, and its share over the attempts whose
+            // entry was seen at all (docs/statistics-definitions.md 12.2).
+            const QJsonValue joined = run.value(QStringLiteral("joined_in_progress"));
+            if (joined.isBool()) {
+                ++entryKnown;
+                if (joined.toBool())
+                    ++joinedInProgress;
+            }
+        }
         if (result == QLatin1String("COMPLETED"))
             ++completed;
         // Among the attempts only, like StatisticsRepository.BuildDashboard
@@ -524,6 +543,9 @@ QJsonObject MockBackend::dashboardStats(const QJsonObject &filter,
                  nullableNumber(durationCount > 0, durationSum / double(durationCount)));
     stats.insert(QStringLiteral("result_breakdown"), resultStats(filter));
     stats.insert(QStringLiteral("unfinished_pending_review"), pendingReview);
+    stats.insert(QStringLiteral("joined_in_progress_count"), joinedInProgress);
+    stats.insert(QStringLiteral("joined_in_progress_rate"),
+                 nullableNumber(entryKnown > 0, double(joinedInProgress) / double(entryKnown)));
     stats.insert(QStringLiteral("trend"), trendSeries(filter, granularity));
     return stats;
 }
@@ -533,6 +555,7 @@ namespace {
 struct Aggregate {
     int attempts = 0;
     int completed = 0;
+    int joinedInProgress = 0;
     double durationSum = 0.0;
     int durationCount = 0;
     QString label;
@@ -544,6 +567,7 @@ QJsonObject aggregateToRow(const Aggregate &aggregate)
     QJsonObject row;
     row.insert(QStringLiteral("attempt_count"), aggregate.attempts);
     row.insert(QStringLiteral("completed_count"), aggregate.completed);
+    row.insert(QStringLiteral("joined_in_progress_count"), aggregate.joinedInProgress);
     row.insert(QStringLiteral("completion_rate"),
                nullableNumber(aggregate.attempts > 0,
                               double(aggregate.completed) / double(aggregate.attempts)));
@@ -572,6 +596,9 @@ QJsonArray MockBackend::dungeonStats(const QJsonObject &filter) const
 
         Aggregate &aggregate = byContent[key];
         ++aggregate.attempts;
+        if (run.value(QStringLiteral("joined_in_progress")).isBool()
+            && run.value(QStringLiteral("joined_in_progress")).toBool())
+            ++aggregate.joinedInProgress;
         if (run.value(QStringLiteral("result")).toString() == QLatin1String("COMPLETED"))
             ++aggregate.completed;
         if (countsTowardsAverageDuration(run)) {
@@ -639,6 +666,9 @@ QJsonArray MockBackend::jobStats(const QJsonObject &filter) const
 
         Aggregate &aggregate = byJob[key];
         ++aggregate.attempts;
+        if (run.value(QStringLiteral("joined_in_progress")).isBool()
+            && run.value(QStringLiteral("joined_in_progress")).toBool())
+            ++aggregate.joinedInProgress;
         if (run.value(QStringLiteral("result")).toString() == QLatin1String("COMPLETED"))
             ++aggregate.completed;
         if (countsTowardsAverageDuration(run)) {

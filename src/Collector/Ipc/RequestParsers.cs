@@ -45,7 +45,8 @@ public static class RequestParsers
         reader.RejectUnknown(
             "from_utc", "to_utc", "date_field", "content_id", "duty_category", "job_id",
             "result", "source", "corrected_only", "include_deleted", "deleted_only", "with_reflection",
-            "pending_review", "text", "name_text", "run_id", "history_from_day", "history_to_day");
+            "pending_review", "text", "name_text", "run_id", "history_from_day", "history_to_day",
+            "joined_in_progress");
 
         var filter = new RunFilter
         {
@@ -65,6 +66,7 @@ public static class RequestParsers
             DeletedOnly = reader.Bool("deleted_only") ?? false,
             WithReflection = reader.Bool("with_reflection") ?? false,
             PendingReview = reader.Bool("pending_review"),
+            JoinedInProgress = reader.Bool("joined_in_progress"),
             Text = reader.String("text", 200),
             NameText = reader.String("name_text", 200),
         };
@@ -118,7 +120,7 @@ public static class RequestParsers
         reader.RejectUnknown(
             "content_id", "duty_name", "duty_category", "job_id", "matched_at_utc",
             "entered_at_utc", "ended_at_utc", "duration_ms", "result", "contributes_to_goal",
-            "reason", "note");
+            "reason", "note", "joined_in_progress");
 
         return new CreateManualRunCommand
         {
@@ -136,6 +138,7 @@ public static class RequestParsers
             DurationSpecified = reader.Has("duration_ms"),
             ContributesToGoal = reader.Bool("contributes_to_goal") ?? true,
             Note = reader.String("note", 1000),
+            JoinedInProgress = reader.Bool("joined_in_progress"),
         };
     }
 
@@ -196,6 +199,7 @@ public static class RequestParsers
             Result = reader.Enum<RunResult>(RunFields.Result),
             ContributesToGoal = reader.Bool(RunFields.ContributesToGoal),
             Note = reader.String(RunFields.Note, 1000),
+            JoinedInProgress = reader.Bool(RunFields.JoinedInProgress),
             PendingReview = pendingReview,
         };
     }

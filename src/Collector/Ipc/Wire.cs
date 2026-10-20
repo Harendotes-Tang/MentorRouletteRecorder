@@ -113,6 +113,8 @@ public static class Wire
             // Proposed contract additions; see the change requests in docs/data-model.md.
             ["pending_review"] = run.PendingReview,
             ["note"] = run.Note,
+            // Always present: null means the software did not see how the duty was entered.
+            ["joined_in_progress"] = run.JoinedInProgress,
 
             // Always present, null when the run has none: the contract promises the property
             // exists on every serialised Run.
@@ -254,6 +256,8 @@ public static class Wire
             ["avg_duration_ms"] = statistics.AverageDurationMs,
             ["result_breakdown"] = ResultStats(statistics.ResultBreakdown),
             ["unfinished_pending_review"] = statistics.UnfinishedPendingReview,
+            ["joined_in_progress_count"] = statistics.JoinedInProgressCount,
+            ["joined_in_progress_rate"] = statistics.JoinedInProgressRate,
             ["trend"] = Trend(statistics.Trend),
         };
     }
@@ -311,6 +315,7 @@ public static class Wire
             ["completion_rate"] = row.CompletionRate,
             ["avg_duration_ms"] = row.AverageDurationMs,
             ["last_seen_utc"] = UtcTimestamp.ToTextOrNull(row.LastSeenUtc),
+            ["joined_in_progress_count"] = row.JoinedInProgressCount,
         };
     }
 
@@ -329,6 +334,7 @@ public static class Wire
             ["completed_count"] = row.CompletedCount,
             ["completion_rate"] = row.CompletionRate,
             ["avg_duration_ms"] = row.AverageDurationMs,
+            ["joined_in_progress_count"] = row.JoinedInProgressCount,
         };
     }
 

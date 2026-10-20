@@ -5176,6 +5176,30 @@ SHA256: %3</translation>
 <context>
     <name>EditRunDialog</name>
     <message>
+        <source>不清楚</source>
+        <translation>Not sure</translation>
+    </message>
+    <message>
+        <source>不记得或没有留意</source>
+        <translation>Don't remember, or didn't notice</translation>
+    </message>
+    <message>
+        <source>开局进入</source>
+        <translation>From the start</translation>
+    </message>
+    <message>
+        <source>副本在我进入后才开始</source>
+        <translation>The duty started after I entered</translation>
+    </message>
+    <message>
+        <source>中途加入</source>
+        <translation>Joined in progress</translation>
+    </message>
+    <message>
+        <source>进入时副本已经开始</source>
+        <translation>The duty was already under way when I entered</translation>
+    </message>
+    <message>
         <source>进本时间按匹配时间估算；实际耗时不详，不计入平均耗时。</source>
         <translation>Entry time is estimated from the match time; the actual duration is unknown, so it&apos;s left out of the average.</translation>
     </message>
@@ -5524,6 +5548,10 @@ SHA256: %3</translation>
 </context>
 <context>
     <name>HistoryPage</name>
+    <message>
+        <source>中途加入</source>
+        <translation>Joined in progress</translation>
+    </message>
     <message>
         <source>原站
 %1</source>
@@ -7623,6 +7651,10 @@ Recorder</translation>
     </message>
     <message>
         <source>排队时间</source>
+    <message>
+        <source>进入方式</source>
+        <translation>Entry</translation>
+    </message>
         <translation>Queue time</translation>
     </message>
     <message>
@@ -7938,6 +7970,10 @@ Turning this off excludes the clear from achievement progress, but the run still
         <translation>e.g. added manually while the app wasn&apos;t running</translation>
     </message>
     <message>
+    <message>
+        <source>进入方式</source>
+        <translation>Entry</translation>
+    </message>
         <source>图片保存在软件安装目录：%1</source>
         <translation>Images are saved in the app&apos;s install folder: %1</translation>
     </message>
@@ -9762,6 +9798,26 @@ Turning this off excludes the clear from achievement progress, but the run still
     </message>
     <message>
         <source>没有检测到正在运行的游戏。</source>
+    <message>
+        <source>副本开始</source>
+        <translation>Duty commenced</translation>
+    </message>
+    <message>
+        <source>副本剩余时间</source>
+        <translation>Duty time remaining</translation>
+    </message>
+    <message>
+        <source>进入方式</source>
+        <translation>Entry</translation>
+    </message>
+    <message>
+        <source>中途加入</source>
+        <translation>Joined in progress</translation>
+    </message>
+    <message>
+        <source>开局进入</source>
+        <translation>From the start</translation>
+    </message>
         <translation>No running game detected.</translation>
     </message>
     <message>
@@ -10951,6 +11007,10 @@ Turning this off excludes the clear from achievement progress, but the run still
     <message>
         <source>日历服务尚未连接</source>
         <translation>Calendar service not connected</translation>
+    <message>
+        <source>进入方式</source>
+        <translation>Entry</translation>
+    </message>
     </message>
     <message>
         <source>无效的日历月份</source>
@@ -11572,6 +11632,10 @@ Turning this off excludes the clear from achievement progress, but the run still
         <translation>Female</translation>
     </message>
     <message>
+    <message>
+        <source>中途加入</source>
+        <translation>Joined in progress</translation>
+    </message>
         <source>%1（%2）</source>
         <extracomment>A voice name, then its language and gender.</extracomment>
         <translation>%1 (%2)</translation>

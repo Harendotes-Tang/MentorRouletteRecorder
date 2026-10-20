@@ -394,6 +394,9 @@ ScrollView {
                         font.pixelSize: Theme.fs(14)
                         font.bold: true
                     }
+                    // Two rows for the eight prototype cards; a ninth (中途加入 or 未知结果,
+                    // each shown only when non-zero) adds a row rather than overflowing.
+                    readonly property int cardRows: Math.max(1, Math.ceil(App.statCards.length / 4))
 
                     Text {
                         Layout.fillWidth: true
@@ -503,7 +506,7 @@ ScrollView {
 
                 GridLayout {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 204
+                    Layout.preferredHeight: cardRows * 96 + (cardRows - 1) * 12
                     columns: 4
                     columnSpacing: 12
                     rowSpacing: 12

@@ -77,6 +77,30 @@ public sealed class RunImportSourceParserTests : IDisposable
         Assert.Equal("合成中文正文", Text(row, "reflection_text"));
     }
 
+    /// <summary>
+    /// An export written before joined_in_progress was appended has sixteen columns. It is still
+    /// this software's export, so its formula-protection apostrophe is reversed like a current one.
+    /// </summary>
+    [Fact]
+    public void Csv_LegacySixteenColumnExportIsStillNative()
+    {
+        var path = Path.Combine(_directory, "legacy.csv");
+        var header = string.Join(",", RunExporter.LegacyCsvHeader);
+        Assert.Equal(16, RunExporter.LegacyCsvHeader.Count);
+        Assert.DoesNotContain("joined_in_progress", header, StringComparison.Ordinal);
+        File.WriteAllText(path,
+            header + "\r\n" +
+            "2026-09-04,2026-09-04T00:59:50.000Z,2026-09-04T01:00:00.000Z,2026-09-04T01:02:00.000Z," +
+            "样例迷宫挑战 A,迷宫挑战,骑士,COMPLETED,120000,MANUAL,0," +
+            "0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f,900001,19,good,\"'-1，合成正文\"\r\n");
+
+        var row = Assert.Single(RunImportSourceParser.Parse("CSV", path));
+
+        Assert.Empty(row.Errors);
+        Assert.Equal("-1，合成正文", Text(row, "reflection_text"));
+        Assert.False(row.Values.ContainsKey("joined_in_progress"));
+    }
+
     [Fact]
     public void Csv_NativeRealExportReversesOnlyFreeTextFormulaProtection()
     {

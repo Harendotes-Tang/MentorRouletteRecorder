@@ -111,6 +111,12 @@ public sealed record RunFilter
     /// </summary>
     public bool? PendingReview { get; init; }
 
+    /// <summary>
+    /// Keep only runs recorded as joined in progress (true) or as entered at the start (false);
+    /// null constrains nothing. A run whose entry the software never saw matches neither value.
+    /// </summary>
+    public bool? JoinedInProgress { get; init; }
+
     /// <summary>Case-insensitive substring matched against duty name, job name and note.</summary>
     public string? Text { get; init; }
 

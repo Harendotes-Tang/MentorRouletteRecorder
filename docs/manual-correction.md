@@ -148,7 +148,11 @@ mentor_runs.revision = 1  ──►  run_revisions(revision=1, change_kind=CREAT
 
 `content_id`、`duty_name`、`duty_category`、`job_id`、
 `matched_at_utc`、`entered_at_utc`、`ended_at_utc`、`duration_ms`、
-`result`、`contributes_to_goal`、`note`、`pending_review`。
+`result`、`contributes_to_goal`、`note`、`pending_review`、`joined_in_progress`。
+
+`joined_in_progress` 接受 `true`（中途加入）、`false`（开局进入）与 `null`（不知道）。
+填入原本为 `null` 的值是补充软件没有看到的事实，不算更正；改掉软件记下的 `true` / `false` 算更正。
+手工补录（`CreateManualRun`）可带同名字段，缺省为 `null`。
 
 `pending_review` 只接受 `false`，表示确认复核。仅包含该字段的更正是合法的：
 确认复核本身即是一次人工决定，与其他更正一样写入修订记录。
@@ -190,8 +194,8 @@ mentor_runs.revision = 1  ──►  run_revisions(revision=1, change_kind=CREAT
 `protocol_profile_id`、`game_build`、`region`、`detection_confidence`、
 `manually_created`、`created_at_utc`、`updated_at_utc`。
 `manually_corrected` 由系统在某次 `CorrectRun` 改动了软件已记下的内容时置 1，且不会因后续操作回退。
-确认待复核记录的结果（`result`、`pending_review`、`contributes_to_goal`）、补上原本为空的职业或副本、
-编辑备注都不算更正，不置该标志（`RunMutationRules.OverrulesTheRecord`，见
+确认待复核记录的结果（`result`、`pending_review`、`contributes_to_goal`）、补上原本为空的职业、副本或进入方式
+（`joined_in_progress` 原为 `null`）、编辑备注都不算更正，不置该标志（`RunMutationRules.OverrulesTheRecord`，见
 [data-model.md](data-model.md) §1）。
 
 正在进行的记录按字段保护人工更正：后续的自动观察与重启恢复（§9 所述的一次性待复核标记除外）从已有人工修订中读取实际被变更的字段，
@@ -274,12 +278,12 @@ mentor_runs.revision = 1  ──►  run_revisions(revision=1, change_kind=CREAT
 
 **CSV**：UTF-8 编码并**带 BOM**，这是 Excel 正确打开中文副本名的前提；
 转义遵循 RFC 4180，含 `,`、`"` 或换行的字段加引号，字段内部的引号写成 `""`；行尾为 `CRLF`。
-表头固定为 16 列，顺序不可变，新列只能追加在末尾，既有列的位置永不变动：
+表头固定为 17 列，顺序不可变，新列只能追加在末尾，既有列的位置永不变动：
 
 ```
 date, matched_at, entered_at, ended_at, duty_name, duty_category, job_name,
 result, duration, source, manually_corrected, run_id, content_id, job_id,
-reflection_mood, reflection_text
+reflection_mood, reflection_text, joined_in_progress
 ```
 
 - `date` 取 `entered_at` 的 `yyyy-MM-dd`；`entered_at` 缺失时依次回退到 `matched_at`、`ended_at`。
@@ -290,14 +294,16 @@ reflection_mood, reflection_text
 - `manually_corrected` 取 `0` 或 `1`。
 - `reflection_mood` 取 `good` / `ok` / `bad`，导入来源没有心情时可为 `unknown`；`reflection_text` 为心得正文；
   没有心得时两列均为空，字段定义见 [data-model.md](data-model.md) §1.3。
+- `joined_in_progress` 取 `1`（中途加入进行中的副本）或 `0`（开局进入），软件没有看到进入方式时为空
+  （[data-model.md](data-model.md) §1.5）。
 
 **防公式注入只作用于自由文本列。** 电子表格会把以 `=`、`+`、`-`、`@`、制表符或回车开头的
 单元格当作公式执行。因此，`duty_name`、`duty_category`、`job_name`、`reflection_text`
 这四列的内容若以上述字符开头，导出时会在引号**内部**加上一个前导撇号（`'`）。
 Excel 与 LibreOffice 均会隐藏该撇号并显示原文；以脚本解析时，需去掉首字符还原原文。
 
-其余 12 列（`date`、`matched_at`、`entered_at`、`ended_at`、`result`、`duration`、
-`source`、`manually_corrected`、`run_id`、`content_id`、`job_id`、`reflection_mood`）
+其余 13 列（`date`、`matched_at`、`entered_at`、`ended_at`、`result`、`duration`、
+`source`、`manually_corrected`、`run_id`、`content_id`、`job_id`、`reflection_mood`、`joined_in_progress`）
 **原样导出**，不加撇号。这些列的取值来自枚举、UUID 与数字，不可能构成公式。
 早期实现对全部 16 列无差别处理，会改写心得中形如 `+1，很顺`、`-记得先清小怪` 的正文，
 导致导出结果与 `QueryRuns` 读到的不再是同一份文本。

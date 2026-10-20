@@ -848,6 +848,131 @@ public sealed class StateMachineTests
         Assert.Equal(RunState.Idle, after.State);
     }
 
+    // --- How the player got in: the first director signal after the entry (docs/state-machine.md 3.14).
+
+    [Fact]
+    public void TheCommencementFirstRecordsADutyEnteredAtTheStart()
+    {
+        var machine = Machine();
+        machine.Handle(Pop(0, 42, 900001));
+        machine.Handle(Zone(5, 900001));
+        Assert.Null(machine.JoinedInProgress);
+
+        var result = machine.Handle(Commenced(80, 7200));
+
+        Assert.True(result.Accepted);
+        Assert.False(result.Transitioned);
+        Assert.Equal(RunState.EnteredDuty, result.ToState);
+        Assert.False(Assert.IsType<SetJoinedInProgressCommand>(result.Commands[0]).JoinedInProgress);
+        var trail = Assert.IsType<AppendEventCommand>(result.Commands[1]);
+        Assert.Equal("DUTY_COMMENCED", trail.Event.EventType);
+        Assert.Equal(RunState.EnteredDuty, trail.FromState);
+        Assert.Equal(RunState.EnteredDuty, trail.ToState);
+        Assert.Equal(DetectionConfidence.High, trail.Confidence);
+        Assert.False(machine.JoinedInProgress);
+
+        // The report that follows the commencement, and every one after it, says nothing new.
+        var tick = machine.Handle(Remaining(80, 7199));
+        Assert.False(tick.Accepted);
+        Assert.Empty(tick.Commands);
+        Assert.False(machine.Handle(Remaining(380, 6899)).Accepted);
+        Assert.False(machine.JoinedInProgress);
+    }
+
+    [Fact]
+    public void ARemainingTimeReportBeforeAnyCommencementRecordsADutyJoinedInProgress()
+    {
+        var machine = Machine();
+        machine.Handle(Pop(0, 42, 900001));
+        machine.Handle(Zone(5, 900001));
+
+        var result = machine.Handle(Remaining(6, 5400));
+
+        Assert.True(result.Accepted);
+        Assert.True(Assert.IsType<SetJoinedInProgressCommand>(result.Commands[0]).JoinedInProgress);
+        Assert.Equal("DUTY_TIME_REMAINING", Assert.IsType<AppendEventCommand>(result.Commands[1]).Event.EventType);
+        Assert.True(machine.JoinedInProgress);
+
+        // The decision is made once: a commencement after it, or any later report, is ignored.
+        Assert.False(machine.Handle(Commenced(90, 7200)).Accepted);
+        Assert.False(machine.Handle(Remaining(306, 5100)).Accepted);
+        Assert.True(machine.JoinedInProgress);
+    }
+
+    [Fact]
+    public void TheStartSignalsOutsideADutyCreateAndChangeNothing()
+    {
+        var machine = Machine();
+
+        Assert.False(machine.Handle(Remaining(1, 5400)).Accepted);
+        Assert.False(machine.Handle(Commenced(2, 7200)).Accepted);
+        Assert.Equal(RunState.Idle, machine.State);
+        Assert.Null(machine.CurrentRunId);
+
+        machine.Handle(Pop(10, 42, 900001));
+        var matched = machine.Handle(Commenced(12, 7200));
+        Assert.False(matched.Accepted);
+        Assert.Empty(matched.Commands);
+        Assert.Equal(RunState.MentorMatched, machine.State);
+        Assert.Null(machine.JoinedInProgress);
+    }
+
+    /// <summary>The flag never touches the outcome, and the next run starts undecided.</summary>
+    [Fact]
+    public void TheDecisionDoesNotOutliveTheRunAndNeverTouchesTheResult()
+    {
+        var machine = Machine();
+        machine.Handle(Pop(0, 42, 900001));
+        machine.Handle(Zone(5, 900001));
+        machine.Handle(Remaining(6, 5400));
+
+        var finish = machine.Handle(Result(125, victory: true));
+
+        Assert.Equal(RunResult.Completed, Assert.IsType<FinishRunCommand>(finish.Commands[0]).Result);
+        Assert.Null(machine.JoinedInProgress);
+
+        machine.Handle(Pop(200, 42, 900001));
+        machine.Handle(Zone(205, 900001));
+        Assert.Null(machine.JoinedInProgress);
+        var next = machine.Handle(Commenced(280, 7200));
+        Assert.False(Assert.IsType<SetJoinedInProgressCommand>(next.Commands[0]).JoinedInProgress);
+    }
+
+    /// <summary>A rolled-back commit must take the decision with it, or the next report is ignored for good.</summary>
+    [Fact]
+    public void ACheckpointCarriesTheDecisionAndARestorePutsItBack()
+    {
+        var machine = Machine();
+        machine.Handle(Pop(0, 42, 900001));
+        machine.Handle(Zone(5, 900001));
+        var undecided = machine.Checkpoint();
+        Assert.Null(undecided.JoinedInProgress);
+
+        machine.Handle(Remaining(6, 5400));
+        var decided = machine.Checkpoint();
+        Assert.True(decided.JoinedInProgress);
+
+        machine.Restore(undecided);
+        Assert.Null(machine.JoinedInProgress);
+        Assert.True(machine.Handle(Remaining(306, 5100)).Accepted);
+
+        machine.Restore(decided);
+        Assert.True(machine.JoinedInProgress);
+        Assert.False(machine.Handle(Commenced(400, 7200)).Accepted);
+    }
+
+    private static DutyCommenced Commenced(int seconds, int limit) => new()
+    {
+        Key = Key("commenced-" + seconds), ObservedAtUtc = Start.AddSeconds(seconds),
+        Mono = TimeSpan.FromSeconds(seconds), TimeLimitSeconds = limit,
+    };
+
+    private static DutyTimeRemaining Remaining(int seconds, int left) => new()
+    {
+        Key = Key("remaining-" + seconds + "-" + left), ObservedAtUtc = Start.AddSeconds(seconds),
+        Mono = TimeSpan.FromSeconds(seconds), RemainingSeconds = left,
+    };
+
     /// <summary>
     /// The victory the parser makes of the clear signal: keyed by the message's own opcode,
     /// epoch and payload hash, and by the fixed semantic key.

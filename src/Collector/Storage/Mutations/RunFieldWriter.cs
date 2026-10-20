@@ -47,6 +47,7 @@ public static class RunFieldWriter
             },
             RunFields.ContributesToGoal => run with { ContributesToGoal = AsBool(field, value) },
             RunFields.Note => run with { Note = AsString(field, value) },
+            RunFields.JoinedInProgress => run with { JoinedInProgress = AsNullableBool(field, value) },
             RunFields.SoftDeleted => run with { SoftDeleted = AsBool(field, value) },
             RunFields.PendingReview => run with { PendingReview = AsBool(field, value) },
             RunFields.ManuallyCorrected => run with { ManuallyCorrected = AsBool(field, value) },
@@ -99,6 +100,14 @@ public static class RunFieldWriter
 
     private static bool AsBool(string field, object? value) => value switch
     {
+        bool flag => flag,
+        long number => number != 0,
+        _ => throw Refuse(field),
+    };
+
+    private static bool? AsNullableBool(string field, object? value) => value switch
+    {
+        null => null,
         bool flag => flag,
         long number => number != 0,
         _ => throw Refuse(field),

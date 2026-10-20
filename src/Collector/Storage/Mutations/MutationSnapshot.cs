@@ -151,6 +151,7 @@ public static class MutationSnapshotCodec
         RunFields.ContributesToGoal => Text(changes.ContributesToGoal),
         RunFields.Note => changes.Note,
         RunFields.PendingReview => Text(changes.PendingReview),
+        RunFields.JoinedInProgress => Text(changes.JoinedInProgress),
         _ => null,
     };
 

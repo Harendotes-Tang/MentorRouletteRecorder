@@ -149,6 +149,10 @@ IBM Plex Mono 随程序分发，许可为 SIL OFL 1.1。字体文件位于 `src/
 ### 4.1 总览（page 1）
 
 * 成就进度环、8 张统计卡、当前导随卡、完成趋势与结果分布，布局与原型一致。
+  统计卡在有记录时另出现两张：「未知结果」（`result_breakdown` 中 `UNKNOWN` 非零时）与「中途加入」
+  （`joined_in_progress_count` 非零时，值为「次数 · 占比」，占比的分母是看到过进入方式的尝试，
+  [statistics-definitions.md](statistics-definitions.md) §12.2；采集服务没有给占比时只显示次数）。
+  卡片网格按张数算行数（每行 4 张，`cardRows`），第 9 张起多一行而不溢出。
 * 趋势图：`charts/TrendChart.qml` 在 `GraphsAvailable` 为真时加载
   `charts/GraphsTrendChart.qml`，即 Qt Graphs 的 `GraphsView` 与 `BarSeries`；
   否则回落到手绘的 `components/TrendBars.qml`。
@@ -229,7 +233,7 @@ IBM Plex Mono 随程序分发，许可为 SIL OFL 1.1。字体文件位于 `src/
   搜索框（占据剩余宽度，最多 200 字）；起始日期与结束日期（`components/DateField.qml`，各 118 px，
   占位文字「年/月/日」，可手动输入 yyyy-MM-dd，右侧日历图标打开月历 `MonthGrid` 选择日期，
   对应原型的 `<input type="date">`）；四个 86 px 的窄下拉框 类型 / 职业 / 结果 / 来源
-  （首项即占位文字，不再使用「全部…」）；`.chip` 开关 已修正 / **有心得** / 含已删除；
+  （首项即占位文字，不再使用「全部…」）；`.chip` 开关 已修正 / **有心得** / **中途加入** / 含已删除；
   以及 `清除`（ghost 纯文字，40 px）。
   「待复核」始终可直接切换，总览跳转复用同一筛选状态。正常宽度保持紧凑单行；
   宽度不足时低频选项收进「更多筛选」，搜索、日期与待复核入口继续可见。
@@ -242,8 +246,11 @@ IBM Plex Mono 随程序分发，许可为 SIL OFL 1.1。字体文件位于 `src/
   实现的做法是：`App.historyFilter.content_id` 非空时，在日期之后增加一枚以副本名命名的
   可移除 chip（`removable`，点击时发出 `removed()`）；点击该 chip 即清除 `content_id` 并重新查询。
   跳转并筛选仍经由 `App.showHistoryForContent()`，不存在第二套筛选状态。
-* `有心得` chip 打开时，在 `RunFilter` 中加入 `with_reflection: true`。
-* 「标记」列除 已修正 / 已确认 / 已删除 / 手动创建 之外，还会显示 **有心得**（`run.reflection` 非空）。
+* `有心得` chip 打开时，在 `RunFilter` 中加入 `with_reflection: true`；`中途加入` chip
+  （`historyJoinedInProgressFilter`）打开时加入 `joined_in_progress: true`，只列出记为中途加入的记录。
+* 「标记」列除 已修正 / 已确认 / 已删除 / 手动创建 之外，还会显示 **有心得**（`run.reflection` 非空）
+  与 **中途加入**（`run.joined_in_progress === true`；`false` 与 `null` 都不显示）。
+  记录详情的「进入方式」一栏按 `Fmt.joinedInProgressLabel` 显示 中途加入 / 开局进入 / 未知。
   已修正 取自 `run.manually_corrected`（人改过软件记下的内容）；已确认 表示该记录有过修订、已不在待复核，
   但没有任何一次改动推翻软件的记录——通常是用户在「本次导随结果」里回答了是否通关。
 * **筛选实时生效**，带 300 ms 防抖。先前实现中的「应用筛选」按钮已移除。
@@ -1270,7 +1277,10 @@ Esc 同样关闭，左侧小字为「此说明可随时在「设置 → 关于�
 对话框在修正模式下显示原型的「修改前后对比」三列表格，
 三列分别为 字段 / 修改前（删除线）/ 修改后（强调色）。
 表格的行由 `RunForm.diff()` 生成，顺序固定为
-副本 / 职业 / 匹配时间 / 进本时间 / 结束时间 / 结果 / 计入进度 / 备注。
+副本 / 职业 / 匹配时间 / 进本时间 / 结束时间 / 结果 / 计入进度 / 进入方式 / 备注。
+「进入方式」在第 1 步（`RunWizardResultStep`）以三枚 `PickChip` 选择：不清楚（`null`）/ 开局进入（`false`）/
+中途加入（`true`），对应 `$defs/Run.joined_in_progress`；修正时预填记录的值，补录时默认「不清楚」。
+修正提交只在值改变时带上该字段（`null` 与采集服务未给出的字段视为同一个值）。
 没有差异时显示「尚未修改任何字段。」。
 
 首次启动的 baseline 对话框（`dialogs/BaselineDialog.qml`）按原型排版，自上而下为：

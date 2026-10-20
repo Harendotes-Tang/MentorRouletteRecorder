@@ -252,6 +252,7 @@
           "description": "True while the record waits for the user's confirmation. Set when crash recovery closes a run, when a duty ends without an observed outcome (docs/state-machine.md section 3.10), when a match is never seen to enter, and when the calibration that produced the run is withdrawn - the result then stays as recorded, so a pending run may already be COMPLETED. DashboardStats.unfinished_pending_review counts statistically eligible non-import history only. Unknown game times on confirmed historical imports remain incomplete without requiring review; audited compatibility maintenance may clear a legacy time-gap flag."
         },
         "note": { "type": ["string", "null"], "maxLength": 1000, "description": "Free-text note (schema v2 column). Correctable; see docs/manual-correction.md section 7." },
+        "joined_in_progress": { "type": ["boolean", "null"], "description": "Whether the duty was already under way when the player entered it (schema v11 column): true when the duty's director reported its running timer before announcing a start to this player, false when it announced the start with the player inside, null when the software saw neither (rows written before schema 11, manual entries that did not say, profiles that do not observe the two director messages, duties left before either arrived). Present on every serialised Run. Correctable; counted by docs/statistics-definitions.md section 12.2." },
         "reflection": {
           "oneOf": [{ "$ref": "#/$defs/RunReflection" }, { "type": "null" }],
           "description": "导随心得, the user's own diary entry for this run (schema v3 table run_reflections). Present on every serialised Run and null when the run has none."
@@ -465,6 +466,7 @@
         "include_deleted": { "type": "boolean", "default": false, "description": "Soft-deleted runs are excluded unless this is true. They never count towards statistics regardless." },
         "deleted_only": { "type": "boolean", "default": false, "description": "Only soft-deleted runs in listings and filtered exports; takes precedence over include_deleted. Ignored by statistics, which always exclude deleted runs." },
         "with_reflection": { "type": "boolean", "default": false, "description": "Only runs that have a reflection." },
+        "joined_in_progress": { "type": "boolean", "description": "true keeps only runs recorded as joined in progress, false only runs recorded as entered at the start; a run whose entry the software never saw matches neither value. Omitted means no constraint." },
         "pending_review": { "type": "boolean", "description": "true keeps only runs still flagged for review, false keeps only runs that are not. Omitted means no constraint; there is deliberately no default, because 'not asked for' and 'asked for false' are different queries." },
         "text": { "type": "string", "maxLength": 200, "description": "Case-insensitive substring match over duty_name, job_name and note." },
         "name_text": { "type": ["string", "null"], "maxLength": 200, "description": "Optional literal substring over duty_name and job_name only, OR with text. Null or blank adds no condition." }
@@ -507,6 +509,8 @@
         "avg_duration_ms": { "type": ["number", "null"], "minimum": 0, "description": "COMPLETED runs with valid times and duration_ms >= 0 only; null when there is no such run." },
         "result_breakdown": { "$ref": "#/$defs/ResultStats" },
         "unfinished_pending_review": { "type": "integer", "minimum": 0 },
+        "joined_in_progress_count": { "type": "integer", "minimum": 0, "description": "Attempts recorded as joined in progress (docs/statistics-definitions.md section 12.2). Absent from older Collectors." },
+        "joined_in_progress_rate": { "type": ["number", "null"], "minimum": 0, "maximum": 1, "description": "joined_in_progress_count over the attempts whose entry the software saw at all (joined_in_progress not null); null when there is no such attempt." },
         "trend": { "$ref": "#/$defs/TrendSeries" }
       }
     },
@@ -577,7 +581,8 @@
         "completed_count": { "type": "integer", "minimum": 0 },
         "completion_rate": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
         "avg_duration_ms": { "type": ["number", "null"], "minimum": 0 },
-        "last_seen_utc": { "$ref": "#/$defs/NullableUtcTimestamp", "description": "MAX(matched_at_utc) over the rows of this group. null when no run in the group carries a match time." }
+        "last_seen_utc": { "$ref": "#/$defs/NullableUtcTimestamp", "description": "MAX(matched_at_utc) over the rows of this group. null when no run in the group carries a match time." },
+        "joined_in_progress_count": { "type": "integer", "minimum": 0, "description": "Attempts in this group recorded as joined in progress. Absent from older Collectors." }
       }
     },
 
@@ -593,7 +598,8 @@
         "attempt_count": { "type": "integer", "minimum": 0 },
         "completed_count": { "type": "integer", "minimum": 0 },
         "completion_rate": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
-        "avg_duration_ms": { "type": ["number", "null"], "minimum": 0 }
+        "avg_duration_ms": { "type": ["number", "null"], "minimum": 0 },
+        "joined_in_progress_count": { "type": "integer", "minimum": 0, "description": "Attempts in this group recorded as joined in progress. Absent from older Collectors." }
       }
     },
 
@@ -682,7 +688,7 @@
         "last_valid_event_at_utc": { "$ref": "#/$defs/NullableUtcTimestamp", "description": "When the parser last produced a semantic event." },
         "last_valid_event_kind": {
           "type": ["string", "null"],
-          "enum": ["CONTENT_FINDER_POP", "ZONE_INITIALIZATION", "ZONE_TERRITORY", "DUTY_RESULT", "PLAYER_JOB", "ZONE_LEFT", "INSTANCE_LEFT", "MATCH_CANCELLED", "MATCH_ANNOUNCED", null],
+          "enum": ["CONTENT_FINDER_POP", "ZONE_INITIALIZATION", "ZONE_TERRITORY", "DUTY_RESULT", "PLAYER_JOB", "ZONE_LEFT", "INSTANCE_LEFT", "MATCH_CANCELLED", "MATCH_ANNOUNCED", "DUTY_COMMENCED", "DUTY_TIME_REMAINING", null],
           "description": "Semantic event type of the event last_valid_event_at_utc describes, set at the same moment; null when there is none. The Desktop shows it in words (DUTY_RESULT = 副本结算). Absent from Collectors before 0.8: a client must treat an absent field as 'not reported', and a token it does not know as 'some event'."
         },
         "recent_parser_errors": {
@@ -1256,6 +1262,7 @@
         "result": { "$ref": "#/$defs/RunResult" },
         "contributes_to_goal": { "type": "boolean", "default": true },
         "note": { "type": ["string", "null"], "maxLength": 1000 },
+        "joined_in_progress": { "type": ["boolean", "null"], "description": "Whether the duty was joined in progress; omitted or null when the player did not say." },
         "reason": { "type": "string", "minLength": 1, "maxLength": 500 }
       }
     },
@@ -1285,6 +1292,7 @@
             "result": { "$ref": "#/$defs/RunResult" },
             "contributes_to_goal": { "type": "boolean" },
             "note": { "type": ["string", "null"], "maxLength": 1000 },
+            "joined_in_progress": { "type": ["boolean", "null"], "description": "How the duty was entered; null sets it back to not known. Filling a null is not a correction (manually_corrected stays), overruling a recorded value is." },
             "pending_review": {
               "type": "boolean",
               "const": false,

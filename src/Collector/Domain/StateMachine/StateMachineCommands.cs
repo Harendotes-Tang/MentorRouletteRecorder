@@ -54,6 +54,15 @@ public sealed record SetDutyCommand(string RunId, int TerritoryId) : StateComman
 /// <param name="JobId">Observed job id.</param>
 public sealed record SetJobCommand(string RunId, int JobId) : StateCommand;
 
+/// <summary>
+/// Record whether the duty was already under way when the player entered it: true when the
+/// director reported a running timer before announcing a start, false when it announced the
+/// start with the player inside (docs/state-machine.md section 3.14). Issued at most once per run.
+/// </summary>
+/// <param name="RunId">Run being updated.</param>
+/// <param name="JoinedInProgress">True for a duty joined in progress.</param>
+public sealed record SetJoinedInProgressCommand(string RunId, bool JoinedInProgress) : StateCommand;
+
 /// <summary>Close the run with a final result.</summary>
 /// <param name="RunId">Run being closed.</param>
 /// <param name="EndedAtUtc">Wall-clock end time.</param>

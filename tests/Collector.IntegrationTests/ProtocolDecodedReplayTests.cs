@@ -102,17 +102,25 @@ public sealed class ProtocolDecodedReplayTests
 
         // The observed CN timeline at the trace's times: login zone change, login job, mentor
         // pop, territory, entry, seven director messages on an undeclared opcode, the exit.
-        // Five declared messages and the exit parse; of the seven director messages only the
-        // clear is the signal (a victory), the six near misses are ignored. The clear completes
-        // the run; the exit finds the machine terminal, collapses it to IDLE and is ignored.
+        // Five declared messages and the exit parse; of the seven director messages three are
+        // signals - the commencement, the first remaining-time report and the clear (a victory) -
+        // and the four near misses are ignored. The clear completes the run; the exit finds the
+        // machine terminal, collapses it to IDLE and is ignored.
         new("synthetic_duty_clear", RunState.Idle, 1, 1, 1,
-            new[] { RunResult.Completed }, ParseOk: 7, ParseFailed: 0, ParserIgnored: 6,
+            new[] { RunResult.Completed }, ParseOk: 9, ParseFailed: 0, ParserIgnored: 4,
             Profile: "synthetic-cn-shape-v1"),
 
         // The same duty without the clear and the two director messages that follow it: an
         // exit without the clear proves nothing, so it closes as UNKNOWN pending review.
         new("synthetic_duty_no_clear", RunState.UnknownFinalState, 1, 1, 0,
-            new[] { RunResult.Unknown }, ParseOk: 6, ParseFailed: 0, ParserIgnored: 4,
+            new[] { RunResult.Unknown }, ParseOk: 8, ParseFailed: 0, ParserIgnored: 2,
+            Profile: "synthetic-cn-shape-v1"),
+
+        // The same duty joined in progress: no commencement, two remaining-time reports and the
+        // clear are the signals, the four near misses are ignored. The first report marks the run
+        // as joined in progress; the clear still completes it (docs/state-machine.md section 3.14).
+        new("synthetic_duty_joined", RunState.Idle, 1, 1, 1,
+            new[] { RunResult.Completed }, ParseOk: 9, ParseFailed: 0, ParserIgnored: 4,
             Profile: "synthetic-cn-shape-v1"),
     };
 
@@ -259,6 +267,8 @@ public sealed class ProtocolDecodedReplayTests
 
         var results = result.ParsedEvents.Where(row => row.EventType == "DUTY_RESULT").ToArray();
         Assert.Equal("DUTY_RESULT:clear_signal", Assert.Single(results).EventKey);
+        // The commencement came first: the player was inside when the duty started.
+        Assert.False(run.JoinedInProgress);
 
         using var database = SqliteDatabase.Open(result.DatabasePath, SystemClock.Instance);
         var trail = new RunEventRepository(database).ListForRun(run.RunId);
@@ -268,6 +278,34 @@ public sealed class ProtocolDecodedReplayTests
         Assert.Equal(RunState.Completed, last.ToState);
         Assert.EndsWith("|DUTY_RESULT:clear_signal|run:" + run.RunId, last.EventKey, StringComparison.Ordinal);
         Assert.Single(trail, row => row.EventType == "ZONE_INITIALIZATION");
+    }
+
+    /// <summary>
+    /// The late-join case: the first director message after the entry is a remaining-time report,
+    /// so the run is marked as joined in progress on the spot, with the report in its trail; the
+    /// clear then completes it exactly as it completes a duty entered at the start.
+    /// </summary>
+    [Fact]
+    public void ARemainingTimeReportBeforeAnyCommencementMarksTheRunJoinedInProgress()
+    {
+        var result = DecodedReplayRunner.Run(
+            FixturePath("synthetic_duty_joined"), ProfilePathFor("synthetic-cn-shape-v1"), TempDatabase());
+
+        var run = Assert.Single(result.Runs);
+        Assert.True(run.JoinedInProgress);
+        Assert.Equal(RunResult.Completed, run.Result);
+        Assert.Equal(1_557_786, run.DurationMs);
+        Assert.Equal(1, result.Statistics.JoinedInProgressCount);
+        Assert.Equal(1.0, result.Statistics.JoinedInProgressRate);
+        Assert.DoesNotContain(result.ParsedEvents, row => row.EventType == "DUTY_COMMENCED");
+        Assert.Equal(2, result.ParsedEvents.Count(row => row.EventType == "DUTY_TIME_REMAINING"));
+
+        using var database = SqliteDatabase.Open(result.DatabasePath, SystemClock.Instance);
+        var trail = new RunEventRepository(database).ListForRun(run.RunId);
+        var decided = Assert.Single(trail, row => row.EventType == "DUTY_TIME_REMAINING");
+        Assert.Equal(RunState.EnteredDuty, decided.FromState);
+        Assert.Equal(RunState.EnteredDuty, decided.ToState);
+        Assert.Contains("\"remaining_seconds\":5400", decided.DetailJson);
     }
 
     /// <summary>The abandon case: no clear, so the exit leaves the outcome to the player.</summary>

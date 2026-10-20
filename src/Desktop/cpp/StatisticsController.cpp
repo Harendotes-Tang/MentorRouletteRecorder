@@ -329,6 +329,17 @@ int StatisticsController::remainingCount() const
 {
     const QJsonValue remaining = m_dashboard.value(QStringLiteral("remaining"));
     return remaining.isDouble() ? remaining.toInt() : qMax(0, goalCount() - achievementProgress());
+    // 中途加入: the count, then its share among the attempts whose entry the software saw
+    // (docs/statistics-definitions.md 12.2). Shown only once there is one, like 未知结果, so a
+    // player without any keeps the eight-card layout. An older Collector sends no count.
+    const int joined = m_dashboard.value(QStringLiteral("joined_in_progress_count")).toInt();
+    if (joined != 0) {
+        const QJsonValue rate = m_dashboard.value(QStringLiteral("joined_in_progress_rate"));
+        cards.append(statCard(tr("中途加入"),
+                              rate.isDouble()
+                                  ? QStringLiteral("%1 · %2").arg(joined).arg(Formatters::percent(rate.toVariant()))
+                                  : QString::number(joined)));
+    }
 }
 
 int StatisticsController::pendingReviewCount() const

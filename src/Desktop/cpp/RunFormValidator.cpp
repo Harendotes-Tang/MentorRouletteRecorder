@@ -230,6 +230,9 @@ QVariantList RunFormValidator::diff(const QVariantMap &before, const QVariantMap
                                                              : tr("否"),
         form.value(QStringLiteral("contributes")).toBool() ? tr("是")
                                                            : tr("否"));
+    add(tr("进入方式"),
+        Formatters::joinedInProgressLabel(before.value(QStringLiteral("entry"))),
+        Formatters::joinedInProgressLabel(form.value(QStringLiteral("entry"))));
     add(tr("备注"), text(before, "note"), text(form, "note"));
     return rows;
 }

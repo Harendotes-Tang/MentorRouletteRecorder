@@ -32,6 +32,10 @@ public sealed partial class MentorRunStateMachine
     private ContentFinderPop? _pendingQueue;
     private bool _matchObserved;
 
+    // How the player got into the duty in flight, decided by the first director signal after
+    // the entry and never revisited: null until one arrives (docs/state-machine.md section 3.14).
+    private bool? _joinedInProgress;
+
     // The queue request behind an announced match. The announcement only dates the match; the
     // request is still what says the player queued for the mentor roulette, and it goes on
     // saying so after the announcement's short window has closed (see CanEnterDuty).
@@ -53,6 +57,13 @@ public sealed partial class MentorRunStateMachine
     /// the desktop that there is something new to say.
     /// </summary>
     public int MatchOffers => _matchOffers;
+
+    /// <summary>
+    /// How the player got into the duty in flight: true for a duty joined in progress, false for
+    /// one that commenced with the player inside, null while neither director signal has
+    /// arrived or when there is no run (docs/state-machine.md section 3.14).
+    /// </summary>
+    public bool? JoinedInProgress => _joinedInProgress;
 
     /// <summary>
     /// Trail rows one announced match may earn by being announced again. A client sends the
@@ -370,6 +381,7 @@ public sealed partial class MentorRunStateMachine
         _contentId = pop.ContentId;
         _territoryId = null;
         _jobId = _lastKnownJobId;
+        _joinedInProgress = null;
 
         return new TransitionResult(
             RunState.Idle, RunState.MentorMatched, true, true, false, runId, commands);
@@ -565,6 +577,18 @@ public sealed partial class MentorRunStateMachine
             case PlayerJob job:
                 return RecordJob(job);
 
+            // How the player got in, decided by whichever of the two director signals comes
+            // first after the entry: a commencement means the duty started with the player
+            // inside; a remaining-time report before any commencement means the timer was
+            // already running, so the duty was joined in progress. The later one of the two,
+            // and every report after that, says nothing new and is ignored
+            // (docs/state-machine.md section 3.14). Neither touches the result.
+            case DutyCommenced commenced when _joinedInProgress is null:
+                return RecordDutyStart(commenced, joinedInProgress: false);
+
+            case DutyTimeRemaining remaining when _joinedInProgress is null:
+                return RecordDutyStart(remaining, joinedInProgress: true);
+
             // A territory announcement that arrives after the entry marker still identifies
             // the duty we are in, but only while the run has no territory yet and only for as
             // long as the announcement can still be about the entry: once the run has a
@@ -725,6 +749,21 @@ public sealed partial class MentorRunStateMachine
         return new TransitionResult(_state, _state, false, true, false, runId, commands);
     }
 
+    /// <summary>Records how the player got into the duty, once, from the first director signal.</summary>
+    /// <param name="signal">The commencement or the remaining-time report that decided it.</param>
+    /// <param name="joinedInProgress">True when the duty was already under way at the entry.</param>
+    private TransitionResult RecordDutyStart(SemanticEvent signal, bool joinedInProgress)
+    {
+        var runId = _runId!;
+        _joinedInProgress = joinedInProgress;
+        var commands = new StateCommand[]
+        {
+            new SetJoinedInProgressCommand(runId, joinedInProgress),
+            new AppendEventCommand(runId, signal, _state, _state, DetectionConfidence.High),
+        };
+        return new TransitionResult(_state, _state, false, true, false, runId, commands);
+    }
+
     /// <summary>Applies a territory announcement to the run already in a duty.</summary>
     /// <param name="territory">Announcement to apply.</param>
     private TransitionResult RecordTerritory(TerritoryObserved territory)
@@ -833,5 +872,6 @@ public sealed partial class MentorRunStateMachine
         _announcedRequest = null;
         _announcedRefreshes = 0;
         _matchOffers = 0;
+        _joinedInProgress = null;
     }
 }

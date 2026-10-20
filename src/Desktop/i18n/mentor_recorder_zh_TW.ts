@@ -5176,6 +5176,30 @@ SHA256：%3</translation>
 <context>
     <name>EditRunDialog</name>
     <message>
+        <source>不清楚</source>
+        <translation>不清楚</translation>
+    </message>
+    <message>
+        <source>不记得或没有留意</source>
+        <translation>不記得或沒有留意</translation>
+    </message>
+    <message>
+        <source>开局进入</source>
+        <translation>開局進入</translation>
+    </message>
+    <message>
+        <source>副本在我进入后才开始</source>
+        <translation>副本在我進入後才開始</translation>
+    </message>
+    <message>
+        <source>中途加入</source>
+        <translation>中途加入</translation>
+    </message>
+    <message>
+        <source>进入时副本已经开始</source>
+        <translation>進入時副本已經開始</translation>
+    </message>
+    <message>
         <source>进本时间按匹配时间估算；实际耗时不详，不计入平均耗时。</source>
         <translation>進本時間依配對時間估算；實際耗時不詳，不計入平均耗時。</translation>
     </message>
@@ -5524,6 +5548,10 @@ SHA256：%3</translation>
 </context>
 <context>
     <name>HistoryPage</name>
+    <message>
+        <source>中途加入</source>
+        <translation>中途加入</translation>
+    </message>
     <message>
         <source>原站
 %1</source>
@@ -7623,6 +7651,10 @@ SHA256：%3</translation>
     </message>
     <message>
         <source>排队时间</source>
+    <message>
+        <source>进入方式</source>
+        <translation>進入方式</translation>
+    </message>
         <translation>排隊時間</translation>
     </message>
     <message>
@@ -7938,6 +7970,10 @@ SHA256：%3</translation>
         <translation>例如：程式未執行時手動補錄</translation>
     </message>
     <message>
+    <message>
+        <source>进入方式</source>
+        <translation>進入方式</translation>
+    </message>
         <source>图片保存在软件安装目录：%1</source>
         <translation>圖片儲存在軟體安裝資料夾：%1</translation>
     </message>
@@ -9762,6 +9798,26 @@ SHA256：%3</translation>
     </message>
     <message>
         <source>没有检测到正在运行的游戏。</source>
+    <message>
+        <source>副本开始</source>
+        <translation>副本開始</translation>
+    </message>
+    <message>
+        <source>副本剩余时间</source>
+        <translation>副本剩餘時間</translation>
+    </message>
+    <message>
+        <source>进入方式</source>
+        <translation>進入方式</translation>
+    </message>
+    <message>
+        <source>中途加入</source>
+        <translation>中途加入</translation>
+    </message>
+    <message>
+        <source>开局进入</source>
+        <translation>開局進入</translation>
+    </message>
         <translation>沒有偵測到正在執行的遊戲。</translation>
     </message>
     <message>
@@ -10951,6 +11007,10 @@ SHA256：%3</translation>
     <message>
         <source>日历服务尚未连接</source>
         <translation>日曆服務尚未連線</translation>
+    <message>
+        <source>进入方式</source>
+        <translation>進入方式</translation>
+    </message>
     </message>
     <message>
         <source>无效的日历月份</source>
@@ -11572,6 +11632,10 @@ SHA256：%3</translation>
         <translation>女聲</translation>
     </message>
     <message>
+    <message>
+        <source>中途加入</source>
+        <translation>中途加入</translation>
+    </message>
         <source>%1（%2）</source>
         <extracomment>A voice name, then its language and gender.</extracomment>
         <translation>%1（%2）</translation>

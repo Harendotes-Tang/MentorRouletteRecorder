@@ -185,6 +185,35 @@ public sealed class ProfileMessageParser : IDecodedMessageSink, IParserStats
             return;
         }
 
+        // The two CN duty-start contents, by the same rule and on the same body: checked after the
+        // clear, which has its own command, and before the declared messages. Together they say
+        // whether the player joined a duty already under way (docs/state-machine.md section 3.14).
+        if (_binding.ObservesDutyStart
+            && DutyStartSignal.TryMatch(direction, message.SegmentType, payload, out var startKind, out var seconds))
+        {
+            var commenced = startKind == DutyStartSignalKind.Commenced;
+            var startKey = new EventKey(
+                message.CaptureSessionId,
+                direction,
+                message.Opcode.ToString(CultureInfo.InvariantCulture),
+                message.Epoch,
+                HashPayload(payload),
+                commenced ? DutyStartSignal.CommencedSemanticKey : DutyStartSignal.TimeRemainingSemanticKey);
+            SemanticEvent startEvent = commenced
+                ? new DutyCommenced
+                {
+                    Key = startKey, ObservedAtUtc = message.ObservedAtUtc, Mono = message.Mono,
+                    TimeLimitSeconds = seconds,
+                }
+                : new DutyTimeRemaining
+                {
+                    Key = startKey, ObservedAtUtc = message.ObservedAtUtc, Mono = message.Mono,
+                    RemainingSeconds = seconds,
+                };
+            Deliver(startEvent, startKey, message);
+            return;
+        }
+
         var definition = Match(profile, direction, message);
         if (definition is null)
         {

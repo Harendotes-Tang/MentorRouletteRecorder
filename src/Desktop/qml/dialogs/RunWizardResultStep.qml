@@ -85,6 +85,43 @@ ColumnLayout {
         }
     }
 
+    // 进入方式 (docs/ui-design.md §5): three chips for the three states of
+    // $defs/Run.joined_in_progress, "not known" included, so a player can say so on purpose.
+    RowLayout {
+        Layout.fillWidth: true
+        spacing: 8
+
+        Text {
+            text: qsTr("进入方式")
+            color: Theme.textSecondary
+            font.pixelSize: Theme.fs(12)
+        }
+
+        Repeater {
+            model: step.wizard.entryOptions
+
+            delegate: PickChip {
+                required property var modelData
+                objectName: "entryPick_" + (modelData.value === null ? "unknown"
+                                            : (modelData.value ? "joined" : "fresh"))
+                text: modelData.label
+                checked: step.wizard.joinedInProgress === modelData.value
+                Accessible.name: qsTr("%1，%2").arg(modelData.label).arg(modelData.desc)
+                onPicked: step.wizard.joinedInProgress = modelData.value
+            }
+        }
+
+        Text {
+            Layout.fillWidth: true
+            text: step.wizard.joinedInProgress === null ? step.wizard.entryOptions[0].desc
+                  : (step.wizard.joinedInProgress ? step.wizard.entryOptions[2].desc
+                                                  : step.wizard.entryOptions[1].desc)
+            color: Theme.textMuted
+            font.pixelSize: Theme.fs(11)
+            elide: Text.ElideRight
+        }
+    }
+
     Rectangle {
         Layout.fillWidth: true
         implicitHeight: goalRow.implicitHeight + 24

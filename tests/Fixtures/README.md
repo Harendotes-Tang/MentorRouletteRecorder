@@ -123,10 +123,10 @@ tests/Fixtures/
   `false` 或缺失**直接拒绝**，以确保真实抓包无法被混入测试树并重放。
 - `opcode` / `segment_type` / `payload_hex` 全是为
   `protocol-profiles/synthetic/synthetic-v1.json` 与 `synthetic-cn-shape-v1.json` 编造的值，不描述任何真实版本。
-  **例外**：`synthetic_duty_clear` 与 `synthetic_duty_no_clear` 中的通用控制报文按观测到的形状填写
-  （类别、副本类型、命令与全零的尾部）。通关结算正是按内容识别的
-  （[`../../docs/protocol-profile-format.md`](../../docs/protocol-profile-format.md) §12），
-  换成编造的内容便测不到它；其 opcode（61455）与副本编号（`0xF00D`）仍是编造的。
+  **例外**：`synthetic_duty_clear`、`synthetic_duty_no_clear` 与 `synthetic_duty_joined` 中的通用控制报文按观测到的形状填写
+  （类别、副本类型、命令与全零的尾部）。通关结算、开始宣布与剩余时间正是按内容识别的
+  （[`../../docs/protocol-profile-format.md`](../../docs/protocol-profile-format.md) §12、§13），
+  换成编造的内容便测不到它们；其 opcode（61455）与副本编号（`0xF00D`）仍是编造的。
 - 每个 `.decoded.json` 必须在同一目录中有同名的 `.sha256` 校验文件，且必须登记在
   `decoded/SHA256SUMS` 中（格式与语义测试样本的同名文件相同：`<64 位十六进制>␠␠<文件名>`）。
   三者不一致时加载会失败。
@@ -183,13 +183,14 @@ tests/Fixtures/
 | `synthetic_constraint_fail` | 2 | `IDLE` | **0** | 0 / 0 | 1 / 1 / 0 | `E_FIELD_CONSTRAINT` |
 | `synthetic_build_mismatch` | 3 | `IDLE` | **0** | 0 / 0 | **0 / 3 / 0** | `E_PROFILE_UNSUPPORTED` |
 
-配 `protocol-profiles/synthetic/synthetic-cn-shape-v1.json` 的另有三个：
+配 `protocol-profiles/synthetic/synthetic-cn-shape-v1.json` 的另有四个：
 
 | 文件 | 报文数 | 终态 | 记录 | `attempt` / `completed` | `parse_ok` / `parse_failed` / `duplicates` | 拒绝码 |
 |---|---|---|---|---|---|---|
 | `synthetic_territory_duty` | 5 | `UNKNOWN_FINAL_STATE` | 1 × `UNKNOWN`（待复核） | 1 / 0 | 5 / 0 / 0 | —— |
-| `synthetic_duty_clear` | 13 | `IDLE` | 1 × `COMPLETED` | 1 / 1 | 7 / 0 / 0 | —— |
-| `synthetic_duty_no_clear` | 10 | `UNKNOWN_FINAL_STATE` | 1 × `UNKNOWN`（待复核） | 1 / 0 | 6 / 0 / 0 | —— |
+| `synthetic_duty_clear` | 13 | `IDLE` | 1 × `COMPLETED`（开局进入） | 1 / 1 | 9 / 0 / 0 | —— |
+| `synthetic_duty_no_clear` | 10 | `UNKNOWN_FINAL_STATE` | 1 × `UNKNOWN`（待复核） | 1 / 0 | 8 / 0 / 0 | —— |
+| `synthetic_duty_joined` | 13 | `IDLE` | 1 × `COMPLETED`（中途加入） | 1 / 1 | 9 / 0 / 0 | —— |
 
 要点：
 
@@ -205,11 +206,16 @@ tests/Fixtures/
   因此该测试样本与国服一样，离开副本时以 `UNKNOWN` 收尾并标记待复核。
 - `synthetic_duty_clear` 与 `synthetic_duty_no_clear` 复现 2026-10-05 本机取证中的一局，各条报文的时刻取自取证。
   进本后，通用控制报文在档案**未声明**的 opcode（61455，段类型 3）上出现 7 条，
-  其中只有通关结算按内容识别为胜利，其余 6 条计入 `ignored`（`synthetic_duty_no_clear` 中为 4 条）。
+  其中开始宣布、第一条剩余时间与通关结算按内容识别（前两条只说明玩家是开局进入，
+  见 [../../docs/state-machine.md](../../docs/state-machine.md) §3.14；结算识别为胜利），
+  其余 4 条计入 `ignored`（`synthetic_duty_no_clear` 中为 2 条）。
   通关结算在副本内把记录收为 `COMPLETED`，结束时刻与时长取到结算为止（1,557,786 ms）；
   13.7 秒后的离开遇到已收尾的状态机，被规整为 `IDLE` 后忽略，因此终态为 `IDLE`，记录与事件轨迹都不再改动。
   `synthetic_duty_no_clear` 去掉了结算及其后的两条控制报文：缺少结算不证明未通关，
   离开时以 `UNKNOWN` 收尾并标记待复核，时长取到离开为止（1,571,509 ms）。
+- `synthetic_duty_joined` 是同一局的中途加入版本：开始宣布换成进本 0.45 秒后的一条剩余时间（5400 秒），
+  5 分钟后再来一条（5100 秒）。进本后先到的是剩余时间而不是开始宣布，记录因此记为中途加入
+  （`joined_in_progress = 1`，事件轨迹中为 `DUTY_TIME_REMAINING`）；通关结算照常把它收为通关，时长不变。
 - **被拒的报文不会到达状态机**，因此 `synthetic_len_mismatch` 的记录停在
   `MENTOR_MATCHED`（没有 `entered_at_utc`，因此**不计入 attempt**），
   `synthetic_offset_oob` 停在 `ENTERED_DUTY`。这不是"解析失败即收尾"，而是"未发生任何事"。

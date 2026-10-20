@@ -71,6 +71,9 @@ public:
     Q_INVOKABLE static bool runInProgress(const QVariantMap &run);
     /// The result column of a run: 进行中 while it is in flight, its RunResult label after.
     Q_INVOKABLE static QString runResultLabel(const QVariantMap &run);
+    /// $defs/Run.joined_in_progress as a label: 中途加入 / 开局进入, and 未知 for null or a
+    /// missing key (an older Collector), never a guess.
+    Q_INVOKABLE static QString joinedInProgressLabel(const QVariant &value);
     /// Palette token name for a RunResult code, resolved by Theme.token().
     Q_INVOKABLE static QString resultColorToken(const QString &code);
     /// Tag variant name for a RunResult code (ink / accent / outline / neutral).

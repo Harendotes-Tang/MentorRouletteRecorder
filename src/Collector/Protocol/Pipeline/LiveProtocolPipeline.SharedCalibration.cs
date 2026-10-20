@@ -615,6 +615,7 @@ public sealed partial class LiveProtocolPipeline
             _processor = null;
             _boundSink = null;
             _dutyClear = null;
+            _dutyStart = null;
             _boundProfileId = null;
             ForgetPopWatch();
             _runTimer?.Stop();

@@ -50,6 +50,12 @@ public sealed record StateMachineCheckpoint(
 
     /// <summary>How many times the run in flight has been offered to the player.</summary>
     public int MatchOffers { get; init; }
+
+    /// <summary>
+    /// Whether the run in flight was found to be a duty joined in progress (true), a duty that
+    /// commenced with the player inside (false), or neither yet (null).
+    /// </summary>
+    public bool? JoinedInProgress { get; init; }
 }
 
 /// <summary>

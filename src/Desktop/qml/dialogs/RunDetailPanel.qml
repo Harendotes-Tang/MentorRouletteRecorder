@@ -150,6 +150,7 @@ Rectangle {
                          ? (runData.source || "AUTO_NETWORK")
                          : Fmt.sourceLabel(runData.source || "AUTO_NETWORK") })
         fields.push({ k: qsTr("成就计数设置"), v: runData.contributes_to_goal ? qsTr("开启") : qsTr("关闭") })
+        fields.push({ k: qsTr("进入方式"), v: Fmt.joinedInProgressLabel(runData.joined_in_progress) })
         fields.push({ k: qsTr("识别可信度"),
                       v: root.showRawTokens
                          ? (runData.detection_confidence || Fmt.dash())

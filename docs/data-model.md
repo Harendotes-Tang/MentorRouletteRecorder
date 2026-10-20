@@ -62,6 +62,7 @@ Microsoft.Data.Sqlite 仍会自行重试至命令超时（默认 5 秒）为止�
 | `soft_deleted` | INTEGER | NOT NULL, 0/1, default 0 | 软删除标记 |
 | `pending_review` | INTEGER | NOT NULL, 0/1, default 0 | 「待复核」标记：记录等待用户确认，来源见 §1.1；标记本身不改动结果（schema v2 新增） |
 | `note` | TEXT | NULL | 用户手工填写的备注（schema v2 新增） |
+| `joined_in_progress` | INTEGER | NULL, 0/1 | 是否中途加入了进行中的副本：`1` 是，`0` 副本在玩家在场时才开始，`NULL` 软件没有看到（schema v11 新增，见 §1.5） |
 | `created_at_utc` | TEXT | NOT NULL | 创建时间 |
 | `updated_at_utc` | TEXT | NOT NULL | 最近变更时间 |
 
@@ -176,6 +177,25 @@ IPC 中返回副本表给出的 `content_id`，区域对应多个副本的那一
 界面、实时事件与导出中均不包含该列。它只是本机数据库中供维护者排查偏移的来源标注，
 也不单独产生一条修订。
 
+### 1.5 `joined_in_progress` —— 是否中途加入进行中的副本（schema v11）
+
+由 `migrations/0011_run_joined_in_progress.sql` 追加一列，不改动 0001–0010 及其校验和。
+
+| 取值 | 含义 |
+|---|---|
+| `1` | 进本后，副本的导演报文先报告了剩余时间而没有宣布开始：副本在进入之前已经开始，玩家是中途加入的 |
+| `0` | 进本后，副本的导演报文先宣布了开始：副本在玩家在场时才开始 |
+| `NULL` | 软件没有看到：两种报文都没有收到（例如进本后很快离开、抓包在副本中停止）、绑定的档案不比较这两种报文（非国服）、0011 之前写入的历史行、人工补录时没有填写 |
+
+两种导演报文按内容识别（[protocol-profile-format.md](protocol-profile-format.md) §13），状态机在 `ENTERED_DUTY`
+期间只写一次，之后不再改动（[state-machine.md](state-machine.md) §3.14）。该列**进入 IPC**（`$defs/Run.joined_in_progress`，
+每条记录都带，`NULL` 以 `null` 传输），可由 `CorrectRun` 更正、由 `CreateManualRun` 填写：填入原本为 `NULL` 的值
+不算更正（不置 `manually_corrected`），改掉软件记下的值算更正（[manual-correction.md](manual-correction.md) §7）。
+自动写入与人工更正的先后由 `ManualRunFieldProtection` 按修订链处理，与其他字段相同。
+
+统计口径见 [statistics-definitions.md](statistics-definitions.md) §12.2：按尝试计数，占比的分母是该列非空的尝试。
+CSV 导出在末尾追加同名列（`1` / `0` / 空），备份与 JSON 导入接受同名字段。
+
 ## 2. `run_events` —— 一次尝试内的事件轨迹
 
 该表用于解释判定结果的成因，同时用于诊断。**只存元数据，不存报文正文。**
@@ -195,7 +215,8 @@ IPC 中返回副本表给出的 `content_id`，区域对应多个副本的那一
 | `event_key` | TEXT | NULL | 去重键；非空时在表内唯一 |
 
 `detail_json` 允许的内容：opcode 编号、方向、报文长度、被解析出的 id 型字段
-（`content_id`、`territory_id`、`roulette_id`、`job_id`）、档案 id。
+（`content_id`、`territory_id`、`roulette_id`、`job_id`）、档案 id，以及副本导演报文携带的秒数
+（`DUTY_COMMENCED` 的 `time_limit_seconds`、`DUTY_TIME_REMAINING` 的 `remaining_seconds`）。
 **禁止**：原始字节、十六进制转储、字符串聊天内容、角色名、任何其他玩家的信息。
 
 ```
@@ -255,7 +276,7 @@ INDEX ix_revisions_run ON run_revisions(run_id, revision)
 | `checksum` | TEXT | NOT NULL | 迁移脚本内容的 SHA-256，检测被篡改的历史迁移 |
 | `applied_at_utc` | TEXT | NOT NULL | |
 
-启动时向前迁移到本程序支持的最高版本（当前为 **8**，`0008_run_duty_source.sql`；
+启动时向前迁移到本程序支持的最高版本（当前为 **11**，`0011_run_joined_in_progress.sql`；
 逐版说明见 [migrations/README.md](../migrations/README.md)）。若库中版本**高于**本程序支持的版本，
 或历史迁移 checksum 不匹配，则以 `ERR_DB_INTEGRITY` 拒绝启动（进程退出码 3，IPC 管道不会打开）；
 错误信息会给出数据库文件位置，提示先把该文件复制一份留底再处理。本软件没有只读模式。

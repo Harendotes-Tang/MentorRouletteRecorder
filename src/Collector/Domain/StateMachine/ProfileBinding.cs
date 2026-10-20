@@ -40,6 +40,13 @@ public sealed record ProfileBinding
     public bool ObservesDutyClear { get; init; }
 
     /// <summary>
+    /// True when the parser may produce DUTY_COMMENCED and DUTY_TIME_REMAINING from the CN
+    /// director content (docs/protocol-profile-format.md section 13). They only ever say how the
+    /// player got into the duty; neither changes a transition, a result or a confidence.
+    /// </summary>
+    public bool ObservesDutyStart { get; init; }
+
+    /// <summary>
     /// True when the profile has no message from the server announcing a match, and stands the
     /// player's own queue request in for it. Such a profile cannot see the difference between
     /// "the queue matched" and "the player queued", so the machine demands more of the entry
@@ -78,6 +85,7 @@ public sealed record ProfileBinding
     /// <param name="canDetectDutyResult">True when the profile declares DUTY_RESULT.</param>
     /// <param name="matchFromQueue">True when the profile infers the match from the queue request.</param>
     /// <param name="observesDutyClear">True when the parser recognises the CN clear signal for the profile.</param>
+    /// <param name="observesDutyStart">True when the parser recognises the CN duty-start content for the profile.</param>
     public static ProfileBinding Live(
         string profileId,
         Region region,
@@ -85,7 +93,8 @@ public sealed record ProfileBinding
         int? mentorRouletteId,
         bool canDetectDutyResult = false,
         bool matchFromQueue = false,
-        bool observesDutyClear = false) => new()
+        bool observesDutyClear = false,
+        bool observesDutyStart = false) => new()
         {
             ProfileId = profileId,
             Region = region,
@@ -94,6 +103,7 @@ public sealed record ProfileBinding
             CanDetectDutyResult = status == ProfileStatus.Verified && canDetectDutyResult,
             MatchFromQueue = status == ProfileStatus.Verified && matchFromQueue,
             ObservesDutyClear = status == ProfileStatus.Verified && observesDutyClear,
+            ObservesDutyStart = status == ProfileStatus.Verified && observesDutyStart,
             IsSynthetic = false,
         };
 

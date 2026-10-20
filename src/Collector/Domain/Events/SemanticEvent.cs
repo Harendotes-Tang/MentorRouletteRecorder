@@ -96,6 +96,38 @@ public sealed record DutyResult : SemanticEvent
     public override string EventType => "DUTY_RESULT";
 }
 
+/// <summary>
+/// The duty's director announced that the duty commenced with the local player inside.
+///
+/// On the CN client this is a content of the generic director message recognised by
+/// <c>DutyStartSignal</c> (docs/protocol-profile-format.md section 13): it is sent once the
+/// party has loaded and the countdown has run, which a player who joins a duty already under
+/// way never receives for that duty.
+/// </summary>
+public sealed record DutyCommenced : SemanticEvent
+{
+    /// <summary>The duty's time limit in seconds, as the director announced it.</summary>
+    public required int TimeLimitSeconds { get; init; }
+
+    /// <inheritdoc />
+    public override string EventType => "DUTY_COMMENCED";
+}
+
+/// <summary>
+/// The duty's director reported how much time the duty has left. Sent right after the duty
+/// commenced and every five minutes after that, and - the reason it is observed at all - sent
+/// to a player who joins a duty already under way, before any start that player would see
+/// (docs/protocol-profile-format.md section 13).
+/// </summary>
+public sealed record DutyTimeRemaining : SemanticEvent
+{
+    /// <summary>Seconds left on the duty's timer.</summary>
+    public required int RemainingSeconds { get; init; }
+
+    /// <inheritdoc />
+    public override string EventType => "DUTY_TIME_REMAINING";
+}
+
 /// <summary>The local player job was observed.</summary>
 public sealed record PlayerJob : SemanticEvent
 {

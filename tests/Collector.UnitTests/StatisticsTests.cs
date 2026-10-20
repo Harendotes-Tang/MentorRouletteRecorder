@@ -267,4 +267,80 @@ public sealed class StatisticsTests
         Assert.Equal("天然要害沙斯塔夏溶洞", row.DutyName);
         Assert.Equal("四人迷宫", row.DutyCategory);
     }
+
+    /// <summary>
+    /// docs/statistics-definitions.md section 12.2: joined in progress is counted over attempts, and its
+    /// share over the attempts whose entry the software saw at all. A row that says nothing is
+    /// neither kind; a match cancelled before entry is no attempt whatever it says; a deleted row
+    /// counts nowhere. Nothing else moves.
+    /// </summary>
+    [Fact]
+    public void Dashboard_CountsJoinedInProgressOverAttemptsAndItsShareOverKnownEntries()
+    {
+        using var fixture = new TestDatabase();
+        var runs = new RunRepository(fixture.Database);
+        fixture.Database.RunInTransaction(tx =>
+        {
+            runs.Insert(TestDatabase.Run(result: RunResult.Completed) with { JoinedInProgress = true }, tx);
+            runs.Insert(TestDatabase.Run(result: RunResult.LeftOrAbandoned) with { JoinedInProgress = true }, tx);
+            runs.Insert(TestDatabase.Run(result: RunResult.Completed) with { JoinedInProgress = false }, tx);
+            runs.Insert(TestDatabase.Run(result: RunResult.Completed), tx);
+            runs.Insert(TestDatabase.Run(result: RunResult.CancelledBeforeEntry) with { JoinedInProgress = true }, tx);
+            runs.Insert(TestDatabase.Run(result: RunResult.Completed, softDeleted: true) with { JoinedInProgress = true }, tx);
+        });
+        var settings = new SettingsRepository(fixture.Database, fixture.Clock);
+        settings.EnsureDefaults();
+
+        var result = new StatisticsRepository(fixture.Database, settings).GetDashboard();
+
+        Assert.Equal(4, result.AttemptCount);
+        Assert.Equal(3, result.CompletedCount);
+        Assert.Equal(0.75, result.CompletionRate);
+        Assert.Equal(2, result.JoinedInProgressCount);
+        Assert.Equal(2.0 / 3.0, result.JoinedInProgressRate!.Value, 10);
+    }
+
+    [Fact]
+    public void Dashboard_JoinedInProgressRateIsNullUntilAnEntryWasSeen()
+    {
+        using var fixture = new TestDatabase();
+        var runs = new RunRepository(fixture.Database);
+        fixture.Database.RunInTransaction(tx => runs.Insert(TestDatabase.Run(result: RunResult.Completed), tx));
+        var settings = new SettingsRepository(fixture.Database, fixture.Clock);
+        settings.EnsureDefaults();
+
+        var result = new StatisticsRepository(fixture.Database, settings).GetDashboard();
+
+        Assert.Equal(1, result.AttemptCount);
+        Assert.Equal(0, result.JoinedInProgressCount);
+        Assert.Null(result.JoinedInProgressRate);
+    }
+
+    [Fact]
+    public void GroupedStats_CarryTheJoinedInProgressCountOfEachGroup()
+    {
+        using var fixture = new TestDatabase();
+        var runs = new RunRepository(fixture.Database);
+        fixture.Database.RunInTransaction(tx =>
+        {
+            runs.Insert(TestDatabase.Run(contentId: 900001, jobId: 19) with { JoinedInProgress = true }, tx);
+            runs.Insert(TestDatabase.Run(contentId: 900001, jobId: 19) with { JoinedInProgress = false }, tx);
+            runs.Insert(TestDatabase.Run(contentId: 900002, jobId: 21) with { JoinedInProgress = true }, tx);
+            runs.Insert(TestDatabase.Run(contentId: 900002, jobId: 21), tx);
+            runs.Insert(TestDatabase.Run(contentId: 900002, jobId: 21, result: RunResult.CancelledBeforeEntry)
+                with { JoinedInProgress = true }, tx);
+        });
+        var settings = new SettingsRepository(fixture.Database, fixture.Clock);
+        settings.EnsureDefaults();
+        var statistics = new StatisticsRepository(fixture.Database, settings);
+
+        var duties = statistics.GetDungeonStats();
+        var jobs = statistics.GetJobStats();
+
+        Assert.Equal(1, duties.Single(row => row.ContentId == 900001).JoinedInProgressCount);
+        Assert.Equal(1, duties.Single(row => row.ContentId == 900002).JoinedInProgressCount);
+        Assert.Equal(2, duties.Single(row => row.ContentId == 900002).AttemptCount);
+        Assert.Equal(1, jobs.Single(row => row.JobId == 19).JoinedInProgressCount);
+        Assert.Equal(1, jobs.Single(row => row.JobId == 21).JoinedInProgressCount);
+    }
 }

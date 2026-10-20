@@ -138,6 +138,37 @@ public sealed class RepositoryTests
         Assert.Equal(DutySource.Manual, runs.Get(unknown.RunId)!.DutySource);
     }
 
+    /// <summary>Three states, all of which have to survive insert, update and read: joined, not joined, not seen.</summary>
+    [Fact]
+    public void Run_RoundTripsWhetherItWasJoinedInProgressIncludingNotSeen()
+    {
+        using var fixture = new TestDatabase();
+        var runs = new RunRepository(fixture.Database);
+        var joined = TestDatabase.Run() with { JoinedInProgress = true };
+        var fresh = TestDatabase.Run() with { JoinedInProgress = false };
+        var unseen = TestDatabase.Run();
+
+        fixture.Database.RunInTransaction(tx =>
+        {
+            runs.Insert(joined, tx);
+            runs.Insert(fresh, tx);
+            runs.Insert(unseen, tx);
+        });
+
+        Assert.True(runs.Get(joined.RunId)!.JoinedInProgress);
+        Assert.False(runs.Get(fresh.RunId)!.JoinedInProgress);
+        Assert.Null(runs.Get(unseen.RunId)!.JoinedInProgress);
+
+        var stored = runs.Get(unseen.RunId)!;
+        fixture.Database.RunInTransaction(tx => runs.Update(
+            stored with { Revision = 2, JoinedInProgress = true }, 1, tx));
+        var decided = runs.Get(unseen.RunId)!;
+        Assert.True(decided.JoinedInProgress);
+        fixture.Database.RunInTransaction(tx => runs.Update(
+            decided with { Revision = 3, JoinedInProgress = null }, 2, tx));
+        Assert.Null(runs.Get(unseen.RunId)!.JoinedInProgress);
+    }
+
     [Fact]
     public void RunEvent_DeduplicatesOnlyEventKeyAndDoesNotHideSequenceCollision()
     {

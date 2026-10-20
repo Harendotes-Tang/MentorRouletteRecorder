@@ -160,6 +160,13 @@ public sealed partial class LiveProtocolPipeline :
     public event Action<DutyClearNote>? DutyClearObserved;
 
     /// <summary>
+    /// Raised under the pipeline lock when a CN duty-start signal met a run in a duty and decided how
+    /// the player got in, or contradicted an earlier decision (<see cref="DutyStartTally"/>). For the
+    /// diagnostic log.
+    /// </summary>
+    public event Action<DutyStartNote>? DutyStartObserved;
+
+    /// <summary>
     /// How much captured time passes between two re-derivations of the calibration draft.
     /// Measured on the capture source's own clock, the one every message carries, so the
     /// throttle is the same whether the traffic is live or replayed.
@@ -257,6 +264,12 @@ public sealed partial class LiveProtocolPipeline :
     /// (<see cref="DutyClearTally"/>).
     /// </summary>
     private DutyClearTally? _dutyClear;
+
+    /// <summary>
+    /// Reports the CN duty-start signals for the parser in force, when its profile observes them
+    /// (<see cref="DutyStartTally"/>); null otherwise and while no parser is bound.
+    /// </summary>
+    private DutyStartTally? _dutyStart;
 
     /// <summary>
     /// The CN clear counts of the capture session: new when a session starts, kept across every rebind,
@@ -563,6 +576,7 @@ public sealed partial class LiveProtocolPipeline :
             _processor = null;
             _boundSink = null;
             _dutyClear = null;
+            _dutyStart = null;
             _dutyClearCounts = new DutyClearCounts();
             _boundProfileId = null;
             _sharedSwapOwed = null;
@@ -646,7 +660,12 @@ public sealed partial class LiveProtocolPipeline :
         _dutyClear = profile.ObservesDutyClear
             ? new DutyClearTally(sink, machine, NoteDutyClear, _dutyClearCounts)
             : null;
-        _boundSink = (ISemanticEventSink?)_dutyClear ?? sink;
+        var afterClear = (ISemanticEventSink?)_dutyClear ?? sink;
+        // A profile that observes the duty-start content has the two signals reported on the way too.
+        _dutyStart = profile.ObservesDutyStart
+            ? new DutyStartTally(afterClear, machine, NoteDutyStart)
+            : null;
+        _boundSink = (ISemanticEventSink?)_dutyStart ?? afterClear;
         _parser = new ProfileMessageParser(profile, _boundSink);
         _boundProfileId = profile.ProfileId;
         // Kept only for a parser bound by a confirmation, and only until one is bound by any path.
@@ -1748,6 +1767,10 @@ public sealed partial class LiveProtocolPipeline :
     /// <summary>Passes a note of the duty-clear tally on; called on the parser's thread with the gate held.</summary>
     /// <param name="note">What the tally saw.</param>
     private void NoteDutyClear(DutyClearNote note) => DutyClearObserved?.Invoke(note);
+
+    /// <summary>Passes a note of the duty-start tally on; called on the parser's thread with the gate held.</summary>
+    /// <param name="note">What the tally saw.</param>
+    private void NoteDutyStart(DutyStartNote note) => DutyStartObserved?.Invoke(note);
 
     /// <summary>
     /// Called before the machine is told of a loss - a gap, the game connection closing - live or

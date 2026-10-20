@@ -324,6 +324,34 @@ avg_duration_ms = AVG(duration_ms) WHERE
 再按**本地日期**分桶。该做法在记录超过 200 条时会静默截断，趋势图开始少计，
 而界面上没有任何提示。服务端聚合已取代该做法（contracts/CHANGELOG.md 第 17 条）。
 
+## 12.2 中途加入 `joined_in_progress_count` / `joined_in_progress_rate`
+
+```
+joined_in_progress_count = COUNT(*) WHERE
+      attempt                                  -- §2 的尝试条件
+  AND joined_in_progress = 1
+  AND soft_deleted = 0
+  AND confirmed_mentor
+
+joined_in_progress_rate = joined_in_progress_count
+                        / COUNT(*) WHERE attempt AND joined_in_progress IS NOT NULL AND soft_deleted = 0 AND confirmed_mentor
+joined_in_progress_rate = null                （分母为 0）
+```
+
+- `mentor_runs.joined_in_progress` 记录这一场是否中途加入了进行中的副本（[data-model.md](data-model.md) §1.5）：
+  `1` 进本后先收到副本的剩余时间而不是开始宣布，副本在进入之前已经开始；`0` 先收到开始宣布，副本在玩家在场时才开始；
+  `NULL` 软件没有看到（两种导演报文都没有收到、档案不比较它们、schema 11 之前写入的记录、未填写的手工记录）。
+  判定见 [state-machine.md](state-machine.md) §3.14。
+- **只按尝试计数。**`CANCELLED_BEFORE_ENTRY` 的记录没有进入副本，无论该列取什么值都不计入，也不进入分母。
+- **分母是软件看到过进入方式的尝试**，不是全部尝试：取值为 `NULL` 的记录既不是中途加入也不是开局进入，
+  把它们算进分母会让升级前的旧记录和人工记录把占比压低到没有意义。分母为 0 时占比为 `null`，UI 显示 `—`。
+- 人工更正或补录填写的值与自动记录的值同样计入；填写的是 `NULL` 时视为没有看到。
+- 该口径**不改变任何既有统计**：`attempt_count`、`completed_count`、各比率、平均时长、结果分布与成就进度都不读取该列。
+- `GetDungeonStats` 与 `GetJobStats` 的每一行附 `joined_in_progress_count`，候选集限制在该组之内，口径相同；
+  行级不给出占比。
+- 用户提供的 `RunFilter` 照常叠加；`RunFilter.joined_in_progress = true / false` 只命中该列为 1 / 0 的记录，
+  `NULL` 两种取值都不命中。
+
 ## 13. 边界用例（必须有测试覆盖）
 
 | 用例 | 期望 |

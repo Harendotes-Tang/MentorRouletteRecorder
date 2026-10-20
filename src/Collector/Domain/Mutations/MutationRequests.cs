@@ -49,6 +49,12 @@ public sealed record RunChangeSet
     public string? Note { get; init; }
 
     /// <summary>
+    /// Whether the duty was joined in progress; null, when named, means "not known"
+    /// (docs/manual-correction.md section 7).
+    /// </summary>
+    public bool? JoinedInProgress { get; init; }
+
+    /// <summary>
     /// Acknowledgement of a run the machine could not finish on its own. Only <c>false</c>
     /// is accepted: a person may confirm a 待复核 record, never push one back into review
     /// (docs/manual-correction.md section 7).
@@ -105,6 +111,9 @@ public static class RunFields
     /// <summary>note.</summary>
     public const string Note = "note";
 
+    /// <summary>joined_in_progress.</summary>
+    public const string JoinedInProgress = "joined_in_progress";
+
     /// <summary>soft_deleted.</summary>
     public const string SoftDeleted = "soft_deleted";
 
@@ -118,7 +127,7 @@ public static class RunFields
     public static IReadOnlySet<string> Correctable { get; } = new HashSet<string>(StringComparer.Ordinal)
     {
         ContentId, DutyName, DutyCategory, JobId, MatchedAtUtc, EnteredAtUtc, EndedAtUtc,
-        DurationMs, Result, ContributesToGoal, Note, PendingReview,
+        DurationMs, Result, ContributesToGoal, Note, PendingReview, JoinedInProgress,
     };
 }
 
@@ -173,6 +182,9 @@ public sealed record CreateManualRunCommand
 
     /// <summary>Free-text note.</summary>
     public string? Note { get; init; }
+
+    /// <summary>Whether the duty was joined in progress; null when the player did not say.</summary>
+    public bool? JoinedInProgress { get; init; }
 }
 
 /// <summary>Request to correct an existing run.</summary>

@@ -160,6 +160,13 @@ QString Formatters::resultLabel(const QString &code)
     return tr("未知");
 }
 
+QString Formatters::joinedInProgressLabel(const QVariant &value)
+{
+    if (!value.isValid() || value.isNull() || value.typeId() != QMetaType::Bool)
+        return tr("未知");
+    return value.toBool() ? tr("中途加入") : tr("开局进入");
+}
+
 bool Formatters::runInProgress(const QVariantMap &run)
 {
     const QString source = run.value(QStringLiteral("source")).toString();
@@ -316,6 +323,8 @@ QString Formatters::eventKindLabel(const QString &code)
         {QStringLiteral("INSTANCE_LEFT"), QT_TR_NOOP("退出副本")},
         {QStringLiteral("MATCH_CANCELLED"), QT_TR_NOOP("匹配取消")},
         {QStringLiteral("MATCH_ANNOUNCED"), QT_TR_NOOP("匹配成功通知")},
+        {QStringLiteral("DUTY_COMMENCED"), QT_TR_NOOP("副本开始")},
+        {QStringLiteral("DUTY_TIME_REMAINING"), QT_TR_NOOP("副本剩余时间")},
     };
     const char *source = kLabels.value(code);
     return source ? tr(source) : QString();
@@ -375,6 +384,7 @@ QString Formatters::fieldLabel(const QString &field)
         {QStringLiteral("ended_at_utc"), QT_TR_NOOP("结束时间")},
         {QStringLiteral("duration_ms"), QT_TR_NOOP("耗时")},
         {QStringLiteral("contributes_to_goal"), QT_TR_NOOP("成就计数设置")},
+        {QStringLiteral("joined_in_progress"), QT_TR_NOOP("进入方式")},
         {QStringLiteral("note"), QT_TR_NOOP("备注")},
         {QStringLiteral("soft_deleted"), QT_TR_NOOP("删除状态")},
         {QStringLiteral("pending_review"), QT_TR_NOOP("待复核")},
@@ -415,6 +425,7 @@ bool Formatters::revisionFieldVisible(const QString &field)
         QStringLiteral("role"),            QStringLiteral("matched_at_utc"),
         QStringLiteral("entered_at_utc"),  QStringLiteral("ended_at_utc"),
         QStringLiteral("duration_ms"),     QStringLiteral("contributes_to_goal"),
+        QStringLiteral("joined_in_progress"),
         QStringLiteral("note"),            QStringLiteral("soft_deleted"),
         QStringLiteral("pending_review"),  QStringLiteral("detection_confidence"),
         QStringLiteral("source"),
@@ -424,6 +435,9 @@ bool Formatters::revisionFieldVisible(const QString &field)
 
 QString Formatters::revisionFieldValue(const QString &field, const QVariant &value)
 {
+    // Null is a value of its own here: "not known", not "empty".
+    if (field == QLatin1String("joined_in_progress"))
+        return joinedInProgressLabel(value);
     if (!value.isValid() || value.isNull() || value.toString().isEmpty())
         return revisionValue(value);
     if (field == QLatin1String("result"))

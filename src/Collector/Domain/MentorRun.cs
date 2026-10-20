@@ -112,6 +112,18 @@ public sealed record MentorRun
     public string? Note { get; init; }
 
     /// <summary>
+    /// Whether the player joined a duty that was already under way.
+    ///
+    /// True when the duty's director reported a running timer before it ever announced a start
+    /// to this player; false when it announced the start with the player inside; null when
+    /// neither was seen - a row written before schema 11, a manual entry that did not say, a
+    /// profile that does not observe the two director messages, or a duty left before either
+    /// arrived (docs/state-machine.md section 3.14). Counted per attempt by
+    /// docs/statistics-definitions.md section 12.2; correctable like any other recorded fact.
+    /// </summary>
+    public bool? JoinedInProgress { get; init; }
+
+    /// <summary>
     /// 导随心得 attached to this run, or null when it has none.
     ///
     /// Not a <c>mentor_runs</c> column: it lives in <c>run_reflections</c> and is hydrated by

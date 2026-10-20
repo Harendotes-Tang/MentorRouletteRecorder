@@ -891,8 +891,8 @@ private Q_SLOTS:
             QStringLiteral("job_id"), QStringLiteral("job_name"), QStringLiteral("role"),
             QStringLiteral("matched_at_utc"), QStringLiteral("entered_at_utc"),
             QStringLiteral("ended_at_utc"), QStringLiteral("duration_ms"), QStringLiteral("result"),
-            QStringLiteral("contributes_to_goal"), QStringLiteral("note"), QStringLiteral("soft_deleted"),
-            QStringLiteral("pending_review"), QStringLiteral("manually_corrected")};
+            QStringLiteral("contributes_to_goal"), QStringLiteral("note"), QStringLiteral("joined_in_progress"),
+            QStringLiteral("soft_deleted"), QStringLiteral("pending_review"), QStringLiteral("manually_corrected")};
         for (const QJsonValue &item : std::as_const(manual)) {
             const QJsonObject run = item.toObject();
             const QJsonObject first = ask(backend, QStringLiteral("GetRunRevisions"),
@@ -1234,6 +1234,52 @@ private Q_SLOTS:
         QVERIFY(!lastChanges(settledId).contains(QStringLiteral("manually_corrected")));
         answer = correct(backend, settledId, {{QStringLiteral("note"), QString::fromUtf8("队伍解散")}});
         QVERIFY(answer.ok);
+        QVERIFY(marked(answer));
+    }
+
+    // Joined in progress, mirrored from the Collector: the dashboard counts it over the attempts
+    // with the share over the attempts whose entry was seen (docs/statistics-definitions.md 12.2),
+    // the filter lists only the runs recorded that way, and filling the flag in where the
+    // software saw nothing is not a correction while overruling a recorded value is.
+    void joinedInProgressIsCountedListedAndCorrectedLikeTheCollectorDoes()
+    {
+        QJsonObject joined = autoRun(QStringLiteral("44444444-4444-4444-8444-444444444444"),
+                                     QStringLiteral("COMPLETED"), true);
+        joined.insert(QStringLiteral("joined_in_progress"), true);
+        QJsonObject fresh = autoRun(QStringLiteral("55555555-5555-4555-8555-555555555555"),
+                                    QStringLiteral("COMPLETED"), true);
+        fresh.insert(QStringLiteral("joined_in_progress"), false);
+        const QJsonObject unseen = autoRun(QStringLiteral("66666666-6666-4666-8666-666666666666"),
+                                           QStringLiteral("COMPLETED"), true);
+        mr::MockBackend backend;
+        backend.resetRuns(QJsonArray{joined, fresh, unseen});
+
+        const Answer dashboard = ask(backend, QStringLiteral("GetDashboardStats"),
+                                     {{QStringLiteral("filter"), QJsonObject()}});
+        QVERIFY2(dashboard.ok, qPrintable(dashboard.code + QLatin1Char(' ') + dashboard.message));
+        QCOMPARE(dashboard.payload.value(QStringLiteral("attempt_count")).toInt(), 3);
+        QCOMPARE(dashboard.payload.value(QStringLiteral("joined_in_progress_count")).toInt(), 1);
+        QCOMPARE(dashboard.payload.value(QStringLiteral("joined_in_progress_rate")).toDouble(), 0.5);
+
+        const Answer listed = ask(backend, QStringLiteral("QueryRuns"),
+                                  {{QStringLiteral("filter"), QJsonObject{{QStringLiteral("joined_in_progress"), true}}},
+                                   {QStringLiteral("page"), 1}, {QStringLiteral("page_size"), 50}});
+        QVERIFY2(listed.ok, qPrintable(listed.code + QLatin1Char(' ') + listed.message));
+        const QJsonArray items = listed.payload.value(QStringLiteral("items")).toArray();
+        QCOMPARE(items.size(), 1);
+        QCOMPARE(items.first().toObject().value(QStringLiteral("run_id")).toString(),
+                 joined.value(QStringLiteral("run_id")).toString());
+
+        const auto marked = [](const Answer &answer) {
+            return answer.payload.value(QStringLiteral("run")).toObject()
+                .value(QStringLiteral("manually_corrected")).toBool();
+        };
+        const QString unseenId = unseen.value(QStringLiteral("run_id")).toString();
+        Answer answer = correct(backend, unseenId, {{QStringLiteral("joined_in_progress"), true}});
+        QVERIFY2(answer.ok, qPrintable(answer.code + QLatin1Char(' ') + answer.message));
+        QVERIFY(!marked(answer));
+        answer = correct(backend, unseenId, {{QStringLiteral("joined_in_progress"), false}});
+        QVERIFY2(answer.ok, qPrintable(answer.code + QLatin1Char(' ') + answer.message));
         QVERIFY(marked(answer));
     }
 

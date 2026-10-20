@@ -326,7 +326,8 @@ trace 文件本身已脱敏，但**不应提交到 issue**：
 | 1 | 指导者任务排到迷宫挑战，通关 | `COMPLETED`，不询问结果；开启播报时，「通关」那一句在离开副本之前播出。日志有一条 `completed = true` 的 `protocol/duty_clear_signal`；结算与离开之间没有掉线、队列溢出、停止监听或换用档案时，离开副本时另有一条 `protocol/duty_clear_exit` |
 | 2 | 指导者任务排到讨伐歼灭战，通关 | 同 1；若 `duty_clear_signals` 没有增加，按 §3.5 取证 |
 | 3 | 指导者任务排到其他副本类型（大型任务、行会令等，以随机分到的为准），通关 | 同 2 |
-| 4 | 中途加入进行中的副本，通关 | `COMPLETED` |
+| 4 | 中途加入进行中的副本，通关 | `COMPLETED`，记录标为「中途加入」（`joined_in_progress = 1`）。日志中这一场只有一条 `protocol/duty_start_signal`：`kind = time_remaining`、`decided = true`、`joined_in_progress = true`，`seconds` 小于该副本的时限；**不应**出现 `kind = commenced` 的一条。若出现（`decided = false`），说明中途加入的玩家也会收到开始宣布，按 §3.5 取证并把这一局的两条导演报文（开始宣布与第一条剩余时间）的先后报给维护者（[protocol-profile-format.md](protocol-profile-format.md) §13.2） |
+| 4a | 开局进入的副本（场景 1 至 3 任一） | 记录标为「开局进入」（`joined_in_progress = 0`）；日志中这一场只有一条 `protocol/duty_start_signal`，`kind = commenced`、`seconds` 等于该副本的时限 |
 | 5 | 中途退出副本 | `UNKNOWN`、待复核，询问本次结果；没有 `completed = true` 的 `protocol/duty_clear_signal` |
 | 6 | 灭团后重试并通关 | 灭团时记录不收尾，也没有 `protocol/duty_clear_signal`；最终通关时 `COMPLETED` |
 | 7 | 投票放弃或队伍解散；条件允许时等到超时 | `UNKNOWN`、待复核，询问本次结果 |

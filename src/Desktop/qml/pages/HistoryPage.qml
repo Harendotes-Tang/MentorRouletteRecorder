@@ -213,6 +213,8 @@ Item {
             filter.with_reflection = true
         if (deletedOnly.checked)
             filter.deleted_only = true
+        if (joinedInProgressOnly.checked)
+            filter.joined_in_progress = true
         return filter
     }
 
@@ -244,6 +246,7 @@ Item {
         page.pendingReviewFilter = false
         withReflection.checked = false
         deletedOnly.checked = false
+        joinedInProgressOnly.checked = false
         page.suspendFilter = false
         filterDebounce.stop()
         App.resetHistoryFilter()
@@ -293,6 +296,7 @@ Item {
         page.pendingReviewFilter = !!filter.pending_review
         withReflection.checked = !!filter.with_reflection
         deletedOnly.checked = !!filter.deleted_only
+        joinedInProgressOnly.checked = filter.joined_in_progress === true
         page.contentFilter = firstFilterValue(filter.content_id)
         page.suspendFilter = false
         if (page.calendarReady) {
@@ -559,6 +563,7 @@ Item {
                     readonly property int selectedCount: (page.pendingReviewFilter ? 1 : 0)
                                                        + (correctedOnly.checked ? 1 : 0)
                                                        + (withReflection.checked ? 1 : 0)
+                                                       + (joinedInProgressOnly.checked ? 1 : 0)
                                                        + (deletedOnly.checked ? 1 : 0)
                     displayText: selectedCount > 0 ? qsTr("标记类型 · %1").arg(selectedCount) : qsTr("标记类型")
                     Accessible.name: qsTr("标记类型筛选，可多选")
@@ -596,6 +601,13 @@ Item {
                                 objectName: "historyReflectionFilter"
                                 Layout.fillWidth: true
                                 text: qsTr("有笔记")
+                                onClicked: { markPopup.close(); page.scheduleFilter() }
+                            }
+                            SelectionCheckBox {
+                                id: joinedInProgressOnly
+                                objectName: "historyJoinedInProgressFilter"
+                                Layout.fillWidth: true
+                                text: qsTr("中途加入")
                                 onClicked: { markPopup.close(); page.scheduleFilter() }
                             }
                             SelectionCheckBox {
@@ -984,6 +996,9 @@ Item {
                                 horizontalAlignment: Text.AlignHCenter
                                 text: [run.source !== "IMPORT" && run.pending_review ? qsTr("待复核") : "",
                                        page.importIncomplete(run) ? qsTr("待补充") : "",
+                                       // 中途加入: the duty was already under way at the entry
+                                       // ($defs/Run.joined_in_progress); null and false say nothing here.
+                                       run.joined_in_progress === true ? qsTr("中途加入") : "",
                                        // 已修正：人改过软件记下的内容。已确认：人只回答了软件
                                        // 留待复核的结局，或补上了它没认出的职业、副本。
                                        run.manually_corrected ? qsTr("已修正")

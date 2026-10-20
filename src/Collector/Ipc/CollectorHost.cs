@@ -353,6 +353,10 @@ public sealed class CollectorHost : IDisposable
             // about the message itself (duty-result brief, decision 7).
             pipeline.DutyClearObserved += note =>
                 _logger.Write(LogLevel.Info, "protocol", note.LogEvent, note.LogFields());
+            // The CN duty-start signals: which one decided how the player got into the duty, and
+            // the time limit or time left it carried - nothing about the message itself.
+            pipeline.DutyStartObserved += note =>
+                _logger.Write(LogLevel.Info, "protocol", note.LogEvent, note.LogFields());
             services = services with
             {
                 Sink = pipeline,

@@ -147,6 +147,7 @@ internal static class RunImportCandidateNormalizer
                 // informational and imported UNKNOWN stays out of dashboard review too.
                 PendingReview = false,
                 Note = Text(input, "note", 1000),
+                JoinedInProgress = Flag(input, "joined_in_progress"),
                 ImportMetadata = metadata,
                 Reflection = text is null ? null : new RunReflection(mood, text, now, now),
                 CreatedAtUtc = ParseTime(Text(input, "created_at_utc", 100), timeZone, CollectorTexts.ImportTimeFieldCreated()) ?? now,
@@ -207,22 +208,35 @@ internal static class RunImportCandidateNormalizer
 
     public static string Facts(MentorRun run) => FactValues(run).ToJsonString(Wire.JsonOptions);
 
-    private static JsonObject FactValues(MentorRun run) => new()
+    private static JsonObject FactValues(MentorRun run)
     {
-        ["region"] = EnumWire<Region>.Format(run.Region), ["content_id"] = run.ContentId,
-        ["mentor_roulette_id"] = run.MentorRouletteId,
-        ["territory_id"] = run.TerritoryId, ["duty_name"] = run.DutyName, ["duty_category"] = run.DutyCategory,
-        ["job_id"] = run.JobId, ["job_name"] = run.JobName ?? JobCatalog.UnknownJobName,
-        ["matched_at_utc"] = UtcTimestamp.ToTextOrNull(run.MatchedAtUtc),
-        ["entered_at_utc"] = UtcTimestamp.ToTextOrNull(run.EnteredAtUtc),
-        ["ended_at_utc"] = UtcTimestamp.ToTextOrNull(run.EndedAtUtc), ["duration_ms"] = run.DurationMs,
-        ["result"] = EnumWire<RunResult>.Format(run.Result), ["contributes_to_goal"] = run.ContributesToGoal,
-        ["soft_deleted"] = run.SoftDeleted, ["note"] = run.Note,
-        ["reflection_text"] = run.Reflection?.Text,
-        ["reflection_mood"] = run.Reflection is null ? null : ReflectionText.Format(run.Reflection.Mood),
-        ["source_recorded_at"] = run.ImportMetadata?.SourceRecordedAt,
-        ["source_recorded_at_utc"] = UtcTimestamp.ToTextOrNull(run.ImportMetadata?.SourceRecordedAtUtc),
-    };
+        var facts = new JsonObject
+        {
+            ["region"] = EnumWire<Region>.Format(run.Region), ["content_id"] = run.ContentId,
+            ["mentor_roulette_id"] = run.MentorRouletteId,
+            ["territory_id"] = run.TerritoryId, ["duty_name"] = run.DutyName, ["duty_category"] = run.DutyCategory,
+            ["job_id"] = run.JobId, ["job_name"] = run.JobName ?? JobCatalog.UnknownJobName,
+            ["matched_at_utc"] = UtcTimestamp.ToTextOrNull(run.MatchedAtUtc),
+            ["entered_at_utc"] = UtcTimestamp.ToTextOrNull(run.EnteredAtUtc),
+            ["ended_at_utc"] = UtcTimestamp.ToTextOrNull(run.EndedAtUtc), ["duration_ms"] = run.DurationMs,
+            ["result"] = EnumWire<RunResult>.Format(run.Result), ["contributes_to_goal"] = run.ContributesToGoal,
+            ["soft_deleted"] = run.SoftDeleted, ["note"] = run.Note,
+            ["reflection_text"] = run.Reflection?.Text,
+            ["reflection_mood"] = run.Reflection is null ? null : ReflectionText.Format(run.Reflection.Mood),
+            ["source_recorded_at"] = run.ImportMetadata?.SourceRecordedAt,
+            ["source_recorded_at_utc"] = UtcTimestamp.ToTextOrNull(run.ImportMetadata?.SourceRecordedAtUtc),
+        };
+        // Only when the source said how the duty was entered. A JsonObject writes null
+        // properties, so an unconditional key would change the fingerprint of every row from
+        // every source, and no import made before the field existed would read as a duplicate
+        // (or be kept out by its purge tombstone) any more.
+        if (run.JoinedInProgress is { } joined)
+        {
+            facts["joined_in_progress"] = joined;
+        }
+
+        return facts;
+    }
 
     private static string? Text(JsonObject input, string key, int max)
     {

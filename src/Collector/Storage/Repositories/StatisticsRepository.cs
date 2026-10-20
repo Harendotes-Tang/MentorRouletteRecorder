@@ -69,6 +69,11 @@ public sealed class StatisticsRepository
         var leaveCount = rows.Count(row => row.Result == RunResult.LeftOrAbandoned && IsAttempt(row));
         var average = AverageDuration(rows);
         var breakdown = BuildBreakdown(rows, attemptCount);
+        // Joined in progress: counted over attempts, and its share over the attempts whose entry the
+        // software saw at all - a run that says nothing about it is neither kind
+        // (docs/statistics-definitions.md section 12.2).
+        var joinedInProgress = rows.Count(JoinedInProgress);
+        var entryKnown = rows.Count(row => IsAttempt(row) && row.JoinedInProgress is not null);
 
         // Each of the dashboard's reads is its own trip through the database gate; this
         // repository gates itself, see SettingsRepository.GetAchievementSettings.
@@ -98,7 +103,9 @@ public sealed class StatisticsRepository
             average,
             breakdown,
             rows.Count(row => row.PendingReview && !row.ImportedHistory),
-            GetTrend(filter, granularity));
+            GetTrend(filter, granularity),
+            joinedInProgress,
+            Ratio(joinedInProgress, entryKnown));
     }
 
     /// <summary>
@@ -300,7 +307,8 @@ public sealed class StatisticsRepository
                     AverageDuration(group),
                     // MAX(matched_at_utc): when this duty was last matched into, not when its
                     // row was last touched, so a correction does not make an old duty recent.
-                    group.Max(row => row.MatchedAtUtc));
+                    group.Max(row => row.MatchedAtUtc),
+                    group.Count(JoinedInProgress));
             })
             .OrderByDescending(row => row.AttemptCount)
             .ThenBy(row => row.ContentId)
@@ -346,7 +354,8 @@ public sealed class StatisticsRepository
                     attempts,
                     completed,
                     Ratio(completed, attempts),
-                    AverageDuration(group));
+                    AverageDuration(group),
+                    group.Count(JoinedInProgress));
             })
             .OrderByDescending(row => row.AttemptCount)
             .ThenBy(row => row.JobId)
@@ -363,7 +372,7 @@ public sealed class StatisticsRepository
                 "SELECT content_id, job_id, duty_name, duty_category, entered_at_utc, ended_at_utc, " +
                 "duration_ms, result, detection_confidence, contributes_to_goal, manually_corrected, " +
                 "region, updated_at_utc, pending_review, matched_at_utc" +
-                ", territory_id, " + RunFilterSql.ImportedHistoryPredicate + " " +
+                ", territory_id, " + RunFilterSql.ImportedHistoryPredicate + ", joined_in_progress " +
                 "FROM mentor_runs WHERE " + fragment.Where + ";";
             RunFilterSql.Bind(command, fragment);
             using var reader = command.ExecuteReader();
@@ -387,7 +396,8 @@ public sealed class StatisticsRepository
                     reader.GetInt32(13) == 1,
                     reader.IsDBNull(14) ? null : UtcTimestamp.Parse(reader.GetString(14)),
                     reader.IsDBNull(15) ? null : reader.GetInt32(15),
-                    reader.GetInt32(16) == 1));
+                    reader.GetInt32(16) == 1,
+                    reader.IsDBNull(17) ? null : reader.GetInt32(17) == 1));
             }
 
             return (IReadOnlyList<StatRow>)rows;
@@ -409,6 +419,9 @@ public sealed class StatisticsRepository
 
     private static bool IsAttempt(StatRow row) => row.EnteredAtUtc is not null
         || (row.ImportedHistory && row.Result is not (RunResult.Unknown or RunResult.CancelledBeforeEntry));
+
+    /// <summary>An attempt whose duty was already under way when the player entered it.</summary>
+    private static bool JoinedInProgress(StatRow row) => IsAttempt(row) && row.JoinedInProgress == true;
 
     private static double? AverageDuration(IEnumerable<StatRow> rows)
     {
@@ -443,5 +456,6 @@ public sealed class StatisticsRepository
         bool PendingReview,
         DateTimeOffset? MatchedAtUtc,
         int? TerritoryId,
-        bool ImportedHistory);
+        bool ImportedHistory,
+        bool? JoinedInProgress);
 }

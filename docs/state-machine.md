@@ -457,6 +457,38 @@ Collector 启动时：
 （`QueryRuns`），或订阅 `run_finished` 事件。该事件本就由行的 `ended_at_utc` 计算得出，
 而非取自状态机的当前状态。
 
+### 3.14 进入方式：中途加入还是开局进入（不参与判定）
+
+`ENTERED_DUTY` 期间另有一项**不参与判定**的记忆：这一场是否中途加入了进行中的副本，写入
+`mentor_runs.joined_in_progress`（[data-model.md](data-model.md) §1.5）。它与结果、置信度、任何转移都无关，
+只回答一个问题：玩家进入时副本是否已经开始。
+
+依据是国服客户端副本导演报文的两种内容（按内容识别，不属于档案，见
+[protocol-profile-format.md](protocol-profile-format.md) §13）：
+
+- `DUTY_COMMENCED`：导演宣布副本开始，携带时限。它在全员加载完毕、倒计时结束后发给在场的玩家；
+  中途加入的玩家收不到这一场的开始宣布。2026-10-05 的取证中它出现在进本标记之后 74.5 秒，其间没有任何导演报文。
+- `DUTY_TIME_REMAINING`：导演报告剩余时间。开始宣布之后不到一秒发第一条，此后每 300 秒一条；
+  中途加入的玩家进本后需要知道剩余时间，收到的第一条导演报文就是它。
+
+| 当前状态 | 事件 | 处理 |
+|---|---|---|
+| `ENTERED_DUTY`，尚未判定 | `DUTY_COMMENCED` | 记为**开局进入**（`joined_in_progress = 0`），事件轨迹追加一条同状态事件（`HIGH`） |
+| `ENTERED_DUTY`，尚未判定 | `DUTY_TIME_REMAINING` | 记为**中途加入**（`joined_in_progress = 1`），事件轨迹追加一条同状态事件（`HIGH`） |
+| `ENTERED_DUTY`，已判定 | 任一 | 忽略：判定只做一次，之后的剩余时间每 5 分钟一条，不写轨迹 |
+| `IDLE`、`MENTOR_MATCHED` | 任一 | 忽略：不创建记录，不改写任何记录（非导随副本里的报文同样落在这里） |
+
+- **只写一次，按先后。**先到的那一条决定取值。开局进入的一场里，剩余时间总在开始宣布之后，因此不会被误记；
+  中途加入的一场里没有开始宣布，剩余时间先到。若中途加入的一场之后竟然收到开始宣布（与假设相反），
+  判定不改，诊断日志记下这一条（`protocol/duty_start_signal`，`decided = false`，
+  [capture-diagnostics.md](capture-diagnostics.md) §8），这正是真机核对要看的形状。
+- **缺失即未知。**两条都没有收到（进本后很快离开、抓包在副本中停止、换用档案）时该列保持 `NULL`，
+  不猜测。回滚的提交同样回滚这一判定（`StateMachineCheckpoint.JoinedInProgress`），否则下一条剩余时间会被当作已判定而忽略。
+- **换一场重新判定。**判定随记录收尾而清空（`ClearRun`），下一场从未判定开始。
+- 一场的记录先被人工更正了进入方式时，自动写入按修订链保留人工值（`ManualRunFieldProtection`）。
+- 该判法只在一局开局进入的副本上实测过；中途加入的副本尚未在真机上观测，核对项见
+  [live-validation-guide.md](live-validation-guide.md) §4.1 场景 4。
+
 ## 4. 置信度 `detection_confidence`
 
 | 值 | 条件 |

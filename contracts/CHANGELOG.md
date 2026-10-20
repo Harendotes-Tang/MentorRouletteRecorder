@@ -1,5 +1,16 @@
 # IPC 契约变更记录 / IPC contract changelog
 
+## 2026-10-20 · 中途加入进行中的副本：`Run.joined_in_progress` 与三处统计计数
+
+附加式变更，不新增消息类型。采集服务按内容识别国服副本导演报文中的两种内容：开始宣布与剩余时间（[docs/protocol-profile-format.md](../docs/protocol-profile-format.md) §13），据此在进本后记下这一场是否中途加入进行中的副本（[docs/state-machine.md](../docs/state-machine.md) §3.14）。
+
+- **`$defs/Run.joined_in_progress`**（布尔或 `null`，每条记录都带）：`true` 中途加入了进行中的副本；`false` 副本在玩家在场时才开始；`null` 软件没有看到（schema 11 之前写入的记录、没有填写的手工记录、不比较这两种报文的档案、两种报文到达之前就离开的副本）。
+- **`CorrectRunRequest.changes.joined_in_progress`** 与 **`CreateManualRunRequest.joined_in_progress`**（布尔或 `null`，可选）：人工填写或更正进入方式。填入原本为 `null` 的值不算更正（不置 `manually_corrected`，[docs/manual-correction.md](../docs/manual-correction.md) §7），改掉软件记下的值算更正；撤销照常恢复旧值。
+- **`DashboardStats.joined_in_progress_count`**（整数）与 **`joined_in_progress_rate`**（0–1 或 `null`）、**`DungeonStatsRow.joined_in_progress_count`**、**`JobStatsRow.joined_in_progress_count`**：口径见 [docs/statistics-definitions.md](../docs/statistics-definitions.md) §12.2。占比的分母是软件看到过进入方式的尝试（`joined_in_progress` 非空），没有这样的尝试时为 `null`。既有的次数、通关率、离开率、平均时长与成就进度不变。
+- **`RunFilter.joined_in_progress`**（布尔，可选）：`true` 只列中途加入的记录，`false` 只列开局进入的记录；软件没有看到进入方式的记录两种取值都不命中。
+- **`CaptureStatus.last_valid_event_kind`** 新增两个取值 `DUTY_COMMENCED` 与 `DUTY_TIME_REMAINING`（副本开始宣布、副本剩余时间，[docs/protocol-profile-format.md](../docs/protocol-profile-format.md) §13）；`GetRunEvents` 的 `event_type` 同样可能出现这两个值。旧桌面端按「不认识的取值视为某个事件」处理。
+- 兼容性：旧采集服务不发送这些字段，对请求中的新字段答 `ERR_BAD_REQUEST`；旧桌面端忽略新字段。CSV 导出在末尾追加一列 `joined_in_progress`（`1` / `0` / 空）；此前 16 列的导出文件导入时仍按本软件的导出处理；备份与 JSON 导入接受同名字段。诊断日志新增 `protocol/duty_start_signal`（[docs/capture-diagnostics.md](../docs/capture-diagnostics.md) §8）。
+
 ## 2026-10-15 · 采集服务的提示按桌面端的界面语言显示
 
 附加式变更，不新增消息类型，原有字段的取值逐字不变，只有两处例外：`StartCaptureValidation` 在验证进行中被拒绝时，`message` 去掉了句末多余的空格；文字参数超过 4000 个字符时（例如回显的超长字段名）截断并以「…」结尾，中文与引用一致。设计见 [collector-texts.md](collector-texts.md)。

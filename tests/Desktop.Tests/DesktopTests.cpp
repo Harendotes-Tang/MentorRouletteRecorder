@@ -521,6 +521,18 @@ void DesktopTests::formatters_renderNullsAndDurations()
     QCOMPARE(mr::Formatters::count(42), QStringLiteral("42"));
     QCOMPARE(mr::Formatters::resultLabel(QStringLiteral("DISCONNECTED")),
              QString::fromUtf8("断线"));
+    // How the duty was entered: null and a missing key both read as not known, never as a guess.
+    QCOMPARE(mr::Formatters::joinedInProgressLabel(QVariant(true)), QString::fromUtf8("中途加入"));
+    QCOMPARE(mr::Formatters::joinedInProgressLabel(QVariant(false)), QString::fromUtf8("开局进入"));
+    QCOMPARE(mr::Formatters::joinedInProgressLabel(QVariant()), QString::fromUtf8("未知"));
+    QCOMPARE(mr::Formatters::joinedInProgressLabel(QVariant(QStringLiteral("true"))), QString::fromUtf8("未知"));
+    // The revision log and the run trail name the field and the two director events.
+    QCOMPARE(mr::Formatters::fieldLabel(QStringLiteral("joined_in_progress")), QString::fromUtf8("进入方式"));
+    QVERIFY(mr::Formatters::revisionFieldVisible(QStringLiteral("joined_in_progress")));
+    QCOMPARE(mr::Formatters::revisionFieldValue(QStringLiteral("joined_in_progress"), QVariant()), QString::fromUtf8("未知"));
+    QCOMPARE(mr::Formatters::revisionFieldValue(QStringLiteral("joined_in_progress"), QVariant(true)), QString::fromUtf8("中途加入"));
+    QCOMPARE(mr::Formatters::eventKindLabel(QStringLiteral("DUTY_COMMENCED")), QString::fromUtf8("副本开始"));
+    QCOMPARE(mr::Formatters::runEventLabel(QStringLiteral("DUTY_TIME_REMAINING")), QString::fromUtf8("副本剩余时间"));
     // A duty still being played is stored as UNKNOWN with no end time. The history page read
     // 未知 for it, which is what a finished run with an unconfirmed outcome reads: two different
     // things, and the player asked why a run in progress already had a result.

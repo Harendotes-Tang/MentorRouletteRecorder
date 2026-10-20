@@ -20,6 +20,7 @@ QJsonObject contractRunFields(const QJsonObject &fields)
         "content_id", "duty_name",      "duty_category",       "job_id",
         "matched_at_utc", "entered_at_utc", "ended_at_utc",     "duration_ms",
         "result",     "contributes_to_goal", "note",           "pending_review",
+        "joined_in_progress",
     };
 
     QJsonObject out;

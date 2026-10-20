@@ -409,6 +409,7 @@ public sealed class SemanticEventProcessor : ISemanticEventSink, ICaptureLifecyc
             EnterDutyCommand enter => enter.RunId,
             SetDutyCommand duty => duty.RunId,
             SetJobCommand job => job.RunId,
+            SetJoinedInProgressCommand joined => joined.RunId,
             FinishRunCommand finish => finish.RunId,
             AppendEventCommand append => append.RunId,
             _ => null,
@@ -467,6 +468,15 @@ public sealed class SemanticEventProcessor : ISemanticEventSink, ICaptureLifecyc
                         Role = job?.Role ?? Role.Unknown,
                         UpdatedAtUtc = semanticEvent.ObservedAtUtc,
                     };
+                });
+                break;
+
+            case SetJoinedInProgressCommand joined when !_alreadyPersistedRunIds.Contains(joined.RunId):
+                RunsUpdated++;
+                Update(joined.RunId, transaction, current => current with
+                {
+                    JoinedInProgress = joined.JoinedInProgress,
+                    UpdatedAtUtc = semanticEvent.ObservedAtUtc,
                 });
                 break;
 
@@ -656,6 +666,8 @@ public sealed class SemanticEventProcessor : ISemanticEventSink, ICaptureLifecyc
             ZoneInitialization zone => new { content_id = zone.ContentId, territory_id = zone.TerritoryId },
             TerritoryObserved territory => new { territory_id = territory.TerritoryId },
             PlayerJob job => new { job_id = job.JobId },
+            DutyCommenced commenced => new { time_limit_seconds = commenced.TimeLimitSeconds },
+            DutyTimeRemaining remaining => new { remaining_seconds = remaining.RemainingSeconds },
             EventSequenceGap gap => new { dropped_count = gap.DroppedCount },
             _ => null,
         };
@@ -686,6 +698,7 @@ public sealed class SemanticEventProcessor : ISemanticEventSink, ICaptureLifecyc
             new("detection_confidence", null, EnumWire<DetectionConfidence>.Format(run.DetectionConfidence)),
             new("source", null, EnumWire<RunSource>.Format(run.Source)),
             new("contributes_to_goal", null, run.ContributesToGoal),
+            new("joined_in_progress", null, run.JoinedInProgress),
             new("manually_created", null, run.ManuallyCreated),
             new("manually_corrected", null, run.ManuallyCorrected),
             new("soft_deleted", null, run.SoftDeleted),

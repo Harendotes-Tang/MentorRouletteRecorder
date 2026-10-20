@@ -2,7 +2,7 @@
 
 本目录存放本软件的数据库迁移脚本。本文面向需要新增或审阅迁移的维护者，说明迁移的命名、执行规则与版本记录方式。
 
-> 当前 schema 版本：**8**。`DATABASE_STATUS = READY`。
+> 当前 schema 版本：**11**。`DATABASE_STATUS = READY`。
 >
 > | 版本 | 文件 | 内容 |
 > |---|---|---|
@@ -14,6 +14,9 @@
 > | 6 | `0006_candidate_window_samples.sql` | 候选窗口样本的出现次数 |
 > | 7 | `0007_candidate_research_payload_512.sql` | 研究负载上限扩大至 512 字节，事务内保留原负载与核对关联 |
 > | 8 | `0008_run_duty_source.sql` | 记录副本身份的来源，只增一列 |
+> | 9 | `0009_personal_record_import.sql` | 导入的本人记录的来源元数据 |
+> | 10 | `0010_history_retention.sql` | 回收站保留期、永久清理的事务内授权与墓碑 |
+> | 11 | `0011_run_joined_in_progress.sql` | 记录是否中途加入进行中的副本，只增一列 |
 
 ## 命名
 
@@ -68,6 +71,16 @@ migrations/
 该迁移只增一列，不改动 0001–0007 及其 checksum，也不重建任何表。新增列**不出现在 IPC
 传输格式中**，`$defs/Run` 未变，仅作为本机数据库中的来源标注供维护者核对。字段语义见
 [`../docs/data-model.md`](../docs/data-model.md) §1。
+
+## schema 10 → 11
+
+国服客户端进本后，副本的导演报文先宣布开始，之后才报告剩余时间；中途加入的玩家收不到这一场的开始宣布，
+先到的是剩余时间（[`../docs/protocol-profile-format.md`](../docs/protocol-profile-format.md) §13）。
+0011 仅为 `mentor_runs` 增加一列 `joined_in_progress INTEGER NULL`，取值受
+`CHECK (joined_in_progress IS NULL OR joined_in_progress IN (0, 1))` 约束：`1` 中途加入，`0` 开局进入，
+`NULL` 软件没有看到（包括 0011 之前写入的历史行）。该迁移只增一列，不改动 0001–0010 及其 checksum，
+也不回填任何值。该列进入 IPC（`$defs/Run.joined_in_progress`）并可人工更正，语义见
+[`../docs/data-model.md`](../docs/data-model.md) §1.5。
 
 ## `schema_migrations` 表
 

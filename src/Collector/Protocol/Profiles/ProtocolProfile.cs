@@ -291,6 +291,18 @@ public sealed record ProtocolProfile(
         Message("DUTY_RESULT") is null &&
         (Region == Region.Cn || Status == ProfileCompatibilityStatus.Synthetic);
 
+    /// <summary>
+    /// True when the parser recognises the CN duty-start content for this profile
+    /// (<see cref="Parsing.DutyStartSignal"/>, docs/protocol-profile-format.md section 13): the
+    /// commencement and the remaining-time report, which together say whether the player joined
+    /// a duty already under way. Observed on a CN client only, like the clear, so a GLOBAL
+    /// profile leaves the question open; a synthetic profile takes part so that an offline
+    /// fixture can replay them. Unlike the clear it does not depend on DUTY_RESULT: how the
+    /// player got in is a different fact from how the duty ended.
+    /// </summary>
+    public bool ObservesDutyStart =>
+        Region == Region.Cn || Status == ProfileCompatibilityStatus.Synthetic;
+
     /// <summary>Finds a declared message by semantic name, or null.</summary>
     /// <param name="name">Semantic message name.</param>
     public ProfileMessage? Message(string name) =>
@@ -313,6 +325,7 @@ public sealed record ProtocolProfile(
             {
                 CanDetectDutyResult = declaresResult,
                 ObservesDutyClear = ObservesDutyClear,
+                ObservesDutyStart = ObservesDutyStart,
             };
         }
 
@@ -336,7 +349,8 @@ public sealed record ProtocolProfile(
             ProfileId, Region, status, MentorRouletteId,
             canDetectDutyResult: declaresResult,
             matchFromQueue: MatchFromQueue,
-            observesDutyClear: ObservesDutyClear);
+            observesDutyClear: ObservesDutyClear,
+            observesDutyStart: ObservesDutyStart);
     }
 }
 

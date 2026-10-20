@@ -170,6 +170,7 @@ public static class RunMutationRules
             EnumWire<RunResult>.Format(after.Result));
         Compare(changes, RunFields.ContributesToGoal, before.ContributesToGoal, after.ContributesToGoal);
         Compare(changes, RunFields.Note, before.Note, after.Note);
+        Compare(changes, RunFields.JoinedInProgress, before.JoinedInProgress, after.JoinedInProgress);
         Compare(changes, RunFields.SoftDeleted, before.SoftDeleted, after.SoftDeleted);
         Compare(changes, RunFields.PendingReview, before.PendingReview, after.PendingReview);
         Compare(changes, RunFields.ManuallyCorrected, before.ManuallyCorrected, after.ManuallyCorrected);
@@ -191,6 +192,8 @@ public static class RunMutationRules
     /// null, or the 未知 / UNKNOWN placeholder the job name and role carry meanwhile. Times are
     /// not on this list - an end time typed into an open run decides when the run ended, and the
     /// field protection that follows from it is a correction in every sense;</item>
+    /// <item>how the duty was entered (<c>joined_in_progress</c>) being filled in where the
+    /// software never saw a director signal: the old value was null;</item>
     /// <item>the note, which was never the software's to begin with.</item>
     /// </list>
     /// Everything else - a recorded duty, job, time, or a settled outcome changed - is one.
@@ -214,7 +217,7 @@ public static class RunMutationRules
             RunFields.ManuallyCorrected or RunFields.Note or RunAuditFields.DutyIdentity => false,
             RunFields.Result or RunFields.PendingReview or RunFields.ContributesToGoal => !wasPendingReview,
             RunFields.JobId or RunFields.JobName or RunFields.Role or RunFields.ContentId or
-                RunFields.DutyName or RunFields.DutyCategory => !IsBlank(change.OldValue),
+                RunFields.DutyName or RunFields.DutyCategory or RunFields.JoinedInProgress => !IsBlank(change.OldValue),
             _ => true,
         });
     }

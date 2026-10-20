@@ -84,7 +84,8 @@ public sealed class RunMutationService
             command.DutyName,
             command.DutyCategory,
             command.Note,
-            reason);
+            reason,
+            command.JoinedInProgress is { } joined ? (joined ? "1" : "0") : null);
 
         return Apply(command.RequestId, "CreateManualRun", fingerprint, tx =>
         {
@@ -123,6 +124,7 @@ public sealed class RunMutationService
                 SoftDeleted = false,
                 PendingReview = false,
                 Note = command.Note,
+                JoinedInProgress = command.JoinedInProgress,
                 CreatedAtUtc = now,
                 UpdatedAtUtc = now,
             };
@@ -668,6 +670,11 @@ public sealed class RunMutationService
             next = next with { Note = changes.Note };
         }
 
+        if (changes.Has(RunFields.JoinedInProgress))
+        {
+            next = next with { JoinedInProgress = changes.JoinedInProgress };
+        }
+
         return next;
     }
 
@@ -813,6 +820,7 @@ public sealed class RunMutationService
             new(RunFields.Result, null, EnumWire<RunResult>.Format(run.Result)),
             new(RunFields.ContributesToGoal, null, run.ContributesToGoal),
             new(RunFields.Note, null, run.Note),
+            new(RunFields.JoinedInProgress, null, run.JoinedInProgress),
             new(RunFields.SoftDeleted, null, run.SoftDeleted),
             new(RunFields.PendingReview, null, run.PendingReview),
             new(RunFields.ManuallyCorrected, null, run.ManuallyCorrected),

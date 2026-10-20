@@ -300,6 +300,89 @@ public sealed class MutationTests
         Assert.True(fixture.Runs.Get(second.RunId)!.ManuallyCorrected);
     }
 
+    /// <summary>
+    /// How the duty was entered: filling it in where capture saw no director signal supplies what
+    /// the software could not know; changing what it recorded overrules the record
+    /// (docs/manual-correction.md section 7). Undo restores the earlier value like any other.
+    /// </summary>
+    [Fact]
+    public void CorrectRun_FillingHowTheDutyWasEnteredIsNotACorrectionButChangingItIs()
+    {
+        using var fixture = new Fixture();
+        var created = fixture.CreateRun(RunResult.Completed);
+        var stored = fixture.Runs.Get(created.RunId)!;
+        Assert.Null(stored.JoinedInProgress);
+
+        fixture.Service.CorrectRun(new CorrectRunCommand(
+            Fixture.NewId(), created.RunId, stored.Revision, "这一场是中途加入的",
+            Change(RunFields.JoinedInProgress, b => b.Value = b.Value with { JoinedInProgress = true })));
+        var filled = fixture.Runs.Get(created.RunId)!;
+        Assert.True(filled.JoinedInProgress);
+        Assert.False(filled.ManuallyCorrected);
+
+        fixture.Service.CorrectRun(new CorrectRunCommand(
+            Fixture.NewId(), created.RunId, filled.Revision, "记错了，是开局进的",
+            Change(RunFields.JoinedInProgress, b => b.Value = b.Value with { JoinedInProgress = false })));
+        var overruled = fixture.Runs.Get(created.RunId)!;
+        Assert.False(overruled.JoinedInProgress);
+        Assert.True(overruled.ManuallyCorrected);
+
+        fixture.Service.CorrectRun(new CorrectRunCommand(
+            Fixture.NewId(), created.RunId, overruled.Revision, "其实不记得了",
+            Change(RunFields.JoinedInProgress, b => b.Value = b.Value with { JoinedInProgress = null })));
+        var cleared = fixture.Runs.Get(created.RunId)!;
+        Assert.Null(cleared.JoinedInProgress);
+
+        fixture.Service.UndoRevision(new RunReasonCommand(Fixture.NewId(), created.RunId, cleared.Revision, "撤销"));
+        Assert.False(fixture.Runs.Get(created.RunId)!.JoinedInProgress);
+
+        var error = Assert.Throws<CollectorException>(() => fixture.Service.CorrectRun(new CorrectRunCommand(
+            Fixture.NewId(), created.RunId, fixture.Runs.Get(created.RunId)!.Revision, "同一个值",
+            Change(RunFields.JoinedInProgress, b => b.Value = b.Value with { JoinedInProgress = false }))));
+        Assert.Equal(ErrorCodes.NoChanges, error.Code);
+    }
+
+    /// <summary>The idempotency fingerprint sees the value: the same request id with another value is a conflict.</summary>
+    [Fact]
+    public void CorrectRun_SameRequestIdWithAnotherEntryValue_IsRefused()
+    {
+        using var fixture = new Fixture();
+        var created = fixture.CreateRun(RunResult.Completed);
+        var requestId = Fixture.NewId();
+
+        fixture.Service.CorrectRun(new CorrectRunCommand(
+            requestId, created.RunId, 1, "中途加入",
+            Change(RunFields.JoinedInProgress, b => b.Value = b.Value with { JoinedInProgress = true })));
+        var conflict = Assert.Throws<CollectorException>(() => fixture.Service.CorrectRun(new CorrectRunCommand(
+            requestId, created.RunId, 1, "中途加入",
+            Change(RunFields.JoinedInProgress, b => b.Value = b.Value with { JoinedInProgress = false }))));
+
+        Assert.Equal(ErrorCodes.IdempotencyConflict, conflict.Code);
+        Assert.True(fixture.Runs.Get(created.RunId)!.JoinedInProgress);
+    }
+
+    [Fact]
+    public void CreateManualRun_StoresHowTheDutyWasEnteredOnlyWhenThePlayerSaysSo()
+    {
+        using var fixture = new Fixture();
+
+        var said = fixture.Service.CreateManualRun(new CreateManualRunCommand
+        {
+            RequestId = Fixture.NewId(),
+            Reason = "补录一次中途加入的导随",
+            Result = RunResult.Completed,
+            EnteredAtUtc = new DateTimeOffset(2026, 9, 3, 10, 1, 0, TimeSpan.Zero),
+            EndedAtUtc = new DateTimeOffset(2026, 9, 3, 10, 20, 0, TimeSpan.Zero),
+            JoinedInProgress = true,
+        });
+        var unsaid = fixture.CreateRun();
+
+        Assert.True(fixture.Runs.Get(said.RunId)!.JoinedInProgress);
+        Assert.Null(fixture.Runs.Get(unsaid.RunId)!.JoinedInProgress);
+        var first = fixture.Revisions.GetFirst(said.RunId, null)!;
+        Assert.Contains(first.Changes, change => change.Field == RunFields.JoinedInProgress);
+    }
+
     [Fact]
     public void CorrectRun_AcknowledgingAnAlreadyReviewedRun_IsRefused()
     {

@@ -45,6 +45,7 @@ public static partial class RunImportSourceParser
         "manually_corrected", "soft_deleted", "pending_review", "note", "created_at_utc",
         "updated_at_utc", "reflection", "reflection_text", "reflection_mood", "source_recorded_at",
         "source_recorded_at_utc", "source_name", "source_key", "incomplete", "mentor_confirmed", "import_metadata",
+        "joined_in_progress",
     };
 
     private static readonly Dictionary<string, string> HeaderAliases = new(StringComparer.OrdinalIgnoreCase)
@@ -351,8 +352,12 @@ public static partial class RunImportSourceParser
         if (mapping is not null && mapping.Any(pair => !Fields.Contains(pair.Value)))
             throw Invalid(CollectorTexts.ImportTableMappingUnsupported());
         var headers = header.Cells.Select(cell => cell.Text.Trim().TrimStart('\uFEFF')).ToArray();
-        var native = nativeCsv && mapping is null && headers.Length == RunExporter.CsvHeader.Count &&
-            header.Cells.Select(cell => cell.Text).ToHashSet(StringComparer.Ordinal).SetEquals(RunExporter.CsvHeader);
+        var headerSet = header.Cells.Select(cell => cell.Text).ToHashSet(StringComparer.Ordinal);
+        // The current export, or the sixteen-column export of every version before
+        // joined_in_progress was appended: both were written by this software's exporter.
+        var native = nativeCsv && mapping is null &&
+            ((headers.Length == RunExporter.CsvHeader.Count && headerSet.SetEquals(RunExporter.CsvHeader)) ||
+             (headers.Length == RunExporter.LegacyCsvHeader.Count && headerSet.SetEquals(RunExporter.LegacyCsvHeader)));
         var fields = headers.Select(name => ResolveHeader(name, mapping)).ToArray();
         if (fields.All(field => field is null)) throw Invalid(CollectorTexts.ImportTableNoKnownColumns());
         var duplicates = fields.Where(field => field is not null).GroupBy(field => field, StringComparer.Ordinal)

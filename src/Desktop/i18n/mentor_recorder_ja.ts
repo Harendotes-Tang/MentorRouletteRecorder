@@ -5176,6 +5176,30 @@ SHA256：%3</translation>
 <context>
     <name>EditRunDialog</name>
     <message>
+        <source>不清楚</source>
+        <translation>不明</translation>
+    </message>
+    <message>
+        <source>不记得或没有留意</source>
+        <translation>覚えていない、または気づかなかった</translation>
+    </message>
+    <message>
+        <source>开局进入</source>
+        <translation>開始から参加</translation>
+    </message>
+    <message>
+        <source>副本在我进入后才开始</source>
+        <translation>参加した後にコンテンツが開始した</translation>
+    </message>
+    <message>
+        <source>中途加入</source>
+        <translation>途中参加</translation>
+    </message>
+    <message>
+        <source>进入时副本已经开始</source>
+        <translation>参加した時点でコンテンツは進行中だった</translation>
+    </message>
+    <message>
         <source>进本时间按匹配时间估算；实际耗时不详，不计入平均耗时。</source>
         <translation>突入時刻はマッチ時刻から推定しています。実際の所要時間は不明なため、平均時間には含めません。</translation>
     </message>
@@ -5524,6 +5548,10 @@ SHA256：%3</translation>
 </context>
 <context>
     <name>HistoryPage</name>
+    <message>
+        <source>中途加入</source>
+        <translation>途中参加</translation>
+    </message>
     <message>
         <source>原站
 %1</source>
@@ -7623,6 +7651,10 @@ SHA256：%3</translation>
     </message>
     <message>
         <source>排队时间</source>
+    <message>
+        <source>进入方式</source>
+        <translation>参加形態</translation>
+    </message>
         <translation>待ち時間</translation>
     </message>
     <message>
@@ -7938,6 +7970,10 @@ SHA256：%3</translation>
         <translation>例：アプリ停止中の分を手動で追加</translation>
     </message>
     <message>
+    <message>
+        <source>进入方式</source>
+        <translation>参加形態</translation>
+    </message>
         <source>图片保存在软件安装目录：%1</source>
         <translation>画像はアプリのインストール先に保存されます：%1</translation>
     </message>
@@ -9762,6 +9798,26 @@ SHA256：%3</translation>
     </message>
     <message>
         <source>没有检测到正在运行的游戏。</source>
+    <message>
+        <source>副本开始</source>
+        <translation>コンテンツ開始</translation>
+    </message>
+    <message>
+        <source>副本剩余时间</source>
+        <translation>コンテンツの残り時間</translation>
+    </message>
+    <message>
+        <source>进入方式</source>
+        <translation>参加形態</translation>
+    </message>
+    <message>
+        <source>中途加入</source>
+        <translation>途中参加</translation>
+    </message>
+    <message>
+        <source>开局进入</source>
+        <translation>開始から参加</translation>
+    </message>
         <translation>実行中のゲームが見つかりません。</translation>
     </message>
     <message>
@@ -10951,6 +11007,10 @@ SHA256：%3</translation>
     <message>
         <source>日历服务尚未连接</source>
         <translation>カレンダーのサービスが未接続です</translation>
+    <message>
+        <source>进入方式</source>
+        <translation>参加形態</translation>
+    </message>
     </message>
     <message>
         <source>无效的日历月份</source>
@@ -11572,6 +11632,10 @@ SHA256：%3</translation>
         <translation>女性</translation>
     </message>
     <message>
+    <message>
+        <source>中途加入</source>
+        <translation>途中参加</translation>
+    </message>
         <source>%1（%2）</source>
         <extracomment>A voice name, then its language and gender.</extracomment>
         <translation>%1（%2）</translation>

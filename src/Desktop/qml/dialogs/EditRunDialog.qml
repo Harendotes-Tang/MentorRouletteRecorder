@@ -170,6 +170,9 @@ Dialog {
     property string reasonText: ""
     property string noteText: ""
     property bool contributesToGoal: true
+    /// How the duty was entered, as $defs/Run.joined_in_progress carries it: true (中途加入),
+    /// false (开局进入) or null (not known). Null is a value a player may pick on purpose.
+    property var joinedInProgress: null
     /// Index into currentDutyOptions(); 0 is 未知副本.
     property int dutyIndex: 0
     /// Index into currentJobOptions(); 0 is 未知.
@@ -241,6 +244,13 @@ Dialog {
         { value: "UNKNOWN", label: qsTr("未知"), desc: qsTr("不确定发生了什么") }
     ]
 
+    /// 进入方式: the three states of joined_in_progress, null included.
+    readonly property var entryOptions: [
+        { value: null, label: qsTr("不清楚"), desc: qsTr("不记得或没有留意") },
+        { value: false, label: qsTr("开局进入"), desc: qsTr("副本在我进入后才开始") },
+        { value: true, label: qsTr("中途加入"), desc: qsTr("进入时副本已经开始") }
+    ]
+
     readonly property var partyOptions: [
         { value: "", label: qsTr("全部") },
         { value: "4", label: qsTr("4人本") },
@@ -308,6 +318,7 @@ Dialog {
             duty_label: dialog.selectedDutyLabel(),
             job_label: dialog.selectedJobLabel(),
             contributes: dialog.contributesToGoal,
+            entry: dialog.joinedInProgress,
             note: dialog.noteText,
             edit_mode: dialog.editMode,
             incomplete_import_context: allowIncompleteImport
@@ -328,6 +339,7 @@ Dialog {
         duty_label: Theme.dutyName(runData) || qsTr("未知副本"),
         job_label: Theme.jobName(runData) || qsTr("未知"),
         contributes: !!runData.contributes_to_goal,
+        entry: runData.joined_in_progress === true ? true : (runData.joined_in_progress === false ? false : null),
         note: runData.note || ""
     }) : ({})
 
@@ -854,6 +866,7 @@ Dialog {
         noteText = ""
         resetNoteImages(null)
         contributesToGoal = true
+        joinedInProgress = null
         dutyIndex = 0
         jobIndex = 0
         errorText = ""
@@ -893,6 +906,7 @@ Dialog {
         noteText = run.note || ""
         resetNoteImages(run)
         contributesToGoal = !!run.contributes_to_goal
+        joinedInProgress = run.joined_in_progress === true ? true : (run.joined_in_progress === false ? false : null)
         const duties = dutyOptionList
         const retainedIndex = duties.findIndex(function(row) { return row.preservesRunDuty === true })
         dutyIndex = retainedIndex >= 0 ? retainedIndex : optionIndex(duties, "content_id", run.content_id)
@@ -1025,7 +1039,7 @@ Dialog {
     /// less pending_review, which this form never edits.
     readonly property var correctionFields: [
         "content_id", "duty_name", "duty_category", "job_id", "matched_at_utc", "entered_at_utc",
-        "ended_at_utc", "duration_ms", "result", "contributes_to_goal", "note"
+        "ended_at_utc", "duration_ms", "result", "contributes_to_goal", "note", "joined_in_progress"
     ]
 
     function collectFields() {
@@ -1068,6 +1082,7 @@ Dialog {
             duration_ms: durationMs,
             result: resultCode,
             contributes_to_goal: contributesToGoal,
+            joined_in_progress: joinedInProgress,
             note: noteText
         }
     }
@@ -1131,6 +1146,9 @@ Dialog {
                 continue
             // An untouched empty note is "" here and null in the record: not a change.
             if (key === "note" && !fields.note && !runData.note)
+                continue
+            // "Not known" is null here and null or absent (an older Collector) in the record.
+            if (key === "joined_in_progress" && fields[key] == null && runData[key] == null)
                 continue
             if (JSON.stringify(fields[key]) !== JSON.stringify(runData[key]))
                 changes[key] = fields[key]

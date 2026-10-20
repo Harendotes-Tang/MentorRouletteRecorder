@@ -583,14 +583,14 @@ public sealed class ProtocolParserTests : IDisposable
         Assert.True(Assert.IsType<DutyResult>(Assert.Single(sink.Events)).Victory);
     }
 
-    /// <summary>The director's start message: everything but the command and parameter is the clear's.</summary>
+    /// <summary>The director's progress message: everything but the command and parameter is the clear's.</summary>
     [Fact]
     public void ANearMissIsIgnoredNeverRefused()
     {
         var sink = new RecordingSink();
         var parser = new ProfileMessageParser(CnProfile(), sink);
 
-        parser.Accept(Message(DirectorOpcode, DirectorBody(0x40000001, 7200), segmentType: 3));
+        parser.Accept(Message(DirectorOpcode, DirectorBody(0x80000015, 1), segmentType: 3));
 
         Assert.Empty(sink.Events);
         var stats = parser.GetParserStats();
@@ -599,6 +599,76 @@ public sealed class ProtocolParserTests : IDisposable
         Assert.Equal(0, stats.ParseOk);
         Assert.Empty(stats.RecentErrors);
         Assert.Null(stats.LastValidEventKind);
+    }
+
+    // --- The CN duty-start contents, recognised by content (docs/protocol-profile-format.md section 13).
+
+    [Fact]
+    public void TheCommencementOnAnUndeclaredOpcodeBecomesADutyCommenced()
+    {
+        var sink = new RecordingSink();
+        var parser = new ProfileMessageParser(CnProfile(), sink);
+        var body = DirectorBody(DutyStartSignal.CommencedCommand, 7200);
+
+        parser.Accept(Message(DirectorOpcode, body, segmentType: 3));
+
+        var commenced = Assert.IsType<DutyCommenced>(Assert.Single(sink.Events));
+        Assert.Equal(7200, commenced.TimeLimitSeconds);
+        Assert.Equal("DUTY_COMMENCED:start_signal", commenced.Key.SemanticKey);
+        Assert.Equal(DirectorOpcode.ToString(System.Globalization.CultureInfo.InvariantCulture), commenced.Key.OpcodeOrKind);
+        Assert.Equal(Convert.ToHexString(SHA256.HashData(body)).ToLowerInvariant(), commenced.Key.PayloadHash);
+        var stats = parser.GetParserStats();
+        Assert.Equal(1, stats.ParseOk);
+        Assert.Equal(0, stats.Ignored);
+        Assert.Equal(0, stats.ParseFailed);
+        Assert.Equal("DUTY_COMMENCED", stats.LastValidEventKind);
+    }
+
+    [Fact]
+    public void TheRemainingTimeReportBecomesADutyTimeRemaining()
+    {
+        var sink = new RecordingSink();
+        var parser = new ProfileMessageParser(CnProfile(), sink);
+
+        parser.Accept(Message(OtherDirectorOpcode, DirectorBody(DutyStartSignal.TimeRemainingCommand, 7199), segmentType: 3));
+
+        var remaining = Assert.IsType<DutyTimeRemaining>(Assert.Single(sink.Events));
+        Assert.Equal(7199, remaining.RemainingSeconds);
+        Assert.Equal("DUTY_TIME_REMAINING:timer_signal", remaining.Key.SemanticKey);
+        Assert.Equal("DUTY_TIME_REMAINING", parser.GetParserStats().LastValidEventKind);
+    }
+
+    /// <summary>How the player got in is a different fact from how the duty ended: a declared result message leaves the start content observed.</summary>
+    [Fact]
+    public void AProfileDeclaringDutyResultStillSeesTheStartContent()
+    {
+        var declared = new ProfileMessage(
+            "DUTY_RESULT", 0xA003, PacketDirection.ServerToClient, null, 40, null, null, new long[] { 7 },
+            new[]
+            {
+                new ProfileField("outcome", 0, ProfileFieldType.U8, 0, ProfileEndian.Little,
+                    ProfileFieldConstraints.None),
+            });
+        var sink = new RecordingSink();
+        var parser = new ProfileMessageParser(CnProfile(declared), sink);
+
+        parser.Accept(Message(DirectorOpcode, DirectorBody(DutyStartSignal.CommencedCommand, 7200), segmentType: 3));
+
+        Assert.IsType<DutyCommenced>(Assert.Single(sink.Events));
+    }
+
+    /// <summary>Observed on a CN client only: a GLOBAL profile treats the content as undeclared traffic.</summary>
+    [Fact]
+    public void AGlobalProfileIgnoresTheStartContent()
+    {
+        var sink = new RecordingSink();
+        var parser = new ProfileMessageParser(CnProfile() with { Region = Region.Global }, sink);
+
+        parser.Accept(Message(DirectorOpcode, DirectorBody(DutyStartSignal.CommencedCommand, 7200), segmentType: 3));
+        parser.Accept(Message(DirectorOpcode, DirectorBody(DutyStartSignal.TimeRemainingCommand, 7199), segmentType: 3));
+
+        Assert.Empty(sink.Events);
+        Assert.Equal(2, parser.GetParserStats().Ignored);
     }
 
     /// <summary>
@@ -722,12 +792,14 @@ public sealed class ProtocolParserTests : IDisposable
         }
 
         var stats = parser.GetParserStats();
-        Assert.Equal(4, stats.ParseOk);
-        Assert.Equal(7, stats.Ignored);
+        // The pop, the two zone changes, and three director contents: the commencement, the
+        // remaining-time report and the clear. The other five director messages are ignored.
+        Assert.Equal(6, stats.ParseOk);
+        Assert.Equal(5, stats.Ignored);
         Assert.Equal(0, stats.ParseFailed);
         Assert.Equal(messages.Length, stats.ParseOk + stats.ParseFailed + stats.Ignored);
         Assert.Equal(
-            new[] { "CONTENT_FINDER_POP", "ZONE_INITIALIZATION", "DUTY_RESULT", "ZONE_INITIALIZATION" },
+            new[] { "CONTENT_FINDER_POP", "ZONE_INITIALIZATION", "DUTY_COMMENCED", "DUTY_TIME_REMAINING", "DUTY_RESULT", "ZONE_INITIALIZATION" },
             sink.Events.Select(e => e.EventType).ToArray());
     }
 
