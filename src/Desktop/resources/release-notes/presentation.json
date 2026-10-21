@@ -35,7 +35,7 @@
       "tag": "共享校准",
       "title": "共享校准卡片精简",
       "summary": "备用操作收入「其他方式」，这一把导随结束前不能更换校准。",
-      "bodySha256": "fcde21857fa726362b61e2fe51f5125e5f52cb0b96822a6230d3bf2a017cf5e8"
+      "bodySha256": "0203761420f6564903355521c953aeb6bba72c2a9510dd4d5100fc638f161204"
     },
     {
       "tag": "副本统计",
@@ -53,25 +53,29 @@
       "tag": "笔记编辑",
       "title": "编辑器行为与提醒方式一致",
       "summary": "隐藏主窗口或断开连接时，编辑器收起到待处理并保留草稿。",
-      "bodySha256": "043c6d22436467858d19ca5b833e27af5d22309dc977e4f6bc6ddecf35c3935c"
+      "bodySha256": "043c6d22436467858d19ca5b833e27af5d22309dc977e4f6bc6ddecf35c3935c",
+      "hidden": true
     },
     {
       "tag": "区服采证",
       "title": "采证步骤卡片面向玩家显示",
       "summary": "普通模式只显示网卡、文件位置与通俗说明，维护者模式保留细节。",
-      "bodySha256": "4b12d2ae7439bc16b9b7e28114275525ef4da78ace3470ec1241bec13c538fde"
+      "bodySha256": "4b12d2ae7439bc16b9b7e28114275525ef4da78ace3470ec1241bec13c538fde",
+      "hidden": true
     },
     {
       "tag": "软件说明",
       "title": "联网说明补全下载来源",
       "summary": "补上 GitCode 与 CDN；装好语音即刷新，历史默认从新到旧。",
-      "bodySha256": "fe504b65b134cce3875df7c4b8e45d72d79c2f8d1b3c168afb368e5498dcc856"
+      "bodySha256": "fe504b65b134cce3875df7c4b8e45d72d79c2f8d1b3c168afb368e5498dcc856",
+      "hidden": true
     },
     {
       "tag": "服务提示",
       "title": "后台服务提示去掉术语",
       "summary": "准备失败时说明可能原因，沿用已启动的服务时在标题栏注明。",
-      "bodySha256": "de2d95006f1662843eb1c0e6b46faf1a107fc3974240f4a7a76a78dcb19290b1"
+      "bodySha256": "de2d95006f1662843eb1c0e6b46faf1a107fc3974240f4a7a76a78dcb19290b1",
+      "hidden": true
     },
     {
       "tag": "自动记录",
@@ -89,25 +93,29 @@
       "tag": "撤回与更新",
       "title": "撤回的校准重启后仍然有效",
       "summary": "被撤回的校准码不会重新启用；镜像提示的新版本重启后仍指向镜像。",
-      "bodySha256": "8c0446f57be059494f51fb1f2f1e2a56063687b8d6423e786d34c7e3286c7327"
+      "bodySha256": "8c0446f57be059494f51fb1f2f1e2a56063687b8d6423e786d34c7e3286c7327",
+      "hidden": true
     },
     {
       "tag": "结果确认",
       "title": "结果弹窗显示正确的前后次数",
       "summary": "已作答的结果不再重复询问，继续处理会把编辑器带到前台。",
-      "bodySha256": "d8dfc3860eecb0c07253ffbef65f5f882b26656fb343fddfd5a803a856157b87"
+      "bodySha256": "d8dfc3860eecb0c07253ffbef65f5f882b26656fb343fddfd5a803a856157b87",
+      "hidden": true
     },
     {
       "tag": "历史记录",
       "title": "日期范围不再挡住之后的筛选",
       "summary": "修改匹配日期时估算的进本时间随之移动，恢复的记录计算用时。",
-      "bodySha256": "c7fa2c3d35d8cf1eb09ae90c15853d9cd305795f6735b0dd285daac48c2c67aa"
+      "bodySha256": "c7fa2c3d35d8cf1eb09ae90c15853d9cd305795f6735b0dd285daac48c2c67aa",
+      "hidden": true
     },
     {
       "tag": "统计浮窗",
       "title": "迷你条记住停靠位置",
       "summary": "隐藏后不再运行动画，修改起始次数或目标不再计作新增。",
-      "bodySha256": "50a7744482c1ea6fa514d12216863df4d20304ab0578f9eec62f50295aeffcf8"
+      "bodySha256": "50a7744482c1ea6fa514d12216863df4d20304ab0578f9eec62f50295aeffcf8",
+      "hidden": true
     },
     {
       "tag": "导入",
@@ -119,7 +127,8 @@
       "tag": "数据保护",
       "title": "升级前保留可恢复的数据快照",
       "summary": "备份未通过完整性核对时不清理旧备份，单条更正损坏只跳过该条。",
-      "bodySha256": "83308f7a11c3912ffc0f2a2dce5c78fb32e27c4860a813cd6875c9da2dd5c12c"
+      "bodySha256": "83308f7a11c3912ffc0f2a2dce5c78fb32e27c4860a813cd6875c9da2dd5c12c",
+      "hidden": true
     },
     {
       "tag": "副本用时",
@@ -131,55 +140,64 @@
       "tag": "繁體中文",
       "title": "缩放时导航文字不再缺笔画",
       "summary": "150% 等非整数缩放下，「一」等笔画完整显示。",
-      "bodySha256": "c2be70386bcf9540c3139a294c7832906f70684f6736c7883ed84ccf05b9cf23"
+      "bodySha256": "c2be70386bcf9540c3139a294c7832906f70684f6736c7883ed84ccf05b9cf23",
+      "hidden": true
     },
     {
       "tag": "游戏进程",
       "title": "只跟随当前 Windows 会话的游戏",
       "summary": "同机其他账户或会话运行的游戏不再被自动跟随。",
-      "bodySha256": "3eede6185055f6e6fbd05d3989dc30e3e40b53cc018f8eec6321f75e882ebf6a"
+      "bodySha256": "3eede6185055f6e6fbd05d3989dc30e3e40b53cc018f8eec6321f75e882ebf6a",
+      "hidden": true
     },
     {
       "tag": "安装程序",
       "title": "拒绝来历不明的子文件夹",
       "summary": "安装时指出该文件夹名称，删除或移走后重新运行即可。",
-      "bodySha256": "d5adfe797be1f13eee600c5e43078469c03bc7dede72ec20a7e26770bbdc5d92"
+      "bodySha256": "d5adfe797be1f13eee600c5e43078469c03bc7dede72ec20a7e26770bbdc5d92",
+      "hidden": true
     },
     {
       "tag": "系统工具",
       "title": "进程管理只用系统目录中的工具",
       "summary": "导入文件中的副本名与分类按纯文本显示。",
-      "bodySha256": "56f31755a819cf05c171b3d15fb6e8a303392b249da89575d2b7b182ab315f19"
+      "bodySha256": "56f31755a819cf05c171b3d15fb6e8a303392b249da89575d2b7b182ab315f19",
+      "hidden": true
     },
     {
       "tag": "安全检查",
       "title": "开发检查覆盖更多写法",
       "summary": "补上更多读取、监听和下载写法，下载检查工具时核对完整性。",
-      "bodySha256": "315d6858fbdf4357584359321b8d1fa6c9891653e80a05082a78a3d479f2e4fc"
+      "bodySha256": "315d6858fbdf4357584359321b8d1fa6c9891653e80a05082a78a3d479f2e4fc",
+      "hidden": true
     },
     {
       "tag": "工具自测",
       "title": "自测前检查所需组件",
       "summary": "缺少时给出安装命令，跳过的测试在汇总中列出。",
-      "bodySha256": "72be980f0b1a3778c1e6472abba9e0ae1ad04d4a665cf236dad3d459255ca1d7"
+      "bodySha256": "72be980f0b1a3778c1e6472abba9e0ae1ad04d4a665cf236dad3d459255ca1d7",
+      "hidden": true
     },
     {
       "tag": "打包",
       "title": "打包期间源码变化即停止",
       "summary": "未经解包验证的产物不得公开分发，验证失败时删除产物。",
-      "bodySha256": "21ef2ddb07960c798dff23833611ff422f46d8cd86643b5c94f351480f655e40"
+      "bodySha256": "21ef2ddb07960c798dff23833611ff422f46d8cd86643b5c94f351480f655e40",
+      "hidden": true
     },
     {
       "tag": "发布镜像",
       "title": "GitCode 镜像同步发布内容",
       "summary": "编辑后的发布同步标题、说明与附件，发布事件不再同时上传。",
-      "bodySha256": "630feacbdfe79b361df0e5a575ed65189a21b696512eac3ad953549711a007b3"
+      "bodySha256": "630feacbdfe79b361df0e5a575ed65189a21b696512eac3ad953549711a007b3",
+      "hidden": true
     },
     {
       "tag": "公开校准工具",
       "title": "证据归属与隔离更可靠",
       "summary": "同一次抓包提交的多份证据不再判为无效，公开仓库同步后生效。",
-      "bodySha256": "de48816f5907525a38b8533bab905326be63fcac0fe7e098cc17c1fa9bc6da1f"
+      "bodySha256": "de48816f5907525a38b8533bab905326be63fcac0fe7e098cc17c1fa9bc6da1f",
+      "hidden": true
     }
   ]
 }

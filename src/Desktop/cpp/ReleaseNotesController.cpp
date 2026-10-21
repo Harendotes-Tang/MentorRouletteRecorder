@@ -166,26 +166,39 @@ QVariantList ReleaseNotesController::parseEntries(const QString &changelog, cons
     QString section;
     QStringList lines;
     bool highlighted = false;
+    // 只把以句末或冒号结束的开头粗体当作导语；「**统计浮窗**与……」这类句中粗体不算。
+    static const QRegularExpression leadIn(QString::fromUtf8("^\\*\\*([^*\\n]*[。！？：])\\*\\*[ \\t]*"));
     const auto flush = [&] {
-        QString detail = lines.join(QLatin1Char('\n')).trimmed();
+        QString source = lines.join(QLatin1Char('\n')).trimmed();
         lines.clear();
-        detail.remove(QLatin1Char('`'));
-        if (detail.isEmpty())
+        source.remove(QLatin1Char('`'));
+        if (source.isEmpty())
             return;
-        const qsizetype sentenceEnd = detail.indexOf(QRegularExpression(QString::fromUtf8("[。！？\\n]")));
-        const QString summary = sentenceEnd >= 0 ? detail.left(sentenceEnd + 1) : detail;
+        // presentation.json 以 CHANGELOG 原文（去掉反引号）的 SHA-256 对应条目，粗体标记在计算之后才去掉。
+        const QString digest = QString::fromLatin1(QCryptographicHash::hash(
+                                       source.toUtf8(), QCryptographicHash::Sha256).toHex());
+        const QString plain = QString(source).remove(QStringLiteral("**"));
+        const qsizetype sentenceEnd = plain.indexOf(QRegularExpression(QString::fromUtf8("[。！？\\n]")));
+        const QString summary = sentenceEnd >= 0 ? plain.left(sentenceEnd + 1) : plain;
         const qsizetype titleEnd = summary.indexOf(QRegularExpression(QString::fromUtf8("[：，。！？\\n]")));
         const QString title = titleEnd > 0 ? summary.left(titleEnd) : summary;
+        // 开头的粗体导语已由标题与摘要显示，展开的说明从导语之后开始；
+        // 导语比摘要长（含多句）时整段保留，不丢内容。
+        const auto lead = leadIn.match(source);
+        const bool leadShown = lead.hasMatch() && summary.startsWith(lead.captured(1));
+        QString detail = leadShown
+            ? source.mid(lead.capturedLength()).remove(QStringLiteral("**")).trimmed() : plain;
+        if (detail.isEmpty())
+            detail = plain;
         QVariantMap entry{{"id", QString::number(entries.size())}, {"category", categoryId(section)},
                           {"section", section}, {"title", title}, {"summary", summary},
                           {"detail", detail}, {"tag", QString()}, {"highlight", false},
-                          {"action", QString()}};
-        const QString digest = QString::fromLatin1(QCryptographicHash::hash(
-                                       detail.toUtf8(), QCryptographicHash::Sha256).toHex());
+                          {"hidden", false}, {"curated", false}, {"action", QString()}};
         for (const auto &value : annotations) {
             const auto annotation = value.toObject();
             if (annotation.value("bodySha256").toString() != digest)
                 continue;
+            entry["curated"] = true;
             for (const auto &key : {"title", "summary", "tag"}) {
                 const auto text = annotation.value(QLatin1String(key)).toString().trimmed();
                 if (!text.isEmpty())
@@ -193,7 +206,10 @@ QVariantList ReleaseNotesController::parseEntries(const QString &changelog, cons
             }
             if (annotation.value("action").toString() == QLatin1String("language-settings"))
                 entry["action"] = QStringLiteral("language-settings");
-            const bool highlight = !highlighted && annotation.value("highlight").toBool();
+            // 不在弹窗中列出的条目（安全、构建与较小的修复）只计数，CHANGELOG 仍保留全文。
+            const bool hidden = annotation.value("hidden").toBool();
+            entry["hidden"] = hidden;
+            const bool highlight = !hidden && !highlighted && annotation.value("highlight").toBool();
             entry["highlight"] = highlight;
             highlighted = highlighted || highlight;
             break;
@@ -223,7 +239,11 @@ QVariantMap ReleaseNotesController::counts() const
 {
     QVariantMap counts;
     for (const auto &value : m_entries) {
-        const auto category = value.toMap().value("category").toString();
+        // 与弹窗一致：不列出的条目不计入分类数。
+        const auto entry = value.toMap();
+        if (entry.value("hidden").toBool())
+            continue;
+        const auto category = entry.value("category").toString();
         counts[category] = counts.value(category).toInt() + 1;
     }
     return counts;

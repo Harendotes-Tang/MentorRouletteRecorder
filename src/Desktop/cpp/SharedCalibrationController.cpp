@@ -507,9 +507,9 @@ void SharedCalibrationController::deliverShareCode(const QVariantMap &payload)
     if (!payload.value(QStringLiteral("code_in_url")).toBool()) {
         Q_EMIT notice(verified
             ? tr("校准码已复制到剪贴板。由于内容较长，无法自动打开 GitHub 页面。"
-                 "你可以把这份校准直接发给其他玩家，让对方在「其他方式」中点「手动导入校准码…」并粘贴。")
+                 "你可以把这份校准直接发给其他玩家，让对方在「其他方式」中点「手动导入校准码」并粘贴。")
             : tr("校准码已复制到剪贴板。由于内容较长，无法自动打开 GitHub 分享页面。"
-                 "你可以直接把它发给其他玩家，让对方在「其他方式」中点「手动导入校准码…」并粘贴。"));
+                 "你可以直接把它发给其他玩家，让对方在「其他方式」中点「手动导入校准码」并粘贴。"));
         return;
     }
     const QUrl url(payload.value(QStringLiteral("issue_url")).toString(), QUrl::StrictMode);

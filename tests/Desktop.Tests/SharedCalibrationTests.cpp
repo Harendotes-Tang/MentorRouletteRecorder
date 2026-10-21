@@ -902,11 +902,11 @@ private Q_SLOTS:
         QCOMPARE(seams.copied, QStringList{QLatin1String(kVectorCode)});
         QVERIFY(lastNotice(notices).contains(QString::fromUtf8("剪贴板")));
         QVERIFY(lastNotice(notices).contains(QString::fromUtf8("无法自动打开 GitHub 分享页面")));
-        // Review K2-5: the import button is 手动导入校准码… inside the folded 其他方式 now; the
+        // Review K2-5: the import button is 手动导入校准码 inside the folded 其他方式 now; the
         // sentence the other player follows names it where it is.
         QCOMPARE(lastNotice(notices),
                  QString::fromUtf8("校准码已复制到剪贴板。由于内容较长，无法自动打开 GitHub 分享页面。"
-                                   "你可以直接把它发给其他玩家，让对方在「其他方式」中点「手动导入校准码…」并粘贴。"));
+                                   "你可以直接把它发给其他玩家，让对方在「其他方式」中点「手动导入校准码」并粘贴。"));
         verifyPlayerCopy(lastNotice(notices));
     }
 
@@ -987,7 +987,7 @@ private Q_SLOTS:
         QVERIFY(seams.opened.isEmpty());
         QCOMPARE(lastNotice(notices),
                  QString::fromUtf8("校准码已复制到剪贴板。由于内容较长，无法自动打开 GitHub 页面。"
-                                   "你可以把这份校准直接发给其他玩家，让对方在「其他方式」中点「手动导入校准码…」并粘贴。"));
+                                   "你可以把这份校准直接发给其他玩家，让对方在「其他方式」中点「手动导入校准码」并粘贴。"));
         verifyPlayerCopy(lastNotice(notices));
 
         backend.setShareResult(shareAnswer(QStringLiteral("VERIFIED"), true, QStringLiteral("https://example.com/")));

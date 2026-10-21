@@ -656,20 +656,20 @@ QtTest `MentorRecorderCapturePage`（`tests/Desktop.Tests/CapturePageTests.cpp`�
 面板自上而下为小标题「共享校准」、一句标题（`sharedCalibrationHeadline`）、一句灰字说明（`sharedCalibrationDetail`）、
 征求同意时的橙框、分享说明与按钮行。按钮行中，「立即检查」与分享按钮直接可见；手动导入与改为本机校准两项备用操作
 收在「其他方式」（`sharedOtherWaysButton`，展开后为「收起其他方式」）之后，展开后为
-「手动导入校准码…」（`sharedImportButton`）与「改为本机校准」（`sharedRejectButton`），阶段改变时重新折叠。
+「手动导入校准码」（`sharedImportButton`）与「改为本机校准」（`sharedRejectButton`），阶段改变时重新折叠。
 
 | 情况 | 标题 | 灰字说明 | 按钮 |
 |---|---|---|---|
-| `FETCHING` | 正在查找其他玩家分享的校准，本机校准也会继续。 | 无 | 其他方式：手动导入校准码… |
-| `VERIFYING`，未被拒绝的候选全为 `provenance = IMPORTED` | 校准码已导入。登录后申请随机任务并进入副本，通过检查后才能开始记录。 | 检查通过后才能开始自动记录。照常游戏即可；如果不能使用，会继续本机校准，已有进度会保留。 | 其他方式：手动导入校准码…、改为本机校准 |
+| `FETCHING` | 正在查找其他玩家分享的校准，本机校准也会继续。 | 无 | 其他方式：手动导入校准码 |
+| `VERIFYING`，未被拒绝的候选全为 `provenance = IMPORTED` | 校准码已导入。登录后申请随机任务并进入副本，通过检查后才能开始记录。 | 检查通过后才能开始自动记录。照常游戏即可；如果不能使用，会继续本机校准，已有进度会保留。 | 其他方式：手动导入校准码、改为本机校准 |
 | `VERIFYING`，某个未被拒绝的候选的 `CONTENT_FINDER_POP` 判据为 `gate = AUDIT`（仓库发布的码，且本机没有可用校准、未被标为有分歧、没有提交人数更多的候选） | 已找到共享校准，等待本机验证。 | 无需手动导入。登录游戏时会自动检查，检查通过后才能开始自动记录。如果不能使用，会继续本机校准，已有进度会保留。 | 同上 |
 | `VERIFYING`，未被拒绝的候选的该判据全为 `gate = REQUIRED`（或为手动导入的码） | 已找到共享校准，等待本机验证。 | 无需手动导入。请申请随机任务并进入副本，检查通过后才能开始自动记录。…… | 同上 |
 | `VERIFYING`，候选未报告 `provenance` 或判据的 `gate`（1.1.0 之前的采集服务，或候选尚未判定） | 已找到共享校准，等待本机验证。（候选全是手动导入的：校准码已导入。登录或排本时会自动检查是否可用。） | 无需手动导入。登录或排本时会自动检查，……（候选全是手动导入的：检查通过后才能开始自动记录。……） | 同上 |
 | `VERIFYING`，且 `profile_status = VERIFIED`（已有档案在记录） | 找到了更完整的共享校准，正在检查是否可用。自动记录照常进行。（候选全为 `IMPORTED`：校准码已导入，正在检查是否可用。自动记录照常进行。） | 自动记录照常进行。检查通过后会自动换用新的共享校准，已保存的记录不会改动。 | 同上 |
-| `AWAITING_CONSENT` | 共享校准已通过检查，请确认是否使用。 | 无；橙框内说明代价（`consentText`），末句为「如果你有其他玩家发来的校准码，也可以在「其他方式」中手动导入校准码。」 | 同意，开始记录（橙框内）；其他方式：手动导入校准码…、改为本机校准 |
+| `AWAITING_CONSENT` | 共享校准已通过检查，请确认是否使用。 | 无；橙框内说明代价（`consentText`），末句为「如果你有其他玩家发来的校准码，也可以在「其他方式」中手动导入校准码。」 | 同意，开始记录（橙框内）；其他方式：手动导入校准码、改为本机校准 |
 | `VERIFIED`，或 `profile_origin = SHARED_CALIBRATION` | 正在使用共享校准，已通过本机检查。 | 已确认这份共享校准能在你的游戏中使用，照常游戏即可。 | 其他方式：改为本机校准 |
 | 同上，且 `audit_pending = true` | 正在使用共享校准，登录检查已通过。 | 排本和进本还在核对中，记录照常进行。如果之后发现不匹配，会停止使用这份校准并继续本机校准，期间生成的记录会标为“待复核”，请检查并补正。 | 其他方式：改为本机校准 |
-| `REJECTED` | 这份共享校准不适用于你的游戏，已改为本机校准。 | 本机校准会继续，已有进度会保留，照常游戏即可。 | 立即检查；其他方式：手动导入校准码… |
+| `REJECTED` | 这份共享校准不适用于你的游戏，已改为本机校准。 | 本机校准会继续，已有进度会保留，照常游戏即可。 | 立即检查；其他方式：手动导入校准码 |
 | `UNAVAILABLE` | 暂时没能下载共享校准，将继续本机校准。 | 稍后可点「立即检查」重试。也可以向已完成校准的玩家索取校准码，在「其他方式」中手动导入。 | 同上 |
 | `NONE` 且 `last_fetch_status = NONE_FOR_BUILD` | 暂时没有当前游戏版本的共享校准，将继续本机校准。 | 本机校准完成后，可以点「分享给其他玩家」，让同一游戏版本的玩家也能使用。 | 同上 |
 | `NONE` 且 `last_fetch_status = DISABLED` | 自动获取共享校准已关闭，将继续本机校准。 | 想自动查找共享校准，可在设置中开启「游戏更新后获取其他玩家的共享校准」。也可以在「其他方式」中手动导入校准码。 | 同上 |
@@ -679,7 +679,7 @@ QtTest `MentorRecorderCapturePage`（`tests/Desktop.Tests/CapturePageTests.cpp`�
 | `profile_origin = SHARED_CALIBRATION`，首个候选 `status = PROVEN`、`audit_pending` 为假、`provenance = PUBLISHED`，且带 `preferred` 字段（更早的采集服务对这种档案拒绝给码）（共享档案已在本机完整记录过一次，`shareKind = verified`） | 灰字「会打开 GitHub 页面，把这份校准记为你也核实过，让其他玩家的软件更优先使用它。」；应答 `basis = VERIFIED` 时 toast 说明提交后这份共享校准会多一个核实通过的账号，`SHARED_NOT_PROVEN` 时说明还在核对中；候选的 `disputed`、`preferred`、`shape_prior` 不显示 | — | 这份校准好用，告诉其他玩家（同一个 `share()`；校准卡片不在时由协议档案卡提供，规则同上） |
 
 「立即检查」（`sharedCheckButton`）只在获取没有结果的阶段（尚未获取、已关闭、下载失败、没有当前版本的、
-被本机流量否定）出现；「手动导入校准码…」不限阶段。两者都要求本机仍处于校准（`WAITING` / `OBSERVING`）、
+被本机流量否定）出现；「手动导入校准码」不限阶段。两者都要求本机仍处于校准（`WAITING` / `OBSERVING`）、
 没有共享档案正在记录，且用户没有改为本机校准。「改为本机校准」在核实中、待同意与已使用三个阶段出现。本机保存的共享校准记录暂时读不到（文件被其他程序占用）时，「立即检查」的回答仍是 `NOT_NEEDED`，但附带说明文字（`sharing.check.state_unreadable`），界面显示该说明而不是「暂时不需要查找」。
 
 **「分享给其他玩家」同时出现在协议档案卡上**（`protocolProfileCard`，即校准行下方的协议档案一行），
@@ -691,11 +691,11 @@ QtTest `MentorRecorderCapturePage`（`tests/Desktop.Tests/CapturePageTests.cpp`�
 按钮文字与说明句也取自同一处（C++ 的 `shareButtonText` 与 `shareHintText`，随 `shareKind` 变化）。
 **校准卡片存在时该按钮不出现**：校准卡片正在说明刚完成的校准，分享入口放在该卡片上更为连贯，
 同一屏内不应出现两个功能相同的按钮。
-「手动导入校准码…」不随之迁移，因为采集服务只在校准进行中才接受导入。
+「手动导入校准码」不随之迁移，因为采集服务只在校准进行中才接受导入。
 
 **「重新校准」也出现在协议档案卡上**（`protocolRecalibrateButton`，次要按钮），
 条件是 `profile_status = VERIFIED` 且 `profile_origin = LOCAL_CALIBRATION`——
-本机档案生效后校准卡片消失，「清空校准进度」与「手动导入校准码…」也随之失去入口；
+本机档案生效后校准卡片消失，「清空校准进度」与「手动导入校准码」也随之失去入口；
 怀疑本机识别错了报文、或拿到了更好校准码的玩家，经由这个按钮重新校准或导入校准码。
 点击先打开确认框（`protocolRecalibrateDialog`，沿用 `DialogFrame`）：
 标题「重新校准这一版游戏？」，正文「将停止使用当前的本机校准，并重新开始校准。旧校准会保留，之后可以恢复。
@@ -770,7 +770,7 @@ QtTest `MentorRecorderCapturePage`（`tests/Desktop.Tests/CapturePageTests.cpp`�
 * **分享**：`GetCalibrationShareCode` 成功后先将 `code` 复制到剪贴板。
   仅当 `code_in_url = true` 且地址位于 `https://github.com/` 之下（不含账号、不含端口）时，
   才交给 `QDesktopServices::openUrl`；否则只复制并在 toast 中说明，`code_in_url = false` 时的说明请对方
-  「在「其他方式」中点「手动导入校准码…」并粘贴」。
+  「在「其他方式」中点「手动导入校准码」并粘贴」。
   `ERR_SHARE_CODE_UNAVAILABLE` 按 `details.reason`（`NO_PROFILE` / `NOT_LOCAL` / `SHARED` / `SHARED_NOT_PROVEN` / `NOT_SHAREABLE`）
   各给出一句说明，不显示采集服务的原文，原文中可能含有路径。
   为此 `BackendReply` 提供 `errorDetails()`，由 `IpcClient` 传递错误信封中的 `details`。
@@ -1768,7 +1768,7 @@ divider 细边与 600 字重 accent 字色。
 | `AppButton` | 按下时缩至 0.96；减少动效时不缩放 |
 | `NavItem` | 悬停时右移 2 px，按下时缩至 0.97；按下时不右移，减少动效时两者均不生效 |
 | `EditRunDialog` 换步 | 新一步淡入，并按切换方向滑入 16 px，下一步自右、上一步自左，时长 `motionMedium`；两种风格相同，减少动效时直接落位（`stepProgress` / `stepDirection`） |
-| `SegmentedControl` | 选中项放大至 1.05 倍、左右内边距各 +3 px；其余项缩至 0.94、内边距各 −2 px、不透明度 0.75，悬停时回到 1 与 0.97；按下时为 0.92。这是静止样式，截图中同样如此 |
+| `SegmentedControl` | 选中项左右内边距各 +3 px，其余项各 −2 px，以宽度区分而不缩放、不降低不透明度（缩放会让原生渲染的文字发虚）；未选项悬停时文字由 `textSecondary` 加深为 `textPrimary`；按下时缩至 0.92 |
 | `ToggleSwitch` | 按下时圆钮从 16 px 伸长至 20 px，贴所在一侧伸长；悬停时叠加一层 4 % 黑（`brightness(.96)`） |
 | `StyledTextField` / `TextArea` / `ComboBox` | 未聚焦时悬停描边 neutral-400，描边颜色渐变 |
 | 历史表行、`PickSurface` 行 | 按下时 accent-100 底（`.row-c:active`） |

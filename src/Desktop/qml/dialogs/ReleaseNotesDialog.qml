@@ -12,10 +12,17 @@ Dialog {
     property bool languageNavigationPending: false
     signal languageSettingsRequested()
     readonly property var entries: notesController ? notesController.entries : []
-    readonly property var highlights: entries.filter(function(entry) { return entry.highlight })
+    // presentation.json 标为 hidden 的条目不在弹窗中列出，只在计数行注明条数；
+    // 全部被标为 hidden 时照常全部列出，弹窗不会只剩一行计数。
+    readonly property var shownEntries: {
+        const shown = entries.filter(function(entry) { return !entry.hidden })
+        return shown.length > 0 ? shown : entries
+    }
+    readonly property int hiddenCount: entries.length - shownEntries.length
+    readonly property var highlights: shownEntries.filter(function(entry) { return entry.highlight })
     readonly property var sections: {
         const groups = []
-        for (const entry of entries) {
+        for (const entry of shownEntries) {
             if (entry.highlight) continue
             let group = groups.find(function(candidate) { return candidate.category === entry.category })
             if (!group) {
@@ -29,12 +36,14 @@ Dialog {
     readonly property string countsText: {
         const labels = []
         const seen = []
-        for (const entry of entries) {
+        for (const entry of shownEntries) {
             if (seen.indexOf(entry.category) >= 0) continue
             seen.push(entry.category)
-            const count = notesController.counts[entry.category] || 0
+            const count = shownEntries.filter(function(other) { return other.category === entry.category }).length
             labels.push(qsTr("%1 %2 项").arg(categoryLabel(entry.category, entry.section)).arg(count))
         }
+        if (hiddenCount > 0)
+            labels.push(qsTr("另有 %1 项改动未列出").arg(hiddenCount))
         return labels.join(" · ")
     }
 

@@ -68,8 +68,10 @@ Rectangle {
                 required property var modelData
 
                 readonly property bool current: modelData.value === root.currentValue
-                // `.seg:has(input:checked)`: the chosen option grows, the others
-                // shrink and dim until the pointer is over them.
+                // `.seg:has(input:checked)`: the chosen option takes more room
+                // than the others. It does so by padding, not by scaling or
+                // dimming: a scaled native-rendered label blurs, and a dimmed
+                // one was hard to read (owner, 2026-10-21).
                 readonly property bool resting: root.hasSelection && !option.current
 
                 Layout.fillWidth: true
@@ -80,19 +82,9 @@ Rectangle {
                 leftPadding: root.optionPadding + option.paddingDelta
                 rightPadding: root.optionPadding + option.paddingDelta
                 property real paddingDelta: option.current ? 3 : (option.resting ? -2 : 0)
-                scale: {
-                    if (option.down)
-                        return 0.92
-                    if (option.current)
-                        return 1.05
-                    if (option.resting)
-                        return option.hovered ? 0.97 : 0.94
-                    return 1.0
-                }
-                opacity: option.resting && !option.hovered ? 0.75 : 1.0
+                scale: option.down ? 0.92 : 1.0
 
                 Behavior on scale { NumberAnimation { duration: Theme.motionMedium; easing.type: Easing.Bezier; easing.bezierCurve: Theme.curveStandard } }
-                Behavior on opacity { NumberAnimation { duration: Theme.motionMedium; easing.type: Easing.Bezier; easing.bezierCurve: Theme.curveStandard } }
                 Behavior on paddingDelta { NumberAnimation { duration: Theme.motionMedium; easing.type: Easing.Bezier; easing.bezierCurve: Theme.curveStandard } }
 
                 background: Rectangle {
@@ -123,7 +115,7 @@ Rectangle {
                     text: option.text
                     color: {
                         if (!option.current)
-                            return Theme.textSecondary
+                            return option.hovered ? Theme.textPrimary : Theme.textSecondary
                         if (!Theme.eorzea)
                             return Theme.accent
                         return Theme.tabActiveText

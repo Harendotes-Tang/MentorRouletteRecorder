@@ -158,6 +158,72 @@ private Q_SLOTS:
         QVERIFY(parse(log).value("action").toString().isEmpty());
     }
 
+    void boldLeadInIsNeitherShownAsMarkupNorRepeated()
+    {
+        const QString body = QString::fromUtf8("**成就圆环可以跑满多圈。**进度超过目标后，圆环从顶端开始下一圈，**每圈**放彩带。");
+        const QString log = QString::fromUtf8("## [1.8.0-beta.1]\n### 新增\n- ") + body
+            + QString::fromUtf8("\n### 修复\n- **抓包：**序号回绕后照常记录。\n- **只有粗体的一句。**\n");
+        const auto entries = mr::ReleaseNotesController::parseEntries(log, "1.8.0-beta.1");
+        QCOMPARE(entries.size(), 3);
+        const auto first = entries[0].toMap();
+        QCOMPARE(first.value("title").toString(), QString::fromUtf8("成就圆环可以跑满多圈"));
+        QCOMPARE(first.value("summary").toString(), QString::fromUtf8("成就圆环可以跑满多圈。"));
+        QCOMPARE(first.value("detail").toString(),
+                 QString::fromUtf8("进度超过目标后，圆环从顶端开始下一圈，每圈放彩带。"));
+        QCOMPARE(entries[1].toMap().value("detail").toString(), QString::fromUtf8("序号回绕后照常记录。"));
+        // A bullet that is only its bold lead-in keeps that sentence as the detail.
+        QCOMPARE(entries[2].toMap().value("detail").toString(), QString::fromUtf8("只有粗体的一句。"));
+        for (const auto &value : entries) {
+            const auto entry = value.toMap();
+            for (const auto &key : {"title", "summary", "detail"})
+                QVERIFY2(!entry.value(QLatin1String(key)).toString().contains(QStringLiteral("**")), key);
+        }
+
+        // Bold that is not a whole lead-in, or says more than the summary, stays in the detail.
+        const auto kept = mr::ReleaseNotesController::parseEntries(QString::fromUtf8(
+            "## [1.8.0-beta.1]\n### 修复\n- **统计浮窗**与结果弹窗合并。\n- **抓包**：序号回绕。\n"
+            "- **甲。乙。**丙。\n"), "1.8.0-beta.1");
+        QCOMPARE(kept.size(), 3);
+        QCOMPARE(kept[0].toMap().value("detail").toString(), QString::fromUtf8("统计浮窗与结果弹窗合并。"));
+        QCOMPARE(kept[1].toMap().value("detail").toString(), QString::fromUtf8("抓包：序号回绕。"));
+        QCOMPARE(kept[2].toMap().value("detail").toString(), QString::fromUtf8("甲。乙。丙。"));
+
+        // presentation.json keeps addressing the CHANGELOG text as written, markers included.
+        QJsonObject annotation{{"bodySha256", QString::fromLatin1(QCryptographicHash::hash(
+                                    body.toUtf8(), QCryptographicHash::Sha256).toHex())},
+                               {"title", "Curated"}};
+        const QJsonObject presentation{{"version", "1.8.0-beta.1"}, {"entries", QJsonArray{annotation}}};
+        const auto curated = mr::ReleaseNotesController::parseEntries(
+            log, "1.8.0-beta.1", QJsonDocument(presentation).toJson());
+        QVERIFY(curated[0].toMap().value("curated").toBool());
+        QCOMPARE(curated[0].toMap().value("title").toString(), QStringLiteral("Curated"));
+        QVERIFY(!curated[1].toMap().value("curated").toBool());
+    }
+
+    void hiddenAnnotationsStayListedButAreNeverHighlighted()
+    {
+        const QString body = QString::fromUtf8("打包期间源码变化即停止。");
+        const QString log = QString::fromUtf8("## [1.8.0-beta.1]\n### 构建与发布\n- ") + body
+            + QString::fromUtf8("\n### 新增\n- 浮窗。\n");
+        const auto digestOf = [](const QString &text) {
+            return QString::fromLatin1(QCryptographicHash::hash(text.toUtf8(), QCryptographicHash::Sha256).toHex());
+        };
+        const QJsonObject hiddenAnnotation{{"bodySha256", digestOf(body)}, {"title", "Hidden"},
+                                           {"hidden", true}, {"highlight", true}};
+        const QJsonObject shownAnnotation{{"bodySha256", digestOf(QString::fromUtf8("浮窗。"))},
+                                          {"title", "Shown"}, {"highlight", true}};
+        const QJsonObject presentation{{"version", "1.8.0-beta.1"},
+                                       {"entries", QJsonArray{hiddenAnnotation, shownAnnotation}}};
+        const auto entries = mr::ReleaseNotesController::parseEntries(
+            log, "1.8.0-beta.1", QJsonDocument(presentation).toJson());
+        QCOMPARE(entries.size(), 2);
+        QVERIFY(entries[0].toMap().value("hidden").toBool());
+        QVERIFY(!entries[0].toMap().value("highlight").toBool());
+        QVERIFY(!entries[1].toMap().value("hidden").toBool());
+        // The hidden entry does not use up the single highlight.
+        QVERIFY(entries[1].toMap().value("highlight").toBool());
+    }
+
     void bundledProjectionContainsEveryCurrentEntry()
     {
         mr::AppSettings settings;
@@ -168,16 +234,22 @@ private Q_SLOTS:
         const auto unannotated = mr::ReleaseNotesController::parseEntries(log, notes.version());
         QCOMPARE(notes.entries().size(), unannotated.size());
         int highlights = 0;
+        int hidden = 0;
         for (qsizetype i = 0; i < unannotated.size(); ++i) {
             const auto entry = notes.entries()[i].toMap();
             QCOMPARE(entry.value("detail"), unannotated[i].toMap().value("detail"));
             QVERIFY(!entry.value("title").toString().isEmpty());
             QVERIFY(!entry.value("summary").toString().isEmpty());
+            for (const auto &key : {"title", "summary", "detail"})
+                QVERIFY2(!entry.value(QLatin1String(key)).toString().contains(QStringLiteral("**")), key);
+            if (entry.value("hidden").toBool())
+                ++hidden;
             if (entry.value("highlight").toBool()) {
                 ++highlights;
                 QCOMPARE(entry.value("action").toString(), QStringLiteral("language-settings"));
             }
         }
+        QVERIFY2(hidden < unannotated.size(), "presentation.json must leave at least one entry shown");
         if (notes.version() == QStringLiteral("1.7.3-beta.1")) {
             QCOMPARE(notes.entries().size(), 13);
             QCOMPARE(notes.counts().value("added").toInt(), 5);
@@ -185,6 +257,17 @@ private Q_SLOTS:
             QCOMPARE(notes.counts().value("improved").toInt(), 2);
             QCOMPARE(highlights, 1);
             QVERIFY(notes.prerelease());
+        }
+        if (notes.version() == QStringLiteral("1.8.0-beta.1")) {
+            // Every bullet is curated; the dialog lists 12 and counts the other 18.
+            QCOMPARE(notes.entries().size(), 30);
+            QCOMPARE(hidden, 18);
+            QCOMPARE(notes.counts().value("added").toInt(), 5);
+            QCOMPARE(notes.counts().value("improved").toInt(), 3);
+            QCOMPARE(notes.counts().value("fixed").toInt(), 4);
+            QCOMPARE(notes.counts().size(), 3);
+            for (const auto &value : notes.entries())
+                QVERIFY(value.toMap().value("curated").toBool());
         }
         if (notes.version() == QStringLiteral("1.7.3-beta.2")) {
             QCOMPARE(notes.entries().size(), 6);

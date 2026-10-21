@@ -735,6 +735,76 @@ private Q_SLOTS:
         }
     }
 
+    void releaseNotesListOnlyShownEntriesAndCompactCuratedFixes()
+    {
+        Shell shell;
+        const QString oldSeen = shell.settings.releaseNotesSeenVersion();
+        const auto restore = qScopeGuard([&] { shell.settings.setReleaseNotesSeenVersion(oldSeen); });
+        shell.settings.setReleaseNotesSeenVersion(QString());
+        const QString version = QStringLiteral("9.0.0-beta.1");
+        const QString changelog = QStringLiteral(
+            "## [9.0.0-beta.1]\n### 新增\n- **新功能。**说明。\n### 修复\n- **修复一。**说明。\n"
+            "- 修复二没有整理过的标题。\n### 构建与发布\n- 打包检查。\n");
+        mr::ReleaseNotesController notes(&shell.settings, version, changelog);
+        shell.releaseNotes = &notes;
+        QVERIFY2(shell.create(), qPrintable(shell.errors));
+        shell.window()->resize(1100, 720);
+        // The fixture stands in for presentation.json: the second fix is not curated,
+        // the build entry is hidden.
+        QVariantList entries = notes.entries();
+        QCOMPARE(entries.size(), 4);
+        for (int i = 0; i < entries.size(); ++i) {
+            auto entry = entries[i].toMap();
+            entry.insert(QStringLiteral("curated"), i != 2);
+            entry.insert(QStringLiteral("tag"), i != 2 ? QStringLiteral("标签") : QString());
+            entry.insert(QStringLiteral("hidden"), i == 3);
+            entries[i] = entry;
+        }
+        QQmlComponent presentation(shell.engine.get());
+        presentation.setData(R"(import QtQml
+            QtObject {
+                required property var source
+                required property var entries
+                readonly property string version: source.version
+                readonly property bool prerelease: source.prerelease
+                readonly property var counts: source.counts
+                function acknowledge() { source.acknowledge() }
+            })", QUrl());
+        std::unique_ptr<QObject> fixture(presentation.createWithInitialProperties({
+            {QStringLiteral("source"), QVariant::fromValue(&notes)},
+            {QStringLiteral("entries"), entries}}));
+        QVERIFY2(fixture, qPrintable(presentation.errorString()));
+        auto *dialog = shell.named(QStringLiteral("releaseNotesDialog"));
+        QVERIFY(dialog);
+        const auto restoreController = qScopeGuard([&] {
+            dialog->setProperty("notesController", QVariant::fromValue(&notes));
+        });
+        QVERIFY(dialog->setProperty("notesController", QVariant::fromValue(fixture.get())));
+        QTRY_VERIFY(dialog->property("opened").toBool());
+
+        QVERIFY(shell.item(QStringLiteral("releaseNotesTitle_0")));
+        QVERIFY(shell.item(QStringLiteral("releaseNotesTitle_1")));
+        QVERIFY(shell.item(QStringLiteral("releaseNotesTitle_2")));
+        QVERIFY(!shell.item(QStringLiteral("releaseNotesTitle_3")));
+        const QString counts = shell.item(QStringLiteral("releaseNotesCounts"))->property("text").toString();
+        QVERIFY2(counts.contains(QString::fromUtf8("新增 1 项")) && counts.contains(QString::fromUtf8("修复 2 项"))
+                     && counts.contains(QString::fromUtf8("另有 1 项改动未列出"))
+                     && !counts.contains(QString::fromUtf8("构建与发布")),
+                 qPrintable(counts));
+
+        // 新增 and an uncurated fix keep their one-line summary; a curated fix shows it
+        // only once expanded.
+        QVERIFY(shell.item(QStringLiteral("releaseNotesSummary_0"))->isVisible());
+        QVERIFY(shell.item(QStringLiteral("releaseNotesSummary_2"))->isVisible());
+        auto *fixSummary = shell.item(QStringLiteral("releaseNotesSummary_1"));
+        QVERIFY(fixSummary && !fixSummary->isVisible());
+        QVERIFY(shell.click(QStringLiteral("releaseNotesDetails_1")));
+        QTRY_VERIFY(fixSummary->isVisible());
+        QTRY_VERIFY(shell.item(QStringLiteral("releaseNotesDetail_1"))->isVisible());
+        QCOMPARE(shell.item(QStringLiteral("releaseNotesDetail_1"))->property("text").toString(),
+                 QString::fromUtf8("说明。"));
+    }
+
     void aboutReopensReadNotesAndNavigatesToLanguageWithoutChangingIt()
     {
         Shell shell;
@@ -809,6 +879,22 @@ private Q_SLOTS:
         QVERIFY(general && choices);
         QTRY_VERIFY(general->isVisible());
         QTRY_VERIFY(choices->isAncestorOf(shell.window()->activeFocusItem()));
+        // Unchosen languages stay full size and opacity: a scaled native-rendered label
+        // blurs and a faded one was hard to read (owner, 2026-10-21).
+        QList<QQuickItem *> options;
+        std::function<void(QQuickItem *)> collect = [&](QQuickItem *at) {
+            for (QQuickItem *child : at->childItems()) {
+                if (child->metaObject()->indexOfProperty("resting") >= 0)
+                    options.append(child);
+                collect(child);
+            }
+        };
+        collect(choices);
+        QCOMPARE(options.size(), 4);
+        for (QQuickItem *option : options) {
+            QTRY_COMPARE(option->scale(), 1.0);
+            QCOMPARE(option->opacity(), 1.0);
+        }
         QCOMPARE(shell.language->code(), languageBefore);
         QCOMPARE(shell.settings.releaseNotesSeenVersion(), version);
     }

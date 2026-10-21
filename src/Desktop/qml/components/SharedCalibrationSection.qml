@@ -213,7 +213,7 @@ Card {
             id: manualImportButton
             objectName: "sharedImportButton"
             visible: !!section.shared && section.shared.canImport
-            text: qsTr("手动导入校准码…")
+            text: qsTr("手动导入校准码")
             enabled: !!section.shared && !section.shared.busy
             onClicked: importDialog.openDialog()
             Keys.onReturnPressed: clicked()

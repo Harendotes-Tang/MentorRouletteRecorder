@@ -10,6 +10,8 @@ Item {
     property int resetToken: 0
     property bool expanded: false
     readonly property bool highlighted: entry.highlight === true
+    // 新增逐条附一句摘要；整理过标题的改进与修复只列标题，摘要随「详细」展开。
+    readonly property bool compact: !highlighted && entry.curated === true && entry.category !== "added"
     readonly property var languages: typeof Lang !== "undefined" ? Lang.languages : []
     readonly property int inset: highlighted ? 18 : 0
     signal languageSettingsRequested()
@@ -107,6 +109,7 @@ Item {
         Label {
             objectName: "releaseNotesSummary_" + entryRoot.entry.id
             Layout.fillWidth: true
+            visible: !entryRoot.compact || entryRoot.expanded
             text: entryRoot.entry.summary
             textFormat: Text.PlainText
             wrapMode: Text.Wrap
