@@ -1617,17 +1617,9 @@ public static partial class CollectorTexts
     public static UserText MutationDurationNegative() =>
         new("mutation.duration_negative", "时长不能为负数。");
 
-    /// <summary><c>mutation.end_required</c>: 判定为「已完成」的记录必须填写结束时间。</summary>
-    public static UserText MutationEndRequired() =>
-        new("mutation.end_required", "判定为「已完成」的记录必须填写结束时间。");
-
     /// <summary><c>mutation.entered_after_ended</c>: 进入副本的时间不能晚于结束时间。</summary>
     public static UserText MutationEnteredAfterEnded() =>
         new("mutation.entered_after_ended", "进入副本的时间不能晚于结束时间。");
-
-    /// <summary><c>mutation.entry_required</c>: 只有「未进入副本即取消」可以没有进入时间，其余结果都必须填写进入时间。</summary>
-    public static UserText MutationEntryRequired() =>
-        new("mutation.entry_required", "只有「未进入副本即取消」可以没有进入时间，其余结果都必须填写进入时间。");
 
     /// <summary><c>mutation.matched_after_entered</c>: 匹配时间不能晚于进入副本的时间。</summary>
     public static UserText MutationMatchedAfterEntered() =>

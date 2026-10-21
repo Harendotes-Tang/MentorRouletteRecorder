@@ -593,7 +593,10 @@ private Q_SLOTS:
         QVERIFY(fixture.dialog()->property("progressExplanation").toString().contains(QStringLiteral("先恢复")));
     }
 
-    void completingAMissingEntryRequiresAnExplicitEstimateAndKeepsDurationUnknown()
+    // 进本 and 结束 may both stay empty (docs/manual-correction.md §7): completing a
+    // run that has no entry time submits as it is, with the duration unknown;
+    // 「估算进本」 remains an optional way to fill the entry from the match.
+    void completingAMissingEntrySubmitsWithoutATimeAndTheEstimateStaysOptional()
     {
         DialogFixture fixture;
         QVERIFY2(fixture.create(), qPrintable(fixture.errors));
@@ -609,17 +612,24 @@ private Q_SLOTS:
         QVERIFY(fixture.dialog()->property("enteredTime").toString().isEmpty());
         QVERIFY(fixture.dialog()->property("showTimeDetails").toBool());
         QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
-        QCOMPARE(corrections.count(), 0);
-        QCOMPARE(fixture.dialog()->property("errorCode").toString(), QStringLiteral("ERR_BAD_REQUEST"));
-        // The refusal is about a time, which is on step 3; so is the estimate.
-        QCOMPARE(fixture.step(), 3);
-        QTRY_VERIFY(fixture.item(QStringLiteral("errorBanner"))->isVisible());
+        QCOMPARE(corrections.count(), 1);
+        QVERIFY(fixture.dialog()->property("errorCode").toString().isEmpty());
+        const auto bare = asMap(corrections.at(0).at(0));
+        QCOMPARE(bare.value(QStringLiteral("result")).toString(), QStringLiteral("COMPLETED"));
+        QVERIFY(bare.value(QStringLiteral("entered_at_utc")).isNull());
+        QVERIFY(bare.value(QStringLiteral("duration_ms")).isNull());
+        QVERIFY(!bare.value(QStringLiteral("note")).toString().contains(QStringLiteral("估算")));
 
+        // The estimate is still offered and still leaves the duration unknown.
+        QVERIFY(fixture.openForRun(value));
+        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "markCompleted"));
+        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "goToStep", Q_ARG(QVariant, QVariant(3))));
+        QCOMPARE(fixture.step(), 3);
         QVERIFY(fixture.click(QStringLiteral("estimateEntryButton")));
         QVERIFY(fixture.dialog()->property("estimatedEntry").toBool());
         QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
-        QCOMPARE(corrections.count(), 1);
-        const auto changes = asMap(corrections.at(0).at(0));
+        QCOMPARE(corrections.count(), 2);
+        const auto changes = asMap(corrections.at(1).at(0));
         QCOMPARE(changes.value(QStringLiteral("result")).toString(), QStringLiteral("COMPLETED"));
         QCOMPARE(changes.value(QStringLiteral("entered_at_utc")).toString(),
                  value.value(QStringLiteral("matched_at_utc")).toString());
@@ -628,7 +638,7 @@ private Q_SLOTS:
         QVERIFY(changes.value(QStringLiteral("note")).toString().contains(QStringLiteral("保留原来的备注")));
         QVERIFY(changes.value(QStringLiteral("note")).toString().contains(QStringLiteral("估算")));
         QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
-        QCOMPARE(corrections.count(), 1);
+        QCOMPARE(corrections.count(), 2);
 
         QVERIFY(fixture.openForRun(value));
         QVERIFY(!fixture.dialog()->property("estimatedEntry").toBool());

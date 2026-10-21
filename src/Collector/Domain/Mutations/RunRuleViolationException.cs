@@ -6,8 +6,6 @@ public enum RunRuleViolationKind
     ReasonRequired,
     MatchedAfterEntered,
     EnteredAfterEnded,
-    EntryRequired,
-    EndRequired,
     NegativeDuration,
     NoChanges,
 }

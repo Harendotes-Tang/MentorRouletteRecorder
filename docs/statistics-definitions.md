@@ -54,7 +54,8 @@ NOT (source = 'AUTO_NETWORK' AND result = 'UNKNOWN' AND ended_at_utc IS NULL AND
 
 ```
 attempt_count = COUNT(*) WHERE
-      (entered_at_utc IS NOT NULL OR (imported_history AND result NOT IN ('UNKNOWN', 'CANCELLED_BEFORE_ENTRY')))
+      (entered_at_utc IS NOT NULL
+       OR ((imported_history OR source = 'MANUAL') AND result NOT IN ('UNKNOWN', 'CANCELLED_BEFORE_ENTRY')))
   AND soft_deleted = 0
   AND confirmed_mentor
 ```
@@ -63,6 +64,9 @@ attempt_count = COUNT(*) WHERE
 
 - 记录**必须真正进入过副本**。因此 `CANCELLED_BEFORE_ENTRY` 的记录
   （`entered_at_utc IS NULL`）**不计入** `attempt_count`，也不出现在完成率与离开率的分母中。
+- 采集记录以进本时间为凭。历史导入与手动记录（`source = 'MANUAL'`）可以没有进本时间
+  （[manual-correction.md](manual-correction.md) §7，手动记录自 2026-10-21 起），
+  这时以结果为凭：结果不是未知、也不是进本前取消的记录计入，耗时保持未知。
 - `attempt_count` 是所有比率指标的**唯一分母**。
 
 ## 3. 完成次数 `completed_count`
@@ -75,7 +79,7 @@ completed_count = COUNT(*) WHERE
 ```
 
 采集记录只有经历 `ENTERED_DUTY` 才能迁移到 `COMPLETED`。已确认历史导入可在未知进本时间时记为通关，
-不将原站日期写成真实进本或结束时间。
+不将原站日期写成真实进本或结束时间；手动记录同样可以在没有进本或结束时间时记为通关，耗时保持未知（§8）。
 
 ## 4. 成就进度 `achievement_progress`
 

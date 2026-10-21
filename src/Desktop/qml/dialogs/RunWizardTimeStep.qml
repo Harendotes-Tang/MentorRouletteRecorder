@@ -175,8 +175,8 @@ ColumnLayout {
             text: step.wizard.resultCode === "CANCELLED_BEFORE_ENTRY"
                   ? qsTr("进本前取消：进本与结束时间可留空。")
                   : step.wizard.resultCode === "COMPLETED"
-                    ? qsTr("手动补录通关需填进本和结束时间，用于计算耗时；导入记录的未知时间可留空。")
-                    : qsTr("结束时间可留空；未填写进本时间的记录不计入平均耗时。")
+                    ? qsTr("进本与结束时间都可留空；两者齐全才计算耗时，缺一则不计入平均耗时。")
+                    : qsTr("进本与结束时间都可留空；未填写进本时间的记录不计入平均耗时。")
             color: Theme.textSecondary
             font.pixelSize: Theme.fs(12)
             wrapMode: Text.WordWrap

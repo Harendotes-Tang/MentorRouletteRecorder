@@ -1588,11 +1588,13 @@ void DesktopTests::runFormValidator_rejectsEveryPrototypeCase()
     QCOMPARE(validationCode(cancelledBackwards), QStringLiteral("ERR_TIME_ORDER"));
     QCOMPARE(sentence(cancelledBackwards), QString::fromUtf8("时间顺序错误：结束时间早于匹配时间。"));
 
-    // Entry time is required unless the run was cancelled before entry.
+    // An entry time may be left out for any result: the record keeps its outcome.
     QVariantMap missingEntry = baseForm();
     missingEntry.insert(QStringLiteral("entered"), QString());
     missingEntry.insert(QStringLiteral("result"), QStringLiteral("LEFT_OR_ABANDONED"));
-    QCOMPARE(validationCode(missingEntry), QStringLiteral("ERR_BAD_REQUEST"));
+    QVERIFY(mr::RunFormValidator::validate(missingEntry).value(QStringLiteral("ok")).toBool());
+    missingEntry.insert(QStringLiteral("result"), QStringLiteral("COMPLETED"));
+    QVERIFY(mr::RunFormValidator::validate(missingEntry).value(QStringLiteral("ok")).toBool());
 
     // ... and CANCELLED_BEFORE_ENTRY with no entry time is fine.
     QVariantMap cancelled = baseForm();
@@ -1603,10 +1605,12 @@ void DesktopTests::runFormValidator_rejectsEveryPrototypeCase()
                 .value(QStringLiteral("ok"))
                 .toBool());
 
-    // A COMPLETED run must have an end time.
+    // A COMPLETED run may have no end time either; its duration is then unknown.
     QVariantMap noEnd = baseForm();
     noEnd.insert(QStringLiteral("ended"), QString());
-    QCOMPARE(validationCode(noEnd), QStringLiteral("ERR_BAD_REQUEST"));
+    QVERIFY(mr::RunFormValidator::validate(noEnd).value(QStringLiteral("ok")).toBool());
+    noEnd.insert(QStringLiteral("entered"), QString());
+    QVERIFY(mr::RunFormValidator::validate(noEnd).value(QStringLiteral("ok")).toBool());
 
     // ERR_NO_CHANGES - "没有任何字段被修改。"
     QVariantMap unchanged = baseForm();

@@ -161,15 +161,8 @@ QVariantMap RunFormValidator::validate(const QVariantMap &form, const QVariantMa
                        tr("时间顺序错误：结束时间早于匹配时间。"));
     }
 
-    const QString result = form.value(QStringLiteral("result")).toString();
-    if (!incompleteImport && result != QLatin1String("CANCELLED_BEFORE_ENTRY") && !entered.isValid()) {
-        return failure(QStringLiteral("ERR_BAD_REQUEST"),
-                       tr("除“进本前取消”外，其他结果都需要填写进本时间。"));
-    }
-    if (!incompleteImport && result == QLatin1String("COMPLETED") && !ended.isValid()) {
-        return failure(QStringLiteral("ERR_BAD_REQUEST"),
-                       tr("通关记录必须有结束时间。"));
-    }
+    // 进本 and 结束 may both be left empty, whatever the result: the record keeps
+    // its outcome and its duration stays unknown (docs/manual-correction.md §7).
 
     if (form.value(QStringLiteral("edit_mode")).toBool() && diff(before, form).isEmpty()) {
         return failure(QStringLiteral("ERR_NO_CHANGES"),

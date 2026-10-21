@@ -432,7 +432,7 @@ public sealed class MutationTests
     }
 
     [Fact]
-    public void CorrectRun_ToCompletedWithoutEndTime_IsRefused()
+    public void CorrectRun_ToCompletedWithoutTimes_IsAcceptedWithAnUnknownDuration()
     {
         using var fixture = new Fixture();
         var run = fixture.CreateRun(RunResult.CancelledBeforeEntry);
@@ -441,11 +441,15 @@ public sealed class MutationTests
         builder.Value = builder.Value with { Result = RunResult.Completed };
         builder.Fields.Add(RunFields.Result);
 
-        var error = Assert.Throws<CollectorException>(() => fixture.Service.CorrectRun(
-            new CorrectRunCommand(Fixture.NewId(), run.RunId, 1, "改成已完成", builder.Build())));
+        var outcome = fixture.Service.CorrectRun(
+            new CorrectRunCommand(Fixture.NewId(), run.RunId, 1, "改成已完成", builder.Build()));
 
-        Assert.Equal(ErrorCodes.BadRequest, error.Code);
-        Assert.Equal("entered_at_utc", error.Field);
+        var corrected = fixture.Runs.Get(run.RunId)!;
+        Assert.Equal(2, outcome.Revision);
+        Assert.Equal(RunResult.Completed, corrected.Result);
+        Assert.Null(corrected.EnteredAtUtc);
+        Assert.Null(corrected.EndedAtUtc);
+        Assert.Null(corrected.DurationMs);
     }
 
     [Fact]

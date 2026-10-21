@@ -128,41 +128,39 @@ public sealed class MutationErrorCompatibilityTests
     }
 
     [Fact]
-    public void DirectServiceMissingEntry_RetainsCompleteRunFailureEnvelopeAndWritesNothing()
+    public void DirectServiceMissingEntry_CreatesTheRunWithUnknownTimes()
     {
         using var fixture = new Fixture();
 
-        AssertRejected(
-            fixture,
-            () => fixture.Service.CreateManualRun(
-                ValidCreate() with
-                {
-                    Result = RunResult.Interrupted,
-                    EnteredAtUtc = null,
-                    EndedAtUtc = null,
-                    DurationMs = null,
-                }),
-            new ExpectedError(
-                ErrorCodes.BadRequest,
-                "只有「未进入副本即取消」可以没有进入时间，其余结果都必须填写进入时间。",
-                "entered_at_utc",
-                "INTERRUPTED"));
+        var created = fixture.Service.CreateManualRun(
+            ValidCreate() with
+            {
+                Result = RunResult.Interrupted,
+                EnteredAtUtc = null,
+                EndedAtUtc = null,
+                DurationMs = null,
+            });
+
+        var stored = fixture.Runs.Get(created.RunId)!;
+        Assert.Equal(RunResult.Interrupted, stored.Result);
+        Assert.Null(stored.EnteredAtUtc);
+        Assert.Null(stored.EndedAtUtc);
+        Assert.Null(stored.DurationMs);
     }
 
     [Fact]
-    public void DirectServiceMissingEnd_RetainsCompleteRunFailureEnvelopeAndWritesNothing()
+    public void DirectServiceMissingEnd_CreatesTheCompletedRunWithAnUnknownDuration()
     {
         using var fixture = new Fixture();
 
-        AssertRejected(
-            fixture,
-            () => fixture.Service.CreateManualRun(
-                ValidCreate() with { EndedAtUtc = null, DurationMs = null }),
-            new ExpectedError(
-                ErrorCodes.BadRequest,
-                "判定为「已完成」的记录必须填写结束时间。",
-                "ended_at_utc",
-                "COMPLETED"));
+        var created = fixture.Service.CreateManualRun(
+            ValidCreate() with { EndedAtUtc = null, DurationMs = null });
+
+        var stored = fixture.Runs.Get(created.RunId)!;
+        Assert.Equal(RunResult.Completed, stored.Result);
+        Assert.NotNull(stored.EnteredAtUtc);
+        Assert.Null(stored.EndedAtUtc);
+        Assert.Null(stored.DurationMs);
     }
 
     [Fact]

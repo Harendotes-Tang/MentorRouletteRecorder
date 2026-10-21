@@ -1,5 +1,9 @@
 # IPC 契约变更记录 / IPC contract changelog
 
+## 2026-10-21 · 手动记录与更正不再要求进本、结束时间
+
+不改变任何结构。`CreateManualRun` 与 `CorrectRun` 不再因 `entered_at_utc` 或 `ended_at_utc` 为空而以 `ERR_BAD_REQUEST` 拒绝：此前除 `CANCELLED_BEFORE_ENTRY` 外的结果都必须有 `entered_at_utc`、`COMPLETED` 必须有 `ended_at_utc`（历史导入豁免），现在两者对任何结果、任何来源都可以为空；缺少任一端点时 `duration_ms` 为 `null`，不计入平均耗时。时间顺序检查（`ERR_TIME_ORDER` / `ERR_NEGATIVE_DURATION`）与「结果未知、没有结束时间且不待复核的自动记录」的拒绝不变（[docs/manual-correction.md](../docs/manual-correction.md) §7）。目录键 `mutation.entry_required` 与 `mutation.end_required` 随之删除，不再被任何应答引用。统计口径随之调整：`source = MANUAL` 的记录与历史导入一样，没有进本时间而结果不是 `UNKNOWN` / `CANCELLED_BEFORE_ENTRY` 时仍计入 `attempt_count`（[docs/statistics-definitions.md](../docs/statistics-definitions.md) §2）。
+
 ## 2026-10-21 · `elapsed_ms` 的口径、更新地址的来源、导随进行中拒绝更换校准与其他澄清
 
 不新增消息类型；除 `CheckSharedCalibration` 应答新增两个可选字段外，不改变任何结构；以下为口径修正、新的拒绝情形与此前未写明的约定。

@@ -50,7 +50,7 @@ Microsoft.Data.Sqlite 仍会自行重试至命令超时（默认 5 秒）为止�
 | `job_name` | TEXT | NULL | 职业名称；`job_id IS NULL` 时为 `未知` |
 | `role` | TEXT | NOT NULL, IN (`TANK`,`HEALER`,`DPS`,`UNKNOWN`) | 由 `job_id` 推导 |
 | `matched_at_utc` | TEXT | NULL | 匹配弹窗出现时间 |
-| `entered_at_utc` | TEXT | NULL | 进入副本时间。采集记录据此判定 attempt；已确认且结果已知的历史导入允许保持未知 |
+| `entered_at_utc` | TEXT | NULL | 进入副本时间。采集记录据此判定 attempt；已确认且结果已知的历史导入与手动记录允许保持未知（[statistics-definitions.md](statistics-definitions.md) §2） |
 | `ended_at_utc` | TEXT | NULL | 结束时间 |
 | `duration_ms` | INTEGER | NULL, `>= 0` | 单调时钟测得的时长 |
 | `result` | TEXT | NOT NULL, IN (`COMPLETED`,`LEFT_OR_ABANDONED`,`CANCELLED_BEFORE_ENTRY`,`DISCONNECTED`,`INTERRUPTED`,`UNKNOWN`) | 结果 |

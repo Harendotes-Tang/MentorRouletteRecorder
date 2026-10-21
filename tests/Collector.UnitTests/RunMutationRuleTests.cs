@@ -35,16 +35,6 @@ public sealed class RunMutationRuleTests
             RunRuleProperty.EnteredAtUtc
         },
         {
-            ValidRun() with { Result = RunResult.Interrupted, EnteredAtUtc = null },
-            RunRuleViolationKind.EntryRequired,
-            RunRuleProperty.EnteredAtUtc
-        },
-        {
-            ValidRun() with { EndedAtUtc = null },
-            RunRuleViolationKind.EndRequired,
-            RunRuleProperty.EndedAtUtc
-        },
-        {
             ValidRun() with { DurationMs = -1 },
             RunRuleViolationKind.NegativeDuration,
             RunRuleProperty.DurationMs

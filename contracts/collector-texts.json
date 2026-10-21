@@ -164,8 +164,6 @@
     "import.request.mapping_too_wide": "列映射超过 200 列。",
     "mutation.matched_after_entered": "匹配时间不能晚于进入副本的时间。",
     "mutation.entered_after_ended": "进入副本的时间不能晚于结束时间。",
-    "mutation.entry_required": "只有「未进入副本即取消」可以没有进入时间，其余结果都必须填写进入时间。",
-    "mutation.end_required": "判定为「已完成」的记录必须填写结束时间。",
     "mutation.no_changes": "未做任何修改，不会写入修订记录。",
     "ipc.internal_error": "内部错误，详情见本机诊断日志。",
     "ipc.already_subscribed": "该连接已订阅实时事件。请复用现有订阅，或断开后重新连接。",

@@ -60,25 +60,10 @@ public static class RunMutationRules
                 run);
         }
 
-        // Accepted personal history may have no recalled endpoints. Supplied times still
-        // cross the ordering and duration checks; this never weakens capture/manual rules.
-        var incompleteImport = run.IsImportedHistory;
-        if (!incompleteImport && run.Result != RunResult.CancelledBeforeEntry && run.EnteredAtUtc is null)
-        {
-            throw Violation(
-                RunRuleViolationKind.EntryRequired,
-                RunRuleProperty.EnteredAtUtc,
-                run);
-        }
-
-        if (!incompleteImport && run.Result == RunResult.Completed && run.EndedAtUtc is null)
-        {
-            throw Violation(
-                RunRuleViolationKind.EndRequired,
-                RunRuleProperty.EndedAtUtc,
-                run);
-        }
-
+        // A run may have no recalled endpoints, whatever its result and source: a hand-entered
+        // or imported record keeps its known outcome without an entry or end time, and the
+        // duration stays unknown (docs/manual-correction.md §7). Supplied times still cross
+        // the ordering and duration checks above and below.
         var duration = durationExplicit || !recalculateDuration ? run.DurationMs : DeriveDuration(run);
         if (duration is < 0)
         {

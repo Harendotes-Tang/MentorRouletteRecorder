@@ -35,8 +35,8 @@
 - 撤销后会使记录无法正常收尾的系统修订（`actor = SYSTEM`），也就是程序为未完结记录写下的收尾与待复核标记：
   重启时的崩溃恢复、启动时对早期记录的一次性改正，以及启动时为看似仍在进行的早期记录加上的待复核标记（见 §9）。
   无法正常收尾的状态指自动记录结果未知、
-  没有结束时间且不待复核（即被当作仍在进行、不计入任何统计也不出现在待复核中的形态），或记录没有
-  进本时间而结果不是 `CANCELLED_BEFORE_ENTRY`。判断有误时应直接用 `CorrectRun` 更正该记录；
+  没有结束时间且不待复核（即被当作仍在进行、不计入任何统计也不出现在待复核中的形态）。
+  判断有误时应直接用 `CorrectRun` 更正该记录；
 - 早期版本写下的副本修订：修订差异中只有 `content_id`，没有完整的副本标识，无法安全还原区域与
   副本来源。此时应通过更正重新选择副本。
 
@@ -175,8 +175,6 @@ mentor_runs.revision = 1  ──►  run_revisions(revision=1, change_kind=CREAT
 更正的校验对象是**变更后的整行**，而不是请求中出现的字段。因此，仅修改 `ended_at_utc`
 也可能因数据库中已有的 `entered_at_utc` 而返回 `ERR_TIME_ORDER`。此外：
 
-- `result != CANCELLED_BEFORE_ENTRY` 的记录必须有 `entered_at_utc`；
-- `result = COMPLETED` 的记录必须有 `ended_at_utc`；
 - `source = AUTO_NETWORK`、`result = UNKNOWN` 且更正之后不处于待复核的记录必须有 `ended_at_utc`，
   更正之前已经处于这一形态的记录（状态机仍在跟随的进行中记录）除外。没有结束时间、结果未知又不待复核的自动记录
   会被当作仍在进行：不计入任何统计，不出现在待复核中，此后也不会再被收尾
@@ -184,9 +182,12 @@ mentor_runs.revision = 1  ──►  run_revisions(revision=1, change_kind=CREAT
   提交 `result`（包括再次提交 `UNKNOWN`）或 `pending_review=false` 都会清除待复核，因此确认一条结果未知、
   没有结束时间的待复核自动记录时，须同时补上结束时间或改选实际结果。
 
-经显式来源或本地导入审计确认的历史导入豁免游戏时间必填；未知时间无需补造，已确认结果仍计数。
-其缺失事实在历史页显示「待补充」，不会仅因缺时间进入总览待复核。其他记录违反上述三条时返回
-`ERR_BAD_REQUEST`，并在 `payload.field` 中指出具体字段（第三条为 `ended_at_utc`）。
+`entered_at_utc` 与 `ended_at_utc` 都可以为空，与结果和来源无关（2026-10-21 起；此前除 `CANCELLED_BEFORE_ENTRY`
+外都必须有进本时间、`COMPLETED` 必须有结束时间，只有历史导入豁免）：未知时间无需补造，已知结果仍计数——
+手动记录与历史导入一样，没有进本时间而结果不是未知、也不是进本前取消时照常计入 `attempt_count`
+（[statistics-definitions.md](statistics-definitions.md) §2）；缺少任一端点时 `duration_ms` 为 `null`，不计入平均耗时。
+历史导入缺时间的事实在历史页显示「待补充」，手动记录不作标记；都不会仅因缺时间进入总览待复核。
+违反上一条时返回 `ERR_BAD_REQUEST`，`payload.field = "ended_at_utc"`。
 若进本时间或结束时间实际发生变化，而请求未显式给出 `duration_ms`，
 采集服务按 `ended - entered` 重算时长。起止时间未发生变化时保留原时长，
 包括自动记录的单调时长与用户此前明确填写的时长。

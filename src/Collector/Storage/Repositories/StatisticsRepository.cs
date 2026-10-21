@@ -378,7 +378,7 @@ public sealed class StatisticsRepository
                 "SELECT content_id, job_id, duty_name, duty_category, entered_at_utc, ended_at_utc, " +
                 "duration_ms, result, detection_confidence, contributes_to_goal, manually_corrected, " +
                 "region, updated_at_utc, pending_review, matched_at_utc" +
-                ", territory_id, " + RunFilterSql.ImportedHistoryPredicate + ", joined_in_progress " +
+                ", territory_id, " + RunFilterSql.ImportedHistoryPredicate + ", joined_in_progress, source " +
                 "FROM mentor_runs WHERE " + fragment.Where + ";";
             RunFilterSql.Bind(command, fragment);
             using var reader = command.ExecuteReader();
@@ -403,7 +403,8 @@ public sealed class StatisticsRepository
                     reader.IsDBNull(14) ? null : UtcTimestamp.Parse(reader.GetString(14)),
                     reader.IsDBNull(15) ? null : reader.GetInt32(15),
                     reader.GetInt32(16) == 1,
-                    reader.IsDBNull(17) ? null : reader.GetInt32(17) == 1));
+                    reader.IsDBNull(17) ? null : reader.GetInt32(17) == 1,
+                    EnumWire<RunSource>.Parse(reader.GetString(18))));
             }
 
             return (IReadOnlyList<StatRow>)rows;
@@ -423,8 +424,14 @@ public sealed class StatisticsRepository
         return new ResultStatistics(attemptCount, buckets);
     }
 
+    /// <summary>
+    /// A run the player actually entered. A capture proves it by its entry time; an imported or
+    /// hand-entered record may have no recalled times, so its known result stands in for them
+    /// (docs/statistics-definitions.md §2).
+    /// </summary>
     private static bool IsAttempt(StatRow row) => row.EnteredAtUtc is not null
-        || (row.ImportedHistory && row.Result is not (RunResult.Unknown or RunResult.CancelledBeforeEntry));
+        || ((row.ImportedHistory || row.Source == RunSource.Manual)
+            && row.Result is not (RunResult.Unknown or RunResult.CancelledBeforeEntry));
 
     /// <summary>An attempt whose duty was already under way when the player entered it.</summary>
     private static bool JoinedInProgress(StatRow row) => IsAttempt(row) && row.JoinedInProgress == true;
@@ -463,5 +470,6 @@ public sealed class StatisticsRepository
         DateTimeOffset? MatchedAtUtc,
         int? TerritoryId,
         bool ImportedHistory,
-        bool? JoinedInProgress);
+        bool? JoinedInProgress,
+        RunSource Source);
 }
