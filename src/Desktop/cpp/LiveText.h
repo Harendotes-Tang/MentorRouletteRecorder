@@ -31,16 +31,16 @@ public:
     LiveText() = default;
 
     /// \a build returns the text in the language on screen when it is called.
-    template <typename Build,
-              typename = std::enable_if_t<std::is_invocable_r_v<QString, Build &>>>
+    template <typename Build>
+        requires std::is_invocable_r_v<QString, Build &>
     explicit LiveText(Build build)
         : m_build(std::move(build))
     {
     }
 
     /// Replaces the stored recipe; copying or moving another LiveText keeps the default semantics.
-    template <typename Build,
-              typename = std::enable_if_t<std::is_invocable_r_v<QString, Build &>>>
+    template <typename Build>
+        requires std::is_invocable_r_v<QString, Build &>
     LiveText &operator=(Build build)
     {
         m_build = std::move(build);

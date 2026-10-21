@@ -201,6 +201,7 @@ Answer commitWholePreview(mr::MockBackend &backend, const Answer &preview)
 
 } // namespace
 
+namespace {
 class MockBackendTests : public QObject
 {
     Q_OBJECT
@@ -2372,6 +2373,7 @@ private Q_SLOTS:
                  QStringLiteral("OBSERVATION_ACTIVE"));
     }
 };
+} // namespace
 
 int main(int argc, char **argv)
 {

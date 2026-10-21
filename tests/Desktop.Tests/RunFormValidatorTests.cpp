@@ -66,6 +66,7 @@ QVariantMap asMap(const QVariant &value)
 
 } // namespace
 
+namespace {
 class RunFormValidatorTests : public QObject
 {
     Q_OBJECT
@@ -282,6 +283,7 @@ private:
     std::unique_ptr<QObject> m_root;
     QObject *m_dialog = nullptr;
 };
+} // namespace
 
 int main(int argc, char **argv)
 {

@@ -286,8 +286,16 @@ ApplicationWindow {
 };
 
 /// The sentence 「估算进本」 adds to 备注, as EditRunDialog.qml writes it.
-const QString kEstimateNote = QStringLiteral("进本时间按匹配时间估算；实际耗时不详，不计入平均耗时。");
-const QString kEstimateNoteEnglish = QStringLiteral("Entry time estimated from the match time; the real duration is unknown and is left out of the average.");
+const QString &kEstimateNote()
+{
+    static const QString value = QStringLiteral("进本时间按匹配时间估算；实际耗时不详，不计入平均耗时。");
+    return value;
+}
+const QString &kEstimateNoteEnglish()
+{
+    static const QString value = QStringLiteral("Entry time estimated from the match time; the real duration is unknown and is left out of the average.");
+    return value;
+}
 
 /// An English interface for that one sentence, without the build's .qm files.
 class EstimateNoteTranslator final : public QTranslator
@@ -295,8 +303,8 @@ class EstimateNoteTranslator final : public QTranslator
 public:
     QString translate(const char *context, const char *sourceText, const char *, int) const override
     {
-        if (QByteArrayView(context) == "EditRunDialog" && QString::fromUtf8(sourceText) == kEstimateNote)
-            return kEstimateNoteEnglish;
+        if (QByteArrayView(context) == "EditRunDialog" && QString::fromUtf8(sourceText) == kEstimateNote())
+            return kEstimateNoteEnglish();
         return {};
     }
     bool isEmpty() const override { return false; }
@@ -312,6 +320,7 @@ QVariantList ids(std::initializer_list<int> values)
 
 } // namespace
 
+namespace {
 class EditRunDialogBindingTests : public QObject
 {
     Q_OBJECT
@@ -1077,8 +1086,8 @@ private Q_SLOTS:
         EstimateNoteTranslator english;
         QVERIFY(QCoreApplication::installTranslator(&english));
         const auto removeEnglish = qScopeGuard([&english] { QCoreApplication::removeTranslator(&english); });
-        QCOMPARE(QCoreApplication::translate("EditRunDialog", kEstimateNote.toUtf8().constData()),
-                 kEstimateNoteEnglish);
+        QCOMPARE(QCoreApplication::translate("EditRunDialog", kEstimateNote().toUtf8().constData()),
+                 kEstimateNoteEnglish());
 
         DialogFixture fixture;
         QVERIFY2(fixture.create(), qPrintable(fixture.errors));
@@ -1087,18 +1096,18 @@ private Q_SLOTS:
         fixture.dialog()->setProperty("endedTime", "20:30:00");
         QSignalSpy creations(fixture.dialog(), SIGNAL(createRequested(QVariant,QString)));
         QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "estimateEntryFromMatch"));
-        QCOMPARE(fixture.dialog()->property("noteText").toString(), kEstimateNote);
+        QCOMPARE(fixture.dialog()->property("noteText").toString(), kEstimateNote());
         QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
         QCOMPARE(creations.count(), 1);
-        QCOMPARE(asMap(creations.at(0).at(0)).value(QStringLiteral("note")).toString(), kEstimateNote);
+        QCOMPARE(asMap(creations.at(0).at(0)).value(QStringLiteral("note")).toString(), kEstimateNote());
 
         auto legacy = run(QStringLiteral("legacy-estimate"), 70, 19, QStringLiteral("COMPLETED"));
         legacy.insert(QStringLiteral("entered_at_utc"), legacy.value(QStringLiteral("matched_at_utc")));
         legacy.insert(QStringLiteral("duration_ms"), QVariant());
-        legacy.insert(QStringLiteral("note"), kEstimateNoteEnglish);
+        legacy.insert(QStringLiteral("note"), kEstimateNoteEnglish());
         QVERIFY(fixture.openForRun(legacy));
         QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "estimateEntryFromMatch"));
-        QCOMPARE(fixture.dialog()->property("noteText").toString(), kEstimateNoteEnglish);
+        QCOMPARE(fixture.dialog()->property("noteText").toString(), kEstimateNoteEnglish());
     }
 
     // 审查 L1-7：「已通关，计入进度」只在修正记录时换掉程序预填的原因；用户自己写的
@@ -1959,6 +1968,7 @@ private Q_SLOTS:
         QCOMPARE(still.item(QStringLiteral("wizardStep3"))->opacity(), 1.0);
     }
 };
+} // namespace
 
 int main(int argc, char *argv[])
 {

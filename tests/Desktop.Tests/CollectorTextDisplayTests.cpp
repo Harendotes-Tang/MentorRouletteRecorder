@@ -68,6 +68,7 @@ private:
 
 } // namespace
 
+namespace {
 class CollectorTextDisplayTests : public QObject
 {
     Q_OBJECT
@@ -286,6 +287,7 @@ private Q_SLOTS:
                  qPrintable(speech.lastError()));
     }
 };
+} // namespace
 
 int main(int argc, char **argv)
 {

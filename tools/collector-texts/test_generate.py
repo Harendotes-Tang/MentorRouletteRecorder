@@ -123,8 +123,8 @@ class RenderTests(unittest.TestCase):
     def test_the_desktop_table_is_marked_for_lupdate(self):
         source = generate.render_cpp(self.texts)
 
-        self.assertIn('QT_TRANSLATE_NOOP3("CollectorText", "第 {row} 行缺少「{name}」。", '
-                      '"import.row.missing_duty"), "row:number,name:duty"}', source)
+        self.assertIn('.source = QT_TRANSLATE_NOOP3("CollectorText", "第 {row} 行缺少「{name}」。", '
+                      '"import.row.missing_duty"), .args = "row:number,name:duty"}', source)
         self.assertIn("//: Placeholders: {row} a number; {name} a duty name", source)
         # '?' is escaped so no "??x" can read as a trigraph.
         self.assertIn('"a \\"b\\" \\\\c\\?"', source)

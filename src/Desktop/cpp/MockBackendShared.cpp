@@ -59,17 +59,22 @@ QJsonObject candidate(const char *source, const char *status, const char *verdic
     // no conflict mark, no better-submitted rival (SharedCalibrationSession.GateFor).
     // The zone marker is always required; with no provenance no gate is sent at all.
     const char *zoneGate = provenance ? "REQUIRED" : nullptr;
-    const char *popGate = !provenance ? nullptr
-        : qstrcmp(provenance, "PUBLISHED") == 0 ? "AUDIT" : "REQUIRED";
+    const char *popGate = nullptr;
+    if (provenance)
+        popGate = qstrcmp(provenance, "PUBLISHED") == 0 ? "AUDIT" : "REQUIRED";
+    const char *popReason = "两次抓包健康的会话里排本后都进了副本，却都没有出现它声明的匹配报文。";
+    if (auditPending)
+        popReason = "还在核对排本之后的匹配报文。";
+    else if (passed)
+        popReason = "排本之后按声明的形状收到了匹配报文。";
+    else if (waiting)
+        popReason = "还没有排过本。";
     const QJsonArray criteria{
         criterion("ZONE_INITIALIZATION", waiting && !auditPending ? "WAIT" : "PASS",
                   waiting && !auditPending ? "还没有见到登录时的换区。" : "登录时的换区与它声明的一致。",
                   zoneGate),
         criterion("CONTENT_FINDER_POP", auditPending ? "WAIT" : verdict,
-                  auditPending ? "还在核对排本之后的匹配报文。"
-                  : passed     ? "排本之后按声明的形状收到了匹配报文。"
-                  : waiting    ? "还没有排过本。"
-                               : "两次抓包健康的会话里排本后都进了副本，却都没有出现它声明的匹配报文。",
+                  popReason,
                   popGate)};
     QJsonObject row{{QStringLiteral("sha12"), QStringLiteral("67ef1bb97e65")},
                     {QStringLiteral("source"), QLatin1String(source)},
@@ -213,10 +218,12 @@ QJsonObject MockBackend::sharedCalibrationStatus() const
     const bool verified = sharedProfileBound();
     const bool auditing = state == QLatin1String("verified-auditing");
     const QJsonValue lastFetch = lastFetchFor(state);
-    const QJsonArray tried = state == QLatin1String("unavailable")
-        ? attempts({{"GITHUB_RAW", "TIMEOUT"}, {"CDN_PRIMARY", "DNS_OR_CONNECT"},
-                    {"CDN_FALLBACK", "DNS_OR_CONNECT"}})
-        : (lastFetch.isNull() ? QJsonArray() : attempts({{"GITHUB_RAW", "OK"}}));
+    QJsonArray tried;
+    if (state == QLatin1String("unavailable"))
+        tried = attempts({{"GITHUB_RAW", "TIMEOUT"}, {"CDN_PRIMARY", "DNS_OR_CONNECT"},
+                          {"CDN_FALLBACK", "DNS_OR_CONNECT"}});
+    else if (!lastFetch.isNull())
+        tried = attempts({{"GITHUB_RAW", "OK"}});
     const QJsonArray candidates = candidatesFor(state);
     return {{QStringLiteral("phase"), phaseFor(state)},
             {QStringLiteral("candidates"), candidates},

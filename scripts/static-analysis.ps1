@@ -17,8 +17,8 @@
     但不改变退出码；-Strict 让任何未被抑制的告警都算失败。
 
     脚本代为绕开的工具限制：
-      * llvm-mingw 自带的 clang-tidy 默认找 libc++，而 compile_commands.json 来自 MinGW
-        g++，标准库头文件只存在于 GCC 目录；因此加 -stdlib=libstdc++。
+      * compile_commands.json 来自 MinGW g++，clang-tidy 的标准库自动发现随版本不同；
+        因此从真实 GCC 探测目标和系统头路径，保留 libstdc++ 及 Clang 自带的内建头。
       * cppcheck 用 ANSI 文件 API，带非 ASCII 字符的绝对路径会打不开；因此一律以仓库根
         为工作目录传相对路径，并把编译宏写进一个强制包含的头文件而不是命令行。
       * cppcheck 不解析 Qt 头文件（太慢，且 --library=qt 已描述其语义），Q_OS_WIN 一类
@@ -148,9 +148,15 @@ foreach ($entry in $entries) {
         }
         if (-not $wanted) { continue }
     }
+    $commandArguments = if ($entry.PSObject.Properties.Name -contains 'arguments') {
+        @($entry.arguments)
+    } else {
+        @(Split-CommandLine $entry.command)
+    }
     $units += [pscustomobject]@{
         Relative  = $relative
-        Arguments = Split-CommandLine $entry.command
+        Arguments = $commandArguments
+        Directory = $entry.directory
     }
 }
 if ($units.Count -eq 0) {
@@ -181,16 +187,18 @@ $toolFailures = @()
 
 # Runs one external program with the repository root as working directory and UTF-8 output,
 # without going through a shell (so a non-ASCII repository path never gets re-encoded).
-function Start-Tool([string]$Exe, [string[]]$ArgumentList, [string]$StdoutPath) {
+function Start-Tool([string]$Exe, [string[]]$ArgumentList, [string]$StdoutPath,
+                    [string]$WorkingDirectory = $RepoRoot, [switch]$CompilerProbe) {
     $info = New-Object System.Diagnostics.ProcessStartInfo
     $info.FileName = $Exe
-    $info.WorkingDirectory = $RepoRoot
+    $info.WorkingDirectory = $WorkingDirectory
     $info.UseShellExecute = $false
     $info.CreateNoWindow = $true
     $info.RedirectStandardOutput = $true
     $info.RedirectStandardError = $true
     $info.StandardOutputEncoding = $Utf8NoBom
     $info.StandardErrorEncoding = $Utf8NoBom
+    if ($CompilerProbe) { $info.Environment['LC_ALL'] = 'C' }
     foreach ($argument in $ArgumentList) { [void]$info.ArgumentList.Add($argument) }
     $clock = [Diagnostics.Stopwatch]::StartNew()
     $operation = Start-PackageVerificationProcess -StartInfo $info -TimeoutSeconds $ToolTimeoutSeconds
@@ -213,6 +221,92 @@ function Wait-Tool($Handle) {
     }
     finally {
         $Handle.Job.Dispose()
+    }
+}
+
+function Invoke-CompilerProbe([string]$Compiler, [string[]]$Arguments, [string]$Directory, [string]$LogPath) {
+    # The shared job gives the child NUL as stdin (EOF), including for GCC's trailing '-'.
+    # It also owns cc1plus descendants and applies the same timeout/cleanup as analyzers.
+    $handle = Start-Tool $Compiler $Arguments $LogPath -WorkingDirectory $Directory -CompilerProbe
+    $exitCode = Wait-Tool $handle
+    if ($exitCode -ne 0) {
+        throw ("GCC probe failed (exit {0}): {1}; see {2}" -f $exitCode, $Compiler, (Format-PathLabel $LogPath))
+    }
+    return $handle
+}
+
+function Get-CompilerInvocation($Unit) {
+    if ($Unit.Arguments.Count -eq 0) { throw ("Empty compile command: {0}" -f $Unit.Relative) }
+    $compiler = $Unit.Arguments[0]
+    $directory = [IO.Path]::GetFullPath($Unit.Directory)
+    if (-not [IO.Path]::IsPathRooted($compiler)) {
+        if ($compiler.Contains('/') -or $compiler.Contains('\')) {
+            $compiler = Join-Path $directory $compiler
+        } else {
+            $resolved = Get-Command $compiler -CommandType Application -ErrorAction Stop | Select-Object -First 1
+            $compiler = $resolved.Source
+        }
+    }
+    $compiler = [IO.Path]::GetFullPath($compiler)
+    if (-not (Test-Path -LiteralPath $compiler -PathType Leaf)) { throw ("GCC compiler not found: {0}" -f $compiler) }
+
+    # Preserve options that select GCC's target/standard-library layout. Project -I/-D
+    # arguments stay in compile_commands.json and must not become compiler-system paths.
+    $probeArguments = @()
+    for ($i = 1; $i -lt $Unit.Arguments.Count; $i++) {
+        $argument = $Unit.Arguments[$i]
+        if ($argument -cin @('--sysroot', '-isysroot', '-B')) {
+            if ($i + 1 -ge $Unit.Arguments.Count) { throw ("Missing value for {0}: {1}" -f $argument, $Unit.Relative) }
+            $probeArguments += $argument, $Unit.Arguments[++$i]
+        } elseif ($argument -cmatch '^(-m|--sysroot=|-isysroot.|-B.)' -or
+                  $argument -cin @('-nostdinc', '-nostdinc++')) {
+            $probeArguments += $argument
+        }
+    }
+    return [pscustomobject]@{ Compiler = $compiler; Directory = $directory; ProbeArguments = $probeArguments }
+}
+
+function Get-CompilerCompatibility($Invocation, [string]$ProbeDirectory, [int]$Index) {
+    $compiler = $Invocation.Compiler
+    $directory = $Invocation.Directory
+    $probeArguments = $Invocation.ProbeArguments
+    $prefix = Join-Path $ProbeDirectory ("gcc-{0}" -f $Index)
+    $targetResult = Invoke-CompilerProbe $compiler ($probeArguments + '-dumpmachine') $directory ($prefix + '-target.log')
+    $target = $targetResult.Stdout.Trim()
+    if ($target -notmatch '^[A-Za-z0-9][A-Za-z0-9_.+-]*$') { throw ("Invalid GCC target: {0}" -f $target) }
+    $includeResult = Invoke-CompilerProbe $compiler ($probeArguments + @('-E', '-x', 'c++', '-v', '-')) $directory ($prefix + '-includes.log')
+    $includeOutput = $includeResult.Stderr + "`n" + $includeResult.Stdout
+    $search = [regex]::Match($includeOutput, '(?ms)^#include <\.\.\.> search starts here:\s*\r?\n(?<paths>.*?)^End of search list\.')
+    if (-not $search.Success) { throw ("GCC did not report its C++ include search list: {0}" -f $compiler) }
+    $includes = @()
+    foreach ($line in ($search.Groups['paths'].Value -split '\r?\n')) {
+        $include = $line.Trim()
+        if (-not $include) { continue }
+        if (-not [IO.Path]::IsPathRooted($include)) { $include = Join-Path $directory $include }
+        $include = [IO.Path]::GetFullPath($include).Replace('\', '/')
+        if (-not (Test-Path -LiteralPath $include -PathType Container)) { throw ("GCC system include directory not found: {0}" -f $include) }
+        if ($include -notin $includes) { $includes += $include }
+    }
+    if ($includes.Count -eq 0) { throw ("Empty GCC C++ include search list: {0}" -f $compiler) }
+
+    # GCC's intrinsic headers contain GCC-only builtins. Keep clang-tidy's own resource
+    # headers, while supplying all discovered libstdc++ and platform/SDK include paths.
+    $resourceIncludes = @()
+    foreach ($name in @('include', 'include-fixed')) {
+        $resourceResult = Invoke-CompilerProbe $compiler ($probeArguments + ("-print-file-name={0}" -f $name)) $directory ($prefix + '-' + $name + '.log')
+        $resourcePath = $resourceResult.Stdout.Trim()
+        if ($resourcePath -eq $name) { continue } # GCC has no such optional resource directory.
+        if (-not [IO.Path]::IsPathRooted($resourcePath)) { $resourcePath = Join-Path $directory $resourcePath }
+        $resourceIncludes += [IO.Path]::GetFullPath($resourcePath).Replace('\', '/')
+    }
+    $systemIncludes = @($includes | Where-Object { $_ -notin $resourceIncludes })
+    if ($systemIncludes.Count -eq 0) { throw ("GCC reported no standard-library or platform include paths: {0}" -f $compiler) }
+    $extraArguments = @('--extra-arg=-stdlib=libstdc++', ("--extra-arg=--target={0}" -f $target))
+    foreach ($include in $systemIncludes) { $extraArguments += ("--extra-arg=-isystem{0}" -f $include) }
+    return [pscustomobject]@{
+        Compiler = $compiler; Directory = $directory; ProbeArguments = $probeArguments
+        Target = $target; DiscoveredIncludes = $includes; ClangResourceReplacements = $resourceIncludes
+        SystemIncludes = $systemIncludes; ExtraArguments = $extraArguments
     }
 }
 
@@ -259,6 +353,22 @@ if ($Tool -in @('all', 'clang-tidy')) {
         $tidyDir = Join-Path $OutputRoot 'clang-tidy'
         New-Item -ItemType Directory -Force -Path $tidyDir | Out-Null
         Get-ChildItem -LiteralPath $tidyDir -File | Remove-Item -Force
+        $probeDir = Join-Path $OutputRoot 'toolchain'
+        New-Item -ItemType Directory -Force -Path $probeDir | Out-Null
+        $compatibility = @{}
+        $probeIndex = 0
+        foreach ($unit in $units) {
+            # Cache only identical invocations: different directories can resolve relative
+            # compiler/sysroot paths differently, and different target flags need a probe.
+            $invocation = Get-CompilerInvocation $unit
+            $key = $invocation | ConvertTo-Json -Compress
+            if (-not $compatibility.ContainsKey($key)) {
+                $probeIndex++
+                $compatibility[$key] = Get-CompilerCompatibility $invocation $probeDir $probeIndex
+            }
+            $unit | Add-Member -NotePropertyName ClangExtraArguments -NotePropertyValue $compatibility[$key].ExtraArguments
+        }
+        @($compatibility.Values) | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $probeDir 'compatibility.json') -Encoding utf8
         $buildArgument = Convert-ToRepoRelative $BuildDir
         if (-not $buildArgument) { $buildArgument = $BuildDir }
         $queue = New-Object System.Collections.Generic.Queue[object]
@@ -276,11 +386,8 @@ if ($Tool -in @('all', 'clang-tidy')) {
                         '-p', $buildArgument,
                         '--config-file=.clang-tidy',
                         '--quiet',
-                        # See the header comment: GCC's libstdc++ is the only standard library
-                        # the MinGW compile commands can see.
-                        '--extra-arg=-stdlib=libstdc++',
                         $unit.Relative
-                    )
+                    ) + $unit.ClangExtraArguments
                     $handle = Start-Tool $ClangTidyExe $arguments (Join-Path $tidyDir $logName)
                     $handle | Add-Member -NotePropertyName Unit -NotePropertyValue $unit.Relative
                     $running.Add($handle)

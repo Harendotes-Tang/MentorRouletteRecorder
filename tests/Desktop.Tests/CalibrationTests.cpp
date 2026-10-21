@@ -55,7 +55,7 @@ QJsonObject event(const QString &kind, qint64 tMs, const QString &label, bool as
     return {{QStringLiteral("event_id"), kind + QLatin1Char('-') + QString::number(tMs)},
             {QStringLiteral("kind"), kind},
             {QStringLiteral("at_utc"), QStringLiteral("2026-09-10T12:00:00.000Z")},
-            {QStringLiteral("t_ms"), double(tMs)},
+            {QStringLiteral("t_ms"), static_cast<double>(tMs)},
             {QStringLiteral("label"), label},
             {QStringLiteral("requires_confirmation"), asks}};
 }
@@ -155,7 +155,7 @@ public:
 
     int count(const char *type) const
     {
-        return int(std::count(calls.begin(), calls.end(), QLatin1String(type)));
+        return static_cast<int>(std::count(calls.begin(), calls.end(), QLatin1String(type)));
     }
     void emitCalibrationChanged()
     {
@@ -207,6 +207,7 @@ void verifyPlayerCopy(const QString &text)
 
 } // namespace
 
+namespace {
 class CalibrationTests : public QObject
 {
     Q_OBJECT
@@ -666,7 +667,7 @@ Item {
         QJsonObject calibration = readyTimeline();
         QJsonArray events = calibration.value(QStringLiteral("events")).toArray();
         for (int i = 0; i < 40; ++i)
-            events.append(::event(QStringLiteral("zone"), 300000 + i * 1000, QString::fromUtf8("换区"), false));
+            events.append(::event(QStringLiteral("zone"), 300000 + (i * 1000), QString::fromUtf8("换区"), false));
         calibration.insert(QStringLiteral("events"), events);
         backend.capture.insert(QStringLiteral("calibration"), calibration);
         mr::AppController app(&backend, nullptr);
@@ -1536,6 +1537,7 @@ ApplicationWindow {
         QVERIFY(app.captureSettingsError().isEmpty());
     }
 };
+} // namespace
 
 int main(int argc, char **argv)
 {

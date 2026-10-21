@@ -256,7 +256,7 @@ int launchesOf(const QString &directory)
     QFile runs(QDir(directory).absoluteFilePath(QStringLiteral("runs.txt")));
     if (!runs.open(QIODevice::ReadOnly | QIODevice::Text))
         return 0;
-    return int(runs.readAll().count('\n'));
+    return static_cast<int>(runs.readAll().count('\n'));
 }
 
 /// Record \a pid as the holder of the per-user serve lease, the way the
@@ -362,6 +362,7 @@ constexpr auto kSilentSpeech = mr::TtsService::EngineMode::Mock;
         QCOMPARE(silentEngine->engine(), QStringLiteral("mock"));                       \
     } while (false)
 
+namespace {
 class TtsServiceTests : public QObject
 {
     Q_OBJECT
@@ -444,6 +445,7 @@ private Q_SLOTS:
     void appController_confirmingSendsOneAuditedCorrection();
     void mockBackend_refusesSettingPendingReviewTrue();
 };
+} // namespace
 
 /// The title bar names the program's own background service the way every
 /// other lifecycle line does: 「后台服务…」, never the component name
@@ -1429,7 +1431,7 @@ void TtsServiceTests::appController_neverRelaunchesAReusedCollectorOnEveryFailed
         ++toolCalls;
         // "no task matches": whatever serve.pid named is not a Collector.
         return mr::CollectorProcess::ToolResult{
-            0, QString::fromUtf8("信息: 没有运行的任务匹配指定标准。")};
+            .exitCode=0, .output=QString::fromUtf8("信息: 没有运行的任务匹配指定标准。")};
     });
     QTRY_COMPARE_WITH_TIMEOUT(collector->stateToken(), QStringLiteral("reused"), 15000);
 
@@ -1489,7 +1491,7 @@ void TtsServiceTests::appController_takesAVacatedLeaseOnTheFirstFailedConnect()
     int toolCalls = 0;
     collector->setToolRunnerForTest([&toolCalls](const QString &, const QStringList &) {
         ++toolCalls;
-        return mr::CollectorProcess::ToolResult{0, QString()};
+        return mr::CollectorProcess::ToolResult{.exitCode=0, .output=QString()};
     });
     QTRY_COMPARE_WITH_TIMEOUT(collector->stateToken(), QStringLiteral("reused"), 15000);
     const int restartsBefore = collector->restartCount();
@@ -1815,15 +1817,15 @@ namespace {
 QList<mr::TtsService::VoiceEntry> sampleVoices()
 {
     return {
-        {QStringLiteral("Microsoft David Desktop"), QLocale(QLocale::English, QLocale::UnitedStates),
-         QVoice::Male},
-        {QStringLiteral("Microsoft Huihui Desktop"), QLocale(QLocale::Chinese, QLocale::China),
-         QVoice::Female},
-        {QStringLiteral("Microsoft Hanhan Desktop"), QLocale(QLocale::Chinese, QLocale::Taiwan),
-         QVoice::Female},
-        {QStringLiteral("Microsoft Kangkang Desktop"), QLocale(QLocale::Chinese, QLocale::China),
-         QVoice::Male},
-        {QStringLiteral("Neutral"), QLocale(QLocale::Chinese, QLocale::China), QVoice::Unknown},
+        {.name=QStringLiteral("Microsoft David Desktop"), .locale=QLocale(QLocale::English, QLocale::UnitedStates),
+         .gender=QVoice::Male},
+        {.name=QStringLiteral("Microsoft Huihui Desktop"), .locale=QLocale(QLocale::Chinese, QLocale::China),
+         .gender=QVoice::Female},
+        {.name=QStringLiteral("Microsoft Hanhan Desktop"), .locale=QLocale(QLocale::Chinese, QLocale::Taiwan),
+         .gender=QVoice::Female},
+        {.name=QStringLiteral("Microsoft Kangkang Desktop"), .locale=QLocale(QLocale::Chinese, QLocale::China),
+         .gender=QVoice::Male},
+        {.name=QStringLiteral("Neutral"), .locale=QLocale(QLocale::Chinese, QLocale::China), .gender=QVoice::Unknown},
     };
 }
 

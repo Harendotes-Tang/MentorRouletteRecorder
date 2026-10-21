@@ -447,17 +447,17 @@ void SharedCalibrationController::checkNow()
             return;
         }
         const QString outcome = outcomeOf(payload);
-        if (outcome == QLatin1String("STARTED"))
+        if (outcome == QLatin1String("STARTED")) {
             Q_EMIT notice(tr("正在查找共享校准，结果会显示在「共享校准」中。"));
-        else if (outcome == QLatin1String("ALREADY_FETCHING"))
+        } else if (outcome == QLatin1String("ALREADY_FETCHING")) {
             Q_EMIT notice(tr("正在查找，请稍等。结果会显示在「共享校准」中。"));
-        // 刚查过：此时并没有下载在途，所以不能说「结果会显示在卡片上」——那个结果
-        // 上一次就已经出来了（审查 2026-09-21 第 13 条）。
-        else if (outcome == QLatin1String("RECENTLY_CHECKED"))
+        } else if (outcome == QLatin1String("RECENTLY_CHECKED")) {
+            // 刚查过：此时并没有下载在途，所以不能说「结果会显示在卡片上」——那个结果
+            // 上一次就已经出来了（审查 2026-09-21 第 13 条）。
             Q_EMIT notice(tr("刚刚检查过，请稍后重试。上次结果已显示在「共享校准」中。"));
-        else if (outcome == QLatin1String("DISABLED"))
+        } else if (outcome == QLatin1String("DISABLED")) {
             Q_EMIT notice(tr("请先在设置中开启「游戏更新后获取其他玩家的共享校准」。也可以直接导入校准码。"));
-        else {
+        } else {
             // A NOT_NEEDED that says why - the refusal state could not be read (audit RV5-5) -
             // is shown in the Collector's words, in the interface language where message_ref
             // allows; the fixed line below would claim a usable calibration or a choice.
@@ -466,7 +466,9 @@ void SharedCalibrationController::checkNow()
             Q_EMIT notice(!reason.isEmpty() ? reason
                           : tr("暂时不需要查找：已有可用校准，或你已选择当前游戏版本只用本机校准。"));
         }
-        Q_EMIT refreshRequested();
+        {
+            Q_EMIT refreshRequested();
+        }
     });
 }
 

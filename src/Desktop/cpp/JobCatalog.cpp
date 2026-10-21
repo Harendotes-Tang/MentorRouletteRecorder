@@ -10,6 +10,7 @@
 #include <QSet>
 #include <QVariantList>
 #include <QVariantMap>
+#include <algorithm>
 
 namespace {
 
@@ -227,7 +228,7 @@ QString JobCatalog::categoryIcon(const QVariant &dutyCategory) const
 QVariantList JobCatalog::allJobs() const
 {
     QList<int> ids = m_jobs.keys();
-    std::sort(ids.begin(), ids.end());
+    std::ranges::sort(ids);
 
     QVariantList out;
     out.reserve(ids.size());

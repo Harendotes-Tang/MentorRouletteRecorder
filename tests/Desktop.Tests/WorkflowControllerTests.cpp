@@ -38,7 +38,7 @@ public:
     mr::BackendReply *request(const QString &type, const QJsonObject &payload) override
     {
         auto *reply = new mr::BackendReply(QString::number(calls.size()), type, this);
-        calls.append({type, payload, reply, QUuid::createUuid().toString(QUuid::WithoutBraces)});
+        calls.append({.type=type, .payload=payload, .reply=reply, .requestId=QUuid::createUuid().toString(QUuid::WithoutBraces)});
         if (synchronous) {
             if (reject)
                 reply->fail(QStringLiteral("ERR_TEST"), QStringLiteral("refused"));
@@ -137,7 +137,7 @@ QJsonObject revisionPage(const QJsonObject &request, int total)
     const int page = request.value(QStringLiteral("page")).toInt(1);
     const int size = request.value(QStringLiteral("page_size")).toInt(50);
     QJsonArray items;
-    for (int revision = (page - 1) * size + 1; revision <= qMin(page * size, total); ++revision)
+    for (int revision = ((page - 1) * size) + 1; revision <= qMin(page * size, total); ++revision)
         items.append(QJsonObject{{QStringLiteral("revision"), revision}});
     return {{QStringLiteral("items"), items},
             {QStringLiteral("page_info"), QJsonObject{{QStringLiteral("page"), page},
@@ -157,6 +157,7 @@ QJsonObject statsPage(int page, int total, int firstId = 1)
 }
 }
 
+namespace {
 class WorkflowControllerTests : public QObject
 {
     Q_OBJECT
@@ -1167,6 +1168,7 @@ private Q_SLOTS:
         QVERIFY(retainedStats.dashboard().isEmpty());
     }
 };
+} // namespace
 
 QTEST_GUILESS_MAIN(WorkflowControllerTests)
 #include "WorkflowControllerTests.moc"

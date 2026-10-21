@@ -334,7 +334,7 @@ def render_cpp(texts: Sequence[Text]) -> str:
         if note:
             lines.append("    //: %s" % note)
         args = ",".join("%s:%s" % (name, kind) for name, kind in text.args.items())
-        lines.append("    {QT_TRANSLATE_NOOP3(%s, %s, %s), %s},"
+        lines.append("    {.source = QT_TRANSLATE_NOOP3(%s, %s, %s), .args = %s},"
                      % (cpp_string(TR_CONTEXT), cpp_string(text.zh), cpp_string(text.key),
                         cpp_string(args)))
     lines += [
@@ -349,7 +349,7 @@ def render_cpp(texts: Sequence[Text]) -> str:
         "",
         "const CatalogueEntry *catalogueEnd()",
         "{",
-        "    return kEntries + sizeof(kEntries) / sizeof(kEntries[0]);",
+        "    return kEntries + (sizeof(kEntries) / sizeof(kEntries[0]));",
         "}",
         "",
         "} // namespace mr::collector_text",

@@ -201,7 +201,7 @@ void HistoryController::loadRevisionPage(const QString &runId, quint64 generatio
             const QVariantList items = payload.value(QStringLiteral("items")).toList();
             collected.append(items);
             const int total = payload.value(QStringLiteral("page_info")).toMap()
-                                  .value(QStringLiteral("total"), int(collected.size())).toInt();
+                                  .value(QStringLiteral("total"), static_cast<int>(collected.size())).toInt();
             if (!items.isEmpty() && collected.size() < total && page < kMaxRevisionPages) {
                 loadRevisionPage(runId, generation, page + 1, std::move(collected));
                 return;
@@ -417,12 +417,14 @@ void HistoryController::mutateCheckedRuns(const QString &action, const QString &
                 m_batchFeedback = [unsent, uncertain, code,
                                    refusal = collector_text::replyErrorText(batchGuard, message)] {
                     // %1 is the Collector's own sentence (or its code).
-                    return (unsent
-                        ? tr("%1 操作尚未发送。连接恢复后，请保留勾选和原因重试。")
-                        : uncertain
-                        ? tr("%1 操作结果尚未确认。请保留勾选和原因后重试，同一请求不会重复修改记录。")
-                        : tr("%1 请刷新列表查看当前记录；如需重试，请取消并重新勾选发生变化的记录。"))
-                        .arg(refusal.isEmpty() ? code : refusal.text());
+                    const QString sentence = [unsent, uncertain] {
+                        if (unsent)
+                            return tr("%1 操作尚未发送。连接恢复后，请保留勾选和原因重试。");
+                        if (uncertain)
+                            return tr("%1 操作结果尚未确认。请保留勾选和原因后重试，同一请求不会重复修改记录。");
+                        return tr("%1 请刷新列表查看当前记录；如需重试，请取消并重新勾选发生变化的记录。");
+                    }();
+                    return sentence.arg(refusal.isEmpty() ? code : refusal.text());
                 };
                 Q_EMIT batchChanged();
                 return;
@@ -788,7 +790,7 @@ void HistoryController::retryResultCorrectionWithFreshRevision(const QString &ru
     // Collector pages it oldest-first (50 rows unless told otherwise). Ask for
     // the largest page that starts at or before the revision this dialog saw,
     // so the rows it never saw are the ones that come back.
-    const int page = qMax(0, staleRevision) / kRevisionPageSize + 1;
+    const int page = (qMax(0, staleRevision) / kRevisionPageSize) + 1;
     const QString kind = result.isEmpty() ? QStringLiteral("supplement_job") : QStringLiteral("review");
     const quint64 contextGeneration = m_resultRequestContextGeneration;
     m_backend->getRunRevisions(runId, page, kRevisionPageSize)->whenDone(

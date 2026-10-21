@@ -111,7 +111,6 @@ Write-Head 'cmake configure (MinGW + Ninja + Qt 6.11.2)'
     -G Ninja `
     "-DCMAKE_MAKE_PROGRAM=$NinjaExe" `
     "-DCMAKE_PREFIX_PATH=$QtPrefix" `
-    "-DCMAKE_C_COMPILER=$MinGwBin/gcc.exe" `
     "-DCMAKE_CXX_COMPILER=$MinGwBin/g++.exe" `
     "-DCMAKE_RC_COMPILER=$MinGwBin/windres.exe" `
     "-DMR_STAGE_COLLECTOR=OFF" `

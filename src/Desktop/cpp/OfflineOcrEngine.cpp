@@ -102,7 +102,7 @@ bool OfflineOcrEngine::start(const QStringList &files)
         QImageReader reader(path);
         const QSize size = reader.size();
         if (!info.isAbsolute() || !info.isFile() || info.size() <= 0 || info.size() > MaxInputBytes
-            || !size.isValid() || qint64(size.width()) * size.height() > MaxPixels) {
+            || !size.isValid() || static_cast<qint64>(size.width()) * size.height() > MaxPixels) {
             Q_EMIT failed(tr("图片无法读取或超过限制（20 MiB、5000 万像素）：%1").arg(info.fileName()));
             return false;
         }

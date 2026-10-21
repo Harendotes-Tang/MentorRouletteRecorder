@@ -65,7 +65,7 @@ void PlaybackEndTracker::notePlaying(bool playing)
     }
     if (!m_started)
         return;
-    if (m_clock.elapsed() >= qint64(m_expectedMs) - kEndMarginMs) {
+    if (m_clock.elapsed() >= static_cast<qint64>(m_expectedMs) - kEndMarginMs) {
         end();
         return;
     }
@@ -136,7 +136,7 @@ void SoundEffectPlayer::play(const QString &path, double volume, int expectedDur
     m_effect = new QSoundEffect(this);
     connect(m_effect, &QSoundEffect::statusChanged, this, &SoundEffectPlayer::onStatusChanged);
     connect(m_effect, &QSoundEffect::playingChanged, this, &SoundEffectPlayer::onPlayingChanged);
-    m_effect->setVolume(float(qBound(0.0, volume, 1.0)));
+    m_effect->setVolume(static_cast<float>(qBound(0.0, volume, 1.0)));
     m_effect->setLoopCount(1);
     m_watchdog.start(qMax(kMinimumWatchdogMs, expectedDurationMs + kWatchdogSlackMs));
     // Opened by path again here, after checkSpeechAudioFile() looked at it. The

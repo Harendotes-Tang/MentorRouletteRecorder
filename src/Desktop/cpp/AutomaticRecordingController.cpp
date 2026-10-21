@@ -180,9 +180,9 @@ void AutomaticRecordingController::readSettings(quint64 generation)
                 [this, generation](bool saved, const QVariantMap &settings, const QString &, const QString &message) {
                 if (generation != m_generation) return;
                 m_followReady = saved && settings.value(QStringLiteral("follow_game")).toBool();
-                if (!m_followReady)
+                if (!m_followReady) {
                     m_followError = [message] { return tr("没能开启自动记录，请点「重试自动记录」或查看「捕获诊断」。%1").arg(message); };
-                else { m_followError.clear(); Q_EMIT settingsConfirmed(settings); }
+                } else { m_followError.clear(); Q_EMIT settingsConfirmed(settings); }
                 readValidation(generation);
             });
             return;
@@ -225,9 +225,9 @@ void AutomaticRecordingController::readValidation(quint64 generation)
                 });
                 return;
             }
-            if (m_stopPending && p.value(QStringLiteral("state")).toString() == QLatin1String("STOPPING"))
+            if (m_stopPending && p.value(QStringLiteral("state")).toString() == QLatin1String("STOPPING")) {
                 m_validationError.clear();
-            else {
+            } else {
                 m_stopPending = false;
                 m_validationError = [] { return tr("验证工具还没有停止，暂时不能自动记录。请点「重试自动记录」。"); };
             }
@@ -270,19 +270,19 @@ void AutomaticRecordingController::project(const QVariantMap &c)
     // A choice is asked for only while there is a listed client to choose. With
     // the only client closed (EXITED) or every client gone (MULTIPLE) the list
     // is empty, and that is the ordinary wait for the game below (review OD-1).
-    const int listed = int(c.value(QStringLiteral("game_processes")).toList().size());
+    const int listed = static_cast<int>(c.value(QStringLiteral("game_processes")).toList().size());
     if (c.value(QStringLiteral("game_selection_required")).toBool() && listed > 0) {
         setPollInterval(kActivePollMs);
         clearIncident();
         const QString reason = c.value(QStringLiteral("game_selection_reason")).toString();
         setState(QStringLiteral("choosing_game"), LiveText([reason, listed] {
-            return reason == QLatin1String("EXITED")
-                ? tr("所选游戏已退出，记录已暂停。单开时重新启动同一游戏会自动接续；无法确认时请在总览或捕获诊断页重新选择游戏窗口。")
-                : reason == QLatin1String("IDENTITY_UNAVAILABLE")
-                ? tr("暂时无法确认游戏的启动时间，记录已暂停。请重新检测后选择游戏窗口。")
-                : listed > 1
-                ? tr("检测到多个游戏客户端，请在总览或捕获诊断页选择要记录的游戏窗口。")
-                : tr("尚未确定要记录的游戏，请在总览或捕获诊断页选择要记录的游戏窗口。");
+            if (reason == QLatin1String("EXITED"))
+                return tr("所选游戏已退出，记录已暂停。单开时重新启动同一游戏会自动接续；无法确认时请在总览或捕获诊断页重新选择游戏窗口。");
+            if (reason == QLatin1String("IDENTITY_UNAVAILABLE"))
+                return tr("暂时无法确认游戏的启动时间，记录已暂停。请重新检测后选择游戏窗口。");
+            if (listed > 1)
+                return tr("检测到多个游戏客户端，请在总览或捕获诊断页选择要记录的游戏窗口。");
+            return tr("尚未确定要记录的游戏，请在总览或捕获诊断页选择要记录的游戏窗口。");
         }));
         return;
     }
@@ -324,9 +324,15 @@ void AutomaticRecordingController::project(const QVariantMap &c)
         && profile != QLatin1String("VERIFIED") && projectCalibration(c))
         return;
     if (profile != QLatin1String("VERIFIED")) {
-        const QString reason = pathUnreadable ? QStringLiteral("path")
-            : regionUnknown ? QStringLiteral("region") : buildUnknown ? QStringLiteral("build")
-            : QStringLiteral("profile:") + profile;
+        const QString reason = [&] {
+            if (pathUnreadable)
+                return QStringLiteral("path");
+            if (regionUnknown)
+                return QStringLiteral("region");
+            if (buildUnknown)
+                return QStringLiteral("build");
+            return QStringLiteral("profile:") + profile;
+        }();
         block(session + reason, LiveText([pathUnreadable, regionUnknown, buildUnknown] {
             if (regionUnknown && !pathUnreadable)
                 return tr("无法识别游戏区服，暂时不能自动记录。请在「设置 → 通用」中选择实际区服（国服 / 国际服），保存后会重新检查。");

@@ -92,6 +92,7 @@ QVariantMap sampleRef(const mr::collector_text::CatalogueEntry &entry)
 
 } // namespace
 
+namespace {
 class CollectorTextTests : public QObject
 {
     Q_OBJECT
@@ -107,7 +108,7 @@ private Q_SLOTS:
             QVERIFY(mr::collector_text::knows(key));
         }
         QVERIFY(!keys.isEmpty());
-        QCOMPARE(mr::collector_text::size(), int(keys.size()));
+        QCOMPARE(mr::collector_text::size(), static_cast<int>(keys.size()));
     }
 
     void simplifiedChineseIsTheCatalogueWording()
@@ -374,6 +375,7 @@ private Q_SLOTS:
         QCOMPARE(plainMessage, QStringLiteral("原样"));
     }
 };
+} // namespace
 
 QTEST_GUILESS_MAIN(CollectorTextTests)
 #include "CollectorTextTests.moc"

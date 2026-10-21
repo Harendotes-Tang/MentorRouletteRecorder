@@ -258,6 +258,7 @@ QJsonObject validationSnapshot(const QString &state, const QString &reason)
 
 } // namespace
 
+namespace {
 class DesktopTests : public QObject
 {
     Q_OBJECT
@@ -299,6 +300,7 @@ private Q_SLOTS:
     void runFormValidator_rejectsEveryPrototypeCase();
     void runFormValidator_buildsTheBeforeAfterDiff();
 };
+} // namespace
 
 void DesktopTests::ipcFraming_roundTripsAndRejectsInvalidPayload()
 {
@@ -320,19 +322,19 @@ void DesktopTests::ipcFraming_roundTripsAndRejectsInvalidPayload()
     QVERIFY(buffer.isEmpty());
 
     QByteArray oversized;
-    oversized.append(char(0x01));
-    oversized.append(char(0x00));
-    oversized.append(char(0x40));
-    oversized.append(char(0x00));
+    oversized.append(static_cast<char>(0x01));
+    oversized.append(static_cast<char>(0x00));
+    oversized.append(static_cast<char>(0x40));
+    oversized.append(static_cast<char>(0x00));
     QCOMPARE(mr::ipc::takeFrame(oversized, decoded), mr::ipc::FrameStatus::Oversized);
 
     const QByteArray badBody = QByteArrayLiteral("{not-json");
     QByteArray badFrame;
-    const quint32 length = quint32(badBody.size());
-    badFrame.append(char(length & 0xff));
-    badFrame.append(char((length >> 8) & 0xff));
-    badFrame.append(char((length >> 16) & 0xff));
-    badFrame.append(char((length >> 24) & 0xff));
+    const quint32 length = static_cast<quint32>(badBody.size());
+    badFrame.append(static_cast<char>(length & 0xff));
+    badFrame.append(static_cast<char>((length >> 8) & 0xff));
+    badFrame.append(static_cast<char>((length >> 16) & 0xff));
+    badFrame.append(static_cast<char>((length >> 24) & 0xff));
     badFrame.append(badBody);
     QCOMPARE(mr::ipc::takeFrame(badFrame, decoded), mr::ipc::FrameStatus::BadJson);
 }
@@ -522,7 +524,7 @@ void DesktopTests::formatters_renderNullsAndDurations()
     QCOMPARE(mr::Formatters::duration(QVariant()), QString::fromUtf8("—"));
     QCOMPARE(mr::Formatters::duration(-1), QString::fromUtf8("—"));
     QCOMPARE(mr::Formatters::duration(65 * 1000), QStringLiteral("01:05"));
-    QCOMPARE(mr::Formatters::duration((2 * 3600 + 3 * 60 + 4) * 1000),
+    QCOMPARE(mr::Formatters::duration(((2 * 3600) + (3 * 60) + 4) * 1000),
              QStringLiteral("2:03:04"));
     QCOMPARE(mr::Formatters::percent(QVariant()), QString::fromUtf8("—"));
     QCOMPARE(mr::Formatters::percent(0.996, 1), QStringLiteral("99.6%"));
@@ -597,7 +599,7 @@ void DesktopTests::formatters_renderNullsAndDurations()
         {"PLAYER_JOB", "识别职业"}, {"ZONE_LEFT", "离开副本区域"},
         {"INSTANCE_LEFT", "退出副本"}, {"MATCH_CANCELLED", "匹配取消"},
         {"MATCH_ANNOUNCED", "匹配成功通知"}};
-    QCOMPARE(kinds.size(), qsizetype(9));
+    QCOMPARE(kinds.size(), static_cast<qsizetype>(9));
     for (const auto &kind : kinds) {
         const QString label = mr::Formatters::eventKindLabel(QString::fromLatin1(kind.first));
         QVERIFY2(!label.isEmpty(), kind.first);
@@ -668,8 +670,13 @@ void DesktopTests::runListModel_filtersSortsAndPages()
     mr::RunListModel model;
     model.setBackend(&backend);
 
+    // QML selects the map through the integer model role, which exceeds one byte.
+    QCOMPARE(static_cast<int>(mr::RunListModel::RunRole), Qt::UserRole + 1);
+    QCOMPARE(model.roleNames().value(Qt::UserRole + 1), QByteArray("run"));
     model.reload();
     QTRY_VERIFY_WITH_TIMEOUT(model.rowCount() > 0, 3000);
+    QCOMPARE(model.data(model.index(0), Qt::UserRole + 1).toMap(), model.runAt(0));
+    QVERIFY(!model.data(model.index(0), Qt::UserRole).isValid());
     QCOMPARE(model.page(), 1);
     QCOMPARE(model.pageSize(), 10);
     QVERIFY(model.total() >= model.rowCount());
@@ -884,8 +891,12 @@ void DesktopTests::jobStatsModel_roleBreakdownKeepsFixedOrder()
     mr::JobStatsModel model;
     model.setBackend(&backend);
 
+    QCOMPARE(static_cast<int>(mr::StatsRowsModel::RowRole), Qt::UserRole + 1);
+    QCOMPARE(model.roleNames().value(Qt::UserRole + 1), QByteArray("row"));
     model.reload();
     QTRY_VERIFY_WITH_TIMEOUT(model.rowCount() > 0, 3000);
+    QCOMPARE(model.data(model.index(0), Qt::UserRole + 1).toMap(), model.rowAt(0));
+    QVERIFY(!model.data(model.index(0), Qt::UserRole).isValid());
 
     const QVariantList roles = model.roleBreakdown();
     QCOMPARE(roles.size(), 6);
@@ -1662,7 +1673,7 @@ void DesktopTests::dutyCatalog_fillsLevelAndExpansionByTerritoryWhenContentIdIsM
     // 险峻峡谷塞尔法特尔溪谷: content_id 182, territory 1113, Heavensward 60.
     const QVariantMap byId = catalogue->lookup(182);
     QVERIFY(!byId.isEmpty());
-    QCOMPARE(byId.value(QStringLiteral("territory_id")).toLongLong(), qint64(1113));
+    QCOMPARE(byId.value(QStringLiteral("territory_id")).toLongLong(), static_cast<qint64>(1113));
 
     QVariantMap run;
     run.insert(QStringLiteral("content_id"), QVariant::fromValue(nullptr));

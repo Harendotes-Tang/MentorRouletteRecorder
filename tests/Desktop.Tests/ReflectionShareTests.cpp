@@ -160,10 +160,11 @@ QString headingInkAlignmentError(const QImage &png, QQuickItem *card, qreal rati
     qInfo().noquote() << "heading ink centers:" << centers.join(QStringLiteral(", "));
     // 色差阈值会排除细笔画的抗锯齿端点；允许两个物理像素或一个逻辑像素的栅格偏差。
     // 这是 Windows / FreeType、1x–2x 验证矩阵的经验容差，不替代上方严格的轮廓中心断言。
-    return bottomCenter - topCenter <= qMax(qreal(2), ratio) ? QString() : centers.join(QStringLiteral(", "));
+    return bottomCenter - topCenter <= qMax(static_cast<qreal>(2), ratio) ? QString() : centers.join(QStringLiteral(", "));
 }
 }
 
+namespace {
 class ShareThemeState : public QObject
 {
     Q_OBJECT
@@ -173,7 +174,9 @@ public:
 Q_SIGNALS:
     void changed();
 };
+} // namespace
 
+namespace {
 class ReflectionShareTests : public QObject
 {
     Q_OBJECT
@@ -907,14 +910,14 @@ Window { visible: true; width: 1180; height: 1000
             ? QStringLiteral("Powered by Mentor Recorder") : QStringLiteral("Powered by メンターレコーダー"));
         QVERIFY(footer->property("stacked").toBool());
         QVERIFY(brand->y() + brand->baselineOffset() >= date->y() + date->baselineOffset() + 28);
-        QVERIFY(qAbs(brand->x() + brand->width() / 2 - footer->width() / 2) < 0.5);
+        QVERIFY(qAbs(brand->x() + (brand->width() / 2) - (footer->width() / 2)) < 0.5);
         QVERIFY(!date->property("truncated").toBool());
         QVERIFY(!brand->property("truncated").toBool());
         QVERIFY(brand->property("implicitWidth").toReal() <= brand->width() + 0.5);
         QVERIFY(footer->width() <= 520);
         const qreal scale = card->property("templateScale").toReal();
         const QRectF brandBounds = brand->mapRectToItem(card, brand->boundingRect());
-        QVERIFY(brandBounds.bottom() <= card->height() - 36 * scale);
+        QVERIFY(brandBounds.bottom() <= card->height() - (36 * scale));
         QTemporaryDir output;
         QSignalSpy saved(&controller, &mr::ReflectionShareController::saved);
         const QString filename = QStringLiteral("localized-%1-%2%3.png")
@@ -1290,7 +1293,7 @@ Window {
         QVERIFY(!title->property("truncated").toBool());
         QVERIFY(metadata->y() >= title->y() + title->height());
         const QRectF bodyBounds = body->mapRectToItem(card, body->boundingRect());
-        QVERIFY(bodyBounds.bottom() + 134 * card->property("templateScale").toReal() <= card->height());
+        QVERIFY(bodyBounds.bottom() + (134 * card->property("templateScale").toReal()) <= card->height());
         const QString longPath = output.filePath(QStringLiteral("wrapped-title.png"));
         controller.saveTo(card, longPath);
         QTRY_COMPARE(saved.count(), 3);
@@ -1546,6 +1549,7 @@ Window {
         QCOMPARE(QImage(path).size(), image.size());
     }
 };
+} // namespace
 
 int main(int argc, char **argv) {
 #ifdef Q_OS_WIN

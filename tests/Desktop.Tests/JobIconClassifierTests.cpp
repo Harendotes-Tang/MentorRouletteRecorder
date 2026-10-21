@@ -48,6 +48,7 @@ bool boundedEvidence(const mr::JobIconClassifier::Result &result)
 
 } // namespace
 
+namespace {
 class JobIconClassifierTests final : public QObject
 {
     Q_OBJECT
@@ -64,6 +65,7 @@ private slots:
     void malformedOrMismatchedModelIsUnavailable();
     void hugeAndTransparentImagesHaveFiniteUnknownEvidence();
 };
+} // namespace
 
 void JobIconClassifierTests::modelLabelCoverageMatchesEligibleCatalogue()
 {
@@ -222,13 +224,13 @@ void JobIconClassifierTests::malformedOrMismatchedModelIsUnavailable()
         if (fault == QLatin1String("json")) {
             data = "{invalid";
         } else if (fault == QLatin1String("large")) {
-            data = QByteArray(1024 * 1024 + 1, ' ');
+            data = QByteArray((1024 * 1024) + 1, ' ');
         } else {
-            if (fault == QLatin1String("format"))
+            if (fault == QLatin1String("format")) {
                 model.insert(QStringLiteral("format"), QStringLiteral("future-format"));
-            else if (fault == QLatin1String("loose_threshold"))
+            } else if (fault == QLatin1String("loose_threshold")) {
                 model.insert(QStringLiteral("confidence_threshold"), 0.1);
-            else if (fault == QLatin1String("labels") || fault == QLatin1String("label_fraction")) {
+            } else if (fault == QLatin1String("labels") || fault == QLatin1String("label_fraction")) {
                 QJsonArray labels = model.value(QStringLiteral("class_ids")).toArray();
                 labels[1] = fault == QLatin1String("labels") ? 1.0 : 19.5;
                 model.insert(QStringLiteral("class_ids"), labels);

@@ -66,6 +66,7 @@ std::unique_ptr<QObject> create(QQmlEngine &engine, const char *qml)
 
 } // namespace
 
+namespace {
 class QmlWarningCounterTests : public QObject
 {
     Q_OBJECT
@@ -121,36 +122,36 @@ private Q_SLOTS:
         QTest::addColumn<QString>("message");
         QTest::addColumn<bool>("counted");
 
-        QTest::newRow("qrc warning") << int(QtWarningMsg) << QByteArray()
+        QTest::newRow("qrc warning") << static_cast<int>(QtWarningMsg) << QByteArray()
             << QStringLiteral("qrc:/qt/qml/MentorRecorder/pages/DashboardPage.qml:80: TypeError: Cannot read property 'x' of null")
             << true;
-        QTest::newRow("file warning") << int(QtWarningMsg) << QByteArray()
+        QTest::newRow("file warning") << static_cast<int>(QtWarningMsg) << QByteArray()
             << QStringLiteral("file:///D:/PRJ/src/Desktop/qml/Main.qml:12:5: Unable to assign [undefined] to int")
             << true;
-        QTest::newRow("qrc critical") << int(QtCriticalMsg) << QByteArray()
+        QTest::newRow("qrc critical") << static_cast<int>(QtCriticalMsg) << QByteArray()
             << QStringLiteral("qrc:/qt/qml/MentorRecorder/Main.qml:1: fixture") << true;
-        QTest::newRow("console warning located by its context") << int(QtWarningMsg)
+        QTest::newRow("console warning located by its context") << static_cast<int>(QtWarningMsg)
             << QByteArray("qrc:/qt/qml/MentorRecorder/Main.qml") << QStringLiteral("fixture") << true;
-        QTest::newRow("qrc info") << int(QtInfoMsg) << QByteArray()
+        QTest::newRow("qrc info") << static_cast<int>(QtInfoMsg) << QByteArray()
             << QStringLiteral("qrc:/qt/qml/MentorRecorder/Main.qml:1: fixture") << false;
-        QTest::newRow("qrc debug") << int(QtDebugMsg) << QByteArray()
+        QTest::newRow("qrc debug") << static_cast<int>(QtDebugMsg) << QByteArray()
             << QStringLiteral("qrc:/qt/qml/MentorRecorder/Main.qml:1: fixture") << false;
         // The two notices every screenshot run prints, word for word.
-        QTest::newRow("no font directory") << int(QtWarningMsg) << QByteArray()
+        QTest::newRow("no font directory") << static_cast<int>(QtWarningMsg) << QByteArray()
             << QStringLiteral("QFontDatabase: Cannot find font directory D:/APPS/Qt/6.11.2/mingw_64/lib/fonts.\n"
                               "Note that Qt no longer ships fonts. Deploy some (from https://dejavu-fonts.github.io/ "
                               "for example) or switch to fontconfig.")
             << false;
-        QTest::newRow("no Direct3D 12") << int(QtWarningMsg) << QByteArray()
+        QTest::newRow("no Direct3D 12") << static_cast<int>(QtWarningMsg) << QByteArray()
             << QStringLiteral("Qt was built without Direct3D 12 support. This is likely due to having ancient SDK "
                               "headers (such as d3d12.h) in the Qt build environment.")
             << false;
         // It names the probe's address inside the text, not as the location of the message.
-        QTest::newRow("graphs fallback") << int(QtWarningMsg) << QByteArray()
+        QTest::newRow("graphs fallback") << static_cast<int>(QtWarningMsg) << QByteArray()
             << QStringLiteral("Qt Graphs unavailable, falling back to the plain bar chart: "
                               "qrc:/mr/graphs-probe.qml:2 module \"QtGraphs\" is not installed")
             << false;
-        QTest::newRow("C++ source location") << int(QtWarningMsg)
+        QTest::newRow("C++ source location") << static_cast<int>(QtWarningMsg)
             << QByteArray("D:/PRJ/src/Desktop/cpp/main.cpp") << QStringLiteral("fixture") << false;
     }
 
@@ -168,6 +169,7 @@ private Q_SLOTS:
         QCOMPARE(counter.count(), counted ? 1 : 0);
     }
 };
+} // namespace
 
 int main(int argc, char **argv)
 {

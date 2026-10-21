@@ -193,7 +193,7 @@ public:
             code = QStringLiteral("ERR_INTERNAL");
             answer = currentRun;
         } else if (type == QLatin1String("StartUpdateDownload")) {
-            sent.append({type, payload});
+            sent.append({.type=type, .payload=payload});
             if (!refuseStart.isEmpty()) {
                 ok = false;
                 code = refuseStart;
@@ -203,7 +203,7 @@ public:
                 answer = {{QStringLiteral("update"), update}};
             }
         } else if (type == QLatin1String("CancelUpdateDownload")) {
-            sent.append({type, payload});
+            sent.append({.type=type, .payload=payload});
             if (!cancelAnswer.isEmpty())
                 update = cancelAnswer;
             answer = {{QStringLiteral("update"), update}};
@@ -229,15 +229,15 @@ InstallerFile writeInstaller(const QString &path, qint64 size = 64LL * 1024)
 {
     QDir().mkpath(QFileInfo(path).absolutePath());
     QByteArray bytes;
-    bytes.reserve(int(size));
+    bytes.reserve(static_cast<int>(size));
     for (qint64 index = 0; index < size; ++index)
-        bytes.append(char('a' + index % 23));
+        bytes.append(static_cast<char>('a' + (index % 23)));
     QFile file(path);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate))
         return {};
     file.write(bytes);
     file.close();
-    return {path, QString::fromLatin1(
+    return {.path=path, .sha256=QString::fromLatin1(
                       QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex())};
 }
 
@@ -444,6 +444,7 @@ void standInForTheCollector(mr::UpdateController *update, const QString &dataDir
 /// Stands in for the system shell: QDesktopServices hands it every file:
 /// address instead of opening it (QDesktopServices::setUrlHandler), so the
 /// launcher a shipping build uses can be called without starting anything.
+namespace {
 class ShellStandIn final : public QObject
 {
     Q_OBJECT
@@ -454,7 +455,9 @@ public:
 public Q_SLOTS:
     void open(const QUrl &url) { opened.append(url); }
 };
+} // namespace
 
+namespace {
 class UpdateInstallTests : public QObject
 {
     Q_OBJECT
@@ -629,7 +632,7 @@ private Q_SLOTS:
     {
         Scene scene;
         scene.open(updateStatus(download(QStringLiteral("DOWNLOADING"),
-            {{QStringLiteral("received_bytes"), qint64(0.45 * 60 * kMiB)},
+            {{QStringLiteral("received_bytes"), static_cast<qint64>(0.45 * 60 * kMiB)},
              {QStringLiteral("total_bytes"), 60 * kMiB}})));
         const auto *update = scene.update();
         QTRY_COMPARE(update->downloadPhase(), QStringLiteral("downloading"));
@@ -1299,11 +1302,11 @@ private Q_SLOTS:
             PageScene scene;
             scene.backend->setUpdateDownloadSupported(false);
             QVERIFY(scene.open(element));
-            const QString button = element == QLatin1String("DashboardPage")
-                                       ? QStringLiteral("downloadInstallerButton")
-                                       : element == QLatin1String("SettingsGeneralTab")
-                                             ? QStringLiteral("checkUpdateNowButton")
-                                             : QStringLiteral("aboutDownloadInstallerButton");
+            QString button = QStringLiteral("aboutDownloadInstallerButton");
+            if (element == QLatin1String("DashboardPage"))
+                button = QStringLiteral("downloadInstallerButton");
+            else if (element == QLatin1String("SettingsGeneralTab"))
+                button = QStringLiteral("checkUpdateNowButton");
             QTRY_COMPARE(scene.textOf(button), QString::fromUtf8("下载新版本"));
             QVERIFY(scene.press(button));
             QTRY_COMPARE(scene.opened, QStringList{QLatin1String(kMockInstallerUrl)});
@@ -1369,6 +1372,7 @@ private Q_SLOTS:
         QVERIFY(QFile::remove(file.path));
     }
 };
+} // namespace
 
 int main(int argc, char **argv)
 {

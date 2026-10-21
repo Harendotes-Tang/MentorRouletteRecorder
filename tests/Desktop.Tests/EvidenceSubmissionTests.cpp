@@ -24,12 +24,14 @@
 #include <QUrlQuery>
 #include <memory>
 
+namespace {
 class EvidenceTheme final : public QObject {
     Q_OBJECT
     Q_PROPERTY(bool dark MEMBER dark CONSTANT)
 public:
     bool dark = true;
 };
+} // namespace
 
 namespace {
 class EvidenceBackend final : public mr::IBackend {
@@ -42,7 +44,7 @@ public:
     void setConnected(bool value) { connected = value; Q_EMIT connectionChanged(); }
     mr::BackendReply *request(const QString &type, const QJsonObject &payload = {}) override {
         auto *reply = new mr::BackendReply(QString::number(calls.size()), type, this);
-        calls.append({type, payload, reply});
+        calls.append({.type=type, .payload=payload, .reply=reply});
         return reply;
     }
 };
@@ -99,6 +101,7 @@ public:
     QString profile = QStringLiteral("UNSUPPORTED_BUILD");
     bool formalCapturing() const override { return formal; }
     bool candidateValidationEnabled() const override { return candidate; }
+    quint64 formalCaptureRevision() const override { return 0; }
     QString captureProfileStatus() const override { return profile; }
     void applyFormalCaptureStatus(const QVariantMap &) override { formal = false; }
     void refreshStatus() override {}
@@ -106,6 +109,7 @@ public:
 };
 }
 
+namespace {
 class EvidenceSubmissionTests final : public QObject {
     Q_OBJECT
 private Q_SLOTS:
@@ -155,7 +159,7 @@ private Q_SLOTS:
         controller.setClipboardWriter([&](const QString &text) { copied = text; });
         controller.setUrlOpener([&](const QUrl &url) { opened = url; return true; });
         QString json = jsonFor();
-        json += QString(qsizetype{48} * 1024 - json.toUtf8().size(), ' ');
+        json += QString((qsizetype{48} * 1024) - json.toUtf8().size(), ' ');
         QCOMPARE(json.toUtf8().size(), 48 * 1024);
         controller.previewCalibration();
         backend.calls.last().reply->succeed(answer(json, "CODE_VERIFICATION", false));
@@ -502,7 +506,7 @@ ApplicationWindow {
         auto *window = qobject_cast<QQuickWindow *>(root.get());
         QVERIFY(window);
         QString json = jsonFor();
-        json += QString(qsizetype{48} * 1024 - json.toUtf8().size(), '\n');
+        json += QString((qsizetype{48} * 1024) - json.toUtf8().size(), '\n');
         controller.previewCalibration();
         backend.calls.last().reply->succeed(answer(json, "CODE_VERIFICATION", false));
         auto *dialog = root->findChild<QObject *>("dialog");
@@ -539,6 +543,7 @@ ApplicationWindow {
         QCOMPARE(warnings.size(), 0);
     }
 };
+} // namespace
 
 int main(int argc, char **argv)
 {

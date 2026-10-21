@@ -57,6 +57,7 @@ int countItems(QQuickItem *root, const QString &name)
 
 } // namespace
 
+namespace {
 class StyledComboBoxTests final : public QObject
 {
     Q_OBJECT
@@ -68,6 +69,7 @@ private slots:
     void thePopupGrowsToTheLongestOption();
     void aBoxWithASectionRoleStillGetsItsHeaders();
 };
+} // namespace
 
 void StyledComboBoxTests::initTestCase()
 {

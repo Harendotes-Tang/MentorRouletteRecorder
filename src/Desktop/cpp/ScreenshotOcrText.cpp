@@ -51,7 +51,7 @@ bool needsWordSpace(const Word &left, const Word &right)
 
 void finishLine(Line &line)
 {
-    std::sort(line.words.begin(), line.words.end(), [](const Word &a, const Word &b) {
+    std::ranges::sort(line.words, [](const Word &a, const Word &b) {
         return a.rect.left() < b.rect.left();
     });
     line.rect = {};
@@ -63,7 +63,7 @@ void finishLine(Line &line)
 /** @brief 按纵坐标排序 OCR 行片段，并把纵向大半重叠的片段合并为同一物理行。 */
 QList<Line> mergeFragments(QList<Line> fragments)
 {
-    std::sort(fragments.begin(), fragments.end(), [](const Line &a, const Line &b) {
+    std::ranges::sort(fragments, [](const Line &a, const Line &b) {
         if (a.rect.center().y() != b.rect.center().y())
             return a.rect.center().y() < b.rect.center().y();
         return a.rect.left() < b.rect.left();
@@ -205,8 +205,8 @@ bool readLines(const QByteArray &tsv, const QSize &imageSize, QList<Line> &lines
         }
         const QString key = QString::fromLatin1(columns[1] + '/' + columns[2] + '/'
                                                + columns[3] + '/' + columns[4]);
-        grouped[key].words.append({QRect(geometry[0], geometry[1], geometry[2], geometry[3]),
-                                   text, std::max(0.0, rawConfidence) / 100.0});
+        grouped[key].words.append({.rect = QRect(geometry[0], geometry[1], geometry[2], geometry[3]),
+                                   .text = text, .confidence = std::max(0.0, rawConfidence) / 100.0});
     }
 
     QList<Line> fragments;

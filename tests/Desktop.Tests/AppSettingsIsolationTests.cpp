@@ -1,13 +1,52 @@
 #include "AppSettings.h"
 #include <QCoreApplication>
+#include <QFileInfo>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QTest>
 
+namespace {
 class AppSettingsIsolationTests final : public QObject
 {
     Q_OBJECT
 private slots:
+    void auditForwardsTemporaryIniReadWriteAndRemove()
+    {
+        QString temporaryPath;
+        {
+            QTemporaryDir directory;
+            QVERIFY(directory.isValid());
+            temporaryPath = directory.path();
+            settingsAuditRoot() = temporaryPath;
+            nativeSettingsAccesses() = {};
+            const QString requested = QStringLiteral("audit-only-native-target");
+            {
+                QSettings settings(requested, QSettings::NativeFormat);
+                QCOMPARE(settings.fileName(), QDir(temporaryPath).filePath(QStringLiteral("native.ini")));
+                QCOMPARE(settings.value(QStringLiteral("missing"), 17).toInt(), 17);
+                settings.setValue(QStringLiteral("audit/key"), QStringLiteral("saved"));
+                settings.sync();
+                QVERIFY(settings.contains(QStringLiteral("audit/key")));
+            }
+            {
+                QSettings settings(requested, QSettings::NativeFormat);
+                QCOMPARE(settings.value(QStringLiteral("audit/key")).toString(), QStringLiteral("saved"));
+                settings.remove(QStringLiteral("audit/key"));
+                settings.sync();
+                QVERIFY(!settings.contains(QStringLiteral("audit/key")));
+            }
+            QCOMPARE(nativeSettingsAccesses().size(), 4);
+            QCOMPARE(nativeSettingsAccesses()[0].toObject().value("operation").toString(), QStringLiteral("open"));
+            QCOMPARE(nativeSettingsAccesses()[1].toObject().value("operation").toString(), QStringLiteral("set"));
+            QCOMPARE(nativeSettingsAccesses()[1].toObject().value("target").toString(), requested);
+            QCOMPARE(nativeSettingsAccesses()[1].toObject().value("value").toString(), QStringLiteral("saved"));
+            QCOMPARE(nativeSettingsAccesses()[2].toObject().value("operation").toString(), QStringLiteral("open"));
+            QCOMPARE(nativeSettingsAccesses()[3].toObject().value("operation").toString(), QStringLiteral("remove"));
+            QCOMPARE(nativeSettingsAccesses()[3].toObject().value("key").toString(), QStringLiteral("audit/key"));
+            QVERIFY(QFileInfo::exists(QDir(temporaryPath).filePath(QStringLiteral("native.ini"))));
+        }
+        QVERIFY(!QFileInfo::exists(temporaryPath));
+    }
     void harnessCannotEnableOrDisableRealAutostart_data()
     {
         QTest::addColumn<bool>("screenshot");
@@ -21,18 +60,18 @@ private slots:
         QFETCH(QString, backend);
         QTemporaryDir directory;
         QVERIFY(directory.isValid());
-        settingsAuditRoot = directory.path();
-        nativeSettingsAccesses = {};
+        settingsAuditRoot() = directory.path();
+        nativeSettingsAccesses() = {};
         QStandardPaths::setTestModeEnabled(mr::AppSettings::isHarnessRun(screenshot, backend));
         mr::AppSettings settings;
         QSignalSpy changed(&settings, &mr::AppSettings::generalChanged);
         // Exercise both directions even when the harness INI holds a previous value.
         settings.setAutostart(true);
-        QVERIFY2(nativeSettingsAccesses.isEmpty(), "Harness attempted to open/write the real Run key");
+        QVERIFY2(nativeSettingsAccesses().isEmpty(), "Harness attempted to open/write the real Run key");
         QVERIFY(!settings.autostart());
         settings.setValue(QStringLiteral("general/autostart"), true);
         settings.setAutostart(false);
-        QVERIFY(nativeSettingsAccesses.isEmpty());
+        QVERIFY(nativeSettingsAccesses().isEmpty());
         QVERIFY(settings.autostart());
         QVERIFY(!mr::AppSettings::autostartWritable());
         QCOMPARE(changed.size(), 0);
@@ -41,30 +80,31 @@ private slots:
     {
         QTemporaryDir directory;
         QVERIFY(directory.isValid());
-        settingsAuditRoot = directory.path();
-        nativeSettingsAccesses = {};
+        settingsAuditRoot() = directory.path();
+        nativeSettingsAccesses() = {};
         QStandardPaths::setTestModeEnabled(false);
         mr::AppSettings settings;
 #ifdef Q_OS_WIN
         QVERIFY(mr::AppSettings::autostartWritable());
         settings.setAutostart(true);
-        QCOMPARE(nativeSettingsAccesses.size(), 2);
-        const auto write = nativeSettingsAccesses[1].toObject();
+        QCOMPARE(nativeSettingsAccesses().size(), 2);
+        const auto write = nativeSettingsAccesses()[1].toObject();
         QCOMPARE(write.value("operation").toString(), QStringLiteral("set"));
         QCOMPARE(write.value("key").toString(), QStringLiteral("MentorRecorder"));
         QCOMPARE(write.value("target").toString(), QStringLiteral("HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"));
         QCOMPARE(write.value("value").toString(), QStringLiteral("\"%1\"").arg(QDir::toNativeSeparators(QCoreApplication::applicationFilePath())));
         settings.setAutostart(false);
-        QCOMPARE(nativeSettingsAccesses.size(), 4);
-        QCOMPARE(nativeSettingsAccesses[3].toObject().value("operation").toString(), QStringLiteral("remove"));
-        QCOMPARE(nativeSettingsAccesses[3].toObject().value("key").toString(), QStringLiteral("MentorRecorder"));
+        QCOMPARE(nativeSettingsAccesses().size(), 4);
+        QCOMPARE(nativeSettingsAccesses()[3].toObject().value("operation").toString(), QStringLiteral("remove"));
+        QCOMPARE(nativeSettingsAccesses()[3].toObject().value("key").toString(), QStringLiteral("MentorRecorder"));
 #else
         QVERIFY(!mr::AppSettings::autostartWritable());
         settings.setAutostart(true);
-        QVERIFY(nativeSettingsAccesses.isEmpty());
+        QVERIFY(nativeSettingsAccesses().isEmpty());
 #endif
         QStandardPaths::setTestModeEnabled(true);
     }
 };
+} // namespace
 QTEST_GUILESS_MAIN(AppSettingsIsolationTests)
 #include "AppSettingsIsolationTests.moc"

@@ -71,11 +71,11 @@ void MockBackend::setCandidateFixture()
         const int ordinal = older ? i : i - 20;
         const QDateTime started = older ? m_now.addDays(-1).addSecs(-3600)
                                        : m_now.addSecs(-3600);
-        const qint64 elapsed = qint64(ordinal + 1) * 15000;
+        const qint64 elapsed = static_cast<qint64>(ordinal + 1) * 15000;
         const QDateTime at = started.addMSecs(elapsed);
         const bool anchor = i == 2 || i == 17 || i == 25 || i == 35 || i == 248
                             || i == 251 || i == 255 || i == 259;
-        int connection = ordinal % 3 + 1;
+        int connection = (ordinal % 3) + 1;
         if (i == 2 || i == 17 || i == 25 || i == 255)
             connection = 1;
         else if (i == 35 || i == 248)
@@ -85,21 +85,30 @@ void MockBackend::setCandidateFixture()
 
         const bool registration = !anchor && i % 4 == 0;
         const QString id = mockUuid(QStringLiteral("candidate-observation-%1").arg(i));
+        QString hypothesisName;
+        QString groupName;
+        QString direction;
+        if (anchor) {
+            hypothesisName = QStringLiteral("ZONE_LOAD");
+            groupName = QStringLiteral("zone_load");
+            direction = QStringLiteral("NONE");
+        } else if (registration) {
+            hypothesisName = QStringLiteral("QUEUE_REGISTRATION");
+            groupName = QStringLiteral("queue");
+            direction = QStringLiteral("C2S");
+        } else {
+            hypothesisName = QStringLiteral("FINDER_STATE_NOTIFICATION");
+            groupName = QStringLiteral("finder");
+            direction = QStringLiteral("S2C");
+        }
         QJsonObject row{
             {QStringLiteral("observation_id"), id},
             {QStringLiteral("capture_session_id"),
              mockUuid(QStringLiteral("candidate-session-%1").arg(sessionOrdinal))},
             {QStringLiteral("profile_id"), QStringLiteral("cn.2026.08.05.candidate")},
-            {QStringLiteral("hypothesis_name"),
-             anchor ? QStringLiteral("ZONE_LOAD")
-                    : registration ? QStringLiteral("QUEUE_REGISTRATION")
-                                   : QStringLiteral("FINDER_STATE_NOTIFICATION")},
-            {QStringLiteral("group_name"),
-             anchor ? QStringLiteral("zone_load")
-                    : registration ? QStringLiteral("queue") : QStringLiteral("finder")},
-            {QStringLiteral("direction"),
-             anchor ? QStringLiteral("NONE")
-                    : registration ? QStringLiteral("C2S") : QStringLiteral("S2C")},
+            {QStringLiteral("hypothesis_name"), hypothesisName},
+            {QStringLiteral("group_name"), groupName},
+            {QStringLiteral("direction"), direction},
             {QStringLiteral("opcode"),
              anchor ? QJsonValue(QJsonValue::Null) : QJsonValue(registration ? 0x03bb : 0x0323)},
             {QStringLiteral("payload_length"),
@@ -110,26 +119,32 @@ void MockBackend::setCandidateFixture()
              hash12(QStringLiteral("candidate-session-%1-connection-%2")
                         .arg(sessionOrdinal).arg(connection))},
             {QStringLiteral("observed_at_utc"), isoUtc(at)},
-            {QStringLiteral("t_ms"), double(elapsed)},
+            {QStringLiteral("t_ms"), static_cast<double>(elapsed)},
             {QStringLiteral("first_observed_at_utc"),
              anchor ? QJsonValue(isoUtc(at.addMSecs(-2000))) : QJsonValue(QJsonValue::Null)},
             {QStringLiteral("last_observed_at_utc"),
              anchor ? QJsonValue(isoUtc(at)) : QJsonValue(QJsonValue::Null)},
             {QStringLiteral("first_t_ms"),
-             anchor ? QJsonValue(double(elapsed - 2000)) : QJsonValue(QJsonValue::Null)},
+             anchor ? QJsonValue(static_cast<double>(elapsed - 2000)) : QJsonValue(QJsonValue::Null)},
             {QStringLiteral("last_t_ms"),
-             anchor ? QJsonValue(double(elapsed)) : QJsonValue(QJsonValue::Null)},
+             anchor ? QJsonValue(static_cast<double>(elapsed)) : QJsonValue(QJsonValue::Null)},
             {QStringLiteral("review_verdict"), QJsonValue(QJsonValue::Null)},
             {QStringLiteral("review_note"), QJsonValue(QJsonValue::Null)},
             {QStringLiteral("reviewed_at_utc"), QJsonValue(QJsonValue::Null)},
         };
         if (i % 4 != 0) {
-            const QString verdict = i % 4 == 1 ? QStringLiteral("CORRECT")
-                                    : i % 4 == 2 ? QStringLiteral("WRONG")
-                                                 : QStringLiteral("UNSURE");
-            const QString note = i % 4 == 1 ? QString::fromUtf8("模拟核对：与回忆中的弹窗时间一致")
-                                 : i % 4 == 2 ? QString::fromUtf8("模拟核对：此时只是传送")
-                                              : QString::fromUtf8("模拟核对：无法确认对应事件");
+            QString verdict;
+            QString note;
+            if (i % 4 == 1) {
+                verdict = QStringLiteral("CORRECT");
+                note = QString::fromUtf8("模拟核对：与回忆中的弹窗时间一致");
+            } else if (i % 4 == 2) {
+                verdict = QStringLiteral("WRONG");
+                note = QString::fromUtf8("模拟核对：此时只是传送");
+            } else {
+                verdict = QStringLiteral("UNSURE");
+                note = QString::fromUtf8("模拟核对：无法确认对应事件");
+            }
             row.insert(QStringLiteral("review_verdict"), verdict);
             row.insert(QStringLiteral("review_note"), note);
             row.insert(QStringLiteral("reviewed_at_utc"), isoUtc(m_now));
@@ -181,7 +196,7 @@ QJsonObject MockBackend::queryCandidatePayload(const QJsonObject &payload,
             selected.append(row);
         }
     }
-    std::sort(selected.begin(), selected.end(), [](const QJsonObject &a, const QJsonObject &b) {
+    std::ranges::sort(selected, [](const QJsonObject &a, const QJsonObject &b) {
         const QString left = a.value(QStringLiteral("observed_at_utc")).toString();
         const QString right = b.value(QStringLiteral("observed_at_utc")).toString();
         return left == right ? a.value(QStringLiteral("observation_id")).toString()
@@ -190,13 +205,13 @@ QJsonObject MockBackend::queryCandidatePayload(const QJsonObject &payload,
     });
     QJsonArray items;
     const int offset = (page - 1) * size;
-    const int end = qMin(offset + size, int(selected.size()));
+    const int end = qMin(offset + size, static_cast<int>(selected.size()));
     for (int i = offset; i < end; ++i)
         items.append(selected.at(i));
     return {{QStringLiteral("items"), items},
             {QStringLiteral("page_info"), QJsonObject{{QStringLiteral("page"), page},
                                                        {QStringLiteral("page_size"), size},
-                                                       {QStringLiteral("total"), int(selected.size())}}}};
+                                                       {QStringLiteral("total"), static_cast<int>(selected.size())}}}};
 }
 
 QJsonObject MockBackend::reviewCandidatePayload(const QJsonObject &payload,
@@ -251,8 +266,8 @@ QJsonObject MockBackend::exportCandidatePayload(const QJsonObject &payload) cons
     return {{QStringLiteral("target_path"), path},
             {QStringLiteral("sha256_path"), label},
             {QStringLiteral("sha256"), QString(64, QLatin1Char('0'))},
-            {QStringLiteral("observation_count"), int(m_candidateObservations.size())},
-            {QStringLiteral("review_count"), int(m_candidateReviews.size())},
+            {QStringLiteral("observation_count"), static_cast<int>(m_candidateObservations.size())},
+            {QStringLiteral("review_count"), static_cast<int>(m_candidateReviews.size())},
             {QStringLiteral("byte_count"), 0},
             {QStringLiteral("completed_at_utc"), isoUtc(m_now)}};
 }
@@ -327,7 +342,7 @@ QJsonObject MockBackend::calibrationStatus() const
         entry.insert(QStringLiteral("event_id"), kind + QLatin1Char('-') + QString::number(tMs));
         entry.insert(QStringLiteral("kind"), kind);
         entry.insert(QStringLiteral("at_utc"), isoUtc(start.addMSecs(tMs)));
-        entry.insert(QStringLiteral("t_ms"), double(tMs));
+        entry.insert(QStringLiteral("t_ms"), static_cast<double>(tMs));
         entry.insert(QStringLiteral("label"), label.chinese);
         entry.insert(QStringLiteral("label_ref"), label.ref);
         entry.insert(QStringLiteral("roulette_id"), rouletteId);
@@ -388,19 +403,23 @@ QJsonObject MockBackend::calibrationStatus() const
     }
 
     QJsonObject calibration;
-    calibration.insert(QStringLiteral("state"),
-                       observing ? QStringLiteral("OBSERVING")
-                                 : ready ? QStringLiteral("READY")
-                                         : blocked ? QStringLiteral("BLOCKED")
-                                                   : QStringLiteral("DONE"));
+    QString calibrationState = QStringLiteral("DONE");
+    if (observing)
+        calibrationState = QStringLiteral("OBSERVING");
+    else if (ready)
+        calibrationState = QStringLiteral("READY");
+    else if (blocked)
+        calibrationState = QStringLiteral("BLOCKED");
+    calibration.insert(QStringLiteral("state"), calibrationState);
     calibration.insert(QStringLiteral("game_build"), QStringLiteral("2026.09.01.0000.0000"));
     calibration.insert(QStringLiteral("template_profile_id"), QStringLiteral("cn.2026.08.05"));
     // A proven shared profile ends calibration as DONE under its own id, as the Collector's
     // MarkDone does; otherwise DONE is this machine's own calibration.
-    calibration.insert(QStringLiteral("local_profile_id"),
-                       !done ? QJsonValue(QJsonValue::Null)
-                       : sharedProfileBound() ? QJsonValue(QStringLiteral("cn.2026.09.01.0000.0000.shared"))
-                                              : QJsonValue(QStringLiteral("cn.2026.09.01.local")));
+    QJsonValue localProfileId(QJsonValue::Null);
+    if (done)
+        localProfileId = sharedProfileBound() ? QStringLiteral("cn.2026.09.01.0000.0000.shared")
+                                            : QStringLiteral("cn.2026.09.01.local");
+    calibration.insert(QStringLiteral("local_profile_id"), localProfileId);
     calibration.insert(QStringLiteral("bound_at_utc"),
                        done ? QJsonValue(isoUtc(start.addMSecs(220000)))
                             : QJsonValue(QJsonValue::Null));
@@ -522,7 +541,7 @@ QJsonObject MockBackend::applyCaptureSettings(const QJsonObject &payload,
             unique.insert(token);
         }
         QStringList sorted = unique.values();
-        std::sort(sorted.begin(), sorted.end());
+        std::ranges::sort(sorted);
         QJsonArray normalized;
         for (const QString &token : sorted)
             normalized.append(token);

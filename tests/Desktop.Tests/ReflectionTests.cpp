@@ -197,6 +197,7 @@ int summaryCount(const mr::AppController &controller, const char *key)
 
 } // namespace
 
+namespace {
 class ReflectionTests : public QObject
 {
     Q_OBJECT
@@ -214,6 +215,7 @@ private Q_SLOTS:
     void appController_keepsNewResultPromptWhileIdentityAndDashboardArePending();
     void ipcBackend_buildsBothReflectionRequests();
 };
+} // namespace
 
 void ReflectionTests::appController_keepsNewResultPromptWhileIdentityAndDashboardArePending_data()
 {

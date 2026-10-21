@@ -41,14 +41,14 @@ public:
         /// GetStatus.capture.state is RUNNING or DEGRADED.
         virtual bool formalCapturing() const = 0;
         /// Confirmed Collector consent; candidate capture uses the passive ledger path.
-        virtual bool candidateValidationEnabled() const { return false; }
+        virtual bool candidateValidationEnabled() const = 0;
         /// GetStatus.capture.profile_status, the second source of truth for
         /// "is this build's protocol profile verified".
         virtual QString captureProfileStatus() const = 0;
         /// Adopt a $defs/CaptureStatus the formal Start/Stop replies returned.
         virtual void applyFormalCaptureStatus(const QVariantMap &capture) = 0;
-        /// 当前已确认捕获事实的序号；只读测试宿主可保持默认值。
-        virtual quint64 formalCaptureRevision() const { return 0; }
+        /// 当前已确认捕获事实的序号；只读测试宿主返回 0。
+        virtual quint64 formalCaptureRevision() const = 0;
         virtual void refreshStatus() = 0;
         virtual void showToast(const QString &message) = 0;
     };

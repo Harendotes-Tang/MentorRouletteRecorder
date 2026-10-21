@@ -223,7 +223,7 @@ struct Scene {
         return true;
     }
 
-    bool enterNote(const QString &text)
+    bool enterNote(const QString &text) const
     {
         host()->requestActivate();
         if (!QTest::qWaitForWindowActive(host())) return false;
@@ -269,6 +269,7 @@ struct Scene {
 };
 } // namespace
 
+namespace {
 class RecoveryUiTests : public QObject
 {
     Q_OBJECT
@@ -310,6 +311,7 @@ private Q_SLOTS:
     void renderedEvidence_data();
     void renderedEvidence();
 };
+} // namespace
 
 void RecoveryUiTests::initTestCase()
 {

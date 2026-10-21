@@ -30,7 +30,7 @@ constexpr char kContext[] = "CollectorText";
 // without bound.
 constexpr int kMaxDepth = 16;
 
-enum class Kind { Number, Text, Duty, Job, Roulette, Clock, Ref };
+enum class Kind : quint8 { Number, Text, Duty, Job, Roulette, Clock, Ref };
 
 struct Arg
 {
@@ -73,7 +73,7 @@ const QHash<QString, Entry> &table()
                 const std::optional<Kind> kind = kindNamed(part.mid(colon + 1));
                 // The generator writes only known kinds; a hand-edited table that
                 // does not is a build defect the catalogue test reports.
-                entry.args.append({part.left(colon), kind.value_or(Kind::Text)});
+                entry.args.append({.name = part.left(colon), .kind = kind.value_or(Kind::Text)});
             }
             built.insert(QString::fromUtf8(entry.key), std::move(entry));
         }
@@ -94,7 +94,12 @@ const CatalogueEntry::Source kUnknownNames[] = {
 
 QString gameName(Kind kind, const QString &recorded)
 {
-    const auto &unknown = kUnknownNames[kind == Kind::Duty ? 0 : kind == Kind::Job ? 1 : 2];
+    int unknownIndex = 2;
+    if (kind == Kind::Duty)
+        unknownIndex = 0;
+    else if (kind == Kind::Job)
+        unknownIndex = 1;
+    const auto &unknown = kUnknownNames[unknownIndex];
     if (recorded == QString::fromUtf8(unknown.text))
         return QCoreApplication::translate(kContext, unknown.text, unknown.key);
     const GameNames *names = GameNames::shared();
@@ -126,7 +131,7 @@ std::optional<QString> renderArg(const Arg &arg, const QVariant &value, int dept
             const double number = value.toDouble();
             if (number != std::trunc(number) || std::abs(number) > 9.0e15)
                 return std::nullopt;
-            return QString::number(qlonglong(number));
+            return QString::number(static_cast<qlonglong>(number));
         }
         default:
             return std::nullopt;
@@ -249,7 +254,7 @@ bool knows(const QString &key)
 
 int size()
 {
-    return int(table().size());
+    return static_cast<int>(table().size());
 }
 
 } // namespace mr::collector_text

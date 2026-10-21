@@ -114,7 +114,7 @@ CrossEvidence crossEvidence(const QRect &box, Light light)
     };
     evidence.samples = std::max(width, height);
     for (int i = 0; i < evidence.samples; ++i) {
-        const int x = box.left() + i * (width - 1) / (evidence.samples - 1);
+        const int x = box.left() + (i * (width - 1) / (evidence.samples - 1));
         const int y = i * (height - 1) / (evidence.samples - 1);
         evidence.first += lightNear(x, box.top() + y);
         evidence.second += lightNear(x, box.bottom() - y);
@@ -128,9 +128,9 @@ CrossEvidence crossEvidence(const QRect &box, Light light)
         return bright * 5 <= area.width() * area.height();
     };
     const int band = std::max(2, std::min(width, height) / 5);
-    evidence.sidesEmpty = emptyEnough(QRect(box.left() + width / 3, box.top(), width / 3, band))
-        && emptyEnough(QRect(box.left() + width / 3, box.bottom() - band + 1, width / 3, band))
-        && emptyEnough(QRect(box.right() - band + 1, box.top() + height / 3, band, height / 3));
+    evidence.sidesEmpty = emptyEnough(QRect(box.left() + (width / 3), box.top(), width / 3, band))
+        && emptyEnough(QRect(box.left() + (width / 3), box.bottom() - band + 1, width / 3, band))
+        && emptyEnough(QRect(box.right() - band + 1, box.top() + (height / 3), band, height / 3));
     return evidence;
 }
 

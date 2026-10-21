@@ -123,7 +123,7 @@ QList<DutyNameTemplate> loadDutyNameTemplates()
         if (level <= 0 || name.isEmpty() || normalized.isEmpty() || distinctNames.contains(key))
             continue;
         distinctNames.insert(key);
-        templates.append({level, name, normalized});
+        templates.append({.level = level, .name = name, .normalizedName = normalized});
     }
     return templates;
 }
@@ -299,8 +299,11 @@ QList<JobTemplate> loadJobTemplates()
         const QVariantMap job = value.toMap();
         const int id = job.value(QStringLiteral("job_id")).toInt();
         const QUrl url(catalogue.plainIcon(id));
-        const QString path = url.isLocalFile() ? url.toLocalFile()
-            : (url.scheme() == QLatin1String("qrc") ? QLatin1Char(':') + url.path() : QString());
+        QString path;
+        if (url.isLocalFile())
+            path = url.toLocalFile();
+        else if (url.scheme() == QLatin1String("qrc"))
+            path = QLatin1Char(':') + url.path();
         if (path.isEmpty())
             continue;
         QImageReader reader(path);
@@ -330,7 +333,7 @@ IconMatch matchIcon(const QImage &image, const QRect &card, int textLeft,
     if (iconRight <= iconLeft || card.height() <= verticalInset * 2)
         return {};
     const QImage crop = image.copy(QRect(iconLeft, card.top() + verticalInset,
-                                         iconRight - iconLeft, card.height() - verticalInset * 2));
+                                         iconRight - iconLeft, card.height() - (verticalInset * 2)));
     static const mr::JobIconClassifier classifier;
     const mr::JobIconClassifier::Result result = classifier.classify(crop);
     if (result.available) {
@@ -539,7 +542,7 @@ QVariantList ScreenshotImportParser::parse(const QImage &image, const QByteArray
     static const QRegularExpression missingLevelPrefix(QStringLiteral(
         R"(^\s*[Vv]\s*[.。．]\s*(\d{1,3})\s*(.*)$)"));
     const auto inRow = [&rows](const Line &line) {
-        return std::any_of(rows.cbegin(), rows.cend(), [&line](const RowRecord &row) {
+        return std::ranges::any_of(rows, [&line](const RowRecord &row) {
             return row.rect.contains(line.rect.center());
         });
     };
@@ -595,9 +598,9 @@ QVariantList ScreenshotImportParser::parse(const QImage &image, const QByteArray
         QString duty = match.captured(2).trimmed();
         duty.remove(sourceTimePattern());
         duty = duty.trimmed();
-        headers.append({static_cast<int>(i), match.captured(1).toInt(), duty,
-                        words.isEmpty() ? line.rect.left() : words.front().rect.left(), detectedCard,
-                        recoveredLevelPrefix, anchoredDutyTitle});
+        headers.append({.line = static_cast<int>(i), .level = match.captured(1).toInt(), .duty = duty,
+                        .left = words.isEmpty() ? line.rect.left() : words.front().rect.left(), .detectedCard = detectedCard,
+                        .recoveredLevelPrefix = recoveredLevelPrefix, .anchoredDutyTitle = anchoredDutyTitle});
         if (rows.size() + headers.size() > MaxCandidates)
             return fail(QCoreApplication::translate("mr::ScreenshotImportParser", "截图中识别到的记录超过 1000 条，请分批导入。"));
     }
@@ -647,11 +650,11 @@ QVariantList ScreenshotImportParser::parse(const QImage &image, const QByteArray
                 break;
             }
         }
-        headers.append({first, 0, {}, left, surface});
+        headers.append({.line = first, .level = 0, .duty = {}, .left = left, .detectedCard = surface});
         if (rows.size() + headers.size() > MaxCandidates)
             return fail(QCoreApplication::translate("mr::ScreenshotImportParser", "截图中识别到的记录超过 1000 条，请分批导入。"));
     }
-    std::sort(headers.begin(), headers.end(), [](const Header &a, const Header &b) {
+    std::ranges::sort(headers, [](const Header &a, const Header &b) {
         return a.line < b.line;
     });
     if (headers.isEmpty() && rows.isEmpty())
@@ -749,7 +752,7 @@ QVariantList ScreenshotImportParser::parse(const QImage &image, const QByteArray
     for (const RowRecord &row : rows)
         candidates.append(rowCandidate(image, row, templates, dutyTemplates, sourceImagePath));
     // Web rows and any card found outside them, top to bottom.
-    std::stable_sort(candidates.begin(), candidates.end(), [](const QVariant &a, const QVariant &b) {
+    std::ranges::stable_sort(candidates, [](const QVariant &a, const QVariant &b) {
         return a.toMap().value(QStringLiteral("source_rect")).toMap().value(QStringLiteral("y")).toInt()
             < b.toMap().value(QStringLiteral("source_rect")).toMap().value(QStringLiteral("y")).toInt();
     });

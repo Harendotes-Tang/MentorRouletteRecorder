@@ -25,9 +25,13 @@
 namespace {
 
 constexpr auto kHeader = "level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext\n";
-const QStringList kModels{QStringLiteral("PP-OCRv6_det_small.onnx"),
+const QStringList &kModels()
+{
+    static const QStringList value{QStringLiteral("PP-OCRv6_det_small.onnx"),
                           QStringLiteral("PP-OCRv6_rec_small.onnx"),
                           QStringLiteral("ch_ppocr_mobile_v2.0_cls_mobile.onnx")};
+    return value;
+}
 
 bool writeFile(const QString &path, const QByteArray &bytes)
 {
@@ -43,7 +47,7 @@ QString installWorker(QTemporaryDir &directory, const QString &relativeAppDirect
     if (!QDir().mkpath(models)
         || !QFile::copy(QCoreApplication::applicationFilePath(), QDir(ocr).filePath(QStringLiteral("local-ai-ocr.exe"))))
         return {};
-    for (const auto &name : kModels)
+    for (const auto &name : kModels())
         if (!writeFile(QDir(models).filePath(name), "synthetic-model"))
             return {};
     return app;
@@ -63,11 +67,11 @@ QByteArray wholeImageTsv()
     // These are whole detected text rectangles, including a combined timestamp
     // and mixed Han/Latin/punctuation note. No per-character boxes are guessed.
     for (int row = 0; row < 10; ++row) {
-        const int y = row * 108 + 28;
-        tsv += QStringLiteral("5\t1\t%1\t1\t1\t1\t142\t%2\t50\t27\t98.5\tLv.90\n").arg(row * 4 + 1).arg(y).toUtf8();
-        tsv += QStringLiteral("5\t1\t%1\t1\t1\t1\t284\t%2\t294\t27\t99.1\t近东秘宝阿尔扎达尔海底遗迹群\n").arg(row * 4 + 2).arg(y).toUtf8();
-        tsv += QStringLiteral("5\t1\t%1\t1\t1\t1\t610\t%2\t190\t27\t99.7\t2024-09-22 23:04:51\n").arg(row * 4 + 3).arg(y).toUtf8();
-        tsv += QStringLiteral("5\t1\t%1\t1\t1\t1\t826\t%2\t510\t27\t99.8\t无事发生.jpg（第 %3 条；啵啵030!）\n").arg(row * 4 + 4).arg(y).arg(row + 1).toUtf8();
+        const int y = (row * 108) + 28;
+        tsv += QStringLiteral("5\t1\t%1\t1\t1\t1\t142\t%2\t50\t27\t98.5\tLv.90\n").arg((row * 4) + 1).arg(y).toUtf8();
+        tsv += QStringLiteral("5\t1\t%1\t1\t1\t1\t284\t%2\t294\t27\t99.1\t近东秘宝阿尔扎达尔海底遗迹群\n").arg((row * 4) + 2).arg(y).toUtf8();
+        tsv += QStringLiteral("5\t1\t%1\t1\t1\t1\t610\t%2\t190\t27\t99.7\t2024-09-22 23:04:51\n").arg((row * 4) + 3).arg(y).toUtf8();
+        tsv += QStringLiteral("5\t1\t%1\t1\t1\t1\t826\t%2\t510\t27\t99.8\t无事发生.jpg（第 %3 条；啵啵030!）\n").arg((row * 4) + 4).arg(y).arg(row + 1).toUtf8();
     }
     return tsv;
 }
@@ -91,10 +95,10 @@ int worker(int argc, char **argv)
                            {QStringLiteral("omp_threads"), qEnvironmentVariable("OMP_NUM_THREADS")}};
 #ifdef Q_OS_WIN
         wchar_t modulePath[32768];
-        const DWORD modulePathLength = GetModuleFileNameW(nullptr, modulePath, DWORD(std::size(modulePath)));
+        const DWORD modulePathLength = GetModuleFileNameW(nullptr, modulePath, static_cast<DWORD>(std::size(modulePath)));
         if (modulePathLength == 0 || modulePathLength >= std::size(modulePath))
             return 18;
-        record.insert(QStringLiteral("module_path"), QString::fromWCharArray(modulePath, int(modulePathLength)));
+        record.insert(QStringLiteral("module_path"), QString::fromWCharArray(modulePath, static_cast<int>(modulePathLength)));
 #endif
         QFile file(log);
         if (!file.open(QIODevice::Append))
@@ -141,6 +145,7 @@ int worker(int argc, char **argv)
 
 } // namespace
 
+namespace {
 class OfflineOcrEngineTests final : public QObject
 {
     Q_OBJECT
@@ -174,7 +179,7 @@ private Q_SLOTS:
     {
         QTest::addColumn<QString>("name");
         QTest::addColumn<bool>("empty");
-        for (const auto &name : kModels) {
+        for (const auto &name : kModels()) {
             QTest::newRow(qPrintable(name + QStringLiteral("-missing"))) << name << false;
             QTest::newRow(qPrintable(name + QStringLiteral("-empty"))) << name << true;
         }
@@ -227,7 +232,7 @@ private Q_SLOTS:
         bmp[1] = 'M';
         const auto put = [&bmp](int offset, quint32 value) {
             for (int i = 0; i < 4; ++i)
-                bmp[offset + i] = char((value >> (i * 8)) & 255);
+                bmp[offset + i] = static_cast<char>((value >> (i * 8)) & 255);
         };
         put(2, 300000054);
         put(10, 54);
@@ -521,6 +526,7 @@ private Q_SLOTS:
         QVERIFY(finished[0][0].toBool());
     }
 };
+} // namespace
 
 int main(int argc, char **argv)
 {

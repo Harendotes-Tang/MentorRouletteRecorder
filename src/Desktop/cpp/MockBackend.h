@@ -35,7 +35,7 @@ class MockBackend : public IBackend
     Q_OBJECT
 
 public:
-    enum class LiveMode { None, Matched, Entered };
+    enum class LiveMode : quint8 { None, Matched, Entered };
 
     explicit MockBackend(QObject *parent = nullptr);
 

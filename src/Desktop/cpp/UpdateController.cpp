@@ -19,11 +19,11 @@ namespace {
 
 // $defs/UpdateDownload.state; anything else (IDLE, or a state a later Collector
 // adds) reads as nothing under way.
-const QString kIdle = QStringLiteral("IDLE");
-const QString kDownloading = QStringLiteral("DOWNLOADING");
-const QString kVerifying = QStringLiteral("VERIFYING");
-const QString kReady = QStringLiteral("READY");
-const QString kFailed = QStringLiteral("FAILED");
+constexpr QLatin1StringView kIdle("IDLE");
+constexpr QLatin1StringView kDownloading("DOWNLOADING");
+constexpr QLatin1StringView kVerifying("VERIFYING");
+constexpr QLatin1StringView kReady("READY");
+constexpr QLatin1StringView kFailed("FAILED");
 
 /// A Collector that does not know the message answers one of these.
 bool isUnknownMessage(const QString &code)
@@ -33,7 +33,7 @@ bool isUnknownMessage(const QString &code)
 
 QString megabytes(qint64 bytes)
 {
-    return QString::number(double(bytes) / (1024.0 * 1024.0), 'f', 1);
+    return QString::number(static_cast<double>(bytes) / (1024.0 * 1024.0), 'f', 1);
 }
 
 } // namespace
@@ -497,8 +497,8 @@ QString UpdateController::downloadStatusText() const
     const Download &download = m_state.download;
     if (phase == QLatin1String("downloading")) {
         if (download.totalBytes > 0) {
-            const qint64 percent = qBound(qint64(0), download.receivedBytes * 100 / download.totalBytes,
-                                          qint64(100));
+            const qint64 percent = qBound(static_cast<qint64>(0), download.receivedBytes * 100 / download.totalBytes,
+                                          static_cast<qint64>(100));
             return tr("%1：已下载 %2%（%3 / %4 MB）")
                 .arg(installerName())
                 .arg(percent)
@@ -529,7 +529,7 @@ qreal UpdateController::downloadProgress() const
     const Download &download = m_state.download;
     if (download.totalBytes <= 0)
         return -1;
-    return qBound(0.0, double(download.receivedBytes) / double(download.totalBytes), 1.0);
+    return qBound(0.0, static_cast<double>(download.receivedBytes) / static_cast<double>(download.totalBytes), 1.0);
 }
 
 bool UpdateController::browserFallbackOffered() const
@@ -700,7 +700,7 @@ void UpdateController::install()
     // Snapshot what was reported when the button was pressed: that file is
     // the one checked, and the one started.
     const Download &download = m_state.download;
-    m_pendingInstaller = {download.filePath, download.sha256, download.version};
+    m_pendingInstaller = {.path = download.filePath, .sha256 = download.sha256, .version = download.version};
     if (!installer::isInUpdatesDirectory(download.filePath, m_dataDirectory(), download.version)) {
         refuseInstall(LiveText([] { return tr("安装包不在软件的下载目录中，没有启动安装程序。"
                                               "请点「在浏览器中下载」。"); }),

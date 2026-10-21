@@ -114,9 +114,9 @@ void ReflectionLibraryController::toggleSelected(const QVariantMap &run)
     if (id.isEmpty() || run.value(QStringLiteral("reflection")).toMap()
                             .value(QStringLiteral("text")).toString().isEmpty())
         return;
-    if (m_selectedRuns.remove(id))
+    if (m_selectedRuns.remove(id)) {
         m_selectedIds.removeAll(id);
-    else {
+    } else {
         m_selectedIds.append(id);
         m_selectedRuns.insert(id, run);
     }
@@ -186,7 +186,7 @@ void ReflectionLibraryController::refreshSelection()
         const QStringList ids = m_selectedIds.mid(start, kChunk);
         const QJsonObject filter{{QStringLiteral("with_reflection"), true},
                                  {QStringLiteral("run_id"), QJsonArray::fromStringList(ids)}};
-        BackendReply *reply = m_backend->queryRuns(filter, 1, int(ids.size()));
+        BackendReply *reply = m_backend->queryRuns(filter, 1, static_cast<int>(ids.size()));
         reply->whenDone(this, [this, generation, ids](bool ok, const QVariantMap &payload,
                                                       const QString &, const QString &) {
             // 读取失败不等于记录已删除；较早的回答让位于较新的一次。

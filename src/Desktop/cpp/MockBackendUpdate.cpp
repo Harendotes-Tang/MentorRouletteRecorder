@@ -23,14 +23,21 @@
 namespace mr {
 namespace {
 
-const QString kIdle = QStringLiteral("IDLE");
-const QString kDownloading = QStringLiteral("DOWNLOADING");
-const QString kVerifying = QStringLiteral("VERIFYING");
-const QString kReady = QStringLiteral("READY");
-const QString kFailed = QStringLiteral("FAILED");
+struct UpdateFixtureTokens {
+    QString idle = QStringLiteral("IDLE");
+    QString downloading = QStringLiteral("DOWNLOADING");
+    QString verifying = QStringLiteral("VERIFYING");
+    QString ready = QStringLiteral("READY");
+    QString failed = QStringLiteral("FAILED");
+    /// The version the mock's update check reports (MockBackend::collectorStatus).
+    QString latestVersion = QStringLiteral("99.9.9");
+};
 
-/// The version the mock's update check reports (MockBackend::collectorStatus).
-const QString kMockLatestVersion = QStringLiteral("99.9.9");
+const UpdateFixtureTokens &updateFixtureTokens()
+{
+    static const UpdateFixtureTokens tokens;
+    return tokens;
+}
 
 /// The simulated download arrives in this many steps.
 constexpr int kMockDownloadSteps = 8;
@@ -61,10 +68,10 @@ void MockBackend::setUpdateDownloadFixture(const QString &state)
     m_updateMessage.clear();
     m_updateMessageRef = {};
     if (state == QLatin1String("downloading")) {
-        m_updateDownloadState = kDownloading;
+        m_updateDownloadState = updateFixtureTokens().downloading;
         m_updateReceivedBytes = kMockInstallerBytes * 45 / 100;
     } else if (state == QLatin1String("verifying")) {
-        m_updateDownloadState = kVerifying;
+        m_updateDownloadState = updateFixtureTokens().verifying;
         m_updateReceivedBytes = kMockInstallerBytes;
     } else if (state == QLatin1String("ready")) {
         finishUpdateDownload();
@@ -82,24 +89,24 @@ bool MockBackend::isUpdateDownloadMessage(const QString &messageType)
 QString MockBackend::mockInstallerPath() const
 {
     return QDir::toNativeSeparators(
-        dataDirectory() + QStringLiteral("/updates/MentorRecorder-%1-setup.exe").arg(kMockLatestVersion));
+        dataDirectory() + QStringLiteral("/updates/MentorRecorder-%1-setup.exe").arg(updateFixtureTokens().latestVersion));
 }
 
 QJsonObject MockBackend::updateDownload() const
 {
     QJsonObject download{{QStringLiteral("state"), m_updateDownloadState}};
-    if (m_updateDownloadState == kIdle)
+    if (m_updateDownloadState == updateFixtureTokens().idle)
         return download;
-    download.insert(QStringLiteral("version"), kMockLatestVersion);
-    if (m_updateDownloadState == kFailed) {
+    download.insert(QStringLiteral("version"), updateFixtureTokens().latestVersion);
+    if (m_updateDownloadState == updateFixtureTokens().failed) {
         download.insert(QStringLiteral("failure"), m_updateFailure);
         download.insert(QStringLiteral("message"), m_updateMessage);
         download.insert(QStringLiteral("message_ref"), m_updateMessageRef);
         return download;
     }
-    download.insert(QStringLiteral("received_bytes"), double(m_updateReceivedBytes));
-    download.insert(QStringLiteral("total_bytes"), double(kMockInstallerBytes));
-    if (m_updateDownloadState == kReady) {
+    download.insert(QStringLiteral("received_bytes"), static_cast<double>(m_updateReceivedBytes));
+    download.insert(QStringLiteral("total_bytes"), static_cast<double>(kMockInstallerBytes));
+    if (m_updateDownloadState == updateFixtureTokens().ready) {
         download.insert(QStringLiteral("file_path"), m_updateFilePath);
         download.insert(QStringLiteral("sha256"), m_updateSha256);
     }
@@ -108,13 +115,13 @@ QJsonObject MockBackend::updateDownload() const
 
 QJsonObject MockBackend::applyUpdateDownload(const QString &messageType, const QJsonObject &payload)
 {
-    const bool running = m_updateDownloadState == kDownloading || m_updateDownloadState == kVerifying;
+    const bool running = m_updateDownloadState == updateFixtureTokens().downloading || m_updateDownloadState == updateFixtureTokens().verifying;
     if (messageType == QLatin1String("CancelUpdateDownload")) {
         ++m_cancelUpdateDownloadCount;
         if (running) {
             if (m_updateDownloadTimer)
                 m_updateDownloadTimer->stop();
-            m_updateDownloadState = kIdle;
+            m_updateDownloadState = updateFixtureTokens().idle;
             m_updateReceivedBytes = 0;
         }
         return {{QStringLiteral("update"), collectorStatus().value(QStringLiteral("update"))}};
@@ -129,9 +136,9 @@ QJsonObject MockBackend::applyUpdateDownload(const QString &messageType, const Q
         // The mock only knows 99.9.9 while it says there is an update, so even
         // reinstall has nothing to fetch otherwise.
         failUpdateDownload(QStringLiteral("NO_UPDATE"), "update.download.no_update");
-    } else if (!running && !(m_updateDownloadState == kReady && QFileInfo::exists(m_updateFilePath))) {
+    } else if (!running && !(m_updateDownloadState == updateFixtureTokens().ready && QFileInfo::exists(m_updateFilePath))) {
         // Start only when no download is running and no verified installer is already present.
-        m_updateDownloadState = kDownloading;
+        m_updateDownloadState = updateFixtureTokens().downloading;
         m_updateReceivedBytes = 0;
         m_updateFailure.clear();
         m_updateMessage.clear();
@@ -149,16 +156,16 @@ QJsonObject MockBackend::applyUpdateDownload(const QString &messageType, const Q
 
 void MockBackend::advanceUpdateDownload()
 {
-    if (m_updateDownloadState == kDownloading) {
+    if (m_updateDownloadState == updateFixtureTokens().downloading) {
         m_updateReceivedBytes =
-            qMin(kMockInstallerBytes, m_updateReceivedBytes + kMockInstallerBytes / kMockDownloadSteps);
+            qMin(kMockInstallerBytes, m_updateReceivedBytes + (kMockInstallerBytes / kMockDownloadSteps));
         if (m_updateReceivedBytes >= kMockInstallerBytes)
-            m_updateDownloadState = kVerifying;
+            m_updateDownloadState = updateFixtureTokens().verifying;
         return;
     }
     if (m_updateDownloadTimer)
         m_updateDownloadTimer->stop();
-    if (m_updateDownloadState == kVerifying)
+    if (m_updateDownloadState == updateFixtureTokens().verifying)
         finishUpdateDownload();
 }
 
@@ -178,7 +185,7 @@ void MockBackend::finishUpdateDownload()
         failUpdateDownload(QStringLiteral("DISK_FAILED"), "update.download.disk_failed");
         return;
     }
-    m_updateDownloadState = kReady;
+    m_updateDownloadState = updateFixtureTokens().ready;
     m_updateReceivedBytes = kMockInstallerBytes;
     m_updateFilePath = path;
     m_updateSha256 = QString::fromLatin1(
@@ -189,7 +196,7 @@ void MockBackend::failUpdateDownload(const QString &failure, const char *key)
 {
     if (m_updateDownloadTimer)
         m_updateDownloadTimer->stop();
-    m_updateDownloadState = kFailed;
+    m_updateDownloadState = updateFixtureTokens().failed;
     m_updateReceivedBytes = 0;
     m_updateFailure = failure;
     // The Collector's sentence for this failure (UpdateDownloadMessages) and its

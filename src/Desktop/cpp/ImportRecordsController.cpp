@@ -115,12 +115,15 @@ qint64 collectorStringBytes(const QString &text)
         } else if (c < 0x80) {
             bytes += 1;
         } else {
-            const QChar::Category category = QChar::category(char32_t(c));
+            const QChar::Category category = QChar::category(static_cast<char32_t>(c));
             const bool escaped = c == 0xFEFF || QChar::isSurrogate(c) || category == QChar::Other_Control
                 || category == QChar::Other_PrivateUse || category == QChar::Other_NotAssigned
                 || category == QChar::Separator_Space || category == QChar::Separator_Line
                 || category == QChar::Separator_Paragraph;
-            bytes += escaped ? 6 : (c < 0x800 ? 2 : 3);
+            if (escaped)
+                bytes += 6;
+            else
+                bytes += c < 0x800 ? 2 : 3;
         }
     }
     return bytes;
@@ -135,7 +138,7 @@ qint64 collectorJsonBytes(const QJsonValue &value)
     case QJsonValue::Double: {
         const double number = value.toDouble();
         return std::abs(number) < 9007199254740992.0 && number == std::trunc(number)
-            ? QByteArray::number(qint64(number)).size()
+            ? QByteArray::number(static_cast<qint64>(number)).size()
             : QByteArray::number(number, 'g', QLocale::FloatingPointShortest).size();
     }
     case QJsonValue::String:
@@ -441,28 +444,34 @@ bool ImportRecordsController::saveTemplateToPath(const QString &format, const QS
     m_templateStatus.clear();
     m_templateError.clear();
     const QString kind = format.trimmed().toUpper();
-    const QString suffix = kind == QLatin1String("XLSX") ? QStringLiteral("xlsx")
-        : kind == QLatin1String("JSON") ? QStringLiteral("json") : QString{};
+    QString suffix;
+    if (kind == QLatin1String("XLSX"))
+        suffix = QStringLiteral("xlsx");
+    else if (kind == QLatin1String("JSON"))
+        suffix = QStringLiteral("json");
     const QString target = localPath(path);
-    if (suffix.isEmpty())
-        m_templateError = [] { return tr("请选择 Excel 或 JSON 模板。"); };
-    else if (target.isEmpty() || QFileInfo(target).suffix().compare(suffix, Qt::CaseInsensitive) != 0)
-        m_templateError = [suffix] { return tr("请保存为本地 .%1 文件。").arg(suffix); };
-    else {
-        QFile source(QStringLiteral(":/resources/import-templates/personal-records.") + suffix);
-        if (!source.open(QIODevice::ReadOnly))
-            m_templateError = [] { return tr("内嵌模板不可用，请重新安装完整的软件。"); };
-        else {
-            const QByteArray bytes = source.readAll();
-            QSaveFile output(target);
-            if (!output.open(QIODevice::WriteOnly) || output.write(bytes) != bytes.size() || !output.commit())
-                m_templateError = [reason = output.errorString()] { return tr("模板保存失败：%1").arg(reason); };
-            else
-                m_templateStatus = [saved = QDir::toNativeSeparators(target)] {
-                    return tr("模板已保存：%1。填写后返回导入记录，核对并勾选本人记录。").arg(saved);
-                };
+    {
+        if (suffix.isEmpty()) {
+            m_templateError = [] { return tr("请选择 Excel 或 JSON 模板。"); };
+        } else if (target.isEmpty() || QFileInfo(target).suffix().compare(suffix, Qt::CaseInsensitive) != 0) {
+            m_templateError = [suffix] { return tr("请保存为本地 .%1 文件。").arg(suffix); };
+        } else {
+            QFile source(QStringLiteral(":/resources/import-templates/personal-records.") + suffix);
+            if (!source.open(QIODevice::ReadOnly)) {
+                m_templateError = [] { return tr("内嵌模板不可用，请重新安装完整的软件。"); };
+            } else {
+                const QByteArray bytes = source.readAll();
+                QSaveFile output(target);
+                if (!output.open(QIODevice::WriteOnly) || output.write(bytes) != bytes.size() || !output.commit())
+                    m_templateError = [reason = output.errorString()] { return tr("模板保存失败：%1").arg(reason); };
+                else
+                    m_templateStatus = [saved = QDir::toNativeSeparators(target)] {
+                        return tr("模板已保存：%1。填写后返回导入记录，核对并勾选本人记录。").arg(saved);
+                    };
+            }
         }
     }
+
     Q_EMIT changed();
     return m_templateError.isEmpty();
 }
@@ -532,9 +541,9 @@ void ImportRecordsController::importFiles(const QVariantList &pathsOrUrls)
         }
         m_phase = QStringLiteral("ocr");
         if (!m_ocr->start(files)) {
-            if (append)
+            if (append) {
                 discardAppend(m_error);
-            else {
+            } else {
                 m_sourceImages.clear();
                 m_phase = QStringLiteral("editing");
             }
@@ -565,7 +574,7 @@ void ImportRecordsController::pasteClipboard()
             return;
         }
         const QImage image = clipboard->image();
-        if (image.isNull() || qint64(image.width()) * image.height() > OfflineOcrEngine::MaxPixels) {
+        if (image.isNull() || static_cast<qint64>(image.width()) * image.height() > OfflineOcrEngine::MaxPixels) {
             fail(LiveText([] { return tr("剪贴板图片无法读取或超过 5000 万像素。"); }));
             return;
         }
@@ -774,8 +783,9 @@ void ImportRecordsController::requestPreviewPage(const RunImportSource &source, 
                 }
                 m_phase = QStringLiteral("editing");
                 const LiveText error([code, refusal = collector_text::replyErrorText(previewGuard, message)] {
-                    return code == QLatin1String("ERR_UNKNOWN_MESSAGE") ? tr("当前后台服务版本不支持导入，请更新软件后重试。")
-                        : (refusal.isEmpty() ? tr("预览未完成，输入已保留。请点「重新校验」重试。") : refusal.text());
+                    if (code == QLatin1String("ERR_UNKNOWN_MESSAGE"))
+                        return tr("当前后台服务版本不支持导入，请更新软件后重试。");
+                    return refusal.isEmpty() ? tr("预览未完成，输入已保留。请点「重新校验」重试。") : refusal.text();
                 });
                 if (!m_appendImages.isEmpty())
                     discardAppend(error);
@@ -913,7 +923,7 @@ void ImportRecordsController::acceptPreview(const QVariantMap &payload)
     }
     m_hasAcceptedPreview = true;
     m_restoreSelection.clear();
-    m_current = m_rows.isEmpty() ? -1 : qBound(0, m_current, int(m_rows.size()) - 1);
+    m_current = m_rows.isEmpty() ? -1 : qBound(0, m_current, static_cast<int>(m_rows.size()) - 1);
     m_commitRequestId = QUuid::createUuid().toString(QUuid::WithoutBraces);
     Q_EMIT changed();
 }
@@ -1176,7 +1186,7 @@ void ImportRecordsController::commit()
         return;
     QJsonArray numbers;
     QList<int> sorted = m_selected.values();
-    std::sort(sorted.begin(), sorted.end());
+    std::ranges::sort(sorted);
     for (int number : sorted)
         numbers.append(number);
     // What was asked, kept as it was for 重试确认保存 of an unanswered commit.
@@ -1262,7 +1272,10 @@ void ImportRecordsController::removeImportedRows(const QVariantMap &receipt)
     m_candidates = candidates;
     m_evidence = evidence;
     m_summary = summary;
-    m_current = rows.isEmpty() ? -1 : (current >= 0 ? current : qBound(0, m_current, int(rows.size()) - 1));
+    if (rows.isEmpty())
+        m_current = -1;
+    else
+        m_current = current >= 0 ? current : qBound(0, m_current, static_cast<int>(rows.size()) - 1);
     // 后续校验只发送剩余候选，不能重新读取完整来源而恢复已导入项。
     m_filePath.clear();
     m_text.clear();
@@ -1433,7 +1446,7 @@ void ImportRecordsController::setTimeZone(const QString &zone)
     if (busy() || pendingCommitConfirmation() || m_timeZone == zone)
         return;
     // A zone change re-checks every row: never for a batch that could not be re-checked.
-    if (!m_candidates.isEmpty() && !revalidationFits(-1, {}, qint64(zone.toUtf8().size()) - m_timeZone.toUtf8().size())) {
+    if (!m_candidates.isEmpty() && !revalidationFits(-1, {}, static_cast<qint64>(zone.toUtf8().size()) - m_timeZone.toUtf8().size())) {
         fail(LiveText([] { return tr("这批记录太大，更改地区后无法重新校验，地区没有更改。"); }));
         return;
     }

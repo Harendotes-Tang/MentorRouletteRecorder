@@ -126,117 +126,117 @@ QJsonObject IpcBackend::buildRequestForTest(const QString &messageType,
 {
     CapturingBackend backend;
 
-    if (messageType == QLatin1String("GetVersion"))
+    if (messageType == QLatin1String("GetVersion")) {
         backend.getVersion();
-    else if (messageType == QLatin1String("GetStatus"))
+    } else if (messageType == QLatin1String("GetStatus")) {
         backend.getStatus();
-    else if (messageType == QLatin1String("GetCaptureStatus"))
+    } else if (messageType == QLatin1String("GetCaptureStatus")) {
         backend.getCaptureStatus();
-    else if (messageType == QLatin1String("StartCaptureValidation"))
+    } else if (messageType == QLatin1String("StartCaptureValidation")) {
         backend.startCaptureValidation(stringArg(args, "adapter_id"));
-    else if (messageType == QLatin1String("GetCaptureValidationStatus"))
+    } else if (messageType == QLatin1String("GetCaptureValidationStatus")) {
         backend.getCaptureValidationStatus();
-    else if (messageType == QLatin1String("AddCaptureValidationMarker"))
+    } else if (messageType == QLatin1String("AddCaptureValidationMarker")) {
         backend.addCaptureValidationMarker(stringArg(args, "marker"));
-    else if (messageType == QLatin1String("StopCaptureValidation"))
+    } else if (messageType == QLatin1String("StopCaptureValidation")) {
         backend.stopCaptureValidation();
-    else if (messageType == QLatin1String("ConfirmCalibration"))
+    } else if (messageType == QLatin1String("ConfirmCalibration")) {
         backend.confirmCalibration(args.value(QLatin1String("verdicts")).toArray());
-    else if (messageType == QLatin1String("DiscardCalibration"))
+    } else if (messageType == QLatin1String("DiscardCalibration")) {
         backend.discardCalibration();
-    else if (messageType == QLatin1String("GetCalibrationShareCode"))
+    } else if (messageType == QLatin1String("GetCalibrationShareCode")) {
         backend.getCalibrationShareCode();
-    else if (messageType == QLatin1String("GetCalibrationEvidence")
-             || messageType == QLatin1String("GetTemplateObservation"))
+    } else if (messageType == QLatin1String("GetCalibrationEvidence")
+             || messageType == QLatin1String("GetTemplateObservation")) {
         // These preview controllers use the generic request entry directly.
         backend.request(messageType, args);
-    else if (messageType == QLatin1String("CheckSharedCalibration"))
+    } else if (messageType == QLatin1String("CheckSharedCalibration")) {
         backend.checkSharedCalibration();
-    else if (messageType == QLatin1String("ImportCalibrationCode"))
+    } else if (messageType == QLatin1String("ImportCalibrationCode")) {
         backend.importCalibrationCode(stringArg(args, "code"));
-    else if (messageType == QLatin1String("AcceptSharedQueueInference"))
+    } else if (messageType == QLatin1String("AcceptSharedQueueInference")) {
         backend.acceptSharedQueueInference();
-    else if (messageType == QLatin1String("RejectSharedCalibration"))
+    } else if (messageType == QLatin1String("RejectSharedCalibration")) {
         backend.rejectSharedCalibration();
-    else if (messageType == QLatin1String("GetProtocolProfileStatus"))
+    } else if (messageType == QLatin1String("GetProtocolProfileStatus")) {
         backend.getProtocolProfileStatus();
-    else if (messageType == QLatin1String("GetCaptureSettings"))
+    } else if (messageType == QLatin1String("GetCaptureSettings")) {
         backend.getCaptureSettings();
-    else if (messageType == QLatin1String("UpdateCaptureSettings"))
+    } else if (messageType == QLatin1String("UpdateCaptureSettings")) {
         backend.updateCaptureSettings(objectArg(args, "changes"));
-    else if (messageType == QLatin1String("ListCaptureAdapters"))
+    } else if (messageType == QLatin1String("ListCaptureAdapters")) {
         backend.listCaptureAdapters();
-    else if (messageType == QLatin1String("StartCapture"))
+    } else if (messageType == QLatin1String("StartCapture")) {
         backend.startCapture(stringArg(args, "adapter_id"));
-    else if (messageType == QLatin1String("SelectGameProcess"))
+    } else if (messageType == QLatin1String("SelectGameProcess")) {
         backend.selectGameProcess(intArg(args, "process_id", 0), stringArg(args, "selection_token"));
-    else if (messageType == QLatin1String("StopCapture"))
+    } else if (messageType == QLatin1String("StopCapture")) {
         backend.stopCapture();
-    else if (messageType == QLatin1String("GetCurrentRun"))
+    } else if (messageType == QLatin1String("GetCurrentRun")) {
         backend.getCurrentRun();
-    else if (messageType == QLatin1String("SubscribeLiveEvents"))
+    } else if (messageType == QLatin1String("SubscribeLiveEvents")) {
         backend.subscribeLiveEvents();
-    else if (messageType == QLatin1String("QueryRunCalendarDays"))
+    } else if (messageType == QLatin1String("QueryRunCalendarDays")) {
         backend.queryRunCalendarDays(stringArg(args, "month"), objectArg(args, "filter"));
-    else if (messageType == QLatin1String("QueryRuns"))
+    } else if (messageType == QLatin1String("QueryRuns")) {
         backend.queryRuns(objectArg(args, "filter"), intArg(args, "page", 1),
                           intArg(args, "page_size", 50), objectArg(args, "sort"));
-    else if (messageType == QLatin1String("GetRunRevisions"))
+    } else if (messageType == QLatin1String("GetRunRevisions")) {
         backend.getRunRevisions(stringArg(args, "run_id"));
-    else if (messageType == QLatin1String("GetRunEvents"))
+    } else if (messageType == QLatin1String("GetRunEvents")) {
         backend.getRunEvents(stringArg(args, "run_id"));
-    else if (messageType == QLatin1String("QueryCandidateObservations"))
+    } else if (messageType == QLatin1String("QueryCandidateObservations")) {
         backend.queryCandidateObservations(stringArg(args, "session_id"),
                                              stringArg(args, "from_utc"),
                                              stringArg(args, "to_utc"),
                                              intArg(args, "page", 1),
                                              intArg(args, "page_size", 50));
-    else if (messageType == QLatin1String("ReviewCandidateObservation"))
+    } else if (messageType == QLatin1String("ReviewCandidateObservation")) {
         backend.reviewCandidateObservation(stringArg(args, "observation_id"),
                                              stringArg(args, "verdict"),
                                              stringArg(args, "note"));
-    else if (messageType == QLatin1String("ExportCandidateEvidence"))
+    } else if (messageType == QLatin1String("ExportCandidateEvidence")) {
         backend.exportCandidateEvidence(stringArg(args, "target_path"));
-    else if (messageType == QLatin1String("GetDashboardStats"))
+    } else if (messageType == QLatin1String("GetDashboardStats")) {
         backend.getDashboardStats(objectArg(args, "filter"),
                                   stringArg(args, "trend_granularity"));
-    else if (messageType == QLatin1String("GetDungeonStats"))
+    } else if (messageType == QLatin1String("GetDungeonStats")) {
         backend.getDungeonStats(objectArg(args, "filter"), intArg(args, "page", 1),
                                 intArg(args, "page_size", 200));
-    else if (messageType == QLatin1String("GetJobStats"))
+    } else if (messageType == QLatin1String("GetJobStats")) {
         backend.getJobStats(objectArg(args, "filter"), intArg(args, "page", 1),
                             intArg(args, "page_size", 200));
-    else if (messageType == QLatin1String("GetResultStats"))
+    } else if (messageType == QLatin1String("GetResultStats")) {
         backend.getResultStats(objectArg(args, "filter"));
-    else if (messageType == QLatin1String("CreateManualRun"))
+    } else if (messageType == QLatin1String("CreateManualRun")) {
         backend.createManualRun(objectArg(args, "run"), stringArg(args, "reason"));
-    else if (messageType == QLatin1String("CorrectRun"))
+    } else if (messageType == QLatin1String("CorrectRun")) {
         backend.correctRun(stringArg(args, "run_id"), intArg(args, "expected_revision", 1),
                            objectArg(args, "changes"), stringArg(args, "reason"));
-    else if (messageType == QLatin1String("SoftDeleteRun"))
+    } else if (messageType == QLatin1String("SoftDeleteRun")) {
         backend.softDeleteRun(stringArg(args, "run_id"),
                               intArg(args, "expected_revision", 1), stringArg(args, "reason"));
-    else if (messageType == QLatin1String("RestoreRun"))
+    } else if (messageType == QLatin1String("RestoreRun")) {
         backend.restoreRun(stringArg(args, "run_id"),
                            intArg(args, "expected_revision", 1), stringArg(args, "reason"));
-    else if (messageType == QLatin1String("UndoRevision"))
+    } else if (messageType == QLatin1String("UndoRevision")) {
         backend.undoRevision(stringArg(args, "run_id"),
                              intArg(args, "expected_revision", 1),
                              stringArg(args, "reason"));
-    else if (messageType == QLatin1String("BatchMutateRuns"))
+    } else if (messageType == QLatin1String("BatchMutateRuns")) {
         backend.batchMutateRuns(stringArg(args, "action"), args.value(QLatin1String("runs")).toArray(),
                                 stringArg(args, "reason"));
-    else if (messageType == QLatin1String("GetHistoryRetentionSettings"))
+    } else if (messageType == QLatin1String("GetHistoryRetentionSettings")) {
         backend.getHistoryRetentionSettings();
-    else if (messageType == QLatin1String("UpdateHistoryRetentionSettings"))
+    } else if (messageType == QLatin1String("UpdateHistoryRetentionSettings")) {
         backend.updateHistoryRetentionSettings(intArg(args, "retention_days", 0));
-    else if (messageType == QLatin1String("GetPendingImageCleanup"))
+    } else if (messageType == QLatin1String("GetPendingImageCleanup")) {
         backend.getPendingImageCleanup();
-    else if (messageType == QLatin1String("AcknowledgeImageCleanup"))
+    } else if (messageType == QLatin1String("AcknowledgeImageCleanup")) {
         backend.acknowledgeImageCleanup(stringListArg(args, "run_ids"));
-    else if (messageType == QLatin1String("PreviewRunImport") && args.contains(QLatin1String("page")))
+    } else if (messageType == QLatin1String("PreviewRunImport") && args.contains(QLatin1String("page"))) {
         backend.previewRunImportPage(stringArg(args, "preview_id"), intArg(args, "page", 1));
-    else if (messageType == QLatin1String("PreviewRunImport")) {
+    } else if (messageType == QLatin1String("PreviewRunImport")) {
         RunImportSource source;
         source.kind = stringArg(args, "source_kind");
         source.name = stringArg(args, "source_name");
@@ -247,44 +247,45 @@ QJsonObject IpcBackend::buildRequestForTest(const QString &messageType,
         source.columnMapping = objectArg(args, "column_mapping");
         source.pageSize = intArg(args, "page_size", 0);
         backend.previewRunImport(source);
-    } else if (messageType == QLatin1String("CommitRunImport"))
+    } else if (messageType == QLatin1String("CommitRunImport")) {
         backend.commitRunImport(stringArg(args, "preview_id"), intListArg(args, "row_numbers"),
                                 args.value(QLatin1String("deduct_from_baseline")).toBool(false));
-    else if (messageType == QLatin1String("UpdateAchievementBaseline"))
+    } else if (messageType == QLatin1String("UpdateAchievementBaseline")) {
         backend.updateAchievementBaseline(intArg(args, "goal_count", 2000),
                                           intArg(args, "baseline_completed_count", 0),
                                           stringArg(args, "reason"),
                                           stringArg(args, "baseline_effective_at"));
-    else if (messageType == QLatin1String("SetRunReflection"))
+    } else if (messageType == QLatin1String("SetRunReflection")) {
         backend.setRunReflection(stringArg(args, "run_id"), stringArg(args, "mood"),
                                  stringArg(args, "text"));
-    else if (messageType == QLatin1String("GetReflectionSummary"))
+    } else if (messageType == QLatin1String("GetReflectionSummary")) {
         backend.getReflectionSummary(intArg(args, "recent_limit", 3));
-    else if (messageType == QLatin1String("ExportCsv"))
+    } else if (messageType == QLatin1String("ExportCsv")) {
         backend.exportCsv(stringArg(args, "target_path"), objectArg(args, "filter"));
-    else if (messageType == QLatin1String("ExportJson"))
+    } else if (messageType == QLatin1String("ExportJson")) {
         backend.exportJson(stringArg(args, "target_path"), objectArg(args, "filter"));
-    else if (messageType == QLatin1String("BackupDatabase"))
+    } else if (messageType == QLatin1String("BackupDatabase")) {
         backend.backupDatabase(stringArg(args, "target_path"));
-    else if (messageType == QLatin1String("ExportDiagnosticsReport"))
+    } else if (messageType == QLatin1String("ExportDiagnosticsReport")) {
         backend.exportDiagnosticsReport(stringArg(args, "target_path"));
-    else if (messageType == QLatin1String("CheckDatabaseIntegrity"))
+    } else if (messageType == QLatin1String("CheckDatabaseIntegrity")) {
         backend.checkDatabaseIntegrity();
-    else if (messageType == QLatin1String("GetSpeechSettings"))
+    } else if (messageType == QLatin1String("GetSpeechSettings")) {
         backend.getSpeechSettings();
-    else if (messageType == QLatin1String("UpdateSpeechSettings"))
+    } else if (messageType == QLatin1String("UpdateSpeechSettings")) {
         backend.updateSpeechSettings(objectArg(args, "fields").toVariantMap());
-    else if (messageType == QLatin1String("SynthesizeSpeech"))
+    } else if (messageType == QLatin1String("SynthesizeSpeech")) {
         backend.synthesizeSpeech(stringArg(args, "text"), intArg(args, "rate_percent", 100),
                                  args.value(QLatin1String("test")).toBool(false));
-    else if (messageType == QLatin1String("CheckUpdateNow"))
+    } else if (messageType == QLatin1String("CheckUpdateNow")) {
         backend.checkUpdateNow();
-    else if (messageType == QLatin1String("StartUpdateDownload"))
+    } else if (messageType == QLatin1String("StartUpdateDownload")) {
         backend.startUpdateDownload(args.value(QLatin1String("reinstall")).toBool(false));
-    else if (messageType == QLatin1String("CancelUpdateDownload"))
+    } else if (messageType == QLatin1String("CancelUpdateDownload")) {
         backend.cancelUpdateDownload();
-    else
+    } else {
         return {};
+}
 
     return ipc::makeRequest(QString::fromLatin1(testRequestId()),
                             backend.messageType(), backend.payload());

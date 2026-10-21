@@ -16,6 +16,7 @@
 #include <QTest>
 #include <memory>
 
+namespace {
 class ImportImageOrientationTests final : public QObject
 {
     Q_OBJECT
@@ -62,10 +63,10 @@ private slots:
         QVERIFY(buffer.open(QIODevice::WriteOnly));
         QVERIFY(raw.save(&buffer, orientation == 0 ? "PNG" : "JPEG"));
         QByteArray exif = QByteArray::fromHex("45786966000049492a0008000000010012010300010000000100000000000000");
-        exif[24] = char(orientation);
+        exif[24] = static_cast<char>(orientation);
         const qsizetype length = exif.size() + 2;
         if (orientation != 0)
-            encoded.insert(2, QByteArray::fromHex("ffe1") + char(length >> 8) + char(length & 255) + exif);
+            encoded.insert(2, QByteArray::fromHex("ffe1") + static_cast<char>(length >> 8) + static_cast<char>(length & 255) + exif);
         const QString suffix = filenameDpr == 1 ? QString() : QStringLiteral("@2x");
         const QString path = directory.filePath(orientation == 0
             ? QStringLiteral("plain%1.png").arg(suffix) : QStringLiteral("oriented%1.jpg").arg(suffix));
@@ -129,8 +130,8 @@ ApplicationWindow {
         const QImage expected = oriented.copy(sourceRect);
         for (qreal fx : {0.25, 0.75})
             for (qreal fy : {0.25, 0.75}) {
-                const QColor a = actual.pixelColor(int(actual.width() * fx), int(actual.height() * fy));
-                const QColor e = expected.pixelColor(int(expected.width() * fx), int(expected.height() * fy));
+                const QColor a = actual.pixelColor(static_cast<int>(actual.width() * fx), static_cast<int>(actual.height() * fy));
+                const QColor e = expected.pixelColor(static_cast<int>(expected.width() * fx), static_cast<int>(expected.height() * fy));
                 QVERIFY2(qAbs(a.red() - e.red()) + qAbs(a.green() - e.green()) + qAbs(a.blue() - e.blue()) < 20,
                          qPrintable(QStringLiteral("orientation %1: actual %2 expected %3").arg(orientation).arg(a.name(), e.name())));
             }
@@ -152,6 +153,7 @@ ApplicationWindow {
         QCOMPARE(viewport->height(), 0.0);
     }
 };
+} // namespace
 int main(int argc, char **argv)
 {
     qputenv("QT_QPA_PLATFORM", "offscreen");

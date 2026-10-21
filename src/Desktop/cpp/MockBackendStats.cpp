@@ -50,7 +50,7 @@ QSet<qint64> zonesOfOnly(const QJsonArray &contentIds)
     QSet<qint64> wanted;
     for (const auto &id : contentIds) {
         if (id.isDouble())
-            wanted.insert(qint64(id.toDouble()));
+            wanted.insert(static_cast<qint64>(id.toDouble()));
     }
     if (wanted.isEmpty())
         return {};
@@ -79,7 +79,7 @@ bool matchesContentIds(const QJsonObject &filter, const QSet<qint64> &dutyZones,
         return true;
     const QJsonValue zone = run.value(QStringLiteral("territory_id"));
     return run.value(QStringLiteral("content_id")).isNull() && zone.isDouble()
-           && dutyZones.contains(qint64(zone.toDouble()));
+           && dutyZones.contains(static_cast<qint64>(zone.toDouble()));
 }
 
 QJsonValue fieldForSort(const QJsonObject &run, const QString &field)
@@ -332,21 +332,21 @@ QJsonObject MockBackend::queryRunsPayload(const QJsonObject &payload) const
         sort.value(QStringLiteral("direction")).toString(QStringLiteral("desc"))
         == QLatin1String("asc");
 
-    std::stable_sort(rows.begin(), rows.end(),
+    std::ranges::stable_sort(rows,
                      [&](const QJsonObject &a, const QJsonObject &b) {
                          return sortsBefore(a, b, field, ascending);
                      });
 
     // RunRepository.Query: the page asked for, even past the end (then empty). The request
     // path has already refused a page or page_size out of range (RequestParsers.Paging).
-    const int total = int(rows.size());
+    const int total = static_cast<int>(rows.size());
     const int pageSize = payload.value(QStringLiteral("page_size")).toInt(50);
     const int page = payload.value(QStringLiteral("page")).toInt(1);
 
     QJsonArray items;
-    const qint64 first = qint64(page - 1) * pageSize;
-    for (qint64 i = first; i < qMin(qint64(total), first + pageSize); ++i)
-        items.append(rows.at(int(i)));
+    const qint64 first = static_cast<qint64>(page - 1) * pageSize;
+    for (qint64 i = first; i < qMin(static_cast<qint64>(total), first + pageSize); ++i)
+        items.append(rows.at(static_cast<int>(i)));
 
     QJsonObject pageInfo;
     pageInfo.insert(QStringLiteral("page"), page);
@@ -396,7 +396,7 @@ QJsonObject MockBackend::resultStats(const QJsonObject &filter) const
         bucket.insert(QStringLiteral("result"), key);
         bucket.insert(QStringLiteral("count"), count);
         bucket.insert(QStringLiteral("share"),
-                      nullableNumber(shareDefined, double(count) / double(attempts)));
+                      nullableNumber(shareDefined, static_cast<double>(count) / static_cast<double>(attempts)));
         buckets.append(bucket);
     }
 
@@ -536,18 +536,18 @@ QJsonObject MockBackend::dashboardStats(const QJsonObject &filter,
     stats.insert(QStringLiteral("goal_count"), m_goalCount);
     stats.insert(QStringLiteral("remaining"), remaining);
     stats.insert(QStringLiteral("completion_rate"),
-                 nullableNumber(attempts > 0, double(completed) / double(attempts)));
+                 nullableNumber(attempts > 0, static_cast<double>(completed) / static_cast<double>(attempts)));
     // leave_rate counts LEFT_OR_ABANDONED only. DISCONNECTED, INTERRUPTED and
     // UNKNOWN stay in their own buckets (docs/statistics-definitions.md 7).
     stats.insert(QStringLiteral("leave_rate"),
-                 nullableNumber(attempts > 0, double(left) / double(attempts)));
+                 nullableNumber(attempts > 0, static_cast<double>(left) / static_cast<double>(attempts)));
     stats.insert(QStringLiteral("avg_duration_ms"),
-                 nullableNumber(durationCount > 0, durationSum / double(durationCount)));
+                 nullableNumber(durationCount > 0, durationSum / static_cast<double>(durationCount)));
     stats.insert(QStringLiteral("result_breakdown"), resultStats(filter));
     stats.insert(QStringLiteral("unfinished_pending_review"), pendingReview);
     stats.insert(QStringLiteral("joined_in_progress_count"), joinedInProgress);
     stats.insert(QStringLiteral("joined_in_progress_rate"),
-                 nullableNumber(entryKnown > 0, double(joinedInProgress) / double(entryKnown)));
+                 nullableNumber(entryKnown > 0, static_cast<double>(joinedInProgress) / static_cast<double>(entryKnown)));
     stats.insert(QStringLiteral("trend"), trendSeries(filter, granularity));
     return stats;
 }
@@ -589,17 +589,17 @@ QJsonObject aggregateToRow(const Aggregate &aggregate)
     row.insert(QStringLiteral("joined_in_progress_count"), aggregate.joinedInProgress);
     row.insert(QStringLiteral("completion_rate"),
                nullableNumber(aggregate.attempts > 0,
-                              double(aggregate.completed) / double(aggregate.attempts)));
+                              static_cast<double>(aggregate.completed) / static_cast<double>(aggregate.attempts)));
     row.insert(QStringLiteral("avg_duration_ms"),
                nullableNumber(aggregate.durationCount > 0,
-                              aggregate.durationSum / double(aggregate.durationCount)));
+                              aggregate.durationSum / static_cast<double>(aggregate.durationCount)));
     return row;
 }
 
 /// A JSON number as an id, or -1 for null / absent: no real id is negative.
 qint64 idOf(const QJsonValue &value)
 {
-    return value.isDouble() ? qint64(value.toDouble()) : qint64(-1);
+    return value.isDouble() ? static_cast<qint64>(value.toDouble()) : static_cast<qint64>(-1);
 }
 
 /// The catalogue's duties by zone, lowest content id first. DutyCatalog.FindByTerritory
@@ -619,7 +619,7 @@ QHash<qint64, QList<qint64>> dutiesByZone()
             ids.append(id);
     }
     for (QList<qint64> &ids : zones)
-        std::sort(ids.begin(), ids.end());
+        std::ranges::sort(ids);
     return zones;
 }
 
@@ -659,8 +659,8 @@ QJsonArray MockBackend::dungeonStats(const QJsonObject &filter) const
         }
         const QPair<qint64, qint64> key{contentId, zone};
         if (!indexOf.contains(key)) {
-            indexOf.insert(key, int(groups.size()));
-            groups.append(Group{contentId, zone});
+            indexOf.insert(key, static_cast<int>(groups.size()));
+            groups.append(Group{.contentId = contentId, .zone = zone});
         }
         Group &group = groups[indexOf.value(key)];
         accumulate(group.aggregate, run);
@@ -685,23 +685,27 @@ QJsonArray MockBackend::dungeonStats(const QJsonObject &filter) const
     for (const Group &group : std::as_const(groups)) {
         // What the catalogue says: the duty itself, or the lowest content id of the zone.
         const QList<qint64> hosted = zones.value(group.zone);
-        const QVariantMap mapped = group.contentId >= 0
-            ? mr::DutyCatalog::shared()->lookup(group.contentId)
-            : hosted.isEmpty() ? QVariantMap() : mr::DutyCatalog::shared()->lookup(hosted.first());
+        QVariantMap mapped;
+        if (group.contentId >= 0)
+            mapped = mr::DutyCatalog::shared()->lookup(group.contentId);
+        else if (!hosted.isEmpty())
+            mapped = mr::DutyCatalog::shared()->lookup(hosted.first());
         const QString mappedName = mapped.value(QStringLiteral("duty_name")).toString();
         const QString mappedCategory = mapped.value(QStringLiteral("duty_category")).toString();
 
         QJsonObject row = aggregateToRow(group.aggregate);
         row.insert(QStringLiteral("content_id"),
                    group.contentId < 0 ? QJsonValue(QJsonValue::Null) : QJsonValue(group.contentId));
-        row.insert(QStringLiteral("duty_name"),
-                   !group.name.isEmpty() ? group.name
-                   : !mappedName.isEmpty() ? mappedName
-                                           : QString::fromUtf8("未知副本"));
-        row.insert(QStringLiteral("duty_category"),
-                   !group.name.isEmpty() && group.category.isString() && !group.category.toString().isEmpty()
-                       ? group.category
-                       : !mappedCategory.isEmpty() ? QJsonValue(mappedCategory) : QJsonValue(QJsonValue::Null));
+        if (!group.name.isEmpty())
+            row.insert(QStringLiteral("duty_name"), group.name);
+        else
+            row.insert(QStringLiteral("duty_name"),
+                       !mappedName.isEmpty() ? mappedName : QString::fromUtf8("未知副本"));
+        if (!group.name.isEmpty() && group.category.isString() && !group.category.toString().isEmpty())
+            row.insert(QStringLiteral("duty_category"), group.category);
+        else
+            row.insert(QStringLiteral("duty_category"),
+                       !mappedCategory.isEmpty() ? QJsonValue(mappedCategory) : QJsonValue(QJsonValue::Null));
         // No duty_meta: $defs/DungeonStatsRow cannot carry it. DungeonStatsModel
         // derives it from the duty catalogue, in the interface language.
         row.insert(QStringLiteral("last_seen_utc"),
@@ -710,7 +714,7 @@ QJsonArray MockBackend::dungeonStats(const QJsonObject &filter) const
     }
 
     // Attempts first, then content_id with null first, then the name, ordinal.
-    std::stable_sort(out.begin(), out.end(), [](const QJsonObject &a, const QJsonObject &b) {
+    std::ranges::stable_sort(out, [](const QJsonObject &a, const QJsonObject &b) {
         const int attemptsA = a.value(QStringLiteral("attempt_count")).toInt();
         const int attemptsB = b.value(QStringLiteral("attempt_count")).toInt();
         if (attemptsA != attemptsB)
@@ -755,7 +759,7 @@ QJsonArray MockBackend::jobStats(const QJsonObject &filter) const
     }
 
     // Attempts first, then job_id with null first.
-    std::stable_sort(out.begin(), out.end(), [](const QJsonObject &a, const QJsonObject &b) {
+    std::ranges::stable_sort(out, [](const QJsonObject &a, const QJsonObject &b) {
         const int attemptsA = a.value(QStringLiteral("attempt_count")).toInt();
         const int attemptsB = b.value(QStringLiteral("attempt_count")).toInt();
         if (attemptsA != attemptsB)

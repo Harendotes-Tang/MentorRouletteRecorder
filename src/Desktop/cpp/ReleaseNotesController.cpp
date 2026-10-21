@@ -40,7 +40,7 @@ Version parseVersion(const QString &version)
     const auto match = pattern.match(version);
     if (!match.hasMatch())
         return {};
-    Version parsed{{match.captured(1), match.captured(2), match.captured(3)}, {}, true};
+    Version parsed{.numbers = {match.captured(1), match.captured(2), match.captured(3)}, .prerelease = {}, .valid = true};
     if (!match.captured(4).isEmpty())
         parsed.prerelease = match.captured(4).split(QLatin1Char('.'));
     static const QRegularExpression numeric(QStringLiteral("^[0-9]+$"));

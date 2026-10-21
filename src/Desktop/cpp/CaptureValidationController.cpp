@@ -14,7 +14,7 @@ constexpr int kBasePollMs = 750;
 /// answers for the rest of the session.
 constexpr int kMaxRetries = 6;
 
-const QString kVerified = QStringLiteral("VERIFIED");
+constexpr QLatin1StringView kVerified("VERIFIED");
 
 bool isUnsupportedCode(const QString &code)
 {
@@ -98,7 +98,7 @@ QString CaptureValidationController::effectiveProfileStatus() const
     if (fromStatus.isEmpty())
         return standalone;
     if (standalone == kVerified && fromStatus == kVerified)
-        return kVerified;
+        return standalone;
     // The two sources disagree. Take the one that is not VERIFIED; when
     // neither is, prefer the status object, which travels with every GetStatus
     // and is therefore the fresher of the two.
@@ -380,13 +380,13 @@ void CaptureValidationController::refreshStatusSnapshot()
                     ++m_retryCount;
                     scheduleRetry();
                     m_error = [exhausted = m_retriesExhausted, code, message] {
-                        return exhausted
-                                   ? tr("验证状态多次刷新失败（%1），已停止自动重试；"
-                                        "可点击“重新检测游戏”再试一次。")
-                                         .arg(code)
-                                   : (message.isEmpty()
-                                          ? tr("验证状态刷新失败（%1），将自动重试。").arg(code)
-                                          : tr("验证状态刷新失败：%1，将自动重试。").arg(message));
+                        if (exhausted)
+                            return tr("验证状态多次刷新失败（%1），已停止自动重试；"
+                                      "可点击“重新检测游戏”再试一次。")
+                                .arg(code);
+                        if (message.isEmpty())
+                            return tr("验证状态刷新失败（%1），将自动重试。").arg(code);
+                        return tr("验证状态刷新失败：%1，将自动重试。").arg(message);
                     };
                 }
                 Q_EMIT changed();

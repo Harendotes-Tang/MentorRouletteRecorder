@@ -32,9 +32,17 @@
 namespace mr {
 namespace {
 
-const QString kAzure = QStringLiteral("azure");
-const QString kOpenAi = QStringLiteral("openai_compatible");
-const QString kNone = QStringLiteral("none");
+struct SpeechProviders {
+    QString azure = QStringLiteral("azure");
+    QString openAi = QStringLiteral("openai_compatible");
+    QString none = QStringLiteral("none");
+};
+
+const SpeechProviders &speechProviders()
+{
+    static const SpeechProviders tokens;
+    return tokens;
+}
 
 struct VoiceOption {
     const char *name;
@@ -46,17 +54,17 @@ struct VoiceOption {
 
 // The Collector's curated lists (src/Collector/Speech/OnlineSpeechService.cs).
 constexpr VoiceOption kAzureVoices[] = {
-    {"zh-CN-XiaoxiaoNeural", "speech.voice.xiaoxiao", nullptr},
-    {"zh-CN-YunxiNeural", "speech.voice.yunxi", nullptr},
-    {"zh-CN-XiaoyiNeural", "speech.voice.xiaoyi", nullptr},
-    {"zh-CN-YunjianNeural", "speech.voice.yunjian", nullptr},
-    {"zh-CN-XiaochenNeural", "speech.voice.xiaochen", nullptr},
-    {"zh-CN-YunyangNeural", "speech.voice.yunyang", nullptr},
+    {.name = "zh-CN-XiaoxiaoNeural", .labelKey = "speech.voice.xiaoxiao", .label = nullptr},
+    {.name = "zh-CN-YunxiNeural", .labelKey = "speech.voice.yunxi", .label = nullptr},
+    {.name = "zh-CN-XiaoyiNeural", .labelKey = "speech.voice.xiaoyi", .label = nullptr},
+    {.name = "zh-CN-YunjianNeural", .labelKey = "speech.voice.yunjian", .label = nullptr},
+    {.name = "zh-CN-XiaochenNeural", .labelKey = "speech.voice.xiaochen", .label = nullptr},
+    {.name = "zh-CN-YunyangNeural", .labelKey = "speech.voice.yunyang", .label = nullptr},
 };
 
 constexpr VoiceOption kOpenAiVoices[] = {
-    {"alloy", nullptr, "alloy"}, {"echo", nullptr, "echo"}, {"fable", nullptr, "fable"},
-    {"onyx", nullptr, "onyx"},   {"nova", nullptr, "nova"}, {"shimmer", nullptr, "shimmer"},
+    {.name = "alloy", .labelKey = nullptr, .label = "alloy"}, {.name = "echo", .labelKey = nullptr, .label = "echo"}, {.name = "fable", .labelKey = nullptr, .label = "fable"},
+    {.name = "onyx", .labelKey = nullptr, .label = "onyx"},   {.name = "nova", .labelKey = nullptr, .label = "nova"}, {.name = "shimmer", .labelKey = nullptr, .label = "shimmer"},
 };
 
 /// $defs/SpeechVoiceOption rows as SpeechHandlers.Voices writes them: a label
@@ -96,9 +104,9 @@ bool isName(const QString &name)
 
 bool isVoice(const QString &provider, const QString &voice)
 {
-    if (provider == kAzure)
+    if (provider == speechProviders().azure)
         return matches("^[A-Za-z0-9-]{3,64}$", voice);
-    return provider == kOpenAi && isName(voice);
+    return provider == speechProviders().openAi && isName(voice);
 }
 
 /// SpeechValidation.TryNormalizeBaseUrl: https, or http for loopback only; no
@@ -134,9 +142,9 @@ QString stringField(const QJsonObject &object, const char *name)
 QString keyBinding(const QJsonObject &settings)
 {
     const QString provider = stringField(settings, "provider");
-    if (provider == kAzure && isRegion(stringField(settings, "azure_region")))
+    if (provider == speechProviders().azure && isRegion(stringField(settings, "azure_region")))
         return QStringLiteral("azure:") + stringField(settings, "azure_region");
-    if (provider == kOpenAi) {
+    if (provider == speechProviders().openAi) {
         const QString url = normalizeBaseUrl(stringField(settings, "openai_base_url"));
         if (!url.isEmpty())
             return QStringLiteral("openai_compatible:") + url;
@@ -148,9 +156,9 @@ bool isComplete(const QJsonObject &settings)
 {
     const QString provider = stringField(settings, "provider");
     const QString voice = stringField(settings, "voice");
-    if (provider == kAzure)
+    if (provider == speechProviders().azure)
         return isRegion(stringField(settings, "azure_region")) && isVoice(provider, voice);
-    if (provider == kOpenAi) {
+    if (provider == speechProviders().openAi) {
         return !normalizeBaseUrl(stringField(settings, "openai_base_url")).isEmpty()
                && isName(stringField(settings, "openai_model")) && isVoice(provider, voice);
     }
@@ -160,9 +168,9 @@ bool isComplete(const QJsonObject &settings)
 QString targetHost(const QJsonObject &settings)
 {
     const QString provider = stringField(settings, "provider");
-    if (provider == kAzure && isRegion(stringField(settings, "azure_region")))
+    if (provider == speechProviders().azure && isRegion(stringField(settings, "azure_region")))
         return stringField(settings, "azure_region") + QStringLiteral(".azure-speech.invalid");
-    if (provider == kOpenAi) {
+    if (provider == speechProviders().openAi) {
         const QString url = normalizeBaseUrl(stringField(settings, "openai_base_url"));
         if (!url.isEmpty())
             return QUrl(url).host();
@@ -180,7 +188,7 @@ QByteArray silentWave()
 {
     constexpr quint32 kSampleRate = 24000;
     constexpr quint32 kDataBytes = kSampleRate * 2 * 3 / 10;
-    QByteArray bytes(44 + int(kDataBytes), '\0');
+    QByteArray bytes(44 + static_cast<int>(kDataBytes), '\0');
     char *data = bytes.data();
     const auto put32 = [data](int offset, quint32 value) { qToLittleEndian(value, data + offset); };
     const auto put16 = [data](int offset, quint16 value) { qToLittleEndian(value, data + offset); };
@@ -222,12 +230,12 @@ void MockBackend::setSpeechFixture(const QString &state)
     m_speech = QJsonObject();
     m_speechHasKey = false;
     if (state == QLatin1String("azure") || state == QLatin1String("fail")) {
-        m_speech = {{QStringLiteral("provider"), kAzure},
+        m_speech = {{QStringLiteral("provider"), speechProviders().azure},
                     {QStringLiteral("azure_region"), QStringLiteral("eastasia")},
                     {QStringLiteral("voice"), QStringLiteral("zh-CN-XiaoxiaoNeural")}};
         m_speechHasKey = true;
     } else if (state == QLatin1String("openai")) {
-        m_speech = {{QStringLiteral("provider"), kOpenAi},
+        m_speech = {{QStringLiteral("provider"), speechProviders().openAi},
                     {QStringLiteral("openai_base_url"), QStringLiteral("https://api.example.com/v1")},
                     {QStringLiteral("openai_model"), QStringLiteral("gpt-4o-mini-tts")},
                     {QStringLiteral("voice"), QStringLiteral("alloy")}};
@@ -264,7 +272,7 @@ QJsonObject MockBackend::speechSettings() const
     const QString provider = stringField(m_speech, "provider");
     const bool hasKey = m_speechHasKey && !keyBinding(m_speech).isEmpty();
     return {
-        {QStringLiteral("provider"), provider.isEmpty() ? kNone : provider},
+        {QStringLiteral("provider"), provider.isEmpty() ? speechProviders().none : provider},
         {QStringLiteral("azure_region"), nullable(stringField(m_speech, "azure_region"))},
         {QStringLiteral("openai_base_url"), nullable(stringField(m_speech, "openai_base_url"))},
         {QStringLiteral("openai_model"), nullable(stringField(m_speech, "openai_model"))},
@@ -290,7 +298,7 @@ QJsonObject MockBackend::updateSpeechPayload(const QJsonObject &payload, QString
     QJsonObject next = m_speech;
     if (payload.contains(QStringLiteral("provider"))) {
         const QString provider = payload.value(QStringLiteral("provider")).toString();
-        if (provider != kNone && provider != kAzure && provider != kOpenAi)
+        if (provider != speechProviders().none && provider != speechProviders().azure && provider != speechProviders().openAi)
             return refuse("ipc.field.not_one_of",
                           {{QStringLiteral("field"), QStringLiteral("provider")},
                            {QStringLiteral("choices"), QStringLiteral("none / azure / openai_compatible")}});
@@ -321,8 +329,8 @@ QJsonObject MockBackend::updateSpeechPayload(const QJsonObject &payload, QString
     }
     const QString provider = stringField(next, "provider");
     const QString voice = stringField(next, "voice");
-    if (!voice.isEmpty() && (provider == kAzure || provider == kOpenAi) && !isVoice(provider, voice))
-        return refuse(provider == kAzure ? "speech.settings.azure_voice_invalid"
+    if (!voice.isEmpty() && (provider == speechProviders().azure || provider == speechProviders().openAi) && !isVoice(provider, voice))
+        return refuse(provider == speechProviders().azure ? "speech.settings.azure_voice_invalid"
                                          : "speech.settings.voice_invalid");
 
     const QString oldBinding = keyBinding(m_speech);

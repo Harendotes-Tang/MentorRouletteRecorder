@@ -90,6 +90,7 @@ Window {
 
 } // namespace
 
+namespace {
 class StyledTextFieldTests final : public QObject
 {
     Q_OBJECT
@@ -104,6 +105,7 @@ private slots:
     void tabWhileAnInputMethodComposesIsNotSwallowed();
     void thePlaceholderEndsWithTheHint();
 };
+} // namespace
 
 void StyledTextFieldTests::initTestCase()
 {

@@ -43,7 +43,7 @@ public:
     mr::BackendReply *request(const QString &type, const QJsonObject &payload = {}) override
     {
         auto *reply = new mr::BackendReply(QString::number(calls.size()), type, this);
-        calls.append({type, payload, reply});
+        calls.append({.type=type, .payload=payload, .reply=reply});
         if (automatic) QTimer::singleShot(0, reply, [this, reply, type, payload] {
             if (type == QLatin1String("QueryCandidateObservations")) reply->succeed(query(payload));
             else if (type == QLatin1String("GetCaptureSettings"))
@@ -65,9 +65,9 @@ public:
         const int page = payload.value(QStringLiteral("page")).toInt(1);
         const int size = payload.value(QStringLiteral("page_size")).toInt(50);
         QJsonArray items;
-        for (int index = (page - 1) * size; index < qMin(page * size, int(selected.size())); ++index)
+        for (int index = (page - 1) * size; index < qMin(page * size, static_cast<int>(selected.size())); ++index)
             items.append(selected[index]);
-        const int total = int(selected.size()) + (inconsistentIndex && size == 200 && page > 1 ? 1 : 0);
+        const int total = static_cast<int>(selected.size()) + (inconsistentIndex && size == 200 && page > 1 ? 1 : 0);
         return {{QStringLiteral("items"), items},
                 {QStringLiteral("page_info"), QJsonObject{{QStringLiteral("page"), page},
                     {QStringLiteral("page_size"), size}, {QStringLiteral("total"), total}}}};
@@ -88,6 +88,7 @@ public:
     bool running = false;
     bool formalCapturing() const override { return running; }
     bool candidateValidationEnabled() const override { return candidate; }
+    quint64 formalCaptureRevision() const override { return 0; }
     QString captureProfileStatus() const override { return QStringLiteral("UNSUPPORTED_BUILD"); }
     void applyFormalCaptureStatus(const QVariantMap &status) override
     { running = status.value(QStringLiteral("state")).toString() == QLatin1String("RUNNING"); }
@@ -115,8 +116,10 @@ QJsonObject eventAt(int id, const QString &name, qint64 tMs, const QString &conn
 {
     auto value = row(id, QStringLiteral("s1"), connection, name == QLatin1String("ZONE_LOAD"));
     value[QStringLiteral("hypothesis_name")] = name;
-    value[QStringLiteral("direction")] = name == QLatin1String("ZONE_LOAD") ? QStringLiteral("NONE")
-        : name == QLatin1String("FINDER_STATE_NOTIFICATION") ? QStringLiteral("S2C") : QStringLiteral("C2S");
+    QString direction = QStringLiteral("C2S");
+    if (name == QLatin1String("ZONE_LOAD")) direction = QStringLiteral("NONE");
+    else if (name == QLatin1String("FINDER_STATE_NOTIFICATION")) direction = QStringLiteral("S2C");
+    value[QStringLiteral("direction")] = direction;
     value[QStringLiteral("t_ms")] = tMs;
     value[QStringLiteral("observed_at_utc")] = QDateTime::fromString(QStringLiteral("2026-09-06T01:49:00.000Z"), Qt::ISODateWithMs)
         .addMSecs(tMs).toString(Qt::ISODateWithMs);
@@ -162,6 +165,7 @@ QQuickItem *findVisualItem(QQuickItem *root, const QString &name)
 }
 } // namespace
 
+namespace {
 class CandidateReviewTests : public QObject
 {
     Q_OBJECT
@@ -205,7 +209,7 @@ private Q_SLOTS:
             const QString name = declared.value(QStringLiteral("name")).toString();
             const QString token = QStringLiteral("0x%1")
                 .arg(declared.value(QStringLiteral("opcode")).toInt(), 4, 16, QLatin1Char('0'));
-            const auto it = std::find_if(presented.begin(), presented.end(), [&name](const QJsonValue &item) {
+            const auto it = std::ranges::find_if(presented, [&name](const QJsonValue &item) {
                 return item.toObject().value(QStringLiteral("name")).toString() == name;
             });
             QVERIFY2(it != presented.end(), qPrintable(name));
@@ -583,7 +587,7 @@ ApplicationWindow {
         // after it is a plain zone change); a state update older than three minutes is stale.
         backend.rows = {eventAt(0, "ZONE_LOAD", 1000), eventAt(1, "QUEUE_REGISTRATION", 2000),
                         eventAt(2, "FINDER_ACTION", 3000), eventAt(3, "ZONE_LOAD", 4000),
-                        eventAt(4, "FINDER_STATE_NOTIFICATION", 5000), eventAt(5, "ZONE_LOAD", 5000 + 4 * 60 * 1000)};
+                        eventAt(4, "FINDER_STATE_NOTIFICATION", 5000), eventAt(5, "ZONE_LOAD", 5000 + (4 * 60 * 1000))};
         controller.refresh();
         QTRY_VERIFY(!controller.indexLoading());
         QTRY_VERIFY(controller.indexComplete());
@@ -652,10 +656,10 @@ ApplicationWindow {
             QCOMPARE(observationIds(controller.timeline()), QStringList({"10", "11", "12"}));
             const auto anchor = controller.timeline().first().toMap();
             QCOMPARE(anchor.value(QStringLiteral("at_utc")).toString(), QStringLiteral("2026-09-06T01:49:07.000Z"));
-            QCOMPARE(anchor.value(QStringLiteral("t_ms")).toLongLong(), qint64(10000));
+            QCOMPARE(anchor.value(QStringLiteral("t_ms")).toLongLong(), static_cast<qint64>(10000));
             QCOMPARE(kinds(controller.timeline()), QStringList({"login", "finder", "queue"}));
             QVERIFY(controller.anchorPairs().isEmpty());
-        } while (std::next_permutation(order.begin(), order.end()));
+        } while (std::ranges::next_permutation(order).found);
     }
 
     void sessionGroupsUseLatestObservationBeforeTheirOwnMonotonicTime()
@@ -705,7 +709,7 @@ ApplicationWindow {
             QCOMPARE(observationIds(controller.timeline()), QStringList({"4", "5", "8", "2"}));
             QCOMPARE(controller.sessions()[0].toMap().value(QStringLiteral("session_id")).toString(), QStringLiteral("s1"));
             QCOMPARE(controller.sessions()[1].toMap().value(QStringLiteral("session_id")).toString(), QStringLiteral("s2"));
-        } while (std::next_permutation(order.begin(), order.end()));
+        } while (std::ranges::next_permutation(order).found);
     }
 
     void zoneClusterKeepsLastMonotonicTimeForInference()
@@ -731,11 +735,11 @@ ApplicationWindow {
         // The first cluster starts before the three-minute limit but establishes its anchor
         // after it. Only the later, fresh finder notification can produce a duty entry.
         QCOMPARE(kinds(controller.timeline()), QStringList({"duty_leave", "duty_enter", "finder", "zone", "finder", "login"}));
-        QCOMPARE(controller.timeline()[3].toMap().value(QStringLiteral("t_ms")).toLongLong(), qint64(201000));
+        QCOMPARE(controller.timeline()[3].toMap().value(QStringLiteral("t_ms")).toLongLong(), static_cast<qint64>(201000));
         const auto entry = controller.timeline()[1].toMap();
         const auto leave = controller.timeline()[0].toMap();
-        QCOMPARE(entry.value(QStringLiteral("t_ms")).toLongLong(), qint64(320000));
-        QCOMPARE(leave.value(QStringLiteral("t_ms")).toLongLong(), qint64(900000));
+        QCOMPARE(entry.value(QStringLiteral("t_ms")).toLongLong(), static_cast<qint64>(320000));
+        QCOMPARE(leave.value(QStringLiteral("t_ms")).toLongLong(), static_cast<qint64>(900000));
         QCOMPARE(controller.anchorPairs().size(), 1);
         const auto pair = controller.anchorPairs().first().toMap();
         QCOMPARE(pair.value(QStringLiteral("first_observation_id")).toString(), QStringLiteral("4"));
@@ -907,6 +911,7 @@ ApplicationWindow {
         for (const auto &value : controller.rows()) QVERIFY(!value.toMap().contains(QStringLiteral("payload_hex")));
     }
 };
+} // namespace
 
 int main(int argc, char **argv)
 {

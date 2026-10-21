@@ -64,7 +64,7 @@ public:
             ++mutations;
         ++queries;
         if (hold) {
-            waiting.append({reply, payload});
+            waiting.append({.reply=reply, .payload=payload});
         } else {
             const bool fail = std::exchange(failNext, false);
             const QJsonObject answer = result(payload);
@@ -92,7 +92,7 @@ public:
         const int page = payload.value(QStringLiteral("page")).toInt(1);
         const int size = payload.value(QStringLiteral("page_size")).toInt(200);
         QJsonArray answer;
-        for (int i = (page - 1) * size; i < qMin(page * size, int(selected.size())); ++i)
+        for (int i = (page - 1) * size; i < qMin(page * size, static_cast<int>(selected.size())); ++i)
             answer.append(QJsonObject::fromVariantMap(selected.at(i).toMap()));
         return {{QStringLiteral("items"), answer}, {QStringLiteral("page_info"),
             QJsonObject{{QStringLiteral("page"), page}, {QStringLiteral("page_size"), size}, {QStringLiteral("total"), selected.size()}}}};
@@ -107,6 +107,7 @@ private:
 };
 } // namespace
 
+namespace {
 class RecoveryTests : public QObject
 {
     Q_OBJECT
@@ -230,7 +231,7 @@ private Q_SLOTS:
         controller.offer(data, QStringLiteral("reflection"));
         const QString path = journal(dir.path()); QVERIFY(!path.isEmpty());
         QFile file(path); QVERIFY(file.open(QIODevice::WriteOnly));
-        QCOMPARE(file.write("{broken"), qint64(7)); file.close();
+        QCOMPARE(file.write("{broken"), static_cast<qint64>(7)); file.close();
         QVERIFY(!controller.saveDraft(data, fields(QStringLiteral("keep this input"))));
         QCOMPARE(controller.draft(data).value(QStringLiteral("text")).toString(), QStringLiteral("keep this input"));
         QVERIFY(!controller.error().isEmpty());
@@ -608,6 +609,7 @@ private Q_SLOTS:
         QCOMPARE(restarted.draft(data).value(QStringLiteral("text")).toString(), QStringLiteral("editor-b"));
     }
 };
+} // namespace
 
 int main(int argc, char **argv)
 {

@@ -128,21 +128,22 @@ public:
     mr::BackendReply *request(const QString &type, const QJsonObject & = {}) override
     {
         auto *reply = new mr::BackendReply(type, type, this);
-        if (!connected)
+        if (!connected) {
             reply->failUnsent(QStringLiteral("ERR_INTERNAL"), QStringLiteral("not connected"));
-        else if (type == QLatin1String("GetStatus") || type == QLatin1String("GetCaptureStatus")) {
+        } else if (type == QLatin1String("GetStatus") || type == QLatin1String("GetCaptureStatus")) {
             if (!statusReadable)
                 reply->failTransport(QStringLiteral("ERR_TIMEOUT"), QStringLiteral("timed out"));
             else if (type == QLatin1String("GetStatus"))
                 reply->succeed({{QStringLiteral("capture"), capture}});
             else
                 reply->succeed(capture);
-        } else if (type == QLatin1String("GetCaptureSettings"))
+        } else if (type == QLatin1String("GetCaptureSettings")) {
             reply->succeed({{QStringLiteral("follow_game"), true}});
-        else if (type == QLatin1String("GetCaptureValidationStatus"))
+        } else if (type == QLatin1String("GetCaptureValidationStatus")) {
             reply->succeed({{QStringLiteral("active"), false}});
-        else
+        } else {
             reply->succeed({});
+}
         return reply;
     }
 };
@@ -257,6 +258,7 @@ void expectNothingClaimedAboutNpcap(const PageScene &scene, const QString &headl
 
 } // namespace
 
+namespace {
 class CapturePageTests : public QObject
 {
     Q_OBJECT
@@ -954,6 +956,7 @@ private slots:
         QVERIFY(scene.visibleTexts().contains(QStringLiteral("E_LEN_MISMATCH")));
     }
 };
+} // namespace
 
 int main(int argc, char **argv)
 {

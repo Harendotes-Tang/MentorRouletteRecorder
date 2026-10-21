@@ -106,14 +106,18 @@ public:
     }
 };
 
-const QString kRunId = QStringLiteral("6f1c2d3e-4a5b-4c6d-8e7f-0123456789ab");
+const QString &kRunId()
+{
+    static const QString value = QStringLiteral("6f1c2d3e-4a5b-4c6d-8e7f-0123456789ab");
+    return value;
+}
 
 /// Every field the Collector writes into revision 1 of an automatic run
 /// (SemanticEventProcessor.DescribeCreation), with a value of the wire shape.
 QJsonArray creationChanges()
 {
     const QList<QPair<const char *, QJsonValue>> fields{
-        {"run_id", kRunId},
+        {"run_id", kRunId()},
         {"revision", 1},
         {"capture_session_id", QStringLiteral("0d9e8f7a-6b5c-4d3e-8f2a-1b0c9d8e7f6a")},
         {"region", QStringLiteral("CN")},
@@ -160,7 +164,7 @@ QJsonArray revisions()
 {
     return {
         QJsonObject{{QStringLiteral("revision_id"), QStringLiteral("11111111-1111-4111-8111-111111111111")},
-                    {QStringLiteral("run_id"), kRunId},
+                    {QStringLiteral("run_id"), kRunId()},
                     {QStringLiteral("revision"), 1},
                     {QStringLiteral("changed_at_utc"), QStringLiteral("2026-09-04T12:39:05.125Z")},
                     {QStringLiteral("change_kind"), QStringLiteral("CREATE_AUTO")},
@@ -169,7 +173,7 @@ QJsonArray revisions()
                     {QStringLiteral("changes"), creationChanges()}},
         // 用户确认通关, through CorrectRun: the diff RunMutationRules.Diff writes.
         QJsonObject{{QStringLiteral("revision_id"), QStringLiteral("22222222-2222-4222-8222-222222222222")},
-                    {QStringLiteral("run_id"), kRunId},
+                    {QStringLiteral("run_id"), kRunId()},
                     {QStringLiteral("revision"), 2},
                     {QStringLiteral("changed_at_utc"), QStringLiteral("2026-09-04T13:10:00.000Z")},
                     {QStringLiteral("change_kind"), QStringLiteral("CORRECT")},
@@ -190,7 +194,7 @@ QJsonArray revisions()
                                 change("manually_corrected", false, true)}}},
         // Crash recovery's own revision.
         QJsonObject{{QStringLiteral("revision_id"), QStringLiteral("33333333-3333-4333-8333-333333333333")},
-                    {QStringLiteral("run_id"), kRunId},
+                    {QStringLiteral("run_id"), kRunId()},
                     {QStringLiteral("revision"), 3},
                     {QStringLiteral("changed_at_utc"), QStringLiteral("2026-09-05T08:00:00.000Z")},
                     {QStringLiteral("change_kind"), QStringLiteral("CORRECT")},
@@ -231,7 +235,7 @@ QJsonArray events()
 
 QJsonObject run()
 {
-    return {{QStringLiteral("run_id"), kRunId},
+    return {{QStringLiteral("run_id"), kRunId()},
             {QStringLiteral("revision"), 3},
             {QStringLiteral("matched_at_utc"), QStringLiteral("2026-09-04T12:39:05.125Z")},
             {QStringLiteral("entered_at_utc"), QStringLiteral("2026-09-04T12:41:00.000Z")},
@@ -269,9 +273,9 @@ public:
             answer = {{QStringLiteral("items"), revisionItems},
                       {QStringLiteral("page_info"),
                        QJsonObject{{QStringLiteral("page"), 1},
-                                   {QStringLiteral("total"), int(revisionItems.size())}}}};
+                                   {QStringLiteral("total"), static_cast<int>(revisionItems.size())}}}};
         } else if (type == QLatin1String("GetRunEvents")) {
-            answer = {{QStringLiteral("run_id"), kRunId}, {QStringLiteral("events"), events()}};
+            answer = {{QStringLiteral("run_id"), kRunId()}, {QStringLiteral("events"), events()}};
         } else if (type == QLatin1String("PreviewRunImport")) {
             if (!importErrorMessage.isEmpty()) {
                 QTimer::singleShot(0, reply, [reply, message = importErrorMessage] {
@@ -452,6 +456,7 @@ void verifyNoWireVocabulary(const QStringList &texts)
 
 } // namespace
 
+namespace {
 class RunDetailPanelTests : public QObject
 {
     Q_OBJECT
@@ -835,7 +840,7 @@ private Q_SLOTS:
         if (flaggedBySystem) {
             trail.append(QJsonObject{
                 {QStringLiteral("revision_id"), QStringLiteral("44444444-4444-4444-8444-444444444444")},
-                {QStringLiteral("run_id"), kRunId},
+                {QStringLiteral("run_id"), kRunId()},
                 {QStringLiteral("revision"), 4},
                 {QStringLiteral("changed_at_utc"), QStringLiteral("2026-09-06T08:00:00.000Z")},
                 {QStringLiteral("change_kind"), QStringLiteral("CORRECT")},
@@ -850,9 +855,9 @@ private Q_SLOTS:
         QJsonObject pending = run();
         pending.insert(QStringLiteral("result"), result);
         pending.insert(QStringLiteral("pending_review"), true);
-        pending.insert(QStringLiteral("revision"), int(trail.size()));
+        pending.insert(QStringLiteral("revision"), static_cast<int>(trail.size()));
         scene.controller->selectRun(pending.toVariantMap());
-        QTRY_COMPARE(scene.controller->selectedRunRevisions().size(), int(trail.size()));
+        QTRY_COMPARE(scene.controller->selectedRunRevisions().size(), static_cast<int>(trail.size()));
         QTRY_VERIFY(scene.panel() && scene.panel()->isVisible());
         QVERIFY(scene.panel()->property("pendingReview").toBool());
 
@@ -898,7 +903,7 @@ private Q_SLOTS:
         }
         // A gap in the panel - the header's margin, the body's text - is not "outside"
         // either, and the history row under the panel does not take it.
-        for (const qreal y : {qreal(6), scene.panel()->height() * 0.4, scene.panel()->height() * 0.6}) {
+        for (const qreal y : {static_cast<qreal>(6), scene.panel()->height() * 0.4, scene.panel()->height() * 0.6}) {
             scene.click(scene.panel(), QPointF(scene.panel()->width() / 2, y));
             QTest::qWait(50);
             QVERIFY2(scene.controller->hasSelection(), qPrintable(QString::number(y)));
@@ -906,6 +911,7 @@ private Q_SLOTS:
         }
     }
 };
+} // namespace
 
 int main(int argc, char *argv[])
 {

@@ -92,7 +92,9 @@ struct Scene {
     }
 };
 
-const QByteArray kRevealScene = R"(import QtQuick
+const QByteArray &kRevealScene()
+{
+    static const QByteArray value = R"(import QtQuick
 import QtQuick.Controls
 import MentorRecorder
 ApplicationWindow {
@@ -103,14 +105,20 @@ ApplicationWindow {
     Rectangle { id: content; anchors.fill: parent; color: Theme.surface }
     ThemeReveal { id: reveal; objectName: "reveal"; anchors.fill: parent; source: content; softwareFallback: true }
 })";
+    return value;
+}
 
-const QByteArray kTrendScene = R"(import QtQuick
+const QByteArray &kTrendScene()
+{
+    static const QByteArray value = R"(import QtQuick
 import QtQuick.Controls
 import MentorRecorder
 ApplicationWindow {
     width: 720; height: 260; visible: true
     GraphsTrendChart { objectName: "chart"; anchors.fill: parent; anchors.margins: 10 }
 })";
+    return value;
+}
 
 QObject *overlayOf(const QQuickItem *reveal)
 {
@@ -176,7 +184,7 @@ QList<QRectF> graphsBars(QQuickItem *chart)
         if (QByteArray(child->metaObject()->className()).contains("GraphsView"))
             walk(child);
     }
-    std::sort(out.begin(), out.end(), [](const QRectF &a, const QRectF &b) { return a.x() < b.x(); });
+    std::ranges::sort(out, [](const QRectF &a, const QRectF &b) { return a.x() < b.x(); });
     return out;
 }
 
@@ -190,7 +198,7 @@ QList<QQuickItem *> layerBars(QQuickItem *chart)
         if (child->property("progress").isValid())
             out.append(child);
     }
-    std::sort(out.begin(), out.end(), [](QQuickItem *a, QQuickItem *b) { return a->x() < b->x(); });
+    std::ranges::sort(out, [](QQuickItem *a, QQuickItem *b) { return a->x() < b->x(); });
     return out;
 }
 
@@ -198,6 +206,7 @@ bool fuzzyEqual(qreal a, qreal b) { return qAbs(a - b) < 0.01; }
 
 } // namespace
 
+namespace {
 class MotionTests : public QObject
 {
     Q_OBJECT
@@ -218,6 +227,7 @@ private Q_SLOTS:
 private:
     static void verifyTrendAtRest(QQuickItem *chart, int bars);
 };
+} // namespace
 
 void MotionTests::initTestCase()
 {
@@ -270,7 +280,7 @@ QtObject { readonly property QtObject theme: Theme })";
 void MotionTests::reducedMotionNeverCreatesTheRevealOverlay()
 {
     Scene scene;
-    QVERIFY2(scene.create(kRevealScene, true), qPrintable(scene.errors));
+    QVERIFY2(scene.create(kRevealScene(), true), qPrintable(scene.errors));
     QVERIFY(QTest::qWaitForWindowExposed(scene.window()));
     QQuickItem *reveal = scene.item(QStringLiteral("reveal"));
     QVERIFY(reveal);
@@ -289,7 +299,7 @@ void MotionTests::reducedMotionNeverCreatesTheRevealOverlay()
 void MotionTests::revealOverlayLivesOnlyForTheAnimation()
 {
     Scene scene;
-    QVERIFY2(scene.create(kRevealScene, false), qPrintable(scene.errors));
+    QVERIFY2(scene.create(kRevealScene(), false), qPrintable(scene.errors));
     QVERIFY(QTest::qWaitForWindowExposed(scene.window()));
     QQuickItem *reveal = scene.item(QStringLiteral("reveal"));
     QVERIFY(reveal);
@@ -331,7 +341,7 @@ void MotionTests::revealOverlayLivesOnlyForTheAnimation()
 void MotionTests::secondRevealFinishesTheFirstAtOnce()
 {
     Scene scene;
-    QVERIFY2(scene.create(kRevealScene, false), qPrintable(scene.errors));
+    QVERIFY2(scene.create(kRevealScene(), false), qPrintable(scene.errors));
     QVERIFY(QTest::qWaitForWindowExposed(scene.window()));
     QQuickItem *reveal = scene.item(QStringLiteral("reveal"));
     QVERIFY(reveal);
@@ -384,7 +394,10 @@ void MotionTests::verifyTrendAtRest(QQuickItem *chart, int bars)
         if (QByteArray(child->metaObject()->className()).contains("GraphsView"))
             view = child;
     }
-    QVERIFY(view);
+    if (!view) {
+        QTest::qFail("The chart has no GraphsView child", __FILE__, __LINE__);
+        return;
+    }
     QVERIFY(fuzzyEqual(view->opacity(), 1.0));
     QTRY_COMPARE(graphsBars(chart).size(), bars);
     const QList<QRectF> drawn = graphsBars(chart);
@@ -406,7 +419,7 @@ void MotionTests::verifyTrendAtRest(QQuickItem *chart, int bars)
 void MotionTests::trendSwitchLeavesEveryBarAtRest()
 {
     Scene scene;
-    QVERIFY2(scene.create(kTrendScene, false), qPrintable(scene.errors));
+    QVERIFY2(scene.create(kTrendScene(), false), qPrintable(scene.errors));
     QVERIFY(QTest::qWaitForWindowExposed(scene.window()));
     QQuickItem *chart = scene.item(QStringLiteral("chart"));
     QVERIFY(chart);
@@ -458,7 +471,7 @@ void MotionTests::trendSwitchLeavesEveryBarAtRest()
 void MotionTests::trendMergeKeepsSurvivingBarsAndEasing()
 {
     Scene scene;
-    QVERIFY2(scene.create(kTrendScene, false), qPrintable(scene.errors));
+    QVERIFY2(scene.create(kTrendScene(), false), qPrintable(scene.errors));
     QVERIFY(QTest::qWaitForWindowExposed(scene.window()));
     auto *chart = scene.item(QStringLiteral("chart"));
     QVERIFY(chart);
@@ -476,7 +489,7 @@ void MotionTests::trendMergeKeepsSurvivingBarsAndEasing()
     // Independently solve the existing merge curve at the live clock position.
     const auto at = [](double p1, double p2, double t) {
         const double u = 1.0 - t;
-        return 3.0*u*u*t*p1 + 3.0*u*t*t*p2 + t*t*t;
+        return (3.0*u*u*t*p1) + (3.0*u*t*t*p2) + (t*t*t);
     };
     const double x = layer->property("elapsed").toDouble() / 380.0;
     double low = 0.0;
@@ -491,8 +504,8 @@ void MotionTests::trendMergeKeepsSurvivingBarsAndEasing()
     QCOMPARE(moving.size(), 30);
     for (auto *bar : moving) {
         QVERIFY(std::abs(bar->property("progress").toDouble() - expected) < 0.00001);
-        QVERIFY(std::abs(bar->property("widthScale").toDouble() - (1.0 - 0.4*expected)) < 0.00001);
-        QVERIFY(std::abs(bar->opacity() - (1.0 - 0.65*expected)) < 0.00001);
+        QVERIFY(std::abs(bar->property("widthScale").toDouble() - (1.0 - (0.4 * expected))) < 0.00001);
+        QVERIFY(std::abs(bar->opacity() - (1.0 - (0.65 * expected))) < 0.00001);
     }
     for (int index = 0; index < surviving.size(); ++index) {
         QVERIFY(surviving.at(index));
@@ -512,7 +525,7 @@ void MotionTests::trendMergeKeepsSurvivingBarsAndEasing()
 void MotionTests::interruptedTrendSwitchEndsClean()
 {
     Scene scene;
-    QVERIFY2(scene.create(kTrendScene, false), qPrintable(scene.errors));
+    QVERIFY2(scene.create(kTrendScene(), false), qPrintable(scene.errors));
     QVERIFY(QTest::qWaitForWindowExposed(scene.window()));
     QQuickItem *chart = scene.item(QStringLiteral("chart"));
     QVERIFY(chart);
@@ -555,7 +568,7 @@ void MotionTests::interruptedTrendSwitchEndsClean()
 void MotionTests::reducedMotionTrendSwitchIsInstant()
 {
     Scene scene;
-    QVERIFY2(scene.create(kTrendScene, true), qPrintable(scene.errors));
+    QVERIFY2(scene.create(kTrendScene(), true), qPrintable(scene.errors));
     QVERIFY(QTest::qWaitForWindowExposed(scene.window()));
     QQuickItem *chart = scene.item(QStringLiteral("chart"));
     QVERIFY(chart);

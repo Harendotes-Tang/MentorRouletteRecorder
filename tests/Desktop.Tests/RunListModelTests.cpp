@@ -14,7 +14,7 @@ public:
     bool isConnected() const override { return true; }
     mr::BackendReply *request(const QString &type, const QJsonObject &payload = {}) override {
         auto *reply = new mr::BackendReply(QString::number(calls.size()), type, this);
-        calls.append({type, payload, reply});
+        calls.append({.type=type, .payload=payload, .reply=reply});
         return reply;
     }
     mr::BackendReply *requestWithId(const QString &type, const QJsonObject &payload,
@@ -35,6 +35,7 @@ public:
 };
 }
 
+namespace {
 class RunListModelTests : public QObject {
     Q_OBJECT
 private Q_SLOTS:
@@ -122,5 +123,6 @@ private Q_SLOTS:
         QVERIFY(backend.calendarCalls().isEmpty()); QVERIFY(!model.calendarError().isEmpty());
     }
 };
+} // namespace
 QTEST_GUILESS_MAIN(RunListModelTests)
 #include "RunListModelTests.moc"

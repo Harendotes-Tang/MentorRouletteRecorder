@@ -98,7 +98,7 @@ void RecoveryController::flushOnQuit()
     flushJournal();
     if (!m_settings)
         return;
-    const Scope current{m_entries, m_edits, m_journalError};
+    const Scope current{.entries = m_entries, .edits = m_edits, .journalError = m_journalError};
     const QString currentKey = m_databaseKey;
     const QString currentPath = m_journalPath;
     const QString currentError = m_error;
@@ -117,7 +117,7 @@ void RecoveryController::flushOnQuit()
             m_edits = it->edits;
             m_journalError = it->journalError;
             failed |= !flushJournal();
-            *it = {m_entries, m_edits, m_journalError};
+            *it = {.entries = m_entries, .edits = m_edits, .journalError = m_journalError};
         }
         m_databaseKey = currentKey;
         m_journalPath = currentPath;
@@ -162,7 +162,7 @@ void RecoveryController::setDatabasePath(const QString &path)
     if (!firstIdentity) {
         Q_EMIT scopeChanging();
         flushJournal();
-        m_scopes.insert(m_databaseKey, {m_entries, m_edits, m_journalError});
+        m_scopes.insert(m_databaseKey, {.entries = m_entries, .edits = m_edits, .journalError = m_journalError});
     }
     ++m_generation;
     ++m_scopeGeneration;
@@ -198,7 +198,7 @@ void RecoveryController::adoptProvisionalOffers()
 {
     const auto offers = std::exchange(m_provisionalOffers, QHash<QString, QVariantMap>());
     for (auto it = offers.cbegin(); it != offers.cend(); ++it) {
-        persist({it.key(), it.value(), {}, false});
+        persist({.id = it.key(), .fields = it.value(), .clearToken = {}, .clearDraft = false});
         const QVariantMap run = it.value().value(QStringLiteral("run")).toMap();
         if (it.value().value(QStringLiteral("result")).toBool())
             Q_EMIT promptReady(run, QStringLiteral("result"));
@@ -336,7 +336,7 @@ void RecoveryController::offer(const QVariantMap &run, const QString &kind)
     }
     if (m_busy && kind == QLatin1String("result"))
         m_refreshAgain = true;
-    persist({id, {{QStringLiteral("run"), run}, {kind, true}}, {}, false});
+    persist({.id = id, .fields = {{QStringLiteral("run"), run}, {kind, true}}, .clearToken = {}, .clearDraft = false});
 }
 
 bool RecoveryController::saveDraft(const QVariantMap &run, const QVariantMap &fields)
@@ -357,7 +357,7 @@ bool RecoveryController::saveDraft(const QVariantMap &run, const QVariantMap &fi
         && mood == reflection.value(QStringLiteral("mood"), QStringLiteral("ok")).toString()
         && job.toString() == run.value(QStringLiteral("job_id")).toString()) {
         return old.isEmpty() ? flushJournal()
-                             : persist({id, {}, old.value(QStringLiteral("token")).toString(), true});
+                             : persist({.id = id, .fields = {}, .clearToken = old.value(QStringLiteral("token")).toString(), .clearDraft = true});
     }
     if (!old.isEmpty() && old.value(QStringLiteral("text")).toString() == text
         && old.value(QStringLiteral("mood")).toString() == mood
@@ -370,7 +370,7 @@ bool RecoveryController::saveDraft(const QVariantMap &run, const QVariantMap &fi
                      {QStringLiteral("baseReflection"), !old.isEmpty() && !fields.value(QStringLiteral("resetBaseline")).toBool()
                          ? old.value(QStringLiteral("baseReflection")) : fingerprint(run.value(QStringLiteral("reflection")))},
                      {QStringLiteral("created_at_utc"), run.value(QStringLiteral("created_at_utc"))}};
-    return persist({id, {{QStringLiteral("run"), run}, {QStringLiteral("draft"), next}}, {}, false});
+    return persist({.id = id, .fields = {{QStringLiteral("run"), run}, {QStringLiteral("draft"), next}}, .clearToken = {}, .clearDraft = false});
 }
 
 QVariantMap RecoveryController::draft(const QVariantMap &run) const
@@ -400,24 +400,24 @@ QString RecoveryController::draftTokenForFields(const QString &id, const QVarian
 void RecoveryController::clearDraft(const QString &id, const QString &token)
 {
     if (!id.isEmpty())
-        persist({id, {}, token, true});
+        persist({.id = id, .fields = {}, .clearToken = token, .clearDraft = true});
 }
 void RecoveryController::markReflectionSaved(const QString &id, const QString &token)
 {
     if (!id.isEmpty())
-        persist({id, {{QStringLiteral("reflection"), false}}, token, !token.isEmpty()});
+        persist({.id = id, .fields = {{QStringLiteral("reflection"), false}}, .clearToken = token, .clearDraft = !token.isEmpty()});
 }
 void RecoveryController::markResultSaved(const QString &id)
 {
     if (!id.isEmpty())
-        persist({id, {{QStringLiteral("result"), false}}, {}, false});
+        persist({.id = id, .fields = {{QStringLiteral("result"), false}}, .clearToken = {}, .clearDraft = false});
 }
 
 void RecoveryController::dismiss(const QString &id)
 {
     if (id.isEmpty() || !m_entries.value(id).value(QStringLiteral("unavailable")).toBool())
         return;
-    persist({id, {{QStringLiteral("result"), false}, {QStringLiteral("reflection"), false}}, {}, true});
+    persist({.id = id, .fields = {{QStringLiteral("result"), false}, {QStringLiteral("reflection"), false}}, .clearToken = {}, .clearDraft = true});
 }
 
 QVariantMap RecoveryController::mergedRun(const QString &id) const
@@ -451,7 +451,7 @@ QVariantList RecoveryController::items() const
         row.insert(QStringLiteral("conflict"), draft(mergedRun(id)).value(QStringLiteral("conflict")).toBool());
         result.append(row);
     }
-    std::sort(result.begin(), result.end(), [](const QVariant &a, const QVariant &b) {
+    std::ranges::sort(result, [](const QVariant &a, const QVariant &b) {
         const auto left = a.toMap();
         const auto right = b.toMap();
         const QString lt = left.value(QStringLiteral("matched_at_utc")).toString();
@@ -508,7 +508,7 @@ void RecoveryController::fetchPage(quint64 generation, int page, QHash<QString, 
                 if (!runId(row).isEmpty() && statisticallyEligible(row))
                     collected.insert(runId(row), row);
             }
-            if (rows.size() == 200 && qint64(page) * 200 < total) {
+            if (rows.size() == 200 && static_cast<qint64>(page) * 200 < total) {
                 QTimer::singleShot(0, this, [this, generation, page, collected = std::move(collected)]() mutable {
                     fetchPage(generation, page + 1, std::move(collected));
                 });
@@ -522,7 +522,7 @@ void RecoveryController::fetchPage(quint64 generation, int page, QHash<QString, 
                 const auto ids = m_entries.keys();
                 for (const QString &id : ids)
                     if (m_entries.value(id).value(QStringLiteral("result")).toBool() && !m_pending.contains(id))
-                        persist({id, {{QStringLiteral("result"), false}}, {}, false});
+                        persist({.id = id, .fields = {{QStringLiteral("result"), false}}, .clearToken = {}, .clearDraft = false});
             }
             m_error = m_journalError;
             Q_EMIT changed();
@@ -547,7 +547,7 @@ void RecoveryController::publishOpen(const QVariantMap &run, bool unavailable)
     selected.insert(QStringLiteral("recoveryDraft"), saved);
     selected.insert(QStringLiteral("recoveryConflict"), saved.value(QStringLiteral("conflict")));
     if (m_entries.contains(id))
-        persist({id, {{QStringLiteral("unavailable"), unavailable || identityConflict}}, {}, false});
+        persist({.id = id, .fields = {{QStringLiteral("unavailable"), unavailable || identityConflict}}, .clearToken = {}, .clearDraft = false});
     const QString kind = !unavailable && !identityConflict
             && statisticallyEligible(run)
             && run.value(QStringLiteral("pending_review")).toBool()
@@ -584,7 +584,7 @@ void RecoveryController::requestOpen(const QString &id)
                 // A draft the user typed stays until they remove it (review I2-1).
                 const bool wasPending = m_pending.remove(id) > 0;
                 if (m_entries.contains(id))
-                    persist({id, {{QStringLiteral("result"), false}, {QStringLiteral("reflection"), false}}, {}, false});
+                    persist({.id = id, .fields = {{QStringLiteral("result"), false}, {QStringLiteral("reflection"), false}}, .clearToken = {}, .clearDraft = false});
                 else if (wasPending)
                     Q_EMIT changed();
             }
