@@ -139,9 +139,9 @@ QVariantList StatisticsOverlayController::moduleRows() const
 QRect StatisticsOverlayController::validGeometry(const QRect &geometry)
 {
     if (!geometry.isValid())
-        return QRect(80, 80, 300, 560);
-    return QRect(qBound(-1000000, geometry.x(), 1000000), qBound(-1000000, geometry.y(), 1000000),
-                 qBound(240, geometry.width(), 520), qBound(150, geometry.height(), 1200));
+        return {80, 80, 300, 560};
+    return {qBound(-1000000, geometry.x(), 1000000), qBound(-1000000, geometry.y(), 1000000),
+            qBound(240, geometry.width(), 520), qBound(150, geometry.height(), 1200)};
 }
 QRect StatisticsOverlayController::fitGeometry(const QRect &geometry, const QRect &available)
 {

@@ -154,7 +154,7 @@ void createFile(const QString &path, const QByteArray &content)
 
 QString installTestWorker(QTemporaryDir &directory)
 {
-    const QString app = directory.filePath(QStringLiteral("test-app"));
+    QString app = directory.filePath(QStringLiteral("test-app"));
     const QString ocr = QDir(app).filePath(QStringLiteral("ocr"));
     if (!QDir().mkpath(QDir(ocr).filePath(QStringLiteral("models"))))
         return {};
@@ -279,6 +279,555 @@ class ImportRecordsControllerTests : public QObject
 {
     Q_OBJECT
 
+private:
+    struct ImportDialogStage
+    {
+        ImportDialogStage(ImportBackend &testBackend, mr::ImportRecordsController &testController,
+                          const QJsonObject &preview)
+            : backend(testBackend), controller(testController), initialPreview(preview)
+        {
+        }
+
+        ImportBackend &backend;
+        mr::ImportRecordsController &controller;
+        QObject *root = nullptr;
+        QQuickWindow *window = nullptr;
+        const QJsonObject &initialPreview;
+        bool dark = false;
+        QQuickItem *commit = nullptr;
+        QQuickItem *revalidate = nullptr;
+        QQuickItem *cancel = nullptr;
+        QQuickItem *duty = nullptr;
+        QQuickItem *category = nullptr;
+        QQuickItem *jobWarning = nullptr;
+        QQuickItem *job = nullptr;
+        QQuickItem *result = nullptr;
+        QQuickItem *own = nullptr;
+        QQuickItem *gameFacts = nullptr;
+        QQuickItem *paste = nullptr;
+        QQuickItem *reflection = nullptr;
+        QQuickItem *choose = nullptr;
+        QQuickItem *content = nullptr;
+        QQuickItem *zonePreset = nullptr;
+        QQuickItem *customZone = nullptr;
+        QQuickItem *recordList = nullptr;
+        QQuickItem *manualPasteOpen = nullptr;
+        QObject *manualPasteDialog = nullptr;
+        QObject *dialog = nullptr;
+        qsizetype beforeListKeys = 0;
+        QString evidenceDirectory = {};
+        qreal pixelRatio = 0;
+    };
+
+    static QPoint itemCenter(QQuickItem *item)
+    {
+        return item->mapToScene(QPointF(item->width() / 2, item->height() / 2)).toPoint();
+    }
+
+    static void verifyPendingJobDialog(mr::ImportRecordsController &controller)
+    {
+        {
+            ImportThemeState theme;
+            QQmlEngine engine;
+            engine.rootContext()->setContextProperty(QStringLiteral("ImportRecords"), &controller);
+            engine.rootContext()->setContextProperty(QStringLiteral("App"), &theme);
+            engine.rootContext()->setContextProperty(QStringLiteral("ReduceMotion"), true);
+            QQmlComponent component(&engine);
+            component.setData(R"(import QtQuick
+import QtQuick.Controls
+import MentorRecorder
+ApplicationWindow {
+    width: 1240; height: 800; visible: true
+    ImportRecordsDialog { Component.onCompleted: open() }
+})", QUrl::fromLocalFile(QString::fromUtf8(MR_DESKTOP_QML_DIR) + QStringLiteral("/dialogs/ImportPendingJobProbe.qml")));
+            QTRY_VERIFY_WITH_TIMEOUT(component.status() != QQmlComponent::Loading, 5000);
+            QVERIFY2(!component.isError(), qPrintable(component.errorString()));
+            std::unique_ptr<QObject> root(component.create());
+            QVERIFY2(root != nullptr, qPrintable(component.errorString()));
+            auto *window = qobject_cast<QQuickWindow *>(root.get());
+            QVERIFY(window && QTest::qWaitForWindowExposed(window));
+            auto *dialog = root->findChild<QObject *>(QStringLiteral("importRecordsDialog"));
+            auto *footerHint = root->findChild<QQuickItem *>(QStringLiteral("importSelectionHint"));
+            QVERIFY(dialog && footerHint);
+            QCOMPARE(controller.currentRow(), 0);
+            QVERIFY(QMetaObject::invokeMethod(dialog, "checkAndNext"));
+            QCOMPARE(controller.selectedCount(), 0);
+            QVERIFY(!dialog->property("navigationHint").toString().isEmpty());
+            controller.setRowSelected(0, true); // An explicit tick is still the user's choice.
+            QTRY_VERIFY(footerHint->property("text").toString().contains(QStringLiteral("职业")));
+        }
+    }
+
+    static void verifyPagedKeyboard(mr::ImportRecordsController &controller, QObject *dialog,
+                                    QQuickItem *list, QQuickItem *selectAll, QQuickItem *nextPage,
+                                    QQuickItem *job, QQuickWindow *window)
+    {
+        QCOMPARE(dialog->property("unknownJobCount").toInt(), 0);
+        QVERIFY(job->property("currentIndex").toInt() > 0);
+        QCOMPARE(dialog->property("pageCount").toInt(), 21);
+        QCOMPARE(dialog->property("pageRows").toList().size(), 100);
+        QVERIFY(selectAll->property("text").toString().contains(QStringLiteral("整批")));
+        controller.setAllImportableSelected(false);
+        selectAll->forceActiveFocus(Qt::TabFocusReason);
+        QTest::keyClick(window, Qt::Key_Space);
+        QTRY_COMPARE(controller.selectedCount(), 2090);
+        QVERIFY(QMetaObject::invokeMethod(dialog, "selectRow", Q_ARG(QVariant, 99)));
+        list->forceActiveFocus(Qt::TabFocusReason);
+        QTest::keyClick(window, Qt::Key_Down);
+        QTRY_COMPARE(controller.currentRow(), 100);
+        QTRY_COMPARE(dialog->property("reviewPage").toInt(), 1);
+        QTest::keyClick(window, Qt::Key_Up);
+        QTRY_COMPARE(controller.currentRow(), 99);
+        QTRY_COMPARE(dialog->property("reviewPage").toInt(), 0);
+        QTest::keyClick(window, Qt::Key_Return);
+        QTRY_COMPARE(controller.currentRow(), 100);
+        QTRY_COMPARE(dialog->property("reviewPage").toInt(), 1);
+        QVERIFY(QMetaObject::invokeMethod(dialog, "choosePage", Q_ARG(QVariant, 20)));
+        QTRY_COMPARE(dialog->property("reviewPage").toInt(), 20);
+        QCOMPARE(dialog->property("pageRows").toList().size(), 90);
+        QVERIFY(!nextPage->isEnabled());
+        QCOMPARE(controller.selectedCount(), 2090);
+        QVERIFY(QMetaObject::invokeMethod(dialog, "selectRow", Q_ARG(QVariant, 2089)));
+    }
+
+    static void verifyImportOpeningFocus(ImportDialogStage &stage)
+    {
+        auto &backend = stage.backend;
+        const auto &controller = stage.controller;
+        auto &window = stage.window;
+        auto &category = stage.category;
+        auto &jobWarning = stage.jobWarning;
+        auto &choose = stage.choose;
+        auto &content = stage.content;
+        auto &recordList = stage.recordList;
+        auto &beforeListKeys = stage.beforeListKeys;
+        QVERIFY(!category->property("readOnly").toBool());
+        QCOMPARE(category->property("text").toString(), QStringLiteral("四人迷宫"));
+        QVERIFY(!jobWarning->isVisible()); // A native table has no screenshot candidate evidence.
+        QTRY_VERIFY(content->hasActiveFocus());
+        QVERIFY(!choose->hasActiveFocus());
+        QVERIFY(!choose->property("keyboardFocusVisible").toBool());
+        auto *chooseBackground = choose->property("background").value<QQuickItem *>();
+        QVERIFY(chooseBackground);
+        QCOMPARE(QQmlProperty(chooseBackground, "border.width").read().toInt(), 1);
+        // Opening has neutral focus, but real keyboard traversal keeps the
+        // existing AppButton marker. Never invoke the native file picker here.
+        QTest::keyClick(window, Qt::Key_Tab);
+        QTRY_VERIFY(choose->hasActiveFocus());
+        QVERIFY(choose->property("keyboardFocusVisible").toBool());
+        QCOMPARE(QQmlProperty(chooseBackground, "border.width").read().toInt(), 3);
+        QTest::keyClick(window, Qt::Key_Tab, Qt::ShiftModifier);
+        auto *previous = window->activeFocusItem();
+        QVERIFY(previous && previous != choose && previous->hasActiveFocus());
+        QVERIFY(previous->property("keyboardFocusVisible").toBool());
+        QTest::keyClick(window, Qt::Key_Tab);
+        QTRY_VERIFY(choose->hasActiveFocus());
+
+        // The list retains focus so two ordinary Space presses can select and
+        // deselect the same row without another click between them.
+        beforeListKeys = backend.calls.size();
+        QCOMPARE(controller.selectedCount(), 1);
+        recordList->forceActiveFocus(Qt::TabFocusReason);
+        QTest::keyClick(window, Qt::Key_Space);
+        QTRY_COMPARE(controller.selectedCount(), 0);
+        QTRY_VERIFY(recordList->hasActiveFocus());
+        QTest::keyClick(window, Qt::Key_Space);
+        QTRY_COMPARE(controller.selectedCount(), 1);
+        QTRY_VERIFY(recordList->hasActiveFocus());
+        QCOMPARE(controller.currentRow(), 0);
+        QCOMPARE(backend.calls.size(), beforeListKeys);
+
+    }
+
+    static void verifyImportNativeTextEditing(ImportDialogStage &stage)
+    {
+        auto &backend = stage.backend;
+        const auto &controller = stage.controller;
+        auto &window = stage.window;
+        const auto &initialPreview = stage.initialPreview;
+        auto &commit = stage.commit;
+        auto &revalidate = stage.revalidate;
+        auto &duty = stage.duty;
+        auto &category = stage.category;
+        auto &reflection = stage.reflection;
+        const auto &beforeListKeys = stage.beforeListKeys;
+        // Ctrl+V and ordinary editing keys inside the reflection editor keep
+        // native text behavior rather than importing a new source or moving rows.
+        const QString originalReflectionText = reflection->property("text").toString();
+        reflection->forceActiveFocus(Qt::MouseFocusReason);
+        QGuiApplication::clipboard()->setText(QStringLiteral("Native clipboard text"));
+        QTest::keyClick(window, Qt::Key_A, Qt::ControlModifier);
+        QTest::keyClick(window, Qt::Key_V, Qt::ControlModifier);
+        QTRY_COMPARE(reflection->property("text").toString(), QStringLiteral("Native clipboard text"));
+        QTest::keyClick(window, Qt::Key_Return);
+        QTest::keyClick(window, Qt::Key_Space);
+        QTRY_COMPARE(reflection->property("text").toString(), QStringLiteral("Native clipboard text\n "));
+        QCOMPARE(controller.currentRow(), 0);
+        QCOMPARE(backend.calls.size(), beforeListKeys);
+        QVERIFY(controller.previewValid());
+        QVERIFY(reflection->hasActiveFocus());
+        QGuiApplication::clipboard()->setText(originalReflectionText);
+        QTest::keyClick(window, Qt::Key_A, Qt::ControlModifier);
+        QTest::keyClick(window, Qt::Key_V, Qt::ControlModifier);
+        QTRY_COMPARE(reflection->property("text").toString(), originalReflectionText);
+        const QRect windowBounds(0, 0, window->width(), window->height());
+        QVERIFY(windowBounds.contains(itemCenter(duty)));
+        QVERIFY(windowBounds.contains(itemCenter(category)));
+        QVERIFY(windowBounds.contains(itemCenter(revalidate)));
+        QVERIFY(windowBounds.contains(itemCenter(commit)));
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, itemCenter(category));
+        QTRY_VERIFY(category->hasActiveFocus());
+        QVERIFY(controller.previewValid());
+        const qsizetype beforeCategoryBlur = backend.calls.size();
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, itemCenter(revalidate));
+        QTRY_COMPARE(backend.calls.size(), beforeCategoryBlur + 1);
+        const QJsonObject categoryUnchanged = backend.calls.last().payload.value("rows").toArray().first().toObject();
+        QVERIFY(!categoryUnchanged.contains("duty_category"));
+        QCOMPARE(categoryUnchanged.value("content_id").toInt(), 100);
+        QCOMPARE(categoryUnchanged.value("territory_id").toInt(), 200);
+        backend.calls.last().reply->succeed(initialPreview);
+    }
+
+    static void verifyImportDutyRevalidation(ImportDialogStage &stage)
+    {
+        auto &backend = stage.backend;
+        auto &controller = stage.controller;
+        auto &window = stage.window;
+        auto &commit = stage.commit;
+        auto &revalidate = stage.revalidate;
+        auto &duty = stage.duty;
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, itemCenter(duty));
+        QTRY_VERIFY(duty->hasActiveFocus());
+        QTest::keyClick(window, Qt::Key_A, Qt::ControlModifier);
+        typeAscii(window, "MouseEditedDuty");
+        QCOMPARE(duty->property("text").toString(), QStringLiteral("MouseEditedDuty"));
+        QCOMPARE(controller.currentCandidate().value("duty_name").toString(), QStringLiteral("合成副本"));
+        QVERIFY(controller.previewValid()); // Text is still in the active editor.
+        const qsizetype beforeMousePreview = backend.calls.size();
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, itemCenter(revalidate));
+        QTRY_COMPARE(backend.calls.size(), beforeMousePreview + 1);
+        QCOMPARE(backend.calls.last().type, QStringLiteral("PreviewRunImport"));
+        const QJsonObject mouseEdited = backend.calls.last().payload.value("rows").toArray().first().toObject();
+        QCOMPARE(mouseEdited.value("duty_name").toString(), QStringLiteral("MouseEditedDuty"));
+        for (const QString &key : {QStringLiteral("content_id"), QStringLiteral("territory_id"),
+                                  QStringLiteral("duty_category"), QStringLiteral("duty_source")})
+            QVERIFY2(!mouseEdited.contains(key), qPrintable(key));
+        QVERIFY(!duty->hasActiveFocus());
+        backend.calls.last().reply->succeed(singleRowPreview(mouseEdited));
+        controller.setOwnRecordsConfirmed(true);
+        QTRY_VERIFY(commit->isEnabled());
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, itemCenter(duty));
+        QTRY_VERIFY(duty->hasActiveFocus());
+        QTest::keyClick(window, Qt::Key_A, Qt::ControlModifier);
+        typeAscii(window, "MouseUnvalidatedDuty");
+        QCOMPARE(duty->property("text").toString(), QStringLiteral("MouseUnvalidatedDuty"));
+        QCOMPARE(controller.currentCandidate().value("duty_name").toString(), QStringLiteral("MouseEditedDuty"));
+        QVERIFY(controller.previewValid());
+        QVERIFY(commit->isEnabled());
+        const qsizetype beforeMouseCommit = backend.calls.size();
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, itemCenter(commit));
+        QCOMPARE(backend.calls.size(), beforeMouseCommit); // Editor blur must block the stale commit.
+        QVERIFY(!controller.previewValid());
+        QCOMPARE(controller.selectedCount(), 0);
+        QCOMPARE(controller.currentCandidate().value("duty_name").toString(), QStringLiteral("MouseUnvalidatedDuty"));
+        QVERIFY(!duty->hasActiveFocus());
+        QVERIFY(!controller.committing());
+        controller.setOwnRecordsConfirmed(false);
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, itemCenter(revalidate));
+        QTRY_COMPARE(backend.calls.size(), beforeMouseCommit + 1);
+        const QJsonObject unvalidatedDuty = backend.calls.last().payload.value("rows").toArray().first().toObject();
+        QCOMPARE(unvalidatedDuty.value("duty_name").toString(), QStringLiteral("MouseUnvalidatedDuty"));
+        backend.calls.last().reply->succeed(singleRowPreview(unvalidatedDuty,
+            QJsonObject{{"duty_category", QStringLiteral("四人迷宫")}}));
+    }
+
+    static void verifyImportCategoryEditing(ImportDialogStage &stage)
+    {
+        auto &backend = stage.backend;
+        const auto &controller = stage.controller;
+        auto &window = stage.window;
+        auto &revalidate = stage.revalidate;
+        auto &category = stage.category;
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, itemCenter(category));
+        QTRY_VERIFY(category->hasActiveFocus());
+        QTest::keyClick(window, Qt::Key_A, Qt::ControlModifier);
+        typeAscii(window, "InvalidCategory");
+        const qsizetype beforeCategoryEdit = backend.calls.size();
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, itemCenter(revalidate));
+        QTRY_COMPARE(backend.calls.size(), beforeCategoryEdit + 1);
+        const QJsonObject explicitCategory = backend.calls.last().payload.value("rows").toArray().first().toObject();
+        QCOMPARE(explicitCategory.value("duty_category").toString(), QStringLiteral("InvalidCategory"));
+        QVERIFY(!controller.rows().first().toMap().value("run").toMap().contains("duty_category"));
+        backend.calls.last().reply->succeed(singleRowPreview(explicitCategory,
+            QJsonObject{{"duty_category", QStringLiteral("四人迷宫")}}));
+        QCOMPARE(category->property("text").toString(), QStringLiteral("InvalidCategory"));
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, itemCenter(category));
+        QTRY_VERIFY(category->hasActiveFocus());
+        QTest::keyClick(window, Qt::Key_A, Qt::ControlModifier);
+        QTest::keyClick(window, Qt::Key_Backspace);
+        const qsizetype beforeCategoryClear = backend.calls.size();
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, itemCenter(revalidate));
+        QTRY_COMPARE(backend.calls.size(), beforeCategoryClear + 1);
+        const QJsonObject clearedCategory = backend.calls.last().payload.value("rows").toArray().first().toObject();
+        QVERIFY(clearedCategory.contains("duty_category"));
+        QVERIFY(clearedCategory.value("duty_category").isNull());
+        QVERIFY(!controller.rows().first().toMap().value("run").toMap().contains("duty_category"));
+        QVERIFY(controller.currentCandidate().value("duty_category").toString().isEmpty());
+        backend.calls.last().reply->succeed(singleRowPreview(clearedCategory));
+        QCOMPARE(category->property("text").toString(), QString());
+
+    }
+
+    static void verifyImportTimeZoneEditing(ImportDialogStage &stage)
+    {
+        auto &backend = stage.backend;
+        auto &controller = stage.controller;
+        auto &window = stage.window;
+        auto &commit = stage.commit;
+        auto &revalidate = stage.revalidate;
+        auto &zonePreset = stage.zonePreset;
+        auto &customZone = stage.customZone;
+        QCOMPARE(controller.timeZone(), QStringLiteral("+08:00"));
+        QVERIFY(zonePreset->property("currentText").toString().contains(QStringLiteral("北京时间")));
+        QVERIFY(!customZone->isVisible());
+        const qsizetype beforeZoneSelection = backend.calls.size();
+        zonePreset->forceActiveFocus(Qt::TabFocusReason);
+        QTest::keyClick(window, Qt::Key_Down);
+        QTRY_COMPARE(controller.timeZone(), QStringLiteral("+09:00"));
+        QVERIFY(zonePreset->property("currentText").toString().contains(QStringLiteral("日本")));
+        QVERIFY(!controller.previewValid());
+        QCOMPARE(controller.selectedCount(), 0);
+        QCOMPARE(backend.calls.size(), beforeZoneSelection);
+        controller.revalidate();
+        QCOMPARE(backend.calls.last().payload.value("time_zone").toString(), QStringLiteral("+09:00"));
+        backend.calls.last().reply->succeed(preview(QStringLiteral("japan-preview")));
+
+        // Loading an existing non-preset offset reveals it without replacing it.
+        controller.setTimeZone(QStringLiteral("+05:30"));
+        QTRY_VERIFY(customZone->isVisible());
+        QCOMPARE(customZone->property("text").toString(), QStringLiteral("+05:30"));
+        QCOMPARE(controller.timeZone(), QStringLiteral("+05:30"));
+        QVERIFY(zonePreset->property("currentText").toString().contains(QStringLiteral("自定义")));
+        QTest::qWait(50); // Let the additional custom row participate in layout.
+        const QPointF customFooterPosition = commit->mapToScene(QPointF());
+        QVERIFY(customFooterPosition.x() + commit->width() <= window->width() + 1);
+        QVERIFY(customFooterPosition.y() + commit->height() <= window->height() + 1);
+        controller.setTimeZone(QStringLiteral("+09:00"));
+        QTRY_VERIFY(!customZone->isVisible());
+        zonePreset->forceActiveFocus(Qt::TabFocusReason);
+        QTest::keyClick(window, Qt::Key_Down); // UTC preset.
+        QTRY_COMPARE(controller.timeZone(), QStringLiteral("+00:00"));
+        QTest::keyClick(window, Qt::Key_Down); // Custom is an editing mode, not an empty zone.
+        QTRY_VERIFY(customZone->isVisible());
+        QCOMPARE(controller.timeZone(), QStringLiteral("+00:00"));
+        customZone->forceActiveFocus(Qt::TabFocusReason);
+        QTest::keyClick(window, Qt::Key_A, Qt::ControlModifier);
+        typeAscii(window, "+05:30");
+        QCOMPARE(controller.timeZone(), QStringLiteral("+00:00"));
+        QVERIFY(customZone->hasActiveFocus());
+        const qsizetype beforeCustomZonePreview = backend.calls.size();
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, itemCenter(revalidate));
+        QTRY_COMPARE(backend.calls.size(), beforeCustomZonePreview + 1);
+        QTRY_COMPARE(controller.timeZone(), QStringLiteral("+05:30"));
+        QCOMPARE(customZone->property("text").toString(), QStringLiteral("+05:30"));
+        QCOMPARE(backend.calls.last().type, QStringLiteral("PreviewRunImport"));
+        QCOMPARE(backend.calls.last().payload.value("time_zone").toString(), QStringLiteral("+05:30"));
+        QVERIFY(!customZone->hasActiveFocus());
+        backend.calls.last().reply->succeed(preview(QStringLiteral("custom-zone-mouse-preview")));
+        zonePreset->forceActiveFocus(Qt::TabFocusReason);
+        for (int i = 0; i < 3; ++i)
+            QTest::keyClick(window, Qt::Key_Up);
+        QTRY_COMPARE(controller.timeZone(), QStringLiteral("+08:00"));
+        QTRY_VERIFY(!customZone->isVisible());
+        controller.revalidate();
+        backend.calls.last().reply->succeed(preview(QStringLiteral("restored-preview")));
+
+    }
+
+    static void verifyImportRowSwitchFlushesText(ImportDialogStage &stage)
+    {
+        auto &backend = stage.backend;
+        auto &controller = stage.controller;
+        auto &reflection = stage.reflection;
+        auto &choose = stage.choose;
+        auto &content = stage.content;
+        auto &dialog = stage.dialog;
+        reflection->forceActiveFocus(Qt::MouseFocusReason);
+        reflection->setProperty("text", QStringLiteral("逐行切换前编辑的合成全文"));
+        QVERIFY(QMetaObject::invokeMethod(dialog, "selectRow", Q_ARG(QVariant, QVariant(1))));
+        QTRY_VERIFY(content->hasActiveFocus());
+        QVERIFY(!choose->hasActiveFocus());
+        QVERIFY(!choose->property("keyboardFocusVisible").toBool());
+        QCOMPARE(controller.rows()[0].toMap().value("candidate").toMap().value("reflection_text").toString(),
+                 QStringLiteral("逐行切换前编辑的合成全文"));
+        QCOMPARE(controller.rows()[1].toMap().value("candidate").toMap().value("reflection_text").toString(),
+                 QStringLiteral("合成正文"));
+        controller.revalidate();
+        QJsonObject editedPreview = preview(QStringLiteral("row-edited-preview"));
+        QJsonArray editedRows = editedPreview.value("rows").toArray();
+        const QJsonArray editedCandidates = backend.calls.last().payload.value("rows").toArray();
+        for (int i = 0; i < editedRows.size(); ++i) {
+            QJsonObject row = editedRows[i].toObject();
+            row.insert("candidate", editedCandidates[i]);
+            editedRows[i] = row;
+        }
+        editedPreview.insert("rows", editedRows);
+        backend.calls.last().reply->succeed(editedPreview);
+        controller.setCurrentRow(0);
+    }
+
+    static void verifyImportThemePixelsAndFooter(ImportDialogStage &stage)
+    {
+        auto &controller = stage.controller;
+        auto &root = stage.root;
+        auto &window = stage.window;
+        auto &commit = stage.commit;
+        auto &result = stage.result;
+        auto &own = stage.own;
+        auto &gameFacts = stage.gameFacts;
+        auto &paste = stage.paste;
+        auto &reflection = stage.reflection;
+        auto &evidenceDirectory = stage.evidenceDirectory;
+        auto &pixelRatio = stage.pixelRatio;
+        for (auto *check : {own, gameFacts}) {
+            auto *label = check->property("contentItem").value<QQuickItem *>();
+            auto *indicator = check->property("indicator").value<QQuickItem *>();
+            QVERIFY(label && indicator);
+            QCOMPARE(label->property("color").value<QColor>(), root->property("expectedLabelColor").value<QColor>());
+            QCOMPARE(indicator->property("color").value<QColor>(), root->property("expectedIndicatorColor").value<QColor>());
+            check->forceActiveFocus(Qt::TabFocusReason);
+            QTRY_VERIFY(check->property("visualFocus").toBool());
+            QCOMPARE(QQmlProperty(indicator, "border.color").read().value<QColor>(), root->property("expectedFocusColor").value<QColor>());
+            QCOMPARE(QQmlProperty(indicator, "border.width").read().toInt(), 2);
+        }
+        QCOMPARE(paste->property("placeholderTextColor").value<QColor>(), root->property("expectedHintColor").value<QColor>());
+        QCOMPARE(reflection->property("placeholderTextColor").value<QColor>(), root->property("expectedHintColor").value<QColor>());
+        own->forceActiveFocus(Qt::TabFocusReason);
+        QTest::qWait(50);
+        const QImage checkedFrame = window->grabWindow();
+        QVERIFY(!checkedFrame.isNull());
+        evidenceDirectory = qEnvironmentVariable("MR_TEST_EVIDENCE_DIR");
+        if (!evidenceDirectory.isEmpty()) {
+            QVERIFY(QDir().mkpath(evidenceDirectory));
+            QVERIFY(checkedFrame.save(QDir(evidenceDirectory).filePath(QStringLiteral("import-minimum-checked-%1.png").arg(stage.dark ? "dark" : "light"))));
+        }
+        pixelRatio = qreal(checkedFrame.width()) / window->width();
+        auto *ownLabel = own->property("contentItem").value<QQuickItem *>();
+        auto *ownIndicator = own->property("indicator").value<QQuickItem *>();
+        const qreal labelPadding = ownLabel->property("leftPadding").toReal();
+        const QRectF labelRect(ownLabel->mapToScene(QPointF(labelPadding, 0)),
+                              QSizeF(ownLabel->width() - labelPadding, ownLabel->height()));
+        const int foregroundPixels = matchingAntialiasedForegroundPixels(checkedFrame, labelRect, pixelRatio,
+                                        root->property("expectedLabelColor").value<QColor>(),
+                                        root->property("expectedLabelBackground").value<QColor>());
+        QVERIFY2(foregroundPixels > 10, qPrintable(QStringLiteral("Own-record label foreground pixels=%1, scene rect=[%2,%3,%4,%5], target=%6")
+            .arg(foregroundPixels).arg(labelRect.x()).arg(labelRect.y()).arg(labelRect.width()).arg(labelRect.height())
+            .arg(root->property("expectedLabelColor").value<QColor>().name())));
+        const QPointF indicatorCenter = ownIndicator->mapToScene(QPointF(ownIndicator->width() / 2, ownIndicator->height() / 2));
+        QCOMPARE(checkedFrame.pixelColor(qRound(indicatorCenter.x() * pixelRatio), qRound(indicatorCenter.y() * pixelRatio)),
+                 root->property("expectedIndicatorColor").value<QColor>());
+        QCOMPARE(result->property("currentIndex").toInt(), 1); // User-approved default COMPLETED.
+        const QPointF position = commit->mapToScene(QPointF());
+        QVERIFY(position.x() >= 0);
+        QVERIFY(position.y() >= 0);
+        QVERIFY(position.x() + commit->width() <= window->width() + 1);
+        QVERIFY(position.y() + commit->height() <= window->height() + 1);
+        QVERIFY(!commit->isEnabled());
+        controller.setOwnRecordsConfirmed(true);
+        QTRY_VERIFY(commit->isEnabled());
+    }
+
+    static void verifyImportUncertainCommitLifecycle(ImportDialogStage &stage)
+    {
+        auto &backend = stage.backend;
+        auto &controller = stage.controller;
+        auto &window = stage.window;
+        auto &commit = stage.commit;
+        auto &cancel = stage.cancel;
+        auto &dialog = stage.dialog;
+        controller.commit();
+        const QString commitId = backend.calls.last().requestId;
+        const QJsonObject commitPayload = backend.calls.last().payload;
+        backend.calls.last().reply->failTransport(QStringLiteral("ERR_INTERNAL"), QStringLiteral("尚未确认"));
+        QTRY_VERIFY(commit->isEnabled());
+        QVERIFY(!cancel->isEnabled());
+        QTest::keyClick(window, Qt::Key_Escape);
+        QVERIFY(dialog->property("visible").toBool());
+        // An external owner may close the popup: reopening must retain the
+        // uncertain operation even though the normal close action is disabled.
+        QVERIFY(QMetaObject::invokeMethod(dialog, "close"));
+        QVERIFY(QMetaObject::invokeMethod(dialog, "openDialog"));
+        QVERIFY(controller.pendingCommitConfirmation());
+        controller.commit();
+        QCOMPARE(backend.calls.last().requestId, commitId);
+        QCOMPARE(backend.calls.last().payload, commitPayload);
+        backend.calls.last().reply->succeed({{"imported_count", 1}});
+        controller.importText(QStringLiteral("副本\n合成副本"));
+        backend.calls.last().reply->succeed(preview());
+        controller.updateCandidate(0, {{"duty_name", QStringLiteral("已编辑合成副本")}});
+        QTRY_VERIFY(!commit->isEnabled());
+        controller.reset();
+        QTest::qWait(50);
+    }
+
+    static void verifyImportPlaceholderAndExternalJob(ImportDialogStage &stage)
+    {
+        auto &backend = stage.backend;
+        auto &controller = stage.controller;
+        auto &root = stage.root;
+        auto &window = stage.window;
+        auto &revalidate = stage.revalidate;
+        auto &jobWarning = stage.jobWarning;
+        auto &job = stage.job;
+        auto &manualPasteOpen = stage.manualPasteOpen;
+        auto &manualPasteDialog = stage.manualPasteDialog;
+        auto &dialog = stage.dialog;
+        auto &evidenceDirectory = stage.evidenceDirectory;
+        const auto &pixelRatio = stage.pixelRatio;
+        QTRY_VERIFY(manualPasteOpen->isVisible());
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, itemCenter(manualPasteOpen));
+        QTRY_VERIFY(manualPasteDialog->property("visible").toBool());
+        auto *pasteHint = root->findChild<QQuickItem *>(QStringLiteral("importPastePlaceholder"));
+        QTRY_VERIFY(pasteHint && pasteHint->isVisible());
+        QTest::qWait(50); // Let the popup and text glyphs render before the pixel assertion.
+        const QImage emptyFrame = window->grabWindow();
+        QVERIFY(!emptyFrame.isNull());
+        if (!evidenceDirectory.isEmpty())
+            QVERIFY(emptyFrame.save(QDir(evidenceDirectory).filePath(QStringLiteral("import-minimum-placeholder-%1.png").arg(stage.dark ? "dark" : "light"))));
+        const QRectF hintRect(pasteHint->mapToScene(QPointF()), QSizeF(pasteHint->width(), pasteHint->height()));
+        QVERIFY2(matchingAntialiasedForegroundPixels(emptyFrame, hintRect, pixelRatio,
+                                        root->property("expectedHintColor").value<QColor>(),
+                                        root->property("expectedLabelBackground").value<QColor>()) > 10,
+                 "Rendered paste hint must contain the theme muted foreground, not a black style fallback");
+        QTest::keyClick(window, Qt::Key_Escape);
+        QTRY_VERIFY(!manualPasteDialog->property("visible").toBool());
+        QVERIFY(dialog->property("visible").toBool());
+        QTemporaryDir externalSource;
+        QVERIFY(externalSource.isValid());
+        const QString externalJson = externalSource.filePath(QStringLiteral("external-jobs.json"));
+        createFile(externalJson, "[]");
+        controller.importFiles({externalJson});
+        QCOMPARE(backend.calls.last().payload.value("source_kind").toString(), QStringLiteral("JSON"));
+        const QJsonObject externalJob{{"duty_name", QStringLiteral("合成副本")}, {"job_id", 8},
+                                      {"job_name", QStringLiteral("刻木匠")}};
+        backend.calls.last().reply->succeed(singleRowPreview(externalJob));
+        QTRY_COMPARE(job->property("currentIndex").toInt(), -1);
+        QCOMPARE(job->property("displayText").toString(), QStringLiteral("刻木匠（来源职业）"));
+        QTRY_VERIFY(jobWarning->isVisible());
+        QVERIFY(jobWarning->property("text").toString().contains(QStringLiteral("请核对")));
+        for (const QVariant &choice : controller.jobChoices())
+            QVERIFY(choice.toMap().value("job_id").toInt() != 8);
+        const qsizetype beforeExternalJobPreview = backend.calls.size();
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, itemCenter(revalidate));
+        QTRY_COMPARE(backend.calls.size(), beforeExternalJobPreview + 1);
+        const QJsonObject preservedJob = backend.calls.last().payload.value("rows").toArray().first().toObject();
+        QCOMPARE(preservedJob.value("job_id").toInt(), 8);
+        QCOMPARE(preservedJob.value("job_name").toString(), QStringLiteral("刻木匠"));
+        backend.calls.last().reply->succeed(singleRowPreview(preservedJob));
+        QTest::keyClick(window, Qt::Key_Escape);
+        QTRY_VERIFY(!dialog->property("visible").toBool());
+    }
+
 private Q_SLOTS:
     void antialiasedForegroundOracleRejectsBlackFallback()
     {
@@ -335,7 +884,7 @@ private Q_SLOTS:
         const auto rows = controller.rows();
         const auto candidate = controller.currentCandidate();
         const int selected = controller.selectedCount();
-        const int calls = backend.calls.size();
+        const qsizetype calls = backend.calls.size();
         for (const QString &suffix : {QStringLiteral("xlsx"), QStringLiteral("json")}) {
             const QString path = directory.filePath(QStringLiteral("填写模板.") + suffix);
             QVERIFY2(controller.saveTemplateToPath(suffix, path), qPrintable(controller.templateErrorText()));
@@ -769,7 +1318,7 @@ ApplicationWindow {
         QCOMPARE(backend.calls.last().payload.value("source_name").toString(), QStringLiteral("first.png 等 2 张截图"));
         backend.calls.last().reply->succeed(previewCandidates(backend.calls.last().payload.value("rows").toArray(), "two-images"));
         QCOMPARE(controller.sourceLabel(), QStringLiteral("first.png and 2 screenshots"));
-        const int beforeAppend = backend.calls.size();
+        const qsizetype beforeAppend = backend.calls.size();
         controller.importFiles({third});
         QTRY_COMPARE_WITH_TIMEOUT(backend.calls.size(), beforeAppend + 1, 10000);
         QCOMPARE(backend.calls.last().payload.value("source_name").toString(), QStringLiteral("first.png 等 3 张截图"));
@@ -1467,36 +2016,9 @@ ApplicationWindow {
         // answers it. 全选 and 勾选并下一条 pass the row by, and no commit carries the guess.
         controller.setAllImportableSelected(true);
         QCOMPARE(controller.selectedCount(), 0);
-        {
-            ImportThemeState theme;
-            QQmlEngine engine;
-            engine.rootContext()->setContextProperty(QStringLiteral("ImportRecords"), &controller);
-            engine.rootContext()->setContextProperty(QStringLiteral("App"), &theme);
-            engine.rootContext()->setContextProperty(QStringLiteral("ReduceMotion"), true);
-            QQmlComponent component(&engine);
-            component.setData(R"(import QtQuick
-import QtQuick.Controls
-import MentorRecorder
-ApplicationWindow {
-    width: 1240; height: 800; visible: true
-    ImportRecordsDialog { Component.onCompleted: open() }
-})", QUrl::fromLocalFile(QString::fromUtf8(MR_DESKTOP_QML_DIR) + QStringLiteral("/dialogs/ImportPendingJobProbe.qml")));
-            QTRY_VERIFY_WITH_TIMEOUT(component.status() != QQmlComponent::Loading, 5000);
-            QVERIFY2(!component.isError(), qPrintable(component.errorString()));
-            std::unique_ptr<QObject> root(component.create());
-            QVERIFY2(root != nullptr, qPrintable(component.errorString()));
-            auto *window = qobject_cast<QQuickWindow *>(root.get());
-            QVERIFY(window && QTest::qWaitForWindowExposed(window));
-            auto *dialog = root->findChild<QObject *>(QStringLiteral("importRecordsDialog"));
-            auto *footerHint = root->findChild<QQuickItem *>(QStringLiteral("importSelectionHint"));
-            QVERIFY(dialog && footerHint);
-            QCOMPARE(controller.currentRow(), 0);
-            QVERIFY(QMetaObject::invokeMethod(dialog, "checkAndNext"));
-            QCOMPARE(controller.selectedCount(), 0);
-            QVERIFY(!dialog->property("navigationHint").toString().isEmpty());
-            controller.setRowSelected(0, true); // An explicit tick is still the user's choice.
-            QTRY_VERIFY(footerHint->property("text").toString().contains(QStringLiteral("职业")));
-        }
+        verifyPendingJobDialog(controller);
+        if (QTest::currentTestFailed()) return;
+
         QCOMPARE(controller.selectedCount(), 1);
         QCOMPARE(controller.pendingJobSelectedCount(), 1);
         QVERIFY(!controller.canCommit());
@@ -1801,7 +2323,7 @@ ApplicationWindow {
         constexpr qint64 budget = mr::ipc::kMaxFrameBytes * 3 / 4;
         const auto pages = [](const QJsonArray &candidates, const QString &id) {
             QList<QJsonObject> result;
-            for (int page = 1; (page - 1) * 100 < candidates.size(); ++page) {
+            for (int page = 1; (qsizetype(page) - 1) * 100 < candidates.size(); ++page) {
                 QJsonArray rows;
                 for (int i = (page - 1) * 100; i < qMin(int(candidates.size()), page * 100); ++i)
                     rows.append(QJsonObject{{"row_number", i + 1}, {"status", "new"}, {"can_import", true},
@@ -1839,7 +2361,7 @@ ApplicationWindow {
         controller.revalidate(); // The request every later edit re-sends.
         const QJsonObject resent = backend.calls.last().payload;
         const qint64 slack = budget - candidateBytes(resent);
-        QVERIFY2(slack > 0 && slack < 200 * 1024, qPrintable(QString::number(slack)));
+        QVERIFY2(slack > 0 && slack < 200LL * 1024, qPrintable(QString::number(slack)));
         answerPaged(resent.value("rows").toArray(), QStringLiteral("large-2"));
         QVERIFY(controller.canCommit());
 
@@ -2006,7 +2528,7 @@ ApplicationWindow {
         QCOMPARE(candidates.size(), 2090);
         QVERIFY(!candidates.last().toObject().contains("job_id")); // Display projection cannot alter source meaning.
         QCOMPARE(candidates.last().toObject().value("reflection_text").toString(), QStringLiteral("末页修改"));
-        QVERIFY(QJsonDocument(backend.calls.last().payload).toJson(QJsonDocument::Compact).size() < 4 * 1024 * 1024);
+        QVERIFY(QJsonDocument(backend.calls.last().payload).toJson(QJsonDocument::Compact).size() < 4LL * 1024 * 1024);
         backend.calls.last().reply->succeed(previewCandidates(candidates, "revalidated"));
         QCOMPARE(controller.selectedCount(), 2090); // XLSX physical rows 2..2091 become raw candidate rows 1..2090.
         controller.setAllImportableSelected(false);
@@ -2090,7 +2612,7 @@ ApplicationWindow {
         backend.calls.last().reply->succeed(preview());
         QVERIFY(controller.previewValid());
         controller.revalidate();
-        const int beforeFailure = backend.calls.size();
+        const qsizetype beforeFailure = backend.calls.size();
         backend.calls.last().reply->fail("ERR_BAD_REQUEST", QStringLiteral("其他请求错误"));
         QCoreApplication::processEvents();
         QCOMPARE(backend.calls.size(), beforeFailure);
@@ -2212,7 +2734,7 @@ ApplicationWindow {
         QVERIFY(!controller.committing());
         QCOMPARE(controller.errorText(), expired);
         QCOMPARE(controller.rows().size(), 3);
-        const int beforeRevalidate = backend.calls.size();
+        const qsizetype beforeRevalidate = backend.calls.size();
         controller.revalidate();
         QCOMPARE(backend.calls.size(), beforeRevalidate + 1);
         QCOMPARE(backend.calls.last().type, QStringLiteral("PreviewRunImport"));
@@ -2362,7 +2884,7 @@ ApplicationWindow {
         QVERIFY(!controller.baselineChoiceOffered()); // The unread 0 cannot ask the question...
         QVERIFY(controller.waitingForBaseline());
         QVERIFY(!controller.canCommit());             // ...so nothing is saved without it.
-        const int before = backend.calls.size();
+        const qsizetype before = backend.calls.size();
         controller.commit();
         QCOMPARE(backend.calls.size(), before);
         {
@@ -2459,12 +2981,12 @@ ApplicationWindow {
                     rows[i] = row;
                 }
             } else { // The Collector echoes a missing identity as null.
-                for (int i = 0; i < rows.size(); ++i) {
-                    QJsonObject row = rows[i].toObject();
+                for (auto && i : rows) {
+                    QJsonObject row = i.toObject();
                     QJsonObject candidate = row.value("candidate").toObject();
                     candidate.insert("run_id", QJsonValue::Null);
                     row.insert("candidate", candidate);
-                    rows[i] = row;
+                    i = row;
                 }
             }
             response.insert("rows", rows);
@@ -2675,32 +3197,9 @@ ApplicationWindow {
         auto *commit = root->findChild<QQuickItem *>(QStringLiteral("importCommit"));
         auto *job = root->findChild<QQuickItem *>(QStringLiteral("importJob"));
         QVERIFY(dialog && list && selectAll && previousPage && nextPage && pageLabel && commit && job);
-        QCOMPARE(dialog->property("unknownJobCount").toInt(), 0);
-        QVERIFY(job->property("currentIndex").toInt() > 0);
-        QCOMPARE(dialog->property("pageCount").toInt(), 21);
-        QCOMPARE(dialog->property("pageRows").toList().size(), 100);
-        QVERIFY(selectAll->property("text").toString().contains(QStringLiteral("整批")));
-        controller.setAllImportableSelected(false);
-        selectAll->forceActiveFocus(Qt::TabFocusReason);
-        QTest::keyClick(window, Qt::Key_Space);
-        QTRY_COMPARE(controller.selectedCount(), 2090);
-        QVERIFY(QMetaObject::invokeMethod(dialog, "selectRow", Q_ARG(QVariant, 99)));
-        list->forceActiveFocus(Qt::TabFocusReason);
-        QTest::keyClick(window, Qt::Key_Down);
-        QTRY_COMPARE(controller.currentRow(), 100);
-        QTRY_COMPARE(dialog->property("reviewPage").toInt(), 1);
-        QTest::keyClick(window, Qt::Key_Up);
-        QTRY_COMPARE(controller.currentRow(), 99);
-        QTRY_COMPARE(dialog->property("reviewPage").toInt(), 0);
-        QTest::keyClick(window, Qt::Key_Return);
-        QTRY_COMPARE(controller.currentRow(), 100);
-        QTRY_COMPARE(dialog->property("reviewPage").toInt(), 1);
-        QVERIFY(QMetaObject::invokeMethod(dialog, "choosePage", Q_ARG(QVariant, 20)));
-        QTRY_COMPARE(dialog->property("reviewPage").toInt(), 20);
-        QCOMPARE(dialog->property("pageRows").toList().size(), 90);
-        QVERIFY(!nextPage->isEnabled());
-        QCOMPARE(controller.selectedCount(), 2090);
-        QVERIFY(QMetaObject::invokeMethod(dialog, "selectRow", Q_ARG(QVariant, 2089)));
+        verifyPagedKeyboard(controller, dialog, list, selectAll, nextPage, job, window);
+        if (QTest::currentTestFailed()) return;
+
         controller.updateCandidate(2089, {{"reflection_text", QStringLiteral("末页编辑保留")}});
         controller.revalidate();
         const auto edited = backend.calls.last().payload.value("rows").toArray();
@@ -2821,339 +3320,57 @@ ApplicationWindow {
         auto *dialog = root->findChild<QObject *>(QStringLiteral("importRecordsDialog"));
         QVERIFY(commit && revalidate && cancel && duty && category && jobWarning && job && result && own && gameFacts && paste && reflection
                 && choose && content && zonePreset && customZone && recordList && manualPasteOpen && manualPasteDialog && dialog);
-        QVERIFY(!category->property("readOnly").toBool());
-        QCOMPARE(category->property("text").toString(), QStringLiteral("四人迷宫"));
-        QVERIFY(!jobWarning->isVisible()); // A native table has no screenshot candidate evidence.
-        QTRY_VERIFY(content->hasActiveFocus());
-        QVERIFY(!choose->hasActiveFocus());
-        QVERIFY(!choose->property("keyboardFocusVisible").toBool());
-        auto *chooseBackground = choose->property("background").value<QQuickItem *>();
-        QVERIFY(chooseBackground);
-        QCOMPARE(QQmlProperty(chooseBackground, "border.width").read().toInt(), 1);
-        // Opening has neutral focus, but real keyboard traversal keeps the
-        // existing AppButton marker. Never invoke the native file picker here.
-        QTest::keyClick(window, Qt::Key_Tab);
-        QTRY_VERIFY(choose->hasActiveFocus());
-        QVERIFY(choose->property("keyboardFocusVisible").toBool());
-        QCOMPARE(QQmlProperty(chooseBackground, "border.width").read().toInt(), 3);
-        QTest::keyClick(window, Qt::Key_Tab, Qt::ShiftModifier);
-        auto *previous = window->activeFocusItem();
-        QVERIFY(previous && previous != choose && previous->hasActiveFocus());
-        QVERIFY(previous->property("keyboardFocusVisible").toBool());
-        QTest::keyClick(window, Qt::Key_Tab);
-        QTRY_VERIFY(choose->hasActiveFocus());
+        ImportDialogStage stage{backend, controller, initialPreview};
+        stage.root = root.get();
+        stage.window = window;
+        stage.dark = dark;
+        stage.commit = commit;
+        stage.revalidate = revalidate;
+        stage.cancel = cancel;
+        stage.duty = duty;
+        stage.category = category;
+        stage.jobWarning = jobWarning;
+        stage.job = job;
+        stage.result = result;
+        stage.own = own;
+        stage.gameFacts = gameFacts;
+        stage.paste = paste;
+        stage.reflection = reflection;
+        stage.choose = choose;
+        stage.content = content;
+        stage.zonePreset = zonePreset;
+        stage.customZone = customZone;
+        stage.recordList = recordList;
+        stage.manualPasteOpen = manualPasteOpen;
+        stage.manualPasteDialog = manualPasteDialog;
+        stage.dialog = dialog;
+        verifyImportOpeningFocus(stage);
+        if (QTest::currentTestFailed()) return;
 
-        const auto center = [](QQuickItem *item) {
-            return item->mapToScene(QPointF(item->width() / 2, item->height() / 2)).toPoint();
-        };
-        // The list retains focus so two ordinary Space presses can select and
-        // deselect the same row without another click between them.
-        const int beforeListKeys = backend.calls.size();
-        QCOMPARE(controller.selectedCount(), 1);
-        recordList->forceActiveFocus(Qt::TabFocusReason);
-        QTest::keyClick(window, Qt::Key_Space);
-        QTRY_COMPARE(controller.selectedCount(), 0);
-        QTRY_VERIFY(recordList->hasActiveFocus());
-        QTest::keyClick(window, Qt::Key_Space);
-        QTRY_COMPARE(controller.selectedCount(), 1);
-        QTRY_VERIFY(recordList->hasActiveFocus());
-        QCOMPARE(controller.currentRow(), 0);
-        QCOMPARE(backend.calls.size(), beforeListKeys);
+        verifyImportNativeTextEditing(stage);
+        if (QTest::currentTestFailed()) return;
 
-        // Ctrl+V and ordinary editing keys inside the reflection editor keep
-        // native text behavior rather than importing a new source or moving rows.
-        const QString originalReflectionText = reflection->property("text").toString();
-        reflection->forceActiveFocus(Qt::MouseFocusReason);
-        QGuiApplication::clipboard()->setText(QStringLiteral("Native clipboard text"));
-        QTest::keyClick(window, Qt::Key_A, Qt::ControlModifier);
-        QTest::keyClick(window, Qt::Key_V, Qt::ControlModifier);
-        QTRY_COMPARE(reflection->property("text").toString(), QStringLiteral("Native clipboard text"));
-        QTest::keyClick(window, Qt::Key_Return);
-        QTest::keyClick(window, Qt::Key_Space);
-        QTRY_COMPARE(reflection->property("text").toString(), QStringLiteral("Native clipboard text\n "));
-        QCOMPARE(controller.currentRow(), 0);
-        QCOMPARE(backend.calls.size(), beforeListKeys);
-        QVERIFY(controller.previewValid());
-        QVERIFY(reflection->hasActiveFocus());
-        QGuiApplication::clipboard()->setText(originalReflectionText);
-        QTest::keyClick(window, Qt::Key_A, Qt::ControlModifier);
-        QTest::keyClick(window, Qt::Key_V, Qt::ControlModifier);
-        QTRY_COMPARE(reflection->property("text").toString(), originalReflectionText);
-        const QRect windowBounds(0, 0, window->width(), window->height());
-        QVERIFY(windowBounds.contains(center(duty)));
-        QVERIFY(windowBounds.contains(center(category)));
-        QVERIFY(windowBounds.contains(center(revalidate)));
-        QVERIFY(windowBounds.contains(center(commit)));
-        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, center(category));
-        QTRY_VERIFY(category->hasActiveFocus());
-        QVERIFY(controller.previewValid());
-        const int beforeCategoryBlur = backend.calls.size();
-        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, center(revalidate));
-        QTRY_COMPARE(backend.calls.size(), beforeCategoryBlur + 1);
-        const QJsonObject categoryUnchanged = backend.calls.last().payload.value("rows").toArray().first().toObject();
-        QVERIFY(!categoryUnchanged.contains("duty_category"));
-        QCOMPARE(categoryUnchanged.value("content_id").toInt(), 100);
-        QCOMPARE(categoryUnchanged.value("territory_id").toInt(), 200);
-        backend.calls.last().reply->succeed(initialPreview);
-        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, center(duty));
-        QTRY_VERIFY(duty->hasActiveFocus());
-        QTest::keyClick(window, Qt::Key_A, Qt::ControlModifier);
-        typeAscii(window, "MouseEditedDuty");
-        QCOMPARE(duty->property("text").toString(), QStringLiteral("MouseEditedDuty"));
-        QCOMPARE(controller.currentCandidate().value("duty_name").toString(), QStringLiteral("合成副本"));
-        QVERIFY(controller.previewValid()); // Text is still in the active editor.
-        const int beforeMousePreview = backend.calls.size();
-        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, center(revalidate));
-        QTRY_COMPARE(backend.calls.size(), beforeMousePreview + 1);
-        QCOMPARE(backend.calls.last().type, QStringLiteral("PreviewRunImport"));
-        const QJsonObject mouseEdited = backend.calls.last().payload.value("rows").toArray().first().toObject();
-        QCOMPARE(mouseEdited.value("duty_name").toString(), QStringLiteral("MouseEditedDuty"));
-        for (const QString &key : {QStringLiteral("content_id"), QStringLiteral("territory_id"),
-                                  QStringLiteral("duty_category"), QStringLiteral("duty_source")})
-            QVERIFY2(!mouseEdited.contains(key), qPrintable(key));
-        QVERIFY(!duty->hasActiveFocus());
-        backend.calls.last().reply->succeed(singleRowPreview(mouseEdited));
-        controller.setOwnRecordsConfirmed(true);
-        QTRY_VERIFY(commit->isEnabled());
-        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, center(duty));
-        QTRY_VERIFY(duty->hasActiveFocus());
-        QTest::keyClick(window, Qt::Key_A, Qt::ControlModifier);
-        typeAscii(window, "MouseUnvalidatedDuty");
-        QCOMPARE(duty->property("text").toString(), QStringLiteral("MouseUnvalidatedDuty"));
-        QCOMPARE(controller.currentCandidate().value("duty_name").toString(), QStringLiteral("MouseEditedDuty"));
-        QVERIFY(controller.previewValid());
-        QVERIFY(commit->isEnabled());
-        const int beforeMouseCommit = backend.calls.size();
-        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, center(commit));
-        QCOMPARE(backend.calls.size(), beforeMouseCommit); // Editor blur must block the stale commit.
-        QVERIFY(!controller.previewValid());
-        QCOMPARE(controller.selectedCount(), 0);
-        QCOMPARE(controller.currentCandidate().value("duty_name").toString(), QStringLiteral("MouseUnvalidatedDuty"));
-        QVERIFY(!duty->hasActiveFocus());
-        QVERIFY(!controller.committing());
-        controller.setOwnRecordsConfirmed(false);
-        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, center(revalidate));
-        QTRY_COMPARE(backend.calls.size(), beforeMouseCommit + 1);
-        const QJsonObject unvalidatedDuty = backend.calls.last().payload.value("rows").toArray().first().toObject();
-        QCOMPARE(unvalidatedDuty.value("duty_name").toString(), QStringLiteral("MouseUnvalidatedDuty"));
-        backend.calls.last().reply->succeed(singleRowPreview(unvalidatedDuty,
-            QJsonObject{{"duty_category", QStringLiteral("四人迷宫")}}));
-        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, center(category));
-        QTRY_VERIFY(category->hasActiveFocus());
-        QTest::keyClick(window, Qt::Key_A, Qt::ControlModifier);
-        typeAscii(window, "InvalidCategory");
-        const int beforeCategoryEdit = backend.calls.size();
-        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, center(revalidate));
-        QTRY_COMPARE(backend.calls.size(), beforeCategoryEdit + 1);
-        const QJsonObject explicitCategory = backend.calls.last().payload.value("rows").toArray().first().toObject();
-        QCOMPARE(explicitCategory.value("duty_category").toString(), QStringLiteral("InvalidCategory"));
-        QVERIFY(!controller.rows().first().toMap().value("run").toMap().contains("duty_category"));
-        backend.calls.last().reply->succeed(singleRowPreview(explicitCategory,
-            QJsonObject{{"duty_category", QStringLiteral("四人迷宫")}}));
-        QCOMPARE(category->property("text").toString(), QStringLiteral("InvalidCategory"));
-        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, center(category));
-        QTRY_VERIFY(category->hasActiveFocus());
-        QTest::keyClick(window, Qt::Key_A, Qt::ControlModifier);
-        QTest::keyClick(window, Qt::Key_Backspace);
-        const int beforeCategoryClear = backend.calls.size();
-        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, center(revalidate));
-        QTRY_COMPARE(backend.calls.size(), beforeCategoryClear + 1);
-        const QJsonObject clearedCategory = backend.calls.last().payload.value("rows").toArray().first().toObject();
-        QVERIFY(clearedCategory.contains("duty_category"));
-        QVERIFY(clearedCategory.value("duty_category").isNull());
-        QVERIFY(!controller.rows().first().toMap().value("run").toMap().contains("duty_category"));
-        QVERIFY(controller.currentCandidate().value("duty_category").toString().isEmpty());
-        backend.calls.last().reply->succeed(singleRowPreview(clearedCategory));
-        QCOMPARE(category->property("text").toString(), QString());
+        verifyImportDutyRevalidation(stage);
+        if (QTest::currentTestFailed()) return;
 
-        QCOMPARE(controller.timeZone(), QStringLiteral("+08:00"));
-        QVERIFY(zonePreset->property("currentText").toString().contains(QStringLiteral("北京时间")));
-        QVERIFY(!customZone->isVisible());
-        const int beforeZoneSelection = backend.calls.size();
-        zonePreset->forceActiveFocus(Qt::TabFocusReason);
-        QTest::keyClick(window, Qt::Key_Down);
-        QTRY_COMPARE(controller.timeZone(), QStringLiteral("+09:00"));
-        QVERIFY(zonePreset->property("currentText").toString().contains(QStringLiteral("日本")));
-        QVERIFY(!controller.previewValid());
-        QCOMPARE(controller.selectedCount(), 0);
-        QCOMPARE(backend.calls.size(), beforeZoneSelection);
-        controller.revalidate();
-        QCOMPARE(backend.calls.last().payload.value("time_zone").toString(), QStringLiteral("+09:00"));
-        backend.calls.last().reply->succeed(preview(QStringLiteral("japan-preview")));
+        verifyImportCategoryEditing(stage);
+        if (QTest::currentTestFailed()) return;
 
-        // Loading an existing non-preset offset reveals it without replacing it.
-        controller.setTimeZone(QStringLiteral("+05:30"));
-        QTRY_VERIFY(customZone->isVisible());
-        QCOMPARE(customZone->property("text").toString(), QStringLiteral("+05:30"));
-        QCOMPARE(controller.timeZone(), QStringLiteral("+05:30"));
-        QVERIFY(zonePreset->property("currentText").toString().contains(QStringLiteral("自定义")));
-        QTest::qWait(50); // Let the additional custom row participate in layout.
-        const QPointF customFooterPosition = commit->mapToScene(QPointF());
-        QVERIFY(customFooterPosition.x() + commit->width() <= window->width() + 1);
-        QVERIFY(customFooterPosition.y() + commit->height() <= window->height() + 1);
-        controller.setTimeZone(QStringLiteral("+09:00"));
-        QTRY_VERIFY(!customZone->isVisible());
-        zonePreset->forceActiveFocus(Qt::TabFocusReason);
-        QTest::keyClick(window, Qt::Key_Down); // UTC preset.
-        QTRY_COMPARE(controller.timeZone(), QStringLiteral("+00:00"));
-        QTest::keyClick(window, Qt::Key_Down); // Custom is an editing mode, not an empty zone.
-        QTRY_VERIFY(customZone->isVisible());
-        QCOMPARE(controller.timeZone(), QStringLiteral("+00:00"));
-        customZone->forceActiveFocus(Qt::TabFocusReason);
-        QTest::keyClick(window, Qt::Key_A, Qt::ControlModifier);
-        typeAscii(window, "+05:30");
-        QCOMPARE(controller.timeZone(), QStringLiteral("+00:00"));
-        QVERIFY(customZone->hasActiveFocus());
-        const int beforeCustomZonePreview = backend.calls.size();
-        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, center(revalidate));
-        QTRY_COMPARE(backend.calls.size(), beforeCustomZonePreview + 1);
-        QTRY_COMPARE(controller.timeZone(), QStringLiteral("+05:30"));
-        QCOMPARE(customZone->property("text").toString(), QStringLiteral("+05:30"));
-        QCOMPARE(backend.calls.last().type, QStringLiteral("PreviewRunImport"));
-        QCOMPARE(backend.calls.last().payload.value("time_zone").toString(), QStringLiteral("+05:30"));
-        QVERIFY(!customZone->hasActiveFocus());
-        backend.calls.last().reply->succeed(preview(QStringLiteral("custom-zone-mouse-preview")));
-        zonePreset->forceActiveFocus(Qt::TabFocusReason);
-        for (int i = 0; i < 3; ++i)
-            QTest::keyClick(window, Qt::Key_Up);
-        QTRY_COMPARE(controller.timeZone(), QStringLiteral("+08:00"));
-        QTRY_VERIFY(!customZone->isVisible());
-        controller.revalidate();
-        backend.calls.last().reply->succeed(preview(QStringLiteral("restored-preview")));
+        verifyImportTimeZoneEditing(stage);
+        if (QTest::currentTestFailed()) return;
 
-        reflection->forceActiveFocus(Qt::MouseFocusReason);
-        reflection->setProperty("text", QStringLiteral("逐行切换前编辑的合成全文"));
-        QVERIFY(QMetaObject::invokeMethod(dialog, "selectRow", Q_ARG(QVariant, QVariant(1))));
-        QTRY_VERIFY(content->hasActiveFocus());
-        QVERIFY(!choose->hasActiveFocus());
-        QVERIFY(!choose->property("keyboardFocusVisible").toBool());
-        QCOMPARE(controller.rows()[0].toMap().value("candidate").toMap().value("reflection_text").toString(),
-                 QStringLiteral("逐行切换前编辑的合成全文"));
-        QCOMPARE(controller.rows()[1].toMap().value("candidate").toMap().value("reflection_text").toString(),
-                 QStringLiteral("合成正文"));
-        controller.revalidate();
-        QJsonObject editedPreview = preview(QStringLiteral("row-edited-preview"));
-        QJsonArray editedRows = editedPreview.value("rows").toArray();
-        const QJsonArray editedCandidates = backend.calls.last().payload.value("rows").toArray();
-        for (int i = 0; i < editedRows.size(); ++i) {
-            QJsonObject row = editedRows[i].toObject();
-            row.insert("candidate", editedCandidates[i]);
-            editedRows[i] = row;
-        }
-        editedPreview.insert("rows", editedRows);
-        backend.calls.last().reply->succeed(editedPreview);
-        controller.setCurrentRow(0);
-        for (auto *check : {own, gameFacts}) {
-            auto *label = check->property("contentItem").value<QQuickItem *>();
-            auto *indicator = check->property("indicator").value<QQuickItem *>();
-            QVERIFY(label && indicator);
-            QCOMPARE(label->property("color").value<QColor>(), root->property("expectedLabelColor").value<QColor>());
-            QCOMPARE(indicator->property("color").value<QColor>(), root->property("expectedIndicatorColor").value<QColor>());
-            check->forceActiveFocus(Qt::TabFocusReason);
-            QTRY_VERIFY(check->property("visualFocus").toBool());
-            QCOMPARE(QQmlProperty(indicator, "border.color").read().value<QColor>(), root->property("expectedFocusColor").value<QColor>());
-            QCOMPARE(QQmlProperty(indicator, "border.width").read().toInt(), 2);
-        }
-        QCOMPARE(paste->property("placeholderTextColor").value<QColor>(), root->property("expectedHintColor").value<QColor>());
-        QCOMPARE(reflection->property("placeholderTextColor").value<QColor>(), root->property("expectedHintColor").value<QColor>());
-        own->forceActiveFocus(Qt::TabFocusReason);
-        QTest::qWait(50);
-        const QImage checkedFrame = window->grabWindow();
-        QVERIFY(!checkedFrame.isNull());
-        const QString evidenceDirectory = qEnvironmentVariable("MR_TEST_EVIDENCE_DIR");
-        if (!evidenceDirectory.isEmpty()) {
-            QVERIFY(QDir().mkpath(evidenceDirectory));
-            QVERIFY(checkedFrame.save(QDir(evidenceDirectory).filePath(QStringLiteral("import-minimum-checked-%1.png").arg(dark ? "dark" : "light"))));
-        }
-        const qreal pixelRatio = qreal(checkedFrame.width()) / window->width();
-        auto *ownLabel = own->property("contentItem").value<QQuickItem *>();
-        auto *ownIndicator = own->property("indicator").value<QQuickItem *>();
-        const qreal labelPadding = ownLabel->property("leftPadding").toReal();
-        const QRectF labelRect(ownLabel->mapToScene(QPointF(labelPadding, 0)),
-                              QSizeF(ownLabel->width() - labelPadding, ownLabel->height()));
-        const int foregroundPixels = matchingAntialiasedForegroundPixels(checkedFrame, labelRect, pixelRatio,
-                                        root->property("expectedLabelColor").value<QColor>(),
-                                        root->property("expectedLabelBackground").value<QColor>());
-        QVERIFY2(foregroundPixels > 10, qPrintable(QStringLiteral("Own-record label foreground pixels=%1, scene rect=[%2,%3,%4,%5], target=%6")
-            .arg(foregroundPixels).arg(labelRect.x()).arg(labelRect.y()).arg(labelRect.width()).arg(labelRect.height())
-            .arg(root->property("expectedLabelColor").value<QColor>().name())));
-        const QPointF indicatorCenter = ownIndicator->mapToScene(QPointF(ownIndicator->width() / 2, ownIndicator->height() / 2));
-        QCOMPARE(checkedFrame.pixelColor(qRound(indicatorCenter.x() * pixelRatio), qRound(indicatorCenter.y() * pixelRatio)),
-                 root->property("expectedIndicatorColor").value<QColor>());
-        QCOMPARE(result->property("currentIndex").toInt(), 1); // User-approved default COMPLETED.
-        const QPointF position = commit->mapToScene(QPointF());
-        QVERIFY(position.x() >= 0);
-        QVERIFY(position.y() >= 0);
-        QVERIFY(position.x() + commit->width() <= window->width() + 1);
-        QVERIFY(position.y() + commit->height() <= window->height() + 1);
-        QVERIFY(!commit->isEnabled());
-        controller.setOwnRecordsConfirmed(true);
-        QTRY_VERIFY(commit->isEnabled());
-        controller.commit();
-        const QString commitId = backend.calls.last().requestId;
-        const QJsonObject commitPayload = backend.calls.last().payload;
-        backend.calls.last().reply->failTransport(QStringLiteral("ERR_INTERNAL"), QStringLiteral("尚未确认"));
-        QTRY_VERIFY(commit->isEnabled());
-        QVERIFY(!cancel->isEnabled());
-        QTest::keyClick(window, Qt::Key_Escape);
-        QVERIFY(dialog->property("visible").toBool());
-        // An external owner may close the popup: reopening must retain the
-        // uncertain operation even though the normal close action is disabled.
-        QVERIFY(QMetaObject::invokeMethod(dialog, "close"));
-        QVERIFY(QMetaObject::invokeMethod(dialog, "openDialog"));
-        QVERIFY(controller.pendingCommitConfirmation());
-        controller.commit();
-        QCOMPARE(backend.calls.last().requestId, commitId);
-        QCOMPARE(backend.calls.last().payload, commitPayload);
-        backend.calls.last().reply->succeed({{"imported_count", 1}});
-        controller.importText(QStringLiteral("副本\n合成副本"));
-        backend.calls.last().reply->succeed(preview());
-        controller.updateCandidate(0, {{"duty_name", QStringLiteral("已编辑合成副本")}});
-        QTRY_VERIFY(!commit->isEnabled());
-        controller.reset();
-        QTest::qWait(50);
-        QTRY_VERIFY(manualPasteOpen->isVisible());
-        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, center(manualPasteOpen));
-        QTRY_VERIFY(manualPasteDialog->property("visible").toBool());
-        auto *pasteHint = root->findChild<QQuickItem *>(QStringLiteral("importPastePlaceholder"));
-        QTRY_VERIFY(pasteHint && pasteHint->isVisible());
-        QTest::qWait(50); // Let the popup and text glyphs render before the pixel assertion.
-        const QImage emptyFrame = window->grabWindow();
-        QVERIFY(!emptyFrame.isNull());
-        if (!evidenceDirectory.isEmpty())
-            QVERIFY(emptyFrame.save(QDir(evidenceDirectory).filePath(QStringLiteral("import-minimum-placeholder-%1.png").arg(dark ? "dark" : "light"))));
-        const QRectF hintRect(pasteHint->mapToScene(QPointF()), QSizeF(pasteHint->width(), pasteHint->height()));
-        QVERIFY2(matchingAntialiasedForegroundPixels(emptyFrame, hintRect, pixelRatio,
-                                        root->property("expectedHintColor").value<QColor>(),
-                                        root->property("expectedLabelBackground").value<QColor>()) > 10,
-                 "Rendered paste hint must contain the theme muted foreground, not a black style fallback");
-        QTest::keyClick(window, Qt::Key_Escape);
-        QTRY_VERIFY(!manualPasteDialog->property("visible").toBool());
-        QVERIFY(dialog->property("visible").toBool());
-        QTemporaryDir externalSource;
-        QVERIFY(externalSource.isValid());
-        const QString externalJson = externalSource.filePath(QStringLiteral("external-jobs.json"));
-        createFile(externalJson, "[]");
-        controller.importFiles({externalJson});
-        QCOMPARE(backend.calls.last().payload.value("source_kind").toString(), QStringLiteral("JSON"));
-        const QJsonObject externalJob{{"duty_name", QStringLiteral("合成副本")}, {"job_id", 8},
-                                      {"job_name", QStringLiteral("刻木匠")}};
-        backend.calls.last().reply->succeed(singleRowPreview(externalJob));
-        QTRY_COMPARE(job->property("currentIndex").toInt(), -1);
-        QCOMPARE(job->property("displayText").toString(), QStringLiteral("刻木匠（来源职业）"));
-        QTRY_VERIFY(jobWarning->isVisible());
-        QVERIFY(jobWarning->property("text").toString().contains(QStringLiteral("请核对")));
-        for (const QVariant &choice : controller.jobChoices())
-            QVERIFY(choice.toMap().value("job_id").toInt() != 8);
-        const int beforeExternalJobPreview = backend.calls.size();
-        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, center(revalidate));
-        QTRY_COMPARE(backend.calls.size(), beforeExternalJobPreview + 1);
-        const QJsonObject preservedJob = backend.calls.last().payload.value("rows").toArray().first().toObject();
-        QCOMPARE(preservedJob.value("job_id").toInt(), 8);
-        QCOMPARE(preservedJob.value("job_name").toString(), QStringLiteral("刻木匠"));
-        backend.calls.last().reply->succeed(singleRowPreview(preservedJob));
-        QTest::keyClick(window, Qt::Key_Escape);
-        QTRY_VERIFY(!dialog->property("visible").toBool());
+        verifyImportRowSwitchFlushesText(stage);
+        if (QTest::currentTestFailed()) return;
+
+        verifyImportThemePixelsAndFooter(stage);
+        if (QTest::currentTestFailed()) return;
+
+        verifyImportUncertainCommitLifecycle(stage);
+        if (QTest::currentTestFailed()) return;
+
+        verifyImportPlaceholderAndExternalJob(stage);
+        if (QTest::currentTestFailed()) return;
+
         QVERIFY2(warnings.isEmpty(), qPrintable(warnings.join(QLatin1Char('\n'))));
     }
 
@@ -3267,7 +3484,11 @@ ApplicationWindow {
                     return found;
             return nullptr;
         };
-        QTRY_VERIFY((secondRow = findVisualRow(findVisualRow, recordList)) != nullptr);
+        const auto locateSecondRow = [&] {
+            secondRow = findVisualRow(findVisualRow, recordList);
+            return secondRow != nullptr;
+        };
+        QTRY_VERIFY(locateSecondRow());
         QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, center(secondRow));
         QTRY_COMPARE(controller.currentRow(), 1);
         QCOMPARE(controller.currentCandidate().value("duty_name").toString(), QStringLiteral("第二副本"));
@@ -3357,11 +3578,11 @@ int main(int argc, char **argv)
             if (!input.open(QIODevice::ReadOnly))
                 return 2;
             tsv = input.read(8 * 1024 * 1024 + 1);
-            if (tsv.size() > 8 * 1024 * 1024)
+            if (tsv.size() > 8LL * 1024 * 1024)
                 return 2;
         }
-        const QStringList arguments = application.arguments();
-        const int outputFlag = arguments.indexOf(QStringLiteral("--output"));
+        const QStringList arguments = QCoreApplication::arguments();
+        const qsizetype outputFlag = arguments.indexOf(QStringLiteral("--output"));
         if (outputFlag < 0 || outputFlag + 1 >= arguments.size())
             return 2;
         QFile output(arguments[outputFlag + 1]);

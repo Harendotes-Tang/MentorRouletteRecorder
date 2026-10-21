@@ -10,6 +10,7 @@
 #include <QGuiApplication>
 #include <QVariantList>
 
+#include <algorithm>
 #include <utility>
 
 namespace mr {
@@ -19,11 +20,9 @@ bool allManual(const QVariantList &candidates)
 {
     if (candidates.isEmpty())
         return false;
-    for (const auto &value : candidates) {
-        if (value.toMap().value(QStringLiteral("source")).toString() != QLatin1String("MANUAL"))
-            return false;
-    }
-    return true;
+    return std::ranges::all_of(candidates, [](const auto &value) {
+        return value.toMap().value(QStringLiteral("source")).toString() == QLatin1String("MANUAL");
+    });
 }
 
 /// Where the candidates still in the running came from, as one word

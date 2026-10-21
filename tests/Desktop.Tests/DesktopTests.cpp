@@ -124,7 +124,7 @@ public:
     int subscribeCalls() const { return m_subscribeCalls; }
     const QStringList &seenMessages() const { return m_seenMessages; }
     const QList<QJsonObject> &seenPayloads() const { return m_seenPayloads; }
-    int count(const QString &messageType) const { return m_seenMessages.count(messageType); }
+    qsizetype count(const QString &messageType) const { return m_seenMessages.count(messageType); }
     void setAutoRespond(bool value) { m_autoRespond = value; }
     void setSyncFailureType(const QString &value) { m_syncFailureType = value; }
     void setSyncFailure(const QString &type, const QString &code,

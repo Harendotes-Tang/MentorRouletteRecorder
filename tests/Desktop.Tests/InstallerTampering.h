@@ -60,7 +60,7 @@ inline Tampering tryToReplace(const QString &path)
     const QString movedFolder = folder + QStringLiteral("-moved");
     const auto wide = [](const QString &value) { return reinterpret_cast<const wchar_t *>(value.utf16()); };
 
-    const HANDLE writer = ::CreateFileW(wide(file), GENERIC_WRITE,
+    auto *const writer = ::CreateFileW(wide(file), GENERIC_WRITE,
                                         FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
                                         OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (writer != INVALID_HANDLE_VALUE) {

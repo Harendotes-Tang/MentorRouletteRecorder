@@ -91,8 +91,8 @@ bool CaptureValidationController::markerEnabled() const
 
 QString CaptureValidationController::effectiveProfileStatus() const
 {
-    const QString standalone = m_profile.value(QStringLiteral("status")).toString();
-    const QString fromStatus = m_host ? m_host->captureProfileStatus() : QString();
+    QString standalone = m_profile.value(QStringLiteral("status")).toString();
+    QString fromStatus = m_host ? m_host->captureProfileStatus() : QString();
     if (standalone.isEmpty())
         return fromStatus;
     if (fromStatus.isEmpty())
@@ -322,7 +322,9 @@ void CaptureValidationController::refreshProfile()
                 ++m_profileRetryCount;
                 scheduleRetry();
             }
-            Q_EMIT changed();
+            {
+                Q_EMIT changed();
+            }
         });
 }
 
@@ -421,7 +423,9 @@ void CaptureValidationController::applyStatus(const QVariantMap &payload, bool c
     } else {
         m_pollTimer.stop();
     }
-    Q_EMIT changed();
+    {
+        Q_EMIT changed();
+    }
 }
 
 void CaptureValidationController::setFailure(const QString &code, const LiveText &message)
@@ -592,7 +596,7 @@ void CaptureValidationController::addMarker(const QString &marker)
                                        QStringLiteral("left")};
     if (!allowed.contains(marker) || !recording()) {
         setFailure(QStringLiteral("ERR_BAD_REQUEST"),
-                   [] { return tr("只能在验证取证中添加五种固定标记。"); });
+                   LiveText([] { return tr("只能在验证取证中添加五种固定标记。"); }));
         return;
     }
     if (!m_backend || !m_backend->isConnected() || m_markerBusy || m_commandBusy)

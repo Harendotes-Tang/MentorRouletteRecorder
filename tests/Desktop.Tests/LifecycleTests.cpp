@@ -39,6 +39,8 @@
 #include <QTextStream>
 #include <QTimer>
 
+#include <chrono>
+
 #ifdef Q_OS_WIN
 // libstdc++ on MinGW defines NOMINMAX itself; see CollectorProcess.cpp.
 #  ifndef NOMINMAX
@@ -77,10 +79,10 @@ QString shortLivedProgram()
 QString longLivedProgram(const QString &directory)
 {
 #ifdef Q_OS_WIN
-    const QString path = QDir(directory).absoluteFilePath(QStringLiteral("long-lived.cmd"));
+    QString path = QDir(directory).absoluteFilePath(QStringLiteral("long-lived.cmd"));
     QFile script(path);
     if (!script.open(QIODevice::WriteOnly | QIODevice::Text))
-        return QString();
+        return {};
     script.write(QByteArrayLiteral("@echo off\r\npause > nul\r\n"));
     script.close();
     return path;
@@ -95,11 +97,11 @@ QString longLivedProgram(const QString &directory)
 QString unresponsiveHolderProgram(const QString &directory)
 {
 #ifdef Q_OS_WIN
-    const QString path =
+    QString path =
         QDir(directory).absoluteFilePath(QStringLiteral("unresponsive-holder.cmd"));
     QFile script(path);
     if (!script.open(QIODevice::WriteOnly | QIODevice::Text))
-        return QString();
+        return {};
     script.write(QByteArrayLiteral("@echo off\r\nexit /b ")
                  + QByteArray::number(mr::CollectorProcess::kUnresponsiveHolderExitCode)
                  + QByteArrayLiteral("\r\n"));
@@ -118,11 +120,11 @@ QString unresponsiveHolderProgram(const QString &directory)
 QString alreadyRunningProgram(const QString &directory)
 {
 #ifdef Q_OS_WIN
-    const QString path =
+    QString path =
         QDir(directory).absoluteFilePath(QStringLiteral("already-running.cmd"));
     QFile script(path);
     if (!script.open(QIODevice::WriteOnly | QIODevice::Text))
-        return QString();
+        return {};
     script.write(QByteArrayLiteral("@echo off\r\nexit /b ")
                  + QByteArray::number(mr::CollectorProcess::kAlreadyRunningExitCode)
                  + QByteArrayLiteral("\r\n"));
@@ -140,10 +142,10 @@ QString alreadyRunningProgram(const QString &directory)
 QString refusingProgram(const QString &directory, int exitCode, const QByteArray &stderrLine)
 {
 #ifdef Q_OS_WIN
-    const QString path = QDir(directory).absoluteFilePath(QStringLiteral("refusing.cmd"));
+    QString path = QDir(directory).absoluteFilePath(QStringLiteral("refusing.cmd"));
     QFile script(path);
     if (!script.open(QIODevice::WriteOnly))
-        return QString();
+        return {};
     script.write(QByteArrayLiteral("@echo off\r\necho run>>\"%~dp0runs.txt\"\r\n>&2 echo ")
                  + stderrLine + QByteArrayLiteral("\r\nexit /b ")
                  + QByteArray::number(exitCode) + QByteArrayLiteral("\r\n"));
@@ -162,10 +164,10 @@ QString refusingProgram(const QString &directory, int exitCode, const QByteArray
 QString crashOnRequestProgram(const QString &directory)
 {
 #ifdef Q_OS_WIN
-    const QString path = QDir(directory).absoluteFilePath(QStringLiteral("crash-on-request.cmd"));
+    QString path = QDir(directory).absoluteFilePath(QStringLiteral("crash-on-request.cmd"));
     QFile script(path);
     if (!script.open(QIODevice::WriteOnly))
-        return QString();
+        return {};
     script.write(QByteArrayLiteral("@echo off\r\npause > nul\r\nexit /b 1\r\n"));
     script.close();
     return path;
@@ -381,7 +383,7 @@ void LifecycleTests::theCollectorIsAlwaysToldOurProcessIdSoItCannotBeOrphaned()
     const QStringList arguments = collector.processArguments();
 
     QVERIFY(arguments.contains(QStringLiteral("--serve")));
-    const int flag = arguments.indexOf(QStringLiteral("--parent-pid"));
+    const qsizetype flag = arguments.indexOf(QStringLiteral("--parent-pid"));
     QVERIFY2(flag >= 0, "the collector must be launched with --parent-pid");
     QVERIFY(flag + 1 < arguments.size());
 
@@ -391,7 +393,7 @@ void LifecycleTests::theCollectorIsAlwaysToldOurProcessIdSoItCannotBeOrphaned()
     QCOMPARE(pid, QCoreApplication::applicationPid());
 
     // The watchdog's pid-recycling guard needs our start time as well.
-    const int startFlag = arguments.indexOf(QStringLiteral("--parent-start-time"));
+    const qsizetype startFlag = arguments.indexOf(QStringLiteral("--parent-start-time"));
     QVERIFY2(startFlag >= 0, "the collector must be told the parent's start time");
     QVERIFY(startFlag + 1 < arguments.size());
     bool ticksNumeric = false;
@@ -1348,7 +1350,9 @@ void LifecycleTests::anMrTextLineShowsTheSentenceInTheInterfaceLanguage()
         + QString::fromUtf8("缺少必填字段 database_path。").toUtf8() + "\r\n";
     QCOMPARE(mr::CollectorProcess::exitExplanation(3, tail), QString::fromUtf8("缺少必填字段 database_path。"));
 
-    QString translated, unknown, alone;
+    QString translated;
+    QString unknown;
+    QString alone;
     {
         const mrtest::MarkedLanguage language;
         translated = mr::CollectorProcess::exitExplanation(3, tail);
@@ -1356,7 +1360,7 @@ void LifecycleTests::anMrTextLineShowsTheSentenceInTheInterfaceLanguage()
         unknown = mr::CollectorProcess::exitExplanation(
             3, QByteArray("MR-TEXT {\"key\":\"no.such_key\"}\nERR_X: ") + QString::fromUtf8("中文。").toUtf8());
         // An announcement with no sentence after it still has its words.
-        alone = mr::CollectorProcess::exitExplanation(3, QByteArray("MR-TEXT {\"key\":\"database.busy\"}"));
+        alone = mr::CollectorProcess::exitExplanation(3, QByteArray(R"(MR-TEXT {"key":"database.busy"})"));
     }
 
     QCOMPARE(translated, mrtest::marked("ipc.field.missing", QString::fromUtf8("缺少必填字段 database_path。")));
@@ -1761,7 +1765,8 @@ void LifecycleTests::exportsAndBackupsGetTheirOwnDeadline()
         QCOMPARE(mr::IpcClient::timeoutForMessageType(type, ordinary),
                  mr::IpcClient::kLongRequestTimeoutMs);
     }
-    QVERIFY(mr::IpcClient::kLongRequestTimeoutMs >= 120000);
+    static_assert(std::chrono::milliseconds{mr::IpcClient::kLongRequestTimeoutMs}
+                  >= std::chrono::minutes{2});
 
     const QStringList ordinaryTypes{QStringLiteral("GetStatus"),
                                     QStringLiteral("QueryRuns"),

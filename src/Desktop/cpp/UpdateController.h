@@ -314,10 +314,10 @@ private:
     /// empty when it may proceed.
     QString runRefusal() const;
     /// The sentence for a runRefusal() code, in the language on screen.
-    static QString runRefusalSentence(const QString &code);
+    static QString runRefusalSentence(bool runInProgress);
     /// 立即安装 started nothing: \a sentence for the reader, \a code for maintainers.
     /// Every attempt given up passes through here and lets go of the file.
-    void refuseInstall(const LiveText &sentence, const QString &code);
+    void refuseInstall(LiveText sentenceToStore, const QString &code);
     void onInstallerHashed(bool ok, const QString &sha256);
     /// Stops the re-read and the hashing and lets go of the installer: the
     /// application is quitting.

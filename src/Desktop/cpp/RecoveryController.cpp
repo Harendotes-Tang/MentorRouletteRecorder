@@ -99,7 +99,9 @@ void RecoveryController::flushOnQuit()
     if (!m_settings)
         return;
     const Scope current{m_entries, m_edits, m_journalError};
-    const QString currentKey = m_databaseKey, currentPath = m_journalPath, currentError = m_error;
+    const QString currentKey = m_databaseKey;
+    const QString currentPath = m_journalPath;
+    const QString currentError = m_error;
     bool failed = false;
     {
         // No event loop is entered here. Keep temporary journal identities private
@@ -450,7 +452,8 @@ QVariantList RecoveryController::items() const
         result.append(row);
     }
     std::sort(result.begin(), result.end(), [](const QVariant &a, const QVariant &b) {
-        const auto left = a.toMap(), right = b.toMap();
+        const auto left = a.toMap();
+        const auto right = b.toMap();
         const QString lt = left.value(QStringLiteral("matched_at_utc")).toString();
         const QString rt = right.value(QStringLiteral("matched_at_utc")).toString();
         return lt == rt ? left.value(QStringLiteral("runId")).toString() < right.value(QStringLiteral("runId")).toString()

@@ -47,14 +47,14 @@ public:
     /// Environment variable that moves the root somewhere else.
     static constexpr const char *kRootVariable = "MR_NOTE_IMAGE_DIR";
     /// One image; a screenshot is a few MB, anything past this is not a note.
-    static constexpr qint64 kMaxImageBytes = 20 * 1024 * 1024;
+    static constexpr qint64 kMaxImageBytes = 20LL * 1024 * 1024;
     /// Images per run. A note is a handful of screenshots, not an album.
     static constexpr int kMaxImagesPerRun = 20;
     /// Pixels per image, read from the header before anything is decoded. A 4K
     /// screenshot is 8.3 million; an 8K one 33 million. A small file that
     /// declares a giant canvas is a decompression bomb, not a screenshot, and is
     /// refused here rather than left to whatever the image library's own cap is.
-    static constexpr qint64 kMaxImagePixels = 50 * 1000 * 1000;
+    static constexpr qint64 kMaxImagePixels = 50LL * 1000 * 1000;
 
     /// Copies one file; QFile::copy in production. A test replaces it to make a
     /// copy fail after an earlier one in the same batch succeeded.

@@ -34,7 +34,7 @@ QIcon fallbackIcon()
     painter.setBrush(Qt::NoBrush);
     painter.drawEllipse(QRectF(8, 8, 16, 16));
     painter.end();
-    return QIcon(pixmap);
+    return {pixmap};
 }
 
 } // namespace

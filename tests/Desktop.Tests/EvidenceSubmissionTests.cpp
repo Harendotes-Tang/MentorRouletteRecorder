@@ -94,6 +94,7 @@ QQuickItem *visual(QQuickItem *root, const QString &name)
 class CaptureHost final : public mr::CaptureValidationController::Host {
 public:
     bool formal = false;
+    void setFormalCapturing(bool running) { formal = running; }
     bool candidate = true;
     QString profile = QStringLiteral("UNSUPPORTED_BUILD");
     bool formalCapturing() const override { return formal; }
@@ -124,7 +125,8 @@ private Q_SLOTS:
     {
         EvidenceBackend backend;
         mr::EvidenceSubmissionController controller(&backend);
-        int copied = 0, opened = 0;
+        int copied = 0;
+        int opened = 0;
         controller.setClipboardWriter([&](const QString &) { ++copied; });
         controller.setUrlOpener([&](const QUrl &) { ++opened; return true; });
         controller.previewCalibration();
@@ -153,7 +155,7 @@ private Q_SLOTS:
         controller.setClipboardWriter([&](const QString &text) { copied = text; });
         controller.setUrlOpener([&](const QUrl &url) { opened = url; return true; });
         QString json = jsonFor();
-        json += QString(48 * 1024 - json.toUtf8().size(), ' ');
+        json += QString(qsizetype{48} * 1024 - json.toUtf8().size(), ' ');
         QCOMPARE(json.toUtf8().size(), 48 * 1024);
         controller.previewCalibration();
         backend.calls.last().reply->succeed(answer(json, "CODE_VERIFICATION", false));
@@ -240,7 +242,7 @@ private Q_SLOTS:
         controller.previewCalibration(QString(64, 'a'));
         backend.calls.last().reply->succeed(answer(jsonFor("CODE_VERIFICATION", QString(64, 'b'))));
         QVERIFY(!controller.canSubmit());
-        const int calls = backend.calls.size();
+        const qsizetype calls = backend.calls.size();
         controller.previewCalibration("not-a-hash");
         QCOMPARE(backend.calls.size(), calls);
     }
@@ -298,13 +300,13 @@ private Q_SLOTS:
         capture.toggleMetadataObservation();
         QCOMPARE(backend.calls.last().type, QStringLiteral("StopCaptureValidation"));
         backend.calls.last().reply->succeed({{"state", "COMPLETED"}, {"active", false}});
-        host.formal = true;
+        host.setFormalCapturing(true);
         QVERIFY(capture.metadataActionEnabled());
         capture.toggleMetadataObservation();
         QCOMPARE(backend.calls.last().type, QStringLiteral("StartCaptureValidation"));
         QCOMPARE(backend.calls.last().payload.value("switch_from_unsupported"), QJsonValue(true));
         backend.calls.last().reply->succeed({{"state", "COMPLETED"}, {"active", false}});
-        host.formal = true;
+        host.setFormalCapturing(true);
         host.profile = QStringLiteral("VERIFIED");
         QVERIFY(!capture.metadataActionEnabled());
     }
@@ -346,7 +348,7 @@ private Q_SLOTS:
         backend.calls.last().reply->succeed({{"state", "IDLE"}, {"active", false}});
         capture.toggleMetadataObservation();
         backend.calls.last().reply->succeed({{"state", "RECORDING"}, {"active", true}});
-        const int activeCalls = backend.calls.size();
+        const qsizetype activeCalls = backend.calls.size();
         recording.refresh();
         recording.retry();
         QCOMPARE(backend.calls.size(), activeCalls);
@@ -361,7 +363,7 @@ private Q_SLOTS:
         capture.toggleMetadataObservation();
         QCOMPARE(backend.calls.last().type, QStringLiteral("StopCaptureValidation"));
         backend.calls.last().reply->succeed({{"state", "STOPPING"}, {"active", true}});
-        const int drainingCalls = backend.calls.size();
+        const qsizetype drainingCalls = backend.calls.size();
         recording.refresh();
         QCOMPARE(backend.calls.size(), drainingCalls);
         capture.refreshStatusSnapshot();
@@ -413,7 +415,7 @@ ApplicationWindow {
         QTRY_VERIFY(app.validationMarkerEnabled());
         QVERIFY(!app.maintainerToolsVisible());
         auto *marker = visual(window->contentItem(), "templateObservationMarker_queued");
-        auto *action = visual(window->contentItem(), "templateObservationActionButton");
+        const auto *action = visual(window->contentItem(), "templateObservationActionButton");
         QVERIFY(marker && action);
         QVERIFY(marker->isEnabled());
         marker->forceActiveFocus(Qt::TabFocusReason);
@@ -500,7 +502,7 @@ ApplicationWindow {
         auto *window = qobject_cast<QQuickWindow *>(root.get());
         QVERIFY(window);
         QString json = jsonFor();
-        json += QString(48 * 1024 - json.toUtf8().size(), '\n');
+        json += QString(qsizetype{48} * 1024 - json.toUtf8().size(), '\n');
         controller.previewCalibration();
         backend.calls.last().reply->succeed(answer(json, "CODE_VERIFICATION", false));
         auto *dialog = root->findChild<QObject *>("dialog");
@@ -548,7 +550,7 @@ int main(int argc, char **argv)
     const auto windowsDir = qEnvironmentVariable("WINDIR", QStringLiteral("C:/Windows"));
     const int fontId = QFontDatabase::addApplicationFont(QDir(windowsDir).filePath(QStringLiteral("Fonts/msyh.ttc")));
     const auto families = QFontDatabase::applicationFontFamilies(fontId);
-    if (!families.isEmpty()) { QFont font; font.setFamilies(families); app.setFont(font); }
+    if (!families.isEmpty()) { QFont font; font.setFamilies(families); QGuiApplication::setFont(font); }
     QFontDatabase::addApplicationFont(QDir(windowsDir).filePath(QStringLiteral("Fonts/consola.ttf")));
 #endif
     EvidenceSubmissionTests tests;

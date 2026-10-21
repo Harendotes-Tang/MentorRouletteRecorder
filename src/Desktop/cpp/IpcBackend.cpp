@@ -5,6 +5,9 @@
 #include <QJsonArray>
 #include <QJsonValue>
 
+#include <memory>
+#include <vector>
+
 namespace mr {
 namespace {
 
@@ -23,8 +26,9 @@ public:
     {
         m_messageType = messageType;
         m_payload = payload;
-        // Nothing ever completes this reply; it is deleted with this object.
-        return new BackendReply(QStringLiteral("unused"), messageType, this);
+        // These replies never complete; the capture backend keeps them until its scope ends.
+        m_replies.push_back(std::make_unique<BackendReply>(QStringLiteral("unused"), messageType));
+        return m_replies.back().get();
     }
 
     QString messageType() const { return m_messageType; }
@@ -33,6 +37,7 @@ public:
 private:
     QString m_messageType;
     QJsonObject m_payload;
+    std::vector<std::unique_ptr<BackendReply>> m_replies;
 };
 
 QJsonObject objectArg(const QJsonObject &args, const char *name)
@@ -54,7 +59,7 @@ int intArg(const QJsonObject &args, const char *name, int fallback)
 QList<int> intListArg(const QJsonObject &args, const char *name)
 {
     QList<int> values;
-    for (const QJsonValue &value : args.value(QLatin1String(name)).toArray())
+    for (const auto &value : args.value(QLatin1String(name)).toArray())
         values.append(value.toInt());
     return values;
 }
@@ -62,7 +67,7 @@ QList<int> intListArg(const QJsonObject &args, const char *name)
 QStringList stringListArg(const QJsonObject &args, const char *name)
 {
     QStringList values;
-    for (const QJsonValue &value : args.value(QLatin1String(name)).toArray())
+    for (const auto &value : args.value(QLatin1String(name)).toArray())
         values.append(value.toString());
     return values;
 }

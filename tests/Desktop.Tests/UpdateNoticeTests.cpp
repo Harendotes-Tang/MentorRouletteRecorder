@@ -172,7 +172,7 @@ public:
     }
 
 private:
-    void answerCheck(mr::BackendReply *reply)
+    void answerCheck(mr::BackendReply *reply) const
     {
         if (checkFails)
             reply->fail(QStringLiteral("ERR_UNKNOWN_MESSAGE"),
@@ -216,13 +216,13 @@ struct ControllerScene
     }
 
     /// What CheckUpdateNow will answer on the next 检查更新.
-    void willAnswer(const QString &outcome, const QJsonObject &update)
+    void willAnswer(const QString &outcome, const QJsonObject &update) const
     {
         backend->checkAnswer = checkAnswer(outcome, update);
     }
 
     /// Re-answer GetStatus with a different `update` object.
-    void resend(const QJsonObject &update)
+    void resend(const QJsonObject &update) const
     {
         backend->status = collectorStatus(update);
         app->refreshStatus();
@@ -400,7 +400,7 @@ private Q_SLOTS:
     {
         ControllerScene scene;
         scene.openWithoutUpdate();
-        auto *update = scene.controller();
+        const auto *update = scene.controller();
         QTest::qWait(50);
         QVERIFY(!update->available());
         QVERIFY(!update->updateAvailable());
@@ -424,9 +424,9 @@ private Q_SLOTS:
 
         // And the other way round: a version equal to this build's raises the
         // banner all the same, because the Collector said so.
-        scene.resend(updateStatus(true, scene.controller()->currentVersion()));
+        scene.resend(updateStatus(true, mr::UpdateController::currentVersion()));
         QTRY_VERIFY(scene.controller()->updateAvailable());
-        QVERIFY(scene.controller()->headline().contains(scene.controller()->currentVersion()));
+        QVERIFY(scene.controller()->headline().contains(mr::UpdateController::currentVersion()));
     }
 
     void opensOnlyAGithubHttpsAddress()
@@ -659,7 +659,7 @@ private Q_SLOTS:
         for (const QString &text : {scene.controller()->headline(), scene.controller()->detail()}) {
             QString rest = text;
             for (const QString &version :
-                 {scene.controller()->currentVersion(), scene.controller()->latestVersion()}) {
+                 {mr::UpdateController::currentVersion(), scene.controller()->latestVersion()}) {
                 if (!version.isEmpty())
                     rest.remove(version);
             }
@@ -1068,7 +1068,7 @@ int main(int argc, char **argv)
     if (!cjkFamilies.isEmpty()) {
         QFont testFont;
         testFont.setFamilies(cjkFamilies);
-        app.setFont(testFont);
+        QGuiApplication::setFont(testFont);
     }
 #endif
     UpdateNoticeTests tests;

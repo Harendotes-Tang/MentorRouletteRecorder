@@ -3,8 +3,6 @@
 #include <QUrl>
 #include "JobCatalog.h"
 #include "GameNames.h"
-
-#include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -84,7 +82,7 @@ void JobCatalog::loadJobs()
     const QJsonDocument doc = readJson(QStringLiteral(":/resources/icons/manifest.json"));
     const QJsonArray jobs = doc.object().value(QStringLiteral("jobs")).toArray();
 
-    for (const QJsonValue &value : jobs) {
+    for (const auto &value : jobs) {
         const QJsonObject object = value.toObject();
         Job job;
         job.id = object.value(QStringLiteral("id")).toInt();
@@ -119,7 +117,7 @@ void JobCatalog::loadCategories()
     const QJsonDocument doc = readJson(QStringLiteral(":/resources/icons/content_types.json"));
     const QJsonArray rows = doc.object().value(QStringLiteral("rows")).toArray();
 
-    for (const QJsonValue &value : rows) {
+    for (const auto &value : rows) {
         const QJsonObject object = value.toObject();
         const QString zh = object.value(QStringLiteral("zh_name")).toString();
         const QString file = object.value(QStringLiteral("file")).toString();

@@ -25,9 +25,9 @@ class OfflineOcrEngine final : public QObject
     Q_PROPERTY(int totalImages READ totalImages NOTIFY changed)
 
 public:
-    static constexpr qint64 MaxInputBytes = 20 * 1024 * 1024;
-    static constexpr qint64 MaxPixels = 50 * 1000 * 1000;
-    static constexpr qint64 MaxOutputBytes = 8 * 1024 * 1024;
+    static constexpr qint64 MaxInputBytes = 20LL * 1024 * 1024;
+    static constexpr qint64 MaxPixels = 50LL * 1000 * 1000;
+    static constexpr qint64 MaxOutputBytes = 8LL * 1024 * 1024;
     static constexpr int MaxImages = 20;
     static constexpr int DefaultTimeoutMs = 90 * 1000;
 
@@ -37,7 +37,7 @@ public:
     bool busy() const { return m_busy; }
     QString currentFile() const;
     int completedImages() const { return m_index; }
-    int totalImages() const { return m_files.size(); }
+    int totalImages() const { return static_cast<int>(m_files.size()); }
     bool start(const QStringList &files);
     void cancel();
 
@@ -58,7 +58,7 @@ private:
     void startNext();
     void queueNext(quint64 generation);
     void launchProcess(const QString &input);
-    void finishImage(QByteArray tsv);
+    void finishImage(const QByteArray &tsv);
     void stopWithError(const QString &message);
     void settle();
     void processFinished(int exitCode, bool crashed);

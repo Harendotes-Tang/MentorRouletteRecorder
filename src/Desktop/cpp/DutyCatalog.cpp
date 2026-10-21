@@ -24,7 +24,7 @@ bool hasValue(const QVariantMap &map, const QString &key)
     const auto it = map.constFind(key);
     if (it == map.constEnd())
         return false;
-    const QVariant value = it.value();
+    const QVariant &value = it.value();
     if (!value.isValid() || value.isNull())
         return false;
     if (value.typeId() == QMetaType::QString)
@@ -67,7 +67,7 @@ void DutyCatalog::load()
     QList<QVariantMap> rows;
     const QJsonArray duties = root.value(QStringLiteral("duties")).toArray();
     rows.reserve(duties.size());
-    for (const QJsonValue &value : duties) {
+    for (const auto &value : duties) {
         const QJsonObject duty = value.toObject();
         const QJsonValue contentId = duty.value(QStringLiteral("content_id"));
         if (!contentId.isDouble())

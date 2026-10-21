@@ -11,6 +11,7 @@
 #include <QTest>
 #include <QUuid>
 #include <memory>
+#include <ranges>
 
 namespace {
 
@@ -56,9 +57,9 @@ public:
     }
     Call last(const QString &type) const
     {
-        for (auto it = calls.crbegin(); it != calls.crend(); ++it)
-            if (it->type == type)
-                return *it;
+        for (const auto & call : std::ranges::reverse_view(calls))
+            if (call.type == type)
+                return call;
         return {};
     }
     int count(const QString &type) const

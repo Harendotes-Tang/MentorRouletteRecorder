@@ -29,8 +29,8 @@ QList<Component> components(std::vector<uchar> mask, int width, int height, bool
                 const QPoint offset = offsets[size_t(k)];
                 const int nx = px + offset.x();
                 const int ny = py + offset.y();
-                if (nx >= 0 && ny >= 0 && nx < width && ny < height && mask[size_t(ny * width + nx)]) {
-                    mask[size_t(ny * width + nx)] = 0;
+                if (nx >= 0 && ny >= 0 && nx < width && ny < height && mask[size_t(ny) * size_t(width) + size_t(nx)]) {
+                    mask[size_t(ny) * size_t(width) + size_t(nx)] = 0;
                     pending.push_back(ny * width + nx);
                 }
             }
@@ -46,12 +46,13 @@ bool isDiagonalCross(const std::vector<int> &points, int width, const QRect &bou
     std::array<int, 4> corners{};
     for (const int position : points) {
         const double dx = double(position % width - bounds.left()) / (bounds.width() - 1);
-        const double dy = double(position / width - bounds.top()) / (bounds.height() - 1);
+        const int y = position / width;
+        const double dy = double(y - bounds.top()) / (bounds.height() - 1);
         diagonal += std::abs(dx - dy) <= tolerance || std::abs(dx + dy - 1.0) <= tolerance;
         if (std::abs(dx - 0.5) > 0.25 && std::abs(dy - 0.5) > 0.25)
-            ++corners[size_t((dy > 0.5 ? 2 : 0) + (dx > 0.5 ? 1 : 0))];
+            ++corners[(dy > 0.5 ? size_t{2} : size_t{0}) + (dx > 0.5 ? size_t{1} : size_t{0})];
     }
-    return diagonal >= points.size() * 0.85
+    return diagonal >= double(points.size()) * 0.85
         && std::all_of(corners.begin(), corners.end(), [](int count) { return count >= 3; });
 }
 
@@ -188,7 +189,7 @@ QRect surfaceAlong(const QImage &image, const std::array<int, 2> &columns, const
     if ((top == 0 && bottom == image.height() - 1) || bottom - top <= h * 2
         || top > std::min(level.top(), date.top()) || bottom < std::max(level.bottom(), date.bottom()))
         return {};
-    return QRect(0, top, image.width(), bottom - top + 1);
+    return {0, top, image.width(), bottom - top + 1};
 }
 
 /**
@@ -246,7 +247,7 @@ QRect rowExtent(const QImage &image, const QRect &surface, const QRect &level, i
     while (right + 1 < image.width()
            && colorDistance(image.pixel(right + 1, y), image.pixel(std::max(anchor, right - 15), y)) < 45)
         ++right;
-    return QRect(QPoint(left, surface.top()), QPoint(right, surface.bottom()));
+    return {QPoint(left, surface.top()), QPoint(right, surface.bottom())};
 }
 
 /** @brief 职业图标取样起点：越过行左端圆角的抗锯齿像素，它们会被当成金色笔画。 */
@@ -257,7 +258,7 @@ QRect rowIconArea(const QImage &image, const QRect &row, const QRect &level, QRg
     int left = row.left();
     while (left < level.left() && colorDistance(image.pixel(left, y), surface) >= 45)
         ++left;
-    return QRect(QPoint(left + 1, row.top()), row.bottomRight());
+    return {QPoint(left + 1, row.top()), row.bottomRight()};
 }
 
 /** @brief 类型图标像素：饱和彩色且与行底色明显不同；白字、灰字和底色都不是图标。 */
@@ -353,7 +354,7 @@ QList<Word> rowTimeWords(const QList<Word> &words, const Word &date, bool &stack
         }
         return chain;
     };
-    const QList<Word> sameLine = extend({}, date.rect);
+    QList<Word> sameLine = extend({}, date.rect);
     if (!sameLine.isEmpty())
         return sameLine;
     const Word *below = nullptr;

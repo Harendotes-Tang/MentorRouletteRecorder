@@ -172,7 +172,7 @@ QJsonObject MockBackend::queryCandidatePayload(const QJsonObject &payload,
     }
 
     QList<QJsonObject> selected;
-    for (const QJsonValue &value : m_candidateObservations) {
+    for (const auto &value : m_candidateObservations) {
         const QJsonObject row = value.toObject();
         const QDateTime at = fromIso(row.value(QStringLiteral("observed_at_utc")));
         if ((!session.isString()
@@ -428,7 +428,7 @@ QJsonObject MockBackend::applyCalibrationVerdicts(const QJsonObject &payload, QS
         return badRequest(errorCode, errorMessage,
                           QString::fromUtf8("核对结果不能为空。"));
     }
-    for (const QJsonValue &value : verdicts) {
+    for (const auto &value : verdicts) {
         const QString verdict = value.toObject().value(QStringLiteral("verdict")).toString();
         if (verdict != QLatin1String("CORRECT") && verdict != QLatin1String("WRONG")) {
             return badRequest(errorCode, errorMessage,
@@ -514,7 +514,7 @@ QJsonObject MockBackend::applyCaptureSettings(const QJsonObject &payload,
                 eligible.insert(hypothesis.value(QStringLiteral("opcode")).toString());
         }
         QSet<QString> unique;
-        for (const QJsonValue &value : requested) {
+        for (const auto &value : requested) {
             const QString token = value.toString().toLower();
             if (!value.isString() || !eligible.contains(token) || unique.contains(token))
                 return badRequest(errorCode, errorMessage,

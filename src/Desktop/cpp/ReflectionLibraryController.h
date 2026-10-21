@@ -27,7 +27,7 @@ public:
     RunListModel *runs() const { return m_runs; }
     QVariantMap filter() const { return m_filter; }
     bool active() const { return m_active; }
-    int selectedCount() const { return m_selectedIds.size(); }
+    int selectedCount() const { return static_cast<int>(m_selectedIds.size()); }
     QStringList selectedIds() const { return m_selectedIds; }
     QVariantList selectedRuns() const;
     bool currentPageSelected() const;
@@ -48,7 +48,7 @@ Q_SIGNALS:
     void selectionChanged();
     void filterChangeNeedsConfirmation();
 private:
-    void applyFilter(const QVariantMap &filter);
+    void applyFilter(const QVariantMap &next);
     /// 重新读取已勾选的记录：心得已清空或记录已删除的移出选择，其余换成新投影。
     /// 读取失败时选择保持不变。
     void refreshSelection();

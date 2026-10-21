@@ -15,6 +15,8 @@
 #include <QUrl>
 #include <QVoice>
 
+#include <algorithm>
+
 namespace {
 
 Q_LOGGING_CATEGORY(lcTts, "mr.tts")
@@ -337,7 +339,8 @@ void TtsService::applyVoiceAndLevels()
     } else {
         m_statusText = [voice = m_voiceName] { return tr("本机语音可用 · %1").arg(voice); };
     }
-    Q_EMIT availabilityChanged();
+    Q_EMIT
+    availabilityChanged();
 }
 
 // ---------------------------------------------------------------------------
@@ -464,11 +467,9 @@ bool TtsService::missesLanguage(const QList<VoiceEntry> &voices, const QLocale &
 {
     if (voices.isEmpty())
         return false;
-    for (const VoiceEntry &voice : voices) {
-        if (voice.locale.language() == preferred.language())
-            return false;
-    }
-    return true;
+    return std::ranges::all_of(voices, [&preferred](const VoiceEntry &voice) {
+        return voice.locale.language() != preferred.language();
+    });
 }
 
 QLocale TtsService::speechLocale()
@@ -538,7 +539,7 @@ QString TtsService::voiceId() const
     // A choice that is installed but still waiting for the engine to fall
     // idle is already the answer: the settings page must not snap back to the
     // previous voice while the current line finishes.
-    const QString saved = m_settings ? m_settings->ttsVoice() : QString();
+    QString saved = m_settings ? m_settings->ttsVoice() : QString();
     // An online voice is the answer while the Collector offers online speech;
     // without it the list has no such row and the local voice in use is shown.
     if (SpeechController::isOnlineVoiceId(saved) && m_speech && m_speech->available())

@@ -38,7 +38,7 @@ bool isEventRow(const QVariantMap &row)
 constexpr qint64 kFinderBurstMs = 2000;
 // A duty entry has to follow the finder state update within this window (confirm -> loading
 // screen took 24 s live), or the update is treated as stale (it also follows a cancel).
-constexpr qint64 kPopToEntryMs = 3 * 60 * 1000;
+constexpr qint64 kPopToEntryMs = 3LL * 60 * 1000;
 
 bool before(const QVariant &left, const QVariant &right)
 {
@@ -219,7 +219,7 @@ void CandidateReviewController::readIndexPage(int page, int generation)
             if (total < 0 || total > kMaxObservations || total != m_indexExpectedTotal || items.size() != expected
                 || info.value(QStringLiteral("page")).toInt() != page
                 || info.value(QStringLiteral("page_size")).toInt() != kIndexPageSize) {
-                indexFailed([] { return tr("观测数量发生变化，需重新刷新后查看锚点配对。"); }, true);
+                indexFailed(LiveText([] { return tr("观测数量发生变化，需重新刷新后查看锚点配对。"); }), true);
                 return;
             }
             for (const auto &value : items) {
@@ -229,7 +229,7 @@ void CandidateReviewController::readIndexPage(int page, int generation)
                 const auto stamp = row.value(QStringLiteral("observed_at_utc")).toString();
                 if (id.isEmpty() || session.isEmpty() || !QDateTime::fromString(stamp, Qt::ISODateWithMs).isValid()
                     || m_indexIds.contains(id)) {
-                    indexFailed([] { return tr("分页出现重复或缺失观测，需重新刷新。"); }, true);
+                    indexFailed(LiveText([] { return tr("分页出现重复或缺失观测，需重新刷新。"); }), true);
                     return;
                 }
                 m_indexIds.insert(id);
@@ -253,7 +253,7 @@ void CandidateReviewController::readIndexPage(int page, int generation)
                     if (generation == m_indexGeneration) readIndexPage(page + 1, generation);
                 });
             } else if (m_indexIds.size() != total || m_indexChanged) {
-                indexFailed([] { return tr("捕获期间观测发生变化，需重新刷新后查看锚点配对。"); }, true);
+                indexFailed(LiveText([] { return tr("捕获期间观测发生变化，需重新刷新后查看锚点配对。"); }), true);
             } else finishIndex();
         });
 }

@@ -6,6 +6,8 @@
 #include <QRegularExpression>
 #include <QtEndian>
 
+#include <algorithm>
+
 namespace mr {
 namespace {
 
@@ -30,11 +32,9 @@ bool isLink(const QFileInfo &info)
 bool hasParentSegment(const QString &path)
 {
     const QStringList segments = path.split(QLatin1Char('/'));
-    for (const QString &segment : segments) {
-        if (segment == QLatin1String(".."))
-            return true;
-    }
-    return false;
+    return std::ranges::any_of(segments, [](const QString &segment) {
+        return segment == QLatin1String("..");
+    });
 }
 
 SpeechAudioCheck refuse(const QString &reason)
@@ -75,7 +75,7 @@ SpeechAudioCheck checkSpeechAudioFile(const QString &audioPath, const QString &d
     // on. Checked on the text as received: on Windows fromNativeSeparators()
     // quietly drops a \\?\ prefix.
     const QString received = audioPath.trimmed();
-    for (const char *prefix : {"\\\\?\\", "\\\\.\\", "//?/", "//./", "\\??\\"}) {
+    for (const char *prefix : {R"(\\?\)", R"(\\.\)", "//?/", "//./", R"(\??\)"}) {
         if (received.startsWith(QLatin1String(prefix)))
             return refuse(QStringLiteral("device path"));
     }

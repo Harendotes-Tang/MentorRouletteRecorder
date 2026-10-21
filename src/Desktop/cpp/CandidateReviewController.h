@@ -65,7 +65,7 @@ public:
     bool loading() const { return m_loading; }
     bool indexLoading() const { return m_indexLoading; }
     bool indexComplete() const { return m_indexComplete; }
-    int indexLoadedCount() const { return m_indexIds.size(); }
+    int indexLoadedCount() const { return static_cast<int>(m_indexIds.size()); }
     QString indexMessage() const { return m_indexMessage.text(); }
     QString error() const { return m_error.text(); }
     bool hasNewObservations() const { return m_hasNewObservations; }

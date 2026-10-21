@@ -39,6 +39,7 @@
 #include <QTimer>
 #include <QtEndian>
 
+#include <algorithm>
 #include <functional>
 
 namespace {
@@ -49,9 +50,9 @@ QByteArray waveBytes(quint16 bits = 16, quint16 format = 1, quint32 dataBytes = 
 {
     QByteArray bytes(44 + int(dataBytes), '\0');
     char *d = bytes.data();
-    memcpy(d, "RIFF", 4);
+    std::copy_n("RIFF", 4, d);
     qToLittleEndian<quint32>(36 + dataBytes, d + 4);
-    memcpy(d + 8, "WAVEfmt ", 8);
+    std::copy_n("WAVEfmt ", 8, d + 8);
     qToLittleEndian<quint32>(16, d + 16);
     qToLittleEndian<quint16>(format, d + 20);
     qToLittleEndian<quint16>(1, d + 22);
@@ -59,7 +60,7 @@ QByteArray waveBytes(quint16 bits = 16, quint16 format = 1, quint32 dataBytes = 
     qToLittleEndian<quint32>(24000 * (bits / 8), d + 28);
     qToLittleEndian<quint16>(bits / 8, d + 32);
     qToLittleEndian<quint16>(bits, d + 34);
-    memcpy(d + 36, "data", 4);
+    std::copy_n("data", 4, d + 36);
     qToLittleEndian<quint32>(dataBytes, d + 40);
     return bytes;
 }
@@ -830,7 +831,9 @@ void SpeechTests::routing_playsReturnedFilesOneAfterAnother()
     RoutingFixture f;
     QVERIFY(f.loaded());
     f.player->autoFinish = false;
-    const QString a = f.cache.wav(1), b = f.cache.wav(2), c = f.cache.wav(3);
+    const QString a = f.cache.wav(1);
+    const QString b = f.cache.wav(2);
+    const QString c = f.cache.wav(3);
     f.backend.script = {RoutingFixture::file(a), RoutingFixture::file(b), RoutingFixture::file(c)};
 
     f.say(QStringLiteral("one"));
@@ -1317,7 +1320,7 @@ void SpeechTests::voices_mergeLocalAndOnlineRows()
     QSignalSpy changed(&f.tts, &mr::TtsService::voicesChanged);
     f.tts.setVoice(QStringLiteral("openai:my-voice"));
     QCOMPARE(f.settings.ttsVoice(), QStringLiteral("openai:my-voice"));
-    QVERIFY(changed.size() >= 1);
+    QVERIFY(!changed.empty());
     const QVariantMap custom = f.tts.voices().constLast().toMap();
     QCOMPARE(custom.value(QStringLiteral("id")).toString(), QStringLiteral("openai:my-voice"));
     QCOMPARE(custom.value(QStringLiteral("label")).toString(), QString::fromUtf8("my-voice · 在线（OpenAI 兼容）"));

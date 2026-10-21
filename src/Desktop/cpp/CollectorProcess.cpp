@@ -13,6 +13,8 @@
 #include <QLoggingCategory>
 #include <QRegularExpression>
 
+#include <algorithm>
+#include <ranges>
 #include <utility>
 
 #ifdef Q_OS_WIN
@@ -119,7 +121,7 @@ QString CollectorProcess::resolveDefaultExecutable()
 {
     const QString exeName = QStringLiteral("MentorRecorder.Collector.exe");
     const QDir appDir(QCoreApplication::applicationDirPath());
-    const QString beside = appDir.absoluteFilePath(exeName);
+    QString beside = appDir.absoluteFilePath(exeName);
 
 #ifdef MR_DEV_COLLECTOR_DISCOVERY
     // An explicit override is the *only* candidate: falling back to a discovered
@@ -231,7 +233,10 @@ namespace {
 QString ownStartTimeUtcTicks()
 {
 #ifdef Q_OS_WIN
-    FILETIME creation{}, exited{}, kernel{}, user{};
+    FILETIME creation{};
+    FILETIME exited{};
+    FILETIME kernel{};
+    FILETIME user{};
     if (!GetProcessTimes(GetCurrentProcess(), &creation, &exited, &kernel, &user))
         return {};
     const quint64 fileTime =
@@ -282,10 +287,10 @@ void CollectorProcess::wireProcess()
         // a broken installation, which no amount of retrying repairs.
         if (++m_failedLaunches > 1) {
             qCWarning(lcCollector) << "collector could not be launched:" << m_process->errorString();
-            refuseStart([] {
+            refuseStart(LiveText([] {
                             return tr("Windows 无法运行采集服务程序，安装可能已损坏，"
                                       "请重新安装本软件。");
-                        },
+                        }),
                         /*retryLater=*/false);
             return;
         }
@@ -366,7 +371,7 @@ QString CollectorProcess::statusText() const
     case State::Stopped:
         return tr("后台服务已停止");
     }
-    return QString();
+    return {};
 }
 
 void CollectorProcess::setState(State state, const LiveText &detail)
@@ -605,23 +610,19 @@ bool CollectorProcess::tasklistNamesCollector(const QString &csvOutput, qint64 p
         return false;
     const QString wanted = QString::number(pid);
     const auto lines = csvOutput.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
-    for (const QString &line : lines) {
+    return std::ranges::any_of(lines, [&wanted](const QString &line) {
         const QString row = line.trimmed();
         if (row.isEmpty())
-            continue;
+            return false;
         const QStringList fields = splitCsvRow(row);
         // "Image Name","PID","Session Name","Session#","Mem Usage"
         if (fields.size() < 2)
-            continue;
+            return false;
         if (fields.at(1).trimmed() != wanted)
-            continue;
-        if (fields.at(0).trimmed().compare(QLatin1String(kCollectorImageName),
-                                           Qt::CaseInsensitive)
-            == 0) {
-            return true;
-        }
-    }
-    return false;
+            return false;
+        return fields.at(0).trimmed().compare(QLatin1String(kCollectorImageName),
+                                              Qt::CaseInsensitive) == 0;
+    });
 }
 
 void CollectorProcess::setTakeoverTimingsForTest(int holderGrace, int politeKillGrace)
@@ -640,7 +641,7 @@ QString CollectorProcess::systemToolPath(const QString &fileName)
     wchar_t buffer[MAX_PATH] = {};
     const UINT length = GetSystemDirectoryW(buffer, MAX_PATH);
     if (length == 0 || length >= MAX_PATH)
-        return QString();
+        return {};
     const QDir system(QDir::fromNativeSeparators(QString::fromWCharArray(buffer, int(length))));
     const QString path = system.absoluteFilePath(fileName);
     return QFileInfo::exists(path) ? path : QString();
@@ -713,7 +714,7 @@ bool CollectorProcess::tryRelaunchForLease()
     if (m_stopRequested)
         return false;
     if (m_takeoverAttempts >= kMaxTakeoverAttempts) {
-        setState(State::Reused, [] { return tr("占用者无响应"); });
+        setState(State::Reused, LiveText([] { return tr("占用者无响应"); }));
         return false;
     }
     ++m_takeoverAttempts;
@@ -1078,7 +1079,7 @@ void CollectorProcess::onFinished(int exitCode, QProcess::ExitStatus status)
     // database looks the same - so this only asks through the stop event and
     // watches; ending it is left to the owner's failed-connect counter.
     if (status == QProcess::NormalExit && exitCode == kUnresponsiveHolderExitCode) {
-        setState(State::Reused, [] { return tr("占用者无响应"); });
+        setState(State::Reused, LiveText([] { return tr("占用者无响应"); }));
         // Queued: the grace can start our own child, and starting a QProcess
         // from inside its own finished() slot is not a thing to rely on.
         QTimer::singleShot(0, this, [this] { beginHolderGrace(); });
@@ -1099,7 +1100,7 @@ void CollectorProcess::onFinished(int exitCode, QProcess::ExitStatus status)
     if (status == QProcess::NormalExit
         && (exitCode == kBadArgumentsExitCode
             || (exitCode == kCannotServeExitCode && !m_childServed))) {
-        refuseStart([exitCode, tail = m_stderrTail] { return exitExplanation(exitCode, tail); },
+        refuseStart(LiveText([exitCode, tail = m_stderrTail] { return exitExplanation(exitCode, tail); }),
                     /*retryLater=*/exitCode == kCannotServeExitCode);
         return;
     }
@@ -1110,9 +1111,9 @@ void CollectorProcess::onFinished(int exitCode, QProcess::ExitStatus status)
         m_backoffMs = minBackoffMs();
 
     const bool crashed = status == QProcess::CrashExit;
-    setState(State::Exited, [crashed, exitCode] {
+    setState(State::Exited, LiveText([crashed, exitCode] {
         return crashed ? tr("崩溃") : tr("代码 %1").arg(exitCode);
-    });
+    }));
     scheduleRestart();
 }
 
@@ -1134,8 +1135,8 @@ QString CollectorProcess::exitExplanation(int exitCode, const QByteArray &stderr
         QString::fromUtf8(stderrTail).split(QLatin1Char('\n'), Qt::SkipEmptyParts);
     QString chinese;
     QVariant ref;
-    for (auto line = lines.crbegin(); line != lines.crend(); ++line) {
-        QString text = line->trimmed();
+    for (const QString &line : lines | std::views::reverse) {
+        QString text = line.trimmed();
         if (text.isEmpty())
             continue;
         if (text.startsWith(kTextPrefix)) {

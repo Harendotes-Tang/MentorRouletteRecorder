@@ -129,11 +129,8 @@ QJsonObject MockBackend::applyUpdateDownload(const QString &messageType, const Q
         // The mock only knows 99.9.9 while it says there is an update, so even
         // reinstall has nothing to fetch otherwise.
         failUpdateDownload(QStringLiteral("NO_UPDATE"), "update.download.no_update");
-    } else if (running) {
-        // One download at a time: the running one is reported.
-    } else if (m_updateDownloadState == kReady && QFileInfo::exists(m_updateFilePath)) {
-        // Already there and verified: nothing is downloaded again.
-    } else {
+    } else if (!running && !(m_updateDownloadState == kReady && QFileInfo::exists(m_updateFilePath))) {
+        // Start only when no download is running and no verified installer is already present.
         m_updateDownloadState = kDownloading;
         m_updateReceivedBytes = 0;
         m_updateFailure.clear();

@@ -25,7 +25,7 @@ public:
             if (call.type == QStringLiteral("QueryRunCalendarDays")) result.append(call);
         return result;
     }
-    void answer(int index, const QStringList &days) {
+    void answer(int index, const QStringList &days) const {
         const Call call = calendarCalls().at(index);
         QJsonArray array;
         for (const QString &day : days) array.append(day);

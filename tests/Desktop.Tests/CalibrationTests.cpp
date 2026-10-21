@@ -211,6 +211,31 @@ class CalibrationTests : public QObject
 {
     Q_OBJECT
 
+private:
+    static void chooseRouletteWithMouse(QQuickWindow *window, QQuickItem *choice, QObject *dialog, QQuickItem *right, QQuickItem *wrong)
+    {
+        // The same with the mouse, through the open list: a pick there must not leave the box
+        // showing it once the answer has moved on.
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
+                          choice->mapToScene(QPointF(choice->width() / 2, choice->height() / 2)).toPoint());
+        auto *popup = choice->property("popup").value<QObject *>();
+        QVERIFY(popup);
+        QTRY_VERIFY(popup->property("opened").toBool());
+        auto *list = qobject_cast<QQuickItem *>(popup->property("contentItem").value<QObject *>());
+        QVERIFY(list);
+        QQuickItem *row = nullptr;
+        QTRY_VERIFY(QMetaObject::invokeMethod(list, "itemAtIndex", Q_RETURN_ARG(QQuickItem *, row),
+                                              Q_ARG(int, 1)) && row);
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
+                          row->mapToScene(QPointF(row->width() / 2, row->height() / 2)).toPoint());
+        QTRY_COMPARE(choice->property("currentIndex").toInt(), 1);
+        QTRY_COMPARE(dialog->property("verdicts").toMap().value(QStringLiteral("pop-120000")).toMap()
+                         .value(QStringLiteral("roulette_name")).toString(), QString::fromUtf8("满级迷宫"));
+        QVERIFY(QMetaObject::invokeMethod(right, "clicked"));
+        QTRY_VERIFY(!choice->isVisible());
+        QVERIFY(QMetaObject::invokeMethod(wrong, "clicked"));
+    }
+
 private Q_SLOTS:
     void initTestCase()
     {
@@ -833,26 +858,8 @@ ApplicationWindow {
         if (QTest::currentTestFailed())
             return;
 
-        // The same with the mouse, through the open list: a pick there must not leave the box
-        // showing it once the answer has moved on.
-        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
-                          choice->mapToScene(QPointF(choice->width() / 2, choice->height() / 2)).toPoint());
-        auto *popup = choice->property("popup").value<QObject *>();
-        QVERIFY(popup);
-        QTRY_VERIFY(popup->property("opened").toBool());
-        auto *list = qobject_cast<QQuickItem *>(popup->property("contentItem").value<QObject *>());
-        QVERIFY(list);
-        QQuickItem *row = nullptr;
-        QTRY_VERIFY(QMetaObject::invokeMethod(list, "itemAtIndex", Q_RETURN_ARG(QQuickItem *, row),
-                                              Q_ARG(int, 1)) && row);
-        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
-                          row->mapToScene(QPointF(row->width() / 2, row->height() / 2)).toPoint());
-        QTRY_COMPARE(choice->property("currentIndex").toInt(), 1);
-        QTRY_COMPARE(dialog->property("verdicts").toMap().value(QStringLiteral("pop-120000")).toMap()
-                         .value(QStringLiteral("roulette_name")).toString(), QString::fromUtf8("满级迷宫"));
-        QVERIFY(QMetaObject::invokeMethod(right, "clicked"));
-        QTRY_VERIFY(!choice->isVisible());
-        QVERIFY(QMetaObject::invokeMethod(wrong, "clicked"));
+        chooseRouletteWithMouse(window, choice, dialog, right, wrong);
+        QVERIFY(!QTest::currentTestFailed());
         expectNameAsked();
     }
 
@@ -1559,7 +1566,7 @@ int main(int argc, char **argv)
     qInfo() << "calibration CJK families" << cjkFamilies;
     QFont testFont;
     testFont.setFamilies(cjkFamilies);
-    app.setFont(testFont);
+    QGuiApplication::setFont(testFont);
 #endif
     CalibrationTests tests;
     return QTest::qExec(&tests, argc, argv);

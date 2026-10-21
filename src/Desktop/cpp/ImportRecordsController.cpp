@@ -29,14 +29,14 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <mutex>
 
 static void initializeImportTemplateResources()
 {
-    static const bool initialized = [] {
+    static std::once_flag initialized;
+    std::call_once(initialized, [] {
         Q_INIT_RESOURCE(mr_import_templates);
-        return true;
-    }();
-    (void)initialized;
+    });
 }
 
 namespace mr {
@@ -143,7 +143,7 @@ qint64 collectorJsonBytes(const QJsonValue &value)
     case QJsonValue::Array: {
         const QJsonArray array = value.toArray();
         qint64 bytes = 2 + std::max<qsizetype>(0, array.size() - 1);
-        for (const QJsonValue &item : array)
+        for (const auto &item : array)
             bytes += collectorJsonBytes(item);
         return bytes;
     }
@@ -181,21 +181,22 @@ ImportRecordsController::ImportRecordsController(QObject *parent)
                           return complete ? tr("新截图没有识别到完整记录，原批次已保留。") : tr("追加识别已取消，原批次已保留。");
                       })
                     : m_error);
-        } else if (complete && !m_candidates.isEmpty() && m_error.isEmpty())
+        } else if (complete && !m_candidates.isEmpty() && m_error.isEmpty()) {
             revalidate();
-        else {
+        } else {
             // Cards recognised before an image failed were never shown: they must not stay
             // behind as a hidden batch the next screenshot is appended to (audit I3-5).
             m_candidates = {};
             m_evidence.clear();
             m_sourceImages.clear();
             if (m_error.isEmpty())
-                fail([complete] {
+                fail(LiveText([complete] {
                     return complete ? tr("没有识别到完整记录卡片。请裁切到记录列表或粘贴表格后重试。")
                                     : tr("识别已取消；历史记录没有变化。");
-                });
+                }));
         }
-        Q_EMIT changed();
+        Q_EMIT
+        changed();
     });
     // statusText is built when it is read and the messages are recipes; the job
     // and duty names are re-read through choicesChanged. The rows' Collector
@@ -476,18 +477,18 @@ void ImportRecordsController::importFiles(const QVariantList &pathsOrUrls)
         const QString path = localPath(value);
         const QString nextKind = sourceKindForPath(path);
         if (path.isEmpty() || nextKind.isEmpty() || !QFileInfo(path).isFile()) {
-            fail([] { return tr("请选择可读取的本地 CSV、XLS、XLSX、JSON、数据库或截图文件。"); });
+            fail(LiveText([] { return tr("请选择可读取的本地 CSV、XLS、XLSX、JSON、数据库或截图文件。"); }));
             return;
         }
         if (!kind.isEmpty() && kind != nextKind) {
-            fail([] { return tr("截图可以一次选择多张；表格和数据库请按来源逐个导入。"); });
+            fail(LiveText([] { return tr("截图可以一次选择多张；表格和数据库请按来源逐个导入。"); }));
             return;
         }
         kind = nextKind;
         files.append(path);
     }
     if (files.size() > 1 && kind != QLatin1String("SCREENSHOT")) {
-        fail([] { return tr("请选择一个记录文件。多张截图可以同时识别。"); });
+        fail(LiveText([] { return tr("请选择一个记录文件。多张截图可以同时识别。"); }));
         return;
     }
     if (kind == QLatin1String("SCREENSHOT")) {
@@ -504,17 +505,17 @@ void ImportRecordsController::importFiles(const QVariantList &pathsOrUrls)
             const QString identity = imageIdentity(path);
             const QString name = QFileInfo(path).fileName();
             if (inBatch.contains(identity)) {
-                fail([name] { return tr("截图「%1」已在本批次中，没有重复添加；原批次已保留。").arg(name); });
+                fail(LiveText([name] { return tr("截图「%1」已在本批次中，没有重复添加；原批次已保留。").arg(name); }));
                 return;
             }
             if (chosen.contains(identity)) {
-                fail([name] { return tr("截图「%1」选择了两次，请每张截图只选一次。").arg(name); });
+                fail(LiveText([name] { return tr("截图「%1」选择了两次，请每张截图只选一次。").arg(name); }));
                 return;
             }
             chosen.insert(identity);
         }
         if (files.size() + (append ? m_sourceImages.size() : 0) > OfflineOcrEngine::MaxImages) {
-            fail([] { return tr("同一批次最多 %1 张截图；原批次已保留。").arg(OfflineOcrEngine::MaxImages); });
+            fail(LiveText([] { return tr("同一批次最多 %1 张截图；原批次已保留。").arg(OfflineOcrEngine::MaxImages); }));
             return;
         }
         if (append) {
@@ -554,29 +555,29 @@ void ImportRecordsController::pasteClipboard()
     QClipboard *clipboard = QGuiApplication::clipboard();
     const QMimeData *mime = clipboard ? clipboard->mimeData() : nullptr;
     if (!mime) {
-        fail([] { return tr("剪贴板没有可导入的内容。"); });
+        fail(LiveText([] { return tr("剪贴板没有可导入的内容。"); }));
         return;
     }
     if (mime->hasImage()) {
         if (m_sourceKind == QLatin1String("SCREENSHOT") && !m_batchCommitted
             && !m_candidates.isEmpty() && m_sourceImages.size() >= OfflineOcrEngine::MaxImages) {
-            fail([] { return tr("同一批次最多 %1 张截图；原批次已保留。").arg(OfflineOcrEngine::MaxImages); });
+            fail(LiveText([] { return tr("同一批次最多 %1 张截图；原批次已保留。").arg(OfflineOcrEngine::MaxImages); }));
             return;
         }
         const QImage image = clipboard->image();
         if (image.isNull() || qint64(image.width()) * image.height() > OfflineOcrEngine::MaxPixels) {
-            fail([] { return tr("剪贴板图片无法读取或超过 5000 万像素。"); });
+            fail(LiveText([] { return tr("剪贴板图片无法读取或超过 5000 万像素。"); }));
             return;
         }
         if (!m_clipboardFiles)
             m_clipboardFiles = std::make_unique<QTemporaryDir>(QDir::tempPath() + QStringLiteral("/mentor-import-clipboard-XXXXXX"));
         if (!m_clipboardFiles->isValid()) {
-            fail([] { return tr("无法创建剪贴板图片副本，请检查本地磁盘权限。"); });
+            fail(LiveText([] { return tr("无法创建剪贴板图片副本，请检查本地磁盘权限。"); }));
             return;
         }
         const QString path = m_clipboardFiles->filePath(QUuid::createUuid().toString(QUuid::WithoutBraces) + QStringLiteral(".png"));
         if (!image.save(path, "PNG")) {
-            fail([] { return tr("无法保存剪贴板图片副本。"); });
+            fail(LiveText([] { return tr("无法保存剪贴板图片副本。"); }));
             return;
         }
         importFiles({path});
@@ -593,15 +594,15 @@ void ImportRecordsController::pasteClipboard()
         importText(mime->text());
         return;
     }
-    fail([] { return tr("剪贴板中没有截图、文件或表格文字。"); });
+    fail(LiveText([] { return tr("剪贴板中没有截图、文件或表格文字。"); }));
 }
 
 void ImportRecordsController::importText(const QString &text)
 {
     if (busy() || pendingCommitConfirmation())
         return;
-    if (text.trimmed().isEmpty() || text.size() > 1024 * 1024) {
-        fail([] { return tr("请粘贴非空表格文字，大小不超过 1 MiB。"); });
+    if (text.trimmed().isEmpty() || text.size() > 1024LL * 1024) {
+        fail(LiveText([] { return tr("请粘贴非空表格文字，大小不超过 1 MiB。"); }));
         return;
     }
     // Stored provenance and part of the duplicate fingerprint: zh-CN in every language (H2-2).
@@ -713,27 +714,27 @@ void ImportRecordsController::revalidate()
     if (busy())
         return;
     if (pendingCommitConfirmation()) {
-        fail([] { return tr("请先重试确认上一批保存结果，再开始新的预览。"); });
+        fail(LiveText([] { return tr("请先重试确认上一批保存结果，再开始新的预览。"); }));
         return;
     }
     if (m_sourceKind.isEmpty() || (m_candidates.isEmpty() && m_filePath.isEmpty() && m_text.isEmpty())) {
-        fail([] { return tr("请先选择导入来源。"); });
+        fail(LiveText([] { return tr("请先选择导入来源。"); }));
         return;
     }
     if (!m_backend || !m_backend->isConnected()) {
         if (!m_appendImages.isEmpty())
-            discardAppend([] { return tr("后台服务尚未连接，未添加新记录，原批次已保留。连接恢复后可重试。"); });
+            discardAppend(LiveText([] { return tr("后台服务尚未连接，未添加新记录，原批次已保留。连接恢复后可重试。"); }));
         else
-            fail([] { return tr("后台服务尚未连接，输入已保留。连接恢复后请点「重新校验」。"); });
+            fail(LiveText([] { return tr("后台服务尚未连接，输入已保留。连接恢复后请点「重新校验」。"); }));
         return;
     }
     // Every candidate goes back. A batch the Collector would refuse to re-check, or that would
     // not fit one frame, keeps its accepted preview and the new screenshots are not sent (RV3-1).
     if (!revalidationFits(-1, {})) {
         if (!m_appendImages.isEmpty())
-            discardAppend([] { return tr("加入新截图后这批记录太大，无法校验。未添加新记录，原批次已保留；请把新截图放到下一批导入。"); });
+            discardAppend(LiveText([] { return tr("加入新截图后这批记录太大，无法校验。未添加新记录，原批次已保留；请把新截图放到下一批导入。"); }));
         else
-            fail([] { return tr("这批记录太大，无法重新校验，当前内容没有改动。请分成几批重新导入。"); });
+            fail(LiveText([] { return tr("这批记录太大，无法重新校验，当前内容没有改动。请分成几批重新导入。"); }));
         return;
     }
     if (m_appendImages.isEmpty())
@@ -752,7 +753,7 @@ void ImportRecordsController::requestPreviewPage(const RunImportSource &source, 
         return;
     if (!m_backend || !m_backend->isConnected()) {
         m_phase = QStringLiteral("editing");
-        const LiveText error = [] { return tr("后台服务尚未连接，输入已保留。连接恢复后请点「重新校验」。"); };
+        const LiveText error([] { return tr("后台服务尚未连接，输入已保留。连接恢复后请点「重新校验」。"); });
         if (!m_appendImages.isEmpty()) discardAppend(error); else fail(error);
         return;
     }
@@ -772,10 +773,10 @@ void ImportRecordsController::requestPreviewPage(const RunImportSource &source, 
                     return;
                 }
                 m_phase = QStringLiteral("editing");
-                const LiveText error = [code, refusal = collector_text::replyErrorText(previewGuard, message)] {
+                const LiveText error([code, refusal = collector_text::replyErrorText(previewGuard, message)] {
                     return code == QLatin1String("ERR_UNKNOWN_MESSAGE") ? tr("当前后台服务版本不支持导入，请更新软件后重试。")
                         : (refusal.isEmpty() ? tr("预览未完成，输入已保留。请点「重新校验」重试。") : refusal.text());
-                };
+                });
                 if (!m_appendImages.isEmpty())
                     discardAppend(error);
                 else
@@ -788,7 +789,10 @@ void ImportRecordsController::requestPreviewPage(const RunImportSource &source, 
                 return;
             }
             const QVariantMap info = payload.value(QStringLiteral("page_info")).toMap();
-            int page = 0, size = 0, total = 0, summaryTotal = 0;
+            int page = 0;
+            int size = 0;
+            int total = 0;
+            int summaryTotal = 0;
             bool valid = boundedInteger(info.value(QStringLiteral("page")), 1, 5000, page)
                 && boundedInteger(info.value(QStringLiteral("page_size")), 1, 100, size)
                 && boundedInteger(info.value(QStringLiteral("total")), 0, 5000, total)
@@ -806,8 +810,8 @@ void ImportRecordsController::requestPreviewPage(const RunImportSource &source, 
                     valid = valid && payload.value(key) == pages->first.value(key);
             }
             const QVariantList rows = payload.value(QStringLiteral("rows")).toList();
-            const int remaining = total - pages->rows.size();
-            valid = valid && remaining >= 0 && rows.size() == qMin(size, remaining)
+            const qsizetype remaining = total - pages->rows.size();
+            valid = valid && remaining >= 0 && rows.size() == qMin<qsizetype>(size, remaining)
                 && (total > 0 || page == 1);
             for (const QVariant &value : rows) {
                 int number = 0;
@@ -820,7 +824,7 @@ void ImportRecordsController::requestPreviewPage(const RunImportSource &source, 
             }
             if (!valid) {
                 m_phase = QStringLiteral("editing");
-                const LiveText error = [] { return tr("未收到完整预览，暂时不能导入。请点「重新校验」重试；仍失败时请更新软件。"); };
+                const LiveText error([] { return tr("未收到完整预览，暂时不能导入。请点「重新校验」重试；仍失败时请更新软件。"); });
                 if (!m_appendImages.isEmpty()) discardAppend(error); else fail(error);
                 return;
             }
@@ -860,7 +864,7 @@ void ImportRecordsController::acceptPreview(const QVariantMap &payload)
     // A legacy full response must prove its completeness too: a missing page_info
     // must not turn the first page of a damaged response into a committable batch.
     if (!complete) {
-        const LiveText error = [] { return tr("未收到完整预览，暂时不能导入。请点「重新校验」重试；仍失败时请更新软件。"); };
+        const LiveText error([] { return tr("未收到完整预览，暂时不能导入。请点「重新校验」重试；仍失败时请更新软件。"); });
         if (!m_appendImages.isEmpty())
             discardAppend(error);
         else
@@ -869,7 +873,7 @@ void ImportRecordsController::acceptPreview(const QVariantMap &payload)
     }
     if (!m_appendImages.isEmpty()
         && payload.value(QStringLiteral("rows")).toList().size() != m_candidates.size() + m_appendCandidates.size()) {
-        discardAppend([] { return tr("未收到新截图的完整预览，原批次已保留。请重新添加截图并校验。"); });
+        discardAppend(LiveText([] { return tr("未收到新截图的完整预览，原批次已保留。请重新添加截图并校验。"); }));
         return;
     }
     if (!m_appendImages.isEmpty()) {
@@ -972,7 +976,7 @@ void ImportRecordsController::updateCandidate(int row, const QVariantMap &change
     }
     // Before anything changes, the job evidence included: a refused edit leaves no trace.
     if (candidateChanged && !m_batchEditing && !revalidationFits(row, candidate)) {
-        fail([] { return tr("修改后这批记录太大，无法重新校验，这次修改没有保存。请缩短内容后再改。"); });
+        fail(LiveText([] { return tr("修改后这批记录太大，无法重新校验，这次修改没有保存。请缩短内容后再改。"); }));
         return;
     }
     bool evidenceReviewed = false;
@@ -1052,13 +1056,13 @@ void ImportRecordsController::batchUpdateSelected(const QVariantMap &changes)
                                QStringLiteral("result"), QStringLiteral("reflection_mood")};
     for (auto it = changes.cbegin(); it != changes.cend(); ++it) {
         if (!allowed.contains(it.key())) {
-            fail([] { return tr("批量设置只能修改职业、结果和打本心情。"); });
+            fail(LiveText([] { return tr("批量设置只能修改职业、结果和打本心情。"); }));
             return;
         }
     }
     QVariantMap normalized = changes;
     if (changes.contains(QStringLiteral("job_name")) && !changes.contains(QStringLiteral("job_id"))) {
-        fail([] { return tr("请选择批量设置的职业。"); });
+        fail(LiveText([] { return tr("请选择批量设置的职业。"); }));
         return;
     }
     if (changes.contains(QStringLiteral("job_id"))) {
@@ -1074,7 +1078,7 @@ void ImportRecordsController::batchUpdateSelected(const QVariantMap &changes)
             }
         }
         if (!eligible) {
-            fail([] { return tr("请选择可参加指导者任务的战斗职业；不确定时可选「职业未知 / 待补充」。"); });
+            fail(LiveText([] { return tr("请选择可参加指导者任务的战斗职业；不确定时可选「职业未知 / 待补充」。"); }));
             return;
         }
         normalized.insert(QStringLiteral("job_name"), name.isEmpty() ? QVariant() : QVariant(name));
@@ -1083,14 +1087,14 @@ void ImportRecordsController::batchUpdateSelected(const QVariantMap &changes)
         const QSet<QString> results{QStringLiteral("UNKNOWN"), QStringLiteral("COMPLETED"), QStringLiteral("LEFT_OR_ABANDONED"),
             QStringLiteral("CANCELLED_BEFORE_ENTRY"), QStringLiteral("DISCONNECTED"), QStringLiteral("INTERRUPTED")};
         if (!results.contains(changes.value(QStringLiteral("result")).toString())) {
-            fail([] { return tr("结果选项无法识别，请重新选择。"); });
+            fail(LiveText([] { return tr("结果选项无法识别，请重新选择。"); }));
             return;
         }
     }
     if (changes.contains(QStringLiteral("reflection_mood"))) {
         const QSet<QString> moods{QStringLiteral("unknown"), QStringLiteral("good"), QStringLiteral("ok"), QStringLiteral("bad")};
         if (!moods.contains(changes.value(QStringLiteral("reflection_mood")).toString())) {
-            fail([] { return tr("心情选项无法识别，请重新选择。"); });
+            fail(LiveText([] { return tr("心情选项无法识别，请重新选择。"); }));
             return;
         }
     }
@@ -1108,7 +1112,7 @@ void ImportRecordsController::batchUpdateSelected(const QVariantMap &changes)
     // The Collector's spelling is never shorter than Qt's, so it bounds both budgets.
     const qint64 growth = collectorJsonBytes(QJsonObject::fromVariantMap(normalized));
     if (!targets.isEmpty() && !revalidationFits(-1, {}, growth * targets.size())) {
-        fail([] { return tr("批量设置后这批记录太大，无法重新校验，没有修改任何记录。"); });
+        fail(LiveText([] { return tr("批量设置后这批记录太大，无法重新校验，没有修改任何记录。"); }));
         return;
     }
     const QScopedValueRollback<bool> batchEditing(m_batchEditing, true);
@@ -1183,7 +1187,7 @@ void ImportRecordsController::commit()
     if (!pendingCommitConfirmation() && baselineChoiceOffered() && deductFromBaseline())
         request.insert(QStringLiteral("deduct_from_baseline"), true);
     QList<int> rowNumbers;
-    for (const QJsonValue &number : request.value(QStringLiteral("row_numbers")).toArray())
+    for (const auto &number : request.value(QStringLiteral("row_numbers")).toArray())
         rowNumbers.append(number.toInt());
     const quint64 generation = m_generation;
     m_phase = QStringLiteral("commit");
@@ -1201,9 +1205,9 @@ void ImportRecordsController::commit()
                 // the Collector actually sent, also to such a retry, is final (audit I3-3).
                 const bool unanswered = !reply || reply->transportFailed();
                 m_pendingCommitPayload = unanswered ? request : QJsonObject();
-                fail([refusal = collector_text::replyErrorText(reply, message)] {
+                fail(LiveText([refusal = collector_text::replyErrorText(reply, message)] {
                     return refusal.isEmpty() ? tr("尚未确认导入结果。输入已保留，可安全重试同一批次。") : refusal.text();
-                });
+                }));
                 return;
             }
             m_pendingCommitPayload = {};
@@ -1242,7 +1246,7 @@ void ImportRecordsController::removeImportedRows(const QVariantMap &receipt)
         if (imported.contains(row.value(QStringLiteral("row_number")).toInt()))
             continue;
         if (i == m_current)
-            current = rows.size();
+            current = static_cast<int>(rows.size());
         rows.append(row);
         candidates.append(m_candidates[i]);
         const QVariantMap source = i < m_evidence.size() ? m_evidence[i].toMap() : QVariantMap();
@@ -1284,7 +1288,7 @@ void ImportRecordsController::cancel()
     ++m_generation;
     if (!m_appendImages.isEmpty()) {
         // 先退出 OCR/preview 阶段，使进程的迟到终结信号不会触碰旧批次。
-        discardAppend([] { return tr("追加已取消，原批次已保留。"); });
+        discardAppend(LiveText([] { return tr("追加已取消，原批次已保留。"); }));
         if (m_ocr->busy())
             m_ocr->cancel();
         return;
@@ -1368,13 +1372,11 @@ bool ImportRecordsController::deductFromBaseline() const
         return false;
     if (m_sourceKind != QLatin1String("JSON") || m_candidates.isEmpty())
         return true;
-    for (const QJsonValue &value : m_candidates) {
+    return std::ranges::any_of(m_candidates, [](const auto &value) {
         const QJsonObject candidate = value.toObject();
-        if (candidate.value(QStringLiteral("run_id")).toString().isEmpty()
-            || candidate.value(QStringLiteral("source")).toString().isEmpty())
-            return true;
-    }
-    return false;
+        return candidate.value(QStringLiteral("run_id")).toString().isEmpty()
+            || candidate.value(QStringLiteral("source")).toString().isEmpty();
+    });
 }
 
 void ImportRecordsController::setDeductFromBaseline(bool deduct)
@@ -1432,7 +1434,7 @@ void ImportRecordsController::setTimeZone(const QString &zone)
         return;
     // A zone change re-checks every row: never for a batch that could not be re-checked.
     if (!m_candidates.isEmpty() && !revalidationFits(-1, {}, qint64(zone.toUtf8().size()) - m_timeZone.toUtf8().size())) {
-        fail([] { return tr("这批记录太大，更改地区后无法重新校验，地区没有更改。"); });
+        fail(LiveText([] { return tr("这批记录太大，更改地区后无法重新校验，地区没有更改。"); }));
         return;
     }
     m_timeZone = zone;

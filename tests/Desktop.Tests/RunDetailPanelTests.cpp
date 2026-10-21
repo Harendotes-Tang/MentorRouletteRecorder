@@ -386,7 +386,7 @@ ApplicationWindow {
     QQuickItem *panel() const { return item(QStringLiteral("runDetailPanel")); }
 
     /// The page's first row is selected and its revisions have arrived.
-    bool openRun()
+    bool openRun() const
     {
         if (!QTest::qWaitFor([&] { return controller->runs()->rowCount() > 0; }, 3000))
             return false;
@@ -395,7 +395,7 @@ ApplicationWindow {
                && panel() && panel()->isVisible();
     }
 
-    bool showTab(const QString &tab)
+    bool showTab(const QString &tab) const
     {
         history()->setProperty("detailTab", tab);
         QTest::qWait(50);
@@ -528,7 +528,7 @@ private Q_SLOTS:
         QTest::qWait(50);
         const QRectF actionBounds = actions->mapRectToItem(scene.panel(), actions->boundingRect());
         QVERIFY(actionBounds.left() >= 0 && actionBounds.right() <= scene.panel()->width() + 0.5);
-        qreal requiredWidth = 8 * (buttons.size() - 1);
+        qreal requiredWidth = 8 * static_cast<qreal>(buttons.size() - 1);
         for (auto *button : buttons)
             requiredWidth += button->width();
         if (requiredWidth > actions->width() + 0.5)
@@ -631,10 +631,12 @@ private Q_SLOTS:
             QTRY_VERIFY(!importer.errorText().isEmpty());
             QVERIFY(QMetaObject::invokeMethod(recordView, "open"));
             QObject *tip = nullptr;
-            QTRY_VERIFY((tip = recordView->findChild<QObject *>(QStringLiteral("importErrorToolTip"))) != nullptr);
+            QTRY_VERIFY(recordView->findChild<QObject *>(QStringLiteral("importErrorToolTip")) != nullptr);
+            tip = recordView->findChild<QObject *>(QStringLiteral("importErrorToolTip"));
             tip->setProperty("visible", true);
             QQuickItem *content = nullptr;
-            QTRY_VERIFY((content = tip->property("contentItem").value<QQuickItem *>()) != nullptr);
+            QTRY_VERIFY(tip->property("contentItem").value<QQuickItem *>() != nullptr);
+            content = tip->property("contentItem").value<QQuickItem *>();
             QCOMPARE(content->property("text").toString(), markup);
             const auto format = content->metaObject()->property(content->metaObject()->indexOfProperty("textFormat"));
             QCOMPARE(content->property("textFormat").toInt(), format.enumerator().keyToValue("PlainText"));
@@ -642,7 +644,8 @@ private Q_SLOTS:
         const QString shown = view == QLatin1String("import-preview")
             ? QStringLiteral("合成职业 · ") + markup : markup;
         QQuickItem *textItem = nullptr;
-        QTRY_VERIFY((textItem = findTextItem(window->contentItem(), shown)) != nullptr);
+        QTRY_VERIFY(findTextItem(window->contentItem(), shown) != nullptr);
+        textItem = findTextItem(window->contentItem(), shown);
         QVERIFY(textItem->isVisible());
         QCOMPARE(textItem->property("text").toString(), shown);
         const auto format = textItem->metaObject()->property(textItem->metaObject()->indexOfProperty("textFormat"));

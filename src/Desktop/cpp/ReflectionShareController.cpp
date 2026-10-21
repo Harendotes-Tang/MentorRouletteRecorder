@@ -272,7 +272,7 @@ void ReflectionShareController::saveTo(QObject *object, const QString &path)
 }
 
 void ReflectionShareController::captureTo(QObject *object, const QString &path,
-                                         bool rejectExisting, CaptureDone done)
+                                         bool rejectExisting, const CaptureDone &done)
 {
     const QPointer<QQuickItem> item = qobject_cast<QQuickItem *>(object);
     if (!item || !item->window() || !item->window()->isVisible() || !item->isVisible()) {
@@ -302,7 +302,7 @@ void ReflectionShareController::captureTo(QObject *object, const QString &path,
 }
 
 void ReflectionShareController::capturePrepared(QObject *object, const QString &path,
-                                               bool rejectExisting, CaptureDone done)
+                                               bool rejectExisting, const CaptureDone &done)
 {
     auto *item = qobject_cast<QQuickItem *>(object);
     if (!item || !item->window() || !item->window()->isVisible() || !item->isVisible()
@@ -314,7 +314,7 @@ void ReflectionShareController::capturePrepared(QObject *object, const QString &
     const QSize size(int(std::ceil(item->width())), int(std::ceil(item->height())));
     const QSize pixelSize = size * item->window()->effectiveDevicePixelRatio();
     if (pixelSize.width() > 16384 || pixelSize.height() > 16384
-        || qint64(pixelSize.width()) * pixelSize.height() > 50 * 1000 * 1000) {
+        || qint64(pixelSize.width()) * pixelSize.height() > 50LL * 1000 * 1000) {
         done({}, tr("图片太大，尚未保存（任一边不能超过 16384 像素，总计不能超过 5000 万像素）。如果选择了“合成长图”，请改用“逐条 PNG”。"));
         return;
     }
@@ -416,7 +416,7 @@ void ReflectionShareController::saveBatchTo(const QVariantList &entries, const Q
         seen.insert(id);
         const QString label = entry.value(QStringLiteral("label")).toString();
         auto *item = qobject_cast<QQuickItem *>(entry.value(QStringLiteral("item")).value<QObject *>());
-        indices.append(m_batchEntries.size());
+        indices.append(static_cast<int>(m_batchEntries.size()));
         m_batchEntries.append({id, label, item});
         m_batchResults.append(QVariantMap{{QStringLiteral("run_id"), id},
             {QStringLiteral("label"), label}, {QStringLiteral("status"), QStringLiteral("pending")},

@@ -12,17 +12,17 @@
 #include <array>
 #include <cmath>
 #include <limits>
+#include <mutex>
 #include <optional>
 #include <vector>
 
 static void initializeClassifierResource()
 {
 #ifdef MR_BUNDLE_JOB_CLASSIFIER
-    static const bool initialized = [] {
+    static std::once_flag initialized;
+    std::call_once(initialized, [] {
         Q_INIT_RESOURCE(mr_job_classifier);
-        return true;
-    }();
-    (void)initialized;
+    });
 #endif
 }
 
@@ -31,30 +31,38 @@ namespace {
 constexpr int kFeatureCount = 257;
 constexpr int kHiddenCount = 64;
 constexpr int kGrid = 16;
-constexpr qint64 kMaximumModelBytes = 1024 * 1024;
+constexpr qint64 kMaximumModelBytes = 1024LL * 1024;
 
 /** @brief 与训练脚本相同的金色前景和面积采样；排除触边背景碎片并保留离散笔画。 */
 std::optional<std::array<float, kFeatureCount>> features(const QImage &input)
 {
     if (input.isNull() || input.width() > 2048 || input.height() > 2048
-        || static_cast<qint64>(input.width()) * input.height() > 1024 * 1024)
+        || static_cast<qint64>(input.width()) * input.height() > 1024LL * 1024)
         return std::nullopt;
     const QImage image = input.convertToFormat(QImage::Format_ARGB32);
     const int width = image.width();
     const int height = image.height();
+    if (width <= 0 || height <= 0)
+        return std::nullopt;
     std::vector<uchar> mask(static_cast<size_t>(width) * height, 0);
     std::vector<uchar> selected(mask.size(), 0);
     for (int y = 0; y < height; ++y) {
         const auto *pixels = reinterpret_cast<const QRgb *>(image.constScanLine(y));
         for (int x = 0; x < width; ++x) {
             const QRgb pixel = pixels[x];
-            const int r = qRed(pixel), g = qGreen(pixel), b = qBlue(pixel);
+            const int r = qRed(pixel);
+            const int g = qGreen(pixel);
+            const int b = qBlue(pixel);
             mask[static_cast<size_t>(y) * width + x] = qAlpha(pixel) > 100 && r > 100 && g > 75
                 && r * 10 >= g * 9 && r - b > 25 && g - b > 20;
         }
     }
 
-    int left = width, top = height, right = -1, bottom = -1, foreground = 0;
+    int left = width;
+    int top = height;
+    int right = -1;
+    int bottom = -1;
+    int foreground = 0;
     std::vector<int> component;
     for (int index = 0; index < static_cast<int>(mask.size()); ++index) {
         if (mask[index] != 1)
@@ -62,15 +70,20 @@ std::optional<std::array<float, kFeatureCount>> features(const QImage &input)
         component.clear();
         component.push_back(index);
         mask[index] = 2;
-        int cl = width, ct = height, cr = -1, cb = -1;
+        int cl = width;
+        int ct = height;
+        int cr = -1;
+        int cb = -1;
         for (size_t position = 0; position < component.size(); ++position) {
             const int value = component[position];
-            const int y = value / width, x = value % width;
+            const int y = value / width;
+            const int x = value % width;
             cl = std::min(cl, x); ct = std::min(ct, y);
             cr = std::max(cr, x); cb = std::max(cb, y);
             for (int dy = -1; dy <= 1; ++dy) {
                 for (int dx = -1; dx <= 1; ++dx) {
-                    const int nx = x + dx, ny = y + dy;
+                    const int nx = x + dx;
+                    const int ny = y + dy;
                     if ((dx == 0 && dy == 0) || nx < 0 || ny < 0 || nx >= width || ny >= height)
                         continue;
                     const int neighbour = ny * width + nx;
@@ -89,7 +102,8 @@ std::optional<std::array<float, kFeatureCount>> features(const QImage &input)
         left = std::min(left, cl); top = std::min(top, ct);
         right = std::max(right, cr); bottom = std::max(bottom, cb);
     }
-    const int glyphWidth = right - left + 1, glyphHeight = bottom - top + 1;
+    const int glyphWidth = right - left + 1;
+    const int glyphHeight = bottom - top + 1;
     if (foreground < 12 || glyphWidth < 3 || glyphHeight < 3)
         return std::nullopt;
     const double aspect = static_cast<double>(glyphWidth) / glyphHeight;
@@ -97,9 +111,11 @@ std::optional<std::array<float, kFeatureCount>> features(const QImage &input)
         return std::nullopt;
     std::array<float, kFeatureCount> result{};
     for (int y = 0; y < kGrid; ++y) {
-        const int yl = y * glyphHeight, yh = (y + 1) * glyphHeight;
+        const int yl = y * glyphHeight;
+        const int yh = (y + 1) * glyphHeight;
         for (int x = 0; x < kGrid; ++x) {
-            const int xl = x * glyphWidth, xh = (x + 1) * glyphWidth;
+            const int xl = x * glyphWidth;
+            const int xh = (x + 1) * glyphWidth;
             double total = 0;
             for (int sy = yl / kGrid; sy < (yh + kGrid - 1) / kGrid; ++sy) {
                 const int wy = std::min(yh, (sy + 1) * kGrid) - std::max(yl, sy * kGrid);
@@ -121,7 +137,7 @@ bool readWeights(const QJsonObject &weights, const QString &key, int count, std:
     if (values.size() != count)
         return false;
     output.reserve(count);
-    for (const QJsonValue &value : values) {
+    for (const auto &value : values) {
         if (!value.isDouble())
             return false;
         const double number = value.toDouble();
@@ -178,7 +194,7 @@ JobIconClassifier::JobIconClassifier(const QString &modelPath)
         eligible.insert(job.toMap().value(QStringLiteral("job_id")).toInt());
     auto model = std::make_shared<Model>();
     QSet<int> labels;
-    for (const QJsonValue &value : classIds) {
+    for (const auto &value : classIds) {
         const double number = value.toDouble(-1);
         if (!value.isDouble() || !std::isfinite(number) || number < 0 || number > 10000
             || number != std::floor(number) || labels.contains(static_cast<int>(number)))
@@ -246,7 +262,8 @@ JobIconClassifier::Result JobIconClassifier::classify(const QImage &crop) const
     for (int c = 0; c < classes; ++c)
         order[c] = c;
     std::stable_sort(order.begin(), order.end(), [&](int a, int b) { return scores[a] > scores[b]; });
-    const int best = order[0], runner = order[1];
+    const int best = order[0];
+    const int runner = order[1];
     if (best == 0)
         return result;
     result.candidateId = model.ids[best];

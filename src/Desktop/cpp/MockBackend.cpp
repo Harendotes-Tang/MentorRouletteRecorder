@@ -293,18 +293,15 @@ bool overrulesTheRecord(bool wasPendingReview, const QJsonArray &changes)
                || value.toString() == QLatin1String("UNKNOWN")
                || (value.isString() && value.toString().isEmpty());
     };
-    for (const QJsonValue &value : changes) {
+    return std::ranges::any_of(changes, [&](const auto &value) {
         const QJsonObject change = value.toObject();
         const QString field = change.value(QStringLiteral("field")).toString();
         if (neverACorrection.contains(field))
-            continue;
-        if (outcome.contains(field) ? !wasPendingReview
-            : fillable.contains(field) ? !blank(change.value(QStringLiteral("old_value")))
-                                       : true) {
-            return true;
-        }
-    }
-    return false;
+            return false;
+        if (outcome.contains(field))
+            return !wasPendingReview;
+        return !fillable.contains(field) || !blank(change.value(QStringLiteral("old_value")));
+    });
 }
 
 /// RunMutationService.IsUnsettledShape: the two shapes a closed run must never be put back
@@ -712,7 +709,7 @@ void MockBackend::generateRuns()
     QJsonObject corrected = m_runs.at(10).toObject();
     const QDateTime entered = fromIso(corrected.value(QStringLiteral("entered_at_utc")));
     if (entered.isValid()) {
-        const QDateTime ended = entered.addSecs(19 * 60);
+        const QDateTime ended = entered.addSecs(19LL * 60);
         corrected.insert(QStringLiteral("result"), QStringLiteral("COMPLETED"));
         corrected.insert(QStringLiteral("ended_at_utc"), isoUtc(ended));
         corrected.insert(QStringLiteral("duration_ms"), double(19 * 60 * 1000));
@@ -733,7 +730,7 @@ void MockBackend::generateRuns()
         revision.insert(QStringLiteral("revision"), 2);
         revision.insert(QStringLiteral("changed_at_utc"),
                         isoUtc(fromIso(corrected.value(QStringLiteral("matched_at_utc")))
-                                   .addSecs(2 * 3600)));
+                                   .addSecs(2LL * 3600)));
         revision.insert(QStringLiteral("change_kind"), QStringLiteral("CORRECT"));
         revision.insert(QStringLiteral("reason"),
                         QString::fromUtf8("网络中断，实际已通关（队友截图确认）"));
@@ -777,9 +774,9 @@ void MockBackend::generateRuns()
     // marker and the 确认 action have something real-shaped to render.
     for (int index : {62, 63}) {
         QJsonObject review = m_runs.at(index).toObject();
-        const bool entered = review.value(QStringLiteral("entered_at_utc")).isString();
+        const bool hadEntered = review.value(QStringLiteral("entered_at_utc")).isString();
         const QJsonValue restartedAt = review.value(QStringLiteral("ended_at_utc"));
-        const QString closedAs = entered ? QStringLiteral("INTERRUPTED")
+        const QString closedAs = hadEntered ? QStringLiteral("INTERRUPTED")
                                          : QStringLiteral("CANCELLED_BEFORE_ENTRY");
         const QJsonArray changes{
             changeEntry(QStringLiteral("ended_at_utc"), QJsonValue(QJsonValue::Null), restartedAt),
@@ -797,7 +794,7 @@ void MockBackend::generateRuns()
         m_runs.replace(index, review);
         m_revisions.append(sampleRevision(
             review, restartedAt.toString(), "CORRECT", "SYSTEM",
-            entered ? QString::fromUtf8("程序重启时发现未完结记录，已记为中断并标记待复核。")
+            hadEntered ? QString::fromUtf8("程序重启时发现未完结记录，已记为中断并标记待复核。")
                     : QString::fromUtf8("程序重启时发现未完结记录，它尚未进入副本，已记为进本前取消并标记待复核。"),
             changes));
     }
@@ -807,7 +804,7 @@ void MockBackend::generateRuns()
     // (RunMutationService.SoftDeleteRun).
     QJsonObject deleted = m_runs.at(55).toObject();
     const QString deletedAt =
-        isoUtc(fromIso(deleted.value(QStringLiteral("matched_at_utc"))).addSecs(3 * 3600));
+        isoUtc(fromIso(deleted.value(QStringLiteral("matched_at_utc"))).addSecs(3LL * 3600));
     deleted.insert(QStringLiteral("soft_deleted"), true);
     deleted.insert(QStringLiteral("revision"), 2);
     deleted.insert(QStringLiteral("updated_at_utc"), deletedAt);
@@ -835,7 +832,7 @@ void MockBackend::generateRuns()
 
     // Every run capture recorded opens its chain with its creation; the manual one
     // above opens with its CREATE_MANUAL.
-    for (const QJsonValue &value : std::as_const(m_runs)) {
+    for (const auto &value : std::as_const(m_runs)) {
         const QJsonObject run = value.toObject();
         if (run.value(QStringLiteral("source")).toString() == QLatin1String("AUTO_NETWORK"))
             m_revisions.append(creationRevision(run));
@@ -882,7 +879,7 @@ void MockBackend::seedReflections()
         const QDateTime ended = fromIso(run.value(QStringLiteral("ended_at_utc")));
         if (!ended.isValid())
             continue;
-        const QString at = isoUtc(ended.addSecs(5 * 60));
+        const QString at = isoUtc(ended.addSecs(5LL * 60));
 
         QJsonObject reflection;
         reflection.insert(QStringLiteral("mood"), QString::fromLatin1(kReflections[i].mood));
@@ -1400,7 +1397,7 @@ QJsonArray MockBackend::recentParserErrors() const
                             const char *message) {
         QJsonObject entry;
         entry.insert(QStringLiteral("at_utc"),
-                     m_now.addSecs(-60 * minutesAgo)
+                     m_now.addSecs(-60LL * minutesAgo)
                          .toUTC()
                          .toString(QStringLiteral("yyyy-MM-ddTHH:mm:ss.zzzZ")));
         entry.insert(QStringLiteral("code"), QString::fromLatin1(code));
@@ -1881,7 +1878,7 @@ QJsonObject MockBackend::applyMutation(const QString &messageType,
             return {};
         }
         QJsonObject target;
-        for (const QJsonValue &value : std::as_const(m_revisions)) {
+        for (const auto &value : std::as_const(m_revisions)) {
             const QJsonObject entry = value.toObject();
             if (entry.value(QStringLiteral("run_id")).toString() == runId
                 && entry.value(QStringLiteral("revision")).toInt() == newest) {
@@ -1895,7 +1892,7 @@ QJsonObject MockBackend::applyMutation(const QString &messageType,
         }
 
         QJsonArray applied;
-        for (const QJsonValue &value : target.value(QStringLiteral("changes")).toArray()) {
+        for (const auto &value : target.value(QStringLiteral("changes")).toArray()) {
             const QJsonObject change = value.toObject();
             const QString field = change.value(QStringLiteral("field")).toString();
             // manually_corrected is provenance: RunMutationService.Commit keeps it set
@@ -1994,7 +1991,7 @@ QDate calendarDay(const QString &text)
 class ImportRowReader
 {
 public:
-    explicit ImportRowReader(const QJsonObject &row) : m_row(row) {}
+    explicit ImportRowReader(QJsonObject row) : m_row(std::move(row)) {}
 
     bool failed() const { return m_key != nullptr; }
     const char *key() const { return m_key; }
@@ -2050,20 +2047,20 @@ public:
     {
         const QString value = text(field, 20).toLower();
         if (value.isEmpty())
-            return QJsonValue(QJsonValue::Null);
+            return {QJsonValue::Null};
         if (value == QLatin1String("true") || value == QLatin1String("1") || value == QString::fromUtf8("是"))
             return true;
         if (value == QLatin1String("false") || value == QLatin1String("0") || value == QString::fromUtf8("否"))
             return false;
         refuse("import.row.field_not_flag", {{QStringLiteral("field"), field}});
-        return QJsonValue(QJsonValue::Null);
+        return {QJsonValue::Null};
     }
 
     /// RunImportCandidateNormalizer.ParseTime: an instant as UTC text, null when absent. A
     /// time with an offset must carry its whole date; one without is read in \a zone.
     QJsonValue time(const QString &field, const char *name, const QString &zone)
     {
-        const QJsonValue none(QJsonValue::Null);
+        QJsonValue none(QJsonValue::Null);
         const QString value = text(field, 100);
         if (value.isEmpty())
             return none;
@@ -2248,12 +2245,14 @@ ImportRow normalizeImportRow(const QJsonObject &row, const QString &kind, const 
     QJsonValue sourceUtc(QJsonValue::Null);
     if (sourceDateOnly)
         appendSentence(out.warnings, out.warningRefs, "import.warning.source_date_only");
-    else if (!sourceRecorded.isEmpty() && (!zone.isEmpty() || hasExplicitZone(sourceRecorded)))
-        sourceUtc = read.time(QStringLiteral("source_recorded_at"), "import.time_field.source_recorded", zone);
-    else if (!sourceUtcText.isEmpty())
-        sourceUtc = read.time(QStringLiteral("source_recorded_at_utc"), "import.time_field.source_recorded", zone);
-    else if (!sourceRecorded.isEmpty())
-        sourceUtc = read.time(QStringLiteral("source_recorded_at"), "import.time_field.source_recorded", zone);
+    else {
+        const bool useSourceRecorded = !sourceRecorded.isEmpty()
+            && (!zone.isEmpty() || hasExplicitZone(sourceRecorded) || sourceUtcText.isEmpty());
+        if (useSourceRecorded)
+            sourceUtc = read.time(QStringLiteral("source_recorded_at"), "import.time_field.source_recorded", zone);
+        else if (!sourceUtcText.isEmpty())
+            sourceUtc = read.time(QStringLiteral("source_recorded_at_utc"), "import.time_field.source_recorded", zone);
+    }
     const QJsonValue entered = read.time(QStringLiteral("entered_at_utc"), "import.time_field.entered", zone);
     const QJsonValue ended = read.time(QStringLiteral("ended_at_utc"), "import.time_field.ended", zone);
     const QJsonValue matched = read.time(QStringLiteral("matched_at_utc"), "import.time_field.matched", zone);
@@ -2371,7 +2370,7 @@ ImportRow normalizeImportRow(const QJsonObject &row, const QString &kind, const 
     if (!reflectionText.isEmpty() && mood == QLatin1String("unknown"))
         appendSentence(out.warnings, out.warningRefs, "import.warning.mood_missing");
     int sourceWarnings = 0;
-    for (const QJsonValue &warning : row.value(QStringLiteral("warnings")).toArray()) {
+    for (const auto &warning : row.value(QStringLiteral("warnings")).toArray()) {
         if (sourceWarnings++ == 20)
             break;
         out.warnings.append(warning.isString() ? warning.toString() : QString::number(warning.toDouble()));
@@ -2463,7 +2462,7 @@ std::pair<QString, QJsonValue> classifyImportRun(const QJsonObject &run, bool st
     const QJsonValue none(QJsonValue::Null);
     const QString runId = run.value(QStringLiteral("run_id")).toString();
     if (stable) {
-        for (const QJsonValue &value : library) {
+        for (const auto &value : library) {
             const QJsonObject local = value.toObject();
             if (local.value(QStringLiteral("run_id")).toString() != runId)
                 continue;
@@ -2490,7 +2489,7 @@ std::pair<QString, QJsonValue> classifyImportRun(const QJsonObject &run, bool st
     const bool undated = !entered.isValid() && !sourceUtc.isString();
     const QJsonValue job = run.value(QStringLiteral("job_id"));
     QString nearest;
-    for (const QJsonValue &value : library) {
+    for (const auto &value : library) {
         const QJsonObject local = value.toObject();
         const bool sameDuty = content.isDouble() ? local.value(QStringLiteral("content_id")) == content
                                                  : local.value(QStringLiteral("duty_name")).toString() == name;
@@ -2605,7 +2604,7 @@ QJsonObject MockBackend::previewRunImport(const QJsonObject &payload, QString *e
         // Edited candidates take precedence over the file or text they came from.
         const QJsonValue value = payload.value(QStringLiteral("rows"));
         bool objects = value.isArray() && value.toArray().size() <= kMaxImportRows;
-        for (const QJsonValue &row : value.toArray())
+        for (const auto &row : value.toArray())
             objects = objects && row.isObject();
         if (!objects)
             return refuse("import.request.rows_invalid");
@@ -2621,7 +2620,7 @@ QJsonObject MockBackend::previewRunImport(const QJsonObject &payload, QString *e
             QFile file(path);
             if (!file.exists())
                 return unreadable("import.source.file_not_found");
-            if (file.size() > 20 * 1024 * 1024)
+            if (file.size() > 20LL * 1024 * 1024)
                 return unreadable("import.source.file_too_large");
             if (!file.open(QIODevice::ReadOnly))
                 return unreadable("import.source.file_not_found");
@@ -2786,7 +2785,7 @@ QJsonObject MockBackend::commitRunImport(const QJsonObject &payload, QString *er
         return refuse("import.commit.ids_invalid");
     QList<int> selected;
     bool valid = payload.value(QStringLiteral("row_numbers")).isArray();
-    for (const QJsonValue &value : payload.value(QStringLiteral("row_numbers")).toArray()) {
+    for (const auto &value : payload.value(QStringLiteral("row_numbers")).toArray()) {
         const int number = value.toInt(0);
         valid = valid && value.isDouble() && number >= 1 && value.toDouble() == number && !selected.contains(number);
         selected.append(number);
@@ -2826,7 +2825,7 @@ QJsonObject MockBackend::commitRunImport(const QJsonObject &payload, QString *er
     QList<QJsonObject> chosen;
     for (int number : std::as_const(selected)) {
         QJsonObject found;
-        for (const QJsonValue &entry : preview->entries) {
+        for (const auto &entry : preview->entries) {
             if (entry.toObject().value(QStringLiteral("row_number")).toInt() == number)
                 found = entry.toObject();
         }
@@ -2849,7 +2848,7 @@ QJsonObject MockBackend::commitRunImport(const QJsonObject &payload, QString *er
     for (const QJsonObject &entry : std::as_const(chosen)) {
         const QJsonObject run = entry.value(QStringLiteral("run")).toObject();
         QSet<QString> compared;
-        for (const QJsonValue &field : entry.value(QStringLiteral("compared")).toArray())
+        for (const auto &field : entry.value(QStringLiteral("compared")).toArray())
             compared.insert(field.toString());
         const QString fingerprint = entry.value(QStringLiteral("fingerprint")).toString();
         auto [status, matching] = classifyImportRun(run, entry.value(QStringLiteral("stable")).toBool(), compared,
@@ -2888,7 +2887,7 @@ QJsonObject MockBackend::commitRunImport(const QJsonObject &payload, QString *er
     int deducted = 0;
     if (deduct && m_baselineCompletedCount > 0) {
         int contributing = 0;
-        for (const QJsonValue &id : std::as_const(accepted)) {
+        for (const auto &id : std::as_const(accepted)) {
             const QJsonObject run = m_runs.at(indexOfRun(id.toString())).toObject();
             if (!isSoftDeleted(run) && isConfirmedMentor(run)
                 && run.value(QStringLiteral("result")).toString() == QLatin1String("COMPLETED")
@@ -2982,7 +2981,7 @@ QJsonObject MockBackend::reflectionSummary(int recentLimit) const
 
     QList<QJsonObject> withReflection;
     QList<QJsonObject> pending;
-    for (const QJsonValue &value : m_runs) {
+    for (const auto &value : m_runs) {
         const QJsonObject run = value.toObject();
         if (isSoftDeleted(run))
             continue;
@@ -3355,8 +3354,8 @@ BackendReply *MockBackend::request(const QString &messageType, const QJsonObject
         for (const QString &id : m_pendingImageCleanup.mid(0, 2000)) ids.append(id);
         result.insert(QStringLiteral("run_ids"), ids);
     } else if (messageType == QLatin1String("AcknowledgeImageCleanup")) {
-        int acknowledged = 0;
-        for (const QJsonValue &id : payload.value(QStringLiteral("run_ids")).toArray())
+        qsizetype acknowledged = 0;
+        for (const auto &id : payload.value(QStringLiteral("run_ids")).toArray())
             acknowledged += m_pendingImageCleanup.removeAll(id.toString());
         result.insert(QStringLiteral("acknowledged_count"), acknowledged);
     } else if (messageType == QLatin1String("BatchMutateRuns")) {
@@ -3369,7 +3368,7 @@ BackendReply *MockBackend::request(const QString &messageType, const QJsonObject
             errorCode = QStringLiteral("ERR_BAD_REQUEST");
             errorMessage = tr("批量操作、原因或记录数量无效。");
         }
-        for (const QJsonValue &target : targets) {
+        for (const auto &target : targets) {
             if (!errorCode.isEmpty()) break;
             const QString id = target.toObject().value(QStringLiteral("run_id")).toString();
             const int index = indexOfRun(id);
@@ -3393,14 +3392,15 @@ BackendReply *MockBackend::request(const QString &messageType, const QJsonObject
             }
         }
         if (errorCode.isEmpty()) {
-            const QJsonArray beforeRuns = m_runs, beforeRevisions = m_revisions;
+            const QJsonArray beforeRuns = m_runs;
+            const QJsonArray beforeRevisions = m_revisions;
             const QStringList beforeCleanup = m_pendingImageCleanup;
             QJsonArray changed;
-            for (const QJsonValue &target : targets) {
+            for (const auto &target : targets) {
                 const QString id = target.toObject().value(QStringLiteral("run_id")).toString();
                 if (action == QLatin1String("purge")) {
                     m_runs.removeAt(indexOfRun(id));
-                    for (int index = m_revisions.size() - 1; index >= 0; --index)
+                    for (qsizetype index = m_revisions.size() - 1; index >= 0; --index)
                         if (m_revisions[index].toObject().value(QStringLiteral("run_id")).toString() == id) m_revisions.removeAt(index);
                     if (!m_pendingImageCleanup.contains(id)) m_pendingImageCleanup.append(id);
                 } else {
@@ -3440,7 +3440,7 @@ BackendReply *MockBackend::request(const QString &messageType, const QJsonObject
             errorMessage = QString::fromUtf8("page 必须大于等于 1，page_size 必须在 1 到 200 之间。");
         } else {
             QList<QJsonObject> chain;
-            for (const QJsonValue &value : std::as_const(m_revisions)) {
+            for (const auto &value : std::as_const(m_revisions)) {
                 if (value.toObject().value(QStringLiteral("run_id")).toString() == runId)
                     chain.append(value.toObject());
             }
@@ -3520,7 +3520,7 @@ BackendReply *MockBackend::request(const QString &messageType, const QJsonObject
                || messageType == QLatin1String("ExportJson")) {
         result.insert(QStringLiteral("target_path"),
                       payload.value(QStringLiteral("target_path")));
-        const int count = selectRuns(payload.value(QStringLiteral("filter")).toObject(), false).size();
+        const qsizetype count = selectRuns(payload.value(QStringLiteral("filter")).toObject(), false).size();
         result.insert(QStringLiteral("row_count"), count);
         result.insert(QStringLiteral("byte_count"), count * 240);
         result.insert(QStringLiteral("completed_at_utc"),

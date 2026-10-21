@@ -152,7 +152,7 @@ Answer correct(mr::MockBackend &backend, const QString &runId, const QJsonObject
                             {{QStringLiteral("filter"), QJsonObject{{QStringLiteral("text"), QString()}}},
                              {QStringLiteral("page"), 1}, {QStringLiteral("page_size"), 200}});
     int revision = 0;
-    for (const QJsonValue &item : page.payload.value(QStringLiteral("items")).toArray()) {
+    for (const auto &item : page.payload.value(QStringLiteral("items")).toArray()) {
         if (item.toObject().value(QStringLiteral("run_id")).toString() == runId)
             revision = item.toObject().value(QStringLiteral("revision")).toInt();
     }
@@ -182,7 +182,7 @@ Answer previewImport(mr::MockBackend &backend, const QString &kind, const QJsonA
 QStringList importStatuses(const Answer &preview)
 {
     QStringList statuses;
-    for (const QJsonValue &row : preview.payload.value(QStringLiteral("rows")).toArray())
+    for (const auto &row : preview.payload.value(QStringLiteral("rows")).toArray())
         statuses.append(row.toObject().value(QStringLiteral("status")).toString());
     return statuses;
 }
@@ -191,7 +191,7 @@ QStringList importStatuses(const Answer &preview)
 Answer commitWholePreview(mr::MockBackend &backend, const Answer &preview)
 {
     QJsonArray numbers;
-    for (const QJsonValue &row : preview.payload.value(QStringLiteral("rows")).toArray())
+    for (const auto &row : preview.payload.value(QStringLiteral("rows")).toArray())
         numbers.append(row.toObject().value(QStringLiteral("row_number")));
     return ask(backend, QStringLiteral("CommitRunImport"),
                {{QStringLiteral("preview_id"), preview.payload.value(QStringLiteral("preview_id"))},
@@ -436,12 +436,12 @@ private Q_SLOTS:
                                 {{QStringLiteral("filter"), QJsonObject()},
                                  {QStringLiteral("page"), 1}, {QStringLiteral("page_size"), 200}});
         QSet<QString> seen;
-        for (const QJsonValue &item : page.payload.value(QStringLiteral("items")).toArray()) {
+        for (const auto &item : page.payload.value(QStringLiteral("items")).toArray()) {
             const QJsonObject run = item.toObject();
             const Answer events = ask(backend, QStringLiteral("GetRunEvents"),
                                       {{QStringLiteral("run_id"), run.value(QStringLiteral("run_id"))}});
             QVERIFY(events.ok);
-            for (const QJsonValue &value : events.payload.value(QStringLiteral("events")).toArray()) {
+            for (const auto &value : events.payload.value(QStringLiteral("events")).toArray()) {
                 const QJsonObject event = value.toObject();
                 const QString type = event.value(QStringLiteral("event_type")).toString();
                 seen.insert(type);
@@ -507,7 +507,7 @@ private Q_SLOTS:
         QVERIFY(flaggedTotal > 0);
         QCOMPARE(clear.payload.value(QStringLiteral("page_info")).toObject()
                      .value(QStringLiteral("total")).toInt(), all - flaggedTotal);
-        for (const QJsonValue &item : clear.payload.value(QStringLiteral("items")).toArray())
+        for (const auto &item : clear.payload.value(QStringLiteral("items")).toArray())
             QVERIFY(!item.toObject().value(QStringLiteral("pending_review")).toBool());
     }
 
@@ -525,7 +525,7 @@ private Q_SLOTS:
         QVERIFY(items.size() > 2);
         bool sawNull = false;
         QString previous;
-        for (const QJsonValue &item : items) {
+        for (const auto &item : items) {
             const QJsonValue ended = item.toObject().value(QStringLiteral("ended_at_utc"));
             if (ended.isNull()) {
                 sawNull = true;
@@ -616,14 +616,14 @@ private Q_SLOTS:
         QCOMPARE(stats.value(QStringLiteral("completed_count")).toInt(), 1);
         QCOMPARE(stats.value(QStringLiteral("unfinished_pending_review")).toInt(), 1);
         int unknown = -1;
-        for (const QJsonValue &bucket : backend.resultStats({}).value(QStringLiteral("buckets")).toArray()) {
+        for (const auto &bucket : backend.resultStats({}).value(QStringLiteral("buckets")).toArray()) {
             if (bucket.toObject().value(QStringLiteral("result")).toString() == QLatin1String("UNKNOWN"))
                 unknown = bucket.toObject().value(QStringLiteral("count")).toInt();
         }
         QCOMPARE(unknown, 2);
         const auto attempts = [](const QJsonArray &rows) {
             int total = 0;
-            for (const QJsonValue &row : rows)
+            for (const auto &row : rows)
                 total += row.toObject().value(QStringLiteral("attempt_count")).toInt();
             return total;
         };
@@ -672,7 +672,7 @@ private Q_SLOTS:
         QVERIFY(runs.size() > 50);
         int automatic = 0;
         int manual = 0;
-        for (const QJsonValue &item : runs) {
+        for (const auto &item : runs) {
             const QJsonObject run = item.toObject();
             const QString runId = run.value(QStringLiteral("run_id")).toString();
             const QJsonArray chain = ask(backend, QStringLiteral("GetRunRevisions"),
@@ -694,7 +694,7 @@ private Q_SLOTS:
             QCOMPARE(first.value(QStringLiteral("actor")).toString(), QStringLiteral("SYSTEM"));
             QCOMPARE(first.value(QStringLiteral("changed_at_utc")), run.value(QStringLiteral("matched_at_utc")));
             QHash<QString, QJsonValue> created;
-            for (const QJsonValue &value : first.value(QStringLiteral("changes")).toArray()) {
+            for (const auto &value : first.value(QStringLiteral("changes")).toArray()) {
                 const QJsonObject change = value.toObject();
                 QVERIFY(change.value(QStringLiteral("old_value")).isNull());
                 created.insert(change.value(QStringLiteral("field")).toString(),
@@ -969,7 +969,7 @@ private Q_SLOTS:
             QStringLiteral("ended_at_utc"), QStringLiteral("duration_ms"), QStringLiteral("result"),
             QStringLiteral("contributes_to_goal"), QStringLiteral("note"), QStringLiteral("joined_in_progress"),
             QStringLiteral("soft_deleted"), QStringLiteral("pending_review"), QStringLiteral("manually_corrected")};
-        for (const QJsonValue &item : std::as_const(manual)) {
+        for (const auto &item : std::as_const(manual)) {
             const QJsonObject run = item.toObject();
             const QJsonObject first = ask(backend, QStringLiteral("GetRunRevisions"),
                                           {{QStringLiteral("run_id"), run.value(QStringLiteral("run_id"))}})
@@ -977,7 +977,7 @@ private Q_SLOTS:
             QCOMPARE(first.value(QStringLiteral("change_kind")).toString(), QStringLiteral("CREATE_MANUAL"));
             const QJsonArray changes = first.value(QStringLiteral("changes")).toArray();
             QStringList named;
-            for (const QJsonValue &value : changes) {
+            for (const auto &value : changes) {
                 const QJsonObject change = value.toObject();
                 const QString field = change.value(QStringLiteral("field")).toString();
                 named.append(field);
@@ -1027,7 +1027,7 @@ private Q_SLOTS:
         const auto found = [&backend](int contentId) {
             const QJsonObject filter{{QStringLiteral("content_id"), QJsonArray{contentId}}};
             QStringList ids;
-            for (const QJsonValue &item : ask(backend, QStringLiteral("QueryRuns"),
+            for (const auto &item : ask(backend, QStringLiteral("QueryRuns"),
                                               {{QStringLiteral("filter"), filter},
                                                {QStringLiteral("page"), 1},
                                                {QStringLiteral("page_size"), 200}})
@@ -1058,7 +1058,7 @@ private Q_SLOTS:
                                  {QStringLiteral("page"), 1}, {QStringLiteral("page_size"), 200}});
         int deleted = 0;
         int recovered = 0;
-        for (const QJsonValue &item : page.payload.value(QStringLiteral("items")).toArray()) {
+        for (const auto &item : page.payload.value(QStringLiteral("items")).toArray()) {
             const QJsonObject run = item.toObject();
             const bool isDeleted = run.value(QStringLiteral("soft_deleted")).toBool();
             const bool isPending = run.value(QStringLiteral("pending_review")).toBool();
@@ -1071,7 +1071,7 @@ private Q_SLOTS:
             QCOMPARE(last.value(QStringLiteral("revision")).toInt(), run.value(QStringLiteral("revision")).toInt());
             QCOMPARE(run.value(QStringLiteral("revision")).toInt(), 2);
             QHash<QString, QJsonObject> changes;
-            for (const QJsonValue &value : last.value(QStringLiteral("changes")).toArray())
+            for (const auto &value : last.value(QStringLiteral("changes")).toArray())
                 changes.insert(value.toObject().value(QStringLiteral("field")).toString(), value.toObject());
             if (isDeleted) {
                 ++deleted;
@@ -1144,7 +1144,7 @@ private Q_SLOTS:
                                     {QStringLiteral("page"), 1}, {QStringLiteral("page_size"), 200}});
         const QJsonArray recovered = pending.payload.value(QStringLiteral("items")).toArray();
         QVERIFY(!recovered.isEmpty());
-        for (const QJsonValue &item : recovered) {
+        for (const auto &item : recovered) {
             const QJsonObject run = item.toObject();
             const Answer refused = undo(run.value(QStringLiteral("run_id")).toString(),
                                         run.value(QStringLiteral("revision")).toInt());
@@ -1214,7 +1214,7 @@ private Q_SLOTS:
                                      {{QStringLiteral("run_id"), runId}})
                                      .payload.value(QStringLiteral("items")).toArray();
         QHash<QString, QJsonObject> changes;
-        for (const QJsonValue &value : chain.last().toObject().value(QStringLiteral("changes")).toArray())
+        for (const auto &value : chain.last().toObject().value(QStringLiteral("changes")).toArray())
             changes.insert(value.toObject().value(QStringLiteral("field")).toString(), value.toObject());
         QCOMPARE(changes.size(), 2);
         QCOMPARE(changes.value(QStringLiteral("soft_deleted")).value(QStringLiteral("new_value")), QJsonValue(true));
@@ -1261,7 +1261,7 @@ private Q_SLOTS:
             const QJsonArray chain = ask(backend, QStringLiteral("GetRunRevisions"),
                                          {{QStringLiteral("run_id"), runId}})
                                          .payload.value(QStringLiteral("items")).toArray();
-            for (const QJsonValue &value : chain.last().toObject().value(QStringLiteral("changes")).toArray())
+            for (const auto &value : chain.last().toObject().value(QStringLiteral("changes")).toArray())
                 fields.append(value.toObject().value(QStringLiteral("field")).toString());
             return fields;
         };
@@ -1430,7 +1430,7 @@ private Q_SLOTS:
                                     .payload.value(QStringLiteral("items")).toArray();
         QVERIFY(runs.size() > 50);
         int unknown = 0;
-        for (const QJsonValue &item : runs) {
+        for (const auto &item : runs) {
             const QJsonObject run = item.toObject();
             QVERIFY2(!mr::Formatters::runInProgress(run.toVariantMap()),
                      qPrintable(run.value(QStringLiteral("run_id")).toString()));
@@ -1487,7 +1487,7 @@ private Q_SLOTS:
                                                 .value(QStringLiteral("calibration")).toObject();
             const QJsonArray events = calibration.value(QStringLiteral("events")).toArray();
             QVERIFY(!events.isEmpty());
-            for (const QJsonValue &event : events) {
+            for (const auto &event : events) {
                 QVERIFY2(sameSentence(event.toObject().value(QStringLiteral("label")),
                                       event.toObject().value(QStringLiteral("label_ref"))),
                          qPrintable(event.toObject().value(QStringLiteral("label")).toString()));
@@ -1510,11 +1510,11 @@ private Q_SLOTS:
         const Answer speech = ask(backend, QStringLiteral("GetSpeechSettings"));
         const QJsonArray azure = speech.payload.value(QStringLiteral("azure_voices")).toArray();
         QVERIFY(!azure.isEmpty());
-        for (const QJsonValue &voice : azure) {
+        for (const auto &voice : azure) {
             QVERIFY(sameSentence(voice.toObject().value(QStringLiteral("label")),
                                  voice.toObject().value(QStringLiteral("label_ref"))));
         }
-        for (const QJsonValue &voice : speech.payload.value(QStringLiteral("openai_voices")).toArray())
+        for (const auto &voice : speech.payload.value(QStringLiteral("openai_voices")).toArray())
             QVERIFY(!voice.toObject().contains(QStringLiteral("label_ref")));
 
         // A refusal: message_ref beside the message, as $defs/ErrorPayload carries it.
@@ -1986,7 +1986,7 @@ private Q_SLOTS:
         QVERIFY(data.isValid());
         mr::MockBackend backend;
         backend.setDataDirectory(data.path());
-        for (const QJsonValue &value : types) {
+        for (const auto &value : types) {
             const QString type = value.toString();
             const Answer answer = ask(backend, type);
             QVERIFY2(answer.done, qPrintable(type));

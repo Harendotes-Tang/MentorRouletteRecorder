@@ -363,7 +363,7 @@ void IpcIntegrationTests::queryRunsHonoursFilterAndPaging()
 
     const Outcome all = await(m_backend->queryRuns({}, 1, 10, sort));
     QVERIFY(all.ok);
-    QVERIFY(all.payload.value(QStringLiteral("items")).toList().size() >= 1);
+    QVERIFY(!all.payload.value(QStringLiteral("items")).toList().empty());
     QCOMPARE(all.payload.value(QStringLiteral("page_info")).toMap()
                  .value(QStringLiteral("page_size")).toInt(),
              10);

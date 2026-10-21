@@ -364,7 +364,7 @@ QJsonObject MockBackend::rejectSharedPayload()
                 {QStringLiteral("dropped_candidates"), 0}};
     }
     const bool withdrawn = sharedProfileBound();
-    const int dropped = candidatesFor(m_sharedState).size() > 0 && !withdrawn
+    const int dropped = !candidatesFor(m_sharedState).isEmpty() && !withdrawn
                             && m_sharedState != QLatin1String("rejected") ? 1 : 0;
     // A withdrawn shared profile leaves nothing of this machine's own behind it in these
     // fixtures, so the Collector re-arms calibration. Left at done / idle, the mock would
@@ -413,7 +413,7 @@ QJsonObject MockBackend::calibrationEvidence(const QString &messageType, const Q
     // Every fixture candidate is the committed test vector, whether or not its row names
     // the full identity (code_sha256 is optional on the wire).
     QStringList candidates;
-    for (const QJsonValue &candidate : candidatesFor(m_sharedState)) {
+    for (const auto &candidate : candidatesFor(m_sharedState)) {
         const QJsonValue identity = candidate.toObject().value(QStringLiteral("code_sha256"));
         candidates.append(identity.isString() ? identity.toString() : QLatin1String(kVectorSha256));
     }

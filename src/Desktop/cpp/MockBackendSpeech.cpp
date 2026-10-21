@@ -26,7 +26,7 @@
 #include <QUrl>
 #include <QtEndian>
 
-#include <cstring>
+#include <algorithm>
 #include <iterator>
 
 namespace mr {
@@ -184,9 +184,9 @@ QByteArray silentWave()
     char *data = bytes.data();
     const auto put32 = [data](int offset, quint32 value) { qToLittleEndian(value, data + offset); };
     const auto put16 = [data](int offset, quint16 value) { qToLittleEndian(value, data + offset); };
-    memcpy(data, "RIFF", 4);
+    std::copy_n("RIFF", 4, data);
     put32(4, 36 + kDataBytes);
-    memcpy(data + 8, "WAVEfmt ", 8);
+    std::copy_n("WAVEfmt ", 8, data + 8);
     put32(16, 16);
     put16(20, 1);                // PCM
     put16(22, 1);                // mono
@@ -194,7 +194,7 @@ QByteArray silentWave()
     put32(28, kSampleRate * 2);  // byte rate
     put16(32, 2);                // block align
     put16(34, 16);               // bits per sample
-    memcpy(data + 36, "data", 4);
+    std::copy_n("data", 4, data + 36);
     put32(40, kDataBytes);
     return bytes;
 }

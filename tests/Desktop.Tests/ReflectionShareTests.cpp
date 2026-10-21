@@ -39,6 +39,8 @@
 namespace {
 QQuickItem *findVisual(QQuickItem *at, const QString &name)
 {
+    if (!at)
+        return nullptr;
     if (at->objectName() == name)
         return at;
     for (auto *child : at->childItems())
@@ -118,7 +120,8 @@ QString headingInkAlignmentError(const QImage &png, QQuickItem *card, qreal rati
         ? QStringLiteral("reflectionShareSingleHeading") : QStringLiteral("reflectionShareCollectionMeta"));
     if (!heading) return QStringLiteral("缺少可验证题头");
     const qreal targetCenter = heading->property("firstLineCenter").toReal();
-    qreal topCenter = png.height(), bottomCenter = 0;
+    qreal topCenter = png.height();
+    qreal bottomCenter = 0;
     QStringList centers;
     for (const char *name : {"reflectionShareEyebrow", "reflectionShareCharacterName",
                              "reflectionShareServerName", "reflectionShareCount", "reflectionShareTimeText"}) {
@@ -174,6 +177,302 @@ Q_SIGNALS:
 class ReflectionShareTests : public QObject
 {
     Q_OBJECT
+private:
+    struct IdentityStage
+    {
+        IdentityStage(mr::ReflectionShareController &testController, const mr::AppSettings &testSettings,
+                      const QVariantMap &sourceRun, const QString &sourceBaseName, const QString &evidencePath,
+                      const QTemporaryDir &outputDirectory, const QSignalSpy &savedSignal)
+            : controller(testController), settings(testSettings), run(sourceRun), baseName(sourceBaseName),
+              evidence(evidencePath), output(outputDirectory), saved(savedSignal)
+        {
+        }
+
+        mr::ReflectionShareController &controller;
+        const mr::AppSettings &settings;
+        QQuickWindow *window = nullptr;
+        QObject *dialog = nullptr;
+        const QVariantMap &run;
+        const QString &baseName;
+        const QString &evidence;
+        const QTemporaryDir &output;
+        const QSignalSpy &saved;
+        QQuickItem *input = nullptr;
+        QQuickItem *option = nullptr;
+        QQuickItem *mode = nullptr;
+        QQuickItem *individual = nullptr;
+        QQuickItem *identity = nullptr;
+    };
+
+    static bool openShareRuns(QObject *dialog, const QVariantList &runs)
+    {
+        return QMetaObject::invokeMethod(dialog, "openForRuns", Q_ARG(QVariant, QVariant(runs)));
+    }
+
+    static void verifyReferenceCollection(const QVariantMap &run, mr::ReflectionShareController &controller,
+                                          QQuickItem *card, QQuickWindow *window, const QTemporaryDir &output,
+                                          const QSignalSpy &saved, const QString &evidence)
+    {
+        const auto save = [&](const QString &name) {
+            controller.saveTo(card, output.filePath(name));
+        };
+        const auto keep = [&](const QString &name) {
+            const QImage png(output.filePath(name));
+            return !png.isNull() && (evidence.isEmpty() || png.save(QDir(evidence).filePath(name)));
+        };
+        const QStringList names{QStringLiteral("伊弗利特讨伐战"), QStringLiteral("神兵要塞帝国南方堡"), QStringLiteral("险峻峡谷塞尔法特尔溪谷")};
+        const QStringList notes{QStringLiteral("三剑一豆芽，全明星团队亲情奉献！（美美+1）"), QStringLiteral("有本打就好；；"), QStringLiteral("排了好久才排到…我们猪区还有救吗")};
+        QVariantList runs;
+        for (int i = 0; i < names.size(); ++i) {
+            QVariantMap item = run;
+            item.insert(QStringLiteral("duty_name"), names[i]);
+            item.insert(QStringLiteral("job_id"), 34);
+            item.insert(QStringLiteral("job_name"), QStringLiteral("武士"));
+            item.insert(QStringLiteral("matched_at_utc"), QStringLiteral("2026-10-%1T06:40:00Z").arg(12 - i));
+            item.insert(QStringLiteral("reflection"), QVariantMap{{QStringLiteral("text"), notes[i]}, {QStringLiteral("mood"), QStringLiteral("good")}});
+            runs.append(item);
+        }
+        card->setProperty("runsData", runs);
+        QTRY_COMPARE(visibleEntries(card).size(), 3);
+        const auto collectionEntries = visibleEntries(card);
+        for (auto *entry : collectionEntries) {
+            QVERIFY(findVisual(entry, QStringLiteral("reflectionShareResultText")));
+            QVERIFY(findVisual(entry, QStringLiteral("reflectionShareMoodTag")));
+        }
+        const auto referenceHeightForFont = [&] {
+            qreal height = 1054.0;
+            for (auto *entry : collectionEntries) {
+                auto *metadata = findVisual(entry, QStringLiteral("reflectionShareResultText"));
+                auto *mood = findVisual(entry, QStringLiteral("reflectionShareMoodTag"));
+                const qreal bottom = qMax(metadata->y() + metadata->height(),
+                                           mood->isVisible() ? mood->y() + mood->height() : 0.0);
+                height += qMax(0.0, bottom - 77.0);
+            }
+            return height;
+        };
+        QTRY_COMPARE(card->height(), referenceHeightForFont());
+        save(QStringLiteral("reference-collection.png"));
+        QTRY_COMPARE(saved.count(), 4);
+        QVERIFY(keep(QStringLiteral("reference-collection.png")));
+        const QString collectionAlignment = headingInkAlignmentError(QImage(output.filePath(QStringLiteral("reference-collection.png"))),
+                                                                     card, window->effectiveDevicePixelRatio());
+        QVERIFY2(collectionAlignment.isEmpty(), qPrintable(collectionAlignment));
+        QCOMPARE(card->property("runsData").toList(), runs);
+    }
+
+    static void verifyIdentityVisibilityAndWrapping(IdentityStage &stage)
+    {
+        auto &controller = stage.controller;
+        auto &window = stage.window;
+        const auto &evidence = stage.evidence;
+        const auto &output = stage.output;
+        const auto &saved = stage.saved;
+        auto &input = stage.input;
+        auto &option = stage.option;
+        auto &individual = stage.individual;
+        auto &identity = stage.identity;
+        controller.saveTo(individual, output.filePath(QStringLiteral("identity.png")));
+        QTRY_COMPARE(saved.count(), 1);
+        if (!evidence.isEmpty()) QVERIFY(QImage(output.filePath(QStringLiteral("identity.png"))).save(QDir(evidence).filePath(QStringLiteral("identity-single.png"))));
+        const qreal withIdentityHeight = individual->height();
+        option->setProperty("checked", false);
+        QTRY_VERIFY(!identity->isVisible());
+        QCOMPARE(individual->height(), withIdentityHeight);
+        controller.saveTo(individual, output.filePath(QStringLiteral("hidden.png")));
+        QTRY_COMPARE(saved.count(), 2);
+        const QImage hidden(output.filePath(QStringLiteral("hidden.png")));
+        QVERIFY(!hidden.isNull());
+        option->setProperty("checked", true);
+        input->setProperty("text", QString());
+        QTRY_VERIFY(!identity->isVisible());
+        QCOMPARE(individual->height(), hidden.height() / window->effectiveDevicePixelRatio());
+        input->setProperty("text", QStringLiteral("很长的冒险者名字").repeated(4) + QStringLiteral("@白银乡"));
+        QTRY_VERIFY(identity->isVisible());
+        auto *characterLabel = findVisual(identity, QStringLiteral("reflectionShareCharacterName"));
+        auto *server = findVisual(identity, QStringLiteral("reflectionShareServerName"));
+        auto *heading = findVisual(individual, QStringLiteral("reflectionShareSingleHeading"));
+        QVERIFY(characterLabel && server && heading);
+        QTRY_VERIFY(characterLabel->property("truncated").toBool());
+        QCOMPARE(server->property("text").toString(), QStringLiteral("@白银乡"));
+        QVERIFY(!heading->property("dateLabel").toString().contains(QStringLiteral("2026")));
+        QVERIFY(server->mapRectToItem(heading, server->boundingRect()).right() <= heading->width() + 1);
+        QCOMPARE(individual->height(), withIdentityHeight);
+        controller.saveTo(individual, output.filePath(QStringLiteral("long.png")));
+        QTRY_COMPARE(saved.count(), 3);
+        if (!evidence.isEmpty()) QVERIFY(QImage(output.filePath(QStringLiteral("long.png"))).save(QDir(evidence).filePath(QStringLiteral("identity-long.png"))));
+    }
+
+    static void verifyIdentityCombinedAndKeyboard(IdentityStage &stage)
+    {
+        auto &controller = stage.controller;
+        const auto &settings = stage.settings;
+        auto &window = stage.window;
+        auto &dialog = stage.dialog;
+        const auto &run = stage.run;
+        const auto &evidence = stage.evidence;
+        const auto &output = stage.output;
+        const auto &saved = stage.saved;
+        auto &input = stage.input;
+        auto &mode = stage.mode;
+        mode->setProperty("currentIndex", 1);
+        QQuickItem *combined = findVisual(window->contentItem(), QStringLiteral("reflectionShareCombinedCard"));
+        QTRY_VERIFY(combined->isVisible());
+        QCOMPARE(controller.suggestedFileName(combined), QStringLiteral("导随心得合集_%1_2条.png").arg(QDate::currentDate().toString(Qt::ISODate)));
+        const auto entries = visibleEntries(combined);
+        QCOMPARE(entries.size(), 2);
+        auto *title = findVisual(entries.first(), QStringLiteral("reflectionShareDutyTitle"));
+        auto *metadata = findVisual(entries.first(), QStringLiteral("reflectionShareResultText"));
+        QCOMPARE(title->property("text").toString(), QStringLiteral("休养胜地布雷福洛克斯\n野营地"));
+        QVERIFY(title->y() + title->height() <= metadata->y());
+        input->setProperty("text", QStringLiteral("测试冒险者@白银乡"));
+        controller.saveTo(combined, output.filePath(QStringLiteral("phrases.png")));
+        QTRY_COMPARE(saved.count(), 4);
+        if (!evidence.isEmpty()) {
+            QVERIFY(QImage(output.filePath(QStringLiteral("phrases.png"))).save(QDir(evidence).filePath(QStringLiteral("phrase-collection.png"))));
+            QVERIFY(window->grabWindow().save(QDir(evidence).filePath(QStringLiteral("identity-dialog.png"))));
+        }
+        QVERIFY(QMetaObject::invokeMethod(dialog, "close"));
+        QTRY_VERIFY(!dialog->property("visible").toBool());
+        QCOMPARE(settings.shareGameIdentity(), QStringLiteral("测试冒险者@白银乡"));
+        QVERIFY(openShareRuns(dialog, {run}));
+        QTRY_VERIFY(dialog->property("visible").toBool());
+        QCOMPARE(input->property("text").toString(), settings.shareGameIdentity());
+        QCOMPARE(dialog->property("runData").toMap(), run);
+        window->resize(720, 560);
+        input->setProperty("text", QStringLiteral("缺少服务器"));
+        auto *saveButton = findVisual(window->contentItem(), QStringLiteral("saveReflectionImageButton"));
+        QTRY_VERIFY(saveButton && !saveButton->isEnabled());
+        QTest::qWait(80);
+        auto *dialogContent = qvariant_cast<QQuickItem *>(dialog->property("contentItem"));
+        QVERIFY(dialogContent);
+        QVERIFY(saveButton->mapRectToItem(dialogContent, saveButton->boundingRect()).bottom() <= dialogContent->height());
+        // 使用真实按键完成 ID 编辑、焦点切换和关闭。
+        input->forceActiveFocus();
+        QTest::keyClick(window, Qt::Key_A, Qt::ControlModifier);
+        for (char character : QByteArrayLiteral("Adventurer@World")) QTest::keyClick(window, character);
+        QTest::keyClick(window, Qt::Key_Tab);
+        QTRY_VERIFY(saveButton->isEnabled());
+        QCOMPARE(settings.shareGameIdentity(), QStringLiteral("Adventurer@World"));
+        QTest::keyClick(window, Qt::Key_Tab, Qt::ShiftModifier);
+        QTRY_VERIFY(input->hasActiveFocus());
+        QTest::keyClick(window, Qt::Key_Escape);
+        QTRY_VERIFY(!dialog->property("visible").toBool());
+        QVERIFY(openShareRuns(dialog, {run}));
+        QTRY_VERIFY(dialog->property("visible").toBool());
+    }
+
+    static void verifyReadableFileNamesAndCollisionSuffixes(IdentityStage &stage)
+    {
+        auto &controller = stage.controller;
+        auto &window = stage.window;
+        const auto &baseName = stage.baseName;
+        const auto &output = stage.output;
+        auto &individual = stage.individual;
+        // 无真实游玩时间时不得把导出日期伪装成游玩时间；过滤路径字符。
+        QObject simple;
+        simple.setProperty("runData", QVariantMap{{QStringLiteral("duty_name"), QStringLiteral("副本/名称:*? ")}});
+        QCOMPARE(controller.suggestedFileName(&simple), QStringLiteral("导随心得_时间未知_副本_名称___.png"));
+        simple.setProperty("runData", QVariantMap{{QStringLiteral("duty_name"), QStringLiteral("副本/名称:*? ")},
+                                                  {QStringLiteral("matched_at_utc"), QStringLiteral("invalid-time")}});
+        QCOMPARE(controller.suggestedFileName(&simple), QStringLiteral("导随心得_时间未知_副本_名称___.png"));
+        // 实际批量写入相同名称，验证递增后缀及保留旧文件字节。
+        individual = nullptr;
+        for (auto *card : completeCards(window->contentItem())) if (card->isVisible()) { individual = card; break; }
+        QVERIFY(individual);
+        const QVariantMap batch{{QStringLiteral("run_id"), QStringLiteral("batch-a")}, {QStringLiteral("item"), QVariant::fromValue<QObject *>(individual)}};
+        controller.saveBatchTo({batch}, output.path());
+        QTRY_COMPARE(controller.successfulCount(), 1);
+        QTRY_VERIFY(!controller.busy());
+        QVERIFY(QFileInfo::exists(output.filePath(baseName)));
+        QImage sentinel(23, 17, QImage::Format_RGB32);
+        sentinel.fill(Qt::magenta);
+        sentinel.setText(QStringLiteral("existing"), QStringLiteral("never overwrite this file"));
+        QVERIFY(sentinel.save(output.filePath(baseName)));
+        QFile existing(output.filePath(baseName));
+        QVERIFY(existing.open(QIODevice::ReadOnly));
+        const QByteArray originalBytes = existing.readAll();
+        existing.close();
+        controller.saveBatchTo({batch}, output.path());
+        QTRY_COMPARE(controller.successfulCount(), 1);
+        QTRY_VERIFY(!controller.busy());
+        QVERIFY(QFileInfo::exists(output.filePath(baseName.chopped(4) + QStringLiteral(" (2).png"))));
+        QVERIFY(!QImage(output.filePath(baseName.chopped(4) + QStringLiteral(" (2).png"))).isNull());
+        controller.saveBatchTo({batch}, output.path());
+        QTRY_COMPARE(controller.successfulCount(), 1);
+        QTRY_VERIFY(!controller.busy());
+        QVERIFY(QFileInfo::exists(output.filePath(baseName.chopped(4) + QStringLiteral(" (3).png"))));
+        QVERIFY(existing.open(QIODevice::ReadOnly));
+        QCOMPARE(existing.readAll(), originalBytes);
+    }
+
+    static void verifyActualDialogClosing(QQuickWindow *window, QObject *dialog, QQuickItem *closeButton,
+                                          QQuickItem *attribution, const QVariantMap &run)
+    {
+        // 从当前保存按钮经真实 Tab 遍历到右上角关闭，再用 Enter 激活。
+        QTest::keyClick(window, Qt::Key_Tab);
+        for (int step = 0; step < 20 && !closeButton->hasActiveFocus(); ++step)
+            QTest::keyClick(window, Qt::Key_Tab);
+        QTRY_VERIFY(closeButton->hasActiveFocus());
+        QTest::keyClick(window, Qt::Key_Return);
+        QTRY_VERIFY(!dialog->property("visible").toBool());
+        QVERIFY(QMetaObject::invokeMethod(dialog, "openForRun", Q_ARG(QVariant, QVariant(run))));
+        QTRY_VERIFY(dialog->property("visible").toBool());
+        QTRY_VERIFY(attribution->property("checked").toBool());
+        QTRY_VERIFY(findVisual(window->contentItem(), QStringLiteral("reflectionShareCard"))->property("showAttribution").toBool());
+        QTest::keyClick(window, Qt::Key_Escape);
+        QTRY_VERIFY(!dialog->property("visible").toBool());
+        QVERIFY(QMetaObject::invokeMethod(dialog, "openForRun", Q_ARG(QVariant, QVariant(run))));
+        QTRY_VERIFY(dialog->property("visible").toBool());
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
+                          closeButton->mapToScene(closeButton->boundingRect().center()).toPoint());
+        QTRY_VERIFY(!dialog->property("visible").toBool());
+    }
+
+    static void verifyBatchPreviewScrolling(QQuickWindow *window, QQuickItem *preview, QQuickItem *individuals,
+                                            QQuickItem *save, QQuickItem *mode, QObject *flickable,
+                                            const QList<QQuickItem *> &cards)
+    {
+        QTRY_COMPARE(flickable->property("contentHeight").toReal(), individuals->height());
+        QVERIFY(flickable->property("contentHeight").toReal() > preview->height());
+        const QPointF savePosition = save->mapToScene(QPointF());
+        const QPointF modePosition = mode->mapToScene(QPointF());
+        const QPointF wheelPosition = preview->mapToScene(QPointF(preview->width() / 2, preview->height() / 2));
+        QWheelEvent wheel(wheelPosition, window->mapToGlobal(wheelPosition.toPoint()), QPoint(), QPoint(0, -120),
+                          Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
+        QCoreApplication::sendEvent(window, &wheel);
+        QTRY_VERIFY(flickable->property("contentY").toReal() > 0);
+        // 到达末尾后仍能看到最后一张卡片，顶部输出方式和底部保存按钮保持固定。
+        flickable->setProperty("contentY", individuals->height() - preview->height());
+        const QPointF lastBottom = cards.last()->mapToItem(preview, QPointF(0, cards.last()->height()));
+        QVERIFY(qAbs(lastBottom.y() - preview->height()) < 2);
+        QCOMPARE(save->mapToScene(QPointF()), savePosition);
+        QCOMPARE(mode->mapToScene(QPointF()), modePosition);
+        flickable->setProperty("contentY", 0);
+    }
+
+    static void verifyIndividualPngs(const mr::ReflectionShareController &controller,
+                                     const QList<QQuickItem *> &cards, QQuickItem *firstBody, QQuickItem *secondBody,
+                                     qreal ratio, const QString &evidence, const QString &themeName)
+    {
+        QStringList paths;
+        for (int index = 0; index < cards.size(); ++index) {
+            const QString path = controller.batchResults().at(index).toMap().value(QStringLiteral("path")).toString();
+            paths.append(path);
+            const QImage png(path);
+            QVERIFY(!png.isNull());
+            if (!evidence.isEmpty())
+                QVERIFY(png.save(QDir(evidence).filePath(QStringLiteral("individual-%1-%2.png").arg(index + 1).arg(themeName))));
+            QVERIFY2(paperJoinsAreContinuous(png, cards.at(index), ratio), "长图顶底拼接处出现整行黑线或透明空隙");
+            QCOMPARE(png.pixelColor(0, 0).alpha(), 255);
+            QCOMPARE(png.pixelColor(png.width() - 1, png.height() - 1).alpha(), 255);
+            QCOMPARE(png.size(), QSize(qCeil(cards.at(index)->width()), qCeil(cards.at(index)->height())) * ratio);
+            QVERIFY(finalTextHasInk(png, index == 0 ? firstBody : secondBody, cards.at(index), ratio));
+
+        }
+        QVERIFY(paths[0] != paths[1]);
+        QCOMPARE(QFileInfo(paths[0]).fileName(), QStringLiteral("导随心得_时间未知_副本 first.png"));
+    }
+
 private Q_SLOTS:
     void bundledFontsUseOriginalStaticGlyphs_data() {
         QTest::addColumn<QString>("family");
@@ -393,44 +692,9 @@ Window { visible: true; width: 1180; height: 900
                     <= job->mapRectToItem(card, job->boundingRect()).top());
         QVERIFY(server->mapRectToItem(heading, server->boundingRect()).right() <= heading->width() + 1);
         card->setProperty("gameIdentity", QStringLiteral("赤色熊喵@龙巢神殿"));
-        const QStringList names{QStringLiteral("伊弗利特讨伐战"), QStringLiteral("神兵要塞帝国南方堡"), QStringLiteral("险峻峡谷塞尔法特尔溪谷")};
-        const QStringList notes{QStringLiteral("三剑一豆芽，全明星团队亲情奉献！（美美+1）"), QStringLiteral("有本打就好；；"), QStringLiteral("排了好久才排到…我们猪区还有救吗")};
-        QVariantList runs;
-        for (int i = 0; i < names.size(); ++i) {
-            QVariantMap item = run;
-            item.insert(QStringLiteral("duty_name"), names[i]);
-            item.insert(QStringLiteral("job_id"), 34);
-            item.insert(QStringLiteral("job_name"), QStringLiteral("武士"));
-            item.insert(QStringLiteral("matched_at_utc"), QStringLiteral("2026-10-%1T06:40:00Z").arg(12 - i));
-            item.insert(QStringLiteral("reflection"), QVariantMap{{QStringLiteral("text"), notes[i]}, {QStringLiteral("mood"), QStringLiteral("good")}});
-            runs.append(item);
-        }
-        card->setProperty("runsData", runs);
-        QTRY_COMPARE(visibleEntries(card).size(), 3);
-        const auto collectionEntries = visibleEntries(card);
-        for (auto *entry : collectionEntries) {
-            QVERIFY(findVisual(entry, QStringLiteral("reflectionShareResultText")));
-            QVERIFY(findVisual(entry, QStringLiteral("reflectionShareMoodTag")));
-        }
-        const auto referenceHeightForFont = [&] {
-            qreal height = 1054.0;
-            for (auto *entry : collectionEntries) {
-                auto *metadata = findVisual(entry, QStringLiteral("reflectionShareResultText"));
-                auto *mood = findVisual(entry, QStringLiteral("reflectionShareMoodTag"));
-                const qreal bottom = qMax(metadata->y() + metadata->height(),
-                                           mood->isVisible() ? mood->y() + mood->height() : 0.0);
-                height += qMax(0.0, bottom - 77.0);
-            }
-            return height;
-        };
-        QTRY_COMPARE(card->height(), referenceHeightForFont());
-        save(QStringLiteral("reference-collection.png"));
-        QTRY_COMPARE(saved.count(), 4);
-        QVERIFY(keep(QStringLiteral("reference-collection.png")));
-        const QString collectionAlignment = headingInkAlignmentError(QImage(output.filePath(QStringLiteral("reference-collection.png"))),
-                                                                     card, window->effectiveDevicePixelRatio());
-        QVERIFY2(collectionAlignment.isEmpty(), qPrintable(collectionAlignment));
-        QCOMPARE(card->property("runsData").toList(), runs);
+        verifyReferenceCollection(run, controller, card, window, output, saved, evidence);
+        if (QTest::currentTestFailed()) return;
+
         QVERIFY2(warnings.isEmpty(), warnings.isEmpty() ? "" : qPrintable(warnings.first().toString()));
     }
     void identityWrappingAndReadableNames() {
@@ -476,10 +740,7 @@ ApplicationWindow { visible: true; width: 1100; height: 900
                                                        {QStringLiteral("mood"), QStringLiteral("good")}}}};
         QVariantMap other = run;
         other.insert(QStringLiteral("run_id"), QStringLiteral("readable-b"));
-        auto open = [&](const QVariantList &runs) {
-            return QMetaObject::invokeMethod(dialog, "openForRuns", Q_ARG(QVariant, QVariant(runs)));
-        };
-        QVERIFY(open({run, other}));
+        QVERIFY(openShareRuns(dialog, {run, other}));
         QTRY_VERIFY(dialog->property("visible").toBool());
         auto *input = findVisual(window->contentItem(), QStringLiteral("reflectionShareIdentityInput"));
         auto *option = findVisual(window->contentItem(), QStringLiteral("reflectionShareIdentityOption"));
@@ -508,118 +769,23 @@ ApplicationWindow { visible: true; width: 1100; height: 900
         const QString evidence = qEnvironmentVariable("MR_REFLECTION_SHARE_SCREENSHOT_DIR");
         QTemporaryDir output;
         QSignalSpy saved(&controller, &mr::ReflectionShareController::saved);
-        const auto saveCard = [&](QQuickItem *card, const QString &name) {
-            controller.saveTo(card, output.filePath(name));
-        };
-        saveCard(individual, QStringLiteral("identity.png"));
-        QTRY_COMPARE(saved.count(), 1);
-        if (!evidence.isEmpty()) QVERIFY(QImage(output.filePath(QStringLiteral("identity.png"))).save(QDir(evidence).filePath(QStringLiteral("identity-single.png"))));
-        const qreal withIdentityHeight = individual->height();
-        option->setProperty("checked", false);
-        QTRY_VERIFY(!identity->isVisible());
-        QCOMPARE(individual->height(), withIdentityHeight);
-        saveCard(individual, QStringLiteral("hidden.png"));
-        QTRY_COMPARE(saved.count(), 2);
-        const QImage hidden(output.filePath(QStringLiteral("hidden.png")));
-        QVERIFY(!hidden.isNull());
-        option->setProperty("checked", true);
-        input->setProperty("text", QString());
-        QTRY_VERIFY(!identity->isVisible());
-        QCOMPARE(individual->height(), hidden.height() / window->effectiveDevicePixelRatio());
-        input->setProperty("text", QStringLiteral("很长的冒险者名字").repeated(4) + QStringLiteral("@白银乡"));
-        QTRY_VERIFY(identity->isVisible());
-        auto *characterLabel = findVisual(identity, QStringLiteral("reflectionShareCharacterName"));
-        auto *server = findVisual(identity, QStringLiteral("reflectionShareServerName"));
-        auto *heading = findVisual(individual, QStringLiteral("reflectionShareSingleHeading"));
-        QVERIFY(characterLabel && server && heading);
-        QTRY_VERIFY(characterLabel->property("truncated").toBool());
-        QCOMPARE(server->property("text").toString(), QStringLiteral("@白银乡"));
-        QVERIFY(!heading->property("dateLabel").toString().contains(QStringLiteral("2026")));
-        QVERIFY(server->mapRectToItem(heading, server->boundingRect()).right() <= heading->width() + 1);
-        QCOMPARE(individual->height(), withIdentityHeight);
-        saveCard(individual, QStringLiteral("long.png"));
-        QTRY_COMPARE(saved.count(), 3);
-        if (!evidence.isEmpty()) QVERIFY(QImage(output.filePath(QStringLiteral("long.png"))).save(QDir(evidence).filePath(QStringLiteral("identity-long.png"))));
-        mode->setProperty("currentIndex", 1);
-        QQuickItem *combined = findVisual(window->contentItem(), QStringLiteral("reflectionShareCombinedCard"));
-        QTRY_VERIFY(combined->isVisible());
-        QCOMPARE(controller.suggestedFileName(combined), QStringLiteral("导随心得合集_%1_2条.png").arg(QDate::currentDate().toString(Qt::ISODate)));
-        const auto entries = visibleEntries(combined);
-        QCOMPARE(entries.size(), 2);
-        auto *title = findVisual(entries.first(), QStringLiteral("reflectionShareDutyTitle"));
-        auto *metadata = findVisual(entries.first(), QStringLiteral("reflectionShareResultText"));
-        QCOMPARE(title->property("text").toString(), QStringLiteral("休养胜地布雷福洛克斯\n野营地"));
-        QVERIFY(title->y() + title->height() <= metadata->y());
-        input->setProperty("text", QStringLiteral("测试冒险者@白银乡"));
-        saveCard(combined, QStringLiteral("phrases.png"));
-        QTRY_COMPARE(saved.count(), 4);
-        if (!evidence.isEmpty()) {
-            QVERIFY(QImage(output.filePath(QStringLiteral("phrases.png"))).save(QDir(evidence).filePath(QStringLiteral("phrase-collection.png"))));
-            QVERIFY(window->grabWindow().save(QDir(evidence).filePath(QStringLiteral("identity-dialog.png"))));
-        }
-        QVERIFY(QMetaObject::invokeMethod(dialog, "close"));
-        QTRY_VERIFY(!dialog->property("visible").toBool());
-        QCOMPARE(settings.shareGameIdentity(), QStringLiteral("测试冒险者@白银乡"));
-        QVERIFY(open({run}));
-        QTRY_VERIFY(dialog->property("visible").toBool());
-        QCOMPARE(input->property("text").toString(), settings.shareGameIdentity());
-        QCOMPARE(dialog->property("runData").toMap(), run);
-        window->resize(720, 560);
-        input->setProperty("text", QStringLiteral("缺少服务器"));
-        auto *saveButton = findVisual(window->contentItem(), QStringLiteral("saveReflectionImageButton"));
-        QTRY_VERIFY(saveButton && !saveButton->isEnabled());
-        QTest::qWait(80);
-        auto *dialogContent = qvariant_cast<QQuickItem *>(dialog->property("contentItem"));
-        QVERIFY(dialogContent);
-        QVERIFY(saveButton->mapRectToItem(dialogContent, saveButton->boundingRect()).bottom() <= dialogContent->height());
-        // 使用真实按键完成 ID 编辑、焦点切换和关闭。
-        input->forceActiveFocus();
-        QTest::keyClick(window, Qt::Key_A, Qt::ControlModifier);
-        for (char character : QByteArrayLiteral("Adventurer@World")) QTest::keyClick(window, character);
-        QTest::keyClick(window, Qt::Key_Tab);
-        QTRY_VERIFY(saveButton->isEnabled());
-        QCOMPARE(settings.shareGameIdentity(), QStringLiteral("Adventurer@World"));
-        QTest::keyClick(window, Qt::Key_Tab, Qt::ShiftModifier);
-        QTRY_VERIFY(input->hasActiveFocus());
-        QTest::keyClick(window, Qt::Key_Escape);
-        QTRY_VERIFY(!dialog->property("visible").toBool());
-        QVERIFY(open({run}));
-        QTRY_VERIFY(dialog->property("visible").toBool());
-        // 无真实游玩时间时不得把导出日期伪装成游玩时间；过滤路径字符。
-        QObject simple;
-        simple.setProperty("runData", QVariantMap{{QStringLiteral("duty_name"), QStringLiteral("副本/名称:*? ")}});
-        QCOMPARE(controller.suggestedFileName(&simple), QStringLiteral("导随心得_时间未知_副本_名称___.png"));
-        simple.setProperty("runData", QVariantMap{{QStringLiteral("duty_name"), QStringLiteral("副本/名称:*? ")},
-                                                  {QStringLiteral("matched_at_utc"), QStringLiteral("invalid-time")}});
-        QCOMPARE(controller.suggestedFileName(&simple), QStringLiteral("导随心得_时间未知_副本_名称___.png"));
-        // 实际批量写入相同名称，验证递增后缀及保留旧文件字节。
-        individual = nullptr;
-        for (auto *card : completeCards(window->contentItem())) if (card->isVisible()) { individual = card; break; }
-        QVERIFY(individual);
-        const QVariantMap batch{{QStringLiteral("run_id"), QStringLiteral("batch-a")}, {QStringLiteral("item"), QVariant::fromValue<QObject *>(individual)}};
-        controller.saveBatchTo({batch}, output.path());
-        QTRY_COMPARE(controller.successfulCount(), 1);
-        QTRY_VERIFY(!controller.busy());
-        QVERIFY(QFileInfo::exists(output.filePath(baseName)));
-        QImage sentinel(23, 17, QImage::Format_RGB32);
-        sentinel.fill(Qt::magenta);
-        sentinel.setText(QStringLiteral("existing"), QStringLiteral("never overwrite this file"));
-        QVERIFY(sentinel.save(output.filePath(baseName)));
-        QFile existing(output.filePath(baseName));
-        QVERIFY(existing.open(QIODevice::ReadOnly));
-        const QByteArray originalBytes = existing.readAll();
-        existing.close();
-        controller.saveBatchTo({batch}, output.path());
-        QTRY_COMPARE(controller.successfulCount(), 1);
-        QTRY_VERIFY(!controller.busy());
-        QVERIFY(QFileInfo::exists(output.filePath(baseName.chopped(4) + QStringLiteral(" (2).png"))));
-        QVERIFY(!QImage(output.filePath(baseName.chopped(4) + QStringLiteral(" (2).png"))).isNull());
-        controller.saveBatchTo({batch}, output.path());
-        QTRY_COMPARE(controller.successfulCount(), 1);
-        QTRY_VERIFY(!controller.busy());
-        QVERIFY(QFileInfo::exists(output.filePath(baseName.chopped(4) + QStringLiteral(" (3).png"))));
-        QVERIFY(existing.open(QIODevice::ReadOnly));
-        QCOMPARE(existing.readAll(), originalBytes);
+        IdentityStage stage{controller, settings, run, baseName, evidence, output, saved};
+        stage.window = window;
+        stage.dialog = dialog;
+        stage.input = input;
+        stage.option = option;
+        stage.mode = mode;
+        stage.individual = individual;
+        stage.identity = identity;
+        verifyIdentityVisibilityAndWrapping(stage);
+        if (QTest::currentTestFailed()) return;
+
+        verifyIdentityCombinedAndKeyboard(stage);
+        if (QTest::currentTestFailed()) return;
+
+        verifyReadableFileNamesAndCollisionSuffixes(stage);
+        if (QTest::currentTestFailed()) return;
+
         QVERIFY2(warnings.isEmpty(), warnings.isEmpty() ? "" : qPrintable(warnings.first().toString()));
     }
     void initTestCase() {
@@ -850,24 +1016,10 @@ ApplicationWindow {
         // ScrollView 的视口优化也不能省略图片底部的文字节点。
         QVERIFY2(finalTextHasInk(png, body, card, ratio), "PNG 最后一段文字缺失或不可读");
         QCOMPARE(dialog->property("runData").toMap(), run);
-        // 从当前保存按钮经真实 Tab 遍历到右上角关闭，再用 Enter 激活。
-        QTest::keyClick(window, Qt::Key_Tab);
-        for (int step = 0; step < 20 && !closeButton->hasActiveFocus(); ++step)
-            QTest::keyClick(window, Qt::Key_Tab);
-        QTRY_VERIFY(closeButton->hasActiveFocus());
-        QTest::keyClick(window, Qt::Key_Return);
-        QTRY_VERIFY(!dialog->property("visible").toBool());
-        QVERIFY(QMetaObject::invokeMethod(dialog, "openForRun", Q_ARG(QVariant, QVariant(run))));
-        QTRY_VERIFY(dialog->property("visible").toBool());
-        QTRY_VERIFY(attribution->property("checked").toBool());
-        QTRY_VERIFY(findVisual(window->contentItem(), QStringLiteral("reflectionShareCard"))->property("showAttribution").toBool());
-        QTest::keyClick(window, Qt::Key_Escape);
-        QTRY_VERIFY(!dialog->property("visible").toBool());
-        QVERIFY(QMetaObject::invokeMethod(dialog, "openForRun", Q_ARG(QVariant, QVariant(run))));
-        QTRY_VERIFY(dialog->property("visible").toBool());
-        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
-                          closeButton->mapToScene(closeButton->boundingRect().center()).toPoint());
-        QTRY_VERIFY(!dialog->property("visible").toBool());
+        verifyActualDialogClosing(window, dialog, closeButton, attribution, run);
+        if (QTest::currentTestFailed()) return;
+
+
     }
     void selectedBatchIndividualAndCombinedCompletePng_data() {
         actualShareDialogAtSmallAndLargeSizes_data();
@@ -930,22 +1082,9 @@ ApplicationWindow {
         QVERIFY(preview && save && mode);
         auto *flickable = qvariant_cast<QObject *>(preview->property("contentItem"));
         QVERIFY(flickable);
-        QTRY_COMPARE(flickable->property("contentHeight").toReal(), individuals->height());
-        QVERIFY(flickable->property("contentHeight").toReal() > preview->height());
-        const QPointF savePosition = save->mapToScene(QPointF());
-        const QPointF modePosition = mode->mapToScene(QPointF());
-        const QPointF wheelPosition = preview->mapToScene(QPointF(preview->width() / 2, preview->height() / 2));
-        QWheelEvent wheel(wheelPosition, window->mapToGlobal(wheelPosition.toPoint()), QPoint(), QPoint(0, -120),
-                          Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
-        QCoreApplication::sendEvent(window, &wheel);
-        QTRY_VERIFY(flickable->property("contentY").toReal() > 0);
-        // 到达末尾后仍能看到最后一张卡片，顶部输出方式和底部保存按钮保持固定。
-        flickable->setProperty("contentY", individuals->height() - preview->height());
-        const QPointF lastBottom = cards.last()->mapToItem(preview, QPointF(0, cards.last()->height()));
-        QVERIFY(qAbs(lastBottom.y() - preview->height()) < 2);
-        QCOMPARE(save->mapToScene(QPointF()), savePosition);
-        QCOMPARE(mode->mapToScene(QPointF()), modePosition);
-        flickable->setProperty("contentY", 0);
+        verifyBatchPreviewScrolling(window, preview, individuals, save, mode, flickable, cards);
+        if (QTest::currentTestFailed()) return;
+
         QCOMPARE(firstBody->property("text").toString(), firstText);
         QCOMPARE(secondBody->property("text").toString(), secondText);
         QVERIFY(cards.at(1)->y() >= cards.at(0)->height());
@@ -977,23 +1116,9 @@ ApplicationWindow {
         QCOMPARE(controller.successfulCount(), 2);
         QCOMPARE(controller.failedCount(), 0);
         QCOMPARE(controller.batchResults().size(), 2);
-        QStringList paths;
-        for (int index = 0; index < cards.size(); ++index) {
-            const QString path = controller.batchResults().at(index).toMap().value(QStringLiteral("path")).toString();
-            paths.append(path);
-            const QImage png(path);
-            QVERIFY(!png.isNull());
-            if (!evidence.isEmpty())
-                QVERIFY(png.save(QDir(evidence).filePath(QStringLiteral("individual-%1-%2.png").arg(index + 1).arg(themeName))));
-            QVERIFY2(paperJoinsAreContinuous(png, cards.at(index), ratio), "长图顶底拼接处出现整行黑线或透明空隙");
-            QCOMPARE(png.pixelColor(0, 0).alpha(), 255);
-            QCOMPARE(png.pixelColor(png.width() - 1, png.height() - 1).alpha(), 255);
-            QCOMPARE(png.size(), QSize(qCeil(cards.at(index)->width()), qCeil(cards.at(index)->height())) * ratio);
-            QVERIFY(finalTextHasInk(png, index == 0 ? firstBody : secondBody, cards.at(index), ratio));
+        verifyIndividualPngs(controller, cards, firstBody, secondBody, ratio, evidence, themeName);
+        if (QTest::currentTestFailed()) return;
 
-        }
-        QVERIFY(paths[0] != paths[1]);
-        QCOMPARE(QFileInfo(paths[0]).fileName(), QStringLiteral("导随心得_时间未知_副本 first.png"));
         auto *dialogContent = qvariant_cast<QQuickItem *>(dialog->property("contentItem"));
         QVERIFY(dialogContent);
         QTest::qWait(80);

@@ -156,7 +156,7 @@ ApplicationWindow {
         return dialog()->findChild<QObject *>(QStringLiteral("reflectionTextArea"));
     }
 
-    bool openForResult(const QVariantMap &run)
+    bool openForResult(const QVariantMap &run) const
     {
         return QMetaObject::invokeMethod(dialog(), "openForResult",
                                          Q_ARG(QVariant, QVariant(run)));
@@ -164,7 +164,7 @@ ApplicationWindow {
 
     // Typing, at the level the dialog sees it: a QML-side write to the text
     // area, exactly as TextArea does for a keystroke.
-    void type(const QString &note)
+    void type(const QString &note) const
     {
         auto *area = textArea();
         QQmlExpression assign(qmlContext(area), area,
@@ -177,7 +177,7 @@ ApplicationWindow {
 
     QQuickWindow *window() const { return qobject_cast<QQuickWindow *>(root.get()); }
 
-    bool click(const QString &name)
+    bool click(const QString &name) const
     {
         auto *item = dialog()->findChild<QQuickItem *>(name);
         if (!item || !QTest::qWaitFor([&] { return item->isVisible() && item->width() > 0; }, 1500))
@@ -190,7 +190,7 @@ ApplicationWindow {
         return true;
     }
 
-    void pasteShortcut()
+    void pasteShortcut() const
     {
         auto *area = qobject_cast<QQuickItem *>(textArea());
         QVERIFY(area);
@@ -198,7 +198,7 @@ ApplicationWindow {
         QTest::keyClick(window(), Qt::Key_V, Qt::ControlModifier);
     }
 
-    bool openForRun(const QVariantMap &run, const QString &kicker)
+    bool openForRun(const QVariantMap &run, const QString &kicker) const
     {
         return QMetaObject::invokeMethod(dialog(), "openForRun", Q_ARG(QVariant, QVariant(run)),
                                          Q_ARG(QVariant, QVariant(kicker)));
@@ -215,7 +215,7 @@ QString textStartingWith(QQuickItem *from, const QString &prefix)
 {
     if (!from)
         return {};
-    const QString text = from->property("text").toString();
+    QString text = from->property("text").toString();
     if (text.startsWith(prefix))
         return text;
     for (QQuickItem *child : from->childItems()) {

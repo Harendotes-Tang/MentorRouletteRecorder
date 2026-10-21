@@ -89,7 +89,7 @@ constexpr auto kInstallerUrl =
 constexpr auto kMockInstallerUrl =
     "https://github.com/Harendotes-Tang/MentorRouletteRecorder/releases/download/v99.9.9/"
     "MentorRecorder-99.9.9-setup.exe";
-constexpr qint64 kMiB = 1024 * 1024;
+constexpr qint64 kMiB = 1024LL * 1024;
 
 QQuickItem *findVisualItem(QQuickItem *root, const QString &name)
 {
@@ -225,7 +225,7 @@ struct InstallerFile
     QString sha256;
 };
 
-InstallerFile writeInstaller(const QString &path, qint64 size = 64 * 1024)
+InstallerFile writeInstaller(const QString &path, qint64 size = 64LL * 1024)
 {
     QDir().mkpath(QFileInfo(path).absolutePath());
     QByteArray bytes;
@@ -277,7 +277,7 @@ struct Scene
         });
         controller->setQuitter([this] { events.append(QStringLiteral("quit")); });
         const QString directory = dataDirectory.path();
-        controller->setDataDirectoryProvider([directory] { return directory; });
+        controller->setDataDirectoryProvider([directory] { return QString(directory); });
         controller->setDownloadPollMs(20);
     }
 
@@ -346,7 +346,7 @@ struct PageScene
         });
         update->setQuitter([this] { ++quits; });
         const QString directory = dataDirectory.path();
-        update->setDataDirectoryProvider([directory] { return directory; });
+        update->setDataDirectoryProvider([directory] { return QString(directory); });
         update->setDownloadPollMs(20);
         formatters = std::make_unique<mr::Formatters>();
         jobs = std::make_unique<mr::JobCatalog>();
@@ -584,7 +584,7 @@ private Q_SLOTS:
         Scene scene;
         scene.open(updateStatus(download(QStringLiteral("DOWNLOADING"),
             {{QStringLiteral("received_bytes"), kMiB}})));
-        auto *update = scene.update();
+        const auto *update = scene.update();
         QTRY_VERIFY(update->polling());
         scene.backend->setConnected(false);
         QVERIFY(!update->polling());
@@ -600,7 +600,7 @@ private Q_SLOTS:
         Scene scene;
         scene.open(updateStatus(download(QStringLiteral("DOWNLOADING"),
             {{QStringLiteral("received_bytes"), kMiB}})));
-        auto *update = scene.update();
+        const auto *update = scene.update();
         QTRY_VERIFY(update->polling());
         scene.backend->update = QJsonObject();
         QTRY_VERIFY(!update->available());
@@ -631,7 +631,7 @@ private Q_SLOTS:
         scene.open(updateStatus(download(QStringLiteral("DOWNLOADING"),
             {{QStringLiteral("received_bytes"), qint64(0.45 * 60 * kMiB)},
              {QStringLiteral("total_bytes"), 60 * kMiB}})));
-        auto *update = scene.update();
+        const auto *update = scene.update();
         QTRY_COMPARE(update->downloadPhase(), QStringLiteral("downloading"));
         QCOMPARE(update->downloadStatusText(),
                  QString::fromUtf8("9.9.9 版的安装程序：已下载 45%（27.0 / 60.0 MB）"));
@@ -878,7 +878,7 @@ private Q_SLOTS:
     void theChecksumIsReadInSlicesAndShownAsVerifying()
     {
         Scene scene;
-        const InstallerFile file = writeInstaller(scene.installerPath(), 512 * 1024);
+        const InstallerFile file = writeInstaller(scene.installerPath(), 512LL * 1024);
         scene.open(Scene::ready(file.path, file.sha256));
         auto *update = scene.update();
         update->setHashSliceBytes(4096);
@@ -955,7 +955,7 @@ private Q_SLOTS:
     void nothingCanReplaceTheInstallerFromItsChecksumToItsStart()
     {
         Scene scene;
-        const InstallerFile file = writeInstaller(scene.installerPath(), 512 * 1024);
+        const InstallerFile file = writeInstaller(scene.installerPath(), 512LL * 1024);
         mrtest::Tampering atStart;
         scene.duringLaunch = [&atStart](const QString &path) { atStart = mrtest::tryToReplace(path); };
         scene.open(Scene::ready(file.path, file.sha256));
@@ -982,7 +982,7 @@ private Q_SLOTS:
     {
         bool running = false;
         Scene scene;
-        const InstallerFile file = writeInstaller(scene.installerPath(), 512 * 1024);
+        const InstallerFile file = writeInstaller(scene.installerPath(), 512LL * 1024);
         scene.open(Scene::ready(file.path, file.sha256));
         auto *update = scene.update();
         update->setRunProbe([&running] { return std::optional<bool>(running); });
@@ -1003,7 +1003,7 @@ private Q_SLOTS:
     void aPipeDropDuringTheChecksumStartsNothing()
     {
         Scene scene;
-        const InstallerFile file = writeInstaller(scene.installerPath(), 512 * 1024);
+        const InstallerFile file = writeInstaller(scene.installerPath(), 512LL * 1024);
         scene.open(Scene::ready(file.path, file.sha256));
         QSignalSpy runRead(scene.app.get(), &mr::AppController::currentRunChanged);
         auto *update = scene.update();
@@ -1112,7 +1112,7 @@ private Q_SLOTS:
             updateStatus(download(QStringLiteral("FAILED"), {{QStringLiteral("failure"), QStringLiteral("TIMEOUT")}})),
         };
         scene.open(states.first());
-        auto *update = scene.update();
+        const auto *update = scene.update();
         for (const QJsonObject &state : states) {
             scene.backend->update = state;
             scene.app->refreshStatus();
@@ -1317,7 +1317,7 @@ private Q_SLOTS:
         Scene scene;
         scene.open(updateStatus(download(QStringLiteral("DOWNLOADING"),
             {{QStringLiteral("received_bytes"), kMiB}})));
-        auto *update = scene.update();
+        const auto *update = scene.update();
         QTRY_VERIFY(update->polling());
         QTRY_VERIFY(scene.backend->statusReads >= 3);
         emitAboutToQuit();
@@ -1333,7 +1333,7 @@ private Q_SLOTS:
     void quittingStopsTheChecksum()
     {
         Scene scene;
-        const InstallerFile file = writeInstaller(scene.installerPath(), 512 * 1024);
+        const InstallerFile file = writeInstaller(scene.installerPath(), 512LL * 1024);
         scene.open(Scene::ready(file.path, file.sha256));
         auto *update = scene.update();
         update->setHashSliceBytes(1024);
@@ -1392,7 +1392,7 @@ int main(int argc, char **argv)
     if (!cjkFamilies.isEmpty()) {
         QFont testFont;
         testFont.setFamilies(cjkFamilies);
-        app.setFont(testFont);
+        QGuiApplication::setFont(testFont);
     }
 #endif
     UpdateInstallTests tests;

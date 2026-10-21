@@ -58,7 +58,7 @@ struct Scene {
     bool create(const QByteArray &qml, bool reduceMotion, const QString &style = QString())
     {
         controller.setThemeMode(QStringLiteral("light"));
-        const auto context = engine.rootContext();
+        auto *const context = engine.rootContext();
         context->setContextProperty(QStringLiteral("App"), &controller);
         context->setContextProperty(QStringLiteral("ReduceMotion"), reduceMotion);
         context->setContextProperty(QStringLiteral("ForceUiStyle"), style);
@@ -122,11 +122,11 @@ QVariantList buckets(const QString &granularity, const QList<int> &counts)
 {
     const QDate today(2026, 9, 4);
     QList<QDateTime> starts;
-    const int n = counts.size();
+    const auto n = static_cast<int>(counts.size());
     for (int i = n - 1; i >= 0; --i) {
-        QDate day = today;
+        QDate day;
         if (granularity == QLatin1String("week"))
-            day = today.addDays(-(today.dayOfWeek() - 1)).addDays(-7 * i);
+            day = today.addDays(-(today.dayOfWeek() - 1)).addDays(-7LL * i);
         else if (granularity == QLatin1String("month"))
             day = QDate(today.year(), today.month(), 1).addMonths(-i);
         else
@@ -479,7 +479,8 @@ void MotionTests::trendMergeKeepsSurvivingBarsAndEasing()
         return 3.0*u*u*t*p1 + 3.0*u*t*t*p2 + t*t*t;
     };
     const double x = layer->property("elapsed").toDouble() / 380.0;
-    double low = 0.0, high = 1.0;
+    double low = 0.0;
+    double high = 1.0;
     for (int step = 0; step < 48; ++step) {
         const double t = (low + high) * 0.5;
         if (at(0.4, 0.2, t) < x) low = t;

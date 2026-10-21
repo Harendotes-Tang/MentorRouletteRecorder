@@ -147,7 +147,7 @@ public:
     QJsonObject lastStartUpdateDownload() const { return m_lastStartUpdateDownload; }
     int cancelUpdateDownloadCount() const { return m_cancelUpdateDownloadCount; }
     /// The size the simulated server declares.
-    static constexpr qint64 kMockInstallerBytes = 60 * 1024 * 1024;
+    static constexpr qint64 kMockInstallerBytes = 60LL * 1024 * 1024;
     /// The `changes` object of the last accepted UpdateCaptureSettings, so a
     /// test can pin what a switch actually put on the wire.
     QJsonObject lastCaptureSettingsUpdate() const { return m_lastCaptureSettingsUpdate; }

@@ -15,6 +15,8 @@
 #include <QApplication>
 #include <QClipboard>
 #include <QDateTime>
+#include <bit>
+
 #include <QDir>
 #include <QEvent>
 #include <QFileInfo>
@@ -200,7 +202,7 @@ struct Scene {
         return nullptr;
     }
 
-    bool click(const QString &name)
+    bool click(const QString &name) const
     {
         QQuickItem *target = nullptr;
         QPoint point;
@@ -372,13 +374,13 @@ void RecoveryUiTests::automaticNativeWindowDoesNotStealForeground()
     foreground.show();
     foreground.requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(&foreground));
-    const HWND original = reinterpret_cast<HWND>(foreground.winId());
+    auto *const original = std::bit_cast<HWND>(foreground.winId());
     QTRY_COMPARE(GetForegroundWindow(), original);
     scene.publish(finishedRun());
     QTRY_VERIFY(scene.host()->isVisible() && scene.editor()->property("opened").toBool());
     QTest::qWait(160);
     QCOMPARE(GetForegroundWindow(), original);
-    const HWND host = reinterpret_cast<HWND>(scene.host()->winId());
+    auto *const host = std::bit_cast<HWND>(scene.host()->winId());
     QCOMPARE(GetWindow(host, GW_OWNER), HWND(nullptr));
     QVERIFY(GetWindowLongPtr(host, GWL_EXSTYLE) & WS_EX_TOOLWINDOW);
     QVERIFY(GetWindowLongPtr(host, GWL_EXSTYLE) & WS_EX_TOPMOST);

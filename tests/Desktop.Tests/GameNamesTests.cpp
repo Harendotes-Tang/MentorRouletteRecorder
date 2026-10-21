@@ -250,7 +250,7 @@ private Q_SLOTS:
         mr::RunFormValidator validator;
         QQmlEngine engine;
         const Attachment attached(m_language.get(), &engine);
-        const auto context = engine.rootContext();
+        auto *const context = engine.rootContext();
         context->setContextProperty(QStringLiteral("App"), &controller);
         context->setContextProperty(QStringLiteral("Reflections"), &library);
         context->setContextProperty(QStringLiteral("Fmt"), &formatters);
@@ -418,7 +418,7 @@ QtObject {
         mr::RunFormValidator validator;
         QQmlEngine engine;
         const Attachment attached(m_language.get(), &engine);
-        const auto context = engine.rootContext();
+        auto *const context = engine.rootContext();
         context->setContextProperty(QStringLiteral("App"), &controller);
         context->setContextProperty(QStringLiteral("Fmt"), &formatters);
         context->setContextProperty(QStringLiteral("Jobs"), &jobs);

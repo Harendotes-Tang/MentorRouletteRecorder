@@ -34,7 +34,7 @@ public:
     /// 根据卡片的实际记录生成可读建议名；不创建文件，重名处理由选定目录负责。
     Q_INVOKABLE QString suggestedFileName(QObject *item, const QString &fallbackLabel = {}) const;
     /// 空路径表示取消。capture 返回异步；只在 PNG 原子提交成功后发 saved。
-    Q_INVOKABLE void saveTo(QObject *item, const QString &path);
+    Q_INVOKABLE void saveTo(QObject *object, const QString &path);
     /// entries 为 {run_id, label, item}；借用显示中的完整卡片，只向用户选定目录写入。
     Q_INVOKABLE void saveBatchPicked(const QVariantList &entries);
     Q_INVOKABLE void saveBatchTo(const QVariantList &entries, const QString &directory);
@@ -52,8 +52,8 @@ private:
         QString label;
         QPointer<QQuickItem> item;
     };
-    void captureTo(QObject *item, const QString &path, bool rejectExisting, CaptureDone done);
-    void capturePrepared(QObject *item, const QString &path, bool rejectExisting, CaptureDone done);
+    void captureTo(QObject *object, const QString &path, bool rejectExisting, const CaptureDone &done);
+    void capturePrepared(QObject *object, const QString &path, bool rejectExisting, const CaptureDone &done);
     void processNextBatch();
     QString uniqueBatchPath(const BatchEntry &entry) const;
     void startBatch(const QList<int> &indices);

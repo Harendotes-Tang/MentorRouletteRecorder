@@ -79,7 +79,7 @@ public:
     Q_INVOKABLE static QVariant toDateTime(const QString &date, const QString &time);
 
     /// True when \a text is a calendar-valid "yyyy-MM-dd" date.
-    Q_INVOKABLE static bool isValidDate(const QString &text);
+    Q_INVOKABLE static bool isValidDate(const QString &value);
 };
 
 } // namespace mr

@@ -221,11 +221,11 @@ private:
 /// string when it could not be written.
 QString writeAlreadyRunningStub(const QString &directory)
 {
-    const QString path =
+    QString path =
         QDir(directory).absoluteFilePath(QStringLiteral("already-running.cmd"));
     QFile script(path);
     if (!script.open(QIODevice::WriteOnly | QIODevice::Text))
-        return QString();
+        return {};
     script.write(QByteArrayLiteral("@echo off\r\nexit /b ")
                  + QByteArray::number(mr::CollectorProcess::kAlreadyRunningExitCode)
                  + QByteArrayLiteral("\r\n"));
@@ -238,10 +238,10 @@ QString writeAlreadyRunningStub(const QString &directory)
 /// Every launch appends a line to runs.txt beside it.
 QString writeRefusingStub(const QString &directory)
 {
-    const QString path = QDir(directory).absoluteFilePath(QStringLiteral("refusing.cmd"));
+    QString path = QDir(directory).absoluteFilePath(QStringLiteral("refusing.cmd"));
     QFile script(path);
     if (!script.open(QIODevice::WriteOnly))
-        return QString();
+        return {};
     script.write(QByteArrayLiteral("@echo off\r\necho run>>\"%~dp0runs.txt\"\r\n"
                                    ">&2 echo ERR_DB_INTEGRITY: database check failed\r\nexit /b ")
                  + QByteArray::number(mr::CollectorProcess::kCannotServeExitCode)
@@ -1502,7 +1502,7 @@ void TtsServiceTests::appController_takesAVacatedLeaseOnTheFirstFailedConnect()
     QVERIFY2(controller.toastMessage().isEmpty(),
              qPrintable(controller.toastMessage()));
     // It is a fresh launch, not the crash-restart backoff.
-    QCOMPARE(collector->restartCount(), restartsBefore);
+    QCOMPARE(supervisor.restartCount(), restartsBefore);
 
     qputenv("MR_DATA_DIR", previousData);
 #endif

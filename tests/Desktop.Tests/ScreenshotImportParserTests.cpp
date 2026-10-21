@@ -13,6 +13,8 @@
 #include <QTest>
 #include <QVariantMap>
 
+#include <algorithm>
+
 namespace {
 
 const QByteArray kTsvHeader = "level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext\n";
@@ -45,11 +47,8 @@ QByteArray card(int top, int line = 1, const QString &time = QStringLiteral("202
 
 bool hasWarning(const QVariantMap &row, const QString &part)
 {
-    for (const QString &warning : row.value(QStringLiteral("warnings")).toStringList()) {
-        if (warning.contains(part))
-            return true;
-    }
-    return false;
+    return std::ranges::any_of(row.value(QStringLiteral("warnings")).toStringList(),
+                               [&part](const QString &warning) { return warning.contains(part); });
 }
 
 /**

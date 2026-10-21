@@ -18,6 +18,8 @@
 #include <QTemporaryDir>
 #include <QUrl>
 
+#include <algorithm>
+
 namespace mr {
 
 namespace {
@@ -27,12 +29,12 @@ QString nativePath(const QString &path)
     return QDir::toNativeSeparators(path);
 }
 
-/// True when \a path is \a directory itself or lies below it. Both sides are
+/// True when \a candidatePath is \a ancestorPath itself or lies below it. Both sides are
 /// cleaned absolute paths; the comparison is case-insensitive because Windows is.
-bool isInside(const QString &directory, const QString &path)
+bool isInside(const QString &ancestorPath, const QString &candidatePath)
 {
-    const QString base = QDir::cleanPath(directory);
-    const QString candidate = QDir::cleanPath(path);
+    const QString base = QDir::cleanPath(ancestorPath);
+    const QString candidate = QDir::cleanPath(candidatePath);
     if (candidate.compare(base, Qt::CaseInsensitive) == 0)
         return true;
     return candidate.startsWith(base + QLatin1Char('/'), Qt::CaseInsensitive);
@@ -151,7 +153,7 @@ QString NoteImageStore::urlFor(const QString &path)
 
 QString NoteImageStore::suffixForFormat(const QByteArray &format)
 {
-    const QString lower = QString::fromLatin1(format).toLower();
+    QString lower = QString::fromLatin1(format).toLower();
     if (lower == QLatin1String("jpeg"))
         return QStringLiteral("jpg");
     return lower;
@@ -177,7 +179,7 @@ NoteImageStore::Inspection NoteImageStore::inspectFile(const QString &sourcePath
     }
     if (info.size() > kMaxImageBytes) {
         result.error = QCoreApplication::translate("mr::NoteImageStore", "图片超过 %1 MB，请先压缩：%2")
-                           .arg(kMaxImageBytes / (1024 * 1024))
+                           .arg(kMaxImageBytes / (1024LL * 1024))
                            .arg(info.fileName());
         return result;
     }
@@ -486,11 +488,8 @@ bool NoteImageStore::clipboardHasImage() const
         return false;
     if (mime->hasImage())
         return true;
-    for (const QString &format : clipboardImageFormats()) {
-        if (mime->hasFormat(format))
-            return true;
-    }
-    return false;
+    return std::ranges::any_of(clipboardImageFormats(),
+                               [mime](const QString &format) { return mime->hasFormat(format); });
 }
 
 QVariantMap NoteImageStore::addClipboard(const QString &runId)
@@ -516,7 +515,7 @@ QVariantMap NoteImageStore::addClipboard(const QString &runId)
             continue;
         QByteArray bytes = mime->data(format);
         if (bytes.size() > kMaxImageBytes)
-            return fail(QCoreApplication::translate("mr::NoteImageStore", "剪贴板图片超过 %1 MB，请先压缩。").arg(kMaxImageBytes / (1024 * 1024)));
+            return fail(QCoreApplication::translate("mr::NoteImageStore", "剪贴板图片超过 %1 MB，请先压缩。").arg(kMaxImageBytes / (1024LL * 1024)));
         QBuffer buffer(&bytes);
         buffer.open(QIODevice::ReadOnly);
         QImageReader reader(&buffer);

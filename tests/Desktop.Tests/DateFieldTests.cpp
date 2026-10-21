@@ -366,7 +366,7 @@ void DateFieldTests::recordAwareRangeDisablesEmptyDatesButSingleDateDoesNot()
     Scene scene;
     QByteArray qml = kScene;
     qml.replace("height: 360", "height: 580");
-    qml.replace("width: 118", "width: 238; rangeMode: true; restrictToRecords: true; availableDays: [\"2026-09-07\", \"2026-09-17\"]; knownMonths: [\"2026-09\"]");
+    qml.replace("width: 118", R"(width: 238; rangeMode: true; restrictToRecords: true; availableDays: ["2026-09-07", "2026-09-17"]; knownMonths: ["2026-09"])");
     QVERIFY2(scene.create(qml), qPrintable(scene.errors));
     auto *field = scene.field();
     auto *window = scene.window();

@@ -158,25 +158,19 @@ QJsonObject argsFor(const QString &messageType)
         args.insert(QStringLiteral("filter"), sampleFilter());
     } else if (messageType == QLatin1String("BackupDatabase")) {
         args.insert(QStringLiteral("target_path"), QStringLiteral("D:/backups/mentor.db"));
-    } else if (messageType == QLatin1String("ExportDiagnosticsReport")) {
-        // Deliberately no target_path: the sample pins the shape the 导出 button
-        // sends when the user lets the Collector choose its managed folder.
-    } else if (messageType == QLatin1String("CheckDatabaseIntegrity")) {
-        // No arguments: $defs/EmptyPayload. The committed sample was written on
-        // the Collector side first (tests/Fixtures/README.md); this wrapper must
-        // produce exactly that payload.
-    } else if (messageType == QLatin1String("CheckUpdateNow")) {
-        // No arguments: $defs/EmptyPayload. The committed sample was written on
-        // the Collector side first (tests/Fixtures/README.md); this wrapper must
-        // produce exactly that payload.
+    } else if (messageType == QLatin1String("ExportDiagnosticsReport") ||
+               messageType == QLatin1String("CheckDatabaseIntegrity") ||
+               messageType == QLatin1String("CheckUpdateNow") ||
+               messageType == QLatin1String("CancelUpdateDownload") ||
+               messageType == QLatin1String("GetSpeechSettings")) {
+        // These samples intentionally have no arguments. ExportDiagnosticsReport
+        // deliberately omits target_path so the Collector chooses its managed
+        // folder. The committed samples originate on the Collector side
+        // (tests/Fixtures/README.md); this wrapper must preserve their payloads.
     } else if (messageType == QLatin1String("StartUpdateDownload")) {
         // The one optional field set, so the sample pins its name: the maintainer
         // tools' 重新下载最新正式版. 下载并安装 itself sends {} (the default false).
         args.insert(QStringLiteral("reinstall"), true);
-    } else if (messageType == QLatin1String("CancelUpdateDownload")) {
-        // No arguments: $defs/EmptyPayload.
-    } else if (messageType == QLatin1String("GetSpeechSettings")) {
-        // {}: the Collector side wrote this sample first (tests/Fixtures/README.md).
     } else if (messageType == QLatin1String("UpdateSpeechSettings")) {
         // All six optional fields at once, as in the hand-written sample: an
         // obvious fake key and a documentation host, never a real service.

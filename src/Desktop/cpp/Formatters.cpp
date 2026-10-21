@@ -122,7 +122,7 @@ QString Formatters::gameVersionLabel(const QVariant &build)
 {
     if (!build.isValid() || build.isNull())
         return dash();
-    const QString text = build.toString().trimmed();
+    QString text = build.toString().trimmed();
     if (text.isEmpty())
         return dash();
     // 2026.09.01.0000.0000 -> 2026.09.01. Anything else is shown as it is: a
@@ -399,7 +399,7 @@ QString Formatters::revisionValue(const QVariant &value)
         return tr("空");
     if (value.typeId() == QMetaType::Bool)
         return value.toBool() ? tr("是") : tr("否");
-    const QString text = value.toString();
+    QString text = value.toString();
     if (text.isEmpty())
         return tr("空");
     // Timestamps are stored as UTC ISO-8601 and read in local time everywhere
@@ -495,7 +495,7 @@ QString Formatters::runEventLabel(const QString &code)
     // The capture page's names where the two vocabularies meet, then the
     // events the Collector writes itself (Domain/Events/SemanticEvent.cs,
     // crash recovery's PROCESS_RESTART).
-    const QString shared = eventKindLabel(code);
+    QString shared = eventKindLabel(code);
     if (!shared.isEmpty())
         return shared;
     static const QHash<QString, const char *> kLabels{

@@ -263,7 +263,7 @@ void OfflineOcrEngine::processFinished(int exitCode, bool crashed)
     finishImage(tsv);
 }
 
-void OfflineOcrEngine::finishImage(QByteArray tsv)
+void OfflineOcrEngine::finishImage(const QByteArray &tsv)
 {
     const quint64 generation = m_generation;
     m_timeout.stop();

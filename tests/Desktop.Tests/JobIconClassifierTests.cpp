@@ -73,7 +73,7 @@ void JobIconClassifierTests::modelLabelCoverageMatchesEligibleCatalogue()
     QVERIFY(file.open(QIODevice::ReadOnly));
     const QJsonArray labels = QJsonDocument::fromJson(file.readAll()).object().value(QStringLiteral("class_ids")).toArray();
     QSet<int> modelJobs;
-    for (const QJsonValue &label : labels)
+    for (const auto &label : labels)
         modelJobs.insert(label.toInt());
     QVERIFY(modelJobs.remove(0));
     QSet<int> eligible;

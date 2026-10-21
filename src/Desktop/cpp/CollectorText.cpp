@@ -97,7 +97,7 @@ QString gameName(Kind kind, const QString &recorded)
     const auto &unknown = kUnknownNames[kind == Kind::Duty ? 0 : kind == Kind::Job ? 1 : 2];
     if (recorded == QString::fromUtf8(unknown.text))
         return QCoreApplication::translate(kContext, unknown.text, unknown.key);
-    GameNames *names = GameNames::shared();
+    const GameNames *names = GameNames::shared();
     if (!names || recorded.isEmpty())
         return recorded;
     if (kind == Kind::Duty)
@@ -226,7 +226,7 @@ LiveText live(const QVariant &ref, const QString &fallback)
 
 QStringList renderList(const QVariant &refs, const QVariant &fallbacks)
 {
-    const QStringList chinese = fallbacks.toStringList();
+    QStringList chinese = fallbacks.toStringList();
     const QVariantList list = refs.toList();
     if (list.size() != chinese.size())
         return chinese;

@@ -68,7 +68,7 @@ public:
                             int expectedRevision = -1);
     /// 勾选保存当时的修订，不随翻页或后台刷新偷偷推进冲突基线。
     QStringList checkedRunIds() const { return m_checkedOrder; }
-    int checkedRunCount() const { return m_checkedOrder.size(); }
+    int checkedRunCount() const { return static_cast<int>(m_checkedOrder.size()); }
     int checkedDeletedCount() const;
     bool allCurrentPageChecked() const;
     bool batchRunning() const { return m_batchRunning; }

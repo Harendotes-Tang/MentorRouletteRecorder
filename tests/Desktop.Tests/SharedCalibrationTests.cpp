@@ -196,6 +196,8 @@ public:
                         {QStringLiteral("state"), QStringLiteral("RUNNING")},
                         {QStringLiteral("npcap_installed"), true},
                         {QStringLiteral("silent_reason"), QStringLiteral("NONE")}};
+    void setShareResult(const QJsonObject &result) { shareResult = result; }
+    void setCheckExtra(const QJsonObject &extra) { checkExtra = extra; }
     QJsonObject shareResult;
     QString failType;
     /// A message whose reply is left unanswered, so the controller stays busy.
@@ -266,6 +268,7 @@ struct Seams
     QList<QUrl> opened;
     QStringList copied;
     bool openResult = true;
+    void setOpenResult(bool result) { openResult = result; }
 
     void attach(mr::SharedCalibrationController &controller)
     {
@@ -768,14 +771,14 @@ private Q_SLOTS:
                                     QStringLiteral("PUBLISHED"), false, QStringLiteral("AUDIT"))}),
             QStringLiteral("SHARED_CALIBRATION"), QStringLiteral("VERIFIED")));
         QCOMPARE(c.shareKind(), QString());
-        const int before = changed.count();
+        changed.clear();
 
         c.refreshFromCaptureStatus(captureWith(
             QStringLiteral("DONE"),
             sharedStatus(QStringLiteral("VERIFIED"), false, QStringLiteral("OK"), {provenCandidate()}),
             QStringLiteral("SHARED_CALIBRATION"), QStringLiteral("VERIFIED")));
         QCOMPARE(c.shareKind(), QStringLiteral("verified"));
-        QVERIFY(changed.count() > before);
+        QVERIFY(!changed.isEmpty());
     }
 
     // -- requests -----------------------------------------------------------
@@ -840,7 +843,7 @@ private Q_SLOTS:
         c.checkNow();
         QCOMPARE(lastNotice(notices), unreadable);
         // Without either, NOT_NEEDED keeps its own line.
-        backend.checkExtra = {};
+        backend.setCheckExtra({});
         c.checkNow();
         QVERIFY2(lastNotice(notices).contains(QString::fromUtf8("暂时不需要查找")), qPrintable(lastNotice(notices)));
         QCOMPARE(rereads.count(), 4);
@@ -873,7 +876,7 @@ private Q_SLOTS:
         verifyPlayerCopy(lastNotice(notices));
 
         // No browser at all: the code is still on the clipboard, and the toast says so.
-        seams.openResult = false;
+        seams.setOpenResult(false);
         c.share();
         QCOMPARE(seams.copied.size(), 2);
         QVERIFY(lastNotice(notices).contains(QString::fromUtf8("没能打开浏览器")));
@@ -952,7 +955,7 @@ private Q_SLOTS:
         QFETCH(QString, basis);
         QFETCH(QString, notice);
         SharedBackend backend;
-        backend.shareResult = shareAnswer(basis);
+        backend.setShareResult(shareAnswer(basis));
         mr::SharedCalibrationController c;
         c.setBackend(&backend);
         Seams seams;
@@ -978,7 +981,7 @@ private Q_SLOTS:
         seams.attach(c);
         QSignalSpy notices(&c, &mr::SharedCalibrationController::notice);
 
-        backend.shareResult = shareAnswer(QStringLiteral("VERIFIED"), false);
+        backend.setShareResult(shareAnswer(QStringLiteral("VERIFIED"), false));
         c.share();
         QVERIFY(seams.opened.isEmpty());
         QCOMPARE(lastNotice(notices),
@@ -986,7 +989,7 @@ private Q_SLOTS:
                                    "你可以把这份校准直接发给其他玩家，让对方在「其他方式」中点「手动导入校准码…」并粘贴。"));
         verifyPlayerCopy(lastNotice(notices));
 
-        backend.shareResult = shareAnswer(QStringLiteral("VERIFIED"), true, QStringLiteral("https://example.com/"));
+        backend.setShareResult(shareAnswer(QStringLiteral("VERIFIED"), true, QStringLiteral("https://example.com/")));
         c.share();
         QVERIFY(seams.opened.isEmpty());
         QCOMPARE(lastNotice(notices),
@@ -995,8 +998,8 @@ private Q_SLOTS:
         verifyPlayerCopy(lastNotice(notices));
 
         // No browser at all reads the same either way.
-        backend.shareResult = shareAnswer(QStringLiteral("VERIFIED"));
-        seams.openResult = false;
+        backend.setShareResult(shareAnswer(QStringLiteral("VERIFIED")));
+        seams.setOpenResult(false);
         c.share();
         QCOMPARE(seams.opened.size(), 1);
         QCOMPARE(lastNotice(notices), QString::fromUtf8("没能打开浏览器。校准码已复制，可以直接发给其他玩家。"));
@@ -1395,7 +1398,7 @@ private Q_SLOTS:
         mr::MockBackend backend;
         backend.setSharedCalibrationFixture(fixture);
         mr::AppController app(&backend, nullptr);
-        auto *shared = app.calibration()->shared();
+        const auto *shared = app.calibration()->shared();
         QTRY_VERIFY(shared->available());
         QTRY_COMPARE(shared->candidateProvenance(), provenance);
         QCOMPARE(shared->auditPending(), auditPending);

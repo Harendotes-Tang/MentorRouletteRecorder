@@ -68,7 +68,7 @@ void RoleCatalog::load()
             qCWarning(lcRoles) << kManifest << "parse error" << error.errorString();
         } else {
             const QJsonArray entries = doc.object().value(QStringLiteral("entries")).toArray();
-            for (const QJsonValue &value : entries) {
+            for (const auto &value : entries) {
                 const QJsonObject object = value.toObject();
                 const QString key = object.value(QStringLiteral("key")).toString();
                 const QString path = object.value(QStringLiteral("path")).toString();

@@ -63,7 +63,7 @@ private slots:
         QVERIFY(raw.save(&buffer, orientation == 0 ? "PNG" : "JPEG"));
         QByteArray exif = QByteArray::fromHex("45786966000049492a0008000000010012010300010000000100000000000000");
         exif[24] = char(orientation);
-        const int length = exif.size() + 2;
+        const qsizetype length = exif.size() + 2;
         if (orientation != 0)
             encoded.insert(2, QByteArray::fromHex("ffe1") + char(length >> 8) + char(length & 255) + exif);
         const QString suffix = filenameDpr == 1 ? QString() : QStringLiteral("@2x");

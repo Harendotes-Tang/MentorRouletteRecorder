@@ -1448,7 +1448,7 @@ int main(int argc, char **argv)
     }
     QFont testFont;
     testFont.setFamilies(cjkFamilies);
-    app.setFont(testFont);
+    QGuiApplication::setFont(testFont);
 #endif
     SharedCalibrationCardTests tests;
     return QTest::qExec(&tests, argc, argv);

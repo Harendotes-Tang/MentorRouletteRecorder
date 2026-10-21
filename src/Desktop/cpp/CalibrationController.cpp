@@ -180,7 +180,7 @@ void CalibrationController::confirm(const QVariantMap &verdicts)
                                                  : answer.value(QStringLiteral("verdict")).toString();
         const QString rouletteName = answer.value(QStringLiteral("roulette_name")).toString();
         if (verdict != QLatin1String("CORRECT") && verdict != QLatin1String("WRONG")
-            && !(verdict == QLatin1String("RELABEL") && !rouletteName.isEmpty())) {
+            && (verdict != QLatin1String("RELABEL") || rouletteName.isEmpty())) {
             // A missing verdict is not a silent CORRECT. The dialog keeps its
             // button disabled until every row is answered; this is the guard
             // for anything that calls the slot directly.

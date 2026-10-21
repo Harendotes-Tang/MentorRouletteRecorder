@@ -111,7 +111,7 @@ public:
     {
         for (const Call &call : calls) {
             if (call.type == type && call.reply && !call.reply->isFinished())
-                return call.reply;
+                return call.reply.data();
         }
         return nullptr;
     }
@@ -252,7 +252,7 @@ struct Shell {
         };
         return walk(window()->contentItem());
     }
-    bool call(const char *function, const QVariant &argument = QVariant())
+    bool call(const char *function, const QVariant &argument = QVariant()) const
     {
         if (!argument.isValid())
             return QMetaObject::invokeMethod(root.get(), function);
@@ -321,20 +321,8 @@ bool refuse(ShellBackend &backend, const QString &type, const char *place)
     return false;
 }
 
-/// Refuses each place of kRefusals once on the shipping window - the 原因 dialog, the
-/// record wizard (its own check, then the Collector), the first-run guide, the 成就 card
-/// (its own check, then the Collector) and 本次导随结果 (the result, then the note) - and
-/// collects what each one shows.
-void refuseEverywhere(bool maintainer, QHash<QString, QString> &shown)
+void refuseRecordChanges(Shell &shell, QHash<QString, QString> &shown)
 {
-    Shell shell;
-    shell.backend.holdTypes << QStringLiteral("SoftDeleteRun") << QStringLiteral("CreateManualRun")
-                            << QStringLiteral("UpdateAchievementBaseline") << QStringLiteral("CorrectRun")
-                            << QStringLiteral("SetRunReflection");
-    QVERIFY2(shell.create(), qPrintable(shell.errors));
-    shell.controller->setMaintainerToolsVisible(maintainer);
-    QTRY_VERIFY(shell.controller->achievementSettingsLoaded());
-
     // 原因: a 软删除 the Collector refuses.
     shell.controller->selectRun(selectedRun(QStringLiteral("run-a")));
     QVERIFY(shell.call("openReasonDialog", QStringLiteral("delete")));
@@ -369,7 +357,10 @@ void refuseEverywhere(bool maintainer, QHash<QString, QString> &shown)
     shown.insert(QStringLiteral("wizard"), wizard->property("errorText").toString());
     QVERIFY(QMetaObject::invokeMethod(wizard, "close"));
     QTRY_VERIFY(!wizard->property("visible").toBool());
+}
 
+void refuseBaselineChanges(Shell &shell, QHash<QString, QString> &shown)
+{
     // The first-run guide, reopened: its save is refused.
     auto *guide = shell.named(QStringLiteral("baselineDialog"));
     QVERIFY(guide);
@@ -388,7 +379,8 @@ void refuseEverywhere(bool maintainer, QHash<QString, QString> &shown)
     QVERIFY(goalTab);
     QVERIFY(QMetaObject::invokeMethod(goalTab, "clicked"));
     QQuickItem *line = nullptr;
-    QTRY_VERIFY((line = shell.item(QStringLiteral("baselineErrorText"))));
+    QTRY_VERIFY(shell.item(QStringLiteral("baselineErrorText")));
+    line = shell.item(QStringLiteral("baselineErrorText"));
     QVERIFY(shell.click(QStringLiteral("saveAchievementButton")));
     QCOMPARE(shell.backend.callsOf(QStringLiteral("UpdateAchievementBaseline")).size(), 1);
     shown.insert(QStringLiteral("cardCheck"), line->property("text").toString());
@@ -397,7 +389,10 @@ void refuseEverywhere(bool maintainer, QHash<QString, QString> &shown)
     QVERIFY(refuse(shell.backend, QStringLiteral("UpdateAchievementBaseline"), "card"));
     QTRY_VERIFY(!shell.controller->baselineSaving());
     shown.insert(QStringLiteral("card"), line->property("text").toString());
+}
 
+void refuseReflectionChanges(Shell &shell, QHash<QString, QString> &shown)
+{
     // 本次导随结果: the 通关 answer is refused, then the note.
     auto *result = shell.named(QStringLiteral("reflectionDialog"));
     QVERIFY(result);
@@ -423,6 +418,29 @@ void refuseEverywhere(bool maintainer, QHash<QString, QString> &shown)
     QVERIFY(refuse(shell.backend, QStringLiteral("SetRunReflection"), "note"));
     QTRY_VERIFY(!result->property("submitting").toBool());
     shown.insert(QStringLiteral("note"), result->property("errorText").toString());
+}
+
+/// Refuses each place of kRefusals once on the shipping window - the 原因 dialog, the
+/// record wizard (its own check, then the Collector), the first-run guide, the 成就 card
+/// (its own check, then the Collector) and 本次导随结果 (the result, then the note) - and
+/// collects what each one shows.
+void refuseEverywhere(bool maintainer, QHash<QString, QString> &shown)
+{
+    Shell shell;
+    shell.backend.holdTypes << QStringLiteral("SoftDeleteRun") << QStringLiteral("CreateManualRun")
+                            << QStringLiteral("UpdateAchievementBaseline") << QStringLiteral("CorrectRun")
+                            << QStringLiteral("SetRunReflection");
+    QVERIFY2(shell.create(), qPrintable(shell.errors));
+    shell.controller->setMaintainerToolsVisible(maintainer);
+    QTRY_VERIFY(shell.controller->achievementSettingsLoaded());
+
+    refuseRecordChanges(shell, shown);
+    if (QTest::currentTestFailed())
+        return;
+    refuseBaselineChanges(shell, shown);
+    if (QTest::currentTestFailed())
+        return;
+    refuseReflectionChanges(shell, shown);
 }
 
 } // namespace
@@ -761,7 +779,7 @@ private Q_SLOTS:
         QVERIFY(shell.click(QStringLiteral("aboutCurrentReleaseNotesButton")));
         auto *scroll = shell.item(QStringLiteral("releaseNotesScroll"));
         auto *detail = shell.item(QStringLiteral("releaseNotesDetail_1"));
-        QVERIFY(dialog && scroll && detail);
+        QVERIFY(scroll && detail);
         QTRY_VERIFY(dialog->property("opened").toBool());
         QVERIFY(shell.click(QStringLiteral("releaseNotesDetails_1")));
         QTRY_VERIFY(detail->isVisible());
@@ -976,7 +994,8 @@ private Q_SLOTS:
         QVERIFY(goalTab);
         QVERIFY(QMetaObject::invokeMethod(goalTab, "clicked"));
         QQuickItem *reopen = nullptr;
-        QTRY_VERIFY((reopen = shell.itemWithText(QString::fromUtf8("重新打开首次引导"))));
+        QTRY_VERIFY(shell.itemWithText(QString::fromUtf8("重新打开首次引导")));
+        reopen = shell.itemWithText(QString::fromUtf8("重新打开首次引导"));
         QVERIFY(QMetaObject::invokeMethod(reopen, "clicked"));
         QTRY_VERIFY(dialog->property("visible").toBool());
         QCOMPARE(dialog->property("goalText").toString(), QStringLiteral("1000"));
@@ -1009,7 +1028,8 @@ private Q_SLOTS:
         QVERIFY(goalTab);
         QVERIFY(QMetaObject::invokeMethod(goalTab, "clicked"));
         QQuickItem *save = nullptr;
-        QTRY_VERIFY((save = shell.item(QStringLiteral("saveAchievementButton"))) && save->isVisible());
+        QTRY_VERIFY(shell.item(QStringLiteral("saveAchievementButton")) && shell.item(QStringLiteral("saveAchievementButton"))->isVisible());
+        save = shell.item(QStringLiteral("saveAchievementButton"));
         auto *goal = shell.item(QStringLiteral("goalField"));
         auto *baseline = shell.item(QStringLiteral("baselineField"));
         auto *reason = shell.item(QStringLiteral("baselineReasonField"));
@@ -1033,7 +1053,8 @@ private Q_SLOTS:
         auto *dialog = shell.named(QStringLiteral("baselineDialog"));
         QVERIFY(dialog);
         QQuickItem *reopen = nullptr;
-        QTRY_VERIFY((reopen = shell.itemWithText(QString::fromUtf8("重新打开首次引导"))));
+        QTRY_VERIFY(shell.itemWithText(QString::fromUtf8("重新打开首次引导")));
+        reopen = shell.itemWithText(QString::fromUtf8("重新打开首次引导"));
         QVERIFY(QMetaObject::invokeMethod(reopen, "clicked"));
         QTRY_VERIFY(dialog->property("visible").toBool());
         QVERIFY(!shell.click(QStringLiteral("baselineSaveButton")));
@@ -1095,7 +1116,8 @@ private Q_SLOTS:
         QVERIFY(goalTab);
         QVERIFY(QMetaObject::invokeMethod(goalTab, "clicked"));
         QQuickItem *figures = nullptr;
-        QTRY_VERIFY((figures = shell.item(QStringLiteral("progressFormulaFigures"))) && figures->isVisible());
+        QTRY_VERIFY(shell.item(QStringLiteral("progressFormulaFigures")) && shell.item(QStringLiteral("progressFormulaFigures"))->isVisible());
+        figures = shell.item(QStringLiteral("progressFormulaFigures"));
         QTRY_COMPARE(figures->property("text").toString(), QStringLiteral("227 + 20 = 247"));
         auto *baseline = shell.item(QStringLiteral("baselineField"));
         auto *reason = shell.item(QStringLiteral("baselineReasonField"));
@@ -1415,13 +1437,15 @@ private Q_SLOTS:
         QVERIFY(goalTab);
         QVERIFY(QMetaObject::invokeMethod(goalTab, "clicked"));
         QQuickItem *line = nullptr;
-        QTRY_VERIFY((line = shell.item(QStringLiteral("baselineErrorText"))));
+        QTRY_VERIFY(shell.item(QStringLiteral("baselineErrorText")));
+        line = shell.item(QStringLiteral("baselineErrorText"));
         auto *dialog = shell.named(QStringLiteral("baselineDialog"));
         QVERIFY(dialog);
 
         // The guide, reopened from the card, saves and is refused: its own refusal.
         QQuickItem *reopen = nullptr;
-        QTRY_VERIFY((reopen = shell.itemWithText(QString::fromUtf8("重新打开首次引导"))));
+        QTRY_VERIFY(shell.itemWithText(QString::fromUtf8("重新打开首次引导")));
+        reopen = shell.itemWithText(QString::fromUtf8("重新打开首次引导"));
         QVERIFY(QMetaObject::invokeMethod(reopen, "clicked"));
         QTRY_VERIFY(dialog->property("visible").toBool());
         QVERIFY(shell.click(QStringLiteral("baselineSaveButton")));
@@ -1803,7 +1827,8 @@ private Q_SLOTS:
         QTRY_VERIFY(shell.controller->achievementSettingsLoaded());
         QCOMPARE(shell.controller->currentPage(), 0);
         QQuickItem *edit = nullptr;
-        QTRY_VERIFY((edit = shell.itemWithText(QString::fromUtf8("修改"))));
+        QTRY_VERIFY(shell.itemWithText(QString::fromUtf8("修改")));
+        edit = shell.itemWithText(QString::fromUtf8("修改"));
         const QPointF centre = edit->mapToScene(QPointF(edit->width() / 2, edit->height() / 2));
         QTest::mouseClick(shell.window(), Qt::LeftButton, Qt::NoModifier, centre.toPoint());
 
@@ -1832,7 +1857,8 @@ private Q_SLOTS:
         QVERIFY(QTest::qWaitForWindowExposed(shell.window()));
         QVERIFY(!shell.controller->achievementSettingsLoaded());
         QQuickItem *edit = nullptr;
-        QTRY_VERIFY((edit = shell.itemWithText(QString::fromUtf8("修改"))));
+        QTRY_VERIFY(shell.itemWithText(QString::fromUtf8("修改")));
+        edit = shell.itemWithText(QString::fromUtf8("修改"));
         const QPointF centre = edit->mapToScene(QPointF(edit->width() / 2, edit->height() / 2));
         QTest::mouseClick(shell.window(), Qt::LeftButton, Qt::NoModifier, centre.toPoint());
         QTRY_VERIFY(shell.item(QStringLiteral("settingsTab_goal"))->property("current").toBool());
@@ -1963,7 +1989,7 @@ int main(int argc, char *argv[])
     if (!families.isEmpty()) {
         QFont font;
         font.setFamilies(families);
-        app.setFont(font);
+        QGuiApplication::setFont(font);
     }
 #endif
     ShellDialogTests tests;

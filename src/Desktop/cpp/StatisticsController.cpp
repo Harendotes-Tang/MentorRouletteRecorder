@@ -197,7 +197,7 @@ void StatisticsController::applyTrendSeries(const QJsonObject &trend)
 
     m_trendBuckets.clear();
     const QJsonArray buckets = trend.value(QStringLiteral("buckets")).toArray();
-    for (const QJsonValue &value : buckets) {
+    for (const auto &value : buckets) {
         const QJsonObject entry = value.toObject();
         const QDateTime start = parseUtc(entry.value(QStringLiteral("start_utc")));
 
@@ -288,7 +288,7 @@ QVariantList StatisticsController::resultBuckets() const
                                    .toObject()
                                    .value(QStringLiteral("buckets"))
                                    .toArray();
-    for (const QJsonValue &value : buckets) {
+    for (const auto &value : buckets) {
         QVariantMap bucket = value.toObject().toVariantMap();
         const QString code = bucket.value(QStringLiteral("result")).toString();
         bucket.insert(QStringLiteral("label"), Formatters::resultLabel(code));
@@ -302,7 +302,7 @@ QVariantList StatisticsController::statCards() const
 {
     const QJsonObject breakdown = m_dashboard.value(QStringLiteral("result_breakdown")).toObject();
     QHash<QString, int> counts;
-    for (const QJsonValue &value : breakdown.value(QStringLiteral("buckets")).toArray()) {
+    for (const auto &value : breakdown.value(QStringLiteral("buckets")).toArray()) {
         const QJsonObject bucket = value.toObject();
         counts.insert(bucket.value(QStringLiteral("result")).toString(),
                       bucket.value(QStringLiteral("count")).toInt());

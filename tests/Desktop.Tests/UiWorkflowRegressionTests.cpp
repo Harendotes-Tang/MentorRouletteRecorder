@@ -266,7 +266,7 @@ struct SettingsFixture {
 
     bool create(const QString &style = QString())
     {
-        const auto context = engine.rootContext();
+        auto *const context = engine.rootContext();
         context->setContextProperty(QStringLiteral("App"), &controller);
         context->setContextProperty(QStringLiteral("Jobs"), &jobs);
         context->setContextProperty(QStringLiteral("Roles"), &roles);
@@ -361,11 +361,11 @@ ApplicationWindow {
     QObject *dialog() const { return root->findChild<QObject *>(QStringLiteral("reflection")); }
     QObject *textArea() const { return dialog()->findChild<QObject *>(QStringLiteral("reflectionTextArea")); }
     QObject *history() const { return root->findChild<QObject *>(QStringLiteral("history")); }
-    bool openResult(const QVariantMap &value = run())
+    bool openResult(const QVariantMap &value = run()) const
     {
         return QMetaObject::invokeMethod(dialog(), "openForResult", Q_ARG(QVariant, QVariant(value)));
     }
-    bool resolve()
+    bool resolve() const
     {
         return QMetaObject::invokeMethod(dialog(), "resolveWith",
                                         Q_ARG(QVariant, QVariant(QStringLiteral("COMPLETED"))),
@@ -388,7 +388,7 @@ struct ShellScene {
 
     bool create()
     {
-        const auto context = engine.rootContext();
+        auto *const context = engine.rootContext();
         context->setContextProperty(QStringLiteral("App"), &controller);
         context->setContextProperty(QStringLiteral("Fmt"), &formatters);
         context->setContextProperty(QStringLiteral("Jobs"), &jobs);
@@ -438,7 +438,7 @@ struct StatsScene {
 
     bool create()
     {
-        const auto context = engine.rootContext();
+        auto *const context = engine.rootContext();
         context->setContextProperty(QStringLiteral("App"), &controller);
         context->setContextProperty(QStringLiteral("Fmt"), &formatters);
         context->setContextProperty(QStringLiteral("Jobs"), &jobs);
@@ -505,7 +505,7 @@ QString textStartingWith(QQuickItem *from, const QString &prefix)
 {
     if (!from)
         return {};
-    const QString text = from->property("text").toString();
+    QString text = from->property("text").toString();
     if (text.startsWith(prefix))
         return text;
     for (QQuickItem *child : from->childItems()) {
@@ -615,7 +615,7 @@ void UiWorkflowRegressionTests::historyPageSizesItsPagesToTheWindow()
     QVERIFY2(fixture.create(), qPrintable(fixture.errors));
     auto *window = qobject_cast<QQuickWindow *>(fixture.root.get());
     QVERIFY(window);
-    auto *runs = fixture.controller.runs();
+    const auto *runs = fixture.controller.runs();
     const int minimum = fixture.history()->property("minimumRowsPerPage").toInt();
     QVERIFY(minimum >= 3);
 
@@ -628,11 +628,11 @@ void UiWorkflowRegressionTests::historyPageSizesItsPagesToTheWindow()
 
     // Taller: more rows. Very short: the minimum, never zero or negative.
     window->setHeight(1400);
-    QTRY_VERIFY_WITH_TIMEOUT(runs->pageSize() > atDefault, 3000);
+    QTRY_VERIFY_WITH_TIMEOUT(runs->property("pageSize").toInt() > atDefault, 3000);
     window->setHeight(300);
     QTRY_COMPARE_WITH_TIMEOUT(runs->pageSize(), minimum, 3000);
     window->setHeight(720);
-    QTRY_COMPARE_WITH_TIMEOUT(runs->pageSize(), atDefault, 3000);
+    QTRY_COMPARE_WITH_TIMEOUT(runs->property("pageSize").toInt(), atDefault, 3000);
 }
 
 void UiWorkflowRegressionTests::immediateModelFailureClearsLoadingAndOldRows()
@@ -736,7 +736,7 @@ void UiWorkflowRegressionTests::historyKeepsAHalfTypedDateAndDoesNotQueryWithout
 {
     UiFixture fixture;
     QVERIFY2(fixture.create(), qPrintable(fixture.errors));
-    auto *runs = fixture.controller.runs();
+    const auto *runs = fixture.controller.runs();
     QTRY_COMPARE_WITH_TIMEOUT(runs->pageSize(), fixture.history()->property("rowsThatFit").toInt(), 3000);
     QTest::qWait(400);
     auto *from = fixture.history()->findChild<QObject *>(QStringLiteral("fromDateField"));
@@ -767,7 +767,7 @@ void UiWorkflowRegressionTests::historyRefusesAnInvertedRangeAndCapsTheSearch()
 {
     UiFixture fixture;
     QVERIFY2(fixture.create(), qPrintable(fixture.errors));
-    auto *runs = fixture.controller.runs();
+    const auto *runs = fixture.controller.runs();
     QTRY_COMPARE_WITH_TIMEOUT(runs->pageSize(), fixture.history()->property("rowsThatFit").toInt(), 3000);
     QTest::qWait(400);
     auto *from = fixture.history()->findChild<QObject *>(QStringLiteral("fromDateField"));
@@ -1884,7 +1884,7 @@ void UiWorkflowRegressionTests::styleSwitchShowsTheStyleOnScreen()
     settings.setUiStyle(persisted);
     TtsStub tts;
     UiFixture fixture;
-    const auto context = fixture.engine.rootContext();
+    auto *const context = fixture.engine.rootContext();
     context->setContextProperty(QStringLiteral("App"), &fixture.controller);
     context->setContextProperty(QStringLiteral("Fmt"), &fixture.formatters);
     context->setContextProperty(QStringLiteral("Settings"), &settings);
@@ -2719,7 +2719,11 @@ void UiWorkflowRegressionTests::theCurrentRunCardKeepsItsValuesInsideWhileANotic
         if (siblings[index] == status && index + 1 < siblings.size())
             grid = siblings[index + 1];
     }
-    QVERIFY2(grid && grid->property("columns").toInt() == 6, "the value grid follows the notice");
+    if (!grid) {
+        QTest::qFail("the value grid follows the notice", __FILE__, __LINE__);
+        return;
+    }
+    QCOMPARE(grid->property("columns").toInt(), 6);
     QTRY_VERIFY(grid->height() > 0);
     const qreal gridBottom = grid->mapToItem(card, QPointF(0, grid->height())).y();
     // Inside the card means above its bottom padding, not merely above its border.

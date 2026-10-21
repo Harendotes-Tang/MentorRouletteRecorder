@@ -97,7 +97,7 @@ public:
         return {{QStringLiteral("items"), answer}, {QStringLiteral("page_info"),
             QJsonObject{{QStringLiteral("page"), page}, {QStringLiteral("page_size"), size}, {QStringLiteral("total"), selected.size()}}}};
     }
-    void finish(int index, const QJsonArray &items)
+    void finish(int index, const QJsonArray &items) const
     {
         waiting.at(index).reply->succeed({{QStringLiteral("items"), items},
             {QStringLiteral("page_info"), QJsonObject{{QStringLiteral("total"), items.size()}}}});
@@ -177,11 +177,13 @@ private Q_SLOTS:
         QTemporaryDir dir(testRoot()); QVERIFY(dir.isValid());
         mr::AppSettings settings(dir.filePath(QStringLiteral("desktop.ini")), nullptr);
         Backend backend;
-        mr::RecoveryController a(&backend, &settings), b(&backend, &settings);
+        mr::RecoveryController a(&backend, &settings);
+        mr::RecoveryController b(&backend, &settings);
         const QString db = dir.filePath(QStringLiteral("records.db"));
         a.setDatabasePath(db); b.setDatabasePath(db);
         QTRY_VERIFY(!a.busy() && !b.busy());
-        const auto one = run(QStringLiteral("one")), two = run(QStringLiteral("two"));
+        const auto one = run(QStringLiteral("one"));
+        const auto two = run(QStringLiteral("two"));
         a.offer(one, QStringLiteral("reflection"));
         b.offer(two, QStringLiteral("reflection"));
         a.saveDraft(one, fields(QStringLiteral("submitted note")));
@@ -560,7 +562,8 @@ private Q_SLOTS:
         mr::AppSettings settings(dir.filePath(QStringLiteral("desktop.ini")), nullptr);
         Backend backend;
         mr::RecoveryController controller(&backend, &settings);
-        const QString a = dir.filePath(QStringLiteral("a.db")), b = dir.filePath(QStringLiteral("b.db"));
+        const QString a = dir.filePath(QStringLiteral("a.db"));
+        const QString b = dir.filePath(QStringLiteral("b.db"));
         controller.setDatabasePath(a); QTRY_VERIFY(!controller.busy());
         controller.offer(run(QStringLiteral("from-a")), QStringLiteral("reflection"));
         QSignalSpy ready(&controller, &mr::RecoveryController::promptReady);
@@ -587,7 +590,8 @@ private Q_SLOTS:
         QTemporaryDir dir(testRoot()); QVERIFY(dir.isValid());
         mr::AppSettings settings(dir.filePath(QStringLiteral("desktop.ini")), nullptr);
         Backend backend;
-        mr::RecoveryController a(&backend, &settings), b(&backend, &settings);
+        mr::RecoveryController a(&backend, &settings);
+        mr::RecoveryController b(&backend, &settings);
         const QString db = dir.filePath(QStringLiteral("records.db"));
         const auto data = run(QStringLiteral("same-run"));
         a.setDatabasePath(db); b.setDatabasePath(db); QTRY_VERIFY(!a.busy() && !b.busy());

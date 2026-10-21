@@ -116,7 +116,7 @@ void AutomaticRecordingController::refresh()
 {
     if (m_maintenance || m_busy || !m_backend || !m_backend->isConnected()) return;
     if (m_userObservation) {
-        setState(QStringLiteral("observing"), [] { return tr("正在进行你主动开启的元数据采证，自动记录已暂停。请在「捕获诊断」停止采证。"); });
+        setState(QStringLiteral("observing"), LiveText([] { return tr("正在进行你主动开启的元数据采证，自动记录已暂停。请在「捕获诊断」停止采证。"); }));
         return;
     }
     m_busy = true;
@@ -140,7 +140,7 @@ void AutomaticRecordingController::observeCapture(const QVariantMap &capture)
     if (m_initializationPending && capture.value(QStringLiteral("ffxiv_running")).toBool()
         && capture.value(QStringLiteral("profile_status")).toString() == QLatin1String("VERIFIED")
         && !capture.value(QStringLiteral("game_selection_required")).toBool()) {
-        finishUnknown([] { return tr("正在准备自动记录，请稍候…"); });
+        finishUnknown(LiveText([] { return tr("正在准备自动记录，请稍候…"); }));
         return;
     }
     project(capture);
@@ -253,13 +253,13 @@ void AutomaticRecordingController::readCapture(quint64 generation)
                 project(m_latestCapture);
             return;
         }
-        if (!ok) { finishUnknown([error] { return tr("暂时无法确认自动记录服务是否正常。%1").arg(error); }); return; }
+        if (!ok) { finishUnknown(LiveText([error] { return tr("暂时无法确认自动记录服务是否正常。%1").arg(error); })); return; }
         auto capture = p.value(QStringLiteral("capture")).toMap();
         const auto game = p.value(QStringLiteral("game")).toMap();
         if (game.contains(QStringLiteral("install_path_readable")))
             capture.insert(QStringLiteral("install_path_readable"), game.value(QStringLiteral("install_path_readable")));
         if (capture.value(QStringLiteral("ffxiv_running")).metaType().id() != QMetaType::Bool) {
-            finishUnknown([] { return tr("正在获取自动记录状态，请稍候…"); }); return;
+            finishUnknown(LiveText([] { return tr("正在获取自动记录状态，请稍候…"); })); return;
         }
         observeCapture(capture);
     });
@@ -275,7 +275,7 @@ void AutomaticRecordingController::project(const QVariantMap &c)
         setPollInterval(kActivePollMs);
         clearIncident();
         const QString reason = c.value(QStringLiteral("game_selection_reason")).toString();
-        setState(QStringLiteral("choosing_game"), [reason, listed] {
+        setState(QStringLiteral("choosing_game"), LiveText([reason, listed] {
             return reason == QLatin1String("EXITED")
                 ? tr("所选游戏已退出，记录已暂停。单开时重新启动同一游戏会自动接续；无法确认时请在总览或捕获诊断页重新选择游戏窗口。")
                 : reason == QLatin1String("IDENTITY_UNAVAILABLE")
@@ -283,7 +283,7 @@ void AutomaticRecordingController::project(const QVariantMap &c)
                 : listed > 1
                 ? tr("检测到多个游戏客户端，请在总览或捕获诊断页选择要记录的游戏窗口。")
                 : tr("尚未确定要记录的游戏，请在总览或捕获诊断页选择要记录的游戏窗口。");
-        });
+        }));
         return;
     }
     const LiveText initError = !m_followError.isEmpty() ? m_followError : m_validationError;
@@ -300,7 +300,7 @@ void AutomaticRecordingController::project(const QVariantMap &c)
     setPollInterval(kActivePollMs);
     const QString session = c.value(QStringLiteral("ffxiv_process_id")).toString() + QLatin1Char(':');
     const QString profile = c.value(QStringLiteral("profile_status")).toString();
-    if (profile.isEmpty()) { finishUnknown([] { return tr("正在检查当前游戏版本能否自动记录…"); }); return; }
+    if (profile.isEmpty()) { finishUnknown(LiveText([] { return tr("正在检查当前游戏版本能否自动记录…"); })); return; }
     const bool pathUnreadable = c.contains(QStringLiteral("install_path_readable"))
                                 && !c.value(QStringLiteral("install_path_readable")).toBool();
     const bool npcapMissing = c.contains(QStringLiteral("npcap_installed"))
@@ -313,7 +313,7 @@ void AutomaticRecordingController::project(const QVariantMap &c)
     if (!c.contains(QStringLiteral("install_path_readable")) && buildUnknown) {
         // GetCaptureStatus/事件没有路径可读性，须等待完整 GetStatus 才能区分
         // 安装位置不可读和可读目录没有区服标记；缺字段不能当成路径可读。
-        finishUnknown([] { return tr("正在检查游戏安装位置、区服和版本，请稍候…"); });
+        finishUnknown(LiveText([] { return tr("正在检查游戏安装位置、区服和版本，请稍候…"); }));
         return;
     }
     // 本机校准 outranks "协议档案不匹配": a mismatched profile is the situation
@@ -327,7 +327,7 @@ void AutomaticRecordingController::project(const QVariantMap &c)
         const QString reason = pathUnreadable ? QStringLiteral("path")
             : regionUnknown ? QStringLiteral("region") : buildUnknown ? QStringLiteral("build")
             : QStringLiteral("profile:") + profile;
-        block(session + reason, [pathUnreadable, regionUnknown, buildUnknown] {
+        block(session + reason, LiveText([pathUnreadable, regionUnknown, buildUnknown] {
             if (regionUnknown && !pathUnreadable)
                 return tr("无法识别游戏区服，暂时不能自动记录。请在「设置 → 通用」中选择实际区服（国服 / 国际服），保存后会重新检查。");
             if (buildUnknown && !pathUnreadable)
@@ -337,43 +337,43 @@ void AutomaticRecordingController::project(const QVariantMap &c)
                 // 因此这里不再建议以管理员身份运行（审查 2026-09-21 第 1 条）。
                 ? tr("找不到游戏的安装位置，无法确认游戏版本，暂时不能自动记录。请确认游戏已启动，再查看「捕获诊断」。")
                 : tr("还没有适用于当前游戏版本的支持文件，暂时不能自动记录。请查看「捕获诊断」，期间可以先手动记录。");
-        }); return;
+        })); return;
     }
     if (!initError.isEmpty()) {
         block(session + (m_followError.isEmpty() ? QStringLiteral("validation") : QStringLiteral("follow")), initError);
         return;
     }
     if (!m_followReady || !m_validationReady) {
-        finishUnknown([] { return tr("正在准备自动记录，请稍候…"); }); return;
+        finishUnknown(LiveText([] { return tr("正在准备自动记录，请稍候…"); })); return;
     }
     if (c.contains(QStringLiteral("npcap_installed")) && !c.value(QStringLiteral("npcap_installed")).toBool()) {
-        block(session + QStringLiteral("npcap"), [] { return tr("尚未安装 Npcap 驱动，暂时不能自动记录。请按「捕获诊断」中的说明安装。"); }); return;
+        block(session + QStringLiteral("npcap"), LiveText([] { return tr("尚未安装 Npcap 驱动，暂时不能自动记录。请按「捕获诊断」中的说明安装。"); })); return;
     }
     const QString error = c.value(QStringLiteral("last_error_code")).toString();
     const QString reason = silentReason(c);
     if (c.value(QStringLiteral("midstream_suspected")).toBool()
         || reason == QLatin1String("MIDSTREAM")) {
-        block(session + QStringLiteral("capture:midstream"), [c, reason] { return silentMessage(c, reason); }); return;
+        block(session + QStringLiteral("capture:midstream"), LiveText([c, reason] { return silentMessage(c, reason); })); return;
     }
     if (!error.isEmpty() && error != QLatin1String("NONE")) {
         // A player cannot act on "ERR_DB_BUSY". The sentence is the whole
         // explanation; the raw token only ever trails it, and only for a code
         // this build has no wording for.
-        block(session + QStringLiteral("capture:") + error, [error] {
+        block(session + QStringLiteral("capture:") + error, LiveText([error] {
             const QString detail = Formatters::captureErrorKnown(error)
                 ? Formatters::captureErrorLabel(error)
                 : tr("%1（代码 %2）").arg(Formatters::captureErrorLabel(error), error);
             return tr("暂时不能自动记录。%1 请查看「捕获诊断」。").arg(detail);
-        }); return;
+        })); return;
     }
     if (c.value(QStringLiteral("state")).toString() != QLatin1String("RUNNING")) {
-        finishUnknown([] { return tr("正在启动自动记录服务，请稍候…"); }); return;
+        finishUnknown(LiveText([] { return tr("正在启动自动记录服务，请稍候…"); })); return;
     }
     if (!reason.isEmpty()) {
         // RUNNING is a fact about a socket, not about the game: a capture that
         // decodes nothing must not be shown as a green 「自动监听中」.
         clearIncident();
-        setState(QStringLiteral("listening_silent"), [c, reason] { return silentMessage(c, reason); }); return;
+        setState(QStringLiteral("listening_silent"), LiveText([c, reason] { return silentMessage(c, reason); })); return;
     }
     clearIncident();
     // A profile this machine calibrated is a VERIFIED profile like any other,
@@ -382,13 +382,13 @@ void AutomaticRecordingController::project(const QVariantMap &c)
     const QString origin = c.value(QStringLiteral("profile_origin")).toString();
     if (origin == QLatin1String("LOCAL_CALIBRATION")) {
         setState(QStringLiteral("listening"),
-                 [] { return tr("本机校准已完成，自动记录已开启。"); }); return;
+                 LiveText([] { return tr("本机校准已完成，自动记录已开启。"); })); return;
     }
     if (origin == QLatin1String("SHARED_CALIBRATION")) {
         setState(QStringLiteral("listening"),
-                 [] { return tr("共享校准已启用，自动记录已开启。"); }); return;
+                 LiveText([] { return tr("共享校准已启用，自动记录已开启。"); })); return;
     }
-    setState(QStringLiteral("listening"), [] { return tr("自动记录已开启，正在读取游戏数据。完成后的记录可在「历史记录」中查看。"); });
+    setState(QStringLiteral("listening"), LiveText([] { return tr("自动记录已开启，正在读取游戏数据。完成后的记录可在「历史记录」中查看。"); }));
 }
 
 /// The three calibration projections the capture page card binds to.
@@ -414,12 +414,12 @@ bool AutomaticRecordingController::projectCalibration(const QVariantMap &c)
         // roulette the player is about to run will be seen.
         const QString error = c.value(QStringLiteral("last_error_code")).toString();
         clearIncident();
-        setState(QStringLiteral("calibrating"), [error] {
+        setState(QStringLiteral("calibrating"), LiveText([error] {
             const QString detail = (!error.isEmpty() && error != QLatin1String("NONE"))
                 ? tr("暂时读不到游戏数据（%1），正在重试。请查看「捕获诊断」。").arg(Formatters::captureErrorLabel(error))
                 : tr("正在连接游戏，暂时不能自动记录。");
             return tr("游戏更新了，需要重新校准。%1").arg(detail);
-        });
+        }));
         return true;
     }
     if (state == QLatin1String("OBSERVING")) {
@@ -430,16 +430,16 @@ bool AutomaticRecordingController::projectCalibration(const QVariantMap &c)
         if (shared.value(QStringLiteral("phase")).toString() == QLatin1String("AWAITING_CONSENT")
             && !shared.value(QStringLiteral("user_rejected")).toBool()) {
             setState(QStringLiteral("calibrating"),
-                     [] { return tr("共享校准已通过检查。请在「捕获诊断」的「共享校准」中阅读说明，点「同意，开始记录」。"); });
+                     LiveText([] { return tr("共享校准已通过检查。请在「捕获诊断」的「共享校准」中阅读说明，点「同意，开始记录」。"); }));
             return true;
         }
         // The four progress ticks live on the capture page's calibration card. This
         // sentence also appears in the dashboard's fixed-height 当前导随 card, so it
         // carries no progress suffix.
-        setState(QStringLiteral("calibrating"), [] {
+        setState(QStringLiteral("calibrating"), LiveText([] {
             return tr("游戏更新了，正在重新校准。"
                       "请照常完成随机任务，再按提示核对。完成前暂时不能自动记录。");
-        });
+        }));
         return true;
     }
     if (state == QLatin1String("READY")) {
@@ -451,7 +451,7 @@ bool AutomaticRecordingController::projectCalibration(const QVariantMap &c)
         }
         clearIncident();
         setState(QStringLiteral("calibration_ready"),
-                 [required] { return tr("还差最后一步：核对 %1 件事，就能开始自动记录。").arg(required); });
+                 LiveText([required] { return tr("还差最后一步：核对 %1 件事，就能开始自动记录。").arg(required); }));
         return true;
     }
     if (state == QLatin1String("BLOCKED")) {
@@ -464,10 +464,10 @@ bool AutomaticRecordingController::projectCalibration(const QVariantMap &c)
         const auto refs = calibration.value(QStringLiteral("blocker_refs")).toList();
         const QVariant firstRef = refs.size() == blockers.size() && !refs.isEmpty() ? refs.first() : QVariant();
         clearIncident();
-        setState(QStringLiteral("calibration_blocked"), [first, firstRef] {
+        setState(QStringLiteral("calibration_blocked"), LiveText([first, firstRef] {
             return first.isEmpty() ? tr("校准遇到了问题，暂时不能自动记录。请查看「捕获诊断」。")
                                    : tr("%1 请查看「捕获诊断」。").arg(collector_text::render(firstRef, first));
-        });
+        }));
         return true;
     }
     // IDLE and DONE are not calibration projections: DONE has already produced
@@ -494,9 +494,9 @@ QString AutomaticRecordingController::silentReason(const QVariantMap &c)
     const QVariant uptime = c.value(QStringLiteral("uptime_ms"));
     // Absent means "not measured"; that is never turned into an accusation.
     if (!decoded.isValid() || decoded.isNull() || !uptime.isValid() || uptime.isNull())
-        return QString();
+        return {};
     if (decoded.toLongLong() > 0 || uptime.toLongLong() <= kSilenceGraceMs)
-        return QString();
+        return {};
     return QStringLiteral("NO_STREAM_OWNERSHIP");
 }
 

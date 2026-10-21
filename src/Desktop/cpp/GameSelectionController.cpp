@@ -2,6 +2,7 @@
 #include "CollectorText.h"
 #include <QDateTime>
 #include <QPointer>
+#include <algorithm>
 
 #ifdef Q_OS_WIN
 #define WIN32_LEAN_AND_MEAN
@@ -88,11 +89,10 @@ bool GameSelectionController::predatesConfirmedChoice(const QVariantMap &capture
     // The Collector does not ask again about a client it has just pinned while
     // that client is still listed; such a snapshot was taken before the switch
     // (a status event published mid-switch can arrive after the reply).
-    for (const auto &value : capture.value(QStringLiteral("game_processes")).toList()) {
-        if (value.toMap().value(QStringLiteral("selection_token")).toString() == m_confirmedToken)
-            return true;
-    }
-    return false;
+    return std::ranges::any_of(capture.value(QStringLiteral("game_processes")).toList(),
+                               [this](const QVariant &value) {
+        return value.toMap().value(QStringLiteral("selection_token")).toString() == m_confirmedToken;
+    });
 }
 
 void GameSelectionController::observe(const QVariantMap &capture)

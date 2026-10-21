@@ -27,6 +27,7 @@
 #include <QUrl>
 #include <QTimeZone>
 
+#include <algorithm>
 #include <utility>
 
 namespace {
@@ -68,11 +69,9 @@ bool isCaptureSettingKey(const QString &key)
                                   "log_retention_days", "allow_without_profile",
                                   "region_override", "auto_calibration_enabled",
                                   "shared_calibration_enabled", "update_check_enabled"};
-    for (const char *name : kKeys) {
-        if (key == QLatin1String(name))
-            return true;
-    }
-    return false;
+    return std::ranges::any_of(kKeys, [&key](const char *name) {
+        return key == QLatin1String(name);
+    });
 }
 
 } // namespace
@@ -708,7 +707,7 @@ QString AppController::captureHealthText() const
         return tr("正在读取游戏数据，但还没有识别成功，失败次数仍在增加。"
                   "暂时不能自动记录。请查看「捕获诊断」，也可以回到游戏标题画面后重新登录。");
     }
-    return QString();
+    return {};
 }
 
 // ---------------------------------------------------------------------------
@@ -754,7 +753,9 @@ void AppController::readCaptureSettings(bool preserveWriteError)
                     return message.isEmpty() ? tr("没能读取自动记录设置：%1").arg(code) : message;
                 };
             }
-            Q_EMIT captureSettingsChanged();
+            {
+                Q_EMIT captureSettingsChanged();
+            }
         });
 }
 
@@ -1086,11 +1087,11 @@ QString AppController::protocolProfileStatus() const
     // A backend may report a more precise label than the contract enum allows
     // (the mock says SYNTHETIC_ONLY, because nothing was ever verified against
     // live traffic). Prefer it; fall back to the contract field.
-    const QString label =
+    QString label =
         capture.value(QStringLiteral("profile_status_label")).toString();
     if (!label.isEmpty())
         return label;
-    const QString effective = m_capture->effectiveProfileStatus();
+    QString effective = m_capture->effectiveProfileStatus();
     if (!effective.isEmpty())
         return effective;
     return QStringLiteral("NONE");
@@ -1476,7 +1477,7 @@ QString AppController::numberlessAnnouncement(const QString &kind)
         return tr("导随结束，请确认是否通关");
     if (kind == QLatin1String("aborted"))
         return tr("导随异常结束");
-    return QString();
+    return {};
 }
 
 void AppController::announceFinished(const QString &state, const QJsonObject &run,
@@ -1765,7 +1766,7 @@ void AppController::reflectionPromptDeferred(const QString &runId)
         return;
     m_promptedRunIds.insert(runId);
     m_offeredReflectionRunIds.remove(runId);
-    for (int index = m_queuedReflectionRuns.size() - 1; index >= 0; --index) {
+    for (qsizetype index = m_queuedReflectionRuns.size() - 1; index >= 0; --index) {
         if (m_queuedReflectionRuns.at(index).value(QStringLiteral("run_id")).toString() == runId)
             m_queuedReflectionRuns.removeAt(index);
     }
@@ -1857,7 +1858,7 @@ void AppController::resultConfirmationDeferred(const QString &runId)
         return;
     m_confirmedRunIds.insert(runId);
     m_offeredResultRunIds.remove(runId);
-    for (int index = m_queuedResultRuns.size() - 1; index >= 0; --index) {
+    for (qsizetype index = m_queuedResultRuns.size() - 1; index >= 0; --index) {
         if (m_queuedResultRuns.at(index).value(QStringLiteral("run_id")).toString() == runId)
             m_queuedResultRuns.removeAt(index);
     }
@@ -1935,7 +1936,7 @@ QVariantList AppController::recentDutiesFromRuns(const QJsonArray &runs, int lim
 {
     QVariantList out;
     QSet<qint64> seen;
-    for (const QJsonValue &value : runs) {
+    for (const auto &value : runs) {
         if (out.size() >= limit)
             break;
         const QJsonObject run = value.toObject();
@@ -2001,9 +2002,9 @@ void AppController::retryHistoryImageCleanup()
     m_backend->getPendingImageCleanup()
         ->whenDone(this, [this](bool ok, const QVariantMap &payload, const QString &code, const QString &message) {
             if (!ok) {
-                finishHistoryImageCleanup([reason = message.isEmpty() ? code : message] {
+                finishHistoryImageCleanup(LiveText([reason = message.isEmpty() ? code : message] {
                     return tr("没能获取待清理的图片：%1").arg(reason);
-                });
+                }));
                 return;
             }
             m_historyCleanupIds = payload.value(QStringLiteral("run_ids")).toStringList();
@@ -2017,7 +2018,7 @@ void AppController::retryHistoryImageCleanup()
 void AppController::drainHistoryImageCleanup()
 {
     if (!m_noteImages) {
-        finishHistoryImageCleanup([] { return tr("图片服务已关闭，清理任务仍保留，稍后重试。"); });
+        finishHistoryImageCleanup(LiveText([] { return tr("图片服务已关闭，清理任务仍保留，稍后重试。"); }));
         return;
     }
     if (m_historyCleanupIndex < m_historyCleanupIds.size()) {
@@ -2042,10 +2043,10 @@ void AppController::drainHistoryImageCleanup()
     m_backend->acknowledgeImageCleanup(m_historyCleanupSuccessful)
         ->whenDone(this, [this, failures](bool ok, const QVariantMap &, const QString &code, const QString &message) {
             if (!ok) {
-                finishHistoryImageCleanup([reason = message.isEmpty() ? code : message, failures] {
+                finishHistoryImageCleanup(LiveText([reason = message.isEmpty() ? code : message, failures] {
                     return tr("图片已清理，但清理结果还没保存，软件会自动重试：%1 %2")
                         .arg(reason, failures.text());
-                });
+                }));
                 return;
             }
             const bool nextBatch = failures.isEmpty() && m_historyCleanupIds.size() == 2000;
@@ -2446,7 +2447,7 @@ void AppController::showToast(const QString &message)
 
 QString AppController::errorText(const QString &message, const QString &code) const
 {
-    const QString sentence =
+    QString sentence =
         message.isEmpty() ? tr("操作没有完成，原因不明。") : message;
     if (!m_maintainerToolsVisible || code.isEmpty())
         return sentence;

@@ -57,7 +57,7 @@ QVariantMap ref(const char *key, const QVariantMap &args = {})
 // does not hard-code the catalogue's contents.
 const mr::collector_text::CatalogueEntry *entryWith(const char *kind)
 {
-    for (auto it = mr::collector_text::catalogueBegin(); it != mr::collector_text::catalogueEnd();
+    for (const auto *it = mr::collector_text::catalogueBegin(); it != mr::collector_text::catalogueEnd();
          ++it) {
         for (const QString &part :
              QString::fromUtf8(it->args).split(QLatin1Char(','), Qt::SkipEmptyParts)) {
@@ -99,7 +99,7 @@ private Q_SLOTS:
     void theTableIsNotEmptyAndKeysAreUnique()
     {
         QSet<QString> keys;
-        for (auto it = mr::collector_text::catalogueBegin();
+        for (const auto *it = mr::collector_text::catalogueBegin();
              it != mr::collector_text::catalogueEnd(); ++it) {
             const QString key = QString::fromUtf8(it->source.key);
             QVERIFY2(!keys.contains(key), qPrintable(key));
@@ -113,7 +113,7 @@ private Q_SLOTS:
     void simplifiedChineseIsTheCatalogueWording()
     {
         // No translator: every key renders its source with the values put in.
-        for (auto it = mr::collector_text::catalogueBegin();
+        for (const auto *it = mr::collector_text::catalogueBegin();
              it != mr::collector_text::catalogueEnd(); ++it) {
             const QString rendered = mr::collector_text::render(sampleRef(*it), QStringLiteral("备用"));
             QVERIFY2(rendered != QStringLiteral("备用"), it->source.key);
@@ -176,7 +176,7 @@ private Q_SLOTS:
         const QStringList keys = texts.keys();
         const QSet<QString> catalogue(keys.cbegin(), keys.cend());
         QSet<QString> table;
-        for (auto it = mr::collector_text::catalogueBegin(); it != mr::collector_text::catalogueEnd();
+        for (const auto *it = mr::collector_text::catalogueBegin(); it != mr::collector_text::catalogueEnd();
              ++it) {
             const QString key = QString::fromUtf8(it->source.key);
             table.insert(key);

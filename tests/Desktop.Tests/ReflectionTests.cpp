@@ -361,7 +361,7 @@ void ReflectionTests::mockBackend_summarisesTheSeededReflections()
     QCOMPARE(recent.size(), 3);
 
     QString previous;
-    for (const QJsonValue &value : recent) {
+    for (const auto &value : recent) {
         const QJsonObject entry = value.toObject();
         const QJsonObject reflection = entry.value(QStringLiteral("reflection")).toObject();
         QVERIFY(entry.value(QStringLiteral("run")).isObject());

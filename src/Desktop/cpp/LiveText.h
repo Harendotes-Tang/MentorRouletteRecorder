@@ -33,9 +33,18 @@ public:
     /// \a build returns the text in the language on screen when it is called.
     template <typename Build,
               typename = std::enable_if_t<std::is_invocable_r_v<QString, Build &>>>
-    LiveText(Build build) // NOLINT(google-explicit-constructor): a recipe is the text
+    explicit LiveText(Build build)
         : m_build(std::move(build))
     {
+    }
+
+    /// Replaces the stored recipe; copying or moving another LiveText keeps the default semantics.
+    template <typename Build,
+              typename = std::enable_if_t<std::is_invocable_r_v<QString, Build &>>>
+    LiveText &operator=(Build build)
+    {
+        m_build = std::move(build);
+        return *this;
     }
 
     /// Text that is the same in every language. Empty text stays empty.

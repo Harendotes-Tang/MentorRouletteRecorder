@@ -9,6 +9,8 @@
 #include <QLoggingCategory>
 #include <QSet>
 
+#include <bit>
+
 #ifdef Q_OS_WIN
 // libstdc++ on MinGW defines NOMINMAX itself; see CollectorProcess.cpp.
 #  ifndef NOMINMAX
@@ -180,7 +182,7 @@ bool IpcClient::pipeOwnedByCurrentUser(qintptr pipeHandle)
     // when elevated). Another standard account can make neither the owner.
     PSID owner = nullptr;
     PSECURITY_DESCRIPTOR descriptor = nullptr;
-    if (::GetSecurityInfo(reinterpret_cast<HANDLE>(pipeHandle), SE_KERNEL_OBJECT,
+    if (::GetSecurityInfo(std::bit_cast<HANDLE>(pipeHandle), SE_KERNEL_OBJECT,
                           OWNER_SECURITY_INFORMATION, &owner, nullptr, nullptr, nullptr,
                           &descriptor)
             != ERROR_SUCCESS
@@ -285,11 +287,11 @@ void IpcClient::onReadyRead()
         if (status == ipc::FrameStatus::Incomplete)
             return;
         if (status == ipc::FrameStatus::Oversized) {
-            abortStream([] { return tr("后台服务返回的数据量过大，连接已断开。请重启软件，并先检查上次操作的结果。"); });
+            abortStream(LiveText([] { return tr("后台服务返回的数据量过大，连接已断开。请重启软件，并先检查上次操作的结果。"); }));
             return;
         }
         if (status == ipc::FrameStatus::BadJson) {
-            abortStream([] { return tr("后台服务返回的数据无法读取，连接已断开。请重启软件，并先检查上次操作的结果。"); });
+            abortStream(LiveText([] { return tr("后台服务返回的数据无法读取，连接已断开。请重启软件，并先检查上次操作的结果。"); }));
             return;
         }
         dispatch(envelope);
@@ -315,7 +317,7 @@ void IpcClient::dispatch(const QJsonObject &envelope)
     const ipc::EnvelopeView view = ipc::readEnvelope(envelope);
 
     if (view.protocolVersion != ipc::kProtocolVersion) {
-        abortStream([] { return tr("界面和后台服务的版本不匹配，请重新安装软件后重试。"); });
+        abortStream(LiveText([] { return tr("界面和后台服务的版本不匹配，请重新安装软件后重试。"); }));
         return;
     }
 
@@ -329,8 +331,7 @@ void IpcClient::dispatch(const QJsonObject &envelope)
         qCDebug(lcIpc) << "response for unknown request_id" << view.requestId;
         return;
     }
-    const Pending pending = *it;
-    m_pending.remove(view.requestId);
+    const Pending pending = m_pending.take(view.requestId);
     if (m_pending.isEmpty())
         m_timeoutTimer.stop();
 

@@ -37,7 +37,7 @@ bool writeFile(const QString &path, const QByteArray &bytes)
 
 QString installWorker(QTemporaryDir &directory, const QString &relativeAppDirectory = QStringLiteral("app with spaces"))
 {
-    const QString app = directory.filePath(relativeAppDirectory);
+    QString app = directory.filePath(relativeAppDirectory);
     const QString ocr = QDir(app).filePath(QStringLiteral("ocr"));
     const QString models = QDir(ocr).filePath(QStringLiteral("models"));
     if (!QDir().mkpath(models)
@@ -75,7 +75,7 @@ QByteArray wholeImageTsv()
 int worker(int argc, char **argv)
 {
     QCoreApplication application(argc, argv);
-    const QStringList args = application.arguments();
+    const QStringList args = QCoreApplication::arguments();
     if (args.size() != 7 || args[1] != QLatin1String("--input") || args[3] != QLatin1String("--output")
         || args[5] != QLatin1String("--models") || !QFileInfo(args[2]).isAbsolute()
         || !QFileInfo(args[4]).isAbsolute() || !QFileInfo(args[6]).isAbsolute())
@@ -120,11 +120,12 @@ int worker(int argc, char **argv)
         return 0;
     }
     if (mode == QLatin1String("noisy")) {
-        QFile out, err;
+        QFile out;
+        QFile err;
         if (!out.open(stdout, QIODevice::WriteOnly) || !err.open(stderr, QIODevice::WriteOnly))
             return 17;
-        out.write(QByteArray(64 * 1024, 'o'));
-        err.write(QByteArray(64 * 1024, 'e'));
+        out.write(QByteArray(qsizetype{64} * 1024, 'o'));
+        err.write(QByteArray(qsizetype{64} * 1024, 'e'));
         out.flush();
         err.flush();
     }

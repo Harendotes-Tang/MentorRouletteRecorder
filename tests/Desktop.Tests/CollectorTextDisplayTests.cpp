@@ -55,6 +55,8 @@ public:
         return reply;
     }
 
+    void setRefusalCode(const QString &code) { refusalCode = code; }
+
     QJsonObject speechSettings;
     QString refusalCode = QStringLiteral("ERR_BAD_REQUEST");
     QString refusalMessage;
@@ -158,7 +160,7 @@ private Q_SLOTS:
     {
         const QVariantMap notReady = mrtest::textRef("calibration.not_ready");
         RefusingBackend backend;
-        backend.refusalCode = QStringLiteral("ERR_CALIBRATION_BUSY");
+        backend.setRefusalCode(QStringLiteral("ERR_CALIBRATION_BUSY"));
         backend.refusalMessage = chineseOf(notReady);
         backend.refusalRef = json(notReady);
         mr::CalibrationController controller;
@@ -174,7 +176,7 @@ private Q_SLOTS:
         QCOMPARE(controller.error(), mrtest::marked("calibration.not_ready", chineseOf(notReady)));
 
         // 恢复上一份本机校准 answered with ERR_CALIBRATION_NOT_READY is an answer, kept apart.
-        backend.refusalCode = QStringLiteral("ERR_CALIBRATION_NOT_READY");
+        backend.setRefusalCode(QStringLiteral("ERR_CALIBRATION_NOT_READY"));
         controller.restoreLocalProfile();
         QTRY_VERIFY(!controller.restoreAnswer().isEmpty());
         QCOMPARE(controller.restoreAnswer(), mrtest::marked("calibration.not_ready", chineseOf(notReady)));
@@ -182,7 +184,7 @@ private Q_SLOTS:
         QCOMPARE(controller.restoreAnswer(), mrtest::marked("calibration.not_ready", chineseOf(notReady)));
 
         // Without a reference the Collector's message stands as it came.
-        backend.refusalCode = QStringLiteral("ERR_CALIBRATION_BUSY");
+        backend.setRefusalCode(QStringLiteral("ERR_CALIBRATION_BUSY"));
         backend.refusalMessage = QString::fromUtf8("采集服务的中文原句。");
         backend.refusalRef = {};
         controller.discard();

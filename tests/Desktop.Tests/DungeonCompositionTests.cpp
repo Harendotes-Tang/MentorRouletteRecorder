@@ -253,6 +253,48 @@ class DungeonCompositionTests : public QObject
 {
     Q_OBJECT
 
+private:
+    static void verifyJobPlaceholderProjection(Scene &scene, const mr::LanguageManager &language, QQuickItem *page, int unknown)
+    {
+        const auto repeaterCount = [&](const char *name) {
+            auto *repeater = scene.root->findChild<QObject *>(QString::fromLatin1(name));
+            return repeater ? repeater->property("count").toInt() : -1;
+        };
+        QTRY_COMPARE(scene.controller.jobs()->totalAttemptCount(), 6 + unknown);
+        QTRY_COMPARE(qmlList(page->property("rowsCache")).size(), unknown ? 6 : 5);
+        QTRY_COMPARE(repeaterCount("jobsTableRows"), unknown ? 6 : 5);
+        QTRY_COMPARE(repeaterCount("jobsRoleLegend"), unknown ? 7 : 6);
+        QCOMPARE(scene.controller.jobs()->topRows(0).size(), 8);
+        const auto rawRoles = scene.controller.jobs()->roleBreakdown();
+        QCOMPARE(rawRoles.size(), 7);
+        QCOMPARE(rawRoles.last().toMap().value("attempt_count").toInt(), unknown);
+        QCOMPARE(rawRoles[1].toMap().value("attempt_count").toInt(), 3);
+        QCOMPARE(rawRoles[5].toMap().value("attempt_count").toInt(), 2);
+        int roleTotal = 0;
+        for (const QVariant &role : rawRoles) roleTotal += role.toMap().value("attempt_count").toInt();
+        QCOMPARE(roleTotal, scene.controller.jobs()->totalAttemptCount());
+        const auto shown = qmlList(page->property("rowsCache"));
+        QVERIFY(std::any_of(shown.cbegin(), shown.cend(), [](const QVariant &row) {
+            return row.toMap().value("job_name").toString() == QString::fromUtf8("未收录职业名称");
+        }));
+        const auto nameOnly = shown[shown.size() - 2].toMap();
+        QCOMPARE(nameOnly.value("job_name").toString(), QString::fromUtf8("白魔法师"));
+        QVERIFY(nameOnly.value("job_id").isNull());
+        QCOMPARE(nameOnly.value("role_group").toString(), QString::fromUtf8("治疗"));
+        auto *tableRow = scene.item(QStringLiteral("jobsTableRow") + QString::number(shown.size() - 2));
+        QVERIFY(tableRow);
+        auto *role = findItem(tableRow, QStringLiteral("jobRowRole"));
+        QVERIFY(role);
+        QCOMPARE(role->property("role").toString(), QString::fromUtf8("治疗"));
+        auto *header = scene.item(QStringLiteral("jobsHeader"));
+        QVERIFY(header);
+        QCOMPARE(header->property("subtitle").toString().isEmpty(), unknown == 0);
+        if (unknown)
+            QCOMPARE(header->property("subtitle").toString(), language.code() == QLatin1String("en")
+                     ? QStringLiteral("Unknown job: 2 runs") : QString::fromUtf8("未知职业 2 次"));
+        QCOMPARE(page->property("unknownCount").toInt(), unknown);
+    }
+
 private Q_SLOTS:
     void initTestCase()
     {
@@ -285,11 +327,11 @@ private Q_SLOTS:
             QVERIFY(source.open(QIODevice::ReadOnly));
             const auto catalogue = QJsonDocument::fromJson(source.readAll()).object()
                                        .value(QStringLiteral("duties")).toArray();
-            for (const QJsonValue &member : members) {
+            for (const auto &member : members) {
                 const QJsonObject record = member.toObject();
                 const int id = record.value(QStringLiteral("content_id")).toInt();
                 QJsonObject found;
-                for (const QJsonValue &value : catalogue) {
+                for (const auto &value : catalogue) {
                     if (value.toObject().value(QStringLiteral("content_id")).toInt() == id)
                         found = value.toObject();
                 }
@@ -796,39 +838,8 @@ private Q_SLOTS:
                         scene.backend.jobRows[2] = job(QJsonValue::Null, QString::fromUtf8("未知"), unknown);
                         scene.controller.jobs()->reload();
                     }
-                    QTRY_COMPARE(scene.controller.jobs()->totalAttemptCount(), 6 + unknown);
-                    QTRY_COMPARE(qmlList(page->property("rowsCache")).size(), unknown ? 6 : 5);
-                    QTRY_COMPARE(repeaterCount("jobsTableRows"), unknown ? 6 : 5);
-                    QTRY_COMPARE(repeaterCount("jobsRoleLegend"), unknown ? 7 : 6);
-                    QCOMPARE(scene.controller.jobs()->topRows(0).size(), 8);
-                    const auto rawRoles = scene.controller.jobs()->roleBreakdown();
-                    QCOMPARE(rawRoles.size(), 7);
-                    QCOMPARE(rawRoles.last().toMap().value("attempt_count").toInt(), unknown);
-                    QCOMPARE(rawRoles[1].toMap().value("attempt_count").toInt(), 3);
-                    QCOMPARE(rawRoles[5].toMap().value("attempt_count").toInt(), 2);
-                    int roleTotal = 0;
-                    for (const QVariant &role : rawRoles) roleTotal += role.toMap().value("attempt_count").toInt();
-                    QCOMPARE(roleTotal, scene.controller.jobs()->totalAttemptCount());
-                    const auto shown = qmlList(page->property("rowsCache"));
-                    QVERIFY(std::any_of(shown.cbegin(), shown.cend(), [](const QVariant &row) {
-                        return row.toMap().value("job_name").toString() == QString::fromUtf8("未收录职业名称");
-                    }));
-                    const auto nameOnly = shown[shown.size() - 2].toMap();
-                    QCOMPARE(nameOnly.value("job_name").toString(), QString::fromUtf8("白魔法师"));
-                    QVERIFY(nameOnly.value("job_id").isNull());
-                    QCOMPARE(nameOnly.value("role_group").toString(), QString::fromUtf8("治疗"));
-                    auto *tableRow = scene.item(QStringLiteral("jobsTableRow") + QString::number(shown.size() - 2));
-                    QVERIFY(tableRow);
-                    auto *role = findItem(tableRow, QStringLiteral("jobRowRole"));
-                    QVERIFY(role);
-                    QCOMPARE(role->property("role").toString(), QString::fromUtf8("治疗"));
-                    auto *header = scene.item(QStringLiteral("jobsHeader"));
-                    QVERIFY(header);
-                    QCOMPARE(header->property("subtitle").toString().isEmpty(), unknown == 0);
-                    if (unknown)
-                        QCOMPARE(header->property("subtitle").toString(), language.code() == QLatin1String("en")
-                                 ? QStringLiteral("Unknown job: 2 runs") : QString::fromUtf8("未知职业 2 次"));
-                    QCOMPARE(page->property("unknownCount").toInt(), unknown);
+                    verifyJobPlaceholderProjection(scene, language, page, unknown);
+                    QVERIFY(!QTest::currentTestFailed());
                 } else {
                     if (!translated) {
                         scene.backend.dashboard = dashboard(unknown);
@@ -912,7 +923,11 @@ private Q_SLOTS:
         const QString cellName = jobs ? QStringLiteral("jobRowJoinedInProgress")
                                       : QStringLiteral("dungeonRowJoinedInProgress");
         QList<QQuickItem *> cells;
-        QTRY_COMPARE((cells = findItems(scene.window()->contentItem(), cellName)).size(), 2);
+        const auto refreshCells = [&] {
+            cells = findItems(scene.window()->contentItem(), cellName);
+            return cells.size();
+        };
+        QTRY_COMPARE(refreshCells(), 2);
         QCOMPARE(cells[0]->property("text").toString(), jobs ? QStringLiteral("4") : QStringLiteral("3"));
         QCOMPARE(cells[1]->property("text").toString(), QStringLiteral("0"));
 
@@ -1013,9 +1028,9 @@ int main(int argc, char **argv)
     QFont::insertSubstitutions(QStringLiteral("Noto Serif SC"),
                               {QStringLiteral("SimSun"), QStringLiteral("NSimSun")});
     if (!cjkFamilies.isEmpty()) {
-        QFont font = app.font();
+        QFont font = QGuiApplication::font();
         font.setFamilies(cjkFamilies);
-        app.setFont(font);
+        QGuiApplication::setFont(font);
     }
 #endif
     DungeonCompositionTests tests;

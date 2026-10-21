@@ -20,7 +20,7 @@ namespace mr {
 class ScreenshotImportParser final
 {
 public:
-    static constexpr qsizetype MaxTsvBytes = 8 * 1024 * 1024;
+    static constexpr qsizetype MaxTsvBytes = 8LL * 1024 * 1024;
     static constexpr qint64 MaxImagePixels = 50'000'000;
     static constexpr int MaxCandidates = 1000;
 

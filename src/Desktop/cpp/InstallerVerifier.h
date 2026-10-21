@@ -101,7 +101,7 @@ class InstallerHasher final : public QObject
 
 public:
     /// What one turn reads when nobody says otherwise.
-    static constexpr qint64 kDefaultSliceBytes = 1024 * 1024;
+    static constexpr qint64 kDefaultSliceBytes = 1024LL * 1024;
 
     explicit InstallerHasher(QObject *parent = nullptr);
 

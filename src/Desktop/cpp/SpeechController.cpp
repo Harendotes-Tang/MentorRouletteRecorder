@@ -20,7 +20,7 @@ QVariantList voiceList(const QJsonValue &value)
 {
     QVariantList rows;
     const QJsonArray array = value.toArray();
-    for (const QJsonValue &entry : array) {
+    for (const auto &entry : array) {
         const QJsonObject object = entry.toObject();
         const QString name = object.value(QStringLiteral("name")).toString().trimmed();
         if (name.isEmpty())
@@ -221,7 +221,7 @@ QString SpeechController::errorReason(const QString &code)
 QString SpeechController::describeTarget(const QString &provider, const QString &region,
                                          const QString &baseUrl) const
 {
-    const QString host = targetHost();
+    QString host = targetHost();
     if (available() && provider == m_provider && !host.isEmpty()) {
         if (provider == kAzure && region.trimmed().toLower() == azureRegion())
             return host;
@@ -356,7 +356,7 @@ void SpeechController::send(const QVariantMap &fields, const char *successText,
             m_busy = false;
             if (ok) {
                 if (!quiet)
-                    setResult(QStringLiteral("ok"), [successText] { return tr(successText); });
+                    setResult(QStringLiteral("ok"), LiveText([successText] { return tr(successText); }));
                 adopt(QJsonObject::fromVariantMap(payload));
                 if (!quiet)
                     Q_EMIT saveFinished(true);
@@ -378,9 +378,9 @@ void SpeechController::send(const QVariantMap &fields, const char *successText,
                 if (!isRefusal(code))
                     m_syncedVoice.clear();
             } else {
-                setResult(QStringLiteral("error"), [failureText, refusal, code] {
+                setResult(QStringLiteral("error"), LiveText([failureText, refusal, code] {
                     return tr(failureText).arg(refusal.isEmpty() ? errorReason(code) : refusal.text());
-                });
+                }));
             }
             Q_EMIT changed();
             if (!quiet)
@@ -394,7 +394,7 @@ void SpeechController::test()
         return;
     m_busy = true;
     m_testing = true;
-    setResult(QString(), [] { return tr("正在测试…"); });
+    setResult(QString(), LiveText([] { return tr("正在测试…"); }));
     Q_EMIT changed();
     if (!isSignalConnected(QMetaMethod::fromSignal(&SpeechController::testRequested))) {
         noteTestResult(false, QStringLiteral("ERR_INTERNAL"), false);
@@ -410,10 +410,10 @@ void SpeechController::noteTestResult(bool ok, const QString &code, bool spokenO
     m_testing = false;
     m_busy = false;
     if (ok && spokenOnline) {
-        setResult(QStringLiteral("ok"), [] { return tr("测试成功：示例播报已用在线语音播放。"); });
+        setResult(QStringLiteral("ok"), LiveText([] { return tr("测试成功：示例播报已用在线语音播放。"); }));
     } else {
         setResult(QStringLiteral("error"),
-                  [code] { return tr("在线语音测试失败：%1。").arg(errorReason(code)); });
+                  LiveText([code] { return tr("在线语音测试失败：%1。").arg(errorReason(code)); }));
     }
     Q_EMIT changed();
     maybeSyncVoice();

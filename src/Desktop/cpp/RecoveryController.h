@@ -26,7 +26,7 @@ class RecoveryController : public QObject
 public:
     explicit RecoveryController(IBackend *backend, AppSettings *settings, QObject *parent = nullptr);
     QVariantList items() const;
-    int count() const { return items().size(); }
+    int count() const { return static_cast<int>(items().size()); }
     bool busy() const { return m_busy; }
     QString error() const { return m_error; }
     QString databaseKey() const { return m_databaseKey; }

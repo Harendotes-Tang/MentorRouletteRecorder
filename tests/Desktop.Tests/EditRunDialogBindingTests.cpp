@@ -201,12 +201,12 @@ ApplicationWindow {
         return hidden ? hidden : dialog()->findChild<QQuickItem *>(name);
     }
 
-    bool openForRun(const QVariantMap &value)
+    bool openForRun(const QVariantMap &value) const
     {
         return QMetaObject::invokeMethod(dialog(), "openForRun", Q_ARG(QVariant, QVariant(value)));
     }
 
-    bool goToStep(int step)
+    bool goToStep(int step) const
     {
         return QMetaObject::invokeMethod(dialog(), "goToStep", Q_ARG(QVariant, QVariant(step)));
     }
@@ -215,7 +215,7 @@ ApplicationWindow {
 
     /// Waits for the popup to be fully laid out, then clicks the centre of \a name the way a
     /// player does. Fails the test if the item is missing, hidden or outside the window.
-    bool click(const QString &name)
+    bool click(const QString &name) const
     {
         // Delegates a filter change released are deleted later; let that happen first so a
         // stale row cannot be the one that is found.
@@ -1143,7 +1143,7 @@ private Q_SLOTS:
         QVERIFY(fixture.openForRun(value));
         const auto entered = QDateTime::fromString(value.value(QStringLiteral("entered_at_utc")).toString(),
                                                    Qt::ISODateWithMs);
-        const auto end = entered.addSecs(25 * 60);
+        const auto end = entered.addSecs(25LL * 60);
         fixture.dialog()->setProperty("endedDate", end.toLocalTime().toString(QStringLiteral("yyyy-MM-dd")));
         fixture.dialog()->setProperty("endedTime", end.toLocalTime().toString(QStringLiteral("HH:mm:ss.zzz")));
         QSignalSpy corrections(fixture.dialog(), SIGNAL(correctRequested(QVariant,QString)));

@@ -5,6 +5,7 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QStandardPaths>
+#include <algorithm>
 #include <limits>
 
 namespace {
@@ -156,7 +157,7 @@ void AppSettings::setStatisticsOverlayLabels(bool labels)
 
 QString AppSettings::themeMode() const
 {
-    const QString mode =
+    QString mode =
         m_settings.value(QStringLiteral("ui/theme"), QStringLiteral("system")).toString();
     if (mode == QLatin1String("dark") || mode == QLatin1String("light"))
         return mode;
@@ -465,11 +466,9 @@ void AppSettings::setTemplateValue(const char *leaf, const QString &value)
 
 bool AppSettings::templatesCustomised() const
 {
-    for (const TemplateDefault &entry : kTemplateDefaults) {
-        if (m_settings.contains(ttsKey(entry.leaf)))
-            return true;
-    }
-    return false;
+    return std::ranges::any_of(kTemplateDefaults, [this](const TemplateDefault &entry) {
+        return m_settings.contains(ttsKey(entry.leaf));
+    });
 }
 
 void AppSettings::resetTemplates()

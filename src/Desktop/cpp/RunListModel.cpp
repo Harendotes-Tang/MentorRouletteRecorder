@@ -199,7 +199,7 @@ void RunListModel::loadRows()
                 beginResetModel();
                 m_rows.clear();
                 m_rows.reserve(items.size());
-                for (const QJsonValue &value : items)
+                for (const auto &value : items)
                     m_rows.append(value.toObject());
                 m_total = total;
                 // A reload can observe deletions. Keep the position when it
@@ -324,7 +324,7 @@ void RunListModel::loadCalendarMonth(const QString &month, bool retryError)
         bool valid = ok && answer.value(QStringLiteral("month")).toString() == month
                         && daysValue.isArray();
         if (valid) {
-            for (const QJsonValue &value : daysValue.toArray()) {
+            for (const auto &value : daysValue.toArray()) {
                 const QString day = value.toString();
                 if (!value.isString() || !validCalendarDay(day) || day.left(7) != month
                         || (!days.isEmpty() && day <= days.last())) {
@@ -338,10 +338,10 @@ void RunListModel::loadCalendarMonth(const QString &month, bool retryError)
             m_calendarDays.insert(month, days);
             m_calendarErrors.remove(month);
         } else {
-            m_calendarErrors.insert(month, [ok, code, refusal = collector_text::replyErrorText(guard, message)] {
+            m_calendarErrors.insert(month, LiveText([ok, code, refusal = collector_text::replyErrorText(guard, message)] {
                 return ok ? tr("暂时无法读取有记录的日期，请重新加载。")
                     : (!refusal.isEmpty() ? refusal.text() : (!code.isEmpty() ? code : tr("日历日期加载失败")));
-            });
+            }));
         }
         Q_EMIT calendarChanged();
     });

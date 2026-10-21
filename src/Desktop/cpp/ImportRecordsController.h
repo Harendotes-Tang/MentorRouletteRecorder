@@ -89,13 +89,13 @@ public:
     /// The source as shown, in the interface language; what travels is m_sourceName.
     QString sourceLabel() const;
     QString sourceKind() const { return m_sourceKind; }
-    int sourceImageCount() const { return m_sourceImages.size(); }
+    int sourceImageCount() const { return static_cast<int>(m_sourceImages.size()); }
     QVariantList rows() const { return m_rows; }
     QVariantMap summary() const { return m_summary; }
     bool previewValid() const { return !m_previewId.isEmpty(); }
     bool ownRecordsConfirmed() const { return m_ownConfirmed; }
     void setOwnRecordsConfirmed(bool confirmed);
-    int selectedCount() const { return m_selected.size(); }
+    int selectedCount() const { return static_cast<int>(m_selected.size()); }
     int pendingJobSelectedCount() const;
     /// A guessed job never travels unconfirmed (owner rule: job icons stay manual confirmation),
     /// and a batch that adds to the progress waits for the stored baseline (audit L2-9).

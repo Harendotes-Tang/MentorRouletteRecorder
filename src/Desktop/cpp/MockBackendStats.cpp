@@ -29,11 +29,7 @@ bool matchesStringArray(const QJsonObject &filter, const QString &key,
     const QJsonArray allowed = filter.value(key).toArray();
     if (allowed.isEmpty())
         return true;
-    for (const QJsonValue &entry : allowed) {
-        if (entry == value)
-            return true;
-    }
-    return false;
+    return std::ranges::any_of(allowed, [&value](const auto &entry) { return entry == value; });
 }
 
 bool matchesIntArray(const QJsonObject &filter, const QString &key,
@@ -42,13 +38,9 @@ bool matchesIntArray(const QJsonObject &filter, const QString &key,
     const QJsonArray allowed = filter.value(key).toArray();
     if (allowed.isEmpty())
         return true;
-    for (const QJsonValue &entry : allowed) {
-        if (value.isNull() && entry.isNull())
-            return true;
-        if (!value.isNull() && entry.toInt(-1) == value.toInt(-2))
-            return true;
-    }
-    return false;
+    return std::ranges::any_of(allowed, [&value](const auto &entry) {
+        return value.isNull() ? entry.isNull() : entry.toInt(-1) == value.toInt(-2);
+    });
 }
 
 /// DutyCatalog.UniqueTerritoriesOf: the zones of the duties asked for that host that duty
@@ -56,7 +48,7 @@ bool matchesIntArray(const QJsonObject &filter, const QString &key,
 QSet<qint64> zonesOfOnly(const QJsonArray &contentIds)
 {
     QSet<qint64> wanted;
-    for (const QJsonValue &id : contentIds) {
+    for (const auto &id : contentIds) {
         if (id.isDouble())
             wanted.insert(qint64(id.toDouble()));
     }
@@ -103,7 +95,7 @@ QJsonValue fieldForSort(const QJsonObject &run, const QString &field)
         if (!date.isValid()) date = QDate::fromString(raw, QStringLiteral("yyyy/M/d"));
         if (!date.isValid()) date = QDate::fromString(raw, QStringLiteral("yyyy.M.d"));
         if (date.isValid()) return date.toString(QStringLiteral("yyyy-MM-dd")) + QStringLiteral("T00:00:00.000Z");
-        return QJsonValue(QJsonValue::Null);
+        return {QJsonValue::Null};
     }
     return run.value(field);
 }
@@ -200,7 +192,7 @@ QList<QJsonObject> MockBackend::selectRuns(const QJsonObject &filter,
     const bool reviewList = filter.value(QStringLiteral("pending_review")).toBool(false);
     QSet<QString> importedByRevision;
     if (reviewList) {
-        for (const QJsonValue &value : m_revisions) {
+        for (const auto &value : m_revisions) {
             const QJsonObject revision = value.toObject();
             if (revision.value(QStringLiteral("revision")).toInt() == 1
                 && revision.value(QStringLiteral("change_kind")).toString() == QLatin1String("IMPORT"))
@@ -211,7 +203,7 @@ QList<QJsonObject> MockBackend::selectRuns(const QJsonObject &filter,
     QList<QJsonObject> selected;
     selected.reserve(m_runs.size());
 
-    for (const QJsonValue &value : m_runs) {
+    for (const auto &value : m_runs) {
         const QJsonObject run = value.toObject();
 
         // Soft-deleted runs never take part in a statistic, whatever the
@@ -428,7 +420,7 @@ QJsonObject MockBackend::trendSeries(const QJsonObject &filter,
     if (mode == QLatin1String("week")) {
         const QDate thisWeek = today.addDays(-(today.dayOfWeek() - 1));
         for (int i = 11; i >= 0; --i)
-            starts.append(QDateTime(thisWeek.addDays(-7 * i), QTime(0, 0), QTimeZone::UTC));
+            starts.append(QDateTime(thisWeek.addDays(-7LL * i), QTime(0, 0), QTimeZone::UTC));
     } else if (mode == QLatin1String("month")) {
         const QDate thisMonth(today.year(), today.month(), 1);
         for (int i = 5; i >= 0; --i)
@@ -449,7 +441,7 @@ QJsonObject MockBackend::trendSeries(const QJsonObject &filter,
             continue;
 
         const QDateTime matchedUtc = matched.toUTC();
-        for (int i = starts.size() - 1; i >= 0; --i) {
+        for (qsizetype i = starts.size() - 1; i >= 0; --i) {
             if (matchedUtc >= starts.at(i)) {
                 ++counts[i];
                 break;
@@ -522,7 +514,7 @@ QJsonObject MockBackend::dashboardStats(const QJsonObject &filter,
     // it recorded is added on top, whenever it ended; baseline_effective_at is
     // information only (owner's report B3-1, withdrawing the CS7-D4 cutoff).
     int goalRuns = 0;
-    for (const QJsonValue &value : m_runs) {
+    for (const auto &value : m_runs) {
         const QJsonObject run = value.toObject();
         if (isSoftDeleted(run) || !isConfirmedMentor(run))
             continue;

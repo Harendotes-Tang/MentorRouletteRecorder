@@ -106,7 +106,7 @@ QList<DutyNameTemplate> loadDutyNameTemplates()
     // 仅读现有完整中文目录作为候选文字依据，不扩展 DutyCatalog 的展示职责，
     // 不把内容编号、类型或目录等级写成 OCR 已确认事实。
     QFile file(QStringLiteral(":/data/duties/cn.2026-09-04.json"));
-    if (!file.open(QIODevice::ReadOnly) || file.size() > 1024 * 1024)
+    if (!file.open(QIODevice::ReadOnly) || file.size() > qint64{1024} * 1024)
         return {};
     const QJsonArray rows = QJsonDocument::fromJson(file.readAll()).object()
                                 .value(QStringLiteral("duties")).toArray();
@@ -114,7 +114,7 @@ QList<DutyNameTemplate> loadDutyNameTemplates()
         return {};
     QList<DutyNameTemplate> templates;
     QSet<QString> distinctNames;
-    for (const QJsonValue &value : rows) {
+    for (const auto &value : rows) {
         const QJsonObject row = value.toObject();
         const int level = row.value(QStringLiteral("level")).toInt();
         const QString name = row.value(QStringLiteral("localized_name")).toString();
@@ -250,13 +250,8 @@ QRect cardRect(const QImage &image, const Line &title, int lowerLimit, int upper
         while (below < upperLimit && matches(below + 1))
             ++below;
         // A uniform full screenshot has no detected card boundary.
-        if (above > lowerLimit && below < upperLimit
+        if (above > lowerLimit && below <= upperLimit
             && below - above > title.rect.height() * 2) {
-            top = above;
-            bottom = below;
-            hasSurface = true;
-        } else if (above > lowerLimit && below == upperLimit
-                   && below - above > title.rect.height() * 2) {
             top = above;
             bottom = below;
             hasSurface = true;

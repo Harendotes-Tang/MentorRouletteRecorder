@@ -73,7 +73,7 @@ public:
         auto *reply = new mr::BackendReply(QStringLiteral("store"), type, this);
         const QJsonObject filter = payload.value(QStringLiteral("filter")).toObject();
         QStringList ids;
-        for (const QJsonValue &id : filter.value(QStringLiteral("run_id")).toArray())
+        for (const auto &id : filter.value(QStringLiteral("run_id")).toArray())
             ids.append(id.toString());
         QJsonArray matching;
         for (const QJsonObject &run : runs) {
@@ -127,6 +127,29 @@ Q_SIGNALS:
 class ReflectionLibraryTests : public QObject
 {
     Q_OBJECT
+private:
+    static void cancelLibraryFilterAndClearSelection(QQuickWindow *window, QObject *root, const mr::ReflectionLibraryController &library, QQuickItem *search, const QStringList &warnings)
+    {
+        search->forceActiveFocus();
+        QTest::keyClick(window, Qt::Key_N);
+        QTest::keyClick(window, Qt::Key_Return);
+        QObject *confirmation = root->findChild<QObject *>(QStringLiteral("reflectionFilterConfirmation"));
+        QVERIFY(confirmation);
+        QTRY_VERIFY(confirmation->property("visible").toBool());
+        QCOMPARE(library.selectedCount(), 2);
+        QVERIFY(!library.filter().contains(QStringLiteral("text")));
+        QTest::keyClick(window, Qt::Key_Escape);
+        QTRY_VERIFY(!confirmation->property("visible").toBool());
+        QTRY_COMPARE(search->property("text").toString(), QString());
+        QCOMPARE(library.selectedCount(), 2);
+        auto *clear = findVisual(window->contentItem(), QStringLiteral("clearReflectionSelection"));
+        QVERIFY(clear);
+        clear->forceActiveFocus();
+        QTest::keyClick(window, Qt::Key_Space);
+        QTRY_COMPARE(library.selectedCount(), 0);
+        QVERIFY2(warnings.isEmpty(), qPrintable(warnings.join(QLatin1Char('\n'))));
+    }
+
 private Q_SLOTS:
     void initTestCase() {
         const QString root = QString::fromUtf8(MR_DESKTOP_QML_DIR);
@@ -328,24 +351,8 @@ ApplicationWindow {
                 .arg(style, dark ? QStringLiteral("dark") : QStringLiteral("light"))
                 .arg(size.width()))));
         }
-        search->forceActiveFocus();
-        QTest::keyClick(window, Qt::Key_N);
-        QTest::keyClick(window, Qt::Key_Return);
-        QObject *confirmation = root->findChild<QObject *>(QStringLiteral("reflectionFilterConfirmation"));
-        QVERIFY(confirmation);
-        QTRY_VERIFY(confirmation->property("visible").toBool());
-        QCOMPARE(library.selectedCount(), 2);
-        QVERIFY(!library.filter().contains(QStringLiteral("text")));
-        QTest::keyClick(window, Qt::Key_Escape);
-        QTRY_VERIFY(!confirmation->property("visible").toBool());
-        QTRY_COMPARE(search->property("text").toString(), QString());
-        QCOMPARE(library.selectedCount(), 2);
-        auto *clear = findVisual(window->contentItem(), QStringLiteral("clearReflectionSelection"));
-        QVERIFY(clear);
-        clear->forceActiveFocus();
-        QTest::keyClick(window, Qt::Key_Space);
-        QTRY_COMPARE(library.selectedCount(), 0);
-        QVERIFY2(warnings.isEmpty(), qPrintable(warnings.join(QLatin1Char('\n'))));
+        cancelLibraryFilterAndClearSelection(window, root.get(), library, search, warnings);
+        QVERIFY(!QTest::currentTestFailed());
     }
     // 审查 I4-1：勾选保存的是记录的副本。心得被清空、记录被删除，或在别的页上改过
     // 心得之后，勾选必须跟着记录走：删掉的不再交给「生成分享图片」，改过的用新文字；
@@ -399,7 +406,7 @@ ApplicationWindow {
         library.runs()->nextPage();
         QTRY_VERIFY(!library.runs()->isLoading());
         library.setActive(false);
-        const int before = backend->queries.size();
+        const qsizetype before = backend->queries.size();
         Q_EMIT backend->liveEvent({{QStringLiteral("kind"), QStringLiteral("run_updated")}});
         QCOMPARE(backend->queries.size(), before);
         library.setActive(true);

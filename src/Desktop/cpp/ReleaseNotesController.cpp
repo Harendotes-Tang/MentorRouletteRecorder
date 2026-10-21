@@ -172,9 +172,9 @@ QVariantList ReleaseNotesController::parseEntries(const QString &changelog, cons
         detail.remove(QLatin1Char('`'));
         if (detail.isEmpty())
             return;
-        const int sentenceEnd = detail.indexOf(QRegularExpression(QString::fromUtf8("[。！？\\n]")));
+        const qsizetype sentenceEnd = detail.indexOf(QRegularExpression(QString::fromUtf8("[。！？\\n]")));
         const QString summary = sentenceEnd >= 0 ? detail.left(sentenceEnd + 1) : detail;
-        const int titleEnd = summary.indexOf(QRegularExpression(QString::fromUtf8("[：，。！？\\n]")));
+        const qsizetype titleEnd = summary.indexOf(QRegularExpression(QString::fromUtf8("[：，。！？\\n]")));
         const QString title = titleEnd > 0 ? summary.left(titleEnd) : summary;
         QVariantMap entry{{"id", QString::number(entries.size())}, {"category", categoryId(section)},
                           {"section", section}, {"title", title}, {"summary", summary},

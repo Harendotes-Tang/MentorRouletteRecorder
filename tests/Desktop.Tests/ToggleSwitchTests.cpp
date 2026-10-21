@@ -43,8 +43,8 @@ ApplicationWindow {
         errors = component.errorString();
         return root != nullptr;
     }
-    QQuickWindow *window() { return qobject_cast<QQuickWindow *>(root.get()); }
-    QQuickItem *item(const char *name) { return root->findChild<QQuickItem *>(QString::fromLatin1(name)); }
+    QQuickWindow *window() const { return qobject_cast<QQuickWindow *>(root.get()); }
+    QQuickItem *item(const char *name) const { return root->findChild<QQuickItem *>(QString::fromLatin1(name)); }
     bool focusBefore()
     {
         if (!QTest::qWaitForWindowExposed(window())) return false;

@@ -230,7 +230,7 @@ void EvidenceSubmissionController::preview(const QString &kind, const QString &c
             QJsonParseError error;
             const QJsonDocument doc = QJsonDocument::fromJson(json.toUtf8(), &error);
             const auto root = doc.object();
-            if (json.toUtf8().size() > 48 * 1024 || error.error != QJsonParseError::NoError || !doc.isObject()
+            if (json.toUtf8().size() > 48LL * 1024 || error.error != QJsonParseError::NoError || !doc.isObject()
                 || root.value(QStringLiteral("format")).toString() != QLatin1String("MentorRecorder.CalibrationEvidence")
                 || root.value(QStringLiteral("schema_version")).toInt() != 1
                 || root.value(QStringLiteral("kind")).toString() != kind
@@ -245,7 +245,9 @@ void EvidenceSubmissionController::preview(const QString &kind, const QString &c
                 m_inUrl = inUrl;
             }
         }
-        Q_EMIT changed();
+        {
+            Q_EMIT changed();
+        }
     });
 }
 
@@ -270,13 +272,13 @@ void EvidenceSubmissionController::copyAndOpen()
     // 再次检查的目标就是当前已预览内容；复制全量摘要，即使预填 URL 未携带摘要。
     m_copy(json);
     // 剪贴板信号可同步进入其他界面逻辑；取消、切换目标或销毁后不再打开旧表单。
-    if (!guard || generation != m_generation || !canSubmit()) return;
+    if (guard.isNull() || generation != guard->m_generation || !guard->canSubmit()) return;
     if (!m_openUrl(url)) {
-        if (!guard) return;
+        if (guard.isNull()) return;
         Q_EMIT notice(tr("完整摘要已复制，但未能打开浏览器。请稍后重试。"));
         return;
     }
-    if (!guard) return;
+    if (guard.isNull()) return;
     Q_EMIT notice(inUrl ? tr("已复制摘要并打开 GitHub，请检查后自行提交。")
                          : tr("完整摘要已复制，请在 GitHub 的证据摘要字段粘贴后自行提交。"));
 }

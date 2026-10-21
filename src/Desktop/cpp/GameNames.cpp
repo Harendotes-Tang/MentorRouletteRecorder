@@ -124,7 +124,7 @@ void GameNames::load()
             m_jobIdByName.insert(name, job.value(QStringLiteral("job_id")).toLongLong());
     }
     const QJsonObject roulettes = readObject(kRoulettesResource);
-    for (const QJsonValue &value : roulettes.value(QStringLiteral("roulettes")).toArray()) {
+    for (const auto &value : roulettes.value(QStringLiteral("roulettes")).toArray()) {
         const QJsonObject roulette = value.toObject();
         const QString name = roulette.value(QStringLiteral("localized_name")).toString();
         if (!name.isEmpty())
@@ -150,7 +150,7 @@ QString GameNames::pick(const QHash<qint64, Names> &table, const QString &code,
 QString GameNames::dutyIn(const QString &code, const QVariant &contentId,
                           const QString &recorded) const
 {
-    const QString name = pick(m_duties, code, contentId, m_dutyIdByName.value(recorded), recorded);
+    QString name = pick(m_duties, code, contentId, m_dutyIdByName.value(recorded), recorded);
     if (!name.isEmpty() || code != QLatin1String(kSourceCode))
         return name;
     // 简体中文 without a recorded name: the catalogue's.

@@ -81,9 +81,9 @@ struct StoreFixture {
     QTemporaryDir pictures;
     mr::NoteImageStore store{root.path()};
 
-    QString picture(const QString &name, const QColor &color = Qt::red)
+    QString picture(const QString &name, const QColor &color = Qt::red) const
     {
-        const QString path = QDir(pictures.path()).absoluteFilePath(name);
+        QString path = QDir(pictures.path()).absoluteFilePath(name);
         if (!writeImage(path, color))
             return {};
         return path;
@@ -163,13 +163,13 @@ ApplicationWindow {
         };
     }
 
-    bool openForRun()
+    bool openForRun() const
     {
         return QMetaObject::invokeMethod(dialog(), "openForRun",
                                          Q_ARG(QVariant, QVariant(run())));
     }
 
-    bool stage(const QString &path)
+    bool stage(const QString &path) const
     {
         QVariant staged;
         if (!QMetaObject::invokeMethod(dialog(), "stageNoteImage", Q_RETURN_ARG(QVariant, staged),
@@ -178,7 +178,7 @@ ApplicationWindow {
         return staged.toBool();
     }
 
-    bool submit() { return QMetaObject::invokeMethod(dialog(), "submit"); }
+    bool submit() const { return QMetaObject::invokeMethod(dialog(), "submit"); }
 
     QVariantList rows() const { return asList(dialog()->property("noteImageRows")); }
 

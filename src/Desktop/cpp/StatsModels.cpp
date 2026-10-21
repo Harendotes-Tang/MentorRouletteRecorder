@@ -49,7 +49,7 @@ const MainScenarioMembership &mainScenarioMembership()
             qWarning("invalid installed main-scenario membership resource");
             return result;
         }
-        for (const QJsonValue &value : root.value(QStringLiteral("duties")).toArray()) {
+        for (const auto &value : root.value(QStringLiteral("duties")).toArray()) {
             const QJsonValue id = value.toObject().value(QStringLiteral("content_id"));
             if (!id.isDouble() || id.toInteger() <= 0
                 || double(id.toInteger()) != id.toDouble()
@@ -227,10 +227,10 @@ void StatsRowsModel::loadPage(quint64 generation, int page, QList<QJsonObject> r
                     || info.value(QStringLiteral("page_size")).toInt(pageSize) != pageSize
                     || items.size() != qMin(pageSize, qMax(0, total - int(rows.size())))) {
                     failLoad(generation, QStringLiteral("ERR_BAD_RESPONSE"),
-                             [] { return tr("统计分页在读取时发生变化，请刷新后重试。"); });
+                             LiveText([] { return tr("统计分页在读取时发生变化，请刷新后重试。"); }));
                     return;
                 }
-                for (const QJsonValue &value : items)
+                for (const auto &value : items)
                     rows.append(decorate(value.toObject()));
                 if (rows.size() < total) {
                     // Queue the next page so a synchronously completed backend
@@ -434,7 +434,7 @@ QString JobStatsModel::roleGroupOf(const QJsonObject &row)
 {
     // 1. A backend that already speaks the prototype's fine-grained groups
     //    (the mock does) wins.
-    const QString supplied = row.value(QStringLiteral("role_group")).toString();
+    QString supplied = row.value(QStringLiteral("role_group")).toString();
     if (!supplied.isEmpty() && supplied != QString::fromUtf8("未知"))
         return supplied;
 
@@ -444,7 +444,7 @@ QString JobStatsModel::roleGroupOf(const QJsonObject &row)
     //    available. Both the table and the legend use this display projection.
     const QJsonValue jobId = row.value(QStringLiteral("job_id"));
     static const JobCatalog catalog;
-    const QString derived = catalog.roleGroup(jobId.toVariant(), row.value(QStringLiteral("job_name")).toString());
+    QString derived = catalog.roleGroup(jobId.toVariant(), row.value(QStringLiteral("job_name")).toString());
     if (!derived.isEmpty() && derived != QString::fromUtf8("未知"))
         return derived;
 

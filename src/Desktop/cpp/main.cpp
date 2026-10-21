@@ -61,6 +61,9 @@
 #include "TrayController.h"
 #include "TtsService.h"
 
+#include <algorithm>
+#include <bit>
+
 #include <QApplication>
 #include <QCommandLineParser>
 #include <QDir>
@@ -253,7 +256,7 @@ void roundWindowCorners(QQuickWindow *window)
     if (!window)
         return;
     window->create();
-    const auto handle = reinterpret_cast<HWND>(window->winId());
+    auto *const handle = std::bit_cast<HWND>(window->winId());
     if (!handle)
         return;
     // DWMWA_WINDOW_CORNER_PREFERENCE / DWMWCP_ROUND, by value so the build does not need a
@@ -302,11 +305,9 @@ bool sceneShowsText(QQuickItem *root, const QString &needle)
         if (text.isValid() && text.toString().contains(needle))
             return true;
     }
-    for (QQuickItem *child : root->childItems()) {
-        if (sceneShowsText(child, needle))
-            return true;
-    }
-    return false;
+    return std::ranges::any_of(root->childItems(), [&needle](QQuickItem *child) {
+        return sceneShowsText(child, needle);
+    });
 }
 
 // Compiled-QML acceptance: exercises the real visibility handlers and button wiring.
@@ -784,10 +785,11 @@ int main(int argc, char *argv[])
     if (parser.isSet(speechSelfTestOption))
         return mr::runSpeechSelfTest(parser.value(speechSelfTestOption));
 
-    const QString selectedBackend = parser.isSet(backendOption)
-                                        ? parser.value(backendOption)
-                                        : (screenshotMode ? QStringLiteral("mock")
-                                                          : QStringLiteral("ipc"));
+    const QString selectedBackend = [&] {
+        if (parser.isSet(backendOption))
+            return parser.value(backendOption);
+        return screenshotMode ? QStringLiteral("mock") : QStringLiteral("ipc");
+    }();
 
     if (selectedBackend != QLatin1String("ipc")
         && selectedBackend != QLatin1String("mock")) {
@@ -949,12 +951,13 @@ int main(int argc, char *argv[])
         auto *mock = new mr::MockBackend(&app);
         mockBackend = mock;
         mock->setNpcapMissing(parser.isSet(npcapOption));
-        const QString live = mockLiveMode;
-        mock->setLiveMode(live == QLatin1String("none")
-                              ? mr::MockBackend::LiveMode::None
-                              : live == QLatin1String("matched")
-                                    ? mr::MockBackend::LiveMode::Matched
-                                    : mr::MockBackend::LiveMode::Entered);
+        if (mockLiveMode == QLatin1String("none")) {
+            mock->setLiveMode(mr::MockBackend::LiveMode::None);
+        } else if (mockLiveMode == QLatin1String("matched")) {
+            mock->setLiveMode(mr::MockBackend::LiveMode::Matched);
+        } else {
+            mock->setLiveMode(mr::MockBackend::LiveMode::Entered);
+        }
         if (parser.isSet(validationOption))
             mock->setValidationFixture(mockValidationState);
         if (parser.isSet(formalRunningOption))
@@ -1042,9 +1045,9 @@ int main(int argc, char *argv[])
     if (parser.isSet(maintainerOption) || parser.isSet(validationOption) || parser.isSet(validationKeyboardOption)
         || parser.isSet(candidatesOption))
         controller.setMaintainerToolsVisible(true);
-    if (parser.isSet(exportTargetOption))
+    if (parser.isSet(exportTargetOption)) {
         controller.setExportTargetOverride(parser.value(exportTargetOption));
-    else if (screenshotMode) {
+    } else if (screenshotMode) {
         // A screenshot run must never block on a modal file chooser.
         controller.setExportTargetOverride(
             QDir::temp().absoluteFilePath(QStringLiteral("MentorRecorder-screenshot-exports")));
@@ -1181,7 +1184,7 @@ int main(int argc, char *argv[])
         // window must still end the process.
         QApplication::setQuitOnLastWindowClosed(!tray.isActive());
         controller.runDailyBackupIfDue();
-        const int exitCode = app.exec();
+        const int exitCode = QApplication::exec();
         // The window is gone; stopping the Collector can take seconds. A launch
         // in that time starts normally instead of signalling a closing program.
         instanceGuard.reset();
@@ -1272,7 +1275,7 @@ int main(int argc, char *argv[])
         QCoreApplication::quit();
     });
 
-    const int loopResult = app.exec();
+    const int loopResult = QApplication::exec();
     // The frame is still written, so the page the warning came from can be looked at.
     const int qmlWarningCount = qmlWarnings.count();
     if (exitCode == 0 && loopResult == 0 && qmlWarningCount > 0) {

@@ -4,6 +4,8 @@
 #include <QFileInfo>
 #include <QRegularExpression>
 
+#include <algorithm>
+
 #ifdef Q_OS_WIN
 #include <windows.h>
 
@@ -25,10 +27,10 @@ bool isLink(const QString &path)
     // Read from the entry itself: a reparse point is never followed here.
     const DWORD attributes = ::GetFileAttributesW(
         reinterpret_cast<const wchar_t *>(QDir::toNativeSeparators(path).utf16()));
-    if (attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_REPARSE_POINT))
-        return true;
-#endif
+    return attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_REPARSE_POINT);
+#else
     return false;
+#endif
 }
 
 } // namespace
@@ -91,7 +93,7 @@ bool InstallerHold::open(const QString &path)
     // handle is open, and a writer that already has it open makes this open
     // fail instead. A link at the last segment is opened as itself, so
     // isRegularFile() refuses it rather than following it.
-    const HANDLE handle = ::CreateFileW(reinterpret_cast<const wchar_t *>(native.utf16()), GENERIC_READ,
+    void *const handle = ::CreateFileW(reinterpret_cast<const wchar_t *>(native.utf16()), GENERIC_READ,
                                         FILE_SHARE_READ, nullptr, OPEN_EXISTING,
                                         FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
     if (handle == INVALID_HANDLE_VALUE)
@@ -157,8 +159,8 @@ QByteArray InstallerHold::read(qint64 maxBytes, bool *ok)
     if (!m_handle)
         return {};
     // A slice is never more than this, however much is asked for.
-    constexpr qint64 kMostPerRead = 16 * 1024 * 1024;
-    const DWORD wanted = DWORD(qBound<qint64>(1, maxBytes, kMostPerRead));
+    constexpr qint64 kMostPerRead = 16LL * 1024 * 1024;
+    const DWORD wanted = DWORD(std::clamp(maxBytes, qint64{1}, kMostPerRead));
     QByteArray bytes(qsizetype(wanted), Qt::Uninitialized);
     DWORD received = 0;
     if (!::ReadFile(m_handle, bytes.data(), wanted, &received, nullptr))

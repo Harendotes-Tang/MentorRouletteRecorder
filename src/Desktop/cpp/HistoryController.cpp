@@ -9,6 +9,7 @@
 #include <QJsonDocument>
 #include <QTimeZone>
 #include <QUuid>
+#include <algorithm>
 #include <utility>
 
 namespace {
@@ -858,14 +859,12 @@ bool HistoryController::revisionTouchesResult(const QVariantMap &revision, bool 
     // and may set `job_id`; a revision that changed any of those already made
     // the decision this dialog is about to make.
     const QVariantList changes = revision.value(QStringLiteral("changes")).toList();
-    for (const QVariant &value : changes) {
+    return std::ranges::any_of(changes, [withJob, withResult](const QVariant &value) {
         const QString field = value.toMap().value(QStringLiteral("field")).toString();
         if (withResult && (field == QLatin1String("result") || field == QLatin1String("pending_review")))
             return true;
-        if (withJob && field == QLatin1String("job_id"))
-            return true;
-    }
-    return false;
+        return withJob && field == QLatin1String("job_id");
+    });
 }
 
 bool HistoryController::reasonTargetStillSelected(const QString &kind, const QString &runId)

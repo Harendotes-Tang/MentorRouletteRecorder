@@ -72,7 +72,7 @@ public:
                 {QStringLiteral("page_info"), QJsonObject{{QStringLiteral("page"), page},
                     {QStringLiteral("page_size"), size}, {QStringLiteral("total"), total}}}};
     }
-    int count(const char *type) const
+    qsizetype count(const char *type) const
     {
         return std::count_if(calls.begin(), calls.end(), [type](const Call &call) { return call.type == QLatin1String(type); });
     }
@@ -84,6 +84,7 @@ class CaptureHost final : public mr::CaptureValidationController::Host
 {
 public:
     bool candidate = true;
+    void setCandidateEnabled(bool enabled) { candidate = enabled; }
     bool running = false;
     bool formalCapturing() const override { return running; }
     bool candidateValidationEnabled() const override { return candidate; }
@@ -416,18 +417,18 @@ ApplicationWindow {
         QCOMPARE(controller.actionLabel(), QStringLiteral("开始候选捕获"));
         controller.toggle();
         QCOMPARE(backend.calls.last().type, QStringLiteral("StartCapture"));
-        host.candidate = false; // A changed setting cannot change the in-flight command's meaning.
+        host.setCandidateEnabled(false); // A changed setting cannot change the in-flight command's meaning.
         backend.calls.last().reply->fail(QStringLiteral("ERR_PROFILE_UNSUPPORTED"), QStringLiteral("候选启动失败"));
         QCOMPARE(backend.count("StartCaptureValidation"), 0);
         QCOMPARE(controller.error(), QStringLiteral("候选启动失败"));
         QVERIFY(!controller.commandBusy());
-        host.candidate = true;
+        host.setCandidateEnabled(true);
         controller.toggle();
         backend.calls.last().reply->succeed({{QStringLiteral("state"), QStringLiteral("RUNNING")}});
         QCOMPARE(controller.actionLabel(), QStringLiteral("停止捕获"));
         QCOMPARE(controller.modeStatusText(), QStringLiteral("候选观测中；VERIFIED 解析可独立生成正式记录"));
         QCOMPARE(controller.modeCompactText(), QStringLiteral("候选观测中"));
-        host.candidate = false;
+        host.setCandidateEnabled(false);
         QCOMPARE(controller.modeStatusText(), QStringLiteral("被动监听（不自动记录）"));
         QCOMPARE(controller.modeCompactText(), QStringLiteral("被动监听中"));
         controller.toggle();
@@ -441,7 +442,7 @@ ApplicationWindow {
         TestBackend backend;
         backend.automatic = false;
         CaptureHost host;
-        host.candidate = false;
+        host.setCandidateEnabled(false);
         mr::CaptureValidationController controller(&host);
         controller.setBackend(&backend);
         // The poll timer's own order: profile first, then status.
@@ -488,9 +489,11 @@ ApplicationWindow {
         backend.calls.clear();
         controller.updateCaptureSetting(QStringLiteral("autostart"), true);
         QTRY_COMPARE(backend.count("UpdateCaptureSettings"), 1);
-        const auto ordinary = backend.calls.last().reply;
+        const auto ordinary = backend.calls.value(backend.calls.size() - 1).reply;
+        QVERIFY(ordinary);
         controller.candidates()->setCandidateEnabled(true);
-        const auto candidate = backend.calls.last().reply;
+        const auto candidate = backend.calls.value(backend.calls.size() - 1).reply;
+        QVERIFY(candidate);
         candidate->succeed({{QStringLiteral("candidate_validation_enabled"), true},
                             {QStringLiteral("research_payload_opcodes"), QJsonArray{QStringLiteral("0x03bb")}}});
         ordinary->succeed({{QStringLiteral("autostart"), true},
@@ -927,7 +930,7 @@ int main(int argc, char **argv)
         families.append(QFontDatabase::applicationFontFamilies(symbolId));
         QFont font;
         font.setFamilies(families);
-        app.setFont(font);
+        QGuiApplication::setFont(font);
     }
 #endif
     CandidateReviewTests tests;

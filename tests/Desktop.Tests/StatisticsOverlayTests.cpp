@@ -38,6 +38,8 @@
 #include <QTemporaryDir>
 #include <QTest>
 #include <QSystemTrayIcon>
+#include <algorithm>
+#include <bit>
 #include <limits>
 #include <memory>
 #ifdef Q_OS_WIN
@@ -139,7 +141,7 @@ ApplicationWindow {
         if (auto *match = find(find, floating()->contentItem())) return match;
         return find(find, mainWindow()->contentItem());
     }
-    bool click(const QString &name)
+    bool click(const QString &name) const
     {
         auto *target = item(name, true);
         if (!target || !target->isEnabled() || target->width() <= 0) return false;
@@ -222,6 +224,121 @@ ApplicationWindow {
 class StatisticsOverlayTests : public QObject
 {
     Q_OBJECT
+private:
+    static void customizeOverlayModules(const Scene &scene)
+    {
+        QVERIFY(scene.click(QStringLiteral("floatingCustomizeButton")));
+        QTRY_VERIFY(scene.item(QStringLiteral("floatingCustomizePanel"), true));
+        QVERIFY(!scene.item(QStringLiteral("floatingStatisticsScroll"), true));
+        QVERIFY(scene.click(QStringLiteral("floatingModuleToggle_current_duty")));
+        QTRY_VERIFY(!scene.overlay()->modules().contains(QStringLiteral("current_duty")));
+        QVERIFY(scene.click(QStringLiteral("floatingModuleToggle_current_duty")));
+        QTRY_COMPARE(scene.overlay()->modules().indexOf(QStringLiteral("current_duty")), 1);
+        QVERIFY(scene.click(QStringLiteral("floatingMoveUp_current_duty")));
+        QTRY_COMPARE(scene.overlay()->modules().indexOf(QStringLiteral("current_duty")), 0);
+        scene.overlay()->setModules({});
+        QTRY_VERIFY(!scene.item(QStringLiteral("floatingModule_progress")));
+        QTest::qWait(50);
+        QVERIFY(scene.click(QStringLiteral("floatingModuleToggle_jobs")));
+        QTRY_COMPARE(scene.overlay()->modules(), QStringList({"jobs"}));
+        // 副本排行: choosing 前 5 changes the ranking (audit 2026-10-20, L3-6 / I2-5).
+        auto *rowLimit = scene.item(QStringLiteral("floatingRowLimit"), true);
+        QVERIFY(rowLimit);
+        QQuickItem *topFive = nullptr;
+        const auto findOption = [&](auto &&self, QQuickItem *parent) -> void {
+            if (!topFive && parent->inherits("QQuickAbstractButton") && parent->property("text").toString() == QString::fromUtf8("前 5"))
+                topFive = parent;
+            for (auto *child : parent->childItems()) self(self, child);
+        };
+        findOption(findOption, rowLimit);
+        QVERIFY(topFive && topFive->isVisible());
+        QCOMPARE(scene.overlay()->rowLimit(), 3);
+        QTest::mouseClick(topFive->window(), Qt::LeftButton, Qt::NoModifier,
+                          topFive->mapToScene(QPointF(topFive->width() / 2, topFive->height() / 2)).toPoint());
+        QTRY_COMPARE(scene.overlay()->rowLimit(), 5);
+        QVERIFY(scene.click(QStringLiteral("floatingCustomizationDone")));
+        QTRY_VERIFY(!scene.item(QStringLiteral("floatingCustomizePanel"), true));
+        QVERIFY(scene.item(QStringLiteral("floatingModule_jobs"), true));
+    }
+
+    static void moveMiniBarNearScreenEdge(Scene &scene)
+    {
+        // Near the bottom edge the bar's own size decides what fits, not the full form's.
+        const QRect available = scene.floating()->screen()->availableGeometry();
+        const int lowY = available.bottom() - scene.floating()->height() - 10;
+        scene.floating()->setPosition(160, lowY);
+        QTRY_COMPARE(scene.overlay()->geometry().y(), lowY);
+        QCOMPARE(scene.overlay()->geometry().size(), QSize(340, 520));
+        QVERIFY(scene.click(QStringLiteral("floatingExpandButton")));
+        QTRY_COMPARE(scene.overlay()->form(), QStringLiteral("full"));
+        QTRY_COMPARE(scene.floating()->size(), QSize(340, 520));
+        QTRY_VERIFY(scene.floating()->y() + scene.floating()->height() <= available.bottom() + 1);
+        QVERIFY(scene.click(QStringLiteral("floatingMiniButton")));
+        QTRY_COMPARE(scene.overlay()->form(), QStringLiteral("mini"));
+        scene.floating()->setPosition(160, 140);
+        QTRY_COMPARE(scene.overlay()->geometry().topLeft(), QPoint(160, 140));
+    }
+
+    static QObject *visibleTip(Scene &scene, const QString &name)
+    {
+        for (auto *candidate : scene.root->findChildren<QObject *>(name)) {
+            auto *owner = candidate->property("parent").value<QQuickItem *>();
+            if (owner && owner->isVisible()) return candidate;
+        }
+        return nullptr;
+    }
+
+    static QPointF centreOf(QQuickItem *item)
+    {
+        return item->mapToScene(QPointF(item->width() / 2, item->height() / 2));
+    }
+
+    static void verifyFullOverlayTips(Scene &scene, QObject *&headerLockTip)
+    {
+        // The full form's title bar has the same shape: the drag tip of the bar
+        // underneath stays closed while a button's tip is up.
+        auto *headerTip = visibleTip(scene, QStringLiteral("floatingHeaderTip"));
+        QVERIFY(headerTip);
+        auto *headerLock = scene.item(QStringLiteral("floatingLockButton"), true);
+        QVERIFY(headerLock);
+        headerLockTip = visibleTip(scene, QStringLiteral("floatingLockButtonTip"));
+        QVERIFY(headerLockTip);
+        QTest::mouseMove(scene.floating(), centreOf(headerLock).toPoint());
+        QTRY_VERIFY(headerLockTip->property("opened").toBool());
+        QVERIFY(!headerTip->property("visible").toBool());
+        QTest::mouseMove(scene.floating(), QPoint(40, 15));
+        QTRY_VERIFY(headerTip->property("opened").toBool());
+        QTRY_VERIFY(!headerLockTip->property("visible").toBool());
+        QTest::mouseMove(scene.floating(), QPoint(150, 300));
+        QTRY_VERIFY(!headerTip->property("visible").toBool());
+    }
+
+    static void verifyMiniTipAtScreenTop(Scene &scene, QObject *lockTip, QQuickWindow *tipWindow, const QPointF &lockCentre)
+    {
+        // Docked at the top of the screen there is no room above the bar: the tip
+        // moves below it instead of lying on it, and stays on the screen.
+        QTest::mouseMove(scene.floating(), QPoint(150, 300));
+        QTRY_VERIFY(!lockTip->property("visible").toBool());
+        const QRect screen = scene.floating()->screen()->availableGeometry();
+        scene.floating()->setPosition(screen.x() + 100, screen.y());
+        QTRY_COMPARE(scene.floating()->y(), screen.y());
+        QTest::mouseMove(scene.floating(), lockCentre.toPoint());
+        QTRY_VERIFY(lockTip->property("opened").toBool());
+        {
+            const QRect topBar = scene.floating()->geometry();
+            const QRect topTip = tipWindow->geometry();
+            QVERIFY2(!topTip.intersects(topBar), qPrintable(QStringLiteral("tip %1,%2 %3x%4 overlaps bar %5,%6 %7x%8 at the screen top")
+                .arg(topTip.x()).arg(topTip.y()).arg(topTip.width()).arg(topTip.height())
+                .arg(topBar.x()).arg(topBar.y()).arg(topBar.width()).arg(topBar.height())));
+            QVERIFY2(topTip.top() >= screen.top(), qPrintable(QStringLiteral("tip top %1 above screen top %2").arg(topTip.top()).arg(screen.top())));
+            QVERIFY(tipWindow->grabWindow().save(QString::fromUtf8(MR_SOURCE_DIR) + kEvidence + QStringLiteral("/mini-lock-tip-screen-top.png")));
+        }
+        QTest::mouseMove(scene.floating(), QPoint(150, 300));
+        QTRY_VERIFY(!lockTip->property("visible").toBool());
+        scene.floating()->setPosition(200, 300);
+        QTRY_COMPARE(scene.floating()->y(), 300);
+    }
+
 private Q_SLOTS:
     void initTestCase();
     void preferencesPersistButVisibilityAndLockDoNot();
@@ -421,38 +538,8 @@ void StatisticsOverlayTests::realWindowCanCustomizeAndRecoverEmptyContent()
     QVERIFY(!scene.item(QStringLiteral("floatingModule_elapsed"), true));
     QVERIFY(!scene.item(QStringLiteral("floatingModule_pending_work"), true));
 
-    QVERIFY(scene.click(QStringLiteral("floatingCustomizeButton")));
-    QTRY_VERIFY(scene.item(QStringLiteral("floatingCustomizePanel"), true));
-    QVERIFY(!scene.item(QStringLiteral("floatingStatisticsScroll"), true));
-    QVERIFY(scene.click(QStringLiteral("floatingModuleToggle_current_duty")));
-    QTRY_VERIFY(!scene.overlay()->modules().contains(QStringLiteral("current_duty")));
-    QVERIFY(scene.click(QStringLiteral("floatingModuleToggle_current_duty")));
-    QTRY_COMPARE(scene.overlay()->modules().indexOf(QStringLiteral("current_duty")), 1);
-    QVERIFY(scene.click(QStringLiteral("floatingMoveUp_current_duty")));
-    QTRY_COMPARE(scene.overlay()->modules().indexOf(QStringLiteral("current_duty")), 0);
-    scene.overlay()->setModules({});
-    QTRY_VERIFY(!scene.item(QStringLiteral("floatingModule_progress")));
-    QTest::qWait(50);
-    QVERIFY(scene.click(QStringLiteral("floatingModuleToggle_jobs")));
-    QTRY_COMPARE(scene.overlay()->modules(), QStringList({"jobs"}));
-    // 副本排行: choosing 前 5 changes the ranking (audit 2026-10-20, L3-6 / I2-5).
-    auto *rowLimit = scene.item(QStringLiteral("floatingRowLimit"), true);
-    QVERIFY(rowLimit);
-    QQuickItem *topFive = nullptr;
-    const auto findOption = [&](auto &&self, QQuickItem *parent) -> void {
-        if (!topFive && parent->inherits("QQuickAbstractButton") && parent->property("text").toString() == QString::fromUtf8("前 5"))
-            topFive = parent;
-        for (auto *child : parent->childItems()) self(self, child);
-    };
-    findOption(findOption, rowLimit);
-    QVERIFY(topFive && topFive->isVisible());
-    QCOMPARE(scene.overlay()->rowLimit(), 3);
-    QTest::mouseClick(topFive->window(), Qt::LeftButton, Qt::NoModifier,
-                      topFive->mapToScene(QPointF(topFive->width() / 2, topFive->height() / 2)).toPoint());
-    QTRY_COMPARE(scene.overlay()->rowLimit(), 5);
-    QVERIFY(scene.click(QStringLiteral("floatingCustomizationDone")));
-    QTRY_VERIFY(!scene.item(QStringLiteral("floatingCustomizePanel"), true));
-    QVERIFY(scene.item(QStringLiteral("floatingModule_jobs"), true));
+    customizeOverlayModules(scene);
+    QVERIFY(!QTest::currentTestFailed());
     scene.floating()->setGeometry(120, 90, 460, 560);
     const QRect fitted = mr::StatisticsOverlayController::fitGeometry(
         scene.floating()->geometry(), scene.floating()->screen()->availableGeometry());
@@ -545,20 +632,8 @@ void StatisticsOverlayTests::miniBarSharesThePositionAndKeepsTheSize()
     scene.floating()->setPosition(160, 140);
     QTRY_COMPARE(scene.overlay()->geometry().topLeft(), QPoint(160, 140));
     QCOMPARE(scene.overlay()->geometry().size(), QSize(340, 520));
-    // Near the bottom edge the bar's own size decides what fits, not the full form's.
-    const QRect available = scene.floating()->screen()->availableGeometry();
-    const int lowY = available.bottom() - scene.floating()->height() - 10;
-    scene.floating()->setPosition(160, lowY);
-    QTRY_COMPARE(scene.overlay()->geometry().y(), lowY);
-    QCOMPARE(scene.overlay()->geometry().size(), QSize(340, 520));
-    QVERIFY(scene.click(QStringLiteral("floatingExpandButton")));
-    QTRY_COMPARE(scene.overlay()->form(), QStringLiteral("full"));
-    QTRY_COMPARE(scene.floating()->size(), QSize(340, 520));
-    QTRY_VERIFY(scene.floating()->y() + scene.floating()->height() <= available.bottom() + 1);
-    QVERIFY(scene.click(QStringLiteral("floatingMiniButton")));
-    QTRY_COMPARE(scene.overlay()->form(), QStringLiteral("mini"));
-    scene.floating()->setPosition(160, 140);
-    QTRY_COMPARE(scene.overlay()->geometry().topLeft(), QPoint(160, 140));
+    moveMiniBarNearScreenEdge(scene);
+    QVERIFY(!QTest::currentTestFailed());
     // A run adds the second line.
     scene.backend.setLiveMode(mr::MockBackend::LiveMode::Entered);
     QTRY_VERIFY(!scene.app->currentRun().value(QStringLiteral("run")).toMap().isEmpty());
@@ -639,34 +714,9 @@ void StatisticsOverlayTests::miniBarTipsOpenOutsideTheBar()
     QTRY_VERIFY(scene.floating()->property("positionReady").toBool());
     // The title bar and the mini bar each have a lock button, so each has a tip of
     // that name; the one that counts belongs to the form on screen.
-    const auto tipOf = [&](const QString &name) -> QObject * {
-        for (auto *candidate : scene.root->findChildren<QObject *>(name)) {
-            auto *owner = candidate->property("parent").value<QQuickItem *>();
-            if (owner && owner->isVisible()) return candidate;
-        }
-        return nullptr;
-    };
-    const auto centreOf = [](QQuickItem *item) {
-        return item->mapToScene(QPointF(item->width() / 2, item->height() / 2));
-    };
-
-    // The full form's title bar has the same shape: the drag tip of the bar
-    // underneath stays closed while a button's tip is up.
-    auto *headerTip = tipOf(QStringLiteral("floatingHeaderTip"));
-    QVERIFY(headerTip);
-    auto *headerLock = scene.item(QStringLiteral("floatingLockButton"), true);
-    QVERIFY(headerLock);
-    auto *headerLockTip = tipOf(QStringLiteral("floatingLockButtonTip"));
-    QVERIFY(headerLockTip);
-    QTest::mouseMove(scene.floating(), centreOf(headerLock).toPoint());
-    QTRY_VERIFY(headerLockTip->property("opened").toBool());
-    QVERIFY(!headerTip->property("visible").toBool());
-    QTest::mouseMove(scene.floating(), QPoint(40, 15));
-    QTRY_VERIFY(headerTip->property("opened").toBool());
-    QTRY_VERIFY(!headerLockTip->property("visible").toBool());
-    QTest::mouseMove(scene.floating(), QPoint(150, 300));
-    QTRY_VERIFY(!headerTip->property("visible").toBool());
-
+    QObject *headerLockTip = nullptr;
+    verifyFullOverlayTips(scene, headerLockTip);
+    QVERIFY(!QTest::currentTestFailed());
     scene.overlay()->setForm(QStringLiteral("mini"));
     QTRY_COMPARE(scene.floating()->width(), 280);
     QTRY_VERIFY(scene.floating()->property("positionReady").toBool());
@@ -675,8 +725,8 @@ void StatisticsOverlayTests::miniBarTipsOpenOutsideTheBar()
     QVERIFY(lock);
     // The bar re-lays out after the window narrows; wait for the button to settle inside it.
     QTRY_VERIFY(centreOf(lock).x() < scene.floating()->width());
-    auto *lockTip = tipOf(QStringLiteral("floatingLockButtonTip"));
-    auto *progressTip = tipOf(QStringLiteral("floatingMiniProgressTip"));
+    auto *lockTip = visibleTip(scene, QStringLiteral("floatingLockButtonTip"));
+    auto *progressTip = visibleTip(scene, QStringLiteral("floatingMiniProgressTip"));
     QVERIFY(lockTip);
     QVERIFY(lockTip != headerLockTip);
     QVERIFY(progressTip);
@@ -715,29 +765,8 @@ void StatisticsOverlayTests::miniBarTipsOpenOutsideTheBar()
     QVERIFY(progressItem && progressItem->window() && progressItem->window() != scene.floating());
     QVERIFY(!progressItem->window()->geometry().intersects(scene.floating()->geometry()));
 
-    // Docked at the top of the screen there is no room above the bar: the tip
-    // moves below it instead of lying on it, and stays on the screen.
-    QTest::mouseMove(scene.floating(), QPoint(150, 300));
-    QTRY_VERIFY(!lockTip->property("visible").toBool());
-    const QRect screen = scene.floating()->screen()->availableGeometry();
-    scene.floating()->setPosition(screen.x() + 100, screen.y());
-    QTRY_COMPARE(scene.floating()->y(), screen.y());
-    QTest::mouseMove(scene.floating(), lockCentre.toPoint());
-    QTRY_VERIFY(lockTip->property("opened").toBool());
-    {
-        const QRect topBar = scene.floating()->geometry();
-        const QRect topTip = tipWindow->geometry();
-        QVERIFY2(!topTip.intersects(topBar), qPrintable(QStringLiteral("tip %1,%2 %3x%4 overlaps bar %5,%6 %7x%8 at the screen top")
-            .arg(topTip.x()).arg(topTip.y()).arg(topTip.width()).arg(topTip.height())
-            .arg(topBar.x()).arg(topBar.y()).arg(topBar.width()).arg(topBar.height())));
-        QVERIFY2(topTip.top() >= screen.top(), qPrintable(QStringLiteral("tip top %1 above screen top %2").arg(topTip.top()).arg(screen.top())));
-        QVERIFY(tipWindow->grabWindow().save(QString::fromUtf8(MR_SOURCE_DIR) + kEvidence + QStringLiteral("/mini-lock-tip-screen-top.png")));
-    }
-    QTest::mouseMove(scene.floating(), QPoint(150, 300));
-    QTRY_VERIFY(!lockTip->property("visible").toBool());
-    scene.floating()->setPosition(200, 300);
-    QTRY_COMPARE(scene.floating()->y(), 300);
-
+    verifyMiniTipAtScreenTop(scene, lockTip, tipWindow, lockCentre);
+    QVERIFY(!QTest::currentTestFailed());
     // The button still takes the click while its tip is up.
     QTest::mouseMove(scene.floating(), lockCentre.toPoint());
     QTRY_VERIFY(lockTip->property("opened").toBool());
@@ -774,9 +803,9 @@ void StatisticsOverlayTests::pendingRowOpensTheFirstRecord()
     const QVariantMap noteOnly = completedRun(2);
     scene.app->recovery()->offer(noteOnly, QStringLiteral("reflection"));
     const auto waiting = [&] {
-        for (const QVariant &item : scene.app->recovery()->items())
-            if (item.toMap().value(QStringLiteral("runId")) == noteOnly.value(QStringLiteral("run_id"))) return true;
-        return false;
+        return std::ranges::any_of(scene.app->recovery()->items(), [&](const QVariant &item) {
+            return item.toMap().value(QStringLiteral("runId")) == noteOnly.value(QStringLiteral("run_id"));
+        });
     };
     QTRY_VERIFY(waiting() && !scene.app->recovery()->busy());
     const QString shown = QString::number(scene.app->recovery()->count());
@@ -1022,11 +1051,11 @@ void StatisticsOverlayTests::nativeInputStylesAndTrayRecovery()
     QVERIFY(QTest::qWaitForWindowExposed(scene.floating()));
     scene.overlay()->setLocked(true);
     QTest::qWait(40);
-    auto nativeStyle = [&] { return GetWindowLongPtr(reinterpret_cast<HWND>(scene.floating()->winId()), GWL_EXSTYLE); };
+    auto nativeStyle = [&] { return GetWindowLongPtr(std::bit_cast<HWND>(scene.floating()->winId()), GWL_EXSTYLE); };
     QVERIFY(nativeStyle() & WS_EX_TRANSPARENT);
     QVERIFY(nativeStyle() & WS_EX_NOACTIVATE);
     QVERIFY(nativeStyle() & WS_EX_TOPMOST);
-    QCOMPARE(GetWindow(reinterpret_cast<HWND>(scene.floating()->winId()), GW_OWNER), HWND(nullptr));
+    QCOMPARE(GetWindow(std::bit_cast<HWND>(scene.floating()->winId()), GW_OWNER), HWND(nullptr));
     mr::TrayController tray(scene.app.get(), &scene.settings, scene.mainWindow());
     QVERIFY2(tray.isActive(), "Native tray unavailable; native overlay assertions above still ran.");
     QAction *toggle = nullptr;

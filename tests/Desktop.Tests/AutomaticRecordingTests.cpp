@@ -296,7 +296,7 @@ private slots:
         c.refresh(); QVERIFY(c.blocked()); QVERIFY(c.pendingAlert()); QCOMPARE(alerts.count(), 1);
         c.acknowledge(); c.refresh(); QVERIFY(c.blocked()); QVERIFY(!c.pendingAlert()); QCOMPARE(alerts.count(), 1);
         b.capture["profile_status"] = "VERIFIED"; c.refresh(); QCOMPARE(c.state(), "listening"); QVERIFY(!c.pendingAlert());
-        b.capture["profile_status"] = "NONE"; c.refresh(); QCOMPARE(alerts.count(), 2);
+        b.capture.insert("profile_status", "NONE"); c.refresh(); QCOMPARE(alerts.count(), 2);
         b.capture["ffxiv_process_id"] = 456; c.refresh(); QCOMPARE(alerts.count(), 3);
     }
     void unreadableInstallPathIsNamedInsteadOfAProfileMismatch() {
@@ -318,7 +318,8 @@ private slots:
     }
     void restoresOnlyFollowAndConfirmsReply() {
         RecordingBackend b; b.settings["follow_game"] = false;
-        const auto candidate = b.settings["candidate_validation_enabled"], whitelist = b.settings["research_payload_opcodes"];
+        const auto candidate = b.settings["candidate_validation_enabled"];
+        const auto whitelist = b.settings["research_payload_opcodes"];
         mr::AutomaticRecordingController c(&b); c.refresh(); c.refresh();
         QCOMPARE(b.writes.size(), 1); QCOMPARE(b.writes.first(), QJsonObject({{"follow_game", true}}));
         QCOMPARE(b.settings["candidate_validation_enabled"], candidate); QCOMPARE(b.settings["research_payload_opcodes"], whitelist);
@@ -337,7 +338,7 @@ private slots:
         mr::AutomaticRecordingController c(&b); c.refresh(); c.refresh();
         QVERIFY(c.blocked()); QCOMPARE(b.calls.count("StopCaptureValidation"), 1);
         b.validation["active"] = false; c.refresh(); QCOMPARE(c.state(), "listening");
-        b.validation["active"] = true; b.failStop = false; c.retry();
+        b.validation.insert("active", true); b.failStop = false; c.retry();
         QCOMPARE(c.state(), "listening"); QCOMPARE(b.calls.count("StopCaptureValidation"), 2);
     }
     void explicitObservationPausesMutationsButLegacyCleanupStillWorks() {
@@ -346,7 +347,7 @@ private slots:
         c.setUserObservation(true);
         b.validation["active"] = true;
         b.validation["state"] = "RECORDING";
-        const int calls = b.calls.size();
+        const qsizetype calls = b.calls.size();
         c.refresh(); c.retry(); b.reconnect();
         QCOMPARE(c.state(), "observing");
         QCOMPARE(b.calls.size(), calls);
@@ -560,7 +561,7 @@ private slots:
 
         // So does a reconnect, before any observation: nothing may be assumed
         // about the game across a connection change.
-        b.capture["ffxiv_running"] = false; c.refresh();
+        b.capture.insert("ffxiv_running", false); c.refresh();
         QCOMPARE(c.pollIntervalMs(), mr::AutomaticRecordingController::kIdlePollMs);
         b.holdStatus = true; b.reconnect();
         QCOMPARE(c.pollIntervalMs(), mr::AutomaticRecordingController::kActivePollMs);
@@ -635,7 +636,7 @@ private slots:
     void rescanAlsoRefreshesTheValidationSnapshot() {
         RecordingBackend b;
         mr::AppController app(&b, nullptr);
-        const int before = b.calls.count("GetCaptureValidationStatus");
+        const qsizetype before = b.calls.count("GetCaptureValidationStatus");
         app.rescanGame();
         QVERIFY2(b.calls.count("GetCaptureValidationStatus") > before,
                  "rescanGame must re-read the capture validation status");
