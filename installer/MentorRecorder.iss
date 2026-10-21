@@ -94,7 +94,11 @@ LicenseFile={#StageDir}\LICENSE
 ; under {app} and Setup asks before closing them (CloseApplicationsFilter defaults to
 ; *.exe,*.dll,*.chm, and "yes" - not "force" - means the user is prompted, never killed
 ; behind their back). They are not restarted afterwards: the [Run] entry below is how
-; the application comes back, and only if the user asks for it.
+; the application comes back, and only if the user asks for it. Setup closes them when the
+; installation process starts - after CurStepChanged(ssInstall), right before [InstallDelete]
+; (PerformInstall in the Inno Setup source) - so nothing that needs them gone may run at
+; ssInstall; the code folders are cleared from the first [InstallDelete] entry instead
+; (ClearCodeDirectories), where a user who kept the application running is told to close it.
 CloseApplications=yes
 RestartApplications=no
 MinVersion=10.0
@@ -167,10 +171,11 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 ; contents. Nothing here is user data: records, backups and settings live under
 ; %LOCALAPPDATA%\MentorRecorder and are never touched by an upgrade.
 ; These folder names are also the only ones, besides note-images, that Setup lets stay in the
-; install folder (ClearedDirectoryNames in [Code], which must list exactly the same names). By
-; the time this section runs, ProtectInstallDirectory has already deleted them and stopped Setup
-; on one it could not delete - a failure this section would silently skip.
-Type: filesandordirs; Name: "{app}\protocol-profiles"
+; install folder (ClearedDirectoryNames in [Code], which must list exactly the same names). The
+; BeforeInstall procedure of the first entry deletes them all just before this section runs - once
+; Setup has closed the running application, which it does only after ssInstall - and stops Setup
+; on one it could not delete, a failure this section would silently skip (ClearCodeDirectories).
+Type: filesandordirs; Name: "{app}\protocol-profiles"; BeforeInstall: ClearCodeDirectories
 Type: filesandordirs; Name: "{app}\qml"
 Type: filesandordirs; Name: "{app}\ocr"
 Type: filesandordirs; Name: "{app}\plugins"
@@ -204,7 +209,9 @@ Type: files; Name: "{app}\*.dll"
 Type: files; Name: "{app}\MentorRecorder.Desktop.exe.manifest"
 
 [Files]
-Source: "{#StageDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+; The Check is the second line of defence of ClearCodeDirectories (see [Code]): it stops the copy
+; when the code folders could not be cleared and Setup's cancel path could not end Setup first.
+Source: "{#StageDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Check: CodeFoldersCleared
 
 [Dirs]
 ; Note images are user data stored beside the application. The rest of {app} is writable by
@@ -240,7 +247,8 @@ const
   // each between bars. Keep it equal to the filesandordirs names there (checked by
   // tools/package-verification/test_installer_directories.py); with note-images they are the
   // only folders Setup lets stay in {app} (RefuseUnknownTopLevelDirectories). Setup deletes them
-  // itself before [InstallDelete] runs and stops on one that is left (RemoveClearedDirectories).
+  // itself right before [InstallDelete] runs, once the application is closed, and stops on one
+  // that is left (ClearCodeDirectories, RemoveClearedDirectories).
   ClearedDirectoryNames = '|protocol-profiles|qml|ocr|plugins|docs|generic|iconengines|imageformats|multimedia|networkinformation|platforminputcontexts|platforms|qmltooling|styles|texttospeech|tls|vectorimageformats|';
   // Ownership and per-file resets, applied by ProtectInstallDirectory and ProtectTopLevelFiles.
   // Accounts are named by well-known SID, never by name, because Windows localises the names
@@ -333,6 +341,10 @@ var
   DownloadPage: TDownloadWizardPage;
   NpcapHandled: Boolean;
   UninstallUserDataDir: String;
+  // Set by ClearCodeDirectories when Setup must stop during the installation process, and read
+  // by CancelButtonClick and CodeFoldersCleared; see ClearCodeDirectories.
+  StopReason: String;
+  CancelArmed: Boolean;
 
 function DriveTypeOf(const Root: String): Cardinal;
 begin
@@ -740,7 +752,8 @@ begin
   end;
 end;
 
-// Deletes the folders [InstallDelete] would clear next, and stops Setup on one that is left.
+// Deletes the folders [InstallDelete] would clear next, and names one that is left so that Setup
+// stops - from ClearCodeDirectories, once Setup has closed the running application.
 // [InstallDelete] ignores a failed delete, and Setup takes no ownership before deleting, so a
 // folder an ordinary user created under one of these names with an ACL that lets Administrators
 // delete nothing - a qml folder made before an upgrade over 1.5.0, or one added to a pre-created
@@ -781,6 +794,59 @@ begin
     Result := FmtMessage(CustomMessage('InstallDirFolderNotRemoved'), [AddBackslash(Dir) + Left]);
 end;
 
+// BeforeInstall of the first [InstallDelete] entry: the first thing Setup runs after it has
+// closed the running application on the user's say-so ("Shutting down applications using our
+// files" in the log; PerformInstall in the Inno Setup source), and before any delete or copy.
+// Setup closes the application only there, after CurStepChanged(ssInstall), so the code folders
+// cannot be cleared from ProtectInstallDirectory: the Desktop holds the Qt plugins in them, and
+// 1.8.0-beta.1, which swept at ssInstall, stopped on imageformats on every upgrade with the
+// Desktop running. A user who chose not to close the application on the Preparing page, or who
+// ignored a close that failed, reaches here with it running: the sweep then fails on those
+// plugins and Setup stops with the message that says to close it and run Setup again. The choice
+// stays the user's; the application is never ended behind their back.
+//
+// Stopping from here takes Setup's own cancel path, because Setup swallows an exception raised
+// by a BeforeInstall procedure (NotifyInstallEntry in the Inno Setup source) and would go on
+// copying: WizardForm.Close is what the Cancel button does, CancelButtonClick below waives the
+// "exit Setup?" question, and Setup aborts right after [InstallDelete], before [Files], with
+// nothing installed ("User canceled the installation process" in the log; a rollback with
+// nothing to undo). Where that path is not live - /VERYSILENT keeps the wizard hidden, /NOCANCEL
+// disables it - CodeFoldersCleared stops [Files] instead. The folders already deleted come back
+// when Setup is run again.
+procedure ClearCodeDirectories;
+begin
+  StopReason := RemoveClearedDirectories(ExpandConstant('{app}'));
+  if StopReason <> '' then
+  begin
+    Log('Code folders not cleared: ' + StopReason);
+    SuppressibleMsgBox(StopReason, mbCriticalError, MB_OK, IDOK);
+    WizardForm.Close;
+  end;
+end;
+
+// Setup's cancel path: the Cancel button, the window's close box and WizardForm.Close above all
+// arrive here. While ClearCodeDirectories is stopping Setup, the "exit Setup?" question is
+// waived; a cancel the user asks for themselves is confirmed as usual.
+procedure CancelButtonClick(CurPageID: Integer; var Cancel, Confirm: Boolean);
+begin
+  if StopReason <> '' then
+  begin
+    CancelArmed := True;
+    Confirm := False;
+  end;
+end;
+
+// Check of the [Files] entry: the second line of defence of ClearCodeDirectories, for a Setup
+// whose cancel path was not live. Evaluated for each file as it is about to be copied, after
+// [InstallDelete]; an exception from a Check function is not swallowed (EvalCheck in the Inno
+// Setup source) and ends the installation process before any file is written.
+function CodeFoldersCleared: Boolean;
+begin
+  Result := StopReason = '';
+  if (not Result) and (not CancelArmed) then
+    RaiseException(StopReason);
+end;
+
 // The install folder must not be writable by ordinary users: Setup and the uninstaller run
 // elevated, every account runs the executables, and the bundled protocol profiles outrank
 // the user-writable local ones because they sit here (docs/privacy-boundary.md). Program
@@ -813,20 +879,23 @@ end;
 //      *.dll and qt.conf names [InstallDelete] deletes next; a file that is a link (reparse
 //      point or extra hard link), or whose link count cannot be read, stops Setup instead
 //      (ProtectTopLevelFiles);
-//   6a. delete the folders [InstallDelete] would clear next and stop on one that is left
-//      (RemoveClearedDirectories): [InstallDelete] ignores a failed delete, so a folder under one
-//      of those names that an ordinary user made undeletable would otherwise keep its creator's
-//      owner and ACL and receive Qt's modules. Last, so every stop that deletes nothing comes
-//      first;
 //   7. write the resulting ACLs of Dir and note-images to the Setup log.
+// Not here: the folders [InstallDelete] would clear next are deleted by ClearCodeDirectories, the
+// BeforeInstall of the first [InstallDelete] entry, because Setup closes the running application
+// only when the installation process starts - after this step - and the Desktop holds the Qt
+// plugins in those folders. That step deletes the folders and stops Setup on one that is left
+// (RemoveClearedDirectories): [InstallDelete] ignores a failed delete, so a folder under one of
+// those names that an ordinary user made undeletable would otherwise keep its creator's owner and
+// ACL and receive Qt's modules. Every stop in this function deletes nothing.
 // Returns '' when the folder is protected, otherwise the message that stops Setup.
 //
 // What no longer happens: because step 3 does not propagate, nothing that already sits below
 // Dir has its inherited entries re-derived from the new DACL. Each kind of existing entry is
 // covered as follows:
-//   - code folders (protocol-profiles, qml, the Qt plugin folders, docs): step 6a removes them
-//     whole (a link among them is removed, not followed) and stops Setup on one it cannot remove,
-//     and [Files] recreates them; a folder Setup creates inherits Dir's entries on creation;
+//   - code folders (protocol-profiles, qml, the Qt plugin folders, docs): ClearCodeDirectories
+//     removes them whole right before [InstallDelete] (a link among them is removed, not
+//     followed) and stops Setup on one it cannot remove, and [Files] recreates them; a folder
+//     Setup creates inherits Dir's entries on creation;
 //   - files directly in Dir: re-owned and reset in step 6, or - *.dll and qt.conf - deleted by
 //     [InstallDelete] and, for ours, copied again;
 //   - files [Files] replaces: Setup writes each one to a new temporary file in the destination
@@ -857,8 +926,11 @@ end;
 //   a folder such as {app}\QtQuick   created before Setup ran: Setup stops at ssInstall and
 //                                    names it; note-images and the files are left unchanged
 //   {app}\qml created by another     with an ACL granting Administrators nothing: Setup stops
-//   account before Setup ran         at ssInstall and names it; the other code folders are
-//                                    already deleted, and Setup run again restores them
+//   account before Setup ran         before [InstallDelete] and names it; the other code folders
+//                                    are already deleted, and Setup run again restores them
+//   the application kept running     Setup stops before [InstallDelete] and names imageformats or
+//   (not closed on the Preparing     another plugin folder it holds; nothing is installed, and
+//   page, or a failed close ignored) closing the application and running Setup again installs
 function ProtectInstallDirectory(const Dir: String): String;
 var
   Code: Integer;
@@ -940,9 +1012,6 @@ begin
   end;
 
   Result := ProtectTopLevelFiles(Dir);
-  // Step 6a: the folders [InstallDelete] would clear are deleted now; one that is left stops Setup.
-  if Result = '' then
-    Result := RemoveClearedDirectories(Dir);
   LogAcl(Dir);
   LogAcl(Images);
 end;
@@ -1090,8 +1159,9 @@ begin
   if CurStep = ssInstall then
   begin
     // Before anything is written; see ProtectInstallDirectory. Abort from ssInstall ends
-    // Setup ("Abort" in the Inno Setup help), and nothing has been installed yet (a stop in
-    // step 6a may follow the deletion of the old code folders; Setup run again restores them).
+    // Setup ("Abort" in the Inno Setup help), and nothing has been installed yet. The old code
+    // folders are cleared later, from the first [InstallDelete] entry (ClearCodeDirectories),
+    // because Setup closes the running application only after this step.
     Failure := ProtectInstallDirectory(ExpandConstant('{app}'));
     if Failure <> '' then
     begin

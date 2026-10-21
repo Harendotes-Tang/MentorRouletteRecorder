@@ -79,6 +79,24 @@ def install_delete_folders():
     return folders
 
 
+def install_delete_entries():
+    """Every [InstallDelete] entry as its parameters, keys lower-cased, in section order."""
+    entries = []
+    for line in installer_sections().get("installdelete", []):
+        entries.append({key.lower(): value.strip().strip('"')
+                        for key, value in re.findall(r"(\w+):\s*(\"[^\"]*\"|[^;]+)", line)})
+    return entries
+
+
+def files_entries():
+    """Every [Files] entry as its parameters, keys lower-cased."""
+    entries = []
+    for line in installer_sections().get("files", []):
+        entries.append({key.lower(): value.strip().strip('"')
+                        for key, value in re.findall(r"(\w+):\s*(\"[^\"]*\"|[^;]+)", line)})
+    return entries
+
+
 def custom_messages():
     messages = {}
     for line in installer_sections().get("custommessages", []):
@@ -326,25 +344,67 @@ class ClearedFolderRemovalTests(unittest.TestCase):
         self.protect = routine(self.code, "ProtectInstallDirectory")
         self.removal = routine(self.code, "RemoveClearedDirectories")
 
-    def test_the_folders_are_deleted_after_the_guard_and_before_install_delete_and_files(self):
-        # After the guard, so only folders it accepted are left to delete; after note-images and
-        # the top-level files, so every stop that deletes nothing comes first. It runs inside
-        # ProtectInstallDirectory at ssInstall, which comes before [InstallDelete] and [Files]
-        # ("Installation Order" in the Inno Setup help), and nothing after it resets the verdict.
-        guard = self.protect.index("RefuseUnknownTopLevelDirectories(Dir)")
-        removal = self.protect.index("RemoveClearedDirectories(Dir)")
-        self.assertLess(guard, removal)
-        self.assertLess(self.protect.index("ApplyDacl(Images, NoteImagesSddl)"), removal)
-        self.assertLess(self.protect.index("ProtectTopLevelFiles(Dir)"), removal)
-        self.assertRegex(self.protect, r"Result\s*:=\s*ProtectTopLevelFiles\(Dir\);\s*"
-                                       r"if\s+Result\s*=\s*''\s+then\s+"
-                                       r"Result\s*:=\s*RemoveClearedDirectories\(Dir\);")
-        self.assertNotRegex(self.protect[removal + len("RemoveClearedDirectories(Dir)"):],
-                            r"Result\s*:=")
+    def test_the_folders_are_cleared_after_setup_closed_the_application_and_before_install_delete(self):
+        # Setup closes the running application (Restart Manager, as chosen on the Preparing page)
+        # when the installation process starts: after CurStepChanged(ssInstall) and right before
+        # [InstallDelete] (PerformInstall in the Inno Setup source). The Desktop holds the Qt
+        # plugins in these folders, so the sweep must run after that close - from the BeforeInstall
+        # of the first [InstallDelete] entry - and never from ssInstall, where 1.8.0-beta.1 ran it
+        # and stopped on imageformats on every upgrade with the Desktop running (2026-10-21). The
+        # guard, the note-images grant and the top-level files still come first, at ssInstall.
         self.assertIn("ProtectInstallDirectory(ExpandConstant('{app}'))",
                       install_step_branch(self.code))
-        self.assertEqual(1, len(re.findall(r"\bRemoveClearedDirectories\(Dir\)", self.code)),
-                         "called once, from ProtectInstallDirectory only")
+        for name in ("RemoveClearedDirectories", "ClearCodeDirectories"):
+            with self.subTest(name=name):
+                self.assertNotIn(name, self.protect)
+                self.assertNotIn(name, install_step_branch(self.code))
+        entries = install_delete_entries()
+        self.assertEqual("ClearCodeDirectories", entries[0].get("beforeinstall"))
+        self.assertEqual("filesandordirs", entries[0].get("type", "").lower())
+        for entry in entries[1:]:
+            with self.subTest(entry=entry.get("name")):
+                self.assertNotIn("beforeinstall", entry)
+                self.assertNotIn("afterinstall", entry)
+        clear = routine(self.code, "ClearCodeDirectories")
+        self.assertRegex(clear, r"StopReason\s*:=\s*RemoveClearedDirectories\(ExpandConstant\('\{app\}'\)\);")
+        self.assertEqual(1, len(re.findall(r"\bRemoveClearedDirectories\(ExpandConstant", self.code)),
+                         "called once, from ClearCodeDirectories only")
+        self.assertEqual([], re.findall(r"\bRemoveClearedDirectories\(Dir\)", self.code))
+
+    def test_a_stop_after_the_close_takes_setups_cancel_path_with_the_files_check_as_fallback(self):
+        # Setup swallows an exception raised by a BeforeInstall procedure (NotifyInstallEntry in the
+        # Inno Setup source) and would go on copying, so the stop goes through Setup's own cancel
+        # path: WizardForm.Close, the "exit Setup?" question waived in CancelButtonClick, and the
+        # abort flag honoured right after [InstallDelete] (ProcessEvents), before [Files]. Where
+        # the wizard is hidden (/VERYSILENT) or Cancel disabled (/NOCANCEL), the [Files] Check
+        # raises instead - an exception from a Check function propagates (EvalCheck) - before any
+        # file is written. The message is shown first, suppressibly, in every case.
+        clear = routine(self.code, "ClearCodeDirectories")
+        self.assertRegex(clear, r"if\s+StopReason\s*<>\s*''\s+then\s+begin\s+Log\([^;]*StopReason\);\s*"
+                                r"SuppressibleMsgBox\(StopReason,[^;]*\);\s*WizardForm\.Close;\s*end")
+        self.assertNotIn("Abort", clear)
+        cancel = routine(self.code, "CancelButtonClick")
+        self.assertRegex(cancel, r"if\s+StopReason\s*<>\s*''\s+then\s+begin\s+"
+                                 r"CancelArmed\s*:=\s*True;\s*Confirm\s*:=\s*False;\s*end")
+        self.assertNotIn("Cancel :=", cancel.replace("CancelArmed", ""))
+        check = routine(self.code, "CodeFoldersCleared")
+        self.assertRegex(check, r"Result\s*:=\s*StopReason\s*=\s*'';\s*"
+                                r"if\s*\(not\s+Result\)\s*and\s*\(not\s+CancelArmed\)\s*then\s+"
+                                r"RaiseException\(StopReason\);")
+        files = files_entries()
+        self.assertEqual(1, len(files))
+        self.assertEqual("CodeFoldersCleared", files[0].get("check"))
+        setup = {line.split("=", 1)[0].strip().lower()
+                 for line in installer_sections()["setup"] if "=" in line}
+        self.assertNotIn("allowcancelduringinstall", setup,
+                         "the cancel path needs Inno's default (yes)")
+        # The application is never ended behind the user's back.
+        for name in ("ClearCodeDirectories", "CancelButtonClick", "CodeFoldersCleared",
+                     "RemoveClearedDirectories"):
+            body = routine(self.code, name)
+            for call in ("TerminateProcess", "taskkill", "Exec", "RmShutdown", "Kill"):
+                with self.subTest(routine=name, call=call):
+                    self.assertNotRegex(body, rf"\b{call}\w*\(")
 
     def test_every_folder_install_delete_clears_is_deleted_and_note_images_never(self):
         # The folders are read from {app}'s own listing, so a name in any letter case is found,
@@ -415,7 +475,9 @@ class ClearedFolderRemovalTests(unittest.TestCase):
                          r"Failure\s*:=\s*ProtectInstallDirectory\(ExpandConstant\('\{app\}'\)\);\s*"
                          r"if\s+Failure\s*<>\s*''\s+then\s+begin\s+Log\([^;]*Failure\);\s*"
                          r"SuppressibleMsgBox\(Failure,[^;]*\);\s*Abort;\s*end")
-        for body in (self.protect, self.removal):
+        clear = routine(self.code, "ClearCodeDirectories")
+        self.assertIn("SuppressibleMsgBox(StopReason, mbCriticalError, MB_OK, IDOK)", clear)
+        for body in (self.protect, self.removal, clear):
             self.assertNotIn("WizardSilent", body)
 
     def test_the_stop_message_names_the_folder_in_plain_words(self):
