@@ -119,6 +119,9 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
         m_statistics->dungeons()->reload();
         m_statistics->jobs()->reload();
     });
+    m_statisticsOverlay->setBackend(backend);
+    connect(m_statistics, &StatisticsController::dashboardChanged,
+            m_statisticsOverlay, &StatisticsOverlayController::refreshAttempts);
     m_capture->setBackend(backend);
     m_recording = new AutomaticRecordingController(backend, this);
     connect(m_capture, &CaptureValidationController::metadataOwnershipChanged,

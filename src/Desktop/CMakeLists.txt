@@ -259,6 +259,8 @@ set(MR_QML_FILES
     qml/components/AchievementConfetti.qml
     qml/components/StatisticsFloatingWindow.qml
     qml/components/StatisticsFloatingContent.qml
+    qml/components/OverlayPeriodSelector.qml
+    qml/components/OverlayAttemptsModule.qml
     qml/components/OverlayIcons.js
     qml/components/OverlayIcon.qml
     qml/components/OverlayIconButton.qml

@@ -24,6 +24,7 @@
 #include "IpcClient.h"
 #include "PipeName.h"
 #include "SpeechController.h"
+#include "StatisticsOverlayController.h"
 
 #include <QCoreApplication>
 #include <QCryptographicHash>
@@ -39,6 +40,7 @@
 #include <QRegularExpression>
 #include <QSignalSpy>
 #include <QTemporaryDir>
+#include <QTimeZone>
 #include <QUuid>
 #include <QTest>
 
@@ -112,6 +114,7 @@ private Q_SLOTS:
     void createManualRunEmitsLiveEvents();
     void backupDatabaseUsesTheManagedFolder();
     void dashboardStatsCarryTheServerSideTrend();
+    void overlayAttemptPeriodsUseRealHistoryDates();
     void exportDiagnosticsReportWritesASanitizedFile();
     void appControllerSendsOnlyContractFields();
     void candidateEndpointsRemainIndependentAndExportChecksummedEvidence();
@@ -729,6 +732,106 @@ void IpcIntegrationTests::candidateEndpointsRemainIndependentAndExportChecksumme
     const auto formalAfter = await(m_backend->queryRuns({}, 1, 50));
     QVERIFY(formalAfter.ok);
     QCOMPARE(formalAfter.payload, formalBefore.payload);
+}
+
+void IpcIntegrationTests::overlayAttemptPeriodsUseRealHistoryDates()
+{
+    // Exercise the shipping controller's filter through the real pipe. Each
+    // range has a baseline so other integration fixtures cannot change counts.
+    mr::StatisticsOverlayController overlay(nullptr);
+    overlay.setBackend(m_backend);
+    overlay.setModules({QStringLiteral("attempts")});
+    overlay.show();
+    const QStringList periods{QStringLiteral("today"), QStringLiteral("last7"),
+                              QStringLiteral("last30"), QStringLiteral("all")};
+    QList<int> before;
+    for (const QString &period : periods) {
+        overlay.setAttemptPeriod(period);
+        overlay.refreshAttempts();
+        QVERIFY(QTest::qWaitFor([&overlay] { return !overlay.attemptsLoading(); }, 15000));
+        QVERIFY2(overlay.attemptsKnown(), qPrintable(overlay.attemptsError()));
+        before.append(overlay.attemptCount());
+    }
+
+    const QDate today = QDate::currentDate();
+    const QTimeZone zone = QTimeZone::systemTimeZone();
+    const auto utcText = [](const QDateTime &value) {
+        return value.toUTC().toString(Qt::ISODateWithMs);
+    };
+    QJsonArray rows;
+    // The first and last included days and the first excluded day for both
+    // rolling ranges. Midnight is local, not a fixed 24-hour subtraction.
+    for (const int daysAgo : {0, 6, 7, 29, 30}) {
+        rows.append(QJsonObject{
+            {QStringLiteral("duty_name"), QStringLiteral("overlay-period-%1").arg(daysAgo)},
+            {QStringLiteral("result"), QStringLiteral("COMPLETED")},
+            {QStringLiteral("source_recorded_at_utc"),
+             utcText(today.addDays(-daysAgo).startOfDay(zone))},
+            {QStringLiteral("source_key"), QStringLiteral("overlay-period-%1").arg(daysAgo)}});
+    }
+    // A source calendar date must use the paired history day bounds. An
+    // entirely undated confirmed import belongs exclusively to All.
+    rows.append(QJsonObject{
+        {QStringLiteral("duty_name"), QStringLiteral("overlay-date-only")},
+        {QStringLiteral("result"), QStringLiteral("COMPLETED")},
+        {QStringLiteral("source_recorded_at"), today.addDays(-6).toString(Qt::ISODate)},
+        {QStringLiteral("source_key"), QStringLiteral("overlay-date-only")}});
+    rows.append(QJsonObject{
+        {QStringLiteral("duty_name"), QStringLiteral("overlay-undated")},
+        {QStringLiteral("result"), QStringLiteral("COMPLETED")},
+        {QStringLiteral("source_key"), QStringLiteral("overlay-undated")}});
+    const Outcome preview = await(m_backend->request(QStringLiteral("PreviewRunImport"), {
+        {QStringLiteral("source_kind"), QStringLiteral("ROWS")},
+        {QStringLiteral("time_zone"), QStringLiteral("+00:00")},
+        {QStringLiteral("rows"), rows}}));
+    QVERIFY2(preview.ok, qPrintable(preview.code + QLatin1Char(' ') + preview.message));
+    const QVariantList previewRows = preview.payload.value(QStringLiteral("rows")).toList();
+    QCOMPARE(previewRows.size(), rows.size());
+    QJsonArray selected;
+    for (const QVariant &item : previewRows) {
+        const QVariantMap row = item.toMap();
+        QCOMPARE(row.value(QStringLiteral("status")).toString(), QStringLiteral("new"));
+        selected.append(row.value(QStringLiteral("row_number")).toInt());
+    }
+    const Outcome imported = await(m_backend->request(QStringLiteral("CommitRunImport"), {
+        {QStringLiteral("preview_id"), preview.payload.value(QStringLiteral("preview_id")).toString()},
+        {QStringLiteral("row_numbers"), selected},
+        {QStringLiteral("confirm_own_records"), true}}));
+    QVERIFY2(imported.ok, qPrintable(imported.code + QLatin1Char(' ') + imported.message));
+    QCOMPARE(imported.payload.value(QStringLiteral("imported_count")).toInt(), rows.size());
+
+    const QString instant = utcText(today.startOfDay(zone).addSecs(60));
+    const Outcome unfinished = await(m_backend->createManualRun({
+        {QStringLiteral("duty_name"), QStringLiteral("overlay-unfinished")},
+        {QStringLiteral("result"), QStringLiteral("LEFT_OR_ABANDONED")},
+        {QStringLiteral("matched_at_utc"), instant},
+        {QStringLiteral("entered_at_utc"), instant},
+        {QStringLiteral("ended_at_utc"), instant}}, QStringLiteral("isolated attempt fixture")));
+    QVERIFY2(unfinished.ok, qPrintable(unfinished.message));
+    const Outcome cancelled = await(m_backend->createManualRun({
+        {QStringLiteral("duty_name"), QStringLiteral("overlay-cancelled-before-entry")},
+        {QStringLiteral("result"), QStringLiteral("CANCELLED_BEFORE_ENTRY")},
+        {QStringLiteral("matched_at_utc"), instant},
+        {QStringLiteral("ended_at_utc"), instant}}, QStringLiteral("isolated cancellation fixture")));
+    QVERIFY2(cancelled.ok, qPrintable(cancelled.message));
+    const Outcome global = await(m_backend->getDashboardStats());
+    QVERIFY(global.ok);
+    const QList<int> expectedDelta{2, 4, 6, 8};
+    for (qsizetype index = 0; index < periods.size(); ++index) {
+        overlay.setAttemptPeriod(periods.at(index));
+        overlay.refreshAttempts();
+        QVERIFY(QTest::qWaitFor([&overlay] { return !overlay.attemptsLoading(); }, 15000));
+        QVERIFY2(overlay.attemptsKnown(), qPrintable(overlay.attemptsError()));
+        QCOMPARE(overlay.attemptCount(), before.at(index) + expectedDelta.at(index));
+    }
+    overlay.hide();
+    const Outcome unchangedGlobal = await(m_backend->getDashboardStats());
+    QVERIFY(unchangedGlobal.ok);
+    QCOMPARE(unchangedGlobal.payload.value(QStringLiteral("achievement_progress")),
+             global.payload.value(QStringLiteral("achievement_progress")));
+    QCOMPARE(unchangedGlobal.payload.value(QStringLiteral("attempt_count")),
+             global.payload.value(QStringLiteral("attempt_count")));
+    QCOMPARE(QDate::currentDate(), today);
 }
 
 void IpcIntegrationTests::personalImportPreviewCommitRetryAndCompletion()

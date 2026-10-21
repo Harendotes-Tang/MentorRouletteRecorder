@@ -230,7 +230,7 @@ add_test(NAME MentorRecorderReflections
 # CollectorTextDisplay: the controllers that show those sentences, before and after a language switch.
 foreach(MR_REVIEW_SUITE WorkflowController RunFormValidator ExportFailure UiWorkflowRegression EditRunDialogBinding
                         ReflectionDialogBinding Calibration SharedCalibration SharedCalibrationCard Speech
-                        CapturePage Motion AchievementProgress StatisticsOverlay Recovery RecoveryUi UpdateNotice UpdateInstall ReleaseNotes EvidenceSubmission LanguageManager InstallerHold NoteImageStore SingleInstance ShellDialog
+                        CapturePage Motion AchievementProgress StatisticsOverlay StatisticsOverlayRange Recovery RecoveryUi UpdateNotice UpdateInstall ReleaseNotes EvidenceSubmission LanguageManager InstallerHold NoteImageStore SingleInstance ShellDialog
                         RunDetailPanel MockBackend QmlWarningCounter RunListModel GameNames CollectorText
                         CollectorTextDisplay HistoryColumns)
     add_executable(MentorRecorder${MR_REVIEW_SUITE}Tests ${MR_REVIEW_SUITE}Tests.cpp)

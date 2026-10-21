@@ -154,6 +154,22 @@ void AppSettings::setStatisticsOverlayLabels(bool labels)
 {
     m_settings.setValue(QStringLiteral("statistics_overlay/labels"), labels);
 }
+QString AppSettings::statisticsOverlayAttemptPeriod() const
+{
+    return m_settings.value(QStringLiteral("statistics_overlay/attempt_period"), QStringLiteral("all")).toString();
+}
+void AppSettings::setStatisticsOverlayAttemptPeriod(const QString &period)
+{
+    m_settings.setValue(QStringLiteral("statistics_overlay/attempt_period"), period);
+}
+int AppSettings::statisticsOverlayModuleVersion() const
+{
+    return m_settings.value(QStringLiteral("statistics_overlay/module_version"), 0).toInt();
+}
+void AppSettings::setStatisticsOverlayModuleVersion(int version)
+{
+    m_settings.setValue(QStringLiteral("statistics_overlay/module_version"), version);
+}
 
 QStringList AppSettings::historyColumnOrder() const
 {

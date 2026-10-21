@@ -88,6 +88,11 @@ public:
     void setStatisticsOverlayForm(const QString &form);
     bool statisticsOverlayLabels() const;
     void setStatisticsOverlayLabels(bool labels);
+    QString statisticsOverlayAttemptPeriod() const;
+    void setStatisticsOverlayAttemptPeriod(const QString &period);
+    /// Versioned once so a later explicit removal of the new module is retained.
+    int statisticsOverlayModuleVersion() const;
+    void setStatisticsOverlayModuleVersion(int version);
 
     /// The history table's columns (docs/ui-design.md §4.2), by column key:
     /// the user's order, the hidden columns and the widths they dragged out.

@@ -1,16 +1,23 @@
 #pragma once
 
 #include <QObject>
+#include <QDateTime>
+#include <QJsonObject>
 #include <QPointer>
 #include <QRect>
 #include <QStringList>
 #include <QVariantList>
+#include <QTimeZone>
+#include <functional>
 
+class QTimer;
 namespace mr {
 class AppSettings;
+class IBackend;
 
 /// Owns presentation preferences/runtime state for the one statistics float.
-/// Borrows settings through QPointer; owns no window, backend or data model.
+/// Borrows settings/backend through QPointer. The period count is independent
+/// of the shared dashboard and models; owns no window or backend.
 ///
 /// The float has two forms (docs/ui-design.md §4.9): the full window with its
 /// modules, and the one-line mini bar. Both keep the same position; only the
@@ -35,13 +42,22 @@ class StatisticsOverlayController final : public QObject
     Q_PROPERTY(QString form READ form WRITE setForm NOTIFY formChanged)
     /// 文字标签: module and legend names on screen; off, they are tooltips.
     Q_PROPERTY(bool labels READ labels WRITE setLabels NOTIFY labelsChanged)
+    Q_PROPERTY(QString attemptPeriod READ attemptPeriod WRITE setAttemptPeriod NOTIFY attemptPeriodChanged)
+    Q_PROPERTY(QVariantList attemptPeriodOptions READ attemptPeriodOptions NOTIFY attemptPeriodOptionsChanged)
+    Q_PROPERTY(int attemptCount READ attemptCount NOTIFY attemptsChanged)
+    Q_PROPERTY(bool attemptsKnown READ attemptsKnown NOTIFY attemptsChanged)
+    Q_PROPERTY(bool attemptsLoading READ attemptsLoading NOTIFY attemptsChanged)
+    Q_PROPERTY(QString attemptsError READ attemptsError NOTIFY attemptsChanged)
 public:
     static constexpr int kAllRows = 1000;
     static constexpr double kDefaultOpacity = 0.85;
     static constexpr double kMinimumOpacity = 0.3;
     static constexpr int kDefaultRowLimit = 3;
 
-    explicit StatisticsOverlayController(AppSettings *settings, QObject *parent = nullptr);
+    using CalendarClock = std::function<QDateTime()>;
+    /// The optional clock supplies local calendar context; empty uses the system clock.
+    explicit StatisticsOverlayController(AppSettings *settings, QObject *parent = nullptr,
+                                         CalendarClock clock = {});
     bool visible() const { return m_visible; }
     bool locked() const { return m_locked; }
     double opacity() const { return m_opacity; }
@@ -53,6 +69,17 @@ public:
     int allRows() const { return kAllRows; }
     QString form() const { return m_form; }
     bool labels() const { return m_labels; }
+    QString attemptPeriod() const { return m_attemptPeriod; }
+    QVariantList attemptPeriodOptions() const;
+    int attemptCount() const { return m_attemptCount; }
+    bool attemptsKnown() const { return m_attemptsKnown; }
+    bool attemptsLoading() const { return m_attemptsLoading; }
+    QString attemptsError() const;
+    /// Local midnight bounds paired with recorded history-day bounds. All has no filter.
+    static QJsonObject attemptFilter(const QString &period, const QDate &today, const QTimeZone &zone);
+    /// Borrows the backend; replacing/destroying it invalidates outstanding replies.
+    void setBackend(IBackend *backend);
+    Q_INVOKABLE void refreshAttempts();
     static QStringList defaultModules();
     static QRect validGeometry(const QRect &geometry);
     /// Fits to one available screen, including negative-coordinate monitors.
@@ -71,7 +98,7 @@ public:
     Q_INVOKABLE void moveModule(const QString &key, int direction);
     /// Drag-and-drop: put \a key at \a index of the full order.
     Q_INVOKABLE void moveModuleTo(const QString &key, int index);
-    /// 恢复默认: modules, ranking, opacity and labels; the form and geometry stay.
+    /// 恢复默认: modules, period, ranking, opacity and labels; the form and geometry stay.
     Q_INVOKABLE void reset();
     void setLocked(bool locked);
     void setOpacity(double opacity);
@@ -79,6 +106,7 @@ public:
     void setRowLimit(int limit);
     void setForm(const QString &form);
     void setLabels(bool labels);
+    void setAttemptPeriod(const QString &period);
 Q_SIGNALS:
     void visibleChanged();
     void lockedChanged();
@@ -89,10 +117,29 @@ Q_SIGNALS:
     void rowLimitChanged();
     void formChanged();
     void labelsChanged();
+    void attemptPeriodChanged();
+    void attemptPeriodOptionsChanged();
+    void attemptsChanged();
     /// Manual open only: the existing models may refresh once.
     void opened();
 private:
     QPointer<AppSettings> m_settings;
+    QPointer<IBackend> m_backend;
+    CalendarClock m_clock;
+    QTimer *m_calendarTimer = nullptr;
+    quint64 m_attemptGeneration = 0;
+    QDate m_attemptDate;
+    QByteArray m_attemptZoneId;
+    int m_attemptUtcOffset = 0;
+    QString m_attemptPeriod;
+    int m_attemptCount = 0;
+    bool m_attemptsKnown = false;
+    bool m_attemptsLoading = false;
+    bool m_attemptsFailed = false;
+    bool attemptsApplicable() const;
+    void invalidateAttempts();
+    void updateAttemptsActivity();
+    void checkAttemptCalendar();
     void storeModules();
     QRect m_geometry;
     /// Every module key in display order; m_modules is the enabled subset.

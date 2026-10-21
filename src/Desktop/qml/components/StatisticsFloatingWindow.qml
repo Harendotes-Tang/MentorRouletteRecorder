@@ -211,6 +211,16 @@ Window {
         }
         Rectangle { visible: header.visible; Layout.fillWidth: true; implicitHeight: 1; color: Theme.border }
 
+        OverlayPeriodSelector {
+            Layout.fillWidth: true
+            Layout.leftMargin: 12
+            Layout.rightMargin: 12
+            Layout.topMargin: visible ? 8 : 0
+            Layout.bottomMargin: visible ? 2 : 0
+            visible: !floating.customizing && floating.controller.modules.indexOf("attempts") >= 0
+            controller: floating.controller
+        }
+
         // `.ov-body`: the modules, or the 自定义 panel in their place.
         Item {
             Layout.fillWidth: true

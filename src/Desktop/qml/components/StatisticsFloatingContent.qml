@@ -43,7 +43,8 @@ ColumnLayout {
             Loader {
                 Layout.fillWidth: true
                 objectName: "floatingModule_" + section.modelData
-                sourceComponent: section.modelData === "progress" ? progressModule
+                sourceComponent: section.modelData === "attempts" ? attemptsModule
+                               : section.modelData === "progress" ? progressModule
                                : section.modelData === "current_duty" ? dutyModule
                                : section.modelData === "elapsed" ? elapsedModule
                                : section.modelData === "dungeons" ? dungeonsModule
@@ -63,6 +64,7 @@ ColumnLayout {
         font.pixelSize: Theme.fs(12)
     }
 
+    Component { id: attemptsModule; OverlayAttemptsModule { ov: content.ov } }
     Component { id: progressModule; OverlayProgressModule { ov: content.ov } }
     Component { id: dutyModule; OverlayCurrentDutyModule { ov: content.ov } }
     Component { id: elapsedModule; OverlayElapsedModule { ov: content.ov } }
