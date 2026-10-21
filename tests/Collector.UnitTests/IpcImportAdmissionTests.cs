@@ -21,7 +21,7 @@ public sealed class IpcImportAdmissionTests
             .Select(index => host.Imports.PreviewSource("ROWS", rows: Rows("retained-" + index))).ToArray();
         var commit = CommitRequest(previews[0]);
         var blocker = new DatabaseBlocker(host.Database);
-        await blocker.Entered.WaitAsync(TimeSpan.FromSeconds(30));
+        await blocker.Entered.WaitAsync(TimeSpan.FromSeconds(90));
         clock.Observe();
 
         using var firstStream = new RequestStream(PreviewRequest("cancelled-preview"));
@@ -34,13 +34,13 @@ public sealed class IpcImportAdmissionTests
         Task secondConnection = Task.CompletedTask;
         try
         {
-            await clock.FirstObservedRead.WaitAsync(TimeSpan.FromSeconds(30));
+            await clock.FirstObservedRead.WaitAsync(TimeSpan.FromSeconds(90));
             secondConnection = new PipeConnection(secondStream, dispatcher).ServeAsync(secondLifetime.Token);
             var replies = new List<JsonObject>();
             for (var index = 0; index < 32; index++)
                 // Bounded, not tight: on a loaded machine (the full gate builds C++ in parallel)
                 // a refusal can take several seconds to be written; a hang is still caught.
-                replies.Add(await secondStream.NextWrittenAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(30)));
+                replies.Add(await secondStream.NextWrittenAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(90)));
 
             var refusals = replies.Where(reply => reply["ok"]!.GetValue<bool>() == false).ToArray();
             Assert.Equal(31, refusals.Length);
@@ -83,7 +83,7 @@ public sealed class IpcImportAdmissionTests
         var request = CommitRequest(preview);
         using var cancellation = new CancellationTokenSource();
         var blocker = new DatabaseBlocker(host.Database);
-        await blocker.Entered.WaitAsync(TimeSpan.FromSeconds(5));
+        await blocker.Entered.WaitAsync(TimeSpan.FromSeconds(90));
         var completion = new TaskCompletionSource<JsonObject>(TaskCreationOptions.RunContinuationsAsynchronously);
         var worker = new Thread(() =>
         {
@@ -233,7 +233,7 @@ public sealed class IpcImportAdmissionTests
 
     private static async Task Drain(Task task)
     {
-        try { await task.WaitAsync(TimeSpan.FromSeconds(10)); }
+        try { await task.WaitAsync(TimeSpan.FromSeconds(60)); }
         catch (OperationCanceledException) { }
     }
 
@@ -264,7 +264,9 @@ public sealed class IpcImportAdmissionTests
         public DatabaseBlocker(SqliteDatabase database) => _holding = Task.Factory.StartNew(() => database.Read(_ =>
         {
             _entered.TrySetResult();
-            if (!_release.Wait(TimeSpan.FromSeconds(30))) throw new TimeoutException("Test database holder was not released.");
+            // Must outlive every bounded wait above (90 s): under the full gate the thread pool is
+            // shared with the Soak suites and a reply can take tens of seconds to be scheduled.
+            if (!_release.Wait(TimeSpan.FromSeconds(300))) throw new TimeoutException("Test database holder was not released.");
             return 0;
         }), CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
         public Task Entered => _entered.Task;
@@ -316,6 +318,11 @@ public sealed class IpcImportAdmissionTests
             return ValueTask.CompletedTask;
         }
         public override void Flush() { }
+        // Stream.FlushAsync's default runs Flush on the thread pool. Under the full gate that
+        // pool is shared with the Soak suites, so a reply could stay "unwritten" for seconds;
+        // nine such replies in a burst make PipeConnection close the connection at its
+        // deferred-response limit and the remaining replies never arrive. Complete inline.
+        public override Task FlushAsync(CancellationToken cancellationToken) => Task.CompletedTask;
         public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
         public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
         public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
